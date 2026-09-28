@@ -3644,6 +3644,16 @@
    "milestone": "Tier-0 training is class-balanced, so a dominant action no longer swallows rare ones. Measured with ReflexNet on 454 samples (one action with 400 samples, nine with 6 each) and 36 unseen combinations of seen words for the minority actions, over 5 random inits each. Plain mean NLL: 1-11 of 36 correct, 0 correct-and-served, and 13-28 confidently (>0.5) served the majority action. Class-balanced: 34-36 of 36 correct, 29-35 correct-and-served, and 0-2 wrong-but-served. Now ReflexNet::fit takes per-sample weights and minimizes the weighted mean of -log p(label), computed with gather over log-softmax. Training and the held-out candidate use fit_weights: staged samples weigh n/(K*n_c) (class_balance_weights; weights sum to n), and each synthetic prime weighs 1. A prime balanced as a class of one would outweigh every real sample of a contradicting label sharing its features; this was caught by regressing_checkpoint_is_held_back_and_improving_one_publishes failing 8/8 before primes were excluded. Tests: class_balance_weights_equalize_class_mass; a_majority_action_does_not_swallow_minority_actions (asserts >= 30/36 correct and <= 4 wrong-but-served). The alpha suite passed 8 of 8 repeated runs. An earlier variant of the probe, with two unseen words out of three, was too noisy to gate on (1-7/9 correct balanced) and was replaced by this one.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "holdout_gate wrong-but-served",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-016",
+   "milestone": "The Tier-0 publication gate now measures the error that serving actually risks. Before, holdout_gate compared argmax accuracy only, so a candidate with equal held-out accuracy but more confident mistakes (wrong argmax with probability above the serve bar, which predict_intent would hand out as a reflex) passed. Now ReflexNet::evaluate returns Evaluation { correct, wrong_served }. Probabilities are the softmax over every output, as predict_intent computes them; the argmax is taken within the model's vocabulary; wrong_served counts wrong argmaxes above SERVE_CONFIDENCE (0.5, now a named constant that predict_intent also uses). The gate refuses publication when candidate.correct < active.correct or candidate.wrong_served > active.wrong_served, and the report and held-back error state both numbers for both models. The test-only correct() helper was removed in favour of evaluate(). Test: evaluation_counts_confident_mistakes_as_served (a confident prediction scored against its own label is correct; against another label it is a served mistake; with a vocabulary that cannot express it, it is a low-probability miss, not served). The alpha suite passed 5 of 5 runs.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

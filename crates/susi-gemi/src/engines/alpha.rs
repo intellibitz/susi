@@ -652,28 +652,45 @@ impl ReflexNet {
         Ok((MAX_EPOCHS, last))
     }
 
-    /// Samples whose argmax over the first `vocabulary` outputs equals the
-    /// label. A label the vocabulary cannot express counts as a miss.
-    fn correct(&self, x: &Tensor, labels: &[u32], vocabulary: usize) -> Result<usize> {
-        let rows = self
-            .logits(x)?
-            .to_vec2::<f32>()
+    /// Accuracy (argmax over the first `vocabulary` outputs equals the
+    /// label; a label the vocabulary cannot express is a miss) plus the error that serving actually risks: a wrong argmax
+    /// whose probability (softmax over every output, as `predict_intent`
+    /// computes it) clears `SERVE_CONFIDENCE` would be served.
+    fn evaluate(&self, x: &Tensor, labels: &[u32], vocabulary: usize) -> Result<Evaluation> {
+        let rows = candle_nn::ops::softmax(&self.logits(x)?, 1)
+            .and_then(|p| p.to_vec2::<f32>())
             .map_err(crate::engines::candle_err::from_candle)?;
-        Ok(rows
-            .iter()
-            .zip(labels)
-            .filter(|(row, &label)| {
-                let predicted = row
-                    .iter()
-                    .take(vocabulary)
-                    .enumerate()
-                    .max_by(|a, b| a.1.total_cmp(b.1))
-                    .map(|(index, _)| index);
-                predicted == usize::try_from(label).ok()
-            })
-            .count())
+        let mut eval = Evaluation::default();
+        for (row, &label) in rows.iter().zip(labels) {
+            let Some((index, p)) = row
+                .iter()
+                .take(vocabulary)
+                .enumerate()
+                .max_by(|a, b| a.1.total_cmp(b.1))
+            else {
+                continue;
+            };
+            if Some(index) == usize::try_from(label).ok() {
+                eval.correct += 1;
+            } else if *p > SERVE_CONFIDENCE {
+                eval.wrong_served += 1;
+            }
+        }
+        Ok(eval)
     }
 }
+
+/// Held-out scoring of one model.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Evaluation {
+    correct: usize,
+    /// Wrong predictions confident enough that Tier-0 would serve them.
+    wrong_served: usize,
+}
+
+/// `predict_intent` serves a reflex only above this probability; the
+/// held-out gate counts errors above it as served mistakes.
+const SERVE_CONFIDENCE: f32 = 0.5;
 
 /// A staged or primed training sample: intent text and its action label.
 type Labeled<'a> = (&'a str, u32);
@@ -1041,7 +1058,7 @@ impl SusiAlphaModel {
         let held_texts: Vec<&str> = holdout.iter().map(|(intent, _)| *intent).collect();
         let hx = projection_batch(&held_texts, device)?;
         let held_labels: Vec<u32> = holdout.iter().map(|(_, label)| *label).collect();
-        let baseline = ReflexNet::init(Some(checkpoint), device)?.correct(
+        let baseline = ReflexNet::init(Some(checkpoint), device)?.evaluate(
             &hx,
             &held_labels,
             active_vocabulary,
@@ -1050,19 +1067,24 @@ impl SusiAlphaModel {
         let fit: Vec<(&str, u32)> = train.iter().chain(primes).copied().collect();
         let (x, y) = labeled_batch(&fit, device)?;
         let _ = candidate.fit(&x, &y, &fit_weights(&train, primes.len()))?;
-        let scored = candidate.correct(&hx, &held_labels, vocabulary.len())?;
+        let scored = candidate.evaluate(&hx, &held_labels, vocabulary.len())?;
         let n = holdout.len();
-        if scored < baseline {
+        let summary = format!(
+            "correct {}/{n}, wrong-but-served {} (active: correct {}/{n}, wrong-but-served {})",
+            scored.correct, scored.wrong_served, baseline.correct, baseline.wrong_served
+        );
+        // Accuracy must not drop, and neither may the mistakes Tier-0 would
+        // actually serve rise: equal accuracy with more confident errors is
+        // a worse reflex.
+        if scored.correct < baseline.correct || scored.wrong_served > baseline.wrong_served {
             // "reflex checkpoint held back" is matched by `ReflexTrainer`
             // (HELD_BACK_MARKER) across the plane bus to log the cycle and
             // back off; keep the prefix stable.
             return Err(anyhow!(
-                "reflex checkpoint held back: held-out accuracy would regress from {baseline}/{n} (active) to {scored}/{n}; active checkpoint kept"
+                "reflex checkpoint held back: held-out {summary}; active checkpoint kept"
             ));
         }
-        Ok(format!(
-            " Held-out gate passed: {scored}/{n} vs active {baseline}/{n}."
-        ))
+        Ok(format!(" Held-out gate passed: {summary}."))
     }
 
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
@@ -1089,7 +1111,7 @@ impl SusiAlphaModel {
             }
         }
         let (action, confidence) = self.predict_intent_with_confidence(prompt)?;
-        if confidence > 0.5 {
+        if confidence > SERVE_CONFIDENCE {
             return Ok(action);
         }
         Err(anyhow!(
@@ -1689,16 +1711,56 @@ mod tests {
     }
 
     #[test]
+    fn evaluation_counts_confident_mistakes_as_served() {
+        let device = susi_vendor_candle::candle_core::Device::Cpu;
+        let phrases = status_phrases();
+        let train: Vec<(&str, u32)> = phrases.iter().take(20).map(|p| (p.as_str(), 1)).collect();
+        let (x, y) = labeled_batch(&train, &device).unwrap();
+        let net = ReflexNet::init(None, &device).unwrap();
+        net.fit(&x, &y, &vec![1.0; train.len()]).unwrap();
+        let probe = projection_batch(&["status check"], &device).unwrap();
+        // Confidently predicts label 1.
+        assert_eq!(
+            net.evaluate(&probe, &[1], 4).unwrap(),
+            Evaluation {
+                correct: 1,
+                wrong_served: 0
+            }
+        );
+        // The same confident prediction against label 0 is a served mistake.
+        assert_eq!(
+            net.evaluate(&probe, &[0], 4).unwrap(),
+            Evaluation {
+                correct: 0,
+                wrong_served: 1
+            }
+        );
+        // A vocabulary that cannot express label 1 argmaxes elsewhere with
+        // low probability: a miss, but not one Tier-0 would serve.
+        assert_eq!(
+            net.evaluate(&probe, &[0], 1).unwrap(),
+            Evaluation {
+                correct: 1,
+                wrong_served: 0
+            }
+        );
+    }
+
+    #[test]
     fn prediction_scoring_counts_only_the_expressible_vocabulary() {
         let device = susi_vendor_candle::candle_core::Device::Cpu;
         let net = ReflexNet::init(None, &device).unwrap();
         let x = projection_batch(&["status check"], &device).unwrap();
         // Whatever the random net predicts, an empty vocabulary predicts
         // nothing and a label beyond it can never count as correct.
-        assert_eq!(net.correct(&x, &[0], 0).unwrap(), 0);
-        let all = net.correct(&x, &[0], SusiAlphaModel::DIM).unwrap()
+        assert_eq!(net.evaluate(&x, &[0], 0).unwrap().correct, 0);
+        let all = net.evaluate(&x, &[0], SusiAlphaModel::DIM).unwrap().correct
             + (1..SusiAlphaModel::DIM as u32)
-                .map(|label| net.correct(&x, &[label], SusiAlphaModel::DIM).unwrap())
+                .map(|label| {
+                    net.evaluate(&x, &[label], SusiAlphaModel::DIM)
+                        .unwrap()
+                        .correct
+                })
                 .sum::<usize>();
         assert_eq!(all, 1, "exactly one label is the argmax");
     }

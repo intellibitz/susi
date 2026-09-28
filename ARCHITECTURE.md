@@ -600,7 +600,11 @@ normalized intent, so a sample lands in the same split every cycle — is
 held out; replayed held-out samples make the gate a forgetting check too. A candidate fit
 from the active weights on the rest must predict the held-out samples at
 least as well as the active checkpoint does (the active model can only
-score labels inside its own, older vocabulary). A regression publishes
+score labels inside its own, older vocabulary) *and* must not make more
+**wrong-but-served** predictions — wrong argmaxes above the 0.5 serve
+confidence (`SERVE_CONFIDENCE`, shared with `predict_intent`), the
+mistakes Tier-0 would actually hand out. Equal accuracy with more
+confident errors is a worse reflex (EV-CLAUDE-016). A regression publishes
 nothing and returns an error, so `ReflexTrainer` restores the claim and the
 samples are retried with more data instead of being dropped. When the gate
 passes, the published checkpoint is refit on *all* staged samples. The gate

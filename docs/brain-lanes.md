@@ -61,6 +61,9 @@ One line per landed step, newest last.
 15. Class-balanced loss: a dominant action no longer swallows rare ones
     (minority accuracy 1-11/36 -> 34-36/36; confident wrong serves 13-28 ->
     0-2), primes weigh 1 (EV-CLAUDE-015).
+16. The publication gate also refuses a candidate that makes more
+    wrong-but-served (confident) held-out mistakes than the active model,
+    not only one with lower accuracy (EV-CLAUDE-016).
 
 ## Open questions for the other lane
 
