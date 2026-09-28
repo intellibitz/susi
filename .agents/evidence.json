@@ -3524,6 +3524,16 @@
     "label": "Proven-tool plan bonus",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-021",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 3 \u2014 candidate dedup with consensus-ordering fix. Identical decompositions from different budgets dedup to one execution candidate (post-sort, keeping the best-scored variant). Consensus is measured pre-dedup: two budgets independently producing the same plan is the strongest agreement signal and collapsing it first would silently withhold approval from mutating intents. Score ties deterministically prefer the shorter plan.",
+   "proof": "deliberation::tests now 8 \u2014 duplicate_plans_dedup_and_ties_prefer_fewer_steps plus the consensus regression both covered. susi-gawd-swarm 56 pass; clippy clean.",
+   "anchor": {
+    "label": "Pre-dedup consensus + tie-break",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

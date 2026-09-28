@@ -216,7 +216,25 @@ pub fn deliberate(
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            // Equal scores: the cheaper plan (fewer steps) wins — same
+            // expected outcome, less to go wrong.
+            .then(a.steps.len().cmp(&b.steps.len()))
     });
+
+    // Consensus is measured before dedup: two budgets producing the
+    // identical decomposition is the *strongest* agreement signal, and
+    // collapsing them first would hide it.
+    let consensus = if candidates.len() >= 2 {
+        let sim = plan_similarity(&candidates[0].steps, &candidates[1].steps);
+        (sim >= CONSENSUS_THRESHOLD).then_some(sim)
+    } else {
+        None
+    };
+
+    // Two budgets can produce the identical decomposition — execution
+    // keeps only the best-scored copy (post-sort first occurrence).
+    let mut seen = std::collections::BTreeSet::new();
+    candidates.retain(|c| seen.insert(c.steps.join("\u{1f}")));
     if candidates.is_empty() {
         // Decomposition produced nothing usable anywhere — the goal itself
         // is the conservative plan, identical to the old fallback.
@@ -226,13 +244,6 @@ pub fn deliberate(
             rationale: "fallback: goal as single step".into(),
         });
     }
-
-    let consensus = if candidates.len() >= 2 {
-        let sim = plan_similarity(&candidates[0].steps, &candidates[1].steps);
-        (sim >= CONSENSUS_THRESHOLD).then_some(sim)
-    } else {
-        None
-    };
 
     Deliberation {
         candidates,
@@ -303,6 +314,31 @@ mod tests {
         let empty = deliberate("x", &m, &[3], &Default::default(), |_| Vec::new());
         assert_eq!(empty.candidates.len(), 1);
         assert_eq!(empty.candidates[0].steps, vec!["x".to_string()]);
+    }
+
+    #[test]
+    fn duplicate_plans_dedup_and_ties_prefer_fewer_steps() {
+        let m = manifold_for("summarize the readme");
+        // Both budgets generate the same plan — only one candidate remains.
+        let dup = deliberate(
+            "summarize the readme",
+            &m,
+            &[4, 2],
+            &Default::default(),
+            |_| vec!["read readme".into(), "summarize".into()],
+        );
+        assert_eq!(dup.candidates.len(), 1);
+
+        // Equal coverage/score: the shorter plan sorts first.
+        let tied = deliberate("x y", &m, &[4, 3], &Default::default(), |budget| {
+            if budget == 4 {
+                vec!["x y".into(), "x y".into(), "x y".into()]
+            } else {
+                vec!["x y".into()]
+            }
+        });
+        assert_eq!(tied.candidates.len(), 2);
+        assert_eq!(tied.candidates[0].steps.len(), 1, "{:?}", tied.candidates);
     }
 
     #[test]
