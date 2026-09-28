@@ -191,10 +191,12 @@ fn upsert_cloud_env_key(env_name: &str, value: &str) -> Result<PathBuf, String> 
     Ok(path)
 }
 
-/// Bundled defaults ∪ user `inference_endpoints` by name (user wins).
-pub fn effective_inference_endpoints_pub(
-) -> Vec<crate::susi_sandbox::manager::InferenceEndpointItem> {
+/// The effective endpoint named `name` (case-insensitive).
+pub fn endpoint_named(name: &str) -> Option<crate::susi_sandbox::manager::InferenceEndpointItem> {
+    let lower = name.to_ascii_lowercase();
     effective_inference_endpoints()
+        .into_iter()
+        .find(|e| e.name.to_ascii_lowercase() == lower)
 }
 
 /// Bundled defaults ∪ user `inference_endpoints` by name (user wins).

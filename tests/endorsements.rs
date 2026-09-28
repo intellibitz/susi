@@ -15,63 +15,11 @@
 //! and foreign/duplicate/mis-scoped endorsements never count.
 
 use ed25519_dalek::{Signer, SigningKey};
-use std::path::PathBuf;
 use susi_config::cluster_key;
 use susi_core::commit_log::{self, CommitRecord, MemberEndorsement};
 
-/// Env-seamed HOME/XDG; restores prior values on drop.
-struct HomeGuard {
-    tmp: PathBuf,
-    prev_home: Option<std::ffi::OsString>,
-    prev_userprofile: Option<std::ffi::OsString>,
-    prev_xdg: Option<std::ffi::OsString>,
-}
-
-impl HomeGuard {
-    fn new() -> Self {
-        let tmp = std::env::temp_dir().join(format!(
-            "susi_end_it_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(tmp.join(".susi")).unwrap();
-        let g = Self {
-            prev_home: std::env::var_os("HOME"),
-            prev_userprofile: std::env::var_os("USERPROFILE"),
-            prev_xdg: std::env::var_os("XDG_CONFIG_HOME"),
-            tmp,
-        };
-        std::env::set_var("HOME", &g.tmp);
-        std::env::set_var("USERPROFILE", &g.tmp);
-        std::env::set_var("XDG_CONFIG_HOME", g.tmp.join("xdg"));
-        g
-    }
-    fn config(&self) -> PathBuf {
-        self.tmp.join(".susi")
-    }
-}
-
-impl Drop for HomeGuard {
-    fn drop(&mut self) {
-        match &self.prev_home {
-            Some(v) => std::env::set_var("HOME", v),
-            None => std::env::remove_var("HOME"),
-        }
-        match &self.prev_userprofile {
-            Some(v) => std::env::set_var("USERPROFILE", v),
-            None => std::env::remove_var("USERPROFILE"),
-        }
-        match &self.prev_xdg {
-            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-        let _ = std::fs::remove_dir_all(&self.tmp);
-    }
-}
+mod common;
+use common::HomeGuard;
 
 fn write_roster(dir: &std::path::Path, members: &[(&str, &str, &str)]) {
     let rows: Vec<serde_json::Value> = members
@@ -110,7 +58,7 @@ fn bound_electorate_requires_endorsement_quorum() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("end");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xEEu8; 32])).unwrap();
 
@@ -203,7 +151,7 @@ fn unbound_and_prebinding_electorates_stay_ungated() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("end");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xEFu8; 32])).unwrap();
     let self_id = cluster_key::wire_node_id();

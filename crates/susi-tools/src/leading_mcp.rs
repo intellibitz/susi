@@ -98,17 +98,13 @@ impl LeadingMcpManager {
 
     pub fn configure(&self, id: &str, over: &LeadingMcpOverride) -> Result<LeadingMcpDefinition> {
         let def = Self::definition(id)?;
-        crate::susi_config::create_private_dir(&self.config)?;
-        crate::susi_config::atomic_write_json_pretty(
-            &self.config.join(format!("{}.json", def.id)),
-            over,
-        )?;
+        crate::susi_config::write_json_override(&self.config, &def.id, over)?;
         self.effective(&def.id)
     }
 
     pub fn reset(&self, id: &str) -> Result<LeadingMcpDefinition> {
         let def = Self::definition(id)?;
-        crate::susi_config::remove_file_if_present(&self.config.join(format!("{}.json", def.id)))?;
+        crate::susi_config::clear_json_override(&self.config, &def.id)?;
         self.effective(&def.id)
     }
 

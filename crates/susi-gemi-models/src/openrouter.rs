@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::cloud::{effective_inference_endpoints_pub, list_api_key_status, resolve_api_key};
+use crate::cloud::{effective_inference_endpoints, list_api_key_status, resolve_api_key};
 
 pub const VENDOR_ID: &str = "openrouter";
 pub const ENGINE_NAME: &str = "OpenRouter";
@@ -79,7 +79,7 @@ impl OpenRouterManager {
     }
 
     pub fn endpoint_configured(&self) -> bool {
-        effective_inference_endpoints_pub()
+        effective_inference_endpoints()
             .iter()
             .any(|e| e.name.eq_ignore_ascii_case(ENGINE_NAME) && !e.api_base.trim().is_empty())
     }

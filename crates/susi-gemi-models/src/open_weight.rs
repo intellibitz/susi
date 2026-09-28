@@ -11,7 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::cloud::{effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key};
+use crate::cloud::{is_remote_cloud, resolve_api_key};
 
 pub const ENGINE_NAME: &str = "Ollama";
 pub const DEFAULT_API_BASE: &str = "http://localhost:11434/v1";
@@ -162,15 +162,6 @@ impl OpenWeightManager {
             .filter(|s| !s.is_empty())
     }
 
-    pub fn endpoint_for(
-        engine: &str,
-    ) -> Option<crate::susi_sandbox::manager::InferenceEndpointItem> {
-        let lower = engine.to_ascii_lowercase();
-        effective_inference_endpoints_pub()
-            .into_iter()
-            .find(|e| e.name.to_ascii_lowercase() == lower)
-    }
-
     pub fn ollama_cli_present() -> bool {
         which("ollama").is_some()
     }
@@ -184,7 +175,7 @@ impl OpenWeightManager {
         let mut reports = Vec::new();
         for mid in ids {
             let def = self.effective(&mid)?;
-            let endpoint = Self::endpoint_for(&def.engine).with_context(|| {
+            let endpoint = crate::cloud::endpoint_named(&def.engine).with_context(|| {
                 format!(
                     "inference endpoint '{}' is not configured (need Ollama/vLLM api_base)",
                     def.engine
@@ -214,7 +205,7 @@ impl OpenWeightManager {
 
     pub fn setup(&self, id: &str) -> Result<serde_json::Value> {
         let def = self.effective(id)?;
-        let endpoint = Self::endpoint_for(&def.engine);
+        let endpoint = crate::cloud::endpoint_named(&def.engine);
         let api_base = endpoint
             .as_ref()
             .map(|e| e.api_base.clone())
@@ -237,7 +228,7 @@ impl OpenWeightManager {
     }
 
     pub fn status(&self) -> serde_json::Value {
-        let endpoint = Self::endpoint_for(ENGINE_NAME);
+        let endpoint = crate::cloud::endpoint_named(ENGINE_NAME);
         serde_json::json!({
             "engine": ENGINE_NAME,
             "api_base": endpoint.as_ref().map(|e| e.api_base.clone()).unwrap_or_else(|| DEFAULT_API_BASE.to_string()),
@@ -277,7 +268,7 @@ impl OpenWeightManager {
     pub fn prefer(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
         // Soft doctor: endpoint must exist; pull is recommended but not required to pin.
-        let _ = Self::endpoint_for(&def.engine).with_context(|| {
+        let _ = crate::cloud::endpoint_named(&def.engine).with_context(|| {
             format!(
                 "inference endpoint '{}' missing; configure Ollama/vLLM api_base first",
                 def.engine
@@ -304,8 +295,8 @@ impl OpenWeightManager {
 
     /// Best-effort: ask Ollama `/api/tags` whether the tag is present.
     pub fn model_pulled(&self, tag: &str) -> Result<bool> {
-        let endpoint = Self::endpoint_for(ENGINE_NAME)
-            .or_else(|| Self::endpoint_for("vLLM"))
+        let endpoint = crate::cloud::endpoint_named(ENGINE_NAME)
+            .or_else(|| crate::cloud::endpoint_named("vLLM"))
             .context("no local OpenAI-compat endpoint configured")?;
         let base = endpoint.api_base.trim().trim_end_matches('/').to_string();
         // Ollama native tags API is sibling to /v1.
@@ -345,7 +336,7 @@ impl OpenWeightManager {
     /// Resolve api_base + model tag for engines to build an HttpProvider.
     pub fn resolve_endpoint(&self, id: &str) -> Result<(OpenWeightDefinition, String, String)> {
         let def = self.effective(id)?;
-        let endpoint = Self::endpoint_for(&def.engine)
+        let endpoint = crate::cloud::endpoint_named(&def.engine)
             .with_context(|| format!("inference endpoint '{}' missing", def.engine))?;
         let protocol = if def.protocol_type.is_empty() {
             endpoint.protocol_type.clone()

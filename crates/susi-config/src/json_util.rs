@@ -55,6 +55,21 @@ pub fn remove_file_if_present(path: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Writes one per-id JSON override (`<dir>/<id>.json`, dir owner-only).
+/// The catalog managers (coding models, frontier models, leading MCPs)
+/// share this instead of each hand-rolling the same three steps.
+pub fn write_json_override<T: Serialize>(dir: &Path, id: &str, over: &T) -> EaiResult<()> {
+    create_private_dir(dir).map_err(|e| EaiError::config(e.to_string()))?;
+    atomic_write_json_pretty(&dir.join(format!("{id}.json")), over)
+}
+
+/// Removes the per-id JSON override written by [`write_json_override`];
+/// an absent override is success.
+pub fn clear_json_override(dir: &Path, id: &str) -> EaiResult<()> {
+    remove_file_if_present(&dir.join(format!("{id}.json")))
+        .map_err(|e| EaiError::config(e.to_string()))
+}
+
 /// Loads the 32-byte secret at `path`, creating it on first use.
 ///
 /// Creation is atomic and never replaces an existing secret: the bytes are

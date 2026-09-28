@@ -155,15 +155,4 @@ impl AgentMetaRegistry {
         }
         agents
     }
-
-    pub fn get_checksum(&self) -> u64 {
-        let agents = self.list_agents();
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        use std::hash::{Hash, Hasher};
-        for agent in agents.iter() {
-            agent.name.hash(&mut hasher);
-            agent.description.hash(&mut hasher);
-        }
-        hasher.finish()
-    }
 }
