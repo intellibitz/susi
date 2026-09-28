@@ -130,6 +130,21 @@ fn resolve_bearer(spec: &ExternalPeerAgentSpec) -> String {
     }
 }
 
+fn http_post_utf8(
+    url: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Result<(u16, String), String> {
+    let refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let call = susi_http_transport::http_call_with_body("POST", url, &refs, Some(body), 20, 0)?;
+    let status = call.status;
+    let text = call.into_utf8(8 * 1024 * 1024)?;
+    Ok((status, text))
+}
+
 fn invoke_openai_chat(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
     let base = spec.api_base.trim().trim_end_matches('/');
     if base.is_empty() {
@@ -149,19 +164,17 @@ fn invoke_openai_chat(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<Str
         "messages": [{"role": "user", "content": goal}],
         "max_tokens": 2048
     });
-    let mut req = susi_http_transport::http_agent()
-        .post(&url)
-        .header("Content-Type", "application/json");
+    let body = serde_json::to_vec(&payload)
+        .map_err(|e| EaiError::process(format!("openai_chat encode: {e}")))?;
+    let mut headers = vec![("Content-Type".into(), "application/json".into())];
     let bearer = resolve_bearer(spec);
     if !bearer.is_empty() {
-        req = req.header("Authorization", format!("Bearer {bearer}"));
+        headers.push(("Authorization".into(), format!("Bearer {bearer}")));
     }
-    match req.send_json(&payload) {
-        Ok(resp) => {
-            let status = resp.status();
-            let body = resp.into_body().read_to_string().unwrap_or_default();
+    match http_post_utf8(&url, &headers, &body) {
+        Ok((status, body)) => {
             let body = SecurityDetector::redact(&body);
-            if !(200..300).contains(&status.as_u16()) {
+            if !(200..300).contains(&status) {
                 return Err(EaiError::process(format!(
                     "openai_chat peer HTTP {status}: {body}"
                 )));
@@ -196,19 +209,17 @@ fn invoke_http_json(
         "goal": goal,
         "workspace": workspace.display().to_string(),
     });
-    let mut req = susi_http_transport::http_agent()
-        .post(url)
-        .header("Content-Type", "application/json");
+    let body = serde_json::to_vec(&payload)
+        .map_err(|e| EaiError::process(format!("http peer encode: {e}")))?;
+    let mut headers = vec![("Content-Type".into(), "application/json".into())];
     let bearer = resolve_bearer(spec);
     if !bearer.is_empty() {
-        req = req.header("Authorization", format!("Bearer {bearer}"));
+        headers.push(("Authorization".into(), format!("Bearer {bearer}")));
     }
-    match req.send_json(&payload) {
-        Ok(resp) => {
-            let status = resp.status();
-            let body = resp.into_body().read_to_string().unwrap_or_default();
+    match http_post_utf8(url, &headers, &body) {
+        Ok((status, body)) => {
             let body = SecurityDetector::redact(&body);
-            if !(200..300).contains(&status.as_u16()) {
+            if !(200..300).contains(&status) {
                 return Err(EaiError::process(format!(
                     "http peer HTTP {status}: {body}"
                 )));
@@ -236,30 +247,25 @@ fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
     let body =
         serde_json::to_vec(&payload).map_err(|e| EaiError::process(format!("a2a encode: {e}")))?;
     let url = format!("{base}/");
-    let mut req = susi_http_transport::http_agent()
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .header("A2A-Version", a2a_wire::A2A_VERSION);
+    let mut headers = vec![
+        ("Content-Type".into(), "application/json".into()),
+        ("A2A-Version".into(), a2a_wire::A2A_VERSION.into()),
+    ];
     // Only the credential configured for this external agent. Never fall
     // back to our own host API token: that would hand the key to every
     // local surface to a third-party service. Susi peers authorize us by
     // the member signature below instead.
     let bearer = resolve_bearer(spec);
     if !bearer.is_empty() {
-        req = req.header("Authorization", format!("Bearer {bearer}"));
+        headers.push(("Authorization".into(), format!("Bearer {bearer}")));
     }
     // Member signature over susi-peer-req-v2:{node}:{ts}:{nonce}:POST:{path}:{sha256(body)}
     for (name, value) in crate::susi_core::mcp_client::signed_headers("POST", &url, &body) {
-        req = req.header(&name, value);
+        headers.push((name, value));
     }
-    match req.send(&body) {
-        Ok(mut resp) => {
-            let status = resp.status();
-            let text = resp
-                .body_mut()
-                .read_to_string()
-                .map_err(|e| EaiError::process(format!("a2a read: {e}")))?;
-            if !(200..300).contains(&status.as_u16()) {
+    match http_post_utf8(&url, &headers, &body) {
+        Ok((status, text)) => {
+            if !(200..300).contains(&status) {
                 return Err(EaiError::process(format!(
                     "a2a peer HTTP {status}: {}",
                     SecurityDetector::redact(&text)

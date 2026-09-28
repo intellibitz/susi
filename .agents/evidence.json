@@ -2880,6 +2880,16 @@
       "milestone": "RSI OS isolation iterations 96-100: GEMI HttpProvider health, generate, embed, and /models discovery leave reqwest; calls go through susi-http-transport (120s generation timeout). susi-gemi no longer declares an HTTP client. live_search and the MCP catalog fetch use http_call. Ratchet core_os_crates_must_not_declare_http_clients includes susi-gemi. Remaining: susi-tools still declares reqwest because rmcp's streamable HTTP client feature requires it. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 101-112",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-294",
+      "milestone": "RSI OS isolation iterations 101-112: the public ureq Agent is gone. Peer openai_chat/http/A2A POSTs, crates.io GET, and the A2A round-trip test use http_call / http_call_with_body plus HttpCall::into_utf8. http_agent is no longer exported. Architecture ratchet ureq_types_stay_inside_http_transport forbids ureq:: and http_agent( outside susi-http-transport. Remaining: susi-tools still declares reqwest because rmcp streamable HTTP requires it; bind/mkdir/Wasmer constructors are still type-reachable only from CLI. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

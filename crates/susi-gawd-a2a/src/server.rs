@@ -327,14 +327,21 @@ mod tests {
             tokio::spawn(async move { axum::serve(listener, app).await });
             addr
         });
-        let reply: serde_json::Value = susi_http_transport::http_agent()
-            .post(format!("http://{addr}/"))
-            .header("A2A-Version", a2a_wire::A2A_VERSION)
-            .send_json(a2a_wire::message_send_request("ping"))
-            .unwrap()
-            .body_mut()
-            .read_json()
-            .unwrap();
+        let payload = serde_json::to_vec(&a2a_wire::message_send_request("ping")).unwrap();
+        let call = susi_http_transport::http_call_with_body(
+            "POST",
+            &format!("http://{addr}/"),
+            &[
+                ("Content-Type", "application/json"),
+                ("A2A-Version", a2a_wire::A2A_VERSION),
+            ],
+            Some(&payload),
+            20,
+            0,
+        )
+        .unwrap();
+        let reply: serde_json::Value =
+            serde_json::from_str(&call.into_utf8(1_000_000).unwrap()).unwrap();
         assert_eq!(
             a2a_wire::reply_summary(&reply).unwrap(),
             "task completed: PING",

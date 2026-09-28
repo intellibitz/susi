@@ -72,7 +72,7 @@ never consume an unterminated source tail.
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde | HTTP clients, everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker exec (bollard) + ensure/daemon-integrity endpoints; re-exports the client's helpers | `serve`, re-exported `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`; bollard | feature crates | Docker optional | config files | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
-| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` agent and `http_call` / `http_call_with_body` (GET/HEAD/DELETE/POST/PUT/PATCH) | `dual_transport`, `http_conn`, `http_agent`, `http_call` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
+| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` (GET/HEAD/DELETE/POST/PUT/PATCH) | `dual_transport`, `http_conn`, `http_call`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
 | `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split + Hugging Face tokenizers | `device`, `qwen2_split`, re-exported `candle_*` / `tokenizers` | candle-core, candle-nn, candle-transformers, tokenizers | all workspace crates | no | process device cache | GPU FFI via Candle |
 | `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies, extractors, `InferenceProtocol`, and `post_json` | `inference_wire` | serde_json, `susi-http-transport` | all workspace crates; ureq/reqwest | no | no | HTTP via transport |
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
@@ -147,8 +147,8 @@ remount a hard failure.
 
 **`susi-http-transport` is a Cargo dependency, not a mount.** GEMI REST,
 GMCP and A2A share one TLS-sniffing accept loop and one Hyper connection
-builder; MCP/peer/search callers share one timeout-bounded outbound `ureq`
-agent (`http_agent`). Vendor SDKs and provider wire shapes stay out.
+builder; MCP/peer/search callers share `http_call` / `http_call_with_body`
+and never name `ureq::Agent`. Vendor SDKs and provider wire shapes stay out.
 `susi_server_transport_is_never_source_mounted_into_a_consumer` makes a
 remount a hard failure. `core_os_crates_must_not_declare_http_clients`
 forbids `reqwest`/`ureq` on paths/error/config/gawd host/swarm/agents/a2a.
@@ -564,3 +564,15 @@ the same commit as the code.
 | 98 | `susi-gemi` still declared `reqwest` | dropped |
 | 99 | live_search and MCP catalog fetch still named `http_agent().get` | `http_call` GET |
 | 100 | Ratchet still allowed gemi reqwest | `susi-gemi` on the HTTP-client forbidden list; remaining `reqwest` is `susi-tools` rmcp |
+| 101 | `http_agent()` still returned a public `ureq::Agent` | function removed; callers use `http_call` / `http_call_with_body` |
+| 102 | `HttpCall` had no UTF-8 helper | `into_utf8` bounds the body and decodes |
+| 103 | openai_chat peer POST named `http_agent().post` | `http_post_utf8` over transport |
+| 104 | http-json peer POST named `http_agent().post` | same helper |
+| 105 | A2A peer POST named `http_agent().post` plus signed headers | same helper with bearer + member sig headers |
+| 106 | crates.io scout GET named `http_agent().get` | `http_call` GET + `into_utf8` |
+| 107 | A2A round-trip test named `http_agent().post` | `http_call_with_body` |
+| 108 | Transport still exported `http_agent` from `lib.rs` | dropped from the public surface |
+| 109 | Shared `OnceLock<ureq::Agent>` unused after per-request timeouts | removed with `http_agent` |
+| 110 | No ratchet against naming `ureq::` outside transport | `ureq_types_stay_inside_http_transport` |
+| 111 | ARCHITECTURE crate table still listed `http_agent` | documents `http_call` / `into_utf8` |
+| 112 | Identity/README still described a public agent | Mandate 45 and README say callers never name `ureq::Agent` |

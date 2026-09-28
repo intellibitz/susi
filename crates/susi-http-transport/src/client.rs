@@ -9,32 +9,7 @@
 //! HTTP client crate.
 
 use std::io::Read;
-use std::sync::OnceLock;
 use std::time::Duration;
-
-/// Shared ureq Agent with connect/read/write timeouts. `ureq::get` /
-/// `ureq::post` free functions use a default agent with NO timeouts at all
-/// — a stalled remote (or one that completes the handshake but then goes
-/// silent mid-response, e.g. during SSE body streaming) blocks the calling
-/// thread forever. Agent-level timeout_read/timeout_write bound every
-/// socket read and write, including streaming body reads after the initial
-/// response headers arrive, which a per-request `.timeout()` alone would
-/// not cover.
-static HTTP_AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-
-/// Process-wide timeout-bounded HTTP agent.
-pub fn http_agent() -> ureq::Agent {
-    HTTP_AGENT
-        .get_or_init(|| {
-            let config = ureq::Agent::config_builder()
-                .timeout_connect(Some(Duration::from_secs(10)))
-                .timeout_recv_body(Some(Duration::from_secs(20)))
-                .timeout_send_body(Some(Duration::from_secs(20)))
-                .build();
-            ureq::Agent::new_with_config(config)
-        })
-        .clone()
-}
 
 /// One completed request: status, headers, and a `Read` body. Callers
 /// never name `ureq`. HTTP error statuses are returned, not turned into
@@ -68,6 +43,15 @@ impl HttpCall {
             .take(max.saturating_add(1))
             .read_to_end(&mut bytes)?;
         Ok(bytes)
+    }
+
+    /// Consume the body as UTF-8 text, failing when the cap is exceeded.
+    pub fn into_utf8(self, max: u64) -> Result<String, String> {
+        let bytes = self.into_bytes(max).map_err(|e| e.to_string())?;
+        if (bytes.len() as u64) > max {
+            return Err("response body exceeds cap".to_string());
+        }
+        String::from_utf8(bytes).map_err(|e| e.to_string())
     }
 }
 

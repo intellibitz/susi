@@ -604,6 +604,37 @@ fn core_os_crates_must_not_declare_http_clients() {
     }
 }
 
+/// Production sources outside `susi-http-transport` must not name `ureq::`
+/// or call a vanished `http_agent()` — every outbound request uses
+/// `http_call` / `http_call_with_body`.
+#[test]
+fn ureq_types_stay_inside_http_transport() {
+    let root = workspace_root();
+    let mut files = Vec::new();
+    rust_files(&root.join("crates"), &mut files);
+    rust_files(&root.join("src"), &mut files);
+    rust_files(&root.join("xtask/src"), &mut files);
+    for path in files {
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel.contains("susi-http-transport/") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains("ureq::"),
+            "{rel} must not name ureq:: (use susi-http-transport::http_call)"
+        );
+        assert!(
+            !text.contains("http_agent("),
+            "{rel} must not call http_agent (use http_call / http_call_with_body)"
+        );
+    }
+}
+
 /// Model-plane crates (gemi-models) must not declare Hugging Face HTTP or
 /// tokenizer vendor crates: downloads go through `susi-http-transport`,
 /// tokenizers through `susi-vendor-candle`.

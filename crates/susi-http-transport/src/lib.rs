@@ -12,11 +12,11 @@
 
 //! Shared HTTP transport for every SUSI host-contract surface (GEMI REST,
 //! GMCP, A2A): a TLS-sniffing accept helper, a Hyper connection builder
-//! with a header-read bound, and the one outbound `ureq` agent used by
-//! MCP/peer/search callers. Vendor SDKs stay out of this crate.
+//! with a header-read bound, and outbound `http_call` over crate-private
+//! `ureq`. Callers never name the vendor type. Vendor SDKs stay out.
 
 pub mod client;
 pub mod dual_transport;
 pub mod http_conn;
 
-pub use client::{http_agent, http_call, http_call_with_body, HttpCall};
+pub use client::{http_call, http_call_with_body, HttpCall};
