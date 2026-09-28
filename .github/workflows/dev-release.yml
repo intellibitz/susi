@@ -3,8 +3,8 @@ name: Dev Release (main)
 # Rolling pre-release that reflects the tip of `main`. Unlike
 # release.yml (tag-triggered, immutable, semver), this workflow moves a
 # single `dev` tag forward and republishes the same release in place.
-# It runs on manual dispatch or when the head commit carries a `[release]`
-# marker — multi-agent iteration pushes to `main` are too frequent for a
+# It runs on manual dispatch or when the head commit carries a dev-release marker in the head
+# commit's subject line — multi-agent iteration pushes to `main` are too frequent for a
 # multi-OS matrix build per push.
 
 on:
@@ -24,7 +24,7 @@ jobs:
     name: Move dev tag to HEAD
     if: >
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.message, '[release]')
+      startsWith(github.event.head_commit.message, '[dev-release]')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
@@ -115,7 +115,7 @@ jobs:
           body: |
             Automated build of `main` @ ${{ github.sha }}.
 
-            This release is overwritten on each `[release]`-marked push to `main` — it is not
+            This release is overwritten on each marker-flagged push to `main` — it is not
             a stable release. For production use, use a tagged `vX.Y.Z`
             release instead.
           files: |

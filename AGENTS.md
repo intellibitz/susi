@@ -104,7 +104,8 @@ convergent:
 - **CI is branch-scoped.** Feature-branch pushes run fmt + cargo deny +
   `cargo check` only; the full nextest/clippy suite gates `main`, PRs,
   and manual dispatch. The rolling dev release builds only on
-  `workflow_dispatch` or a `[release]` commit-message marker.
+  `workflow_dispatch` or a head-commit subject that starts with
+  `[dev-release]`.
 
 ## Ratchet items (not yet at zero — do not regress)
 
