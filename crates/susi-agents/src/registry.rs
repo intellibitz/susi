@@ -5,7 +5,7 @@
 // functions there instead of methods here; nothing outside gawd ever called
 // them (only .list_agents()/.register_agent(), verified before moving).
 
-use crate::types::AgentProfile;
+use crate::susi_core::agent_types::AgentProfile;
 use std::sync::OnceLock;
 
 pub struct AgentMetaRegistry {

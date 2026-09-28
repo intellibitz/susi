@@ -3090,6 +3090,16 @@
       "milestone": "RSI iterations 69-74 (Claude run): the self-improvement loop closes — recurring mission intents trigger verified reflex synthesis; the drift audit is recorded instead of discarded.",
       "proof": "`SusiRuntimeAdmin::perform_substrate_audit` (hourly) computed `EvolutionManager::perform_autonomous_drift_audit` with `let _ =`, so its only actionable output — \"most frequent recent intent ... a candidate for a WASI reflex\" — was never seen or acted on. Now: the report is audit-logged (`DRIFT_AUDIT` / `DRIFT_AUDIT_FAILED`), and new `EvolutionManager::evolve_recurring_intent` acts on it — for the most frequent `*MISSION_START` intent (>=3 of the last 100 audit entries) it derives a safe slug (`reflex_synth::slug_for`: lowercase alphanumerics, other runs → `_`, <=48 chars), skips if `reflexes/<slug>.wasm` already exists or an attempt was made in the last 24h (`<slug>.attempted` timestamp; each attempt is a model call plus a compile), then calls new `ReflexSynthesizer::synthesize_capability_for(slug, intent_text, ws)` (the model implements the full intent text; the reflex is named by the slug) and audit-logs `EVOLUTION_REFLEX_ATTEMPT` with the `gap_report` text, so an unverified or probe-only result is recorded as such. Observe → synthesize → verify (compile + sandbox probe run) → hot-load, with no daemon restart. Honest limits: correctness of a reflex's output for its intent is still unverified; not exercised end to end here (tests deferred by operator instruction). New unit test `slug_for_normalizes_free_text`. Verified: cargo clippy --workspace --all-targets -D warnings clean.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "susi-agents shims",
+        "ref": "file://crates/susi-agents/src/lib.rs"
+      },
+      "id": "EV-2022928-315",
+      "milestone": "RSI iterations 75-78 (Claude run): three re-export shim modules removed from susi-agents; capability-policy overlap between susi-core MacPolicy and the daemon's CapabilityPolicy recorded, not merged.",
+      "proof": "Same-named-module review. `susi-agents/src/{net_guard,task_manager,types}.rs` were one-line `pub use crate::susi_core::...` shims kept \"for existing call sites\": net_guard and task_manager had no user inside or outside the crate; types had two internal imports (`plane_handler.rs`, `registry.rs`), now importing `susi_core::agent_types::AgentProfile` directly, and the crate-root re-export points at `susi_core::agent_types`. Recorded, deliberately not merged: susi-core's `MacPolicy` (HMAC capability tokens checked on every tool dispatch) and susi-daemon's `security::CapabilityPolicy` (per-cell grant lists used by admin, tool_proxy and tool_catalog) are two capability-authorization models at different layers; unifying them changes security behaviour and should not land without the test suite, so it is left for the post-run test chore. `susi-core/task_manager.rs` (live task table) and `susi-gawd-agents/scheduler.rs` (mission admission control) are distinct features, not duplicates. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,

@@ -5,7 +5,7 @@ use crate::registry::AgentMetaRegistry;
 use crate::susi_core::capture::EvidenceSession;
 use crate::susi_core::plane_bus::topics;
 use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
-use crate::types::AgentProfile;
+use crate::susi_core::agent_types::AgentProfile;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
