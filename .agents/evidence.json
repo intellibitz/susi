@@ -3514,6 +3514,16 @@
     "label": "Trace tools from evidence receipts",
     "ref": "file://crates/susi-gawd-swarm/src/ama/report.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-020",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 2 \u2014 proven-tool steering in plan scoring. mission_trace::proven_tools returns tools that appear only on successful similar missions (ambiguous = also-failed earns nothing); deliberation::score_plan_with_history rewards each mention +0.05 (capped at 4 so keyword stuffing cannot win). HistorySignals bundles failed+proven into one scoring input \u2014 deliberate() now takes five args again (clippy too_many_arguments). The planner now steers toward what worked, not only away from what failed.",
+   "proof": "Tests: proven_tools_flags_only_unambiguous_successes (ambiguous exclusion), proven_history_tools_reward_but_stay_capped (bonus + cap). susi-core 207, susi-gawd-swarm 55 pass; clippy clean.",
+   "anchor": {
+    "label": "Proven-tool plan bonus",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

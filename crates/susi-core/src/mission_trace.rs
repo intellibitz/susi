@@ -345,6 +345,29 @@ pub fn failing_tools(
     failed.difference(&succeeded).cloned().collect()
 }
 
+/// The positive counterpart of `failing_tools`: tools that appear only on
+/// *successful* similar missions — the planner's "what worked here before"
+/// signal. A tool that also failed is ambiguous and earns nothing.
+pub fn proven_tools(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeSet<String> {
+    let (mut failed, mut succeeded) = (
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+    );
+    for t in similar(goal, traces, limit) {
+        let target = if t.succeeded() {
+            &mut succeeded
+        } else {
+            &mut failed
+        };
+        target.extend(t.tools.iter().cloned());
+    }
+    succeeded.difference(&failed).cloned().collect()
+}
+
 /// One-line history brief for prompt injection: what similar missions did
 /// and how they ended. Empty when nothing similar exists.
 pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
@@ -535,6 +558,26 @@ mod tests {
         let failed = failing_tools("deploy api service", &traces, 8);
         assert!(failed.contains("broken_tool"), "{failed:?}");
         assert!(!failed.contains("exec_command"), "{failed:?}");
+    }
+
+    #[test]
+    fn proven_tools_flags_only_unambiguous_successes() {
+        let ws = workspace();
+        for (outcome, tools) in [
+            ("COMPLETE", vec!["exec_command", "cargo_build"]),
+            ("COMPLETE", vec!["cargo_build"]),
+            ("FAILED", vec!["exec_command", "flaky_tool"]),
+        ] {
+            let mut t = MissionTrace::new("m", "build rust crate", outcome, "swarm");
+            t.tools = tools.into_iter().map(String::from).collect();
+            t.emit(ws.path()).unwrap();
+        }
+        let traces = read_all(ws.path());
+        let proven = proven_tools("build rust crate", &traces, 8);
+        // cargo_build only ever succeeded; exec_command also failed once.
+        assert!(proven.contains("cargo_build"), "{proven:?}");
+        assert!(!proven.contains("exec_command"), "{proven:?}");
+        assert!(!proven.contains("flaky_tool"));
     }
 
     #[test]

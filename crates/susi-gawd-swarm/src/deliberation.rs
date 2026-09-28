@@ -85,13 +85,32 @@ pub fn score_plan(goal: &str, steps: &[String], max_steps: u32) -> (f32, String)
     score_plan_weighted(goal, steps, max_steps, &std::collections::BTreeSet::new())
 }
 
-/// `score_plan` plus an anti-pattern penalty: every step-token that names a
-/// tool that only ever appeared on failed similar missions costs extra.
+/// `score_plan` plus history weighting: every step-token naming a tool that
+/// only ever appeared on failed similar missions costs, and every token
+/// naming a tool that only ever appeared on *successful* ones earns.
 pub fn score_plan_weighted(
     goal: &str,
     steps: &[String],
     max_steps: u32,
     failed_tools: &std::collections::BTreeSet<String>,
+) -> (f32, String) {
+    score_plan_with_history(
+        goal,
+        steps,
+        max_steps,
+        failed_tools,
+        &std::collections::BTreeSet::new(),
+    )
+}
+
+/// Full history-weighted scoring: `failed_tools` penalize, `proven_tools`
+/// reward (each capped so one keyword-stuffed step cannot dominate).
+pub fn score_plan_with_history(
+    goal: &str,
+    steps: &[String],
+    max_steps: u32,
+    failed_tools: &std::collections::BTreeSet<String>,
+    proven_tools: &std::collections::BTreeSet<String>,
 ) -> (f32, String) {
     if steps.is_empty() {
         return (0.0, "empty plan".into());
@@ -119,21 +138,32 @@ pub fn score_plan_weighted(
         .filter(|t| VERIFIABLE_TOKENS.contains(&t.trim_matches(|c: char| !c.is_alphanumeric())))
         .count();
     let over_budget = steps.len().saturating_sub(max_steps as usize);
+    let step_words = |t: &String| {
+        t.split_whitespace()
+            .map(|w| w.to_lowercase())
+            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+            .collect::<Vec<_>>()
+    };
     let history_hits = steps
         .iter()
-        .flat_map(|s| s.split_whitespace().map(|t| t.to_lowercase()))
-        .map(|t| t.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .flat_map(step_words)
         .filter(|t| failed_tools.contains(t))
         .count();
+    let proven_hits = steps
+        .iter()
+        .flat_map(step_words)
+        .filter(|t| proven_tools.contains(t))
+        .count();
 
-    let score = (0.4 + 0.5 * coverage + 0.05 * verifiable.min(4) as f32
-        - 0.15 * risk_hits as f32
-        - 0.1 * history_hits as f32
-        - 0.1 * over_budget as f32)
-        .clamp(0.0, 1.0);
+    let score =
+        (0.4 + 0.5 * coverage + 0.05 * verifiable.min(4) as f32 + 0.05 * proven_hits.min(4) as f32
+            - 0.15 * risk_hits as f32
+            - 0.1 * history_hits as f32
+            - 0.1 * over_budget as f32)
+            .clamp(0.0, 1.0);
     let rationale = format!(
         "coverage={coverage:.2} risk_tokens={risk_hits} failed_history_tools={history_hits} \
-         verifiable_steps={verifiable} steps={} over_budget={over_budget}",
+         proven_tools={proven_hits} verifiable_steps={verifiable} steps={} over_budget={over_budget}",
         steps.len()
     );
     (score, rationale)
@@ -152,20 +182,28 @@ pub fn consensus_required(manifold: &IntentManifold) -> bool {
 /// each, sort best-first, and measure consensus between the top two.
 /// `generate` is injected so the search is testable without inference —
 /// production passes `SusiMasterAgent::plan_steps` with a budget.
-/// `failed_tools` penalizes candidates that reach for tools whose similar
-/// missions only ever failed.
+/// Retrieved history the scorer weighs: tools only ever seen on failed
+/// similar missions penalize a candidate; tools only ever seen on
+/// successful ones reward it.
+#[derive(Debug, Clone, Default)]
+pub struct HistorySignals {
+    pub failed: std::collections::BTreeSet<String>,
+    pub proven: std::collections::BTreeSet<String>,
+}
+
 pub fn deliberate(
     goal: &str,
     manifold: &IntentManifold,
     budgets: &[u32],
-    failed_tools: &std::collections::BTreeSet<String>,
+    history: &HistorySignals,
     mut generate: impl FnMut(u32) -> Vec<String>,
 ) -> Deliberation {
     let mut candidates: Vec<CandidatePlan> = budgets
         .iter()
         .map(|&budget| {
             let steps = generate(budget);
-            let (score, rationale) = score_plan_weighted(goal, &steps, budget, failed_tools);
+            let (score, rationale) =
+                score_plan_with_history(goal, &steps, budget, &history.failed, &history.proven);
             CandidatePlan {
                 steps,
                 score,
@@ -324,6 +362,37 @@ mod tests {
         assert!(tainted < clean, "{r}");
         assert!(tainted > 0.0);
         assert!(r.contains("failed_history_tools=1"), "{r}");
+    }
+
+    #[test]
+    fn proven_history_tools_reward_but_stay_capped() {
+        let proven: std::collections::BTreeSet<String> = ["cargo".to_string(), "git".to_string()]
+            .into_iter()
+            .collect();
+        let none = std::collections::BTreeSet::new();
+        let (plain, _) =
+            score_plan_with_history("build the crate", &["build crate".into()], 5, &none, &none);
+        let (boosted, r) = score_plan_with_history(
+            "build the crate",
+            &["cargo build crate via git".into()],
+            5,
+            &none,
+            &proven,
+        );
+        assert!(boosted > plain, "{r}");
+        assert!(r.contains("proven_tools=2"), "{r}");
+        // Four-plus mentions cap at 0.2 total — keyword stuffing can't win.
+        let stuffed = score_plan_with_history(
+            "x",
+            &["cargo cargo cargo cargo cargo".into()],
+            5,
+            &none,
+            &proven,
+        );
+        assert!(stuffed.1.contains("proven_tools=5"));
+        let (four, _) =
+            score_plan_with_history("x", &["cargo cargo cargo cargo".into()], 5, &none, &proven);
+        assert!((stuffed.0 - four).abs() < 0.001, "{:?}", stuffed);
     }
 
     #[test]

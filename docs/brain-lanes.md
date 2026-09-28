@@ -52,3 +52,6 @@ One line per landed step, newest last.
 7. Trace schema v2: `tools` now = real receipt tool names; interaction
    actions moved to `signals` so failure-history and briefs track
    capabilities, not supervision events.
+8. Proven-tool steering: `proven_tools` (success-only tools on similar
+   missions) earns +0.05/mention in scoring via `HistorySignals{failed,
+   proven}` — steering toward what worked, not just away from failures.

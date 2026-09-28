@@ -809,9 +809,12 @@ impl SusiMasterAgent {
             budgets.push((max_steps + 4).min(8));
         }
         budgets.dedup();
-        let failed_tools = crate::susi_core::mission_trace::failing_tools(&goal, &traces, 8);
+        let history = crate::deliberation::HistorySignals {
+            failed: crate::susi_core::mission_trace::failing_tools(&goal, &traces, 8),
+            proven: crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8),
+        };
         let mut deliberation =
-            crate::deliberation::deliberate(&goal, &manifold, &budgets, &failed_tools, |budget| {
+            crate::deliberation::deliberate(&goal, &manifold, &budgets, &history, |budget| {
                 self.plan_steps(&goal, &brief, workspace, budget)
             });
         // An intent whose recent trace record ends in failure is an
