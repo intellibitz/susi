@@ -45,10 +45,11 @@ jobs:
       - name: cargo deny check
         uses: EmbarkStudios/cargo-deny-action@v2
 
-  # Non-main branch pushes get a fast compile gate only. Several agents push
-  # every macro-step on parallel branches; running nextest+clippy on each of
-  # those pushes saturated the queue while buys nothing — the full suite is
-  # the integration gate on main, PRs, and manual dispatch.
+  # Non-main branch pushes get a fast affected-crates compile gate only.
+  # Several agents push every macro-step on parallel branches; the full
+  # suite is the integration gate on main, PRs, and manual dispatch.
+  # scripts/ci-changed-crates.sh maps the diff to packages, so a leaf-crate
+  # push checks in seconds on a warm cache instead of the whole workspace.
   check:
     name: Compile Check (branch pushes)
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
@@ -56,6 +57,8 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # merge-base diff needs history
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -66,21 +69,52 @@ jobs:
       - name: Install Linux System Dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
 
-      - name: cargo check
-        run: cargo check --workspace --locked
+      - name: Resolve affected crates
+        id: affected
+        run: |
+          pkgs=$(./scripts/ci-changed-crates.sh)
+          if [ "$pkgs" = "ALL" ]; then
+            echo "cmd=cargo check --workspace --locked" >> "$GITHUB_OUTPUT"
+          elif [ -z "$pkgs" ]; then
+            echo "cmd=" >> "$GITHUB_OUTPUT"
+          else
+            echo "cmd=cargo check$(printf ' -p %s' $pkgs) --locked" >> "$GITHUB_OUTPUT"
+          fi
 
+      - name: cargo check
+        if: steps.affected.outputs.cmd != ''
+        run: ${{ steps.affected.outputs.cmd }}
+
+  # The suite is sharded by area so each runner compiles only its dep
+  # closure; the gate is the slowest shard (~4min warm) rather than one
+  # serial workspace build. Keep shards roughly balanced: gemi pulls the
+  # candle/ort vendors, daemon the service shells, gawd the swarm crates.
   test:
-    name: Build & Test
+    name: Test (${{ matrix.shard.name }})
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: foundation
+            pkgs: -p susi-paths -p susi-error -p susi-config -p susi-abi -p susi-core -p susi-sandbox -p susi-sandbox-client -p susi-http-transport -p susi-native-client -p susi-leaf-services
+          - name: daemon
+            pkgs: -p susi-daemon -p susi-server -p susi-gmcp -p susi-tools
+          - name: gawd
+            pkgs: -p susi-gawd -p susi-gawd-agents -p susi-gawd-swarm -p susi-gawd-a2a -p susi-agents
+          - name: gemi
+            pkgs: -p susi-gemi -p susi-gemi-models -p susi-adapters-llm
+          - name: vendor-cells
+            pkgs: -p susi-vendor-wasmer -p susi-vendor-candle -p susi-vendor-fastembed -p susi-vendor-tantivy -p susi-vendor-chrome -p susi-vendor-syn -p susi-vendor-mcp -p susi-vendor-mcp-server -p susi-vendor-cloud -p susi-dsh-cell -p susi-universal-cell
+          - name: root-cli
+            pkgs: -p susi -p xtask
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -103,8 +137,8 @@ jobs:
           mold --version
           command -v ld.mold
 
-      # wasm32-wasip1 lets test_wasm_reflex_hot_patch_end_to_end take the real
-      # compile+execute branch instead of skipping (VC-200-002 evidence).
+      # wasm32-wasip1 lets the reflex tests take the real compile+execute
+      # branch instead of skipping (VC-200-002 evidence).
       - name: Install wasm32-wasip1 target
         run: rustup target add wasm32-wasip1
 
@@ -117,10 +151,29 @@ jobs:
       # libtest's per-binary pools on this suite) and isolates cross-process
       # IPC state the way the microkernel intends. The capability-gap e2e is
       # excluded here — it needs a running susi-native leaf service and runs
-      # in the parallel `e2e` job so its ~4min service build is off this
-      # job's critical path.
+      # in the parallel `e2e` job so its ~4min service build is off the
+      # critical path.
       - name: cargo nextest
-        run: cargo nextest run --workspace --locked -E 'not binary(capability_gap_e2e)'
+        run: cargo nextest run --locked ${{ matrix.shard.pkgs }} -E 'not binary(capability_gap_e2e)'
+
+  lint:
+    name: Doc Tests + Clippy
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
 
       # nextest does not run doc-tests; keep the door open for them.
       - name: cargo test --doc

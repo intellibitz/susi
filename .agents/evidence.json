@@ -3334,6 +3334,16 @@
       "milestone": "First namespaced evidence ID; per-agent namespaces adopted to end merge-time ID collisions, and CI scoped so branch pushes run only the compile gate.",
       "proof": "evidence.json is a single append-only file every agent commits to; date-stamped sequential IDs collided twice on merge (320/321 renumbered both times). New entries use EV-DEVIN-*/EV-CURSOR-*/EV-CLAUDE-* namespaces documented in AGENTS.md, and validate_evidence now fails the build on a duplicate ID. test.yml adds a fmt+cargo-check Compile Check job for non-main pushes and restricts nextest+clippy+doc to main/PR/dispatch; dev-release.yml builds the multi-OS matrix only on [release] commits or manual dispatch. No tests run per operator instruction.",
       "type": "PROCESS"
+    },
+    {
+      "anchor": {
+        "label": "Sub-minute branch feedback + parallel main gate",
+        "ref": "file://scripts/ci-changed-crates.sh"
+      },
+      "id": "EV-DEVIN-002",
+      "milestone": "Affected-crate compile gate for branch pushes and six-way sharded main test suite.",
+      "proof": "scripts/ci-changed-crates.sh maps the merge-base diff to workspace packages via cargo metadata (workspace-wide inputs \u2014 lockfile, root build.rs which compiles .agents/*.json, root src/tests, toolchain config \u2014 fall back to ALL; docs/CI-only diffs skip cargo entirely). Verified locally: a susi-paths-only commit resolves to '-p susi-paths'. The branch check job now checks only affected crates (seconds on a warm cache) while fmt+deny still run on every push. The main gate splits nextest into six parallel shards covering all 35 workspace packages exactly once (verified against cargo metadata) plus a lint job and the live susi-native e2e job, so the gate is the slowest shard rather than one serial ~9min build. Dev release remains [dev-release]-gated. No tests run per operator instruction; YAML validated.",
+      "type": "PROCESS"
     }
   ],
   "epistemic_score": 1.0,
