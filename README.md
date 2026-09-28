@@ -270,7 +270,7 @@ By default a login-persistent daemon is registered (systemd user unit / launchd)
 curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | SUSI_NO_DAEMON=1 bash
 ```
 
-### Developing susi: the local susi tracks releases only
+### Developing susi: the local susi tracks releases only (Mandate 48)
 
 The installed susi (`~/.susi/bin/susi` and the daemon it runs) is the
 toolchain that builds the next susi, so dev builds never replace it:
@@ -423,6 +423,7 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); installs and keys remain explicit gates.
 - **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.
 - **One-line install** — Unix `curl …/install.sh | bash` (Mandate 47); not “always frictionless.”
+- **Release-only self-build** — the installed susi is the toolchain that builds the next susi (Mandate 48). Dev builds verify on an isolated dev instance, and only tagged releases replace `~/.susi/bin/susi`. This is a promotion discipline, not “releases can't break.”
 
 Crate boundaries, composition roots, ports, and the plugin triad are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (enforced by `tests/architecture_tests.rs`).
 ---

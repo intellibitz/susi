@@ -2790,6 +2790,16 @@
       "milestone": "Dev binaries run their own instance. Before this, a target/ binary with default env talked to the release daemon: ensure_daemon_running prefers ~/.susi/bin/susi when it exists, and both shared ~/.susi and ports 9090–9094, so daemon-side dev changes never ran. Now `dev_instance::isolate_if_dev_build` runs first in main, while the process is single-threaded. Any binary other than the installed one (a `(deleted)` swapped-out release daemon still counts as installed) sets SUSI_HOME=~/.susi-dev and SUSI_PORT_OFFSET=100 unless they are already set. It symlinks the release instance's models/ and cloud.env into the dev root; config, audit chain, locks, and ports stay separate. The existing SUSI_HOME machinery does the rest: no ~/.susi-dev/bin/susi means the daemon re-execs the dev binary, the systemd transient unit name is hashed from the instance home, and systemd-run forwards SUSI_*. release-sync's --version probe pins SUSI_HOME so it never provisions ~/.susi-dev. Verified live: `target/debug/susi start` brought up a daemon whose /proc exe is target/debug/susi with SUSI_HOME=~/.susi-dev and SUSI_PORT_OFFSET=100. It served /health 200 on 9191, nothing listened on 9091, and ~/.susi/bin/susi mtime and size were unchanged. Also verified: cargo fmt --all --check; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo test --workspace --locked.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "identity.json Mandate 48",
+        "ref": "file://.agents/identity.json"
+      },
+      "id": "EV-2022928-285",
+      "milestone": "Mandate 48 \"Self-Build Order (Release-Only Toolchain, Isolated Dev Instances)\" added to identity DNA. It binds SUSI's swarm, A2A delegates, and human developers to three rules: build dev in target/ only, verify dev on the ~/.susi-dev instance (9190–9194), and change ~/.susi/bin/susi only through a tagged release promoted by scripts/susi-release-sync.sh (installer excepted, Mandate 47). Engine protocol 7 (Canonical Binary Dynamics) now names those two writers. Design principle 9 was added, and README and AGENTS.md cite the mandate. Because identity.json compiles into the agent genome (susi-gawd-agents build.rs, GEN_AGENT_RULES), the rule reaches SUSI's own agents, not only docs. Mechanical guard: tests/architecture_tests.rs dev_builds_never_install_the_release_binary rejects fs::copy/fs::rename/\".susi\" in xtask, any non-test push_to_hardware/auto_install, dev_instance isolation after Cli::parse, and a missing sync script. It is scoped under Mandate 1 as a targeted guard, not a proof, and makes no claim that releases can't break. Verified: cargo fmt --all --check; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo test --workspace --locked (genome rebuild included).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

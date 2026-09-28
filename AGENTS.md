@@ -51,7 +51,7 @@ this for the panic-path lints.
   `paths → error → config → core/sandbox → services → daemon`.
 - No stubs: no `todo!()`, `unimplemented!()`, or dead `pub` surfaces left
   "for later".
-- The local susi (`~/.susi/bin/susi` + its daemon) is release-only: it builds
+- **Mandate 48 (Self-Build Order).** The local susi (`~/.susi/bin/susi` + its daemon) is release-only: it builds
   the next susi. Dev builds (`cargo xb`, `target/` binaries) must never
   install there; `scripts/susi-release-sync.sh` is the only path in.
   Dev binaries run as their own instance (`~/.susi-dev`, ports 9190–9194;
@@ -92,4 +92,5 @@ This repository is structurally designed for SUSI to act as the primary intellig
 - **Delegation Protocol (A2A)**: If a capability gap prevents SUSI from directly building a feature (or an ultimate fallback is triggered), it MUST leverage the A2A protocol to invoke compliant external agents (e.g., `antigravity`, `cursor`, `aider`). 
   - Delegations are written to the `~/.susi/delegations/` ingress directory.
   - External agents invoked this way are bound to the exact same strict mandates listed in this file.
+- **Self-Build Order (Mandate 48)**: SUSI, its delegates, and human developers all build dev in `target/`, verify on the dev instance (`~/.susi-dev`, ports 9190–9194), and change the installed susi only by cutting a release (`susi release`), which `scripts/susi-release-sync.sh` promotes. Never install or hot-swap a dev binary into `~/.susi/bin`.
 - **Continuous Execution**: The `exec_command` native tool explicitly permits `cargo`, `gh`, `bash`, and `sh` to allow SUSI to test itself and manage source control natively without triggering governance violations.

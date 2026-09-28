@@ -886,3 +886,54 @@ fn every_panic_path_allow_is_justified() {
         "panic-path #[allow]s without a written justification: {unjustified:?}"
     );
 }
+
+/// Mandate 48 regression guard (targeted, not a proof): the two removed
+/// dev-install paths must not come back, and dev binaries must select their
+/// own instance before anything else runs.
+#[test]
+fn dev_builds_never_install_the_release_binary() {
+    let root = workspace_root();
+
+    let xtask = std::fs::read_to_string(root.join("xtask/src/main.rs")).unwrap();
+    let xtask = non_test(&xtask);
+    for forbidden in ["fs::copy", "fs::rename", "\".susi\""] {
+        assert!(
+            !xtask.contains(forbidden),
+            "xtask must build only, never install (Mandate 48): found `{forbidden}`"
+        );
+    }
+
+    let mut files = Vec::new();
+    for dir in ["crates", "src", "xtask"] {
+        rust_files(&root.join(dir), &mut files);
+    }
+    let self_deploy: Vec<String> = files
+        .iter()
+        .filter(|path| {
+            let text = std::fs::read_to_string(path).unwrap_or_default();
+            let text = non_test(&text);
+            text.contains("push_to_hardware") || text.contains("auto_install")
+        })
+        .map(|path| path.display().to_string())
+        .collect();
+    assert!(
+        self_deploy.is_empty(),
+        "dev self-install over ~/.susi/bin is forbidden (Mandate 48): {self_deploy:?}"
+    );
+
+    let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
+    let body = &main[main.find("fn main()").unwrap()..];
+    let isolate = body
+        .find("dev_instance::isolate_if_dev_build")
+        .unwrap_or(usize::MAX);
+    let parse = body.find("Cli::parse()").unwrap();
+    assert!(
+        isolate < parse,
+        "dev instance isolation must run first in main, before any other work (Mandate 48)"
+    );
+
+    assert!(
+        root.join("scripts/susi-release-sync.sh").is_file(),
+        "release promotion script missing (Mandate 48)"
+    );
+}

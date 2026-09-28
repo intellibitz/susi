@@ -43,6 +43,11 @@
       "id": 8,
       "summary": "Unix primary surface is `curl …/install.sh | bash` (Mandate 47); Binary Dominance + PATH inject + canonical `~/.susi/bin/susi`. Not \"always frictionless.\"",
       "title": "One-line install"
+    },
+    {
+      "id": 9,
+      "title": "Release-only self-build",
+      "summary": "Mandate 48; the installed susi is the release toolchain that builds the next susi. Dev builds stay in `target/` and verify on an isolated dev instance (`~/.susi-dev`, 9190–9194). Only a tagged release replaces `~/.susi/bin/susi`, promoted by `susi-release-sync` with health-gated rollback. This is a promotion discipline, not a claim that releases cannot break."
     }
   ],
   "foundation_pillars": [
@@ -569,6 +574,11 @@
           "id": 47,
           "imperative": "The **primary documented install** for Unix-like hosts (Linux / macOS / WSL) must remain a single pipeable command — `curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | bash` — that: (1) requires **bash** (not `sh`); (2) prefers **Binary Dominance** (checksum-verified prebuilt release artifact) with transparent **source-build fallback** (rustup/Cargo when needed); (3) performs **Auto-Path Injection** of `~/.susi/bin`; (4) deploys the canonical `~/.susi/bin/susi` binary (**Canonical Binary Dynamics**); (5) optionally registers a login-persistent daemon unless `SUSI_NO_DAEMON=1`. Visible failure and honesty gates: GPU present without toolkit must warn explicitly (CPU-only), not silent success theater; escape hatches (`SUSI_FORCE_SOURCE`, `SUSI_USE_REPO_TARGET`, mold bootstrap skip) remain documented. Windows' primary surface is `install.ps1` (`irm … | iex`), not the curl|bash line. Installer scripts are distribution tooling (Mandate 43 exempt), not first-party runtime. A bare \"one line always succeeds with zero network / zero toolchain / zero build\" claim is forbidden by Mandate 1 — this mandate is the blessed install *surface*, not a promise of zero friction on every host.",
           "title": "One-Line Install Surface (Not Frictionless Forever)"
+        },
+        {
+          "id": 48,
+          "title": "Self-Build Order (Release-Only Toolchain, Isolated Dev Instances)",
+          "imperative": "The installed `~/.susi/bin/susi` and the `global susi` daemon it runs are the **release instance**: the stable toolchain SUSI uses to build the next SUSI. Every agent that changes SUSI must follow this order. That covers SUSI's own swarm (Mandate 20's self-modification loop, `apply_patch_cycle`, `susi-builder.yml`), A2A delegates, and human developers. (1) **Build dev in `target/` only.** `cargo xb`, `./build-gpu.sh`, and `cargo build` never install. No code path may copy a dev binary into `~/.susi/bin`; the removed `auto_install` self-deploy is the prohibited pattern. (2) **Verify dev on a dev instance.** Any `susi` other than the installed binary runs as its own instance (`src/dev_instance.rs`): `SUSI_HOME=~/.susi-dev`, `SUSI_PORT_OFFSET=100`, ports 9190–9194. It has its own daemon running the dev binary, and shares only the release instance's `models/` and `cloud.env`. The release daemon on 9090–9094 is never the test target for dev features. An explicit `SUSI_HOME` is for deliberate cross-instance debugging, not routine verification. (3) **Promote only by release.** A change reaches the release instance only through a tagged `vX.Y.Z` cut by the release gate (Pillar IV item 3) and promoted by `scripts/susi-release-sync.sh`. That script builds the tag natively in a private checkout, checks the version, waits for an idle susi, swaps atomically keeping `susi.prev`, restarts, and rolls back if the health check fails. `susi release` triggers it, as does the hourly `susi-release-sync.timer`. First-time installs (Mandate 47) are the only other writer of `~/.susi/bin/susi`. Rationale: a self-improving system must not saw off the branch it sits on. A broken dev build installed over the toolchain would disable the builder that fixes it. `tests/architecture_tests.rs` `dev_builds_never_install_the_release_binary` guards the removed install paths and the isolation order; it is a targeted regression guard, not a proof. Claiming this makes the release instance unbreakable is forbidden by Mandate 1. A bad release can still ship; the guarantee is only that the binary arrived through the release gate, can be rolled back to `susi.prev`, and never came from an unreleased tree."
         }
       ],
       "name": "THE DNA",
@@ -610,7 +620,7 @@
         },
         {
           "id": 7,
-          "imperative": "A single compiled binary deployed at `~/.susi/bin/susi` (the host-contract path; Mandate 47). Invocations in `cwd` capture local workspace context, check `~/.susi/substrate.lock`, and ensure `global susi` owns ports/models without duplicate daemons. Detecting binary signature changes (`binary.hash`), `susi` evicts the stale daemon and hot-reloads `global susi` from the canonical binary automatically.",
+          "imperative": "A single compiled binary deployed at `~/.susi/bin/susi` (the host-contract path; Mandate 47). Invocations in `cwd` capture local workspace context, check `~/.susi/substrate.lock`, and ensure `global susi` owns ports/models without duplicate daemons. Detecting binary signature changes (`binary.hash`), `susi` evicts the stale daemon and hot-reloads `global susi` from the canonical binary automatically. The canonical binary is written only by the installer (Mandate 47) or by release promotion (Mandate 48). Dev builds never write it; they run as their own instance.",
           "title": "Canonical Binary Dynamics & Hot-Reload Protocol"
         }
       ],
