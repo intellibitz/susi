@@ -6485,6 +6485,7 @@ dependencies = [
  "susi-vendor-shlex",
  "susi-vendor-syn",
  "susi-vendor-tantivy",
+ "susi-vendor-tempfile",
  "susi-vendor-tokio",
  "susi-vendor-tokio-rustls",
  "susi-vendor-tower-service",

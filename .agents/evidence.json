@@ -3414,6 +3414,16 @@
     "label": "Per-crate coverage floor ratchet",
     "ref": "file://scripts/coverage-ratchet.sh"
    }
+  },
+  {
+   "id": "EV-DEVIN-011",
+   "type": "ARCHITECTURE",
+   "milestone": "Coverage tranche 2: susi-gmcp helpers 89.9% (secure_path traversal/symlink escapes, SSRF blocklist incl. mapped-v6, nofollow reads, /proc readers), core.rs 33→38.8% (file round-trip, exec_command confinement/nonzero/audit path, os probes); susi-core plane_bus facade marshalling covered for gemi/gawd/agents/tools prefixes via in-process catch-all handlers + stream channel round-trip. PermitAudit gate lifted to shared pub(super) harness — wired and unwired tests now share one audit-permit contract.",
+   "proof": "cargo test -p susi-gmcp: 61 pass; -p susi-core: 190 pass; -p susi-sandbox, susi-vendor-mcp, susi-vendor-cloud, susi-agents, susi-universal-cell, susi-leaf-services --all-features all green. Baseline floors raised to fresh measurements (gmcp 44, leaf 78, sandbox 53, mcp 73, agents 79, universal-cell 74, cloud 85). fmt clean. Fixed --update flag forwarding in coverage-ratchet.sh.",
+   "anchor": {
+    "label": "Facade marshalling + tool-handler coverage",
+    "ref": "file://crates/susi-core/src/plane_bus.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

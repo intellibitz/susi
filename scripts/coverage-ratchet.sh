@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 cargo llvm-cov --workspace --summary-only > /tmp/susi-cov.txt
 cargo llvm-cov -p susi-leaf-services --all-features --summary-only > /tmp/susi-cov-leaf.txt
 
-python3 - <<'EOF'
+python3 - "$@" <<'EOF'
 import json, math, re, sys, collections
 
 def parse(path):

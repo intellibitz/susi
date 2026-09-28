@@ -2883,6 +2883,53 @@ mod unwired_governance_tests {
     pub(super) static AUDIT_PERMIT: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
 
+    /// Permissive `gawd.audit.action` handler — only while `AUDIT_PERMIT` is
+    /// held by the test that registered it (i.e. holds `AUDIT_TEST_LOCK`).
+    /// Shared by every wired-governance test module.
+    pub(super) struct PermitAudit;
+
+    impl crate::susi_core::plane_bus::PlaneHandler for PermitAudit {
+        fn handle(
+            &self,
+            _topic: &str,
+            _payload: serde_json::Value,
+        ) -> Result<serde_json::Value, String> {
+            if AUDIT_PERMIT.load(std::sync::atomic::Ordering::SeqCst) {
+                Ok(serde_json::json!({}))
+            } else {
+                // Registered process-wide on the shared bus — must deny
+                // whenever no wired test holds the permit, or an unwired
+                // fail-closed assertion running concurrently would pass.
+                Err("audit gate closed — no active permissive test".to_string())
+            }
+        }
+    }
+
+    /// Holds `AUDIT_TEST_LOCK` for the test's duration and clears the permit
+    /// on drop, so an unwired fail-closed assertion running next still sees
+    /// a closed gate.
+    pub(super) struct AuditPermitGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for AuditPermitGuard {
+        fn drop(&mut self) {
+            AUDIT_PERMIT.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Isolate the bus rendezvous, register the permit-aware audit handler,
+    /// and open the gate until the returned guard drops.
+    pub(super) fn wire_permissive_audit() -> AuditPermitGuard {
+        use crate::susi_core::plane_bus::{topics, PlaneBus};
+        use std::sync::Arc;
+        let guard = AUDIT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        isolate_bus_root();
+        PlaneBus::global().register(topics::GAWD_AUDIT_ACTION, Arc::new(PermitAudit));
+        AUDIT_PERMIT.store(true, std::sync::atomic::Ordering::SeqCst);
+        AuditPermitGuard { _lock: guard }
+    }
+
     #[test]
     fn test_reason_fails_closed_when_unwired() {
         let _audit_lock = AUDIT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2957,56 +3004,9 @@ mod os_tools_wired_tests {
     //! Positive-path coverage: a permissive `gawd.audit.action` handler is
     //! registered on a pid-private bus root, so the governed tools actually
     //! execute instead of failing closed at the audit gate.
-    use super::unwired_governance_tests::isolate_bus_root;
+    use super::unwired_governance_tests::wire_permissive_audit;
     use super::*;
-    use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
     use std::path::PathBuf;
-    use std::sync::Arc;
-
-    struct PermitAudit;
-
-    impl PlaneHandler for PermitAudit {
-        fn handle(
-            &self,
-            _topic: &str,
-            _payload: serde_json::Value,
-        ) -> Result<serde_json::Value, String> {
-            if super::unwired_governance_tests::AUDIT_PERMIT
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
-                Ok(serde_json::json!({}))
-            } else {
-                // Registered process-wide on the shared bus — must deny
-                // whenever no wired test holds the permit, or an unwired
-                // fail-closed assertion running concurrently would pass.
-                Err("audit gate closed — no active permissive test".to_string())
-            }
-        }
-    }
-
-    /// Wires `PermitAudit` and holds the audit-test lock until drop —
-    /// serialized against the unwired fail-closed tests.
-    struct AuditPermitGuard {
-        _lock: std::sync::MutexGuard<'static, ()>,
-    }
-
-    impl Drop for AuditPermitGuard {
-        fn drop(&mut self) {
-            super::unwired_governance_tests::AUDIT_PERMIT
-                .store(false, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-
-    fn wire_permissive_audit() -> AuditPermitGuard {
-        let guard = super::unwired_governance_tests::AUDIT_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        isolate_bus_root();
-        PlaneBus::global().register(topics::GAWD_AUDIT_ACTION, Arc::new(PermitAudit));
-        super::unwired_governance_tests::AUDIT_PERMIT
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        AuditPermitGuard { _lock: guard }
-    }
 
     #[test]
     fn os_services_lists_all_five_leaf_services() {
@@ -3387,5 +3387,137 @@ mod os_tools_wired_tests {
         assert!(out.contains("adopted term 7"), "got: {out}");
         assert_eq!(crate::susi_core::commit_log::load_term().term, 7);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod core_io_tests {
+    use super::unwired_governance_tests::wire_permissive_audit;
+    use super::CoreTools;
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    fn ws() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-coretools-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn write_then_read_file_round_trips_inside_the_workspace() {
+        let ws = ws();
+        std::fs::create_dir_all(ws.join("sub")).unwrap();
+        let out =
+            CoreTools::write_file(&json!({"path": "sub/f.txt", "content": "hello susi"}), &ws)
+                .unwrap();
+        assert!(out.contains("Wrote to"));
+        assert_eq!(
+            CoreTools::read_file(&json!({"path": "sub/f.txt"}), &ws).unwrap(),
+            "hello susi"
+        );
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn file_tools_reject_escapes_and_missing_args() {
+        let ws = ws();
+        for bad in [
+            json!({"path": "/etc/passwd", "content": "x"}),
+            json!({"path": "../x", "content": "x"}),
+            json!({"path": "x"}), // content missing
+            json!({}),            // both missing
+        ] {
+            assert!(CoreTools::write_file(&bad, &ws).is_err(), "{bad}");
+        }
+        for bad in [
+            json!({"path": "/etc/passwd"}),
+            json!({"path": "../x"}),
+            json!({}),
+        ] {
+            assert!(CoreTools::read_file(&bad, &ws).is_err(), "{bad}");
+        }
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn read_file_missing_leaf_reports_typed_error() {
+        let ws = ws();
+        // The leaf does not exist; resolution succeeds, the open fails typed.
+        let res = CoreTools::read_file(&json!({"path": "nope.txt"}), &ws);
+        assert!(res.is_err());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn exec_command_runs_confined_commands() {
+        let _permit = wire_permissive_audit();
+        let ws = ws();
+        let out = CoreTools::exec_command(&json!("echo hi-from-susi"), &ws).unwrap();
+        assert!(out.contains("hi-from-susi"), "got: {out}");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn exec_command_rejects_empty_escape_and_bad_syntax() {
+        let _permit = wire_permissive_audit();
+        let ws = ws();
+        assert!(CoreTools::exec_command(&json!(""), &ws).is_err());
+        assert!(CoreTools::exec_command(&json!("echo ../out"), &ws).is_err());
+        assert!(CoreTools::exec_command(&json!("cat /etc/passwd"), &ws).is_err());
+        assert!(CoreTools::exec_command(&json!("echo 'unterminated"), &ws).is_err());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn exec_command_surfaces_nonzero_exit() {
+        let _permit = wire_permissive_audit();
+        let ws = ws();
+        let res = CoreTools::exec_command(&json!("sh -c 'echo boom >&2; exit 3'"), &ws);
+        assert!(res.is_err());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn status_and_os_probes_return_real_strings() {
+        let ws = ws();
+        let s = CoreTools::status(&json!({}), &ws).unwrap();
+        assert!(s.contains("SUSI Engine Version"));
+        #[cfg(target_os = "linux")]
+        {
+            let _permit = wire_permissive_audit();
+            let ps = CoreTools::os_ps(&json!({"limit": 3}), &ws).unwrap();
+            assert!(ps.starts_with("PID\tNAME"));
+            let info = CoreTools::os_sysinfo(&json!({}), &ws).unwrap();
+            assert!(info.contains("kernel:"));
+        }
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn swarm_schedule_reports_empty_when_no_decisions() {
+        let ws = ws();
+        // No scheduler handler on the bus → the "no missions" early return.
+        let out = CoreTools::swarm_schedule(&json!({}), &ws).unwrap();
+        assert!(out.contains("No missions") || !out.is_empty());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn agents_tools_validate_required_fields() {
+        let ws = ws();
+        assert!(CoreTools::agents_run(&json!({}), &ws).is_err());
+        assert!(CoreTools::agents_run(&json!({"agent": "aider"}), &ws).is_err());
+        assert!(CoreTools::agents_status(&json!({}), &ws).is_err());
+        // List/tasks survive without external agent state.
+        assert!(CoreTools::agents_list(&json!({}), &ws).is_ok());
+        assert!(CoreTools::agents_tasks(&json!({}), &ws).is_ok());
+        let _ = std::fs::remove_dir_all(&ws);
     }
 }

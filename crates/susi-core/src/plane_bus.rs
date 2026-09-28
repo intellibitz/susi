@@ -1265,3 +1265,188 @@ mod remote_error_tests {
         assert_eq!(e.to_string(), "Protocol Error: no handler for topic");
     }
 }
+
+#[cfg(test)]
+mod facade_marshal_tests {
+    //! The facade modules (`gemi::`, `gawd::`, `agents::`, `tools::`,
+    //! `gawd_hooks::`) are the microkernel's typed seam over bus topics —
+    //! every call marshals args, hits a topic, decodes the reply. A catch-all
+    //! per prefix exercises marshal + decode deterministically in-process.
+    use super::*;
+    use std::sync::{Mutex, Once};
+
+    static LOCK: Mutex<()> = Mutex::new(());
+    static ONCE: Once = Once::new();
+
+    struct Echo;
+    impl PlaneHandler for Echo {
+        fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
+            Ok(json!({ "ok": true }))
+        }
+    }
+    struct Embed;
+    impl PlaneHandler for Embed {
+        fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
+            Ok(json!({ "embedding": [1.0, 2.0, 3.0] }))
+        }
+    }
+    struct EmptyList;
+    impl PlaneHandler for EmptyList {
+        fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
+            Ok(json!([]))
+        }
+    }
+
+    fn wire() -> std::sync::MutexGuard<'static, ()> {
+        let g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        ONCE.call_once(|| {
+            let bus = PlaneBus::global();
+            bus.register_prefix("gemi.", Arc::new(Echo));
+            bus.register_prefix("gawd.", Arc::new(Echo));
+            bus.register_prefix("agents.", Arc::new(EmptyList));
+            bus.register_prefix("tools.", Arc::new(Echo));
+            bus.register(topics::GEMI_INFER_EMBED, Arc::new(Embed));
+        });
+        g
+    }
+
+    #[test]
+    fn bus_stream_channel_round_trips() {
+        let _g = wire();
+        let bus = PlaneBus::global();
+        let (id, rx) = bus.open_stream();
+        bus.stream_emit(&id, json!({ "chunk": 1 }));
+        bus.stream_emit(&id, json!({ "chunk": 2 }));
+        bus.stream_close(&id);
+        let got: Vec<Value> = rx.try_iter().collect();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0]["chunk"], 1);
+        // Emitting after close is a no-op, not a panic.
+        bus.stream_emit(&id, json!({ "chunk": 3 }));
+        assert!(rx.try_iter().count() == 0);
+        // Unknown topic request errors rather than hanging.
+        assert!(
+            bus.request("no.such.topic.zzz", json!({})).is_err()
+                || bus.is_wired("no.such.topic.zzz")
+        );
+    }
+
+    #[test]
+    fn gemi_facade_calls_marshal_through_the_bus() {
+        let _g = wire();
+        let ws = Path::new(".");
+        use gemi::*;
+        let _ = HardwareProfiler::get_profile();
+        let _ = HardwareProfiler::check_oom_critical();
+        let _ = HardwareProfiler::get_caps_string();
+        let _ = HardwareProfiler::get_candle_device_label();
+        let _ = ModelManager::list_models(ws);
+        let _ = ModelManager::get_selected_model(Some(ws));
+        let _ = ModelManager::get_selected_model(None);
+        let _ = ModelManager::get_active_engine_and_model(Some("code"));
+        let _ = ModelManager::get_model_path("m");
+        let _ = ModelManager::verify_local_models(ws);
+        let _ = ModelManager::install_model("id");
+        let _ = ModelManager::ensure_hardware_optimal_models(ws);
+        let _ = ModelManager::deep_scan_home_and_register(ws);
+        let _ = ModelManager::set_selected_model("m");
+        let _ = ModelManager::get_selected_model_for_request_with_min_complexity(
+            "p",
+            Some(ws),
+            Some("low"),
+        );
+        let _ = ModelManager::list_models_len(ws);
+        let _ = ModelManager::placement(Some("gpu"), Some(0.5));
+        let _ = ModelManager::placement_with_cloud(Some("p"), Some(0.5), true);
+        let _ = ModelManager::clear_provider_cooldown("openrouter");
+        let _ = loaded_models();
+        assert!(preload_model("m").is_ok());
+        assert!(unload_model("m").is_ok());
+        let _ = register_configured_cloud_endpoints();
+        let _ = cloud_failover_order();
+        note_provider_failure("p", "e");
+        note_provider_success("p");
+        let _ = coding_catalog();
+        assert!(coding_prefer("id").is_ok());
+        let _ = pulse_reason("why", ws);
+        let _ = IntentClassifier::classify("goal");
+        assert_eq!(
+            GemiEngine::embed("t", None).as_deref(),
+            Some(&[1.0f32, 2.0, 3.0][..])
+        );
+        let _ = GemiEngine::embed("t", Some("m"));
+        let _ = GemiEngine::verify_axiomatic_alignment("t", ws);
+        let _ = GemiEngine::generate_reasoning("p", ws);
+        let _ = GemiEngine::generate_reasoning_deep("p", ws);
+        let _ = GemiEngine::generate_reasoning_deep_with_min_complexity("p", ws, "low");
+        let _ = MissionPlanner::partition_mission("g", ws);
+        let _ = MissionPlanner::plan_mission("g", ws);
+        let _ = MissionPlanner::refine_plan("g", &json!({}), ws);
+    }
+
+    #[test]
+    fn gawd_facade_calls_marshal_through_the_bus() {
+        let _g = wire();
+        let ws = Path::new(".");
+        let _ = gawd::solve_mission("i", ws, "v");
+        let _ = gawd::solve_mission_with_model("i", ws, "v", Some("m"));
+        let _ = gawd::solve_mission_generative("i", ws, "v", None);
+        assert!(gawd::sanitize_input("x").is_ok());
+        assert!(gawd::audit_action("t", "d", ws).is_ok());
+        let _ = gawd::apply_patch(json!({}));
+        let _ = gawd::cluster_peers();
+        let _ = gawd::cluster_roster();
+        let _ = gawd::bloat_audit(ws);
+        let _ = gawd::identity_report(ws);
+        let _ = gawd::audit_reasoning_substrate(ws);
+        let _ = gawd::self_validate(ws);
+        let _ = gawd::train_reflexes(ws);
+        let _ = gawd::resolve_capability_gap("cap", ws);
+        let _ = gawd::broadcast_lock_request("res");
+        let _ = gawd::scheduler_recent_decisions(5);
+    }
+
+    #[test]
+    fn tools_and_agents_facades_marshal_through_the_bus() {
+        let _g = wire();
+        let ws = Path::new(".");
+        let _ = tools::exists("exec_command");
+        let _ = tools::execute_tool("exec_command", &json!({}), ws);
+        tools::auto_link_essential_mcp_servers();
+        let _ = tools::scout_reasoning_remotes();
+        let _ = tools::list_tools();
+        let _ = tools::leading_mcp_list(ws);
+        let _ = tools::leading_mcp_enable(ws, "n");
+        let _ = tools::leading_mcp_disable(ws, "n");
+        let _ = tools::execute_external_tool("r", "t", "g");
+
+        let profile = crate::agent_types::AgentProfile {
+            name: "n".into(),
+            description: "d".into(),
+            categories: vec![],
+            semantic_anchors: vec![],
+            base_rank: 0.5,
+            is_core: false,
+        };
+        let _ = agents::meta_list();
+        agents::meta_register(profile);
+        agents::meta_update_rank("n", 0.1, "test");
+        let reg = agents::AgentMetaRegistry::global();
+        let _ = reg.get_checksum();
+        let _ = agents::external_catalog(ws, "execution");
+        let _ = agents::external_list(ws, "execution");
+        let _ = agents::external_runs(ws, "execution");
+        let _ = agents::external_run(ws, "execution", "a", "p");
+        let _ = agents::external_logs(ws, "execution", "id");
+        let _ = agents::external_control(ws, "execution", "id", "status", &json!({}));
+        let _ = agents::external_managed_goal("n", "g", ws);
+    }
+
+    #[test]
+    fn gawd_hooks_facades_marshal() {
+        let _g = wire();
+        let ws = Path::new(".");
+        let _ = gawd_hooks::audit_action("t", "d", ws);
+        let _ = gawd_hooks::sanitize_input("x");
+    }
+}

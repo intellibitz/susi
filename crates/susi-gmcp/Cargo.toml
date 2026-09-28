@@ -39,6 +39,9 @@ susi-vendor-fastembed = { workspace = true, optional = true }
 susi-vendor-syn = { workspace = true, optional = true }
 tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
 
+[dev-dependencies]
+tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
+
 [features]
 default = ["tools-rich"]
 tools-rich = ["dep:susi-vendor-chrome", "dep:susi-vendor-tantivy", "dep:susi-vendor-fastembed", "dep:susi-vendor-syn"]

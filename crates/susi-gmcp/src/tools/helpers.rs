@@ -373,4 +373,123 @@ mod confine_tests {
             assert!(confine_exec_argv(&ws, &argv(&ok)).is_ok(), "{ok:?}");
         }
     }
+
+    #[test]
+    fn secure_path_rejects_escapes_and_symlinks() {
+        let ws = tempfile::tempdir().unwrap();
+        for bad in ["/etc/passwd", "../out", "a/../../x", ""] {
+            assert!(super::secure_path(ws.path(), bad).is_err(), "{bad:?}");
+        }
+        // Existing file inside the workspace resolves canonically.
+        std::fs::write(ws.path().join("ok.txt"), "x").unwrap();
+        let resolved = super::secure_path(ws.path(), "ok.txt").unwrap();
+        assert!(resolved.starts_with(ws.path().canonicalize().unwrap()));
+        // A symlinked leaf is refused outright.
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("/etc/passwd", ws.path().join("link")).unwrap();
+            assert!(super::secure_path(ws.path(), "link").is_err());
+            // A symlinked *parent* cannot smuggle an escape either.
+            let outside = tempfile::tempdir().unwrap();
+            std::os::unix::fs::symlink(outside.path(), ws.path().join("dirlink")).unwrap();
+            assert!(super::secure_path(ws.path(), "dirlink/ok.txt").is_err());
+        }
+    }
+
+    #[test]
+    fn read_file_nofollow_reads_and_refuses_symlinks() {
+        let ws = tempfile::tempdir().unwrap();
+        std::fs::write(ws.path().join("f.txt"), "contents").unwrap();
+        assert_eq!(
+            super::read_file_nofollow(&ws.path().join("f.txt")).unwrap(),
+            "contents"
+        );
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("/etc/hostname", ws.path().join("l")).unwrap();
+            assert!(super::read_file_nofollow(&ws.path().join("l")).is_err());
+        }
+    }
+
+    #[test]
+    fn tool_string_arg_accepts_string_or_named_keys() {
+        assert_eq!(
+            super::tool_string_arg(&serde_json::json!(" bare "), &["path"]).unwrap(),
+            "bare"
+        );
+        assert_eq!(
+            super::tool_string_arg(&serde_json::json!({"cmd": "ls"}), &["command", "cmd"]).unwrap(),
+            "ls"
+        );
+        assert!(super::tool_string_arg(&serde_json::json!({}), &["path"]).is_err());
+        assert!(super::tool_string_arg(&serde_json::json!({"path": " "}), &["path"]).is_err());
+    }
+
+    #[test]
+    fn ssrf_blocklist_covers_internal_ranges() {
+        use std::net::IpAddr;
+        for blocked in [
+            "127.0.0.1",
+            "10.0.0.9",
+            "192.168.1.1",
+            "172.16.5.5",
+            "169.254.1.1",
+            "0.0.0.0",
+            "224.0.0.1",
+            "255.255.255.255",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "::",
+            "ff02::1",
+            "::ffff:127.0.0.1",
+        ] {
+            let ip: IpAddr = blocked.parse().unwrap();
+            assert!(super::is_blocked_ssrf_target(ip), "{blocked}");
+        }
+        for open in ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"] {
+            let ip: IpAddr = open.parse().unwrap();
+            assert!(!super::is_blocked_ssrf_target(ip), "{open}");
+        }
+    }
+
+    #[test]
+    fn secure_external_url_blocks_non_http_and_internal_hosts() {
+        for bad in [
+            "file:///etc/passwd",
+            "ftp://example.com",
+            "http://127.0.0.1:8080/",
+            "http://10.0.0.1/",
+            "http://[::1]/",
+            "not a url",
+            "http://",
+        ] {
+            assert!(super::secure_external_url(bad).is_err(), "{bad}");
+        }
+        // Literal public IP resolves without DNS.
+        assert!(super::secure_external_url("http://8.8.8.8/").is_ok());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn proc_readers_return_real_tables() {
+        let ps = super::os_ps_proc(5, "").unwrap();
+        assert!(ps.starts_with("PID\tNAME\tRSS_KB\n"));
+        assert!(ps.lines().count() > 1);
+        let filtered = super::os_ps_proc(5, "definitely-no-such-comm").unwrap();
+        assert_eq!(filtered.lines().count(), 1);
+        let info = super::os_sysinfo_proc().unwrap();
+        assert!(info.contains("kernel:"));
+        assert!(info.contains("cpus:"));
+    }
+
+    #[test]
+    fn external_agent_control_requires_task_id() {
+        assert!(super::external_agent_control(
+            &serde_json::json!({}),
+            std::path::Path::new("."),
+            "status"
+        )
+        .is_err());
+    }
 }
