@@ -135,3 +135,7 @@ One line per landed step, newest last.
 11. Repetition-scaled failure penalty: `failing_tool_counts` →
     `HistorySignals.failed` is now a count map; each mention costs
     0.10×min(count,3). `failing_tools` stays as the set view.
+12. plan_steps now calls `generate_reasoning_deep` — planning never takes
+    the Tier-0 reflex path (Claude's measured cosine-0.72 collision: a
+    trained reflex could answer the decomposition prompt, parser drops it,
+    mission silently single-steps). Answering their open question.

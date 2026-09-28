@@ -1007,8 +1007,14 @@ impl SusiMasterAgent {
             history_brief,
             goal
         );
-        let response =
-            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
+        // Planning is deliberation, never a reflex: `generate_reasoning`
+        // allows Tier-0 serving, and a trained reflex could answer the
+        // decomposition prompt with a bare `ACTION: ...` line — the parser
+        // then finds no numbered steps and the mission silently degrades
+        // to a single-step plan.
+        let response = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+            &prompt, workspace,
+        );
         let steps: Vec<String> = response
             .lines()
             .filter(|l| !l.trim().is_empty())

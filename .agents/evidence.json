@@ -3734,6 +3734,16 @@
     "label": "Count-scaled failure penalty",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-024",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 6 \u2014 planning can never be served by a reflex (cross-lane ask from Claude). ama::master::plan_steps used GemiEngine::generate_reasoning, which permits Tier-0 reflex serving; a trained reflex whose prompt embedding sits near the wrapped goal (measured cosine 0.72 vs SUPPORT_MIN 0.6) could answer the decomposition request with a bare 'ACTION: status' line, the numbered-step parser drops it, and the mission silently degrades to a single-step plan. Now uses generate_reasoning_deep \u2014 planning is deliberation, never a cached answer.",
+   "proof": "cargo check -p susi-gawd-swarm --all-targets clean; prior suite 59 pass unchanged (one-call-site behavior change).",
+   "anchor": {
+    "label": "plan_steps bypasses Tier-0",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
