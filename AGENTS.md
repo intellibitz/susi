@@ -6,11 +6,14 @@ are enforced mechanically where possible; the rest are reviewed in CI.
 ## Enforced (compiler — violations fail the build)
 
 - **`unsafe` is forbidden or denied in every crate.**
-  - `#![forbid(unsafe_code)]`: susi-paths, susi-error, susi-vendor-wasmer,
-    susi-leaf-services, susi-core,
-    susi-sandbox, susi-gmcp, susi-server, susi-gawd, susi-gawd-agents,
-    susi-http-transport, susi-vendor-candle, susi-vendor-mcp-server, susi-vendor-cloud, susi-adapters-llm, xtask,
-    root package.
+  - `#![forbid(unsafe_code)]`: susi-abi, susi-adapters-llm, susi-core,
+    susi-dsh-cell, susi-error, susi-gawd, susi-gawd-agents, susi-gmcp,
+    susi-http-transport, susi-leaf-services, susi-native-client, susi-paths,
+    susi-sandbox, susi-sandbox-client, susi-server, susi-universal-cell,
+    susi-vendor-candle, susi-vendor-chrome, susi-vendor-cloud,
+    susi-vendor-fastembed, susi-vendor-mcp, susi-vendor-mcp-server,
+    susi-vendor-syn, susi-vendor-tantivy, susi-vendor-wasmer, xtask, root
+    package.
   - `#![deny(unsafe_code)]` + per-function `#[allow(unsafe_code)]` with a
     `// SAFETY:` justification: susi-agents, susi-config, susi-daemon,
     susi-gawd-a2a, susi-gawd-swarm, susi-gemi, susi-gemi-models, susi-tools.

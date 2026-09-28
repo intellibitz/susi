@@ -729,3 +729,27 @@ the same commit as the code.
 | 298 | Negotiation cannot commit before accept | tick advances one phase per 30s |
 | 299 | Unwired ratchet documentation vs code | AGENTS/identity/architecture agree at 0 |
 | 300 | Iteration ledger stopped at 200 | this table through 300 |
+
+## Claude RSI run (2026-09-28, iterations 1-100)
+
+Worked on branch `rsi/claude-100-iterations` in its own worktree, landed on
+`main` at every macro step (19 commits, +3282/-6396 lines), alongside the
+Cursor and Devin runs. Evidence: EV-2022928-296..302, 307, 308, 310-319.
+
+| Area | Result |
+|---|---|
+| Leaf services | one axum crate (`susi-leaf-services`) for paths/error/config/sandbox/native; foundation crates carry no HTTP framework or tokio; `/healthz` on every service |
+| Vendor isolation | `susi-vendor-{wasmer,mcp,tantivy,fastembed,chrome,syn}`: each third-party SDK in one crate exposing SUSI-shaped calls; HTTP-client rule is an allow-list over `crates/` |
+| Dependencies | 64 dead declarations removed; `directories`, `once_cell`, `md5`, `crossbeam` dropped; `susi-paths` depends only on `serde_json` |
+| Duplicates | one loopback client (`susi_paths::loopback`), one endpoint lookup, one override store, one port table (`ports::*_SERVICE`), one error model (no `anyhow` in any library crate), one path per module (susi-gemi alias layer removed), 30 unreachable daemon modules removed |
+| Honesty (Mandate 1) | no tree-sitter claim, real registry checksum and peer RTT, real health checks, no discarded-probe wiring, capability-gap replies state what a reflex does and does not do |
+| RSI loop | capability gaps and recurring mission intents get model-written WASI reflexes, published only after they parse, compile and run in the sandbox; probe fallback reports the gap as open |
+| Instance isolation | every leaf-service client honours the port offset (dev instance never reaches the release services) |
+
+Open (not done in this run): tests were deferred by operator instruction;
+reflex output correctness is not verified (only execution); the
+`audit_log`/`logger` daemon modules duplicate the signed audit chain and
+the tracing sink (removal was blocked by the session's permission
+classifier and needs an operator decision); `MacPolicy` vs the daemon's
+`CapabilityPolicy` are two capability models at different layers.
+

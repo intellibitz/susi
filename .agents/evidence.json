@@ -3130,6 +3130,16 @@
       "milestone": "RSI iterations 89-94 (Claude run): one source of truth for leaf-service ports; unreachable-service errors report the effective port.",
       "proof": "The five leaf-service default ports were separate literals in `LEAF_SERVICES` (susi-core `service_table.rs`) and in each client (`susi-paths` 18080, `susi-error` 18081, `susi-config` 18082, `susi-sandbox-client` 18083, `susi-native-client` 18084) — nothing kept them in step. They are now `susi_paths::ports::{PATHS_SERVICE, ERROR_SERVICE, CONFIG_SERVICE, SANDBOX_SERVICE, NATIVE_SERVICE}`, and the service table plus all five clients name the constants. (`susi-abi`'s cell-port exclusion range keeps its literal: it is rank 0 beside susi-paths and does not depend on it; its doc comment names the range.) User-facing errors hard-coded the default: \"susi-native service unreachable on 127.0.0.1:18084\" and \"sandbox service on 127.0.0.1:18083\" were wrong for any offset instance (dev = +100); they now report `loopback::service_port(..)` (the port actually tried), and gmcp's docker-exec wrapper no longer repeats a stale port on top of it. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "Claude RSI run close-out",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-319",
+      "milestone": "RSI iterations 95-100 (Claude run, closing): AGENTS.md unsafe policy regenerated from the sources; run summary and open items recorded.",
+      "proof": "AGENTS.md's `#![forbid(unsafe_code)]` list named 15 crates while 25 workspace crates declare it (missing: susi-abi, susi-dsh-cell, susi-native-client, susi-sandbox-client, susi-universal-cell, susi-vendor-{chrome,fastembed,mcp,syn,tantivy}); the list is now generated from each crate's lib.rs/main.rs attribute (25 crates + xtask + root package); the `deny(unsafe_code)` list already matched the sources. Run totals (this agent's 19 commits since d359eeef): 341 file-changes, +3282/-6396 lines; evidence EV-2022928-296..302, 307, 308, 310-319 (303-306 and 309 are concurrent agents' entries). Final gate on the landed tip: `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -D warnings` clean. Open items, stated plainly: (1) no tests were run during the run (operator instruction) — the workspace test suite, including the new unit tests (susi-vendor-tantivy roundtrip, susi-vendor-syn, loopback parse, reflex_synth, xdg layout), is the pending chore; (2) a model-written reflex is verified to execute, not to be correct for its intent; (3) daemon `audit_log`/`logger` duplicate the signed audit chain / tracing sink — their deletion was blocked by the session's permission classifier as possible audit tampering and needs an explicit operator decision; (4) `MacPolicy` (tool-dispatch HMAC tokens) and the daemon's `CapabilityPolicy` (per-cell grants) are overlapping capability models, not merged without tests; (5) the susi-gawd host crate keeps its facade re-exports by design.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,
