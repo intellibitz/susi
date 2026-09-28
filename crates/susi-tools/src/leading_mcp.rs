@@ -480,6 +480,13 @@ mod tests {
 
     #[test]
     fn expand_workspace_and_env_placeholders() {
+        // Every env writer in this crate's tests holds ENV_LOCK: a concurrent
+        // setenv can make another thread's getenv (HOME / XDG_CONFIG_HOME
+        // path resolution) miss, which sent client::tests' second MCP admit
+        // to a different config file.
+        let _env = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         std::env::set_var("SUSI_TEST_PG", "postgresql://localhost/db");
         let args = expand_args(
             &[
@@ -506,6 +513,9 @@ mod tests {
         assert_eq!(args[1], "/tmp/ws/.susi/agent.sqlite");
         // {env:} stays exact-match only — secrets must not splice into
         // compound strings.
+        let _env = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         std::env::set_var("SUSI_TEST_EMBED", "sekrit");
         let args = expand_args(&["x-{env:SUSI_TEST_EMBED}".into()], Path::new("/tmp")).unwrap();
         assert_eq!(args[0], "x-{env:SUSI_TEST_EMBED}");

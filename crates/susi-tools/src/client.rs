@@ -587,23 +587,13 @@ mod tests {
 
     #[test]
     fn admit_mcp_server_writes_http_and_stdio() {
-        let _guard = home_lock();
-        let dir = std::env::temp_dir().join(format!(
-            "susi_mcp_admit_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let prev_home = std::env::var_os("HOME");
-        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-        unsafe {
-            std::env::set_var("HOME", &dir);
-            std::env::set_var("XDG_CONFIG_HOME", dir.join("config"));
-        }
+        // SUSI_HOME pins the config dir. Repointing HOME/XDG_CONFIG_HOME
+        // instead was flaky: `use_xdg` re-checks whether `$HOME/.susi`
+        // exists on every call, and concurrent tests create it under the
+        // borrowed HOME, so the second admit resolved to the legacy path
+        // (captured: `.../config/susi/mcp_config.json` then
+        // `.../.susi/mcp_config.json`) and only `fs` was listed.
+        let (_guard, dir, prev) = isolated_home();
         let res = GmcpClient::admit_mcp_server("remote", "http://127.0.0.1:3100/mcp", &[]);
         assert_eq!(res, "SUCCESS_ADMITTED");
         let res2 = GmcpClient::admit_mcp_server(
@@ -615,21 +605,12 @@ mod tests {
             ],
         );
         assert_eq!(res2, "SUCCESS_ADMITTED");
+        assert_eq!(GmcpClient::get_config_path(), dir.join("mcp_config.json"));
         let tools = GmcpClient::list_external_tools();
         let names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.iter().any(|n| n.starts_with("remote:")), "{names:?}");
         assert!(names.iter().any(|n| n.starts_with("fs:")), "{names:?}");
-        unsafe {
-            match prev_home {
-                Some(h) => std::env::set_var("HOME", h),
-                None => std::env::remove_var("HOME"),
-            }
-            match prev_xdg {
-                Some(h) => std::env::set_var("XDG_CONFIG_HOME", h),
-                None => std::env::remove_var("XDG_CONFIG_HOME"),
-            }
-        }
-        let _ = fs::remove_dir_all(&dir);
+        restore_home(&dir, prev);
     }
 
     fn isolated_home() -> (
