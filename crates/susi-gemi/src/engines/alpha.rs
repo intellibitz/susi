@@ -42,9 +42,9 @@ struct TrainingBatch {
 
 /// Malformed or blank lines fail the batch. Well-formed records that cannot
 /// be labeled (blank intent, failed mission outcome, action outside the
-/// vocabulary) are skipped and
-/// counted: a restored claim would otherwise fail on them every cycle, and
-/// once the vocabulary is full an unknown action never becomes trainable.
+/// vocabulary) are skipped and counted: a restored claim would otherwise
+/// fail on them every cycle, and once the vocabulary is full an unknown
+/// action never becomes trainable.
 fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<TrainingBatch> {
     let mut entries = Vec::new();
     let mut skipped = 0usize;
@@ -892,9 +892,14 @@ impl SusiAlphaModel {
             }
         }
 
-        let mut h = 0u32;
+        // FNV-1a: an order-sensitive hash. The previous byte *sum* sent every
+        // anagram ("stop"/"post"/"pots"/"tops") and every equal-sum word to
+        // one bucket, making unrelated words indistinguishable to the reflex
+        // classifier and spuriously similar to fleet recruitment.
+        let mut h = 0x811c_9dc5u32;
         for b in word.as_bytes() {
-            h = h.wrapping_add(*b as u32);
+            h ^= u32::from(*b);
+            h = h.wrapping_mul(0x0100_0193);
         }
 
         let category = match word {
@@ -1051,6 +1056,20 @@ mod tests {
         // Must be sorted and contain foundational intents
         assert!(intents.contains(&"status".to_string()));
         assert!(intents.contains(&"version".to_string()));
+    }
+
+    #[test]
+    fn anagrams_project_to_distinct_features() {
+        let project = |w: &str| SusiAlphaModel::semantic_centroid_projection(w, None).unwrap();
+        let words = ["stop", "post", "pots", "tops", "spot", "opts"];
+        let vectors: Vec<Vec<f32>> = words.iter().map(|w| project(w)).collect();
+        let distinct: std::collections::BTreeSet<usize> = vectors
+            .iter()
+            .map(|v| v.iter().position(|x| *x != 0.0).unwrap())
+            .collect();
+        assert!(distinct.len() >= 5, "anagrams share buckets: {distinct:?}");
+        // Category anchors are unchanged: synonyms still coincide.
+        assert_eq!(project("status"), project("health"));
     }
 
     #[test]

@@ -521,6 +521,17 @@ samples staged before the source guard and any future writer. Receipt
 samples carry no outcome (they come from successful tool calls) and stay
 trainable.
 
+Inputs are `semantic_centroid_projection`: a 128-dim, position-weighted,
+L2-normalized bag of words in which category words ("status", "read",
+"fix", ...) light a fixed 10-dim band and every other word lights one
+FNV-1a-hashed bucket. The hash was a byte *sum* until EV-CLAUDE-004, which
+made all anagrams and equal-sum words one feature. The same projection
+drives fleet recruitment's goal↔agent cosine, so the fix also removes
+spurious recruitment matches. Checkpoints trained under the old hash need
+no migration: the held-out gate below scores the active and candidate
+weights under the *current* projection, so stale weights are judged
+honestly and replaced on the next cycle.
+
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged intents — chosen by a hash of the normalized intent, so
 a sample lands in the same split every cycle — is held out. A candidate fit

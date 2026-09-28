@@ -29,6 +29,8 @@ One line per landed step, newest last.
 3. Failed missions no longer train the reflex model: the trainer skips any
    sample whose recorded outcome is not a success, and mission reports stop
    staging failures (`alpha.rs`, EV-CLAUDE-003; one guard in Devin's `ama/report.rs`).
+4. Unknown words hash with FNV-1a, not a byte sum that made every anagram
+   one feature (reflex classifier and fleet recruitment; EV-CLAUDE-004).
 
 ## Devin's loop log
 

@@ -3524,6 +3524,16 @@
    "milestone": "Failed missions no longer train the Tier-0 reflex classifier. Before: SusiMissionReport::emit_mission_trace staged goal -> action for every mission. The outcome (FAILED/BLOCKED/...) was recorded only in performance_metadata, and parse_training_entries ignored it. Because the classifier has no negative class, each failed mission taught the model to map that goal to the action that had just failed. Now there are two independent guards. The source (ama/report.rs) stages only when MissionTrace::succeeded() (SUCCESS/COMPLETE). The trainer (alpha.rs parse_training_entries) skips any record whose performance_metadata.outcome is present and not a success, which covers samples staged before the source guard and any future writer. Receipt samples (no outcome; they come only from successful tool calls) stay trainable. Test: failed_mission_outcomes_are_never_trainable (FAILED/BLOCKED skipped; COMPLETE/SUCCESS/receipt/no-metadata kept; an all-failure batch errors naming the reason).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "get_semantic_anchor FNV-1a",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-004",
+   "milestone": "The Tier-0 input projection no longer merges unrelated words. Before: SusiAlphaModel::get_semantic_anchor hashed each non-category word by summing its bytes, so every anagram (stop/post/pots/tops/spot/opts) and every equal-sum word lit the same bucket and was one feature to the reflex classifier. The same projection feeds fleet recruitment's goal-vs-agent cosine (susi-gawd-agents agents/fleet.rs, threshold 0.35), so those collisions also inflated recruitment similarity. Now the bucket comes from order-sensitive FNV-1a. Category anchors and the bucket weight are unchanged. No checkpoint migration is needed: the EV-CLAUDE-002 held-out gate scores both the active and the candidate weights under the current projection, so a stale checkpoint is judged honestly and replaced on the next training cycle. Test: anagrams_project_to_distinct_features (at least 5 distinct buckets for 6 anagrams; category synonyms still coincide).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
