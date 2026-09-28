@@ -16,6 +16,22 @@ pub struct DistillationStaged {
     pub intent: String,
     pub action: String,
     pub timestamp: u64,
+    /// Writer-supplied context. Mission-trace samples carry the mission's
+    /// `outcome`; receipt samples (successful tool calls) carry none.
+    #[serde(default)]
+    pub performance_metadata: Option<serde_json::Value>,
+}
+
+/// A sample whose mission outcome is recorded and is not a success teaches
+/// the classifier to repeat a failure; it is never trainable. Mirrors
+/// `MissionTrace::succeeded`.
+fn failed_outcome(entry: &DistillationStaged) -> bool {
+    entry
+        .performance_metadata
+        .as_ref()
+        .and_then(|meta| meta.get("outcome"))
+        .and_then(|outcome| outcome.as_str())
+        .is_some_and(|outcome| !matches!(outcome, "SUCCESS" | "COMPLETE"))
 }
 
 #[derive(Debug)]
@@ -25,7 +41,8 @@ struct TrainingBatch {
 }
 
 /// Malformed or blank lines fail the batch. Well-formed records that cannot
-/// be labeled (blank intent, action outside the vocabulary) are skipped and
+/// be labeled (blank intent, failed mission outcome, action outside the
+/// vocabulary) are skipped and
 /// counted: a restored claim would otherwise fail on them every cycle, and
 /// once the vocabulary is full an unknown action never becomes trainable.
 fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<TrainingBatch> {
@@ -44,7 +61,7 @@ fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<T
                 line_index + 1
             )
         })?;
-        if entry.intent.trim().is_empty() {
+        if entry.intent.trim().is_empty() || failed_outcome(&entry) {
             skipped += 1;
             continue;
         }
@@ -62,7 +79,7 @@ fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<T
     if entries.is_empty() {
         if skipped > 0 {
             return Err(anyhow!(
-                "No trainable distillation records: {skipped} skipped (blank intent or action outside the reflex vocabulary)."
+                "No trainable distillation records: {skipped} skipped (blank intent, failed mission outcome, or action outside the reflex vocabulary)."
             ));
         }
         return Err(anyhow!("Empty distillation dataset."));
@@ -668,7 +685,7 @@ impl SusiAlphaModel {
             String::new()
         } else {
             format!(
-                " Skipped {} untrainable record(s) (blank intent or action outside the reflex vocabulary).",
+                " Skipped {} untrainable record(s) (blank intent, failed mission outcome, or action outside the reflex vocabulary).",
                 batch.skipped
             )
         };
@@ -1093,6 +1110,37 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("line 5"));
+    }
+
+    #[test]
+    fn failed_mission_outcomes_are_never_trainable() {
+        let content = [
+            r#"{"intent":"a","action":"status","timestamp":1,"performance_metadata":{"outcome":"FAILED"}}"#,
+            r#"{"intent":"b","action":"status","timestamp":2,"performance_metadata":{"outcome":"BLOCKED"}}"#,
+            r#"{"intent":"c","action":"status","timestamp":3,"performance_metadata":{"outcome":"COMPLETE"}}"#,
+            r#"{"intent":"d","action":"reason","timestamp":4,"performance_metadata":{"outcome":"SUCCESS"}}"#,
+            // Receipt samples carry no outcome: a successful tool call.
+            r#"{"intent":"e","action":"reason","timestamp":5,"performance_metadata":{"source":"tool_receipt"}}"#,
+            r#"{"intent":"f","action":"reason","timestamp":6}"#,
+        ]
+        .join("\n");
+        let parsed = parse_training_entries(&content, &intents()).unwrap();
+        let kept: Vec<&str> = parsed
+            .entries
+            .iter()
+            .map(|(entry, _)| entry.intent.as_str())
+            .collect();
+        assert_eq!(kept, ["c", "d", "e", "f"]);
+        assert_eq!(parsed.skipped, 2);
+
+        let only_failures = [
+            r#"{"intent":"a","action":"status","timestamp":1,"performance_metadata":{"outcome":"FAILED"}}"#,
+        ]
+        .join("\n");
+        assert!(parse_training_entries(&only_failures, &intents())
+            .unwrap_err()
+            .to_string()
+            .contains("failed mission outcome"));
     }
 
     #[test]

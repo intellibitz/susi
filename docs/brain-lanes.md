@@ -26,6 +26,9 @@ One line per landed step, newest last.
 2. Tier-0 checkpoints publish only if a candidate fit does not regress
    held-out accuracy against the active checkpoint; a regression restores
    the claim instead of shipping worse weights (`alpha.rs`, EV-CLAUDE-002).
+3. Failed missions no longer train the reflex model: the trainer skips any
+   sample whose recorded outcome is not a success, and mission reports stop
+   staging failures (`alpha.rs`, EV-CLAUDE-003; one guard in Devin's `ama/report.rs`).
 
 ## Devin's loop log
 

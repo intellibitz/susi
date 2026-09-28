@@ -121,8 +121,8 @@ impl SusiMissionReport {
 
     /// The mission's schema'd learning record: same terminal choke point as
     /// the inspectable trace, so every persisted mission — success, failure,
-    /// or governance block — also lands in `mission_traces.jsonl`, the context
-    /// graph, and distillation staging.
+    /// or governance block — also lands in `mission_traces.jsonl` and the
+    /// context graph. Only successful missions reach distillation staging.
     fn emit_mission_trace(&self, workspace: &Path) {
         let session = crate::susi_core::capture::EvidenceSession::current();
         // The route label is what Tier-0 distillation learns to predict, so
@@ -161,6 +161,11 @@ impl SusiMissionReport {
         // registered agents + installed tools, so a route label
         // ("swarm"/"fast-path") would stage a line the trainer can only
         // skip while still counting it toward the training threshold.
+        // Only successful missions stage: the classifier has no negative
+        // class, so a failed goal -> action pair would teach the failure.
+        if !trace.succeeded() {
+            return;
+        }
         let capabilities: std::collections::BTreeSet<String> =
             crate::susi_core::registry::CapabilityRegistry::global()
                 .list_tools()

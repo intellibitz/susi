@@ -512,6 +512,15 @@ failed claim, or recovers orphaned claims. Those three read the buffer and
 atomically replace it, so an unlocked append in between would be written to
 the replaced inode and lost.
 
+Only successes are trainable. The classifier has no negative class, so a
+failed mission's `goal → action` pair would teach the model to repeat the
+failure. `SusiMissionReport` stages a pair only when `MissionTrace::succeeded`
+(`SUCCESS`/`COMPLETE`), and `parse_training_entries` independently skips any
+record whose `performance_metadata.outcome` is anything else — covering
+samples staged before the source guard and any future writer. Receipt
+samples carry no outcome (they come from successful tool calls) and stay
+trainable.
+
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged intents — chosen by a hash of the normalized intent, so
 a sample lands in the same split every cycle — is held out. A candidate fit
