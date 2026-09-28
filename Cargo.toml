@@ -233,9 +233,20 @@ debug = "line-tables-only"
 # compiled alone for the last ~50s. -O3 → -O0 cut it 110s → 31s in isolation
 # (codegen 78s → 4s); it drives a browser over a websocket, so its own code
 # speed is not what a dev run waits on.
+#
+# libwild (wasmer-compiler's in-process linker): -O3 → -O0 cut it 57s → 13s
+# in isolation, and compiling a 1.8 MB wasm module took 60.0ms vs 59.3ms —
+# no measurable runtime cost.
+#
+# zstd-sys's C build gates zstd → wasmer-wasix, the cold build's tail: it
+# starts at t=27s but, starved of jobserver tokens by ~28 rustc jobs, ends at
+# t=244s (21s in isolation). -O1 cuts its C compile 20.6s → 7.9s; only dev
+# compression speed (tantivy store, wasmer-wasix) pays for it.
 [profile.dev.package]
 "*" = { opt-level = 3 }
 headless_chrome = { opt-level = 0 }
+libwild = { opt-level = 0 }
+zstd-sys = { opt-level = 1 }
 async-trait = { opt-level = 0 }
 bon-macros = { opt-level = 0 }
 bytecheck_derive = { opt-level = 0 }
@@ -246,7 +257,6 @@ derive_more-impl = { opt-level = 0 }
 displaydoc = { opt-level = 0 }
 enum-iterator-derive = { opt-level = 0 }
 enumset_derive = { opt-level = 0 }
-equator-macro = { opt-level = 0 }
 futures-macro = { opt-level = 0 }
 multiversion-macros = { opt-level = 0 }
 num_enum_derive = { opt-level = 0 }
