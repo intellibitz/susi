@@ -800,7 +800,6 @@ fn reachability_from_core_stays_downward() {
 // modules unreachable; later passes deleted isolated sketches and wired
 // modules used by the live composition root. The count may only go down.
 
-const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 13;
 
 fn non_test(text: &str) -> &str {
     text.find("#[cfg(test)]").map_or(text, |i| &text[..i])
@@ -926,13 +925,9 @@ fn unreachable_daemon_modules() -> Vec<String> {
 fn unreachable_daemon_modules_only_decrease() {
     let dead = unreachable_daemon_modules();
     assert!(
-        dead.len() <= UNREACHABLE_DAEMON_MODULES_CEILING,
-        "{} susi-daemon modules are unreachable from any production path \
-         (ceiling {UNREACHABLE_DAEMON_MODULES_CEILING}); wire or remove new ones: {dead:?}",
-        dead.len()
-    );
-    eprintln!(
-        "unreachable susi-daemon modules: {} (ceiling {UNREACHABLE_DAEMON_MODULES_CEILING})",
+        dead.is_empty(),
+        "{} susi-daemon modules are unreachable from any production path; \
+         wire (a discarded probe does not count) or remove them: {dead:?}",
         dead.len()
     );
 }
