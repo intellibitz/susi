@@ -2873,10 +2873,20 @@
     },
     {
       "anchor": {
-        "label": "Review of RSI OS iterations 49-95",
+        "label": "RSI OS isolation iterations 96-100",
         "ref": "file://ARCHITECTURE.md"
       },
       "id": "EV-2022928-293",
+      "milestone": "RSI OS isolation iterations 96-100: GEMI HttpProvider health, generate, embed, and /models discovery leave reqwest; calls go through susi-http-transport (120s generation timeout). susi-gemi no longer declares an HTTP client. live_search and the MCP catalog fetch use http_call. Ratchet core_os_crates_must_not_declare_http_clients includes susi-gemi. Remaining: susi-tools still declares reqwest because rmcp's streamable HTTP client feature requires it. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "Review of RSI OS iterations 49-95",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-294",
       "milestone": "Reachability ratchet correction: only modules used by a live production path count as wired.",
       "proof": "Fixed by removing discarded probe calls and type-only anchors from composition; restoring the 47-module ceiling and correcting README/identity/architecture claims. Tests were not run per operator instruction; cargo fmt and diff checks are the non-test verification.",
       "type": "AUDIT"

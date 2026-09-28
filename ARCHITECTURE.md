@@ -514,3 +514,8 @@ the same commit as the code.
 | 47 | Daemon `fallback`/`http_gateway`/`tool_catalog` unreachable | fallback + gateway + builtin cards on snapshot |
 | 48 | Ratchet still allowed ureq on core/adapters/gmcp; ceiling 53 | forbidden list includes core/adapters-llm/gmcp; ceiling 47 |
 | 49 | Reachability ratchet counted discarded probes and type-only references as production wiring | False anchors removed; ceiling remains 47 until modules are functionally integrated or removed |
+| 96 | GEMI `HttpProvider` generate/health/embed used async reqwest | blocking `post_json_timeout` / `http_call` via `spawn_blocking` |
+| 97 | `/models` discovery used a reqwest client | `register_openai_compat_models` uses `http_call` |
+| 98 | `susi-gemi` still declared `reqwest` | dropped |
+| 99 | live_search and MCP catalog fetch still named `http_agent().get` | `http_call` GET |
+| 100 | Ratchet still allowed gemi reqwest | `susi-gemi` on the HTTP-client forbidden list; remaining `reqwest` is `susi-tools` rmcp |

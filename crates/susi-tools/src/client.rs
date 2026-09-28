@@ -163,21 +163,25 @@ impl GmcpClient {
                         }
                     }
                     let _guard = FetchGuard;
-                    if let Ok(resp) = susi_http_transport::http_agent()
-                        .get(&url)
-                        .header("User-Agent", "SUSI/0.1")
-                        .call()
-                    {
-                        if let Ok(remote_entries) =
-                            resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
-                        {
-                            if !remote_entries.is_empty() {
-                                let _ = crate::susi_config::atomic_write_bytes(
-                                    &reg_p,
-                                    serde_json::to_string_pretty(&remote_entries)
-                                        .unwrap_or_default()
-                                        .as_bytes(),
-                                );
+                    if let Ok(call) = susi_http_transport::http_call(
+                        "GET",
+                        &url,
+                        &[("User-Agent", "SUSI/0.1")],
+                        20,
+                        0,
+                    ) {
+                        if let Ok(bytes) = call.into_bytes(16 * 1024 * 1024) {
+                            if let Ok(remote_entries) =
+                                serde_json::from_slice::<Vec<GlobalMcpEntry>>(&bytes)
+                            {
+                                if !remote_entries.is_empty() {
+                                    let _ = crate::susi_config::atomic_write_bytes(
+                                        &reg_p,
+                                        serde_json::to_string_pretty(&remote_entries)
+                                            .unwrap_or_default()
+                                            .as_bytes(),
+                                    );
+                                }
                             }
                         }
                     }

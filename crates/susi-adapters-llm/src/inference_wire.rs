@@ -90,10 +90,27 @@ pub fn token_param_retry(body: &Value, error_body: &str) -> Option<Value> {
 /// provider's reason reaches the caller), retries once through
 /// [`token_param_retry`] on a 400, and returns the parsed 2xx reply.
 pub fn post_json(url: &str, headers: &[(&str, &str)], body: &Value) -> Result<Value, String> {
+    post_json_timeout(url, headers, body, 30)
+}
+
+/// Same as [`post_json`] with an explicit recv timeout in seconds. Cloud
+/// generation can exceed the 30s default used by eval/benchmark.
+pub fn post_json_timeout(
+    url: &str,
+    headers: &[(&str, &str)],
+    body: &Value,
+    timeout_secs: u64,
+) -> Result<Value, String> {
     let send = |body: &Value| -> Result<(u16, Vec<u8>), String> {
         let bytes = serde_json::to_vec(body).map_err(|e| format!("request json: {e}"))?;
-        let call =
-            susi_http_transport::http_call_with_body("POST", url, headers, Some(&bytes), 30, 0)?;
+        let call = susi_http_transport::http_call_with_body(
+            "POST",
+            url,
+            headers,
+            Some(&bytes),
+            timeout_secs,
+            0,
+        )?;
         let status = call.status;
         let buf = call
             .into_bytes(16 * 1024 * 1024)
