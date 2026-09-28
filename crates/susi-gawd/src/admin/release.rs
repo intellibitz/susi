@@ -128,11 +128,17 @@ impl SusiAdmin {
             .join("target")
             .join("debug")
             .join(if cfg!(windows) { "susi.exe" } else { "susi" });
+        // Bare mission commands persist intent evidence in their current
+        // workspace. Run release smoke checks in an ignored scratch workspace
+        // so validating a clean source tree cannot dirty `.agents/evidence.json`
+        // and then fail the cut's clean-tree gate.
+        let smoke_workspace = workspace.join("target").join("release-smoke-workspace");
+        std::fs::create_dir_all(&smoke_workspace)?;
         let missions = ["identity", "status", "models"];
         for mission in missions {
             let mut mission_out = Command::new(&susi_bin)
                 .arg(mission)
-                .current_dir(workspace)
+                .current_dir(&smoke_workspace)
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
                 .spawn()?;
@@ -144,6 +150,7 @@ impl SusiAdmin {
                 )));
             }
         }
+        let _ = std::fs::remove_dir_all(&smoke_workspace);
 
         let new_version = match cut {
             Some(level) => {
