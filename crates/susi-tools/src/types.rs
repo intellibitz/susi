@@ -49,3 +49,37 @@ impl SusiTool for MetaTool {
         (self.handler)(arg, workspace)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{MetaCategory, MetaTool, SusiTool};
+    use serde_json::json;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    #[test]
+    fn meta_tool_delegates_to_its_handler() {
+        let tool = MetaTool {
+            tool_name: "echo_tool".into(),
+            tool_desc: "returns the arg".into(),
+            category: MetaCategory::SystemPrimitive,
+            handler: Arc::new(|arg, _ws| {
+                Ok(format!(
+                    "echo:{}",
+                    arg.get("v").and_then(|v| v.as_i64()).unwrap_or(-1)
+                ))
+            }),
+        };
+        assert_eq!(tool.name(), "echo_tool");
+        assert_eq!(tool.description(), "returns the arg");
+        let out = tool.execute(&json!({"v": 7}), Path::new(".")).unwrap();
+        assert_eq!(out, "echo:7");
+        let err_tool = MetaTool {
+            tool_name: "fail".into(),
+            tool_desc: "d".into(),
+            category: MetaCategory::McpProxy,
+            handler: Arc::new(|_a, _w| Err(crate::susi_error::EaiError::internal("boom"))),
+        };
+        assert!(err_tool.execute(&json!({}), Path::new(".")).is_err());
+    }
+}

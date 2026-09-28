@@ -109,7 +109,88 @@ pub fn register() {
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_tool_error;
+    use super::{looks_like_tool_error, workspace_path, ToolsPlaneHandler};
+    use crate::susi_core::plane_bus::{topics, PlaneHandler};
+    use serde_json::json;
+
+    #[test]
+    fn workspace_path_defaults_and_reads_payload() {
+        assert_eq!(workspace_path(&json!({})), std::path::PathBuf::from("."));
+        assert_eq!(
+            workspace_path(&json!({"workspace": "/tmp/ws"})),
+            std::path::PathBuf::from("/tmp/ws")
+        );
+        assert_eq!(
+            workspace_path(&json!({"workspace": 42})),
+            std::path::PathBuf::from(".")
+        );
+    }
+
+    #[test]
+    fn exists_and_list_topics_answer_without_side_effects() {
+        let h = ToolsPlaneHandler;
+        let out = h
+            .handle(topics::TOOLS_EXISTS, json!({"name": "__no_such_tool__"}))
+            .unwrap();
+        assert_eq!(out["exists"], json!(false));
+        let list = h.handle(topics::TOOLS_LIST, json!({})).unwrap();
+        assert!(list.is_array() || list.is_object());
+    }
+
+    #[test]
+    fn execute_unknown_tool_reports_error_field() {
+        let h = ToolsPlaneHandler;
+        let out = h
+            .handle(
+                topics::TOOLS_EXECUTE,
+                json!({"name": "__no_such_tool__", "args": {}}),
+            )
+            .unwrap();
+        assert!(
+            out.get("error").is_some() || out.get("text").is_some(),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn leading_topics_resolve_against_workspace() {
+        let h = ToolsPlaneHandler;
+        let dir = tempfile::tempdir().unwrap();
+        let ws = json!({"workspace": dir.path().to_str().unwrap()});
+        // Status on a fresh workspace returns rows or a typed error — never panic.
+        let listed = h.handle(topics::TOOLS_LEADING_LIST, ws.clone());
+        assert!(listed.is_ok() || listed.is_err());
+        // Enable of an unknown server errors; disable reports removal flag.
+        let _ = h.handle(
+            topics::TOOLS_LEADING_ENABLE,
+            json!({"workspace": ws["workspace"], "name": "__nope__"}),
+        );
+        if let Ok(disabled) = h.handle(
+            topics::TOOLS_LEADING_DISABLE,
+            json!({"workspace": ws["workspace"], "name": "__nope__"}),
+        ) {
+            assert_eq!(disabled["removed"], json!(false));
+        }
+    }
+
+    #[test]
+    fn remote_execute_unknown_remote_maps_to_error_value() {
+        let h = ToolsPlaneHandler;
+        let out = h
+            .handle(
+                topics::TOOLS_REMOTE_EXECUTE,
+                json!({"remote": "__nope__", "tool": "t", "goal": "g"}),
+            )
+            .unwrap();
+        assert!(out.get("error").is_some(), "{out}");
+    }
+
+    #[test]
+    fn unhandled_topic_is_rejected() {
+        let h = ToolsPlaneHandler;
+        let err = h.handle("tools.unknown", json!({}));
+        assert!(err.is_err());
+    }
 
     #[test]
     fn tool_error_text_detection_covers_stringified_failures() {

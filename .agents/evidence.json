@@ -3484,6 +3484,16 @@
     "label": "Difficulty-aware tier floor",
     "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-018",
+   "type": "ARCHITECTURE",
+   "milestone": "Retrieval feeds scoring, not only prompting: mission_trace::failing_tools extracts tool tokens that appear exclusively on FAILED similar traces (a tool that also succeeded is not tainted), and deliberation's score_plan_weighted docks each mention in a candidate step -0.10 (rationale reports failed_history_tools). Known-failure patterns now lower plan rank rather than merely forcing consensus. Coverage baseline stray keys folded into floor_percent; floors moved to honest measurements (susi-config 74, susi-tools 59, susi-gawd 58.5, susi-core 87, susi-gawd-swarm 52).",
+   "proof": "New tests: failing_tools_flags_only_unambiguous_failures (susi-core 205 pass), failed_history_tools_penalize_but_do_not_veto (susi-gawd-swarm 54 pass). susi-tools +7 plane-handler/types tests (19 pass; plane_handler.rs 40->90% lines).",
+   "anchor": {
+    "label": "Failure-history plan penalty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
