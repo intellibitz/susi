@@ -307,15 +307,11 @@ impl SusiMasterAgent {
             local_models_count
         );
 
-        eprintln!("\n[GENOMIC MANDATES]");
-        for rule in AlphaSelf::RULES
-            .iter()
-            .filter(|r| r.title.contains("Universal") || r.title.contains("Agnosticism"))
-        {
-            eprintln!(
-                "- [Mandate {}] {}: {}",
-                rule.id, rule.title, rule.imperative
-            );
+        // Only DNA mandates are mandates; ledger entries and roadmap vectors
+        // are compiled alongside them but never printed under this heading.
+        eprintln!("\n[GENOMIC MANDATES] {}", AlphaSelf::genome_summary());
+        for rule in AlphaSelf::rules_of(susi_gawd_agents::self_core::RuleKind::Mandate) {
+            eprintln!("- [{}] {}", rule.cite, rule.title);
         }
 
         // 1. Continuous Intent Manifold Routing

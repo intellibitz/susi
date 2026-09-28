@@ -10,11 +10,14 @@ impl AxiomSubstrate {
     /// Renders `AlphaSelf::RULES` and `AlphaSelf::COMPONENTS` as markdown summaries.
     pub fn ingest_constitution(_workspace: &Path) -> (String, String) {
         let mut agents_summary = String::new();
-        agents_summary.push_str("# Compiled Binary Axiom Rules\n");
+        agents_summary.push_str(&format!(
+            "# Compiled Genome ({})\n",
+            AlphaSelf::genome_summary()
+        ));
         for rule in AlphaSelf::RULES {
             agents_summary.push_str(&format!(
-                "{}. **{}**: {}\n",
-                rule.id, rule.title, rule.imperative
+                "- **{}** {}: {}\n",
+                rule.cite, rule.title, rule.imperative
             ));
         }
 

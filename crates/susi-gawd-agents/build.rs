@@ -156,15 +156,98 @@ fn sync_readme_badge(readme_path: PathBuf, version: &str) {
     }
 }
 
-fn emit_rule(id: usize, title: &str, imperative: &str) -> String {
-    format!("    SusiAxiomRule {{ id: {id}, title: {title:?}, imperative: {imperative:?} }},\n")
+fn emit_rule(kind: &str, cite: &str, title: &str, imperative: &str) -> String {
+    format!(
+        "    SusiAxiomRule {{ kind: RuleKind::{kind}, cite: {cite:?}, title: {title:?}, imperative: {imperative:?} }},\n"
+    )
 }
 
-fn seq_suffix(id: &str) -> usize {
-    id.split('-')
-        .next_back()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
+/// Every compiled rule, each under its own canonical citation (identity.json
+/// `canonical_addressing`): DNA mandates as `Mandate N`, engine protocols as
+/// `Pillar IV item N`, roadmap vectors and ledger entries by their own IDs.
+/// No synthetic numbering: ledger IDs span several counters, so any offset
+/// scheme collides (EV-2022920-031 and EV-2022924-031 were both "181").
+fn genome_rules(
+    identity: &Value,
+    roadmap: &Value,
+    evidence: &Value,
+) -> Vec<(&'static str, String)> {
+    let mut rules = Vec::new();
+    for m in require_array(identity, "/pillars/dna/mandates") {
+        let id = m["id"].as_u64().unwrap();
+        rules.push((
+            "Mandate",
+            emit_rule(
+                "Mandate",
+                &format!("Mandate {id}"),
+                m["title"].as_str().unwrap_or(""),
+                m["imperative"].as_str().unwrap_or(""),
+            ),
+        ));
+    }
+    for p in require_array(identity, "/pillars/engine/protocols") {
+        let id = p["id"].as_u64().unwrap();
+        rules.push((
+            "EngineProtocol",
+            emit_rule(
+                "EngineProtocol",
+                &format!("Pillar IV item {id}"),
+                p["title"].as_str().unwrap_or(""),
+                p["imperative"].as_str().unwrap_or(""),
+            ),
+        ));
+    }
+    for v in require_array(roadmap, "/vectors") {
+        let title = format!(
+            "{} {}",
+            v["mastery_target"].as_str().unwrap_or(""),
+            v["vector"].as_str().unwrap_or("")
+        );
+        rules.push((
+            "RoadmapVector",
+            emit_rule(
+                "RoadmapVector",
+                v["id"].as_str().unwrap_or(""),
+                &title,
+                v["progress"].as_str().unwrap_or(""),
+            ),
+        ));
+    }
+    for e in require_array(evidence, "/entries") {
+        let title = format!(
+            "{} [{}]",
+            e["milestone"].as_str().unwrap_or(""),
+            e["type"].as_str().unwrap_or("")
+        );
+        let imperative = format!(
+            "Anchor: {}. Proof: {}",
+            e.pointer("/anchor/label")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+            e["proof"].as_str().unwrap_or("")
+        );
+        rules.push((
+            "Evidence",
+            emit_rule(
+                "Evidence",
+                e["id"].as_str().unwrap_or(""),
+                &title,
+                &imperative,
+            ),
+        ));
+    }
+    rules
+}
+
+fn emit_rule_const(name: &str, rules: &[(&'static str, String)], kinds: &[&str]) -> String {
+    let mut out = format!("pub const {name}: &[SusiAxiomRule] = &[\n");
+    for (kind, line) in rules {
+        if kinds.contains(kind) {
+            out.push_str(line);
+        }
+    }
+    out.push_str("];\n\n");
+    out
 }
 
 fn tier_enum(tier: i64) -> &'static str {
@@ -225,64 +308,19 @@ fn emit_axioms(version: &str, identity: &Value, roadmap: &Value, evidence: &Valu
         "pub const GEN_ENGINE_VERSION: &str = {version:?};\n\n"
     ));
 
-    // DNA mandates -> GEN_AGENT_RULES
-    out.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
-    for m in require_array(identity, "/pillars/dna/mandates") {
-        let id = m["id"].as_u64().unwrap() as usize;
-        let title = m["title"].as_str().unwrap_or("");
-        let imperative = m["imperative"].as_str().unwrap_or("");
-        out.push_str(&emit_rule(id, title, imperative));
-    }
-    out.push_str("];\n\n");
-
-    // Roadmap -> GEN_ENGINE_AXIOMS (50-99)
-    out.push_str("pub const GEN_ENGINE_AXIOMS: &[SusiAxiomRule] = &[\n");
-    for v in require_array(roadmap, "/vectors") {
-        let id = v["id"].as_str().unwrap_or("");
-        let seq = seq_suffix(id);
-        if seq == 0 {
-            continue;
-        }
-        let title = format!(
-            "{} {}",
-            v["mastery_target"].as_str().unwrap_or(""),
-            v["vector"].as_str().unwrap_or("")
-        );
-        let imperative = v["progress"].as_str().unwrap_or("");
-        out.push_str(&emit_rule(seq + 50, &title, imperative));
-    }
-    out.push_str("];\n\n");
-
-    // Engine protocols -> GEN_DEPLOYMENT_RULES (100-149)
-    out.push_str("pub const GEN_DEPLOYMENT_RULES: &[SusiAxiomRule] = &[\n");
-    for p in require_array(identity, "/pillars/engine/protocols") {
-        let id = p["id"].as_u64().unwrap() as usize;
-        let title = p["title"].as_str().unwrap_or("");
-        let imperative = p["imperative"].as_str().unwrap_or("");
-        out.push_str(&emit_rule(id + 100, title, imperative));
-    }
-    out.push_str("];\n\n");
-
-    // Evidence -> GEN_PULSE_AXIOMS (150+)
-    out.push_str("pub const GEN_PULSE_AXIOMS: &[SusiAxiomRule] = &[\n");
-    for e in require_array(evidence, "/entries") {
-        let id = e["id"].as_str().unwrap_or("");
-        let seq = seq_suffix(id);
-        if seq == 0 {
-            continue;
-        }
-        let typ = e["type"].as_str().unwrap_or("");
-        let milestone = e["milestone"].as_str().unwrap_or("");
-        let title = format!("{milestone} [{typ}]");
-        let anchor_label = e
-            .pointer("/anchor/label")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let proof = e["proof"].as_str().unwrap_or("");
-        let imperative = format!("Anchor: {anchor_label}. Proof: {proof}");
-        out.push_str(&emit_rule(seq + 150, &title, &imperative));
-    }
-    out.push_str("];\n\n");
+    let rules = genome_rules(identity, roadmap, evidence);
+    out.push_str(&emit_rule_const("GEN_AGENT_RULES", &rules, &["Mandate"]));
+    out.push_str(&emit_rule_const(
+        "GEN_ENGINE_AXIOMS",
+        &rules,
+        &["RoadmapVector"],
+    ));
+    out.push_str(&emit_rule_const(
+        "GEN_DEPLOYMENT_RULES",
+        &rules,
+        &["EngineProtocol"],
+    ));
+    out.push_str(&emit_rule_const("GEN_PULSE_AXIOMS", &rules, &["Evidence"]));
 
     // Components by category
     let mut aoa = String::from("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
@@ -328,61 +366,10 @@ fn emit_axioms(version: &str, identity: &Value, roadmap: &Value, evidence: &Valu
     out.push_str(&realized);
     out.push_str(&all);
 
-    // Unified GEN_RULES
-    out.push_str("pub const GEN_RULES: &[SusiAxiomRule] = &[\n");
-    for m in require_array(identity, "/pillars/dna/mandates") {
-        let id = m["id"].as_u64().unwrap() as usize;
-        out.push_str(&emit_rule(
-            id,
-            m["title"].as_str().unwrap_or(""),
-            m["imperative"].as_str().unwrap_or(""),
-        ));
-    }
-    for v in require_array(roadmap, "/vectors") {
-        let id = v["id"].as_str().unwrap_or("");
-        let seq = seq_suffix(id);
-        if seq == 0 {
-            continue;
-        }
-        let title = format!(
-            "{} {}",
-            v["mastery_target"].as_str().unwrap_or(""),
-            v["vector"].as_str().unwrap_or("")
-        );
-        out.push_str(&emit_rule(
-            seq + 50,
-            &title,
-            v["progress"].as_str().unwrap_or(""),
-        ));
-    }
-    for p in require_array(identity, "/pillars/engine/protocols") {
-        let id = p["id"].as_u64().unwrap() as usize;
-        out.push_str(&emit_rule(
-            id + 100,
-            p["title"].as_str().unwrap_or(""),
-            p["imperative"].as_str().unwrap_or(""),
-        ));
-    }
-    for e in require_array(evidence, "/entries") {
-        let id = e["id"].as_str().unwrap_or("");
-        let seq = seq_suffix(id);
-        if seq == 0 {
-            continue;
-        }
-        let title = format!(
-            "{} [{}]",
-            e["milestone"].as_str().unwrap_or(""),
-            e["type"].as_str().unwrap_or("")
-        );
-        let imperative = format!(
-            "Anchor: {}. Proof: {}",
-            e.pointer("/anchor/label")
-                .and_then(|v| v.as_str())
-                .unwrap_or(""),
-            e["proof"].as_str().unwrap_or("")
-        );
-        out.push_str(&emit_rule(seq + 150, &title, &imperative));
-    }
-    out.push_str("];\n");
+    out.push_str(&emit_rule_const(
+        "GEN_RULES",
+        &rules,
+        &["Mandate", "EngineProtocol", "RoadmapVector", "Evidence"],
+    ));
     out
 }

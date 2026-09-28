@@ -35,12 +35,9 @@ impl GenomeDistiller {
         // 1. Distill identity.json (Governance Axiom Rules)
         for rule in AlphaSelf::RULES {
             samples.push(ReasoningSample {
-                intent: format!("What is the mandate for rule {}?", rule.title),
+                intent: format!("What does {} ({}) say?", rule.cite, rule.title),
                 blackboard_context: "susi_genome_audit".to_string(),
-                successful_outcome: format!(
-                    "Rule {}: {}. Imperative: {}",
-                    rule.id, rule.title, rule.imperative
-                ),
+                successful_outcome: format!("{}: {}. {}", rule.cite, rule.title, rule.imperative),
                 timestamp,
             });
         }
@@ -48,11 +45,11 @@ impl GenomeDistiller {
         // 3. Distill PULSE_AXIOMS
         for axiom in AlphaSelf::PULSE_AXIOMS {
             samples.push(ReasoningSample {
-                intent: format!("What is pulse axiom {}?", axiom.title),
+                intent: format!("What does ledger entry {} record?", axiom.cite),
                 blackboard_context: "susi_pulse_axioms".to_string(),
                 successful_outcome: format!(
-                    "Pulse Axiom {}: {}. Imperative: {}",
-                    axiom.id, axiom.title, axiom.imperative
+                    "Ledger entry {}: {}. {}",
+                    axiom.cite, axiom.title, axiom.imperative
                 ),
                 timestamp,
             });

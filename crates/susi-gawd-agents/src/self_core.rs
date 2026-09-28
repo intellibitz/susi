@@ -15,9 +15,25 @@ pub struct SusiComponentSpec {
     pub description: &'static str,
 }
 
+/// Which governance source a compiled rule comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleKind {
+    /// identity.json Pillar I (DNA) mandate.
+    Mandate,
+    /// identity.json Pillar IV (engine) protocol.
+    EngineProtocol,
+    /// roadmap.json vector.
+    RoadmapVector,
+    /// evidence.json ledger entry.
+    Evidence,
+}
+
 #[derive(Debug, Clone)]
 pub struct SusiAxiomRule {
-    pub id: usize,
+    pub kind: RuleKind,
+    /// Canonical citation: `Mandate N`, `Pillar IV item N`, or the roadmap
+    /// vector / ledger entry ID. Only a `Mandate` is ever a mandate.
+    pub cite: &'static str,
     pub title: &'static str,
     pub imperative: &'static str,
 }
@@ -62,12 +78,30 @@ impl AlphaSelf {
         }
     }
 
+    /// Compiled rules of one kind.
+    pub fn rules_of(kind: RuleKind) -> impl Iterator<Item = &'static SusiAxiomRule> {
+        Self::RULES.iter().filter(move |r| r.kind == kind)
+    }
+
+    /// Rule counts by source, e.g. "48 mandates, 7 engine protocols, 2
+    /// roadmap vectors, 282 ledger entries". One total would present ledger
+    /// entries as rules they are not.
+    pub fn genome_summary() -> String {
+        format!(
+            "{} mandates, {} engine protocols, {} roadmap vectors, {} ledger entries",
+            Self::rules_of(RuleKind::Mandate).count(),
+            Self::rules_of(RuleKind::EngineProtocol).count(),
+            Self::rules_of(RuleKind::RoadmapVector).count(),
+            Self::rules_of(RuleKind::Evidence).count(),
+        )
+    }
+
     pub fn inspect_compiled_binary_instructions() -> String {
         let mut out = format!(
-            "SUSI Substrate Compiled Binary Instructions:\n- Version: {}\n- Paradigm: {}\n- Hardcoded Axiom Rules: {}\n",
+            "SUSI Substrate Compiled Binary Instructions:\n- Version: {}\n- Paradigm: {}\n- Compiled Genome: {}\n",
             Self::VERSION,
             Self::CORE_PARADIGM,
-            Self::RULES.len(),
+            Self::genome_summary(),
         );
         out.push_str(&Self::format_pillar_inventory(
             "AoA Pillar",
@@ -112,7 +146,10 @@ pub fn identity_report(workspace: &std::path::Path) -> String {
     report.push_str("## 1. CORE CONFIGURATION (Compiled Binary Axiomatic Core)\n");
     report.push_str(&format!("- Version: {}\n", AlphaSelf::VERSION));
     report.push_str(&format!("- Core Paradigm: {}\n", AlphaSelf::CORE_PARADIGM));
-    report.push_str(&format!("- Axiom Rules: {}\n", AlphaSelf::RULES.len()));
+    report.push_str(&format!(
+        "- Compiled Genome: {}\n",
+        AlphaSelf::genome_summary()
+    ));
     for (label, comps) in [
         ("AoA Pillar", AlphaSelf::AOA_COMPONENTS),
         ("Agents Pillar", AlphaSelf::AGENT_COMPONENTS),
@@ -169,7 +206,7 @@ mod tests {
 
         let summary = AlphaSelf::inspect_compiled_binary_instructions();
         assert!(summary.contains(GEN_ENGINE_VERSION));
-        assert!(summary.contains("Hardcoded Axiom Rules:"));
+        assert!(summary.contains("Compiled Genome:"));
         assert!(
             summary.contains("AoA Pillar ("),
             "pillar lines must include counts in parentheses"
@@ -196,5 +233,23 @@ mod tests {
                 || summary.contains("OpenWeightManager"),
             "Models pillar must include curated model managers, got:\n{summary}"
         );
+    }
+
+    #[test]
+    fn every_rule_is_cited_by_its_real_source() {
+        let mut seen = std::collections::HashSet::new();
+        for rule in AlphaSelf::RULES {
+            assert!(seen.insert(rule.cite), "duplicate citation {}", rule.cite);
+            let ok = match rule.kind {
+                RuleKind::Mandate => rule.cite.starts_with("Mandate "),
+                RuleKind::EngineProtocol => rule.cite.starts_with("Pillar IV item "),
+                RuleKind::RoadmapVector => !rule.cite.starts_with("Mandate "),
+                RuleKind::Evidence => rule.cite.starts_with("EV-"),
+            };
+            assert!(ok, "{:?} rule mis-cited as {}", rule.kind, rule.cite);
+        }
+        let mandates: Vec<_> = AlphaSelf::rules_of(RuleKind::Mandate).collect();
+        assert!(mandates.iter().any(|r| r.cite == "Mandate 1"));
+        assert!(!mandates.iter().any(|r| r.title.contains("RSI iteration")));
     }
 }
