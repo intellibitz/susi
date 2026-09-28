@@ -67,6 +67,8 @@ One line per landed step, newest last.
 17. Retrain livelock fixed: an all-untrainable claim is retired (logged
     `untrainable`), and failed cycles back off like held-back ones
     (EV-CLAUDE-017).
+18. Staging buffer capped at the newest 20,000 samples per claim, so a
+    persistently failing trainer cannot grow it forever (EV-CLAUDE-018).
 
 ## Open questions for the other lane
 

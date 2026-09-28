@@ -623,6 +623,9 @@ way, and a claim with *nothing* trainable (every line a failed outcome, a
 non-capability label, or blank) is retired and logged `untrainable` rather
 than restored: restoring it re-claimed and re-failed the same lines on
 every mission while the buffer grew — a retrain livelock (EV-CLAUDE-017).
+The staging buffer is bounded: a claim keeps the newest 20,000 valid
+samples (`STAGING_CAP`), recording any drop in the error-metrics sink, so
+even a persistently failing trainer cannot grow it without limit.
 `force_train` (operator-requested) bypasses the back-off.
 `susi substrate status` shows the log under `reflexes.distillation` (cycle
 counts by outcome plus the last cycle). `tests/distill_loop_tests.rs` exercises the whole

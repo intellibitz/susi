@@ -223,6 +223,7 @@ fn claim_staged_samples(workspace: &Path, threshold: usize) -> EaiResult<Option<
     // truncated trailing JSON line that causes parse_training_entries to
     // reject the entire batch. Keep only lines that parse as valid JSON.
     let validated = sanitize_claimed_buffer(&path)?;
+    let validated = cap_claimed_buffer(&path, validated, STAGING_CAP)?;
     let claim = TrainingClaim {
         root,
         path,
@@ -244,6 +245,32 @@ fn claim_staged_samples(workspace: &Path, threshold: usize) -> EaiResult<Option<
         return Ok(None);
     }
     Ok(Some(claim))
+}
+
+/// Most staged samples a claim keeps (newest win). Restored claims plus
+/// new arrivals only shrink when a cycle publishes, so a persistently
+/// failing trainer — even with back-off — would otherwise grow the buffer
+/// by a threshold's worth per retry, forever.
+const STAGING_CAP: usize = 20_000;
+
+/// Keep the newest `cap` lines of a sanitized claim; returns the count kept.
+/// Dropped samples are recorded in the error-metrics sink.
+fn cap_claimed_buffer(path: &Path, count: usize, cap: usize) -> EaiResult<usize> {
+    if count <= cap {
+        return Ok(count);
+    }
+    let content = std::fs::read_to_string(path)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let keep = &lines[lines.len().saturating_sub(cap)..];
+    let mut body = keep.join("\n");
+    body.push('\n');
+    crate::susi_config::atomic_write_bytes(path, body.as_bytes())?;
+    let _emit = EaiError::io(format!(
+        "staging buffer over cap: dropped {} oldest staged sample(s), kept {}",
+        lines.len() - keep.len(),
+        keep.len()
+    ));
+    Ok(keep.len())
 }
 
 /// Rewrite a claimed staging file, keeping only complete JSON lines.
@@ -392,10 +419,25 @@ fn staged_sample_count(path: &Path) -> EaiResult<Option<usize>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        claim_staged_samples, held_back_wait, last_cycle, log_cycle, recover_orphaned_claims,
-        restore_claim, retire_claim, sanitize_claimed_buffer, staged_sample_count,
-        DISTILLATION_LOG_KEEP,
+        cap_claimed_buffer, claim_staged_samples, held_back_wait, last_cycle, log_cycle,
+        recover_orphaned_claims, restore_claim, retire_claim, sanitize_claimed_buffer,
+        staged_sample_count, DISTILLATION_LOG_KEEP,
     };
+
+    #[test]
+    fn claimed_buffer_keeps_only_the_newest_samples_over_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claimed.jsonl");
+        let body: String = (0..10).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        std::fs::write(&path, &body).unwrap();
+        assert_eq!(cap_claimed_buffer(&path, 10, 10).unwrap(), 10);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), body);
+        assert_eq!(cap_claimed_buffer(&path, 10, 3).unwrap(), 3);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "{\"n\":7}\n{\"n\":8}\n{\"n\":9}\n"
+        );
+    }
 
     #[test]
     fn cycle_log_is_bounded_and_newest_last() {
