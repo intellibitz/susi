@@ -113,8 +113,50 @@ jobs:
         with:
           tool: cargo-nextest@0.9.146
 
-      # The capability-gap e2e executes a synthesized WASI reflex through the
-      # susi-native leaf service; without it the test reports a skip.
+      # nextest schedules each test as its own process (~40% faster than
+      # libtest's per-binary pools on this suite) and isolates cross-process
+      # IPC state the way the microkernel intends. The capability-gap e2e is
+      # excluded here — it needs a running susi-native leaf service and runs
+      # in the parallel `e2e` job so its ~4min service build is off this
+      # job's critical path.
+      - name: cargo nextest
+        run: cargo nextest run --workspace --locked -E 'not binary(capability_gap_e2e)'
+
+      # nextest does not run doc-tests; keep the door open for them.
+      - name: cargo test --doc
+        run: cargo test --workspace --locked --doc
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # The capability-gap e2e executes a synthesized WASI reflex through a live
+  # susi-native leaf service. It runs in its own job in parallel with `test`
+  # so building the service no longer serializes ahead of the suite.
+  e2e:
+    name: capability_gap_e2e (live susi-native)
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+
+      - name: Install wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+
       - name: Build susi-native service
         run: cargo build -p susi-leaf-services --bin susi-native --no-default-features --features service-native,standalone-service-bins --locked
 
@@ -128,15 +170,5 @@ jobs:
           done
           echo "susi-native failed to start" && exit 1
 
-      # nextest schedules each test as its own process (~40% faster than
-      # libtest's per-binary pools on this suite) and isolates cross-process
-      # IPC state the way the microkernel intends.
-      - name: cargo nextest
-        run: cargo nextest run --workspace --locked
-
-      # nextest does not run doc-tests; keep the door open for them.
-      - name: cargo test --doc
-        run: cargo test --workspace --locked --doc
-
-      - name: cargo clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo nextest (e2e only)
+        run: cargo nextest run -p susi-daemon --test capability_gap_e2e --locked
