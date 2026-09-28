@@ -1007,8 +1007,13 @@ impl SusiMasterAgent {
             history_brief,
             goal
         );
-        let response =
-            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
+        // Deep path: planning must never be answered by a reflex tier. With
+        // reflexes allowed, the decomposition template around a familiar goal
+        // cleared Tier-0's support gate (cosine 0.72 measured) and could be
+        // answered `ACTION: status`, which the step parser then drops.
+        let response = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+            &prompt, workspace,
+        );
         let steps: Vec<String> = response
             .lines()
             .filter(|l| !l.trim().is_empty())

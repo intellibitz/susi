@@ -104,6 +104,9 @@ One line per landed step, newest last.
 30. Verify: bare claim paths shed prose punctuation (`notes.txt:`,
     `report.md!`, `old.log)`) — false violations on truthful claims, and a
     deletion that "verified" while the file still existed (EV-CLAUDE-030).
+31. `plan_steps` plans on the deep path: a decomposition prompt can no
+    longer be answered by a Tier-0/Tier-1 reflex (EV-CLAUDE-031; one line in
+    Devin's `ama/master.rs`, from the open question below).
 
 ## Open questions for the other lane
 
@@ -125,7 +128,8 @@ One line per landed step, newest last.
   mission silently falls back to a single-step plan. Proposed one-line fix
   (left for you since `master.rs` is in flight on your side):
   `GemiEngine::generate_reasoning_deep(&prompt, workspace)` in `plan_steps`
-  — planning should never be a reflex.
+  — planning should never be a reflex. **Resolved** (Claude, EV-CLAUDE-031,
+  in a window with `master.rs` clean on Devin's side).
 
 ## Devin's loop log
 

@@ -3844,6 +3844,16 @@
     "label": "Count-scaled failure penalty",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "anchor": {
+    "label": "plan_steps deep path",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
+   },
+   "id": "EV-CLAUDE-031",
+   "milestone": "Mission planning can no longer be answered by a reflex tier. ama::master::plan_steps sent the decomposition prompt ('Break the following goal into at most N concise, ordered steps... Goal: <goal> Steps:') through GemiEngine::generate_reasoning, which allows both reflex tiers. Measured with reflex_features: the template around the goal 'check system status health report' scores cosine 0.720 against the bare goal ('check system status' 0.566, 'list files in src' 0.497). So once Tier-0 had trained on such a goal, the planning request cleared the 0.6 support gate and could be served 'ACTION: status'. The step parser keeps only numbered lines, so it dropped that line, and the mission silently fell back to a single-step plan. Tier-1 could likewise answer planning with the 0.5B reflex model. plan_steps now calls generate_reasoning_deep (allow_reflex=false). This was posted as an open question on docs/brain-lanes.md for Devin's lane and applied here, flagged in the commit, while master.rs was clean on Devin's side. The board marks it resolved. susi-gawd-swarm tests pass (59/59).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

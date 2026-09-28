@@ -489,6 +489,12 @@ the model floor — `solve_internal`'s first inference attempt gets a
 paying a failed attempt to learn it — while familiar reliably-solved
 intents stay on the cheap path.
 
+Planning prompts go to the deep inference path
+(`generate_reasoning_deep`), never a reflex tier: with reflexes allowed, the
+decomposition template around a familiar goal cleared Tier-0's support gate
+(cosine 0.72 measured) and could be answered with a bare `ACTION:` line
+that the step parser drops (EV-CLAUDE-031).
+
 The `deliberate` stage is plan search (`susi_gawd_swarm::deliberation`):
 `solve_autonomous` no longer commits to the first decomposition. Candidates
 are generated at several step budgets, scored purely (goal-token coverage
