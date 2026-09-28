@@ -148,7 +148,11 @@ pub struct ClusterPeerNode {
     pub is_active: bool,
     pub capabilities: Vec<String>,
     pub registry_checksum: u64,
+    /// Round-trip time of the last signed ping → pong, in ms. `0` means
+    /// not yet measured (unsigned / gossip-learned rows, the local node).
     pub latency_ms: u64,
+    /// Peer-reported uptime. The wire protocol does not carry it yet, so
+    /// `0` means unknown — never a measured zero.
     pub uptime_secs: u64,
     pub trust_score: f32,
     #[serde(default)]
@@ -309,6 +313,13 @@ impl SusiSupervisor {
                     // answer a cycle late.
                     let mut pending_nonces: std::collections::VecDeque<String> =
                         std::collections::VecDeque::new();
+                    // Send time per pending nonce: a signed pong that echoes
+                    // it yields a real round-trip time for `latency_ms`.
+                    let mut nonce_sent_at: std::collections::HashMap<String, std::time::Instant> =
+                        std::collections::HashMap::new();
+                    const MAX_PONGS_PER_NONCE: usize = 64;
+                    let mut accepted_pongs: std::collections::HashSet<(String, String)> =
+                        std::collections::HashSet::new();
                     // Roster write throttle — see the persist call below.
                     let mut last_persist = std::time::Instant::now();
                     // Ban-list re-read throttle — see the sweep below.
@@ -502,10 +513,17 @@ impl SusiSupervisor {
                             // echoed our nonce — promote to Explicit + persist.
                             let verified = pending_nonces.iter().find_map(|nonce| {
                                 crate::susi_config::cluster_key::verify_signed_pong(&msg, nonce)
+                                    .map(|v| (nonce.clone(), v))
                             });
-                            if let Some((node_id, checksum, bloom_hex, roster, pubkey, bind_sig)) =
-                                verified
+                            if let Some((
+                                nonce,
+                                (node_id, checksum, bloom_hex, roster, pubkey, bind_sig),
+                            )) = verified
                             {
+                                // Measured RTT: ping send → this signed pong.
+                                let rtt_ms = nonce_sent_at.get(&nonce).map_or(0, |sent| {
+                                    u64::try_from(sent.elapsed().as_millis()).unwrap_or(u64::MAX)
+                                });
                                 {
                                     // Self-edge guard — admitting our own
                                     // responder lets mission dispatch
@@ -557,6 +575,15 @@ impl SusiSupervisor {
                                     if unproven && !Self::endpoint_serves(&node_id, &addr_str) {
                                         continue;
                                     }
+                                    if accepted_pongs
+                                        .iter()
+                                        .filter(|(pending, _)| pending == &nonce)
+                                        .count()
+                                        >= MAX_PONGS_PER_NONCE
+                                        || !accepted_pongs.insert((nonce.clone(), node_id.clone()))
+                                    {
+                                        continue;
+                                    }
                                     let mut peers = t_shared.write();
                                     // Same node re-homed to a new address:
                                     // drop any other row keyed by the
@@ -580,6 +607,7 @@ impl SusiSupervisor {
                                         p.trust_score = (p.trust_score + 0.05).min(1.0);
                                         p.is_active = true;
                                         p.registry_checksum = checksum;
+                                        p.latency_ms = rtt_ms;
                                         p.capability_bloom = peer_bloom;
                                         p.admission = PeerAdmission::Explicit;
                                         p.last_seen_secs = now_secs();
@@ -601,7 +629,7 @@ impl SusiSupervisor {
                                             is_active: true,
                                             capabilities: vec!["CORE".into()],
                                             registry_checksum: checksum,
-                                            latency_ms: 0,
+                                            latency_ms: rtt_ms,
                                             uptime_secs: 0,
                                             trust_score: 0.8,
                                             capability_bloom: peer_bloom,
@@ -844,11 +872,16 @@ impl SusiSupervisor {
                             .flatten()
                             .collect();
                             if !pings.is_empty() {
+                                let sent_at = std::time::Instant::now();
                                 for (_, nonce) in &pings {
                                     pending_nonces.push_back(nonce.clone());
+                                    nonce_sent_at.insert(nonce.clone(), sent_at);
                                 }
                                 while pending_nonces.len() > 8 {
-                                    pending_nonces.pop_front();
+                                    if let Some(old) = pending_nonces.pop_front() {
+                                        nonce_sent_at.remove(&old);
+                                        accepted_pongs.retain(|(nonce, _)| nonce != &old);
+                                    }
                                 }
                                 if broadcast_due {
                                     for (signed, _) in &pings {

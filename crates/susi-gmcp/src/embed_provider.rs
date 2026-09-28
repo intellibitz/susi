@@ -20,7 +20,9 @@ impl Provider for LocalEmbedProvider {
     }
 
     fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
-        Box::pin(async { Ok(true) })
+        // Unhealthy once the model load has failed (cached); before the
+        // first embed the model is simply not loaded yet.
+        Box::pin(async { Ok(!susi_vendor_fastembed::load_failed()) })
     }
 
     fn generate(&self, _prompt: &str) -> BoxFuture<'_, EaiResult<String>> {

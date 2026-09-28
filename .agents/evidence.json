@@ -3120,6 +3120,16 @@
       "milestone": "Remove four snapshot-only probes that overstated daemon feature reachability.",
       "proof": "swarm_host_snapshot called the scheduler with an empty cell list and discarded the result, initialized SelfHealingManager only to check directory creation, executed FallbackRouter with synthetic endpoint outcomes, and routed an empty HTTP gateway request through a constant-success closure. Workspace source search found no other production references to scheduler, self_healing, fallback, or http_gateway. Removed those probes and status fields; the honest reachability record is now 38 of 72 modules reachable and 34 self-tested-only. Tests were not run per operator instruction; the architecture test ratchet was updated but not executed.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "Signed peer RTT and provider health audit",
+        "ref": "file://crates/susi-gawd-swarm/src/amas.rs"
+      },
+      "id": "EV-2022928-318",
+      "milestone": "Measure cluster-peer RTT and stop reporting failed local providers as healthy.",
+      "proof": "AMAS now measures elapsed time from signed-ping nonce creation to the corresponding verified pong, accepts each (nonce, node_id) at most once within a bounded 8-nonce/64-pong window, preventing replays from refreshing trust/latency while allowing a broadcast nonce to receive responses from multiple peers, and keeps peer uptime marked unknown because the wire has no uptime field. Candle checks for a selectable local model via spawn_blocking so filesystem discovery does not block an async worker; fastembed health becomes false after its cached model-load failure. The separate daemon OS-plane probe/wiring claims remain retracted (EV-2022928-316/317). Tests were not run per operator instruction; verification is limited to cargo check, fmt, metadata, and diff checks.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,

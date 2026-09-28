@@ -11,9 +11,14 @@ impl Provider for CandleProvider {
     }
 
     fn is_healthy(&self) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<bool>> {
+        // Healthy only when a local model is actually selectable (weights on
+        // disk that fit this host); without one every generate would fail.
         Box::pin(async {
-            // Check hardware/candle status
-            Ok(true)
+            tokio::task::spawn_blocking(|| {
+                crate::models::ModelManager::get_selected_model(None).is_some()
+            })
+            .await
+            .map_err(|e| crate::susi_core::susi_error::EaiError::process(e.to_string()))
         })
     }
 
