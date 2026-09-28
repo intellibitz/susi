@@ -6388,6 +6388,7 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-shlex",
+ "susi-vendor-web",
 ]
 
 [[package]]
@@ -7039,6 +7040,17 @@ dependencies = [
  "wasmer-middlewares",
  "wasmer-types",
  "wasmer-wasix",
+]
+
+[[package]]
+name = "susi-vendor-web"
+version = "0.1.0"
+dependencies = [
+ "susi-core",
+ "susi-error",
+ "susi-http-transport",
+ "susi-paths",
+ "susi-vendor-serde-json",
 ]
 
 [[package]]

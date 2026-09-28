@@ -10,9 +10,10 @@ are enforced mechanically where possible; the rest are reviewed in CI.
     susi-dsh-cell, susi-error, susi-gawd, susi-gawd-agents, susi-gmcp,
     susi-http-transport, susi-leaf-services, susi-native-client, susi-paths,
     susi-sandbox, susi-sandbox-client, susi-server, susi-universal-cell,
-    susi-vendor-candle, susi-vendor-chrome, susi-vendor-cloud,
-    susi-vendor-fastembed, susi-vendor-mcp, susi-vendor-mcp-server,
-    susi-vendor-syn, susi-vendor-tantivy, susi-vendor-wasmer, xtask, root
+    susi-vendor-agents, susi-vendor-candle, susi-vendor-chrome,
+    susi-vendor-cloud, susi-vendor-fastembed, susi-vendor-mcp,
+    susi-vendor-mcp-server, susi-vendor-models, susi-vendor-syn,
+    susi-vendor-tantivy, susi-vendor-wasmer, susi-vendor-web, xtask, root
     package.
   - `#![deny(unsafe_code)]` + per-function `#[allow(unsafe_code)]` with a
     `// SAFETY:` justification: susi-agents, susi-config, susi-daemon,
@@ -62,6 +63,14 @@ this for the panic-path lints.
   so `use serde::…` is unchanged. A new external crate means a new facade —
   `susi_crates_declare_zero_external_dependencies` (architecture_tests)
   enforces it.
+- **Vendor *code* lives in vendor crates, not only vendor deps.** Any code
+  that speaks a third-party agent, model-provider, or web API must live in a
+  `susi-vendor-*` crate: `susi-vendor-agents` (external agent executors +
+  framework adapters), `susi-vendor-models` (cloud/frontier/OpenRouter/
+  open-weight/HF discovery), `susi-vendor-web` (Open-Meteo, DuckDuckGo),
+  `susi-vendor-cloud` (kubectl/docker/aws/gcloud/az CLIs). susi crates
+  consume them through re-exports; no third-party endpoint strings or
+  vendor protocol logic in non-vendor crates.
 - `susi_http_transport::http_call*` returns non-2xx responses; callers must
   check status. `HttpCall::into_bytes(max)` reads `max + 1` and rejects overflow.
   The std-only `susi_paths::loopback` client caps complete responses at 16 MiB.

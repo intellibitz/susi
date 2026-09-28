@@ -3374,6 +3374,16 @@
       "milestone": "All third-party model-provider integrations moved out of susi-gemi-models into crates/susi-vendor-models (cloud provider catalogs, frontier registry, OpenRouter, open-weight registry, Hugging Face discovery \u2014 5 files, ~1.9k lines).",
       "proof": "git-moved cloud/frontier/openrouter/open_weight/hf_discovery to susi-vendor-models; crate root re-exports susi_{config,core,error,sandbox} so crate:: paths in moved files resolve, and susi-gemi-models re-exports the five modules so susi_gemi_models::{openrouter,cloud,...} paths are unchanged for coding_models, hardware, lifecycle/scan, susi-gemi ext glue, and the CLI. Would-be cycle on ModelManager::set_selected_model resolved by moving the selected_model_override.txt write primitive into susi_vendor_models::set_selected_model_override \u2014 ModelManager now delegates to it (single write contract). LEAF_RANK: susi-vendor-models=4, susi-gemi-models=5, susi-gemi=6. cargo check --workspace --all-targets and fmt clean. No tests run per operator instruction.",
       "type": "ARCHITECTURE"
+    },
+    {
+      "anchor": {
+        "label": "susi-vendor-web: public web API integrations extracted",
+        "ref": "file://crates/susi-vendor-web/src/live_search.rs"
+      },
+      "id": "EV-DEVIN-006",
+      "milestone": "Live-search integrations (Open-Meteo weather, DuckDuckGo instant answers) moved out of susi-gawd-agents into crates/susi-vendor-web; susi crates now contain no third-party API endpoints.",
+      "proof": "git-moved live_search.rs (361 lines) to susi-vendor-web::live_search; susi-gawd-agents re-exports it pub(crate) so SearchAgent/native.rs compile unchanged; every request stays egress-gated through mac_policy and bounded via susi-http-transport. Audited remaining third-party URLs across non-vendor crates: fleet.rs/mac_policy.rs hold policy/classification constants only (no vendor calls); susi-tools client/registry are SUSI-internal gmcp surfaces; cloud_recovery orchestrates CapabilityRegistry, not cloud SDKs. LEAF_RANK: susi-vendor-web=4, gawd-agents=5, gawd-swarm/gemi=6, gawd-a2a=7, gawd=8, daemon=9, susi=10. cargo check --workspace --all-targets and fmt clean. No tests run per operator instruction.",
+      "type": "ARCHITECTURE"
     }
   ],
   "epistemic_score": 1.0,
