@@ -49,6 +49,8 @@ this for the panic-path lints.
   (e.g. `SocketAddr::new(...)` not `"127.0.0.1:80".parse().unwrap()`).
 - No new inter-crate edges without necessity; leaf order is
   `paths → error → config → core/sandbox → services → daemon`.
+- `susi_http_transport::http_call*` returns non-2xx responses; callers must
+  check status. `HttpCall::into_bytes(max)` reads `max + 1` for overflow checks.
 - No stubs: no `todo!()`, `unimplemented!()`, or dead `pub` surfaces left
   "for later".
 - **Mandate 48 (Self-Build Order).** The local susi (`~/.susi/bin/susi` + its daemon) is release-only: it builds

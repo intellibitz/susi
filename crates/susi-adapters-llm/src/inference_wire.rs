@@ -115,6 +115,9 @@ pub fn post_json_timeout(
         let buf = call
             .into_bytes(16 * 1024 * 1024)
             .map_err(|e| format!("unreadable response body: {e}"))?;
+        if buf.len() > 16 * 1024 * 1024 {
+            return Err("response body exceeds 16 MiB".into());
+        }
         Ok((status, buf))
     };
     let (mut status, mut buf) = send(body)?;

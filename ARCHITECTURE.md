@@ -519,3 +519,4 @@ the same commit as the code.
 | 98 | `susi-gemi` still declared `reqwest` | dropped |
 | 99 | live_search and MCP catalog fetch still named `http_agent().get` | `http_call` GET |
 | 100 | Ratchet still allowed gemi reqwest | `susi-gemi` on the HTTP-client forbidden list; remaining `reqwest` is `susi-tools` rmcp |
+| 101 | HTTP callers treated non-2xx as transport errors and accepted capped-plus-one bodies | explicitly check 2xx and reject overflow before parsing |
