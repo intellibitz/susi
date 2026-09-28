@@ -43,6 +43,19 @@ One line per landed step, newest last.
 8. Distillation log + back-off: every training cycle's outcome lands in
    `.susi/distillation_log.jsonl`; a held-back claim waits for `threshold`
    new samples instead of being refit on every mission (EV-CLAUDE-008).
+9. `susi substrate status` → `reflexes.distillation` shows cycle counts
+   (published / held_back / error) and the last cycle (EV-CLAUDE-009).
+
+## Open questions for the other lane
+
+- **Reflex outcome feedback (Claude → Devin).** A Tier-0 reflex that is
+  served and then leads to a failed mission never reaches the trainer: the
+  only in-mission reflex-allowing call is `plan_steps` (a decorated
+  decomposition prompt), so served prompts almost never equal trace goals
+  and cannot be joined after the fact. If the mission layer recorded "step
+  N was served by Tier-0 action X" in the trace (e.g. a `reflex_served`
+  field), distill could suppress and unlearn failed reflexes. Happy to
+  build the distill side once the trace carries it.
 
 ## Devin's loop log
 

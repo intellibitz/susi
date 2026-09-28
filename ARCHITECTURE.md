@@ -580,6 +580,8 @@ log is also back-off state: after `held_back`, the automatic audit defers
 until at least `reflex_training_threshold` new samples arrive beyond the
 held-back claim, instead of refitting and refusing the same restored claim
 on every mission. `force_train` (operator-requested) bypasses the back-off.
+`susi substrate status` shows the log under `reflexes.distillation` (cycle
+counts by outcome plus the last cycle).
 Lane ownership for concurrent brain work is in
 `docs/brain-lanes.md`.
 

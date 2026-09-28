@@ -118,6 +118,25 @@ fn log_cycle(workspace: &Path, outcome: &str, claimed: usize, report: &str) {
     }
 }
 
+/// Operator view of `<ws>/.susi/distillation_log.jsonl`: cycle counts by
+/// outcome and the most recent cycle (surfaced by `susi substrate status`).
+pub fn distillation_summary(workspace: &Path) -> serde_json::Value {
+    let text =
+        std::fs::read_to_string(workspace.join(".susi").join(DISTILLATION_LOG)).unwrap_or_default();
+    let records: Vec<CycleRecord> = text
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let count = |outcome: &str| records.iter().filter(|r| r.outcome == outcome).count();
+    serde_json::json!({
+        "cycles": records.len(),
+        "published": count("published"),
+        "held_back": count("held_back"),
+        "error": count("error"),
+        "last": records.last(),
+    })
+}
+
 fn last_cycle(workspace: &Path) -> Option<CycleRecord> {
     let text = std::fs::read_to_string(workspace.join(".susi").join(DISTILLATION_LOG)).ok()?;
     text.lines()
@@ -370,6 +389,22 @@ mod tests {
             last_cycle(dir.path()).unwrap().claimed,
             DISTILLATION_LOG_KEEP + 4
         );
+    }
+
+    #[test]
+    fn summary_counts_outcomes_and_shows_the_last_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".susi")).unwrap();
+        assert_eq!(super::distillation_summary(dir.path())["cycles"], 0);
+        log_cycle(dir.path(), "published", 50, "ok");
+        log_cycle(dir.path(), "held_back", 60, "reflex checkpoint held back");
+        log_cycle(dir.path(), "error", 70, "boom");
+        let summary = super::distillation_summary(dir.path());
+        assert_eq!(summary["cycles"], 3);
+        assert_eq!(summary["published"], 1);
+        assert_eq!(summary["held_back"], 1);
+        assert_eq!(summary["error"], 1);
+        assert_eq!(summary["last"]["claimed"], 70);
     }
 
     #[test]
