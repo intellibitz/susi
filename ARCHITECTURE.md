@@ -466,8 +466,11 @@ The `retrieve` stage consults history before planning
 most similar to the goal (token-Jaccard ≥ 0.15, stopword-filtered) inject a
 "prior outcomes" brief into the decomposition prompt, and a `Difficulty`
 estimate — novelty, similar-mission failure rate, manifold risk — decides
-routing: `demands_deliberation()` widens the candidate search, while
-familiar reliably-solved intents stay on the cheap path.
+routing: `demands_deliberation()` widens the candidate search *and* raises
+the model floor — `solve_internal`'s first inference attempt gets a
+`Moderate` min-complexity for novel/historically-failed intents instead of
+paying a failed attempt to learn it — while familiar reliably-solved
+intents stay on the cheap path.
 
 The `deliberate` stage is plan search (`susi_gawd_swarm::deliberation`):
 `solve_autonomous` no longer commits to the first decomposition. Candidates

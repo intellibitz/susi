@@ -155,18 +155,44 @@ impl SusiMissionReport {
         trace.evidence_entries = self.interactions.len();
         trace.duration_secs = session.as_ref().map(|s| s.age_secs());
         let _ = trace.emit(workspace);
-        let _ = susi_gawd_agents::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
-            &trace.goal,
-            &trace.route,
-            workspace,
-            Some(serde_json::json!({
-                "mission_id": trace.mission_id,
-                "outcome": trace.outcome,
-                "tool_count": trace.tools.len(),
-                "evidence_entries": trace.evidence_entries,
-                "duration_secs": trace.duration_secs,
-            })),
-        );
+
+        // Stage a training record only when the action label is a real
+        // capability name — the reflex vocabulary is base intents +
+        // registered agents + installed tools, so a route label
+        // ("swarm"/"fast-path") would stage a line the trainer can only
+        // skip while still counting it toward the training threshold.
+        let capabilities: std::collections::BTreeSet<String> =
+            crate::susi_core::registry::CapabilityRegistry::global()
+                .list_tools()
+                .into_iter()
+                .collect();
+        let agent_names: std::collections::BTreeSet<String> =
+            crate::susi_core::AgentMetaRegistry::global()
+                .list_agents()
+                .iter()
+                .map(|a| a.name.clone())
+                .collect();
+        if let Some(action) = self
+            .interactions
+            .iter()
+            .map(|msg| &msg.action)
+            .find(|a| capabilities.contains(*a) || agent_names.contains(*a))
+            .cloned()
+        {
+            let _ = susi_gawd_agents::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
+                &trace.goal,
+                &action,
+                workspace,
+                Some(serde_json::json!({
+                    "mission_id": trace.mission_id,
+                    "outcome": trace.outcome,
+                    "route": trace.route,
+                    "tool_count": trace.tools.len(),
+                    "evidence_entries": trace.evidence_entries,
+                    "duration_secs": trace.duration_secs,
+                })),
+            );
+        }
     }
 }
 
