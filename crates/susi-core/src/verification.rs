@@ -94,7 +94,6 @@ const VERIFIER_BINARIES: &[&str] = &[
 ];
 
 const MAX_VERIFY_TIMEOUT_SECS: u64 = 60;
-const DEFAULT_VERIFY_TIMEOUT_SECS: u64 = 30;
 /// Verifier output that lands in an audit line is capped — a probe that
 /// floods stdout must not flood the ledger.
 const MAX_EVIDENCE_CHARS: usize = 200;

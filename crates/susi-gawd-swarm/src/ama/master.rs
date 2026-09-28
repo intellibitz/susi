@@ -779,7 +779,53 @@ impl SusiMasterAgent {
         max_steps: u32,
     ) -> EaiResult<SusiMissionReport> {
         let goal = Self::sanitize_input(goal)?;
-        let plan = self.plan_steps(&goal, workspace, max_steps);
+
+        // Deliberate before dispatch: several candidate decompositions are
+        // scored on coverage/risk/verifiability and executed best-first.
+        // Mutate/SelfExtend intents additionally need two candidates to
+        // agree on the approach — without consensus the mission runs the
+        // goal as a single step rather than trusting one model sample.
+        let manifold = crate::susi_core::manifold::IntentManifold::analyze(&goal);
+        let deliberation = crate::deliberation::deliberate(
+            &goal,
+            &manifold,
+            &crate::deliberation::candidate_budgets(max_steps),
+            |budget| self.plan_steps(&goal, workspace, budget),
+        );
+        eprintln!(
+            "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?}",
+            deliberation.candidates.len(),
+            deliberation.consensus_required,
+            deliberation.consensus
+        );
+        for (i, c) in deliberation.candidates.iter().enumerate() {
+            eprintln!(
+                "- [Candidate {}] score={:.2} steps={} ({})",
+                i + 1,
+                c.score,
+                c.steps.len(),
+                c.rationale
+            );
+        }
+        let plan: Vec<String> = if crate::deliberation::approved(&deliberation) {
+            deliberation.candidates[0].steps.clone()
+        } else {
+            eprintln!(
+                "- [Deliberation] No candidate consensus under {} scope — \
+                 declining multi-step autonomy; running goal as one step.",
+                format!("{:?}", manifold.scope_of_impact)
+            );
+            vec![goal.clone()]
+        };
+        // Candidates not executed still enter the record — the mission's
+        // deliberation evidence includes what was considered and rejected.
+        let candidate_summary = deliberation
+            .candidates
+            .iter()
+            .enumerate()
+            .map(|(i, c)| format!("candidate {} score {:.2}: {}", i + 1, c.score, c.rationale))
+            .collect::<Vec<_>>()
+            .join("; ");
 
         let session = crate::susi_core::capture::EvidenceSession::new(
             &goal,
@@ -799,50 +845,89 @@ impl SusiMasterAgent {
         // agents and tools, and a transaction begun with no file list (as
         // this loop once did) snapshots nothing while the failure report
         // claimed a rollback. A failed step reports what it cannot undo.
-        for (i, step) in plan.iter().enumerate() {
-            eprintln!(
-                "\n[AUTONOMOUS PLAN] Step {}/{}: {}",
-                i + 1,
-                plan.len(),
-                step
-            );
-            let mut report = self.solve_internal(step, workspace, version, 0)?;
-            crate::cloud_recovery::recover(&mut report, workspace, None, false, session.clone());
-
-            let success = report.status == "COMPLETE" || report.status == "SUCCESS";
-            let summary = format!(
-                "Step {}: {} -> status={}, answer={}",
-                i + 1,
-                step,
-                report.status,
-                report.final_answer.chars().take(200).collect::<String>()
-            );
-            step_summaries.push(summary);
-            step_reports.push(report.clone());
-
-            crate::susi_core::context_graph::ContextGraph::global().record_agent_observation(
-                session.as_ref().map(|s| s.id()),
-                "AutonomousPlanner",
-                &format!("{}: {}", step, report.final_answer),
-                workspace,
-            );
-
-            if !success {
-                let mut final_report = SusiMissionReport {
-                    goal: goal.clone(),
-                    status: "FAILED".to_string(),
-                    agents: report.agents,
-                    interactions: report.interactions,
-                    final_answer: format!(
-                        "Autonomous plan aborted at step {}. Workspace changes made by earlier steps were not rolled back. {}\n\nPrior steps:\n{}",
-                        i + 1,
-                        report.final_answer,
-                        step_summaries.join("\n")
-                    ),
-                };
-                attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
-                return Ok(final_report);
+        // Read-scope missions may fall through to the next candidate plan —
+        // reads mutate nothing, so a second plan is safe; mutating scopes
+        // abort on first failure rather than re-running a guess.
+        let may_replan =
+            manifold.scope_of_impact == crate::susi_core::manifold::ScopeOfImpact::Read;
+        let plans_to_try: Vec<Vec<String>> = if crate::deliberation::approved(&deliberation) {
+            deliberation
+                .candidates
+                .iter()
+                .map(|c| c.steps.clone())
+                .collect()
+        } else {
+            vec![plan.clone()]
+        };
+        'attempts: for (attempt, attempt_plan) in plans_to_try.iter().enumerate() {
+            if attempt > 0 {
+                eprintln!(
+                    "\n[PLAN REPLAN] Candidate {} (read-scope retry after failure)",
+                    attempt + 1
+                );
             }
+            for (i, step) in attempt_plan.iter().enumerate() {
+                eprintln!(
+                    "\n[AUTONOMOUS PLAN] Attempt {} Step {}/{}: {}",
+                    attempt + 1,
+                    i + 1,
+                    attempt_plan.len(),
+                    step
+                );
+                let mut report = self.solve_internal(step, workspace, version, 0)?;
+                crate::cloud_recovery::recover(
+                    &mut report,
+                    workspace,
+                    None,
+                    false,
+                    session.clone(),
+                );
+
+                let success = report.status == "COMPLETE" || report.status == "SUCCESS";
+                let summary = format!(
+                    "Attempt {} Step {}: {} -> status={}, answer={}",
+                    attempt + 1,
+                    i + 1,
+                    step,
+                    report.status,
+                    report.final_answer.chars().take(200).collect::<String>()
+                );
+                step_summaries.push(summary);
+                step_reports.push(report.clone());
+
+                crate::susi_core::context_graph::ContextGraph::global().record_agent_observation(
+                    session.as_ref().map(|s| s.id()),
+                    "AutonomousPlanner",
+                    &format!("{}: {}", step, report.final_answer),
+                    workspace,
+                );
+
+                if !success {
+                    if may_replan && attempt + 1 < plans_to_try.len() {
+                        step_summaries.push(format!(
+                            "Attempt {} aborted; trying next candidate plan",
+                            attempt + 1
+                        ));
+                        continue 'attempts;
+                    }
+                    let mut final_report = SusiMissionReport {
+                        goal: goal.clone(),
+                        status: "FAILED".to_string(),
+                        agents: report.agents,
+                        interactions: report.interactions,
+                        final_answer: format!(
+                            "Autonomous plan aborted at step {}. Workspace changes made by earlier steps were not rolled back. {}\n\nDeliberation: {}\n\nPrior steps:\n{}",
+                            i + 1,
+                            report.final_answer,
+                            candidate_summary,
+                            step_summaries.join("\n")
+                        ),
+                    };
+                    attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
+                    return Ok(final_report);
+                }
+            }
+            break;
         }
 
         // Synthesize final answer from step results.
@@ -857,6 +942,12 @@ impl SusiMasterAgent {
         };
         let mut final_report = self.solve_internal(&synthesis_goal, workspace, version, 0)?;
         crate::cloud_recovery::recover(&mut final_report, workspace, None, false, session.clone());
+        final_report.interactions.push(crate::amas::A2AMessage {
+            sender: "Deliberator".into(),
+            recipient: "SUSI-Master".into(),
+            action: "PLAN_SEARCH".into(),
+            payload: candidate_summary,
+        });
         attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
         Ok(final_report)
     }

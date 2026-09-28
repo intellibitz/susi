@@ -461,6 +461,19 @@ mines goal and result text into contracts: write *and* delete claims are
 checked, and a goal's `containing <text>` clause upgrades existence to a
 content assertion.
 
+The `deliberate` stage is plan search (`susi_gawd_swarm::deliberation`):
+`solve_autonomous` no longer commits to the first decomposition. Candidates
+are generated at several step budgets, scored purely (goal-token coverage
++0.5·coverage, risk-vocabulary −0.15/token, verifiable steps +0.05, over-
+budget −0.10), sorted best-first, and every rejected candidate's score and
+rationale lands in the mission record (`PLAN_SEARCH` interaction) and the
+printed omni-trace. Mutate/SelfExtend intents and High+ risk demand
+**consensus** — the top two candidates must reach a step-token Jaccard ≥
+0.35 or the mission declines multi-step autonomy in favor of the
+single-step goal. On step failure, Read-scope goals fall through to the
+next candidate (reads mutate nothing); mutating scopes abort rather than
+re-run a guess over changed state.
+
 ## Federation & consensus
 
 Cross-node quorum decisions are durable, signed, and replicated — but this is

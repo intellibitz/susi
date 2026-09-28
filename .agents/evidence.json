@@ -3444,6 +3444,16 @@
     "label": "Verification contract registry",
     "ref": "file://crates/susi-core/src/verification.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-014",
+   "type": "ARCHITECTURE",
+   "milestone": "Brain step 3 \u2014 plan search in the mission supervisor. susi-gawd-swarm::deliberation: N candidate decompositions generated at distinct step budgets, scored purely (coverage/risk/verifiability/over-budget), executed best-first. Consensus gate: Mutate/SelfExtend or High+ risk intents require top-two step-token Jaccard >= 0.35 or the mission declines multi-step autonomy (goal runs as one step). Read-scope failures fall through to the next candidate; mutating scopes abort rather than re-run mutations. Rejected candidates' scores+rationale persist in the mission record and omni-trace.",
+   "proof": "6 new deliberation tests green (risk/coverage scoring, empty-plan fallback, scope-gated consensus requirement, divergent-plan veto vs agreeing approval, Jaccard similarity, budget diversity); susi-gawd-swarm suite 53 pass; fmt+check clean.",
+   "anchor": {
+    "label": "Plan search + consensus gate",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

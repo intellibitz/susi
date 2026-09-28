@@ -27,6 +27,7 @@ pub mod ama;
 pub mod amas;
 pub(crate) mod cloud_recovery;
 pub mod dag;
+pub mod deliberation;
 pub mod host_hooks;
 pub mod peer_registry;
 
