@@ -406,6 +406,75 @@ fn extend_vocabulary(mut persisted: Vec<String>, discovered: Vec<String>) -> Vec
     persisted
 }
 
+/// Base intents every checkpoint keeps; never reclaimed.
+const FOUNDATIONAL_INTENTS: [&str; 9] = [
+    "status",
+    "version",
+    "self_heal_build",
+    "run_test_harness",
+    "write_file",
+    "read_file",
+    "list_directory",
+    "scout",
+    "reason",
+];
+
+/// Give staged actions that are real capabilities a vocabulary slot. The
+/// vocabulary holds `DIM` actions and is first filled alphabetically, so
+/// once it is full a newly installed — or merely late-alphabet — tool could
+/// never become a reflex: its samples were skipped as "outside the
+/// vocabulary" forever. A full vocabulary now reclaims a slot whose action
+/// is not foundational and has no training support (absent from `supported`,
+/// the replay set and the batch), i.e. was only ever trained on its
+/// synthetic prime. Slots keep their index; the reused output row is refit
+/// by the cycle's training. Returns the vocabulary and `(old, new)` pairs.
+fn admit_staged_actions(
+    mut vocabulary: Vec<String>,
+    wanted: &[String],
+    capabilities: &[String],
+    supported: &std::collections::HashSet<String>,
+) -> (Vec<String>, Vec<(String, String)>) {
+    let lower = |s: &str| s.trim().to_lowercase();
+    let mut reclaimed = Vec::new();
+    for action in wanted {
+        let key = lower(action);
+        if vocabulary.iter().any(|known| lower(known) == key) {
+            continue;
+        }
+        let Some(canonical) = capabilities.iter().find(|c| lower(c) == key) else {
+            continue; // not a real capability: never earns a slot
+        };
+        if vocabulary.len() < SusiAlphaModel::DIM {
+            vocabulary.push(canonical.clone());
+            continue;
+        }
+        let victim = vocabulary.iter().rposition(|slot| {
+            let slot_key = lower(slot);
+            !FOUNDATIONAL_INTENTS.contains(&slot_key.as_str())
+                && !supported.contains(&slot_key)
+                && !wanted.iter().any(|w| lower(w) == slot_key)
+        });
+        if let Some(index) = victim {
+            let old = std::mem::replace(&mut vocabulary[index], canonical.clone());
+            reclaimed.push((old, canonical.clone()));
+        }
+    }
+    (vocabulary, reclaimed)
+}
+
+/// Actions named by the staged lines, in first-seen order (unparseable
+/// lines are ignored here; `parse_training_entries` rejects them).
+fn staged_actions(content: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    content
+        .lines()
+        .filter_map(|line| serde_json::from_str::<DistillationStaged>(line).ok())
+        .filter(|entry| !failed_outcome(entry))
+        .map(|entry| entry.action.trim().to_string())
+        .filter(|action| !action.is_empty() && seen.insert(action.to_lowercase()))
+        .collect()
+}
+
 fn save_vocabulary(weights_path: &Path, intents: &[String]) -> Result<()> {
     let vocabulary = ActionVocabulary {
         schema: VOCABULARY_SCHEMA.into(),
@@ -735,41 +804,31 @@ impl SusiAlphaModel {
 
     /// Dynamic Intent Surface Discovery
     pub fn list_dynamic_intents() -> Vec<String> {
-        let mut intents = vec![
-            "status".into(),
-            "version".into(),
-            "self_heal_build".into(),
-            "run_test_harness".into(),
-            "write_file".into(),
-            "read_file".into(),
-            "list_directory".into(),
-            "scout".into(),
-            "reason".into(),
-        ];
-
-        // Add Registered Agents — dynamic entries fill remaining DIM
-        // capacity after the foundational intents, so truncation can
-        // never evict a base intent when the registry is crowded.
-        let mut dynamic = Vec::new();
-        let registry = crate::susi_core::AgentMetaRegistry::global();
-        for agent in registry.list_agents() {
-            if !intents.contains(&agent.name) && !dynamic.contains(&agent.name) {
-                dynamic.push(agent.name);
-            }
-        }
-
-        // Add Installed Tools
-        for name in crate::susi_core::registry::CapabilityRegistry::global().list_tools() {
-            if !intents.contains(&name) && !dynamic.contains(&name) {
-                dynamic.push(name);
-            }
-        }
-
-        dynamic.sort();
+        let mut intents: Vec<String> = FOUNDATIONAL_INTENTS.map(String::from).to_vec();
+        // Dynamic entries fill remaining DIM capacity after the foundational
+        // intents, so truncation can never evict a base intent when the
+        // registry is crowded. Truncation is alphabetical; slots for the
+        // capabilities actually used are won back by `admit_staged_actions`.
+        let mut dynamic = Self::capability_names();
         dynamic.truncate(Self::DIM.saturating_sub(intents.len()));
         intents.extend(dynamic);
         intents.sort();
         intents
+    }
+
+    /// Every registered agent and installed tool name (sorted, deduplicated,
+    /// foundational intents excluded) — untruncated, unlike the vocabulary.
+    pub fn capability_names() -> Vec<String> {
+        let mut names: Vec<String> = crate::susi_core::AgentMetaRegistry::global()
+            .list_agents()
+            .into_iter()
+            .map(|agent| agent.name)
+            .chain(crate::susi_core::registry::CapabilityRegistry::global().list_tools())
+            .filter(|name| !FOUNDATIONAL_INTENTS.contains(&name.as_str()))
+            .collect();
+        names.sort();
+        names.dedup();
+        names
     }
 
     pub fn train_on_staged_data(global_dir: &Path) -> Result<String> {
@@ -802,6 +861,17 @@ impl SusiAlphaModel {
 
         let device = crate::models::hardware::HardwareProfiler::get_candle_device();
         let content = std::fs::read_to_string(staged_file)?;
+        let prior = load_replay(&weights_path)?;
+        let supported: std::collections::HashSet<String> = prior
+            .iter()
+            .map(|sample| sample.action.trim().to_lowercase())
+            .collect();
+        let (dynamic_intents, reclaimed) = admit_staged_actions(
+            dynamic_intents,
+            &staged_actions(&content),
+            &Self::capability_names(),
+            &supported,
+        );
         let batch = parse_training_entries(&content, &dynamic_intents)?;
         let fresh: Vec<ReplaySample> = batch
             .entries
@@ -814,7 +884,6 @@ impl SusiAlphaModel {
                     .unwrap_or_else(|| entry.action.clone()),
             })
             .collect();
-        let prior = load_replay(&weights_path)?;
         let replayed = merge_replay(prior, fresh);
         let label_of = |action: &str| {
             dynamic_intents
@@ -863,6 +932,15 @@ impl SusiAlphaModel {
             Err(error) => format!(" Replayed {replay_count} prior sample(s); {error}."),
         };
         let publication = publish_checkpoint(&net.varmap, &weights_path, &dynamic_intents)?;
+        let reclaimed_note = if reclaimed.is_empty() {
+            String::new()
+        } else {
+            let pairs: Vec<String> = reclaimed
+                .iter()
+                .map(|(old, new)| format!("{old} -> {new}"))
+                .collect();
+            format!(" Reclaimed vocabulary slot(s): {}.", pairs.join(", "))
+        };
 
         let cleanup = if publication.cleanup_failures.is_empty() {
             String::new()
@@ -880,7 +958,7 @@ impl SusiAlphaModel {
                 batch.skipped
             )
         };
-        Ok(format!("Native distillation complete. Trained cumulatively on {samples} samples with the dynamic intent surface ({epochs} epochs, loss {loss:.3}).{replay_note}{gate}{skipped}{cleanup}"))
+        Ok(format!("Native distillation complete. Trained cumulatively on {samples} samples with the dynamic intent surface ({epochs} epochs, loss {loss:.3}).{replay_note}{reclaimed_note}{gate}{skipped}{cleanup}"))
     }
 
     /// Publication gate. A candidate fit from the active weights on the
@@ -1626,6 +1704,50 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("line 5"));
+    }
+
+    #[test]
+    fn full_vocabulary_reclaims_unsupported_slots_for_used_capabilities() {
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+        // A full vocabulary: foundational intents plus alphabetical filler.
+        let mut full = names(&FOUNDATIONAL_INTENTS);
+        full.extend((0..SusiAlphaModel::DIM - full.len()).map(|i| format!("aa_tool_{i:03}")));
+        let capabilities = names(&["zz_deploy", "zz_backup", "aa_tool_000"]);
+        let supported: std::collections::HashSet<String> =
+            ["aa_tool_118".to_string()].into_iter().collect();
+        let wanted = names(&["ZZ_Deploy", "zz_backup", "not_a_capability", "status"]);
+
+        let (vocab, reclaimed) =
+            admit_staged_actions(full.clone(), &wanted, &capabilities, &supported);
+        assert_eq!(vocab.len(), SusiAlphaModel::DIM);
+        // Highest-index unsupported filler slots are reused, in order.
+        assert_eq!(
+            reclaimed,
+            [
+                ("aa_tool_117".to_string(), "zz_deploy".to_string()),
+                ("aa_tool_116".to_string(), "zz_backup".to_string())
+            ]
+        );
+        assert!(
+            vocab.contains(&"aa_tool_118".to_string()),
+            "supported slot kept"
+        );
+        assert!(FOUNDATIONAL_INTENTS
+            .iter()
+            .all(|f| vocab.contains(&f.to_string())));
+        assert!(!vocab.contains(&"not_a_capability".to_string()));
+        // Indices of untouched actions are stable.
+        for (i, slot) in full.iter().enumerate() {
+            if !reclaimed.iter().any(|(old, _)| old == slot) {
+                assert_eq!(&vocab[i], slot);
+            }
+        }
+
+        // Room left: capabilities are appended, nothing reclaimed.
+        let (grown, none) =
+            admit_staged_actions(names(&["status"]), &wanted, &capabilities, &supported);
+        assert!(none.is_empty());
+        assert_eq!(grown, names(&["status", "zz_deploy", "zz_backup"]));
     }
 
     #[test]

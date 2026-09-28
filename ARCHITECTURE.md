@@ -528,6 +528,18 @@ holding a strict majority of that intent's samples in the batch, and drops
 them all when no label does. Repeated single-tool missions still teach;
 multi-tool goals — which no single reflex action could serve — do not.
 
+The action vocabulary has 128 slots (one per output). It is seeded with
+the 9 foundational intents plus agents and tools *alphabetically*, and
+before EV-CLAUDE-012 a full vocabulary never changed: a newly installed or
+late-alphabet tool stayed "outside the vocabulary" and its samples were
+skipped forever. `admit_staged_actions` now gives a staged action a slot
+when it is a real capability (`capability_names`, untruncated): appended
+while there is room, otherwise by reclaiming the highest-index slot that
+is not foundational and has no training support (absent from the replay
+set and the batch — trained only on its synthetic prime). Indices of every
+other action are stable; the reused output row is refit in the same cycle,
+and the report lists `old -> new` reclaims.
+
 The classifier's inputs are `SusiAlphaModel::reflex_features`: a 128-dim,
 L2-normalized bag of words with stopwords dropped, in which every word
 contributes equal norm regardless of position — a category word ("status",

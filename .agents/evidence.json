@@ -3604,6 +3604,16 @@
    "milestone": "Tier-0 fits run to convergence, so a grown reflex model can actually serve. Measured before (scratch probe, 962 training samples over 20 actions, fresh init): the fixed 100 full-batch AdamW steps reached 95.3% argmax accuracy on the training set but loss was still 1.597. 0.0% of samples were both correct and above SusiPulse's 0.5 serve confidence, so the model was right yet refused everything. At 200 steps 91.9% were served, at 300 steps 94.2%, with held-out accuracy flat at about 0.92 (no overfitting cost). Now ReflexNet::fit trains until mean loss <= TARGET_LOSS (0.15, correct class ~0.86) or MAX_EPOCHS (600), returns (epochs, loss), and the training report states both. Small batches still stop early. Test: fit_trains_to_serving_confidence_at_realistic_scale (900 samples / 20 actions: more than 100 epochs needed, at least 80% correct and above the serve bar). The alpha suite passed 6 of 6 repeated runs; its runtime rose from about 3s to 10s.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "admit_staged_actions",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-012",
+   "milestone": "Tools that are actually used can become Tier-0 reflexes even when the vocabulary is full. Before: the 128-slot action vocabulary was seeded with the 9 foundational intents plus agents and tools sorted alphabetically and truncated (list_dynamic_intents), and extend_vocabulary stopped once 128 was reached. A newly installed or late-alphabet tool therefore stayed outside the vocabulary, and parse_training_entries skipped its samples on every cycle. The defaults alone are 9 + 52 agents, so more than 67 tools saturates the vocabulary. Now train_on_staged_file runs admit_staged_actions before parsing. For each action named by non-failed staged lines that is a real capability (capability_names, untruncated: agents + tools, foundational excluded), it appends while there is room, and otherwise reclaims the highest-index slot that is not foundational, has no training support (absent from the replay set), and is not wanted by this batch. Slot indices of all other actions are unchanged, the reused output row is refit in the same cycle, and the report lists 'old -> new' reclaims. Non-capability labels never take a slot. Test: full_vocabulary_reclaims_unsupported_slots_for_used_capabilities (full 128-vocab: two used capabilities take the two highest unsupported filler slots; a supported slot, the foundational intents and all other indices are untouched; a non-capability is refused; with room left, capabilities are appended without reclaiming). Known bias: the held-out gate scores the active checkpoint on reused indices under their new meaning; the old action had no support, so the active model rarely predicts it.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

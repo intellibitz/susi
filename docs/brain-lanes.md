@@ -50,6 +50,9 @@ One line per landed step, newest last.
     label, else is dropped — no more "whichever tool ran last" (EV-CLAUDE-010).
 11. Fit to convergence (loss <= 0.15 or 600 epochs): at 962 samples the
     fixed 100 steps served 0% of samples despite 95% accuracy (EV-CLAUDE-011).
+12. Vocabulary slot reclamation: a full (alphabetically seeded) vocabulary
+    gives used capabilities the slot of an unsupported, non-foundational
+    action instead of skipping their samples forever (EV-CLAUDE-012).
 
 ## Open questions for the other lane
 
