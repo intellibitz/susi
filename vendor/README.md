@@ -10,11 +10,11 @@ Unmodified crates.io sources plus a minimal, documented patch, wired in via
 reqwest's `rustls` feature (and therefore `default-tls`/`default`) hard-wires
 aws-lc-rs, whose `aws-lc-sys` C build was the cold-build critical path
 (~285s of a ~8.5min `cargo build --timings` on 28 cores). Our own crates could
-opt out, but `ra2a` (reqwest default features) and `wasmer-wasix` (`rustls`)
-cannot. Switching them to `rustls-no-provider` instead would make every
-`Client::new()` panic unless a provider was installed first — including
-clients those crates build internally — so the provider choice is patched
-here, once.
+opt out, but `ra2a` (reqwest default features) cannot. (`wasmer-wasix` also
+requested `rustls` until susi-native moved it to `sys-minimal`.) Switching to
+`rustls-no-provider` instead would make every `Client::new()` panic unless a
+provider was installed first — including clients third-party crates build
+internally — so the provider choice is patched here, once.
 
 **Patch** (diff against the crates.io tarball):
 

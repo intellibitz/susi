@@ -14,13 +14,17 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
 wasmer-types = "7.4.2"
 
+# wasmer-wasix `sys-minimal`, not `sys`: we only run a WASI module with a
+# stdout pipe (wasm.rs). `sys` adds journaling, a host network stack
+# (virtual-net), host-fs, reqwest and ctrlc — none reachable from here, and
+# ~190s of the cold build's tail compile. `wat` was only arriving via `sys`.
 [target.'cfg(not(windows))'.dependencies]
-wasmer = { version = "7.4.2", features = ["cranelift", "sys"] }
-wasmer-wasix = { version = "0.704.2", features = ["sys"] }
+wasmer = { version = "7.4.2", features = ["cranelift", "sys", "wat"] }
+wasmer-wasix = { version = "0.704.2", default-features = false, features = ["sys-minimal"] }
 
 [target.'cfg(windows)'.dependencies]
-wasmer = { version = "7.4.2", features = ["singlepass", "sys"] }
-wasmer-wasix = { version = "0.704.2", features = ["sys"] }
+wasmer = { version = "7.4.2", features = ["singlepass", "sys", "wat"] }
+wasmer-wasix = { version = "0.704.2", default-features = false, features = ["sys-minimal"] }
 
 [lints]
 workspace = true

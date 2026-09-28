@@ -178,9 +178,9 @@ candle-nn = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b
 candle-transformers = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 candle-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 candle-metal-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
-# reqwest's `rustls` feature hard-wires aws-lc-rs, and ra2a (default
-# features) and wasmer-wasix (`rustls`) request it with no opt-out. The
-# vendored copy maps `rustls` to ring instead — see vendor/README.md.
+# reqwest's `rustls` feature hard-wires aws-lc-rs, and ra2a requests it
+# (reqwest default features) with no opt-out. The vendored copy maps
+# `rustls` to ring instead — see vendor/README.md.
 reqwest = { path = "vendor/reqwest" }
 
 # GPU backends live in susi-vendor-candle. Root forwards features through
