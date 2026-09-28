@@ -3674,6 +3674,16 @@
    "milestone": "The distillation staging buffer is now bounded, completing the roadmap's append-only boundedness sweep for the distill stage. Before: distillation_staged.jsonl shrank only when a training cycle published. Restored claims plus new arrivals meant a persistently failing trainer, even with the EV-CLAUDE-017 back-off, grew it by about one threshold's worth per retry with no upper bound, and every audit read the whole file. Now claim_staged_samples runs cap_claimed_buffer after sanitizing: a claim keeps the newest STAGING_CAP (20,000) valid lines, rewritten atomically, and the drop count is recorded as an EaiError::io in the error-metrics sink. The claim's sample_count is the kept count, so back-off arithmetic stays consistent. Test: claimed_buffer_keeps_only_the_newest_samples_over_cap (at cap: unchanged; over cap: exactly the newest 3 of 10 kept, in order).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "verifier_policy",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   },
+   "id": "EV-CLAUDE-019",
+   "milestone": "Closes a latent code-execution hole in the verify stage. verification.rs documented that contracts which could mutate state are refused as Unverifiable before any process spawns. But the CommandExit allowlist included sh and bash with any arguments, so sh -c 'rm -rf .' was a valid probe, and git and cargo were allowed with any subcommand (git push, git checkout ., cargo install/publish). It was latent: no production code constructs CommandExit today (contracts_from_text mines only FileExists/FileAbsent, and the truth.rs callers use those). But Contract is pub + Deserialize, so the first code that mined or accepted a CommandExit from mission text or model output would have gained arbitrary execution. Now verifier_policy decides per program: pure readers (test, cmp, diff, grep, sha256sum, true, false, cat, ls, wc) with any arguments; git only status/diff/log/show/rev-parse/ls-files; cargo only test/check/build/clippy, or fmt with --check; no shells. Refusal returns Unverifiable before spawning, and the message still says 'allowlist'. Test: verifier_policy_refuses_shells_and_mutating_subcommands (10 refused and 6 allowed argvs; a refused 'sh -c touch marker' leaves no marker). Existing verification tests pass (8/8).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

@@ -28,8 +28,8 @@ pub enum Contract {
     FileContains { path: PathBuf, needle: String },
     /// A file whose SHA-256 equals `sha256_hex` (lowercase hex).
     FileHash { path: PathBuf, sha256_hex: String },
-    /// `argv[0]` in `VERIFIER_BINARIES`, run workspace-confined with a
-    /// deadline, must exit 0. The allowlist exists because a verifier is a
+    /// `argv` allowed by `verifier_policy`, run workspace-confined with a
+    /// deadline, must exit 0. The policy exists because a verifier is a
     /// probe: contracts that could mutate state are refused as
     /// `Unverifiable` before a process ever spawns.
     CommandExit {
@@ -74,13 +74,9 @@ impl ContractVerdict {
     }
 }
 
-/// Programs a `CommandExit` contract may run. Verification probes only —
-/// nothing here writes to the workspace or the network.
-const VERIFIER_BINARIES: &[&str] = &[
-    "cargo",
-    "sh",
-    "bash",
-    "git",
+/// Programs a `CommandExit` contract may run with any arguments: pure
+/// readers that cannot write the workspace or reach the network.
+const READ_ONLY_VERIFIERS: &[&str] = &[
     "test",
     "cmp",
     "diff",
@@ -92,6 +88,38 @@ const VERIFIER_BINARIES: &[&str] = &[
     "ls",
     "wc",
 ];
+
+/// `git` subcommands that only read the repository.
+const GIT_READ_SUBCOMMANDS: &[&str] = &["status", "diff", "log", "show", "rev-parse", "ls-files"];
+
+/// `cargo` subcommands a verifier may run: they build and test the
+/// workspace's own code (writing only `target/`), never publish or install.
+const CARGO_VERIFY_SUBCOMMANDS: &[&str] = &["test", "check", "build", "clippy"];
+
+/// Why `argv` may not run as a verifier, or `None` when it may. `sh`/`bash`
+/// used to be allowlisted wholesale, which made `sh -c "rm -rf ."` a valid
+/// "probe" and contradicted the no-mutation guarantee above; `git` and
+/// `cargo` were allowlisted with any subcommand (`git push`, `cargo
+/// install`). The first global argument is the subcommand for both.
+fn verifier_policy(argv: &[String]) -> Option<String> {
+    let Some(program) = argv.first() else {
+        return Some("empty verifier command".into());
+    };
+    let binary = Path::new(program)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let sub = argv.get(1).map(String::as_str).unwrap_or_default();
+    let allowed = match binary.as_str() {
+        "git" => GIT_READ_SUBCOMMANDS.contains(&sub),
+        "cargo" => {
+            CARGO_VERIFY_SUBCOMMANDS.contains(&sub)
+                || (sub == "fmt" && argv.iter().any(|a| a == "--check"))
+        }
+        other => READ_ONLY_VERIFIERS.contains(&other),
+    };
+    (!allowed).then(|| format!("verifier '{}' not in the probe allowlist", argv.join(" ")))
+}
 
 const MAX_VERIFY_TIMEOUT_SECS: u64 = 60;
 /// Verifier output that lands in an audit line is capped — a probe that
@@ -208,20 +236,14 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
 }
 
 fn verify_command_exit(argv: &[String], timeout_secs: u64, workspace: &Path) -> ContractVerdict {
+    if let Some(reason) = verifier_policy(argv) {
+        return ContractVerdict::Unverifiable { reason };
+    }
     let Some(program) = argv.first() else {
         return ContractVerdict::Unverifiable {
             reason: "empty verifier command".into(),
         };
     };
-    let binary = Path::new(program)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    if !VERIFIER_BINARIES.contains(&binary.as_str()) {
-        return ContractVerdict::Unverifiable {
-            reason: format!("verifier program '{binary}' not in allowlist"),
-        };
-    }
     let timeout = Duration::from_secs(timeout_secs.clamp(1, MAX_VERIFY_TIMEOUT_SECS));
     let mut cmd = std::process::Command::new(program);
     cmd.args(&argv[1..]).current_dir(workspace);
@@ -468,6 +490,57 @@ mod tests {
             dir.path(),
         );
         assert!(matches!(empty, ContractVerdict::Unverifiable { .. }));
+    }
+
+    #[test]
+    fn verifier_policy_refuses_shells_and_mutating_subcommands() {
+        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for refused in [
+            argv(&["sh", "-c", "rm -rf ."]),
+            argv(&["bash", "-c", "true"]),
+            argv(&["/bin/sh", "-c", "true"]),
+            argv(&["git", "push", "origin", "main"]),
+            argv(&["git", "checkout", "."]),
+            argv(&["git"]),
+            argv(&["cargo", "install", "anything"]),
+            argv(&["cargo", "publish"]),
+            argv(&["cargo", "fmt"]),
+            argv(&["curl", "http://example.test"]),
+        ] {
+            assert!(
+                verifier_policy(&refused).is_some(),
+                "{refused:?} must be refused"
+            );
+        }
+        for allowed in [
+            argv(&["git", "diff", "--quiet"]),
+            argv(&["git", "status", "--porcelain"]),
+            argv(&["cargo", "test", "--locked"]),
+            argv(&["cargo", "fmt", "--all", "--check"]),
+            argv(&["grep", "-q", "needle", "file"]),
+            argv(&["/usr/bin/true"]),
+        ] {
+            assert!(
+                verifier_policy(&allowed).is_none(),
+                "{allowed:?} must be allowed"
+            );
+        }
+        // Refusal happens before any process spawns.
+        let dir = ws();
+        let marker = dir.path().join("marker");
+        let verdict = verify_contract(
+            &Contract::CommandExit {
+                argv: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    format!("touch {}", marker.display()),
+                ],
+                timeout_secs: 5,
+            },
+            dir.path(),
+        );
+        assert!(matches!(verdict, ContractVerdict::Unverifiable { .. }));
+        assert!(!marker.exists(), "a refused verifier must never run");
     }
 
     #[test]

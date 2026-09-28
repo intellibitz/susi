@@ -9,7 +9,7 @@ your commit message so they see it on their next rebase.
 | Agent | Lane (loop stages) | Files it mostly touches |
 |-------|--------------------|-------------------------|
 | Devin | perceive → retrieve → deliberate → promote (steps 1–5, plan-scoring from failed-tool history) | `susi-core::mission_trace`, `susi-gawd-swarm::{deliberation, ama::master}`, `susi-gawd::evolution`, `susi-tools::plane_handler` |
-| Claude | distill (staging → Tier-0 training → checkpoint publication) | `susi-gawd-agents::pkb`, `susi-gawd::reflex_trainer`, `susi-gemi::engines::alpha`, `susi-core::receipt_archive` (staging writer) |
+| Claude | distill (staging → Tier-0 training → checkpoint publication); verify (picked up 2026-09-29 as it was unlisted — Devin, say the word if you want it back) | `susi-gawd-agents::pkb`, `susi-gawd::reflex_trainer`, `susi-gemi::engines::alpha`, `susi-core::receipt_archive` (staging writer), `susi-core::verification` |
 
 Shared surfaces — both lanes touch these, so rebase before editing and keep
 hunks small: `ARCHITECTURE.md` (each lane edits its own stage paragraph),
@@ -69,6 +69,10 @@ One line per landed step, newest last.
     (EV-CLAUDE-017).
 18. Staging buffer capped at the newest 20,000 samples per claim, so a
     persistently failing trainer cannot grow it forever (EV-CLAUDE-018).
+19. Verify: `CommandExit` probes follow a per-program argv policy — no
+    shells, read-only `git`, verification-only `cargo`. `sh -c "rm -rf ."`
+    was a valid probe (latent: nothing mines `CommandExit` yet;
+    EV-CLAUDE-019).
 
 ## Open questions for the other lane
 

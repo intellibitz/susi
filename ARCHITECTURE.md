@@ -454,9 +454,15 @@ The `verify` stage runs through the **contract registry**
 FileContains, FileHash, CommandExit}` evaluate against physical workspace
 state and return evidence (observed path, hash, exit code), not bare
 booleans. `CommandExit` runs through `bounded_cmd::output_within` with a
-workspace cwd, a ≤60s deadline, and a `VERIFIER_BINARIES` allowlist — a
-verifier is a probe, and programs outside the allowlist (or unresolvable
-claims) return `Unverifiable`, never `Verified`. `verify_mission_reality`
+workspace cwd, a ≤60s deadline, and a per-program argv policy
+(`verifier_policy`) — a verifier is a probe: pure readers (`grep`, `cmp`,
+`diff`, `test`, `cat`, ...) with any arguments, `git` only with read
+subcommands (`status`/`diff`/`log`/`show`/`rev-parse`/`ls-files`), `cargo`
+only `test`/`check`/`build`/`clippy`/`fmt --check`, and no shells. Refused
+argv (or unresolvable claims) return `Unverifiable` before any process
+spawns, never `Verified`. Until EV-CLAUDE-019, `sh`, `bash`, `git` and
+`cargo` were allowlisted with any arguments, so `sh -c "rm -rf ."` was a
+valid "probe". `verify_mission_reality`
 mines goal and result text into contracts: write *and* delete claims are
 checked, and a goal's `containing <text>` clause upgrades existence to a
 content assertion.
