@@ -3474,6 +3474,16 @@
     "label": "Governed reflex promotion",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-017",
+   "type": "ARCHITECTURE",
+   "milestone": "Brain step 4 completion \u2014 difficulty reaches the model tier floor. solve_internal's retry-0 attempt now passes a difficulty-derived min_complexity floor (Moderate) into ModelManager::get_selected_model_for_request_with_min_complexity when mission-trace history marks the intent novel or historically unreliable; retry escalation (attempt>=1 Moderate/Complex) unchanged. Tier routing now consumes retrieval signal, not only prompt-text heuristics.",
+   "proof": "cargo check -p susi-gawd-swarm --all-targets clean; clippy -D warnings clean; fmt clean.",
+   "anchor": {
+    "label": "Difficulty-aware tier floor",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

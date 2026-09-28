@@ -1178,8 +1178,23 @@ impl SusiMasterAgent {
 
                 let context_words = reasoning_prompt.split_whitespace().count();
 
+                // Difficulty-aware starting tier: an intent that is novel or
+                // whose predecessors failed starts one tier up rather than
+                // paying a failed attempt to learn it. Retry escalation
+                // keeps its strictly-higher floor on later attempts.
+                let difficulty_floor: Option<&'static str> = {
+                    let traces = crate::susi_core::mission_trace::read_all(workspace);
+                    crate::susi_core::mission_trace::difficulty(
+                        &current_goal,
+                        &traces,
+                        crate::susi_core::manifold::IntentManifold::analyze(&current_goal)
+                            .risk_profile,
+                    )
+                    .demands_deliberation()
+                    .then_some("Moderate")
+                };
                 let min_complexity_for_attempt: Option<&str> = match retry_count {
-                    0 => None,
+                    0 => difficulty_floor,
                     1 => Some("Moderate"),
                     _ => Some("Complex"),
                 };
