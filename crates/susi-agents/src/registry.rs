@@ -162,8 +162,9 @@ mod tests {
     use super::*;
 
     fn fresh_registry_home() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = crate::SUSI_HOME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("susi_agents_test_{}", std::process::id()));
         std::env::set_var("SUSI_HOME", &dir);
         let _ = std::fs::remove_dir_all(&dir);

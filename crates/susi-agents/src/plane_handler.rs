@@ -230,12 +230,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     /// Isolate the meta registry and the manager's run dirs in a throwaway
     /// instance root; returns (guard, workspace).
     fn isolated() -> (std::sync::MutexGuard<'static, ()>, PathBuf) {
-        let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = crate::SUSI_HOME_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let root = std::env::temp_dir().join(format!("susi_plane_test_{}", std::process::id()));
         std::env::set_var("SUSI_HOME", &root);
         let ws = root.join("ws");
