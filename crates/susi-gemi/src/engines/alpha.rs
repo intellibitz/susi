@@ -817,6 +817,45 @@ const VETO_WORDS: &[&str] = &[
     "overwrite",
 ];
 
+/// Whether a predicted `ACTION: <name>` names something that can run now:
+/// a foundational intent, or a currently registered agent/tool. Vocabulary
+/// slots outlive uninstalled tools (reclamation only reuses them later), so
+/// a trained model could otherwise serve an action nothing can execute.
+/// The capability set is snapshotted for `AVAILABILITY_TTL` so serving does
+/// not rescan the registries per prompt.
+fn action_available(action: &str) -> bool {
+    const AVAILABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+    type Snapshot = Option<(
+        std::time::Instant,
+        std::sync::Arc<std::collections::HashSet<String>>,
+    )>;
+    static SNAPSHOT: std::sync::LazyLock<parking_lot::RwLock<Snapshot>> =
+        std::sync::LazyLock::new(|| parking_lot::RwLock::new(None));
+    let name = action
+        .strip_prefix("ACTION: ")
+        .unwrap_or(action)
+        .to_lowercase();
+    if FOUNDATIONAL_INTENTS.contains(&name.as_str()) {
+        return true;
+    }
+    let fresh = SNAPSHOT
+        .read()
+        .as_ref()
+        .filter(|(at, _)| at.elapsed() < AVAILABILITY_TTL)
+        .map(|(_, set)| set.clone());
+    let set = fresh.unwrap_or_else(|| {
+        let set: std::sync::Arc<std::collections::HashSet<String>> = std::sync::Arc::new(
+            SusiAlphaModel::capability_names()
+                .into_iter()
+                .map(|n| n.to_lowercase())
+                .collect(),
+        );
+        *SNAPSHOT.write() = Some((std::time::Instant::now(), set.clone()));
+        set
+    });
+    set.contains(&name)
+}
+
 fn words(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
@@ -1264,6 +1303,11 @@ impl SusiAlphaModel {
             }
         }
         let (action, confidence) = self.predict_intent_with_confidence(prompt)?;
+        if !action_available(&action) {
+            return Err(anyhow!(
+                "{action} is no longer an installed capability; not served as a reflex."
+            ));
+        }
         if let Some(word) = self.vetoed_word(prompt, &action) {
             return Err(anyhow!(
                 "Vetoed: '{word}' negates or reverses the request, and Tier-0 never learned it with {action}."
@@ -1957,6 +2001,15 @@ mod tests {
             model.vetoed_word("delete the config file", "ACTION: write_file"),
             Some("delete".to_string())
         );
+    }
+
+    #[test]
+    fn only_foundational_or_installed_actions_are_servable() {
+        for foundational in FOUNDATIONAL_INTENTS {
+            assert!(action_available(&format!("ACTION: {foundational}")));
+        }
+        assert!(action_available("ACTION: STATUS"), "case-insensitive");
+        assert!(!action_available("ACTION: zz_uninstalled_tool_for_test"));
     }
 
     #[test]

@@ -630,7 +630,10 @@ and on the benchmark model "delete the config file" was served
 shutdown/…) is served only if the predicted action was trained with that
 very word — a reflex genuinely taught "delete the build cache" still
 fires — and otherwise escalates to tiers that read language
-(EV-CLAUDE-033).
+(EV-CLAUDE-033). A served action must also be runnable now: foundational, or a
+currently registered agent/tool (`action_available`, a 30s capability
+snapshot). Vocabulary slots outlive uninstalled tools, so a model could
+otherwise confidently serve an action nothing can execute (EV-CLAUDE-034).
 
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged-or-replayed intents — chosen by a hash of the

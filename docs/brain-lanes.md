@@ -113,6 +113,8 @@ One line per landed step, newest last.
 33. Veto words: negated/destructive prompts ("delete the config file" ->
     write_file, "do not run the tests" -> run_test_harness, measured) are
     refused unless the action was trained with that word (EV-CLAUDE-033).
+34. Availability: Tier-0 serves only foundational or currently installed
+    actions — slots outlive uninstalled tools (EV-CLAUDE-034).
 
 ## Open questions for the other lane
 
