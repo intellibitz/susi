@@ -3464,6 +3464,16 @@
     "label": "Retrieval + difficulty-aware routing",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-016",
+   "type": "ARCHITECTURE",
+   "milestone": "Brain step 5 \u2014 governed reflex promotion rules. promotion_status() gates EvolutionManager::evolve_recurring_intent: a recurring intent needs >=2 verified-success mission traces and no failure inside its last 3 to promote (previously frequency alone, >=3 audit entries, sufficed \u2014 a frequently-FAILING intent could earn a reflex). Vetoed intents are anti-patterns that also force consensus in plan deliberation. Veto/defer never consume the 24h synthesis budget; both are audit-logged. Token-signature matching makes intent identity order-insensitive.",
+   "proof": "mission_trace tests now 6: promotion window semantics (insufficient/promotable/vetoed/failure-aged-out), order-insensitive has_traces_for, empty-history never promotable. susi-gawd suite 46 pass; susi-gawd-swarm checks clean.",
+   "anchor": {
+    "label": "Governed reflex promotion",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

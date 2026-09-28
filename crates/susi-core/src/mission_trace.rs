@@ -233,6 +233,79 @@ pub fn difficulty(
     }
 }
 
+/// Sorted unique content tokens — order- and punctuation-insensitive intent
+/// identity, so "deploy the api" and "the api deploy" are the same habit.
+fn token_signature(text: &str) -> String {
+    text.split_whitespace()
+        .map(|t| {
+            t.to_lowercase()
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
+        .filter(|t| !t.is_empty())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Where an intent stands for reflex promotion. Promotion is earned by
+/// verified outcomes — frequency alone is not evidence a reflex helps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromotionStatus {
+    /// Enough verified successes and no unresolved failures.
+    Promotable { successes: usize },
+    /// A failure sits inside the recent window — this intent is an
+    /// anti-pattern: veto promotion until fresh successes age it out.
+    Vetoed { reason: String },
+    /// Not enough verified success yet — defer, do not refuse.
+    Insufficient { successes: usize, failures: usize },
+}
+
+/// Verified successes a recurring intent must show before promotion.
+pub const MIN_PROMOTION_SUCCESSES: usize = 2;
+/// A failure inside the last N traces for the intent vetoes promotion.
+const RECENT_WINDOW: usize = 3;
+
+/// Whether any trace records this exact intent (token-signature match) —
+/// distinguishes "never observed" (legacy evidence applies) from "observed
+/// but not yet proven" (promotion defers).
+pub fn has_traces_for(traces: &[MissionTrace], intent: &str) -> bool {
+    let signature = token_signature(intent);
+    traces.iter().any(|t| token_signature(&t.goal) == signature)
+}
+
+pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatus {
+    let signature = token_signature(intent);
+    let matching: Vec<&MissionTrace> = traces
+        .iter()
+        .filter(|t| token_signature(&t.goal) == signature)
+        .collect();
+    let successes = matching.iter().filter(|t| t.succeeded()).count();
+    let failures = matching.len() - successes;
+    if let Some(failed) = matching
+        .iter()
+        .rev()
+        .take(RECENT_WINDOW)
+        .find(|t| !t.succeeded())
+    {
+        return PromotionStatus::Vetoed {
+            reason: format!(
+                "intent has an unresolved failure in its last {RECENT_WINDOW} traces (mission {}, outcome {})",
+                failed.mission_id, failed.outcome
+            ),
+        };
+    }
+    if successes >= MIN_PROMOTION_SUCCESSES {
+        PromotionStatus::Promotable { successes }
+    } else {
+        PromotionStatus::Insufficient {
+            successes,
+            failures,
+        }
+    }
+}
+
 /// One-line history brief for prompt injection: what similar missions did
 /// and how they ended. Empty when nothing similar exists.
 pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
@@ -359,6 +432,50 @@ mod tests {
         assert!(brief.contains("Prior outcomes"));
         assert!(brief.contains("FAILED"));
         assert!(history_brief("unrelated xyz", &traces, 5).is_empty());
+    }
+
+    #[test]
+    fn promotion_requires_verified_success_and_clean_window() {
+        let mut t = |outcome: &str| MissionTrace::new("m", "deploy the api", outcome, "swarm");
+
+        // No traces → insufficient, never promotable.
+        assert!(matches!(
+            promotion_status(&[], "deploy the api"),
+            PromotionStatus::Insufficient { .. }
+        ));
+
+        // Word order and punctuation don't change intent identity.
+        assert!(has_traces_for(&[t("COMPLETE")], "the api deploy"));
+        assert!(!has_traces_for(&[t("COMPLETE")], "different goal"));
+
+        // One success is not enough.
+        assert!(matches!(
+            promotion_status(&[t("COMPLETE")], "deploy the api"),
+            PromotionStatus::Insufficient {
+                successes: 1,
+                failures: 0
+            }
+        ));
+
+        // Two verified successes promote.
+        assert_eq!(
+            promotion_status(&[t("COMPLETE"), t("SUCCESS")], "deploy the api"),
+            PromotionStatus::Promotable { successes: 2 }
+        );
+
+        // A failure inside the recent window vetoes even with history.
+        let seq = vec![t("COMPLETE"), t("COMPLETE"), t("FAILED")];
+        assert!(matches!(
+            promotion_status(&seq, "deploy the api"),
+            PromotionStatus::Vetoed { .. }
+        ));
+
+        // Failures older than the window are forgiven by fresh success.
+        let recovered = vec![t("FAILED"), t("COMPLETE"), t("COMPLETE"), t("COMPLETE")];
+        assert!(matches!(
+            promotion_status(&recovered, "deploy the api"),
+            PromotionStatus::Promotable { .. }
+        ));
     }
 
     #[test]

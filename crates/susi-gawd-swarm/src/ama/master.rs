@@ -809,9 +809,22 @@ impl SusiMasterAgent {
             budgets.push((max_steps + 4).min(8));
         }
         budgets.dedup();
-        let deliberation = crate::deliberation::deliberate(&goal, &manifold, &budgets, |budget| {
-            self.plan_steps(&goal, &brief, workspace, budget)
-        });
+        let mut deliberation =
+            crate::deliberation::deliberate(&goal, &manifold, &budgets, |budget| {
+                self.plan_steps(&goal, &brief, workspace, budget)
+            });
+        // An intent whose recent trace record ends in failure is an
+        // anti-pattern: even read-scope goals then require candidate
+        // agreement before any plan runs.
+        if matches!(
+            crate::susi_core::mission_trace::promotion_status(&traces, &goal),
+            crate::susi_core::mission_trace::PromotionStatus::Vetoed { .. }
+        ) {
+            deliberation.consensus_required = true;
+            eprintln!(
+                "- [Deliberation] Anti-pattern history for this intent — consensus required."
+            );
+        }
         eprintln!(
             "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?}",
             deliberation.candidates.len(),

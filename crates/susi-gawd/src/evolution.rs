@@ -54,6 +54,45 @@ impl EvolutionManager {
         if wasm.exists() {
             return None;
         }
+
+        // Promotion is earned by verified outcomes, not frequency alone:
+        // the mission-trace record must show enough successes with no
+        // unresolved failure in the recent window. A deferred or vetoed
+        // intent does not consume the 24h attempt budget — it was never
+        // attempted.
+        let traces = crate::susi_core::mission_trace::read_all(workspace);
+        match crate::susi_core::mission_trace::promotion_status(&traces, &intent) {
+            crate::susi_core::mission_trace::PromotionStatus::Promotable { successes } => {
+                eprintln!(
+                    "[Evolution] Intent '{intent}' promoted with {successes} verified successes"
+                );
+            }
+            crate::susi_core::mission_trace::PromotionStatus::Vetoed { reason } => {
+                let report = format!("reflex promotion VETOED for '{intent}': {reason}");
+                SusiAuditLogger::log_event(workspace, "EVOLUTION_REFLEX_VETO", &report);
+                return Some(report);
+            }
+            crate::susi_core::mission_trace::PromotionStatus::Insufficient {
+                successes,
+                failures,
+            } => {
+                // No trace history for this intent at all means the trace
+                // stream predates it — frequency evidence stands alone
+                // (legacy behavior). Traces that exist but show too little
+                // success defer promotion until evidence accumulates.
+                if !crate::susi_core::mission_trace::has_traces_for(&traces, &intent) {
+                    // fall through to legacy promotion
+                } else {
+                    let report = format!(
+                        "reflex promotion DEFERRED for '{intent}': {successes} verified successes, \
+                         {failures} failures — needs {} successes with a clean window",
+                        crate::susi_core::mission_trace::MIN_PROMOTION_SUCCESSES
+                    );
+                    SusiAuditLogger::log_event(workspace, "EVOLUTION_REFLEX_DEFER", &report);
+                    return Some(report);
+                }
+            }
+        }
         let marker = wasm.with_extension("attempted");
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

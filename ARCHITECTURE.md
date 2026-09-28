@@ -482,6 +482,19 @@ single-step goal. On step failure, Read-scope goals fall through to the
 next candidate (reads mutate nothing); mutating scopes abort rather than
 re-run a guess over changed state.
 
+The `promote` stage is governed reflex synthesis
+(`susi_core::mission_trace::promotion_status` gating
+`EvolutionManager::evolve_recurring_intent`): frequency alone no longer
+earns a WASM reflex. A recurring intent must show ≥
+`MIN_PROMOTION_SUCCESSES` (2) verified-success traces and no failure inside
+its last 3 traces; a failure in the window `Veto`s promotion and flags the
+intent as an anti-pattern — which also forces `consensus_required` in
+deliberation. Intents with no trace history keep the legacy audit-log path;
+intents observed but unproven `Defer`. Veto/defer decisions never consume
+the 24h synthesis budget and are audit-logged (`EVOLUTION_REFLEX_VETO` /
+`_DEFER`); promoted reflexes still compile-and-run in the WASI sandbox
+before publishing.
+
 ## Federation & consensus
 
 Cross-node quorum decisions are durable, signed, and replicated — but this is
