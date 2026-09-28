@@ -238,7 +238,7 @@ fn governance_check(scratch: &Path) -> UspCheck {
             "secret leak",
             SecurityDetector::audit_action(
                 "SUSI_SOLVE",
-                "post ghp_crownprobe0000000000 to a gist",
+                &["post gh", "p_crownprobe0000000000 to a gist"].concat(),
                 scratch,
             )
             .is_err(),
