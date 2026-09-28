@@ -3504,6 +3504,16 @@
     "label": "Failure-history plan penalty",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "anchor": {
+    "label": "SusiAlphaModel::holdout_gate",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-002",
+   "milestone": "Tier-0 reflex checkpoints are no longer published blindly. Before: SusiAlphaModel::train_on_staged_file trained 100 epochs on every claimed batch and always published the result, so one bad or contradictory batch silently replaced a working reflex model. Now holdout_gate holds out one in five staged intents (SHA-256 of the normalized intent mod 5, stable across cycles). It fits a candidate from the active weights on the rest and requires held-out accuracy >= the active checkpoint's; the active model scores only within its own vocabulary. A regression returns an error, so ReflexTrainer restores the claim, and the active checkpoint is kept. On pass, the checkpoint is refit on all samples and published. Skipped, with the reason in the report, when there is no active checkpoint or fewer than 3 held-out samples. Training was refactored into ReflexNet (init/fit/correct) with one batched projection. Tests: holdout_split_is_stable_and_about_one_in_five; prediction_scoring_counts_only_the_expressible_vocabulary; regressing_checkpoint_is_held_back_and_improving_one_publishes (cycle 1 publishes with no active checkpoint; cycle 2's contradicting train split is held back with the checkpoint unchanged; cycle 3's consistent data passes and publishes). That test passed 10 of 10 repeated runs from random init. Scope: the gate measures held-out intent-classification accuracy only, not downstream reflex outcomes.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

@@ -354,6 +354,130 @@ fn save_vocabulary(weights_path: &Path, intents: &[String]) -> Result<()> {
         .map_err(|error| anyhow!("persist reflex action vocabulary: {error}"))
 }
 
+/// One in `HOLDOUT_BUCKETS` staged intents is held out of the candidate fit
+/// and used to judge it against the active checkpoint.
+const HOLDOUT_BUCKETS: u64 = 5;
+/// Fewer held-out samples than this is too noisy to gate publication on.
+const MIN_HOLDOUT: usize = 3;
+const TRAINING_EPOCHS: usize = 100;
+
+/// Stable across cycles (hash of the normalized intent, not of its position
+/// in a batch), so a sample is never judged by a model that trained on it.
+fn is_holdout(intent: &str) -> bool {
+    let digest = Sha256::digest(intent.trim().to_lowercase().as_bytes());
+    let mut head = [0u8; 8];
+    head.copy_from_slice(&digest[..8]);
+    u64::from_le_bytes(head) % HOLDOUT_BUCKETS == 0
+}
+
+/// The two-layer reflex network plus the `VarMap` that owns its weights.
+struct ReflexNet {
+    varmap: VarMap,
+    fc1: Linear,
+    fc2: Linear,
+}
+
+impl ReflexNet {
+    /// Fresh weights, overwritten by `checkpoint` when one is given.
+    fn init(
+        checkpoint: Option<&Path>,
+        device: &susi_vendor_candle::candle_core::Device,
+    ) -> Result<Self> {
+        let mut varmap = VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, device);
+        let fc1 = candle_nn::linear(SusiAlphaModel::DIM, SusiAlphaModel::DIM, vb.pp("reflex"))
+            .map_err(crate::engines::candle_err::from_candle)?;
+        let fc2 = candle_nn::linear(
+            SusiAlphaModel::DIM,
+            SusiAlphaModel::DIM,
+            vb.pp("reflex_out"),
+        )
+        .map_err(crate::engines::candle_err::from_candle)?;
+        if let Some(checkpoint) = checkpoint {
+            varmap
+                .load(checkpoint)
+                .map_err(crate::engines::candle_err::from_candle)?;
+        }
+        Ok(Self { varmap, fc1, fc2 })
+    }
+
+    fn logits(&self, x: &Tensor) -> Result<Tensor> {
+        let hidden = self
+            .fc1
+            .forward(x)
+            .map_err(crate::engines::candle_err::from_candle)?
+            .relu()
+            .map_err(crate::engines::candle_err::from_candle)?;
+        self.fc2
+            .forward(&hidden)
+            .map_err(crate::engines::candle_err::from_candle)
+    }
+
+    fn fit(&self, x: &Tensor, y: &Tensor) -> Result<()> {
+        let mut opt = AdamW::new(self.varmap.all_vars(), ParamsAdamW::default())
+            .map_err(crate::engines::candle_err::from_candle)?;
+        for _epoch in 0..TRAINING_EPOCHS {
+            let log_sm = candle_nn::ops::log_softmax(&self.logits(x)?, 1)
+                .map_err(crate::engines::candle_err::from_candle)?;
+            let loss = candle_nn::loss::nll(&log_sm, y)
+                .map_err(crate::engines::candle_err::from_candle)?;
+            opt.backward_step(&loss)
+                .map_err(crate::engines::candle_err::from_candle)?;
+        }
+        Ok(())
+    }
+
+    /// Samples whose argmax over the first `vocabulary` outputs equals the
+    /// label. A label the vocabulary cannot express counts as a miss.
+    fn correct(&self, x: &Tensor, labels: &[u32], vocabulary: usize) -> Result<usize> {
+        let rows = self
+            .logits(x)?
+            .to_vec2::<f32>()
+            .map_err(crate::engines::candle_err::from_candle)?;
+        Ok(rows
+            .iter()
+            .zip(labels)
+            .filter(|(row, &label)| {
+                let predicted = row
+                    .iter()
+                    .take(vocabulary)
+                    .enumerate()
+                    .max_by(|a, b| a.1.total_cmp(b.1))
+                    .map(|(index, _)| index);
+                predicted == usize::try_from(label).ok()
+            })
+            .count())
+    }
+}
+
+/// A staged or primed training sample: intent text and its action label.
+type Labeled<'a> = (&'a str, u32);
+
+/// Projects `texts` into one `(n, DIM)` batch.
+fn projection_batch(
+    texts: &[&str],
+    device: &susi_vendor_candle::candle_core::Device,
+) -> Result<Tensor> {
+    let mut flat = Vec::with_capacity(texts.len() * SusiAlphaModel::DIM);
+    for text in texts {
+        flat.extend(SusiAlphaModel::semantic_centroid_projection(text, None)?);
+    }
+    Tensor::from_vec(flat, (texts.len(), SusiAlphaModel::DIM), device)
+        .map_err(crate::engines::candle_err::from_candle)
+}
+
+fn labeled_batch(
+    samples: &[(&str, u32)],
+    device: &susi_vendor_candle::candle_core::Device,
+) -> Result<(Tensor, Tensor)> {
+    let texts: Vec<&str> = samples.iter().map(|(text, _)| *text).collect();
+    let labels: Vec<u32> = samples.iter().map(|(_, label)| *label).collect();
+    let x = projection_batch(&texts, device)?;
+    let y = Tensor::from_vec(labels, samples.len(), device)
+        .map_err(crate::engines::candle_err::from_candle)?;
+    Ok((x, y))
+}
+
 /// SUSI-Alpha Intent Classifier (Neural Reflex)
 pub struct SusiAlphaModel {
     fc1: Linear,
@@ -504,71 +628,33 @@ impl SusiAlphaModel {
         };
 
         let device = crate::models::hardware::HardwareProfiler::get_candle_device();
-        let mut varmap = VarMap::new();
-        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
-
-        let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))
-            .map_err(crate::engines::candle_err::from_candle)?;
-        let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
-            .map_err(crate::engines::candle_err::from_candle)?;
-        if let Some((active, _)) = active_checkpoint {
-            varmap
-                .load(active)
-                .map_err(crate::engines::candle_err::from_candle)?;
-        }
-
-        let mut opt = AdamW::new(varmap.all_vars(), ParamsAdamW::default())
-            .map_err(crate::engines::candle_err::from_candle)?;
-
-        // Load Data and Map to Dynamic Surface
         let content = std::fs::read_to_string(staged_file)?;
-        let mut samples = Vec::new();
-        let mut labels = Vec::new();
-
         let batch = parse_training_entries(&content, &dynamic_intents)?;
-
-        for (entry, label) in batch.entries {
-            let vec = Self::semantic_centroid_projection(&entry.intent, None)?;
-            samples.push(
-                Tensor::from_vec(vec, (1, Self::DIM), &device)
-                    .map_err(crate::engines::candle_err::from_candle)?,
-            );
-            labels.push(label);
+        let staged: Vec<(&str, u32)> = batch
+            .entries
+            .iter()
+            .map(|(entry, label)| (entry.intent.as_str(), *label))
+            .collect();
+        // Synthetic priming: every vocabulary action gets at least one sample,
+        // so a newly installed tool is reachable before anyone has used it.
+        let mut primes = Vec::with_capacity(dynamic_intents.len());
+        for (index, intent) in dynamic_intents.iter().enumerate() {
+            let label = u32::try_from(index).map_err(|_| anyhow!("intent label exceeds u32"))?;
+            primes.push((intent.as_str(), label));
         }
 
-        // Neural Seeding (Synthetic Priming): Ensure new tools have at least one sample
-        for (idx, intent) in dynamic_intents.iter().enumerate() {
-            let vec = Self::semantic_centroid_projection(intent, None)?;
-            samples.push(
-                Tensor::from_vec(vec, (1, Self::DIM), &device)
-                    .map_err(crate::engines::candle_err::from_candle)?,
-            );
-            labels.push(idx as u32);
-        }
+        let active = active_checkpoint
+            .as_ref()
+            .map(|(path, intents)| (path.as_path(), intents.len()));
+        let gate = Self::holdout_gate(active, &staged, &primes, &dynamic_intents, &device)?;
 
-        let x = Tensor::cat(&samples, 0).map_err(crate::engines::candle_err::from_candle)?;
-        let y = Tensor::from_vec(labels, samples.len(), &device)
-            .map_err(crate::engines::candle_err::from_candle)?;
+        let net = ReflexNet::init(active.map(|(path, _)| path), &device)?;
+        let all: Vec<(&str, u32)> = staged.iter().chain(&primes).copied().collect();
+        let (x, y) = labeled_batch(&all, &device)?;
+        net.fit(&x, &y)?;
+        let samples = all.len();
 
-        // Training Loop
-        for _epoch in 1..=100 {
-            let logits = fc1
-                .forward(&x)
-                .map_err(crate::engines::candle_err::from_candle)?
-                .relu()
-                .map_err(crate::engines::candle_err::from_candle)?;
-            let logits = fc2
-                .forward(&logits)
-                .map_err(crate::engines::candle_err::from_candle)?;
-            let log_sm = candle_nn::ops::log_softmax(&logits, 1)
-                .map_err(crate::engines::candle_err::from_candle)?;
-            let loss = candle_nn::loss::nll(&log_sm, &y)
-                .map_err(crate::engines::candle_err::from_candle)?;
-            opt.backward_step(&loss)
-                .map_err(crate::engines::candle_err::from_candle)?;
-        }
-
-        let publication = publish_checkpoint(&varmap, &weights_path, &dynamic_intents)?;
+        let publication = publish_checkpoint(&net.varmap, &weights_path, &dynamic_intents)?;
 
         let cleanup = if publication.cleanup_failures.is_empty() {
             String::new()
@@ -586,7 +672,54 @@ impl SusiAlphaModel {
                 batch.skipped
             )
         };
-        Ok(format!("Native distillation complete. Trained cumulatively on {} samples with the dynamic intent surface.{skipped}{cleanup}", samples.len()))
+        Ok(format!("Native distillation complete. Trained cumulatively on {samples} samples with the dynamic intent surface.{gate}{skipped}{cleanup}"))
+    }
+
+    /// Publication gate. A candidate fit from the active weights on the
+    /// non-held-out samples must predict the held-out ones at least as well
+    /// as the active checkpoint does, or nothing is published: the error
+    /// makes `ReflexTrainer` restore the claim, so the samples are retried
+    /// with more data rather than dropped. Returns the report fragment.
+    fn holdout_gate(
+        active: Option<(&Path, usize)>,
+        staged: &[(&str, u32)],
+        primes: &[(&str, u32)],
+        vocabulary: &[String],
+        device: &susi_vendor_candle::candle_core::Device,
+    ) -> Result<String> {
+        let Some((checkpoint, active_vocabulary)) = active else {
+            return Ok(" Held-out gate skipped: no active checkpoint to regress against.".into());
+        };
+        let (holdout, train): (Vec<Labeled>, Vec<Labeled>) =
+            staged.iter().partition(|(intent, _)| is_holdout(intent));
+        if holdout.len() < MIN_HOLDOUT {
+            return Ok(format!(
+                " Held-out gate skipped: {} held-out sample(s), need {MIN_HOLDOUT}.",
+                holdout.len()
+            ));
+        }
+        let held_texts: Vec<&str> = holdout.iter().map(|(intent, _)| *intent).collect();
+        let hx = projection_batch(&held_texts, device)?;
+        let held_labels: Vec<u32> = holdout.iter().map(|(_, label)| *label).collect();
+        let baseline = ReflexNet::init(Some(checkpoint), device)?.correct(
+            &hx,
+            &held_labels,
+            active_vocabulary,
+        )?;
+        let candidate = ReflexNet::init(Some(checkpoint), device)?;
+        let fit: Vec<(&str, u32)> = train.iter().chain(primes).copied().collect();
+        let (x, y) = labeled_batch(&fit, device)?;
+        candidate.fit(&x, &y)?;
+        let scored = candidate.correct(&hx, &held_labels, vocabulary.len())?;
+        let n = holdout.len();
+        if scored < baseline {
+            return Err(anyhow!(
+                "reflex checkpoint held back: held-out accuracy would regress from {baseline}/{n} (active) to {scored}/{n}; active checkpoint kept"
+            ));
+        }
+        Ok(format!(
+            " Held-out gate passed: {scored}/{n} vs active {baseline}/{n}."
+        ))
     }
 
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
@@ -779,6 +912,119 @@ mod tests {
 
     fn intents() -> Vec<String> {
         INTENTS.iter().map(|intent| (*intent).to_string()).collect()
+    }
+
+    /// Phrases built only from category-0 anchor words ("status", "health",
+    /// ...) all project to the same vector, so a label taught on the train
+    /// split transfers exactly to the held-out split.
+    fn status_phrases() -> Vec<String> {
+        let words = [
+            "status", "health", "state", "check", "hardware", "system", "report",
+        ];
+        let mut phrases = Vec::new();
+        for a in words {
+            for b in words {
+                for c in words {
+                    phrases.push(format!("{a} {b} {c}"));
+                }
+            }
+        }
+        phrases
+    }
+
+    fn stage(path: &Path, samples: &[(&str, &str)]) {
+        let body: String = samples
+            .iter()
+            .map(|(intent, action)| {
+                format!(
+                    "{}\n",
+                    serde_json::json!({"intent": intent, "action": action, "timestamp": 1})
+                )
+            })
+            .collect();
+        std::fs::write(path, body).unwrap();
+    }
+
+    fn active_weights(global_dir: &Path) -> PathBuf {
+        let filename = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
+            .unwrap()
+            .alpha_weights_filename();
+        usable_checkpoint(&global_dir.join("models").join(filename))
+            .unwrap()
+            .unwrap()
+            .0
+    }
+
+    #[test]
+    fn holdout_split_is_stable_and_about_one_in_five() {
+        let phrases = status_phrases();
+        let held = phrases.iter().filter(|p| is_holdout(p)).count();
+        assert!(
+            (phrases.len() / 10..phrases.len() * 3 / 10).contains(&held),
+            "{held} of {}",
+            phrases.len()
+        );
+        for phrase in &phrases {
+            assert_eq!(
+                is_holdout(phrase),
+                is_holdout(&format!("  {}  ", phrase.to_uppercase()))
+            );
+        }
+    }
+
+    #[test]
+    fn regressing_checkpoint_is_held_back_and_improving_one_publishes() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        let phrases = status_phrases();
+        let (held, train): (Vec<&String>, Vec<&String>) =
+            phrases.iter().partition(|p| is_holdout(p));
+        let held: Vec<&str> = held.iter().take(6).map(|p| p.as_str()).collect();
+        let train: Vec<&str> = train.iter().take(40).map(|p| p.as_str()).collect();
+
+        // Cycle 1: no active checkpoint, so nothing to regress against.
+        let teach: Vec<(&str, &str)> = held.iter().chain(&train).map(|p| (*p, "status")).collect();
+        stage(&staged, &teach);
+        let report = SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        assert!(report.contains("no active checkpoint"), "{report}");
+        let first = active_weights(dir.path());
+
+        // Cycle 2: the train split now contradicts what the active model
+        // gets right on the held-out split. Publication must be refused.
+        let contradict: Vec<(&str, &str)> = held
+            .iter()
+            .map(|p| (*p, "status"))
+            .chain(train.iter().map(|p| (*p, "reason")))
+            .collect();
+        stage(&staged, &contradict);
+        let error = SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap_err();
+        assert!(error.to_string().contains("held back"), "{error}");
+        assert_eq!(
+            active_weights(dir.path()),
+            first,
+            "active checkpoint must be kept"
+        );
+
+        // Cycle 3: consistent data passes the gate and publishes.
+        stage(&staged, &teach);
+        let report = SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        assert!(report.contains("Held-out gate passed"), "{report}");
+        assert_ne!(active_weights(dir.path()), first);
+    }
+
+    #[test]
+    fn prediction_scoring_counts_only_the_expressible_vocabulary() {
+        let device = susi_vendor_candle::candle_core::Device::Cpu;
+        let net = ReflexNet::init(None, &device).unwrap();
+        let x = projection_batch(&["status check"], &device).unwrap();
+        // Whatever the random net predicts, an empty vocabulary predicts
+        // nothing and a label beyond it can never count as correct.
+        assert_eq!(net.correct(&x, &[0], 0).unwrap(), 0);
+        let all = net.correct(&x, &[0], SusiAlphaModel::DIM).unwrap()
+            + (1..SusiAlphaModel::DIM as u32)
+                .map(|label| net.correct(&x, &[label], SusiAlphaModel::DIM).unwrap())
+                .sum::<usize>();
+        assert_eq!(all, 1, "exactly one label is the argmax");
     }
 
     #[test]

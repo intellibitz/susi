@@ -510,7 +510,19 @@ Every writer of `distillation_staged.jsonl` — mission traces via
 same lock the trainer holds while it claims (renames) the buffer, restores a
 failed claim, or recovers orphaned claims. Those three read the buffer and
 atomically replace it, so an unlocked append in between would be written to
-the replaced inode and lost. Lane ownership for concurrent brain work is in
+the replaced inode and lost.
+
+Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
+One in five staged intents — chosen by a hash of the normalized intent, so
+a sample lands in the same split every cycle — is held out. A candidate fit
+from the active weights on the rest must predict the held-out samples at
+least as well as the active checkpoint does (the active model can only
+score labels inside its own, older vocabulary). A regression publishes
+nothing and returns an error, so `ReflexTrainer` restores the claim and the
+samples are retried with more data instead of being dropped. When the gate
+passes, the published checkpoint is refit on *all* staged samples. The gate
+is skipped — and the report says so — with no active checkpoint or fewer
+than 3 held-out samples. Lane ownership for concurrent brain work is in
 `docs/brain-lanes.md`.
 
 ## Federation & consensus

@@ -23,6 +23,9 @@ One line per landed step, newest last.
 1. Staging appends take the `distillation_staged` lock that the trainer's
    claim/restore/recover already hold; an unlocked append could land on the
    inode the trainer was replacing and be lost (`pkb.rs`).
+2. Tier-0 checkpoints publish only if a candidate fit does not regress
+   held-out accuracy against the active checkpoint; a regression restores
+   the claim instead of shipping worse weights (`alpha.rs`, EV-CLAUDE-002).
 
 ## Devin's loop log
 
