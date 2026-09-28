@@ -238,9 +238,9 @@ fn susi_crates_declare_zero_external_dependencies() {
         if t.starts_with('[') {
             in_members = t == "[workspace]";
         }
-        if in_members && t.starts_with('"') {
-            if let Some(end) = t[1..].find('"') {
-                let entry = &t[1..1 + end];
+        if in_members && t.contains('"') {
+            // Members may be several per line: "crates/a", "crates/b", ...
+            for entry in t.split('"').skip(1).step_by(2) {
                 if let Some(name) = entry.strip_prefix("crates/") {
                     members.insert(name.to_string());
                 } else if entry == "xtask" {
@@ -822,6 +822,13 @@ fn ureq_types_stay_inside_http_transport() {
         if rel.contains("susi-http-transport/") {
             continue;
         }
+        // Facade crates legitimately name their upstream (`pub use ureq::*`
+        // inside susi-vendor-ureq is the entire point).
+        if let Some(crate_dir) = rel.split('/').nth(1) {
+            if VENDOR_FACADES.contains(&crate_dir) {
+                continue;
+            }
+        }
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
             !text.contains("ureq::"),
@@ -1299,7 +1306,7 @@ fn self_build_contract_reaches_every_code_writing_path() {
 
     for (rel, needle) in [
         (
-            "crates/susi-agents/src/external/mod.rs",
+            "crates/susi-vendor-agents/src/external/mod.rs",
             "self_build::brief_task",
         ),
         (

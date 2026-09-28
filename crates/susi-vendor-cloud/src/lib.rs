@@ -250,8 +250,8 @@ mod tests {
     }
 
     #[test]
-    fn truncate_clips_at_the_limit() {
-        assert_eq!(truncate("abcdef", 3), "abc");
+    fn truncate_clips_at_the_limit_with_ellipsis() {
+        assert_eq!(truncate("abcdef", 3), "abc…");
         assert_eq!(truncate("ab", 8), "ab");
         assert_eq!(truncate("", 0), "");
     }
