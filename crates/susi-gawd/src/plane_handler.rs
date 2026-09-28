@@ -153,7 +153,7 @@ impl PlaneHandler for GawdPlaneHandler {
                 let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
                 use crate::reflex_synth::ReflexSynthesizer;
-                let outcome = ReflexSynthesizer::synthesize_wasm_reflex(name, &ws);
+                let outcome = ReflexSynthesizer::synthesize_capability(name, &ws);
                 let text = ReflexSynthesizer::gap_report(name, &outcome);
                 Ok(json!({ "text": text }))
             }

@@ -248,7 +248,7 @@
           "tier": 0
         },
         {
-          "function": "Synthesizes, compiles (`rustc --target wasm32-wasip1`) and hot-loads a WASI *probe* reflex for a capability gap, without a daemon restart. The generated program is a fixed template that echoes an input-dependent FNV signature: it proves the synthesize → compile → hot-load path end to end but does not implement the missing capability, and every caller reports the gap as still open (`ReflexSynthesizer::gap_report`, EV-2022928-312). Generating functional reflex code (model-written, verified before load) is the open part of VC-200-002.",
+          "function": "Closes capability gaps with hot-loaded WASI reflexes, without a daemon restart (`synthesize_capability`, EV-2022928-313): the local model writes a std-only program for the intent (input = argv[1], result on stdout); it is published as `reflex_<name>` only if it parses (`susi-vendor-syn`), compiles to `wasm32-wasip1`, and runs successfully on a probe input under the `susi-native` WASI sandbox before the rename into the live name. Its correctness for the intent is not verified, and the reply says so. When any step fails it falls back to the signature-echo probe reflex, which proves the hot-load path but does not implement the capability — the reply then says the gap remains open and why functional synthesis failed (`gap_report`).",
           "symbol": "ReflexSynthesizer",
           "tier": 0
         },

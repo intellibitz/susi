@@ -30,7 +30,7 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
         workspace: &Path,
     ) -> susi_tools::susi_error::EaiResult<String> {
         use susi_gawd::reflex_synth::ReflexSynthesizer;
-        let outcome = ReflexSynthesizer::synthesize_wasm_reflex(server_name, workspace);
+        let outcome = ReflexSynthesizer::synthesize_capability(server_name, workspace);
         Ok(ReflexSynthesizer::gap_report(server_name, &outcome))
     }
 

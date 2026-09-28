@@ -254,9 +254,9 @@ impl NatManager {
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
-            {
-                return Ok(format!("/ip4/{relay}/udp/turn"));
-            }
+        {
+            return Ok(format!("/ip4/{relay}/udp/turn"));
+        }
 
         match ip.as_ref() {
             Some(pub_ip) if pub_ip.contains(':') => Ok(format!("/ip6/{pub_ip}/tcp/{local_port}")),
