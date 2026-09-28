@@ -39,6 +39,34 @@ fn sanitize_reflex_slug(intent: &str) -> EaiResult<String> {
 /// A check run on the staged module before it is published.
 type StagedCheck = dyn Fn(&Path) -> Result<(), String>;
 
+/// A reflex slug for free text: lowercase ASCII alphanumerics, every other
+/// run of characters collapsed to `_`, at most 48 chars; `None` when
+/// nothing alphanumeric remains.
+#[must_use]
+pub fn slug_for(text: &str) -> Option<String> {
+    let mut slug = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if !slug.ends_with('_') && !slug.is_empty() {
+            slug.push('_');
+        }
+        if slug.len() >= 48 {
+            break;
+        }
+    }
+    let slug = slug.trim_matches('_').to_string();
+    (!slug.is_empty()).then_some(slug)
+}
+
+/// Where a reflex `<slug>.wasm` is published.
+#[must_use]
+pub fn reflex_path(slug: &str) -> std::path::PathBuf {
+    susi_paths::SusiDirs::data_dir()
+        .join("reflexes")
+        .join(format!("{slug}.wasm"))
+}
+
 /// Probe input a model-written reflex must run on before it is published.
 const PROBE_INPUT: &str = "susi-probe";
 
@@ -93,8 +121,24 @@ impl ReflexSynthesizer {
     /// # Errors
     /// Invalid intent slug, or both the functional and the probe build fail.
     pub fn synthesize_capability(intent: &str, workspace: &Path) -> EaiResult<ReflexSynthesis> {
-        let slug = sanitize_reflex_slug(intent)?;
-        let functional = Self::model_reflex_source(intent, workspace).and_then(|src| {
+        Self::synthesize_capability_for(intent, intent, workspace)
+    }
+
+    /// [`synthesize_capability`](Self::synthesize_capability) with a reflex
+    /// `name` (must be a valid slug) separate from the free-text
+    /// `description` the model implements -- used when the gap is a
+    /// recurring mission intent rather than a missing tool name.
+    ///
+    /// # Errors
+    /// Invalid `name`, or both the functional and the probe build fail.
+    pub fn synthesize_capability_for(
+        name: &str,
+        description: &str,
+        workspace: &Path,
+    ) -> EaiResult<ReflexSynthesis> {
+        let intent = name;
+        let slug = sanitize_reflex_slug(name)?;
+        let functional = Self::model_reflex_source(description, workspace).and_then(|src| {
             let verify = |staged: &Path| -> Result<(), String> {
                 match crate::susi_native::WasmHost::execute_reflex(staged, PROBE_INPUT) {
                     Ok(out) if !out.trim().is_empty() => Ok(()),
@@ -291,6 +335,17 @@ mod tests {
             "hostile intent text broke the generated source:\n{}",
             src
         );
+    }
+
+    #[test]
+    fn slug_for_normalizes_free_text() {
+        assert_eq!(
+            slug_for("Summarize the logs!").unwrap(),
+            "summarize_the_logs"
+        );
+        assert_eq!(slug_for("  --a  b--  ").unwrap(), "a_b");
+        assert!(slug_for("!!!").is_none());
+        assert!(slug_for(&"x".repeat(100)).unwrap().len() <= 48);
     }
 
     #[test]

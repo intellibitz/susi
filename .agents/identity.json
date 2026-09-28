@@ -173,7 +173,7 @@
           "tier": 1
         },
         {
-          "function": "Drift audit: reports intents that recur often enough to be reflex candidates, the workspace experience-buffer and receipt-staging state, and audit-log bottlenecks (reflex latency violations and logged *_FAILED/*_VIOLATION/*_DETECTED events, by type); it reports observations and prescribes nothing.",
+          "function": "Drift audit: reports intents that recur often enough to be reflex candidates, the workspace experience-buffer and receipt-staging state, and audit-log bottlenecks (reflex latency violations and logged *_FAILED/*_VIOLATION/*_DETECTED events, by type); it reports observations and prescribes nothing. Closes the RSI loop (EV-2022928-314): the hourly substrate audit records the drift report (`DRIFT_AUDIT`) instead of discarding it, and `evolve_recurring_intent` turns a mission intent that recurred 3+ times without a reflex into a `synthesize_capability_for` attempt (model-written reflex, published only after it compiles and runs in the WASI sandbox; else the probe), at most once per intent per 24h, audit-logged as `EVOLUTION_REFLEX_ATTEMPT` with the honest gap report.",
           "symbol": "EvolutionManager",
           "tier": 1
         },
