@@ -63,7 +63,7 @@ fn collect_status(workspace: &Path) -> Result<AutoStatus> {
         }
     }
 
-    let preferred = susi_gemi::coding_models::CodingModelManager::new()
+    let preferred = susi_gemi::models::coding_models::CodingModelManager::new()
         .ok()
         .and_then(|m| m.preferred());
 

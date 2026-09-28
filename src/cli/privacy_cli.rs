@@ -58,7 +58,7 @@ pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
             // Also align inference routing sticky preference for local_only
             // (through the router, so it lands where the router reads it).
             if matches!(m, PrivacyMode::LocalOnly) {
-                susi_gemi::routing::InferenceRouter::set_local_only();
+                susi_gemi::engines::routing::InferenceRouter::set_local_only();
             }
             println!(
                 "{}",

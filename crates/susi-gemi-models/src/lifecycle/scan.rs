@@ -1,7 +1,7 @@
 //! Filesystem discovery and verification of local model artifacts.
 
 use crate::susi_error::EaiResult;
-use crate::susi_sandbox::manager::ModelInfo;
+use crate::susi_sandbox::manager::DynamicModelInfo;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -87,9 +87,9 @@ impl ModelManager {
     }
 
     #[allow(clippy::type_complexity)] // one-off function-local cache tuple; a named type would add no clarity
-    pub fn scan_system_for_local_models(workspace: &Path) -> Vec<ModelInfo> {
+    pub fn scan_system_for_local_models(workspace: &Path) -> Vec<DynamicModelInfo> {
         static MODEL_SCAN_CACHE: std::sync::LazyLock<
-            parking_lot::RwLock<Option<(PathBuf, u64, std::time::Instant, Vec<ModelInfo>)>>,
+            parking_lot::RwLock<Option<(PathBuf, u64, std::time::Instant, Vec<DynamicModelInfo>)>>,
         > = std::sync::LazyLock::new(|| parking_lot::RwLock::new(None));
 
         {
@@ -152,7 +152,7 @@ impl ModelManager {
 
     pub(crate) fn recursive_scan_model_dir(
         dir: &Path,
-        discovered: &mut Vec<ModelInfo>,
+        discovered: &mut Vec<DynamicModelInfo>,
         visited: &mut std::collections::HashSet<PathBuf>,
         depth: usize,
         rules: &ModelScanRules,
@@ -202,7 +202,7 @@ impl ModelManager {
                             None
                         };
 
-                        discovered.push(ModelInfo::new(
+                        discovered.push(DynamicModelInfo::new(
                             file_name.to_string(),
                             format!("Local {} Substrate", lower_ext.to_uppercase()),
                             path.to_string_lossy().to_string(),

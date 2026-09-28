@@ -328,11 +328,11 @@ pub(crate) fn view() -> serde_json::Value {
         })
         .collect();
 
-    let models_dir = susi_gemi::ModelManager::get_models_dir();
+    let models_dir = susi_gemi::models::ModelManager::get_models_dir();
     let managed_root = models_dir
         .canonicalize()
         .unwrap_or_else(|_| models_dir.clone());
-    let selected = susi_gemi::ModelManager::get_selected_model(None);
+    let selected = susi_gemi::models::ModelManager::get_selected_model(None);
     let mut managed = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&models_dir) {
         for entry in entries.flatten() {

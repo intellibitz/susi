@@ -19,7 +19,7 @@ pub(crate) fn run(action: Option<KeyCommands>) {
                     }
                 },
             };
-            match susi_gemi::http_provider::register_api_key(&vendor, &key) {
+            match susi_gemi::engines::http_provider::register_api_key(&vendor, &key) {
                 Ok(msg) => println!("{}", msg),
                 Err(e) => {
                     eprintln!("Key registration failed: {}", e);
@@ -29,7 +29,7 @@ pub(crate) fn run(action: Option<KeyCommands>) {
         }
         Some(KeyCommands::Prefer { vendor, clear }) => {
             if clear {
-                match susi_gemi::routing::InferenceRouter::clear_preferred_cloud() {
+                match susi_gemi::engines::routing::InferenceRouter::clear_preferred_cloud() {
                     Ok(msg) => println!("{}", msg),
                     Err(e) => {
                         eprintln!("{}", e);
@@ -37,7 +37,7 @@ pub(crate) fn run(action: Option<KeyCommands>) {
                     }
                 }
             } else if let Some(v) = vendor {
-                match susi_gemi::routing::InferenceRouter::set_preferred_cloud(&v) {
+                match susi_gemi::engines::routing::InferenceRouter::set_preferred_cloud(&v) {
                     Ok(msg) => println!("{}", msg),
                     Err(e) => {
                         eprintln!("{}", e);
@@ -47,12 +47,12 @@ pub(crate) fn run(action: Option<KeyCommands>) {
             } else {
                 println!(
                     "{}",
-                    susi_gemi::routing::InferenceRouter::preference_status()
+                    susi_gemi::engines::routing::InferenceRouter::preference_status()
                 );
             }
         }
         Some(KeyCommands::Remove { vendor }) => {
-            match susi_gemi::http_provider::remove_api_key(&vendor) {
+            match susi_gemi::engines::http_provider::remove_api_key(&vendor) {
                 Ok(msg) => println!("{}", msg),
                 Err(e) => {
                     eprintln!("Key removal failed: {}", e);
@@ -65,7 +65,7 @@ pub(crate) fn run(action: Option<KeyCommands>) {
 
 fn print_keys_status() {
     println!("Cloud API key status (values never shown):");
-    for (vendor, env, present) in susi_gemi::http_provider::list_api_key_status() {
+    for (vendor, env, present) in susi_gemi::engines::http_provider::list_api_key_status() {
         println!(
             "  {:<12} {:<22} {}",
             vendor,
@@ -75,16 +75,16 @@ fn print_keys_status() {
     }
     println!(
         "\n{}",
-        susi_gemi::routing::InferenceRouter::preference_status()
+        susi_gemi::engines::routing::InferenceRouter::preference_status()
     );
     println!(
         "\nSet:    susi keys set <vendor>\nPrefer: susi keys prefer <vendor>\nFile:   {}",
-        susi_gemi::http_provider::cloud_env_path().display()
+        susi_gemi::engines::http_provider::cloud_env_path().display()
     );
 }
 
 fn prompt_api_key(vendor: &str) -> io::Result<String> {
-    let env_hint = susi_gemi::http_provider::resolve_vendor_env_name(vendor)
+    let env_hint = susi_gemi::engines::http_provider::resolve_vendor_env_name(vendor)
         .unwrap_or_else(|| "API_KEY".to_string());
     if !io::stdin().is_terminal() {
         // Piped: `printf '%s' "$DEEPSEEK_API_KEY" | susi keys set deepseek`

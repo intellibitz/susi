@@ -73,7 +73,7 @@ pub fn known_cloud_vendors() -> Vec<(String, String)> {
 
 /// Upsert `KEY=value` in `~/.susi/cloud.env` (chmod 600 on Unix); lookups
 /// see it immediately. Does **not** register HTTP providers — that stays
-/// in the engines crate (`susi_gemi::http_provider::register_api_key`).
+/// in the engines crate (`susi_gemi::engines::http_provider::register_api_key`).
 pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf), String> {
     let key = api_key.trim();
     if key.is_empty() {

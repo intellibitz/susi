@@ -10,7 +10,7 @@
 // or the API's own authoritative token count. Missing counts are labeled
 // unavailable; words are never substituted for tokens.
 
-use crate::engine::{LlamaCppEngine, NativeInferenceEngine};
+use crate::engines::runtime::{LlamaCppEngine, NativeInferenceEngine};
 use crate::models::ModelBenchmarkResult;
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
@@ -39,7 +39,7 @@ impl BenchmarkRunner {
     /// ids aren't exposed).
     pub fn benchmark_local(prompt: &str, _workspace: &Path) -> EaiResult<ModelBenchmarkResult> {
         let model_id = crate::models::ModelManager::get_selected_model(Some(
-            crate::intent::IntentClassifier::classify(prompt),
+            crate::models::intent::IntentClassifier::classify(prompt),
         ))
         .ok_or_else(|| EaiError::inference("No local reasoning model selected."))?;
 

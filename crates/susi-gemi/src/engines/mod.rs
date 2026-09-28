@@ -4,8 +4,7 @@
 //! for path resolution, readiness, and selection — it owns Candle/HTTP/MCP
 //! execution graphs.
 //!
-//! Prefer `susi_gemi::engines::…` for new code; flat `susi_gemi::engine` /
-//! `susi_gemi::http_provider` paths remain as compatibility re-exports.
+//! Each engine module has exactly one path, `susi_gemi::engines::<module>`.
 
 pub mod alpha;
 pub(crate) mod candle_err;

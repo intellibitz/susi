@@ -47,8 +47,8 @@
 // draft_chunk, or different hardware, but it must never default on
 // without remeasuring first.
 
-use crate::engine::{apply_repeat_penalty, InferenceHost};
-use crate::hardware::HardwareProfiler;
+use crate::engines::runtime::{apply_repeat_penalty, InferenceHost};
+use crate::models::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::susi_core::task_manager::TaskHandle;
 use crate::susi_error::{EaiError, EaiResult};
@@ -288,7 +288,7 @@ impl SpeculativeDecoder {
         task_handle: &Arc<TaskHandle>,
         callback: &dyn Fn(String),
     ) -> EaiResult<String> {
-        let mut text_stream = crate::token_stream::TokenStream::new(tokenizer);
+        let mut text_stream = crate::engines::token_stream::TokenStream::new(tokenizer);
         let mut all_tokens: Vec<u32> = Vec::new();
         let mut pos = prompt_tokens.len();
 
@@ -525,7 +525,7 @@ impl SpeculativeDecoder {
         all_tokens: &mut Vec<u32>,
         max_tokens: usize,
         eos_token_ids: &[u32],
-        text_stream: &mut crate::token_stream::TokenStream<'_>,
+        text_stream: &mut crate::engines::token_stream::TokenStream<'_>,
         task_handle: &Arc<TaskHandle>,
         callback: &dyn Fn(String),
     ) -> EaiResult<()> {

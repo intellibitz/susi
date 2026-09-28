@@ -449,7 +449,7 @@ pub fn wire_plane_bus() {
     susi_gawd::plane_handler::register();
     susi_tools::plane_handler::register();
     susi_agents::plane_handler::register();
-    susi_gemi::http_provider::register_configured_cloud_endpoints(
+    susi_gemi::engines::http_provider::register_configured_cloud_endpoints(
         susi_gemi::susi_core::registry::CapabilityRegistry::global(),
     );
 }

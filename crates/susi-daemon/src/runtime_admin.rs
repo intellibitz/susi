@@ -276,7 +276,7 @@ impl SusiRuntimeAdmin {
 
     /// Hardware saturation audit, drift detection, and model substrate tuning.
     pub fn perform_substrate_audit(workspace: &Path) -> EaiResult<()> {
-        let profile = susi_gemi::hardware::HardwareProfiler::get_profile();
+        let profile = susi_gemi::models::hardware::HardwareProfiler::get_profile();
 
         // 1. Hardware Saturation Audit
         if profile.acceleration_active {

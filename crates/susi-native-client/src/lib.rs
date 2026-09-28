@@ -25,12 +25,6 @@ const WASM_TIMEOUT: Duration = Duration::from_secs(120);
 /// Client facade for reflex execution in the standalone native service.
 pub struct WasmHost;
 
-/// Compatibility namespace for callers that address the host as
-/// `susi_native::wasm::WasmHost`.
-pub mod wasm {
-    pub use super::WasmHost;
-}
-
 impl WasmHost {
     /// Run untrusted Wasm under the native service's Wasmer/WASI isolation.
     pub fn execute_untrusted_wasm(wasm_path: &Path, arg: &str) -> EaiResult<String> {

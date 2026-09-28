@@ -6,7 +6,7 @@
 //! [`crate::composition::wire_engine_hooks`].
 
 use std::path::Path;
-use susi_gemi::hardware::HardwareProfiler;
+use susi_gemi::models::hardware::HardwareProfiler;
 
 /// Host implementation of [`susi_tools::EngineHooks`].
 pub struct SusiEngineHooks;

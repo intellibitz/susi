@@ -5,8 +5,8 @@ use susi_gemi_models::openrouter::{
     attribution_headers, is_openrouter_base, OpenRouterManager, API_BASE,
 };
 
-use crate::http_provider::{HttpProvider, InferenceProtocol};
-use crate::routing::InferenceRouter;
+use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
+use crate::engines::routing::InferenceRouter;
 
 /// Build an [`HttpProvider`] for the effective OpenRouter model pin.
 pub fn provider(manager: &OpenRouterManager) -> Result<HttpProvider> {

@@ -3100,6 +3100,16 @@
       "milestone": "RSI iterations 75-78 (Claude run): three re-export shim modules removed from susi-agents; capability-policy overlap between susi-core MacPolicy and the daemon's CapabilityPolicy recorded, not merged.",
       "proof": "Same-named-module review. `susi-agents/src/{net_guard,task_manager,types}.rs` were one-line `pub use crate::susi_core::...` shims kept \"for existing call sites\": net_guard and task_manager had no user inside or outside the crate; types had two internal imports (`plane_handler.rs`, `registry.rs`), now importing `susi_core::agent_types::AgentProfile` directly, and the crate-root re-export points at `susi_core::agent_types`. Recorded, deliberately not merged: susi-core's `MacPolicy` (HMAC capability tokens checked on every tool dispatch) and susi-daemon's `security::CapabilityPolicy` (per-cell grant lists used by admin, tool_proxy and tool_catalog) are two capability-authorization models at different layers; unifying them changes security behaviour and should not land without the test suite, so it is left for the post-run test chore. `susi-core/task_manager.rs` (live task table) and `susi-gawd-agents/scheduler.rs` (mission admission control) are distinct features, not duplicates. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "susi-gemi module paths",
+        "ref": "file://crates/susi-gemi/src/lib.rs"
+      },
+      "id": "EV-2022928-316",
+      "milestone": "RSI iterations 79-84 (Claude run): duplicate module paths removed — susi-gemi's flat alias layer migrated away; ModelInfo alias, native-client `wasm` namespace and SusiConfig's Deref shim deleted.",
+      "proof": "`susi-gemi` exported every engine and model module twice — canonically (`engines::runtime`, `models::hardware`, …) and through a \"flat compatibility re-export\" block (`susi_gemi::engine`, `::http_provider`, `::routing`, `::hardware`, `::cloud`, `::ModelManager`, …, plus `telemetry` and a crate-internal `token_stream`), marked \"do not remove without a migration\". Migration done: ~110 references in 34 files (susi-gemi internals, root CLI, daemon, gmcp, tools) rewritten to the canonical path, then the alias block removed; the crate docs now state one path per module. Also removed: `pub type ModelInfo = DynamicModelInfo` (\"Backward compat alias\"; 18 uses renamed), susi-native-client's `pub mod wasm { pub use super::WasmHost; }` (one caller in susi-tools now names `WasmHost`), and `impl Deref<Target = DynamicRegistry> for SusiConfig` (\"Compatibility shim for old code that accessed fields directly\") — the workspace compiled with zero errors without it, so nothing depended on it. Kept by design: the susi-gawd host crate's re-exports of its three sub-crates are its documented facade, not duplicates. Verified: cargo check + clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,
