@@ -243,7 +243,7 @@ impl Provider for HttpProvider {
                 let owned = openai_headers(&api_key, &api_base);
                 let refs = header_refs(&owned);
                 let json = wire::post_json_timeout(&url, &refs, &body, 60)
-                    .map_err(|e| crate::susi_core::susi_error::EaiError::network(e))?;
+                    .map_err(crate::susi_core::susi_error::EaiError::network)?;
                 let embedding: Vec<f32> = json["data"][0]["embedding"]
                     .as_array()
                     .map(|values| {

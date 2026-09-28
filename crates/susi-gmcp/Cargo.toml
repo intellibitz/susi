@@ -12,10 +12,7 @@ susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
-crossbeam = "0.8"
-regex = "1.13"
 dashmap = { workspace = true }
-flume = { workspace = true }
 rmcp = { version = "3.4.0", features = ["server", "client", "transport-io", "transport-streamable-http-server", "elicitation", "request-state"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -24,7 +21,6 @@ tower-service = "0.3"
 jsonschema = { version = "0.56", default-features = false }
 tokio = { workspace = true }
 hex = { workspace = true }
-tracing = { workspace = true }
 
 shlex = "2.0"
 bytes = "1.12"
@@ -49,9 +45,6 @@ tokio-rustls = { workspace = true }
 [features]
 default = ["tools-rich"]
 tools-rich = ["dep:headless_chrome", "dep:tantivy", "dep:fastembed", "dep:syn"]
-
-[dev-dependencies]
-proptest = "1.11.0"
 
 [lints]
 workspace = true

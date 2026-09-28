@@ -6,7 +6,8 @@ are enforced mechanically where possible; the rest are reviewed in CI.
 ## Enforced (compiler — violations fail the build)
 
 - **`unsafe` is forbidden or denied in every crate.**
-  - `#![forbid(unsafe_code)]`: susi-paths, susi-error, susi-native, susi-core,
+  - `#![forbid(unsafe_code)]`: susi-paths, susi-error, susi-vendor-wasmer,
+    susi-leaf-services, susi-core,
     susi-sandbox, susi-gmcp, susi-server, susi-gawd, susi-gawd-agents,
     susi-http-transport, susi-vendor-candle, susi-adapters-llm, xtask,
     root package.

@@ -40,7 +40,7 @@ pub mod error {
 
 /// Native execution primitives
 pub mod native {
-    pub use susi_native::*;
+    pub use susi_vendor_wasmer::*;
 }
 
 /// Sandbox and workspace management

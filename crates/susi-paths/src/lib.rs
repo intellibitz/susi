@@ -169,6 +169,25 @@ pub fn bearer_authorized(header: Option<&str>) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// Supervisor bearer check for leaf services the daemon spawns: the token
+/// arrives in `SUSI_HOST_TOKEN`. A bare instance started without it (local
+/// dev, CI harness) stays open; with it, the header must match in constant
+/// time. Contrast [`bearer_authorized`], which fails closed.
+#[must_use]
+pub fn supervisor_bearer_authorized(header: Option<&str>) -> bool {
+    let Some(expected) = std::env::var("SUSI_HOST_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+    else {
+        return true;
+    };
+    let Some(presented) = header.and_then(|h| h.strip_prefix("Bearer ")) else {
+        return false;
+    };
+    let (a, b) = (presented.trim().as_bytes(), expected.trim().as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 /// Local XDG/legacy resolver: the rule the service answers with and the
 /// fallback every client uses when the service is unreachable.
 struct LocalDirs;
@@ -198,14 +217,7 @@ impl LocalDirs {
     }
 
     fn home_dir() -> PathBuf {
-        directories::BaseDirs::new()
-            .map(|d| d.home_dir().to_path_buf())
-            .unwrap_or_else(|| {
-                std::env::var_os("HOME")
-                    .or_else(|| std::env::var_os("USERPROFILE"))
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from("."))
-            })
+        xdg::home_dir().unwrap_or_else(|| PathBuf::from("."))
     }
 
     fn use_xdg() -> bool {
@@ -222,15 +234,11 @@ impl LocalDirs {
         }
     }
 
-    fn project_dirs() -> Option<directories::ProjectDirs> {
-        directories::ProjectDirs::from("", "intellibitz", "susi")
-    }
-
     #[must_use]
     fn config_dir() -> PathBuf {
         if Self::use_xdg() {
-            if let Some(p) = Self::project_dirs() {
-                return p.config_dir().to_path_buf();
+            if let Some(p) = xdg::config_dir() {
+                return p;
             }
         }
         Self::legacy_base()
@@ -239,8 +247,8 @@ impl LocalDirs {
     #[must_use]
     fn data_dir() -> PathBuf {
         if Self::use_xdg() {
-            if let Some(p) = Self::project_dirs() {
-                return p.data_local_dir().to_path_buf();
+            if let Some(p) = xdg::data_dir() {
+                return p;
             }
         }
         Self::legacy_base()
@@ -249,8 +257,8 @@ impl LocalDirs {
     #[must_use]
     fn cache_dir() -> PathBuf {
         if Self::use_xdg() {
-            if let Some(p) = Self::project_dirs() {
-                return p.cache_dir().to_path_buf();
+            if let Some(p) = xdg::cache_dir() {
+                return p;
             }
         }
         Self::legacy_base()
@@ -267,6 +275,7 @@ impl LocalDirs {
 }
 
 pub mod ports;
+mod xdg;
 
 /// Percent-encode a string for a query component (RFC 3986 unreserved
 /// plus the extra bytes in `keep`). Used by live search and sandbox IPC
@@ -297,68 +306,32 @@ pub fn percent_encode_query(s: &str) -> String {
 /// Path encoding that leaves `/` intact (sandbox IPC workspace paths).
 #[must_use]
 pub fn percent_encode_path(s: &str) -> String {
-    percent_encode(s, &[b'/'])
+    percent_encode(s, b"/")
 }
 
-/// Embedded REST service mode: serves the host path/port contract over
-/// HTTP. Shared by the standalone `susi-paths` binary and the root `susi`
-/// binary's `service-run` dispatch — the daemon spawns the staged `susi`
-/// binary in this mode, so leaf services need no sibling binaries on disk.
-pub fn serve(port: u16) -> std::io::Result<()> {
-    use axum::{routing::get, Json, Router};
-    use serde::Serialize;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+/// The host path contract as the `susi-paths` service answers it: always
+/// the local resolver (the service *is* the source of truth).
+#[must_use]
+pub fn local_paths_json() -> serde_json::Value {
+    serde_json::json!({
+        "home_dir": LocalDirs::home_dir(),
+        "config_dir": LocalDirs::config_dir(),
+        "data_dir": LocalDirs::data_dir(),
+        "cache_dir": LocalDirs::cache_dir(),
+        "substrate_home": LocalDirs::substrate_home(),
+    })
+}
 
-    #[derive(Serialize)]
-    struct PathsResponse {
-        home_dir: PathBuf,
-        config_dir: PathBuf,
-        data_dir: PathBuf,
-        cache_dir: PathBuf,
-        substrate_home: PathBuf,
-    }
-
-    #[derive(Serialize)]
-    struct PortsResponse {
-        gmcp: u16,
-        gemi: u16,
-        udp_discovery: u16,
-        gmcp_http: u16,
-        a2a_http: u16,
-    }
-
-    async fn get_paths() -> Json<PathsResponse> {
-        Json(PathsResponse {
-            home_dir: LocalDirs::home_dir(),
-            config_dir: LocalDirs::config_dir(),
-            data_dir: LocalDirs::data_dir(),
-            cache_dir: LocalDirs::cache_dir(),
-            substrate_home: LocalDirs::substrate_home(),
-        })
-    }
-
-    async fn get_ports() -> Json<PortsResponse> {
-        Json(PortsResponse {
-            gmcp: ports::effective(ports::GMCP),
-            gemi: ports::effective(ports::GEMI),
-            udp_discovery: ports::effective(ports::UDP_DISCOVERY),
-            gmcp_http: ports::effective(ports::GMCP_HTTP),
-            a2a_http: ports::effective(ports::A2A_HTTP),
-        })
-    }
-
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let app = Router::new()
-                .route("/paths", get(get_paths))
-                .route("/ports", get(get_ports));
-            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-            let listener = tokio::net::TcpListener::bind(addr).await?;
-            eprintln!("susi-paths service listening on {addr}");
-            axum::serve(listener, app).await
-        })
+/// The effective host port contract (after the instance offset).
+#[must_use]
+pub fn ports_json() -> serde_json::Value {
+    serde_json::json!({
+        "gmcp": ports::effective(ports::GMCP),
+        "gemi": ports::effective(ports::GEMI),
+        "udp_discovery": ports::effective(ports::UDP_DISCOVERY),
+        "gmcp_http": ports::effective(ports::GMCP_HTTP),
+        "a2a_http": ports::effective(ports::A2A_HTTP),
+    })
 }
 
 #[cfg(test)]

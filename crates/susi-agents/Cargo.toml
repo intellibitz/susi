@@ -12,21 +12,11 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
-crossbeam = "0.8"
-regex = "1.13"
 anyhow = { workspace = true }
 getrandom = { workspace = true }
 libc = "0.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
-dashmap = { workspace = true }
-parking_lot = { workspace = true }
-flume = { workspace = true }
-tokio = { workspace = true, features = ["rt"] }
-tracing = { workspace = true }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-proptest = "1.11.0"

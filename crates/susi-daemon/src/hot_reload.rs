@@ -1,6 +1,7 @@
 //! Hot-Reloading of WASM Plugins
 //!
-//! Validates a candidate module with `wasmer` before it replaces the
+//! Validates a candidate module (`susi_vendor_wasmer::cell::validate_module`, the
+//! one wasmer crate) before it replaces the
 //! live one, so a malformed or incompatible binary can never take down a
 //! running plugin slot — the swap only happens once compilation proves
 //! the bytes are a loadable module.
@@ -8,12 +9,9 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use wasmer::{Engine, Module};
-
 use crate::code_signing::CodeSigningPolicy;
 
 pub struct PluginReloader {
-    engine: Engine,
     loaded: RwLock<HashMap<String, Vec<u8>>>,
 }
 
@@ -26,7 +24,6 @@ impl Default for PluginReloader {
 impl PluginReloader {
     pub fn new() -> Self {
         Self {
-            engine: Engine::default(),
             loaded: RwLock::new(HashMap::new()),
         }
     }
@@ -35,7 +32,7 @@ impl PluginReloader {
     /// for `plugin_id`. Rejects the swap (keeping the previous binary live)
     /// on any compile error.
     pub fn reload_plugin(&self, plugin_id: &str, wasm_bytes: &[u8]) -> Result<(), String> {
-        Module::from_binary(&self.engine, wasm_bytes).map_err(|e| e.to_string())?;
+        susi_vendor_wasmer::cell::validate_module(wasm_bytes)?;
         self.loaded
             .write()
             .unwrap_or_else(|e| e.into_inner())

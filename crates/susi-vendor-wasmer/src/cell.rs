@@ -1,7 +1,10 @@
 //! WASM sandbox support for SUSI Swarm Cells.
 //!
 //! This module provides a minimal runtime for loading and executing
-//! Rust‑compiled WebAssembly modules (cells) inside the SUSI daemon.
+//! Rust‑compiled WebAssembly modules (cells) in-process (the daemon's
+//! auto-discovery loads `*.wasm` cells through it), plus [`validate_module`]
+//! for plugin hot-reload. It lives here so wasmer stays linked by this one
+//! vendor crate.
 //! It uses the `wasmer` crate (Cranelift; Singlepass on Windows) — the same
 //! engine `susi-native` runs WASI modules on.
 //!
@@ -16,9 +19,9 @@
 //! message is rejected. Imports are resolved by name, so cells that import
 //! nothing instantiate too.
 
-use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use susi_error::{EaiError, EaiResult};
 use wasmer::sys::wasmparser::{Parser, Payload};
 use wasmer::sys::{CompilerConfig, EngineBuilder};
 use wasmer::wasmparser::Operator;
@@ -74,16 +77,19 @@ fn cell_engine() -> Engine {
 /// Sections other than the memory section are copied through byte-for-byte.
 /// Imported memories need no clamp: the host provides none, so such a cell
 /// fails to instantiate.
-fn cap_memory(wasm: &[u8]) -> Result<Vec<u8>> {
+fn cap_memory(wasm: &[u8]) -> EaiResult<Vec<u8>> {
     let mut out = wasm_encoder::Module::new();
     for payload in Parser::new(0).parse_all(wasm) {
-        let payload = payload.context("Failed to parse WASM module")?;
+        let payload =
+            payload.map_err(|e| EaiError::sandbox(format!("Failed to parse WASM module: {e}")))?;
         if let Payload::Version {
             encoding: wasmer::sys::wasmparser::Encoding::Component,
             ..
         } = payload
         {
-            bail!("WASM components are not supported as cells");
+            return Err(EaiError::sandbox(
+                "WASM components are not supported as cells",
+            ));
         }
         if let Payload::MemorySection(reader) = payload {
             out.section(&capped_memory_section(reader)?);
@@ -94,11 +100,13 @@ fn cap_memory(wasm: &[u8]) -> Result<Vec<u8>> {
         if let Some((id, range)) = payload.as_section() {
             let (Ok(start), Ok(end)) = (usize::try_from(range.start), usize::try_from(range.end))
             else {
-                bail!("WASM section range does not fit in memory");
+                return Err(EaiError::sandbox(
+                    "WASM section range does not fit in memory",
+                ));
             };
             let data = wasm
                 .get(start..end)
-                .context("WASM section range out of bounds")?;
+                .ok_or_else(|| EaiError::sandbox("WASM section range out of bounds"))?;
             out.section(&wasm_encoder::RawSection { id, data });
         }
     }
@@ -108,22 +116,23 @@ fn cap_memory(wasm: &[u8]) -> Result<Vec<u8>> {
 /// Re-encode a memory section with each maximum clamped to the cell cap.
 fn capped_memory_section(
     reader: wasmer::sys::wasmparser::MemorySectionReader<'_>,
-) -> Result<wasm_encoder::MemorySection> {
+) -> EaiResult<wasm_encoder::MemorySection> {
     let mut section = wasm_encoder::MemorySection::new();
     for memory in reader {
-        let memory = memory.context("Failed to read memory section")?;
+        let memory =
+            memory.map_err(|e| EaiError::sandbox(format!("Failed to read memory section: {e}")))?;
         // Checked: this runs before wasmer validates the module, so a
         // malformed page-size exponent must error, not overflow the shift.
         let page_bytes = 1u64
             .checked_shl(memory.page_size_log2.unwrap_or(16))
-            .context("invalid WASM memory page size")?;
+            .ok_or_else(|| EaiError::sandbox("invalid WASM memory page size"))?;
         let cap_pages = MAX_CELL_MEMORY_BYTES as u64 / page_bytes;
         if memory.initial > cap_pages {
-            bail!(
+            return Err(EaiError::sandbox(format!(
                 "cell memory starts at {} page(s), above the {} MiB cap",
                 memory.initial,
                 MAX_CELL_MEMORY_BYTES / (1024 * 1024)
-            );
+            )));
         }
         section.memory(wasm_encoder::MemoryType {
             minimum: memory.initial,
@@ -180,10 +189,14 @@ impl WasmCell {
     ///
     /// # Errors
     /// Fails when the file cannot be read or compiled, or instantiation fails.
-    pub fn load(module_path: impl Into<PathBuf>) -> Result<Self> {
+    pub fn load(module_path: impl Into<PathBuf>) -> EaiResult<Self> {
         let module_path = module_path.into();
-        let bytes = std::fs::read(&module_path)
-            .with_context(|| format!("Failed to load WASM module {}", module_path.display()))?;
+        let bytes = std::fs::read(&module_path).map_err(|e| {
+            EaiError::sandbox(format!(
+                "Failed to load WASM module {}: {e}",
+                module_path.display()
+            ))
+        })?;
         Self::instantiate(&bytes, module_path)
     }
 
@@ -191,17 +204,21 @@ impl WasmCell {
     ///
     /// # Errors
     /// Fails when the bytes do not compile or instantiation fails.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+    pub fn from_bytes(bytes: &[u8]) -> EaiResult<Self> {
         Self::instantiate(bytes, PathBuf::from("<memory>"))
     }
 
-    fn instantiate(bytes: &[u8], module_path: PathBuf) -> Result<Self> {
-        let wasm = wasmer::wat2wasm(bytes).context("Failed to parse WASM text")?;
+    fn instantiate(bytes: &[u8], module_path: PathBuf) -> EaiResult<Self> {
+        let wasm = wasmer::wat2wasm(bytes)
+            .map_err(|e| EaiError::sandbox(format!("Failed to parse WASM text: {e}")))?;
         let wasm = cap_memory(&wasm)?;
         let mut store = Store::new(cell_engine());
-        let module = Module::new(&store, &wasm)
-            .map_err(anyhow::Error::from)
-            .with_context(|| format!("Failed to compile WASM module {}", module_path.display()))?;
+        let module = Module::new(&store, &wasm).map_err(|e| {
+            EaiError::sandbox(format!(
+                "Failed to compile WASM module {}: {e}",
+                module_path.display()
+            ))
+        })?;
         let env = FunctionEnv::new(&mut store, HostState::default());
         let send = Function::new_typed_with_env(&mut store, &env, host_send);
         let mut imports = Imports::new();
@@ -209,8 +226,7 @@ impl WasmCell {
             imports.define(namespace, "host_send", send.clone());
         }
         let instance = Instance::new(&mut store, &module, &imports)
-            .map_err(anyhow::Error::from)
-            .context("Failed to instantiate WASM module")?;
+            .map_err(|e| EaiError::sandbox(format!("Failed to instantiate WASM module: {e}")))?;
         // Bound after instantiation: a `start` function that calls
         // `host_send` sees no memory yet and gets SEND_NO_MEMORY.
         env.as_mut(&mut store).memory = instance.exports.get_memory("memory").ok().cloned();
@@ -239,19 +255,18 @@ impl WasmCell {
     /// # Errors
     /// Fails when the export is missing, is not `() -> i32`, or traps
     /// (including running out of [`CELL_FUEL`]).
-    pub fn execute(&mut self, func_name: &str) -> Result<String> {
-        let func = self
-            .instance
-            .exports
-            .get_function(func_name)
-            .with_context(|| format!("Function '{func_name}' not found in WASM module"))?;
+    pub fn execute(&mut self, func_name: &str) -> EaiResult<String> {
+        let func = self.instance.exports.get_function(func_name).map_err(|_| {
+            EaiError::sandbox(format!("Function '{func_name}' not found in WASM module"))
+        })?;
 
         // Entry points take no params and return an i32 status.
         let typed = func
             .typed::<(), i32>(&self.store)
-            .map_err(anyhow::Error::from)
-            .with_context(|| "Failed to cast function signature")?;
-        let ret = typed.call(&mut self.store)?;
+            .map_err(|e| EaiError::sandbox(format!("Failed to cast function signature: {e}")))?;
+        let ret = typed
+            .call(&mut self.store)
+            .map_err(|e| EaiError::sandbox(format!("WASM function '{func_name}' trapped: {e}")))?;
         Ok(format!("WASM function '{func_name}' returned {ret}"))
     }
 }
@@ -264,8 +279,23 @@ impl WasmCell {
 ///
 /// # Errors
 /// See [`WasmCell::load`].
-pub fn spawn_wasm_cell(wasm_path: PathBuf) -> Result<WasmCell> {
+pub fn spawn_wasm_cell(wasm_path: PathBuf) -> EaiResult<WasmCell> {
     WasmCell::load(wasm_path)
+}
+
+/// One default (Cranelift / Singlepass) engine for module validation: plugin
+/// hot-reload compiles candidates to prove they load, and needs no metering.
+static VALIDATION_ENGINE: LazyLock<Engine> = LazyLock::new(Engine::default);
+
+/// Compile `wasm_bytes` (binary format) to prove it is a loadable module,
+/// without instantiating it.
+///
+/// # Errors
+/// The compile error text when the bytes are not a valid module.
+pub fn validate_module(wasm_bytes: &[u8]) -> Result<(), String> {
+    Module::from_binary(&*VALIDATION_ENGINE, wasm_bytes)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

@@ -2903,10 +2903,40 @@
     },
     {
       "anchor": {
+        "label": "crates/susi-leaf-services",
+        "ref": "file://crates/susi-leaf-services/src/lib.rs"
+      },
+      "id": "EV-2022928-296",
+      "milestone": "RSI iteration 1-3 (Claude run): leaf-service HTTP shells extracted into `susi-leaf-services`; foundation crates lose axum/tokio.",
+      "proof": "Before: `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox` and `susi-native` each embedded an axum server (`serve`), a tokio runtime bootstrap, and a `main.rs`; four separate `require_bearer` middlewares existed with two policies (`susi-error` and `susi-native` carried byte-identical private `leaf_authorized` copies). After: one crate, `crates/susi-leaf-services`, holds the runtime/bind helper, the two bearer policies as middleware (`host_token` over `susi_paths::bearer_authorized`, `supervisor` over the moved `susi_paths::supervisor_bearer_authorized`), five routers and the `service-run` dispatch (`src/cli/control_plane_cli.rs` now calls `susi_leaf_services::serve`); the five binaries keep their names so `LEAF_SERVICES` spawning is unchanged. Dependencies removed: axum+tokio from susi-paths, susi-error, susi-config; axum+serde+serde_json+susi-paths from susi-sandbox (tokio narrowed to `time`); axum+tokio+serde+serde_json+susi-paths from susi-native; serde from susi-paths. Bugs fixed on the way: (1) `susi-error`'s event client posted to `SUSI_ERROR_PORT` or a hard-coded 18081, ignoring the instance offset, so a dev instance (`~/.susi-dev`, offset 100) reported its errors to the release instance's service — now `susi_error::service_port()` = `ports::effective(18081)`; (2) the standalone `susi-paths`/`susi-config` binaries shifted their port by the env offset only while `LeafService::port()` also honours the config-file `port_offset` — every binary now resolves through `LeafService::port()`. Also cleared three pre-existing `-D warnings` clippy failures on main (`byte_char_slices` in susi-paths, `too_many_arguments` on `susi_http_transport::client::http_call_with_body` — justified allow, not a signature change, because another agent is actively editing its ten callers — and `redundant_closure` in susi-gemi `http_provider.rs`). (3) CI (`.github/workflows/test.yml`) polled `susi-native`'s `/healthz` but no leaf service ever routed it (only the plain-port fallback could succeed): every leaf service now answers an unauthenticated `GET /healthz` from the shared `run` helper, and the CI step builds the binary from its new crate (`cargo build -p susi-leaf-services --bin susi-native`). Verified: `cargo check --workspace --all-targets` and `cargo clippy --workspace --all-targets --locked -- -D warnings` clean. Tests not run per operator instruction (separate chore after the 100 iterations); `tests/architecture_tests.rs` LEAF_RANK gained `susi-leaf-services` at rank 5 so the leaf-order test stays consistent.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "dependency hygiene",
+        "ref": "file://crates/susi-paths/src/xdg.rs"
+      },
+      "id": "EV-2022928-297",
+      "milestone": "RSI iterations 4-8 (Claude run): dependency hygiene — 63 dead dependency declarations removed; directories, once_cell, md5, crossbeam dropped from the graph.",
+      "proof": "A per-crate scan (declared dependency name absent from that crate's src/tests/benches/build.rs and not referenced by a feature) found 63 dead declarations across 16 manifests: `crossbeam` in 10 of the 11 crates declaring it (only `susi-core/src/queue.rs` used it), `regex`/`dashmap`/`parking_lot`/`flume`/`tracing`/`tokio`/`rayon`/`shlex`/`serde` in the feature planes, `susi-paths` in susi-gawd-a2a and susi-server, unused `proptest` dev-dependencies in 11 crates, and the root package's Windows-only `winapi` (no `winapi` reference anywhere in the root sources). All removed; `cargo check --workspace --all-targets` compiling afterwards is the proof none was a false positive on Linux. Then: (1) `susi-paths` replaces `directories` with a std-only `xdg` module reproducing `ProjectDirs::from(\"\", \"intellibitz\", \"susi\")` exactly per OS (Linux `$XDG_*`/`~/.config|.local/share|.cache` + `susi`, relative XDG values ignored; macOS `~/Library/{Application Support,Caches}/intellibitz.susi`; Windows `%APPDATA%`/`%LOCALAPPDATA%\\\\intellibitz\\\\susi\\\\{config,data,cache}`) — only divergence: no `getpwuid` fallback when `$HOME` is unset (needs `unsafe`, forbidden in this crate), same `USERPROFILE`/`.` fallback the crate already used; `susi-paths` now depends only on `serde_json`. (2) `once_cell::sync::Lazy` → `std::sync::LazyLock` (3 sites; workspace dep deleted). (3) `md5` removed from susi-gawd-swarm: the AMA master hashed a TRUTH_VIOLATION error string only to put it in an in-memory `HashSet` for retry-loop detection — the text is now the key. (4) `susi-core`'s pulse queue swaps crossbeam `SegQueue` for two unbounded `flume` lanes holding both channel ends (non-blocking `try_recv` pop, cannot disconnect). Verified: `cargo check --workspace --all-targets` and `cargo clippy --workspace --all-targets -- -D warnings` clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "susi-vendor-wasmer",
+        "ref": "file://crates/susi-vendor-wasmer/src/cell.rs"
+      },
+      "id": "EV-2022928-298",
+      "milestone": "RSI iterations 9-12 (Claude run): wasmer consolidated into one vendor crate, `susi-vendor-wasmer`; daemon drops wasmer/wasmer-middlewares/wasm-encoder and anyhow in the cell runtime.",
+      "proof": "README claimed \"Wasmer is linked only by `susi-native`\" but `susi-daemon` also declared wasmer, wasmer-middlewares and wasm-encoder for its in-process cell sandbox (`sandbox_wasm.rs`) and plugin validation (`hot_reload.rs`). Moved `sandbox_wasm.rs` to `cell.rs` in the wasmer crate, converting its errors from `anyhow` to the workspace `EaiError::sandbox` contract, and added `cell::validate_module` (one process-wide `LazyLock<Engine>`) so `PluginReloader` no longer holds a wasmer `Engine` field. `tests/architecture_tests.rs` forbade daemon → `susi-native` because that crate was a *service*; after the step-1 extraction it no longer contains any service code, so it is renamed `susi-vendor-wasmer` (matching `susi-vendor-candle`) and the daemon depends on it as a vendor crate — the forbidden-edge lists were renamed accordingly, the daemon's entry now forbids only `susi-sandbox`, and LEAF_RANK places the vendor crate at rank 2 (deps: susi-error only). The `susi-native` *service* name (LEAF_SERVICES, binary, port 18084, `susi-native-client`) is unchanged. AGENTS.md's forbid(unsafe_code) list updated (susi-vendor-wasmer, susi-leaf-services). Verified: `cargo check --workspace --all-targets` and `cargo clippy --workspace --all-targets -- -D warnings`. Tests not run per operator instruction (the cell tests moved with the file).",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
         "label": "RSI OS hardening iterations 1-10",
         "ref": "file://ARCHITECTURE.md"
       },
-      "id": "EV-2022928-296",
+      "id": "EV-2022928-299",
       "milestone": "Workspace dependency-scope audit: remove repeated normal dependencies from dev scopes where no test-only feature is required.",
       "proof": "Removed root serde_json and susi-gmcp tokio duplicate dev-dependency declarations after confirming normal dependencies already provide them; kept tokio test-util in susi-daemon and target-specific variants where feature scopes differ. Tests were not run per operator instruction; cargo metadata/fmt/diff checks are the non-test verification.",
       "type": "AUDIT"
@@ -2916,7 +2946,7 @@
         "label": "RSI OS hardening iterations 11-20",
         "ref": "file://ARCHITECTURE.md"
       },
-      "id": "EV-2022928-297",
+      "id": "EV-2022928-300",
       "milestone": "Centralize bounded HTTP response ownership in susi-http-transport.",
       "proof": "HttpCall::into_bytes now rejects payloads over the requested cap after reading at most one overflow byte; duplicate overflow checks were removed from transport consumers. Tests were not run per operator instruction; cargo fmt, metadata, and diff checks are the non-test verification.",
       "type": "AUDIT"
@@ -2926,7 +2956,7 @@
         "label": "RSI OS hardening iterations 21-30",
         "ref": "file://ARCHITECTURE.md"
       },
-      "id": "EV-2022928-298",
+      "id": "EV-2022928-301",
       "milestone": "Audit every shared HTTP transport call for status handling.",
       "proof": "MCP initialize/notification/session requests and GMCP A2A delegation now reject non-2xx statuses before parsing response bodies, restoring the prior status-as-error contract after migration to http_call*. Tests were not run per operator instruction; cargo fmt and diff checks are the non-test verification.",
       "type": "AUDIT"

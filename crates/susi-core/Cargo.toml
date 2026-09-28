@@ -18,7 +18,6 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 sha2 = { workspace = true }
 hex = { workspace = true }
-crossbeam = "0.8"
 flume = { workspace = true }
 parking_lot = { workspace = true }
 regex = "1.13"

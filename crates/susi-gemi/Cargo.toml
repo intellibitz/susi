@@ -14,9 +14,6 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
-crossbeam = "0.8"
-regex = "1.13"
-dashmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 indicatif = "0.18.6"
@@ -24,11 +21,9 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 parking_lot = { workspace = true }
 anyhow = { workspace = true }
-once_cell = { workspace = true }
 flume = { workspace = true }
 url = { workspace = true }
 sysinfo = "0.39.6"
-rayon = "1.12"
 hex = { workspace = true }
 sha2 = { workspace = true }
 
@@ -42,5 +37,4 @@ metal = ["susi-vendor-candle/metal", "susi-gemi-models/metal"]
 workspace = true
 
 [dev-dependencies]
-proptest = "1.11.0"
 tempfile = "3.27.0"

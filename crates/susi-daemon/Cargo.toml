@@ -22,11 +22,7 @@ susi-tools = { workspace = true }
 susi-agents = { workspace = true }
 dashmap = { workspace = true }
 susi-http-transport = { workspace = true }
-# Cell sandbox + plugin validation run on wasmer, the same engine (and the same
-# feature set, so one compiled copy) susi-native already uses — a second WASM
-# runtime (wasmtime + its own cranelift) dominated the cold build's tail.
-wasmer-middlewares = "7.4.2"
-wasm-encoder = "0.259"
+susi-vendor-wasmer = { workspace = true }
 parking_lot = { workspace = true }
 hex = { workspace = true }
 getrandom = { workspace = true }
@@ -48,13 +44,8 @@ tools-rich = []
 [dev-dependencies]
 # test-util enables #[tokio::test(start_paused)] for virtual-clock tests.
 tokio = { version = "1.53", features = ["test-util"] }
-proptest = "1.11.0"
-
-[target.'cfg(not(windows))'.dependencies]
-wasmer = { version = "7.4.2", features = ["cranelift", "sys", "wat"] }
 
 [target."cfg(windows)".dependencies]
-wasmer = { version = "7.4.2", features = ["singlepass", "sys", "wat"] }
 winapi = { version = "0.3", features = ["fileapi", "minwinbase"] }
 
 [lints]

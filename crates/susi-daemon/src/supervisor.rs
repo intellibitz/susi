@@ -5,7 +5,7 @@
 //! shared process table (`substrate_home/services.json`), health-checks
 //! them on a timer, respawns crashes with a restart cap, and SIGTERMs its
 //! children during graceful shutdown. Services it did not spawn (a dev
-//! `cargo run -p susi-native`, a systemd unit) are never killed — the
+//! `cargo run -p susi-leaf-services --bin susi-native`, a systemd unit) are never killed — the
 //! daemon only terminates pids it placed in the table itself.
 
 use std::fs::{self, OpenOptions};

@@ -6,11 +6,7 @@ edition = "2021"
 [dependencies]
 susi-abi = { workspace = true, features = ["cell-server"] }
 tokio = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-proptest = "1.11.0"
