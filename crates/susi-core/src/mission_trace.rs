@@ -19,7 +19,10 @@ use crate::context_graph::ContextGraph;
 
 /// Bumped when fields are added or reinterpreted; readers must tolerate
 /// unknown fields so newer traces never break older trainers.
-pub const SCHEMA_VERSION: u32 = 1;
+/// v2: `tools` now carries real dispatched-tool names from evidence
+/// receipts (was: interaction action labels); interaction actions moved to
+/// `signals`.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// The trace is a learning record, not a transcript — goals bound at this
 /// length so a pasted document cannot dominate the file.
@@ -40,8 +43,17 @@ pub struct MissionTrace {
     /// Which path produced the answer — the label Tier-0 distillation learns
     /// to predict (`swarm`, `fast-path`, `governance-block`, ...).
     pub route: String,
-    /// Distinct tool/action names observed in the mission's interactions.
+    /// Distinct dispatched-tool names from the evidence session's receipts
+    /// (falls back to capability-named interactions when no session bound
+    /// the mission). Lifecycle actions like `MISSION_FLUX` or `PLAN_SEARCH`
+    /// are not tools — they land in `signals`.
     pub tools: Vec<String>,
+    /// Lifecycle/supervision actions observed in the mission's
+    /// interactions (`PLAN_SEARCH`, `CLOUD_ATTEMPT_*`, `MISSION_FLUX`, ...).
+    /// Kept for audit, kept out of `tools` so failure-history retrieval and
+    /// briefs describe real capabilities only.
+    #[serde(default)]
+    pub signals: Vec<String>,
     /// Recruited agent names.
     pub agents: Vec<String>,
     /// Count of interaction/evidence entries the report carried.
@@ -60,6 +72,7 @@ impl MissionTrace {
             outcome: bound_chars(outcome, MAX_FIELD_CHARS),
             route: bound_chars(route, MAX_FIELD_CHARS),
             tools: Vec::new(),
+            signals: Vec::new(),
             agents: Vec::new(),
             evidence_entries: 0,
             duration_secs: None,
@@ -522,6 +535,24 @@ mod tests {
         let failed = failing_tools("deploy api service", &traces, 8);
         assert!(failed.contains("broken_tool"), "{failed:?}");
         assert!(!failed.contains("exec_command"), "{failed:?}");
+    }
+
+    #[test]
+    fn v1_lines_without_signals_still_parse() {
+        let ws = workspace();
+        let susi = ws.path().join(".susi");
+        std::fs::create_dir_all(&susi).unwrap();
+        // A schema-1 record: no `signals` field at all.
+        std::fs::write(
+            susi.join("mission_traces.jsonl"),
+            r#"{"schema_version":1,"mission_id":"old","goal":"deploy api","outcome":"COMPLETE","route":"swarm","tools":["exec_command"],"agents":[],"evidence_entries":2,"duration_secs":null,"timestamp":1}
+"#,
+        )
+        .unwrap();
+        let parsed = read_all(ws.path());
+        assert_eq!(parsed.len(), 1);
+        assert!(parsed[0].signals.is_empty());
+        assert_eq!(parsed[0].tools, vec!["exec_command".to_string()]);
     }
 
     #[test]

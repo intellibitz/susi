@@ -49,3 +49,6 @@ One line per landed step, newest last.
 6. Failure history penalizes scoring: `failing_tools` feeds
    `score_plan_weighted` (-0.10 per tainted mention); plus susi-tools
    plane-handler coverage (40% -> 90%) and honest baseline floors.
+7. Trace schema v2: `tools` now = real receipt tool names; interaction
+   actions moved to `signals` so failure-history and briefs track
+   capabilities, not supervision events.
