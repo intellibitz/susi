@@ -73,6 +73,9 @@ One line per landed step, newest last.
     shells, read-only `git`, verification-only `cargo`. `sh -c "rm -rf ."`
     was a valid probe (latent: nothing mines `CommandExit` yet;
     EV-CLAUDE-019).
+20. Verify: a deletion claim about a path outside the workspace (absolute
+    or `..`) is `Unverifiable`, no longer `Verified` because nothing is
+    there (EV-CLAUDE-020).
 
 ## Open questions for the other lane
 

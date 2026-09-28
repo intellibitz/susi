@@ -465,7 +465,9 @@ spawns, never `Verified`. Until EV-CLAUDE-019, `sh`, `bash`, `git` and
 valid "probe". `verify_mission_reality`
 mines goal and result text into contracts: write *and* delete claims are
 checked, and a goal's `containing <text>` clause upgrades existence to a
-content assertion.
+content assertion. A deletion claim about an absolute or `..`-escaping
+path is `Unverifiable`: absence outside the workspace is not something the
+registry can vouch for (it used to come back `Verified`).
 
 The `retrieve` stage consults history before planning
 (`susi_core::mission_trace::{similar, history_brief, difficulty}`): traces

@@ -143,6 +143,22 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
             },
         },
         Contract::FileAbsent { path } => {
+            // A deletion claim about a path outside the workspace cannot be
+            // vouched for: `root.join` of an absolute path *replaces* the
+            // root, and `..` climbs out of it, so a nonexistent outside path
+            // used to come back `Verified`.
+            if path.is_absolute()
+                || path
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                return ContractVerdict::Unverifiable {
+                    reason: format!(
+                        "deletion claim '{}' is not workspace-relative",
+                        path.display()
+                    ),
+                };
+            }
             let root = match workspace.canonicalize() {
                 Ok(r) => r,
                 Err(e) => {
@@ -377,6 +393,27 @@ mod tests {
                 dir.path(),
             );
             assert!(v.violation().is_some(), "{escape}");
+        }
+    }
+
+    #[test]
+    fn file_absent_never_vouches_for_paths_outside_the_workspace() {
+        let dir = ws();
+        for outside in [
+            "/nonexistent/susi-verify-probe",
+            "../susi-verify-probe-sibling",
+            "sub/../../escape",
+        ] {
+            let v = verify_contract(
+                &Contract::FileAbsent {
+                    path: outside.into(),
+                },
+                dir.path(),
+            );
+            assert!(
+                matches!(v, ContractVerdict::Unverifiable { .. }),
+                "{outside}: {v:?}"
+            );
         }
     }
 

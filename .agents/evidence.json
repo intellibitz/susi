@@ -3684,6 +3684,16 @@
    "milestone": "Closes a latent code-execution hole in the verify stage. verification.rs documented that contracts which could mutate state are refused as Unverifiable before any process spawns. But the CommandExit allowlist included sh and bash with any arguments, so sh -c 'rm -rf .' was a valid probe, and git and cargo were allowed with any subcommand (git push, git checkout ., cargo install/publish). It was latent: no production code constructs CommandExit today (contracts_from_text mines only FileExists/FileAbsent, and the truth.rs callers use those). But Contract is pub + Deserialize, so the first code that mined or accepted a CommandExit from mission text or model output would have gained arbitrary execution. Now verifier_policy decides per program: pure readers (test, cmp, diff, grep, sha256sum, true, false, cat, ls, wc) with any arguments; git only status/diff/log/show/rev-parse/ls-files; cargo only test/check/build/clippy, or fmt with --check; no shells. Refusal returns Unverifiable before spawning, and the message still says 'allowlist'. Test: verifier_policy_refuses_shells_and_mutating_subcommands (10 refused and 6 allowed argvs; a refused 'sh -c touch marker' leaves no marker). Existing verification tests pass (8/8).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "FileAbsent workspace-relative only",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   },
+   "id": "EV-CLAUDE-020",
+   "milestone": "Deletion claims can no longer be verified about paths outside the workspace. Before: Contract::FileAbsent computed root.join(path). An absolute path replaces the root under Path::join, and '..' climbs out of it, so a claim like 'deleted /nonexistent/x' or 'deleted ../x' whose target did not exist fell through canonicalize()'s error arm and returned Verified ('no filesystem entry'). That is a verified claim about state the registry does not govern. An existing escaped path was already Violated; only nonexistent escapes slipped through. Now FileAbsent returns Unverifiable ('not workspace-relative') for any absolute path or any path with a ParentDir component, before touching the filesystem. Test: file_absent_never_vouches_for_paths_outside_the_workspace (/nonexistent/..., ../sibling, sub/../../escape are all Unverifiable); the existing file_absent_distinguishes_gone_present_and_escaped still passes (9/9 verification tests).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
