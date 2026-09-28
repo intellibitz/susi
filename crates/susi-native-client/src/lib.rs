@@ -19,7 +19,7 @@ use std::path::Path;
 use std::time::Duration;
 use susi_error::{EaiError, EaiResult};
 
-const DEFAULT_PORT: u16 = 18084;
+const DEFAULT_PORT: u16 = susi_paths::ports::NATIVE_SERVICE;
 const WASM_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Client facade for reflex execution in the standalone native service.
@@ -38,10 +38,11 @@ impl WasmHost {
             Some(Err(message)) => Err(EaiError::process(format!(
                 "Wasm execution failed: {message}"
             ))),
-            None => Err(EaiError::process(
-                "susi-native service unreachable on 127.0.0.1:18084 \
+            None => Err(EaiError::process(format!(
+                "susi-native service unreachable on 127.0.0.1:{} \
                  (SUSI_NATIVE_PORT); start the service to run Wasm reflexes",
-            )),
+                susi_paths::loopback::service_port("SUSI_NATIVE_PORT", DEFAULT_PORT)
+            ))),
         }
     }
 }

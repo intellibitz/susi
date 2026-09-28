@@ -41,31 +41,31 @@ pub const LEAF_SERVICES: &[LeafService] = &[
         name: "susi-paths",
         binary: "susi-paths",
         port_env: "SUSI_PATHS_PORT",
-        default_port: 18080,
+        default_port: susi_paths::ports::PATHS_SERVICE,
     },
     LeafService {
         name: "susi-error",
         binary: "susi-error",
         port_env: "SUSI_ERROR_PORT",
-        default_port: 18081,
+        default_port: susi_paths::ports::ERROR_SERVICE,
     },
     LeafService {
         name: "susi-config",
         binary: "susi-config",
         port_env: "SUSI_CONFIG_PORT",
-        default_port: 18082,
+        default_port: susi_paths::ports::CONFIG_SERVICE,
     },
     LeafService {
         name: "susi-sandbox",
         binary: "susi-sandbox",
         port_env: "SUSI_SANDBOX_PORT",
-        default_port: 18083,
+        default_port: susi_paths::ports::SANDBOX_SERVICE,
     },
     LeafService {
         name: "susi-native",
         binary: "susi-native",
         port_env: "SUSI_NATIVE_PORT",
-        default_port: 18084,
+        default_port: susi_paths::ports::NATIVE_SERVICE,
     },
 ];
 

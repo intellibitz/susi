@@ -48,7 +48,7 @@ impl SusiDirs {
         let port = std::env::var("SUSI_PATHS_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or_else(|| ports::effective(18080));
+            .unwrap_or_else(|| ports::effective(ports::PATHS_SERVICE));
         let fetch = || -> Option<HashMap<String, PathBuf>> {
             let ep = loopback::Endpoint {
                 port,
