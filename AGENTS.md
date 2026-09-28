@@ -81,7 +81,7 @@ cargo test --workspace --locked
   should be pedantic-clean even though the lint isn't denied workspace-wide.
 - `Mutex`/`RwLock` in hot paths: prefer bounded `flume`/tokio channels for new
   work; existing locks are being migrated incrementally.
-- Unwired `susi-daemon` modules: 47 of 90 are compiled and self-tested only
+- Unwired `susi-daemon` modules: 30 of 72 are compiled and self-tested only
   (`tests/architecture_tests.rs` `unreachable_daemon_modules_only_decrease`).
   Wire or remove; discarded probes and type-only references do not count.
 - Formal verification (`kani`) and `cargo-geiger` unsafe-tree auditing are
