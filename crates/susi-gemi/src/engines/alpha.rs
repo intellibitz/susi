@@ -562,6 +562,29 @@ pub struct SusiAlphaModel {
     fc1: Linear,
     fc2: Linear,
     intents: Vec<String>,
+    /// Reflex features of every replayed training intent, flattened
+    /// `n × DIM`. `None` when the checkpoint has no replay set (bootstrap or
+    /// pre-replay checkpoints), which keeps the confidence-only legacy gate.
+    support: Option<Vec<f32>>,
+}
+
+/// A prompt is served a Tier-0 reflex only when its features sit at least
+/// this close (cosine) to some intent the model was trained on. Everyday
+/// out-of-distribution prompts measured ≤ 0.52 against everyday training
+/// data; a paraphrase sharing two of three content words is ~0.67.
+const SUPPORT_MIN: f32 = 0.6;
+
+fn support_matrix(weights_path: &Path) -> Result<Option<Vec<f32>>> {
+    let replay = load_replay(weights_path)?;
+    if replay.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(
+        replay
+            .iter()
+            .flat_map(|sample| SusiAlphaModel::reflex_features(&sample.intent))
+            .collect(),
+    ))
 }
 
 impl SusiAlphaModel {
@@ -613,7 +636,13 @@ impl SusiAlphaModel {
                         .map_err(crate::engines::candle_err::from_candle)?;
                     let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
                         .map_err(crate::engines::candle_err::from_candle)?;
-                    Ok(Self { fc1, fc2, intents })
+                    let support = support_matrix(&weights_path)?;
+                    Ok(Self {
+                        fc1,
+                        fc2,
+                        intents,
+                        support,
+                    })
                 })();
                 match attempt {
                     Ok(model) => return Ok(model),
@@ -636,7 +665,12 @@ impl SusiAlphaModel {
         let intents = validate_vocabulary(Self::list_dynamic_intents())?;
         publish_checkpoint(&varmap, &weights_path, &intents)?;
 
-        Ok(Self { fc1, fc2, intents })
+        Ok(Self {
+            fc1,
+            fc2,
+            intents,
+            support: None,
+        })
     }
 
     /// Dynamic Intent Surface Discovery
@@ -760,13 +794,15 @@ impl SusiAlphaModel {
         net.fit(&x, &y)?;
         let samples = all.len();
 
-        let publication = publish_checkpoint(&net.varmap, &weights_path, &dynamic_intents)?;
-        // After publication: a failed write loses only this cycle's additions
-        // to the replay set, never the checkpoint.
+        // Before publication: the published bundle's mtime is the model
+        // cache key, and a loaded model's support set is read from the
+        // replay file, so the file must already hold this cycle's samples.
+        // A failed write costs only this cycle's replay additions.
         let replay_note = match save_replay(&weights_path, &replayed) {
             Ok(()) => format!(" Replayed {replay_count} prior sample(s)."),
             Err(error) => format!(" Replayed {replay_count} prior sample(s); {error}."),
         };
+        let publication = publish_checkpoint(&net.varmap, &weights_path, &dynamic_intents)?;
 
         let cleanup = if publication.cleanup_failures.is_empty() {
             String::new()
@@ -850,6 +886,13 @@ impl SusiAlphaModel {
     }
 
     pub fn predict_intent(&self, prompt: &str) -> Result<String> {
+        if let Some(support) = self.support(prompt) {
+            if support < SUPPORT_MIN {
+                return Err(anyhow!(
+                    "Unfamiliar prompt: nearest trained intent at cosine {support:.2} (< {SUPPORT_MIN})."
+                ));
+            }
+        }
         let (action, confidence) = self.predict_intent_with_confidence(prompt)?;
         if confidence > 0.5 {
             return Ok(action);
@@ -858,6 +901,22 @@ impl SusiAlphaModel {
             "Low confidence ({:.2}) in neural reflex.",
             confidence
         ))
+    }
+
+    /// Cosine between `prompt` and the nearest intent in the replay set, or
+    /// `None` when this checkpoint carries no replay set. Features are unit
+    /// vectors, so the dot product is the cosine.
+    pub fn support(&self, prompt: &str) -> Option<f32> {
+        let matrix = self.support.as_ref()?;
+        let query = Self::reflex_features(prompt);
+        Some(
+            matrix
+                .as_chunks::<{ Self::DIM }>()
+                .0
+                .iter()
+                .map(|row| row.iter().zip(&query).map(|(a, b)| a * b).sum::<f32>())
+                .fold(0.0, f32::max),
+        )
     }
 
     pub fn predict_intent_with_confidence(&self, prompt: &str) -> Result<(String, f32)> {
@@ -1332,6 +1391,31 @@ mod tests {
         assert_eq!(
             model.predict_intent("list files in src").unwrap(),
             "ACTION: list_directory"
+        );
+    }
+
+    #[test]
+    fn unfamiliar_prompts_are_refused_even_when_confident() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, EVERYDAY);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let model = SusiAlphaModel::load(dir.path()).unwrap();
+
+        let familiar = model.support("check the system status please").unwrap();
+        assert!(familiar > 0.9, "{familiar}");
+        let unfamiliar = model.support("write a poem about the ocean").unwrap();
+        assert!(unfamiliar < SUPPORT_MIN, "{unfamiliar}");
+        let error = model
+            .predict_intent("write a poem about the ocean")
+            .unwrap_err();
+        assert!(error.to_string().contains("Unfamiliar prompt"), "{error}");
+
+        // No replay set (bootstrap / pre-replay checkpoint): legacy gate.
+        let fresh = tempfile::tempdir().unwrap();
+        assert_eq!(
+            SusiAlphaModel::load(fresh.path()).unwrap().support("x"),
+            None
         );
     }
 

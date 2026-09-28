@@ -3554,6 +3554,16 @@
    "milestone": "The Tier-0 reflex classifier no longer lets a leading category word hijack unrelated prompts. Measured before the change, after training on 12 everyday samples: 'write a poem about the ocean' was classified write_file at 0.84 confidence, above SusiPulse's 0.5 serve bar, so Tier-0 would answer a poem request with a file-write action. The cause was the input projection. semantic_centroid_projection lights a 10-dim band at 1.0 for a category word but one dim at 0.5 for any other word, and weights the first word most, so the poem prompt sat at cosine 0.992 to 'write notes to todo.md'. Now the classifier (training, held-out gate, prediction) uses SusiAlphaModel::reflex_features: stopwords dropped, every word equal norm and position-independent, category words spread over their band, other words over two seeded FNV-1a buckets. Fleet recruitment keeps semantic_centroid_projection, which its 0.35 threshold is tuned to; the hashing was factored into anchor_category and fnv1a. Measured after, same data: the poem prompt is at 0.40 (not served), all 7 out-of-distribution probes are below 0.5, and in-distribution prompts score 0.71-0.89. Tests: reflex_features_weigh_content_words_like_the_verb (deterministic: poem vs write-notes cosine < 0.6, stopword/order invariance, unit norm); leading_category_word_no_longer_hijacks_unrelated_prompts (4 out-of-distribution prompts refused, in-distribution served; alpha suite passed 10 of 10 runs). Existing checkpoints migrate through the EV-CLAUDE-002 gate, which scores active and candidate weights under the current features.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "SusiAlphaModel::support",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-007",
+   "milestone": "Tier-0 reflexes are served only for prompts the model has support for. The classifier has no abstain class: every prompt maps to some action, and confidence was the only guard against serving a canned action for something it never trained on. Now a loaded SusiAlphaModel carries the reflex features of its replay set (n x 128, flattened). predict_intent refuses when the nearest trained intent is below cosine SUPPORT_MIN (0.6), before it consults confidence (still > 0.5). Calibration from measurements on everyday training data: out-of-distribution probes are <= 0.52, and a paraphrase sharing two of three content words is about 0.67. Checkpoints without a replay set (bootstrap, pre-replay) keep the confidence-only gate; support() returns None for them. The replay file is now written before the bundle publishes, because the bundle mtime keys SusiAlphaModel::cached and a cached model must not hold a stale support set. Cost: at most 2048 x 128 multiply-adds per uncached prompt. Test: unfamiliar_prompts_are_refused_even_when_confident (paraphrase support > 0.9; the poem prompt below 0.6 is refused with 'Unfamiliar prompt'; no replay gives None). The alpha suite passed 5 of 5 repeated runs.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

@@ -543,8 +543,21 @@ earlier batches taught (catastrophic forgetting). So every cycle trains on
 the claim plus the **replay set** — `<weights>.replay.jsonl`, the most
 recent 2048 distinct intents (stored by action *name*, so they survive
 vocabulary growth; newest label wins when an intent is restaged with a
-different action). The replay set is rewritten only after a checkpoint
-publishes, so a held-back cycle leaves it untouched.
+different action). The replay set is rewritten only on the publish path (just before the
+bundle), so a held-back cycle leaves it untouched.
+
+Serving is gated on **support** as well as confidence
+(`SusiAlphaModel::{support, predict_intent}`). The classifier has no
+abstain class — every prompt maps to *some* action — so confidence alone
+cannot say "I have never seen anything like this". A loaded model carries
+the reflex features of its replay set; a prompt is served a Tier-0 reflex
+only if its nearest trained intent is at cosine ≥ 0.6 (`SUPPORT_MIN`) *and*
+confidence > 0.5. Everyday out-of-distribution prompts measured ≤ 0.52
+against everyday training data, while a paraphrase sharing two of three
+content words sits near 0.67. Checkpoints without a replay set (bootstrap,
+pre-replay) keep the confidence-only gate. The replay file is written
+*before* the bundle publishes, because the bundle's mtime keys the model
+cache and a cached model must not carry a stale support set.
 
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged-or-replayed intents — chosen by a hash of the

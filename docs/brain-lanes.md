@@ -37,6 +37,9 @@ One line per landed step, newest last.
 6. The classifier gets its own features (stopwords dropped, every word
    equal weight): a leading "write" no longer turns "write a poem" into
    `write_file` at 0.84 confidence; fleet keeps its projection (EV-CLAUDE-006).
+7. Support gate: a reflex is served only when the prompt is near (cosine
+   >= 0.6) something the model trained on — the classifier has no abstain
+   class, so confidence alone cannot refuse the unfamiliar (EV-CLAUDE-007).
 
 ## Devin's loop log
 
