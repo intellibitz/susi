@@ -95,19 +95,6 @@ struct HostControlPlanes {
     p2p: crate::p2p_router::P2pRouter,
     signal: crate::signal::SignalRouter,
     policy: crate::security::CapabilityPolicy,
-    contract: crate::contract::ContractManager,
-    mount: crate::mount::MountManager,
-    vfs: crate::vfs::VfsManager,
-    offline: Mutex<crate::offline_queue::OfflineQueue>,
-    negotiation: Mutex<crate::negotiation::Negotiation>,
-    migration: crate::migration::MigrationManager,
-    child: crate::lineage::ChildCell,
-    bindings: Vec<crate::execution_mode::ModeBinding>,
-    swarm_metrics: crate::swarm_metrics::SwarmMetrics,
-    elastic: crate::elastic_scheduler::ElasticScheduler,
-    org_rules: Vec<crate::org_policy::OrgRule>,
-    packages: Vec<crate::packages::Package>,
-    ops_manifest: Mutex<crate::susi_abi::swarm::SwarmCellManifest>,
     cloud: Mutex<Vec<susi_vendor_cloud::CloudInventory>>,
     ticks: AtomicU64,
 }
@@ -212,7 +199,7 @@ fn spawn_nat_discovery() {
 }
 
 /// Live host control planes held for the daemon lifetime and driven on a tick.
-fn activate_host_control_planes(workspace: &Path) {
+fn activate_host_control_planes(_workspace: &Path) {
     let _ = HOST_PLANES.get_or_init(|| {
         let budget = crate::budget::HierarchicalBudget::default();
         budget.set_cell_cap("susi-host", 1_000_000);
@@ -225,22 +212,7 @@ fn activate_host_control_planes(workspace: &Path) {
                     ephemeral: false,
                 },
                 crate::security::CapabilityGrant {
-                    capability: "mount".to_string(),
-                    scope: None,
-                    ephemeral: false,
-                },
-                crate::security::CapabilityGrant {
                     capability: "infer".to_string(),
-                    scope: None,
-                    ephemeral: false,
-                },
-                crate::security::CapabilityGrant {
-                    capability: "net:peers".to_string(),
-                    scope: None,
-                    ephemeral: false,
-                },
-                crate::security::CapabilityGrant {
-                    capability: "blackboard:read".to_string(),
                     scope: None,
                     ephemeral: false,
                 },
@@ -253,33 +225,6 @@ fn activate_host_control_planes(workspace: &Path) {
         );
         let signal = crate::signal::SignalRouter::default();
         let _ = signal.dispatch_signal("susi-host", crate::signal::CellSignal::SigCont);
-        let contract = crate::contract::ContractManager::default();
-        contract.register(crate::contract::SemanticContract {
-            cell_id: "susi-host".into(),
-            accepted_inputs: vec![crate::contract::MimeType::Json],
-            guaranteed_outputs: vec![crate::contract::MimeType::Json],
-        });
-        let mount = crate::mount::MountManager::default();
-        let _ = mount.mount_dir(&policy, "/workspace", workspace, true);
-        let vfs = crate::vfs::VfsManager::default();
-        let child = crate::lineage::spawn_child(
-            "susi-host",
-            &["infer".into(), "host".into()],
-            &["infer".into()],
-            1_000,
-            100,
-        );
-        let org_rules = vec![crate::org_policy::OrgRule {
-            capability: "tool:git".into(),
-            scope_prefix: None,
-            decision: crate::org_policy::PolicyDecision::Allow,
-        }];
-        let packages = vec![crate::packages::Package {
-            name: "susi".into(),
-            version: "0".into(),
-            deps: Vec::new(),
-        }];
-        let ops = crate::scaffold::scaffold(crate::scaffold::AgentTemplate::Ops, "susi-host");
         HostControlPlanes {
             admin: crate::admin::AdminServer::default(),
             budget,
@@ -287,27 +232,6 @@ fn activate_host_control_planes(workspace: &Path) {
             p2p: crate::p2p_router::P2pRouter::default(),
             signal,
             policy,
-            contract,
-            mount,
-            vfs,
-            offline: Mutex::new(crate::offline_queue::OfflineQueue::offline()),
-            negotiation: Mutex::new(crate::negotiation::Negotiation::offer(
-                "host-tick",
-                "susi-host",
-                "peer",
-                "os-heartbeat",
-            )),
-            migration: crate::migration::MigrationManager::default(),
-            child,
-            bindings: vec![crate::execution_mode::ModeBinding {
-                cell_id: "susi-host".into(),
-                mode: crate::execution_mode::ExecutionMode::Reactive,
-            }],
-            swarm_metrics: crate::swarm_metrics::SwarmMetrics::default(),
-            elastic: crate::elastic_scheduler::ElasticScheduler::default(),
-            org_rules,
-            packages,
-            ops_manifest: Mutex::new(ops),
             cloud: Mutex::new(susi_vendor_cloud::probe_all()),
             ticks: AtomicU64::new(0),
         }
@@ -339,58 +263,6 @@ fn tick_host_control_planes() {
     let _ = host.admin.get_diagnostics(&host.policy, 1, 0);
     let _ = host.budget.try_spend("susi", "susi", "susi-host", 0);
     let _ = host.cas.put(b"susi-host-heartbeat".to_vec());
-    let _ = host
-        .contract
-        .validate_input("susi-host", &crate::contract::MimeType::Json);
-    let _ = host.mount.resolve_path("susi-host", "/workspace");
-    let _ = host.vfs.open("susi-host", "/dev/llm", &host.policy);
-    {
-        let mut offline = host.offline.lock().unwrap_or_else(|e| e.into_inner());
-        let online = !matches!(os.nat.status(), crate::nat::NatStatus::Unknown);
-        let _ = offline.set_online(online);
-        let _ = offline.submit(n.to_le_bytes().to_vec());
-    }
-    {
-        let mut deal = host.negotiation.lock().unwrap_or_else(|e| e.into_inner());
-        match deal.phase {
-            crate::negotiation::Phase::Offered => {
-                let _ = deal.accept();
-            }
-            crate::negotiation::Phase::Accepted => {
-                let _ = deal.commit();
-            }
-            crate::negotiation::Phase::Committed | crate::negotiation::Phase::Rejected => {}
-        }
-    }
-    let migrated = host
-        .migration
-        .prepare_migration("susi-host", n.to_le_bytes().to_vec());
-    let _ = host.migration.receive_migration(&migrated);
-    let _ = crate::execution_mode::woken_by(&host.bindings, crate::execution_mode::Trigger::Event);
-    let snap = host.swarm_metrics.snapshot();
-    let _ = crate::auto_tune::apply_tune(
-        &host.elastic,
-        &snap,
-        &crate::sla_monitor::SlaTargets::default(),
-    );
-    let _ = crate::org_policy::decide(&host.org_rules, "tool:git", None);
-    let _ = crate::packages::resolve(&host.packages, "susi", "0");
-    let _ = crate::workloads::complete(&crate::workloads::WorkloadRun {
-        kind: crate::workloads::WorkloadKind::Engineering,
-        evidence_ids: vec![format!("os-tick-{n}")],
-        citation_count: 1,
-        playbook_steps_completed: 1,
-        regions: vec!["local".into()],
-    });
-    {
-        let mut manifest = host.ops_manifest.lock().unwrap_or_else(|e| e.into_inner());
-        manifest.last_heartbeat = unix_secs();
-    }
-    {
-        let mut cloud = host.cloud.lock().unwrap_or_else(|e| e.into_inner());
-        *cloud = susi_vendor_cloud::probe_all();
-    }
-    let _ = host.child.cell_id.as_str();
     let _ = crate::auto_discovery::reap_exited_cells();
     let _ = os.plugins.list_plugins();
     let _ = host.signal.run_state("susi-host");
@@ -419,6 +291,10 @@ fn tick_host_control_planes() {
         .generate_external_multiaddr(susi_paths::ports::effective(susi_paths::ports::A2A_HTTP))
     {
         host.p2p.add_peer("susi-host", &ma);
+    }
+    {
+        let mut cloud = host.cloud.lock().unwrap_or_else(|e| e.into_inner());
+        *cloud = susi_vendor_cloud::probe_all();
     }
     persist_os_planes_report();
 }
@@ -477,16 +353,6 @@ fn os_planes_json() -> serde_json::Value {
                 .get_diagnostics(&h.policy, 1, 0)
                 .ok()
                 .map(|d| d.uptime_seconds)
-        }),
-        "child_cell": host.map(|h| h.child.cell_id.clone()),
-        "elastic_concurrency": host.map(|h| h.elastic.target_concurrency()),
-        "negotiation_phase": host.and_then(|h| {
-            h.negotiation.lock().ok().map(|d| match d.phase {
-                crate::negotiation::Phase::Offered => "offered",
-                crate::negotiation::Phase::Accepted => "accepted",
-                crate::negotiation::Phase::Committed => "committed",
-                crate::negotiation::Phase::Rejected => "rejected",
-            })
         }),
         "cloud": host.and_then(|h| {
             h.cloud.lock().ok().map(|inv| {

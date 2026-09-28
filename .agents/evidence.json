@@ -3023,11 +3023,21 @@
     },
     {
       "anchor": {
+        "label": "susi-daemon wiring",
+        "ref": "file://crates/susi-daemon/src/runtime_admin.rs"
+      },
+      "id": "EV-2022928-308",
+      "milestone": "RSI iterations 39-46 (Claude run): auto-tune wired to real swarm metrics; sixth deletion batch (12 cell-OS sketches); every daemon module reachable, ratchet is now a hard zero.",
+      "proof": "(1) `SwarmMetrics` (the in-memory mission collector) was never instantiated in production — no call to `start_mission`/`complete_mission` outside its own tests — so every swarm-level metric, SLA check and auto-tune input was fed nothing. New `swarm_metrics::snapshot_from_tasks` derives the snapshot from the live `SwarmTaskManager` table (started = registered, completed = Completed|Failed|Killed, succeeded = Completed, distinct solutions = distinct succeeded result texts, resolution = last_progress − start at second resolution); the dead collector struct was removed. (2) `SusiRuntimeAdmin`'s 10s cycle now runs `perform_auto_tune`: SLA check via `SwarmBlackboard::check_sla_and_alert` (deposits `sla.violation` on a miss), then one `auto_tune::apply_tune` step on the same `ElasticScheduler` the hardware-stress signal drives, publishing a `scheduler.target_concurrency` observation (with reason and sample) only when the target changes. It tunes only when new missions completed since the last step, so a single stale sample cannot ratchet concurrency every cycle. The SLA's only target is the execution lease (the system's own bound on a mission); no success-rate target is invented. (3) Removed the 12 remaining unreachable modules — contract, execution_mode, lineage, migration, mount, negotiation, offline_queue, org_policy (duplicates susi-core's live `MacPolicy`), packages, scaffold, vfs, workloads — 1,142 lines with no runtime behind them; the workspace compiling afterwards proves nothing used them. Replicated reachability: 60 modules, 0 unreachable; `unreachable_daemon_modules_only_decrease` now asserts the set is empty (the ceiling const is gone, which also avoids clippy's absurd comparison at 0). Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
         "label": "RSI OS isolation iterations 201-300",
         "ref": "file://ARCHITECTURE.md"
       },
-      "id": "EV-2022928-308",
-      "milestone": "RSI OS isolation iterations 201-300: HMAC-sealed swarm gossip with persisted capabilities; honest STUN errors plus TURN (Allocate or SUSI_TURN_RELAY); remaining host planes held and driven on the 30s tick (not discarded probes); susi-vendor-cloud command-only k8s/docker/aws/gcloud/az inventory; unwired daemon ratchet 13→0. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "id": "EV-2022928-309",
+      "milestone": "RSI OS isolation iterations 201-300 (cooperative with origin/main 5a41ec02): HMAC-sealed swarm gossip with persisted capabilities; honest STUN errors plus TURN (Allocate or SUSI_TURN_RELAY); susi-vendor-cloud command-only k8s/docker/aws/gcloud/az inventory. The 12 cell-OS sketches origin/main deleted stay deleted (not resurrected as discarded probes); auto-tune stays on runtime_admin's live task table. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
     }
