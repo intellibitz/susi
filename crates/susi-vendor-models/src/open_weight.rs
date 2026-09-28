@@ -276,7 +276,7 @@ impl OpenWeightManager {
         })?;
         crate::susi_config::create_private_dir(&self.root)?;
         crate::susi_config::atomic_write_bytes(&self.preferred_path(), def.id.as_bytes())?;
-        crate::ModelManager::set_selected_model(&def.ollama_tag)?;
+        crate::set_selected_model_override(&def.ollama_tag)?;
         Ok(format!(
             "preferred open-weight model set to {} (ollama tag {})",
             def.id, def.ollama_tag

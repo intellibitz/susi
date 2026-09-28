@@ -13,24 +13,7 @@ use super::ModelManager;
 
 impl ModelManager {
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
-        // An empty name would silently clear the override while reporting
-        // it "set", and a control character would corrupt the one-line
-        // file every inference reads.
-        let name = model_name.trim();
-        if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
-            return Err(format!(
-                "invalid model name {model_name:?}: expected a non-empty single-line id"
-            ));
-        }
-        // Atomic: every inference reads this; an empty read means "no
-        // override" and silently reroutes to the default model.
-        let model_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
-        crate::susi_config::atomic_write_bytes(&model_file, model_name.trim().as_bytes())
-            .map_err(|e| e.to_string())?;
-        Ok(format!(
-            "Selected active model override set to: '{}'",
-            model_name.trim()
-        ))
+        susi_vendor_models::set_selected_model_override(model_name)
     }
 
     pub fn identify_best_suited_local_model(

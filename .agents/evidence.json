@@ -3364,6 +3364,16 @@
       "milestone": "All third-party agent integrations moved out of susi-agents into crates/susi-vendor-agents (aider, autogen, browser-use, crewai, deerflow, e2b, gemini-cli, haystack, langgraph, llamaindex, n8n, openai-agents, openclaw, openhands, openviking, smolagents, swe-agent, temporal + catalog/process/python bridge/cloud harness).",
       "proof": "git-moved crates/susi-agents/src/external/ (24 files, ~4.3k lines) to crates/susi-vendor-agents/src/external/ unchanged; new crate root re-exports susi_{config,core,error,sandbox} so crate:: paths inside moved files resolve identically, and susi-agents re-exports it as pub use susi_vendor_agents::external so every caller (plane_handler, susi-daemon discovery_pipeline, root CLI) compiles untouched. susi-agents dropped getrandom/libc/serde/susi-http-transport deps only external/ used. LEAF_RANK: susi-vendor-agents=4, susi-agents=5 (its only dependents are susi-daemon@8 and root@9). cargo check --workspace --all-targets and fmt clean; CI vendor-cells shard covers susi-vendor-agents. No tests run per operator instruction.",
       "type": "ARCHITECTURE"
+    },
+    {
+      "anchor": {
+        "label": "susi-vendor-models: model-provider integrations extracted to dedicated crate",
+        "ref": "file://crates/susi-vendor-models/src/lib.rs"
+      },
+      "id": "EV-DEVIN-005",
+      "milestone": "All third-party model-provider integrations moved out of susi-gemi-models into crates/susi-vendor-models (cloud provider catalogs, frontier registry, OpenRouter, open-weight registry, Hugging Face discovery \u2014 5 files, ~1.9k lines).",
+      "proof": "git-moved cloud/frontier/openrouter/open_weight/hf_discovery to susi-vendor-models; crate root re-exports susi_{config,core,error,sandbox} so crate:: paths in moved files resolve, and susi-gemi-models re-exports the five modules so susi_gemi_models::{openrouter,cloud,...} paths are unchanged for coding_models, hardware, lifecycle/scan, susi-gemi ext glue, and the CLI. Would-be cycle on ModelManager::set_selected_model resolved by moving the selected_model_override.txt write primitive into susi_vendor_models::set_selected_model_override \u2014 ModelManager now delegates to it (single write contract). LEAF_RANK: susi-vendor-models=4, susi-gemi-models=5, susi-gemi=6. cargo check --workspace --all-targets and fmt clean. No tests run per operator instruction.",
+      "type": "ARCHITECTURE"
     }
   ],
   "epistemic_score": 1.0,

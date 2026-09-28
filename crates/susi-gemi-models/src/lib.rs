@@ -29,16 +29,12 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub use susi_core;
 
-pub mod cloud;
+pub use susi_vendor_models::{cloud, frontier, hf_discovery, open_weight, openrouter};
 pub mod coding_models;
 pub(crate) mod download;
-pub mod frontier;
 pub mod hardware;
-pub mod hf_discovery;
 pub mod intent;
 mod lifecycle;
 pub mod model_cache;
-pub mod open_weight;
-pub mod openrouter;
 
 pub use lifecycle::*;

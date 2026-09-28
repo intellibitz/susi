@@ -238,7 +238,7 @@ impl FrontierManager {
             )?;
         }
         crate::susi_config::atomic_write_bytes(&self.preferred_path(), def.id.as_bytes())?;
-        crate::ModelManager::set_selected_model(&def.model)?;
+        crate::set_selected_model_override(&def.model)?;
         Ok(format!(
             "preferred frontier model set to {} (api id {})",
             def.id, def.model
