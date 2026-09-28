@@ -640,6 +640,15 @@ The automatic audit runs after every supervised mission, so its "nothing
 due" path is kept cheap (`due_claim`): it no longer appends the staging
 health line, which parses every receipt-archive generation (up to 8 × 16
 MB) for a string the caller discards (EV-CLAUDE-025).
+Training holds two long locks — the workspace cycle lock and GEMI's global
+`reflex_training` lock — for seconds to about a minute (a gated
+non-converging cycle at 2048 samples measured ~53s of fitting), while
+`FileLock` treats a lock older than 60s as a wedged holder. Both are held
+under `FileLock::hold_while`, a 20s mtime heartbeat, so a live cycle is
+never broken mid-training: a stolen cycle lock would let the next mission's
+audit "recover" the live claim into staging while it trains, and a stolen
+training lock would let a second trainer publish over this cycle
+(EV-CLAUDE-029).
 The staging buffer is bounded: a claim keeps the newest 20,000 valid
 samples (`STAGING_CAP`), recording any drop in the error-metrics sink, so
 even a persistently failing trainer cannot grow it without limit.

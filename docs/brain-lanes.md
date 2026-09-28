@@ -98,6 +98,9 @@ One line per landed step, newest last.
 28. Verify: a quoted `containing "X"` goal is a content contract (was
     existence-only unless written `containing: X`); prose stays existence
     (EV-CLAUDE-028).
+29. Training locks get a heartbeat (`FileLock::hold_while`): a cycle near
+    the 60s wedged-holder age can no longer have its claim "recovered" or
+    be published over mid-training (EV-CLAUDE-029).
 
 ## Open questions for the other lane
 

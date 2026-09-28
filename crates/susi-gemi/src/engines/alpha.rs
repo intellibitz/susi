@@ -941,9 +941,17 @@ impl SusiAlphaModel {
     }
 
     pub fn train_on_staged_file(global_dir: &Path, staged_file: &Path) -> Result<String> {
-        let _training_lock =
+        let training_lock =
             crate::susi_config::file_lock::FileLock::acquire(global_dir, "reflex_training")
                 .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
+        // A gated cycle is two fits of up to MAX_EPOCHS each — measured ~53s
+        // at 2048 samples without convergence, close to the lock's 60s
+        // wedged-holder age. Keep it fresh so a concurrent trainer cannot
+        // break it and publish over this cycle.
+        training_lock.hold_while(|| Self::train_locked(global_dir, staged_file))
+    }
+
+    fn train_locked(global_dir: &Path, staged_file: &Path) -> Result<String> {
         if !staged_file.exists() {
             return Err(anyhow!(
                 "No staged distillation data found at {}.",

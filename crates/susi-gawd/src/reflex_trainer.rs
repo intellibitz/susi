@@ -11,7 +11,7 @@ impl ReflexTrainer {
     /// Checks whether the staged-sample count has crossed the training threshold.
     pub fn audit_distillation_state(workspace: &Path) -> EaiResult<String> {
         let susi_dir = workspace.join(".susi");
-        let _cycle_lock =
+        let cycle_lock =
             crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "reflex_claim_training")
                 .ok_or_else(|| EaiError::io("acquire reflex training-cycle lock"))?;
         recover_orphaned_claims(workspace)?;
@@ -26,20 +26,20 @@ impl ReflexTrainer {
             "[Reflex Trainer] Wisdom buffer saturated ({} samples). Triggering native distillation...",
             claim.sample_count
         );
-        let report = train_claim(workspace, &claim)?;
+        let report = cycle_lock.hold_while(|| train_claim(workspace, &claim))?;
         Ok(format!("{report}\n{}", staging_health_line(workspace)))
     }
 
     pub fn force_train(workspace: &Path) -> EaiResult<String> {
         let susi_dir = workspace.join(".susi");
-        let _cycle_lock =
+        let cycle_lock =
             crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "reflex_claim_training")
                 .ok_or_else(|| EaiError::io("acquire reflex training-cycle lock"))?;
         recover_orphaned_claims(workspace)?;
         // Operator-requested: no held-back back-off.
         let claim = claim_staged_samples(workspace, 1)?
             .ok_or_else(|| EaiError::inference("No staged distillation data found."))?;
-        let report = train_claim(workspace, &claim)?;
+        let report = cycle_lock.hold_while(|| train_claim(workspace, &claim))?;
         Ok(format!("{report}\n{}", staging_health_line(workspace)))
     }
 }
@@ -56,7 +56,10 @@ fn due_claim(workspace: &Path, threshold: usize) -> EaiResult<Option<TrainingCla
     claim_staged_samples(workspace, threshold)
 }
 
-/// Train one claim, retire or restore it, and log the cycle. A held-back or
+/// Train one claim, retire or restore it, and log the cycle. Callers run it
+/// under `hold_while` on the cycle lock: training can outlast the lock's
+/// 60s wedged-holder age, and a stolen cycle lock lets the next mission's
+/// audit "recover" this live claim back into staging mid-training. A held-back or
 /// failed cycle restores the claim so its samples are retried later.
 fn train_claim(workspace: &Path, claim: &TrainingClaim) -> EaiResult<String> {
     match SusiAlphaModel::train_on_staged_data(&claim.root) {

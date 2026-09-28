@@ -3774,6 +3774,16 @@
    "milestone": "Write goals with a quoted content literal are now verified by content, not only existence. SusiTruthAgent::verify_mission_reality upgraded a goal's write contract from FileExists to FileContains only when the goal used a colon ('containing: <text>' / 'containing exactly: <text>'). A goal like 'Create a file named q.txt containing \"payload-7\"' therefore passed verification with any content in q.txt. The colon was a deliberate precision guard: unquoted prose such as 'containing the results of the analysis' is a description, not a literal. A quoted string is as explicit as the colon form. Now GOAL_CONTENT also accepts containing (exactly)? followed by a \"...\"/'...'/`...` literal, and unquoted prose without a colon still yields an existence contract. Test: quoted_containing_literal_is_a_content_contract_prose_is_not (wrong content violates the quoted literal; correct content passes; the prose goal passes with arbitrary content). The existing colon-form tests pass (16/16 truth tests).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "FileLock::hold_while heartbeat",
+    "ref": "file://crates/susi-config/src/file_lock.rs"
+   },
+   "id": "EV-CLAUDE-029",
+   "milestone": "Tier-0 training can no longer have its locks broken mid-cycle. FileLock::is_stale treats a lock older than 60s as a wedged holder even when the holder pid is alive, which is by design, because its guarded sections are meant to be millisecond-scale. The trainer holds two locks far longer: the workspace 'reflex_claim_training' cycle lock across the whole plane-bus training call, and GEMI's global 'reflex_training' lock across train_on_staged_file. Measured (scratch probe, debug build): a first cycle at 2057 samples took 7.4s for 168 epochs, about 44ms per epoch. A non-converging gated cycle is two fits of up to 600 epochs, about 53s, close to 60s. Past that, the next mission's background audit could break the cycle lock and recover_orphaned_claims would restore the live claim into staging while it trains (duplicated samples, then a retire_claim failure), or a second trainer could break the training lock and publish over the cycle. Now FileLock::refresh (mtime = now) and FileLock::hold_while run the work while a heartbeat thread refreshes every 20s. Both trainer locks (ReflexTrainer::audit_distillation_state / force_train around train_claim, and SusiAlphaModel::train_on_staged_file around train_locked) use it. FileLock's staleness rule for every other caller is unchanged. Tests (susi-config, new): refresh_keeps_a_long_live_holder_from_going_stale (a 2-minute-old lock is stale, after refresh it is not); hold_while_returns_the_work_result_and_keeps_the_lock (still exclusive inside, result returned, released after drop). Trainer, alpha and distill-loop suites pass.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
