@@ -3454,6 +3454,16 @@
     "label": "Plan search + consensus gate",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-015",
+   "type": "ARCHITECTURE",
+   "milestone": "Brain step 4 \u2014 retrieval + difficulty-aware routing. mission_trace gains similar() (token-Jaccard retrieval with stopword filtering \u2014 a stopword-only match never fakes similarity), history_brief() (prior outcomes injected into the plan prompt), and difficulty() (explainable estimate: novelty, similar-mission failure rate, manifold risk). solve_autonomous retrieves before deliberating; demanding intents widen the candidate search; the RETRIEVAL line lands in the omni-trace.",
+   "proof": "mission_trace tests now 5: retrieval ranking, failure-rate difficulty, novel-intent escalation (demands_deliberation), brief injection/empty case. susi-gawd-swarm 53 pass; fmt+check clean.",
+   "anchor": {
+    "label": "Retrieval + difficulty-aware routing",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

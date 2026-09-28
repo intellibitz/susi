@@ -461,6 +461,14 @@ mines goal and result text into contracts: write *and* delete claims are
 checked, and a goal's `containing <text>` clause upgrades existence to a
 content assertion.
 
+The `retrieve` stage consults history before planning
+(`susi_core::mission_trace::{similar, history_brief, difficulty}`): traces
+most similar to the goal (token-Jaccard ≥ 0.15, stopword-filtered) inject a
+"prior outcomes" brief into the decomposition prompt, and a `Difficulty`
+estimate — novelty, similar-mission failure rate, manifold risk — decides
+routing: `demands_deliberation()` widens the candidate search, while
+familiar reliably-solved intents stay on the cheap path.
+
 The `deliberate` stage is plan search (`susi_gawd_swarm::deliberation`):
 `solve_autonomous` no longer commits to the first decomposition. Candidates
 are generated at several step budgets, scored purely (goal-token coverage

@@ -138,6 +138,126 @@ pub fn bounded_list(items: impl IntoIterator<Item = String>) -> Vec<String> {
     items.into_iter().take(MAX_LISTED).collect()
 }
 
+/// Whitespace-token overlap between a query goal and a recorded trace.
+fn token_overlap(goal: &str, trace_goal: &str) -> f32 {
+    // Stopwords carry no intent signal — "the" alone must never make two
+    // missions look similar.
+    const STOPWORDS: &[&str] = &["the", "and", "for", "with", "this", "that", "from"];
+    let tokens = |s: &str| {
+        s.split_whitespace()
+            .map(|t| {
+                t.to_lowercase()
+                    .trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_string()
+            })
+            .filter(|t| t.len() > 2 && !STOPWORDS.contains(&t.as_str()))
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let (a, b) = (tokens(goal), tokens(trace_goal));
+    let union = a.union(&b).count();
+    if union == 0 {
+        return 0.0;
+    }
+    a.intersection(&b).count() as f32 / union as f32
+}
+
+/// Similarity floor for a trace to count as "the same kind of mission".
+const SIMILARITY_FLOOR: f32 = 0.15;
+
+/// Retrieve the `limit` traces most similar to `goal` — the retrieval stage
+/// of the loop: prior outcomes for the same kind of intent.
+pub fn similar<'a>(goal: &str, traces: &'a [MissionTrace], limit: usize) -> Vec<&'a MissionTrace> {
+    let mut scored: Vec<(f32, &'a MissionTrace)> = traces
+        .iter()
+        .map(|t| (token_overlap(goal, &t.goal), t))
+        .filter(|(s, _)| *s >= SIMILARITY_FLOOR)
+        .collect();
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(b.1.timestamp.cmp(&a.1.timestamp))
+    });
+    scored.into_iter().take(limit).map(|(_, t)| t).collect()
+}
+
+/// An explainable difficulty estimate — every factor is named so the routed
+/// decision is auditable, not a hidden weight.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Difficulty {
+    /// 0.0..=1.0 composite.
+    pub score: f32,
+    /// No similar mission has ever run.
+    pub novel: bool,
+    /// Fraction of similar missions that did not succeed.
+    pub failure_rate: f32,
+    /// Manifold risk contribution already applied.
+    pub risk: crate::manifold::RiskProfile,
+}
+
+impl Difficulty {
+    /// Hard enough that deliberation should widen (more candidates, deeper
+    /// budgets) and routing should prefer the stronger tier.
+    pub fn demands_deliberation(&self) -> bool {
+        self.score >= 0.45
+    }
+}
+
+/// Estimate difficulty for `goal` from retrieval history and manifold risk.
+/// Novel intents and intents whose predecessors often failed route harder;
+/// familiar, reliably-solved intents stay cheap.
+pub fn difficulty(
+    goal: &str,
+    traces: &[MissionTrace],
+    risk: crate::manifold::RiskProfile,
+) -> Difficulty {
+    let neighbors = similar(goal, traces, 8);
+    let novel = neighbors.is_empty();
+    let failure_rate = if neighbors.is_empty() {
+        0.0
+    } else {
+        neighbors.iter().filter(|t| !t.succeeded()).count() as f32 / neighbors.len() as f32
+    };
+    let risk_weight = match risk {
+        crate::manifold::RiskProfile::Low => 0.0,
+        crate::manifold::RiskProfile::Medium => 0.15,
+        crate::manifold::RiskProfile::High => 0.25,
+        crate::manifold::RiskProfile::Critical => 0.4,
+    };
+    let novelty_weight = if novel { 0.35 } else { 0.0 };
+    let score = (novelty_weight + 0.4 * failure_rate + risk_weight).clamp(0.0, 1.0);
+    Difficulty {
+        score,
+        novel,
+        failure_rate,
+        risk,
+    }
+}
+
+/// One-line history brief for prompt injection: what similar missions did
+/// and how they ended. Empty when nothing similar exists.
+pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
+    let lines: Vec<String> = similar(goal, traces, limit)
+        .iter()
+        .map(|t| {
+            format!(
+                "- \"{}\" -> {} via {} (tools: {})",
+                t.goal,
+                t.outcome,
+                t.route,
+                t.tools.join(",")
+            )
+        })
+        .collect();
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Prior outcomes for similar goals:\n{}\n\n",
+            lines.join("\n")
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +315,50 @@ mod tests {
             .unwrap();
         let parsed = read_all(ws.path());
         assert_eq!(parsed[0].goal.chars().count(), MAX_GOAL_CHARS);
+    }
+
+    #[test]
+    fn retrieval_ranks_similar_goals_and_difficulty_reads_history() {
+        let ws = workspace();
+        // Two deploys failed, one passed; an unrelated trace is noise.
+        for (goal, outcome) in [
+            ("deploy the api service", "FAILED"),
+            ("deploy the api service again", "FAILED"),
+            ("deploy the api service cleanly", "COMPLETE"),
+            ("list directory contents", "COMPLETE"),
+        ] {
+            MissionTrace::new("m", goal, outcome, "swarm")
+                .emit(ws.path())
+                .unwrap();
+        }
+        let traces = read_all(ws.path());
+
+        let hits = similar("deploy api service", &traces, 5);
+        assert_eq!(hits.len(), 3);
+        assert!(hits.iter().all(|t| t.goal.contains("deploy")));
+
+        let d = difficulty(
+            "deploy api service",
+            &traces,
+            crate::manifold::RiskProfile::Low,
+        );
+        assert!(!d.novel);
+        assert!((d.failure_rate - 2.0 / 3.0).abs() < 0.01);
+        assert!(d.score > 0.2);
+
+        // A novel intent reads as novel and difficult enough to widen search.
+        let novel = difficulty(
+            "refactor the compiler",
+            &traces,
+            crate::manifold::RiskProfile::High,
+        );
+        assert!(novel.novel);
+        assert!(novel.demands_deliberation());
+
+        let brief = history_brief("deploy api service", &traces, 2);
+        assert!(brief.contains("Prior outcomes"));
+        assert!(brief.contains("FAILED"));
+        assert!(history_brief("unrelated xyz", &traces, 5).is_empty());
     }
 
     #[test]

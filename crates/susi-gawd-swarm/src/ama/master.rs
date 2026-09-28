@@ -786,12 +786,32 @@ impl SusiMasterAgent {
         // agree on the approach — without consensus the mission runs the
         // goal as a single step rather than trusting one model sample.
         let manifold = crate::susi_core::manifold::IntentManifold::analyze(&goal);
-        let deliberation = crate::deliberation::deliberate(
-            &goal,
-            &manifold,
-            &crate::deliberation::candidate_budgets(max_steps),
-            |budget| self.plan_steps(&goal, workspace, budget),
+
+        // Retrieve before planning: similar missions' outcomes inform both
+        // the decomposition prompt (what worked, what failed) and the
+        // difficulty estimate that decides how wide the search runs.
+        let traces = crate::susi_core::mission_trace::read_all(workspace);
+        let difficulty =
+            crate::susi_core::mission_trace::difficulty(&goal, &traces, manifold.risk_profile);
+        let brief = crate::susi_core::mission_trace::history_brief(&goal, &traces, 5);
+        eprintln!(
+            "[RETRIEVAL] {} similar missions | difficulty={:.2} (novel={} failure_rate={:.0}% risk={:?})",
+            crate::susi_core::mission_trace::similar(&goal, &traces, 8).len(),
+            difficulty.score,
+            difficulty.novel,
+            difficulty.failure_rate * 100.0,
+            difficulty.risk
         );
+
+        let mut budgets = crate::deliberation::candidate_budgets(max_steps);
+        if difficulty.demands_deliberation() {
+            // A novel or frequently-failed intent earns a wider search.
+            budgets.push((max_steps + 4).min(8));
+        }
+        budgets.dedup();
+        let deliberation = crate::deliberation::deliberate(&goal, &manifold, &budgets, |budget| {
+            self.plan_steps(&goal, &brief, workspace, budget)
+        });
         eprintln!(
             "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?}",
             deliberation.candidates.len(),
@@ -955,12 +975,19 @@ impl SusiMasterAgent {
     /// Ask the reasoning substrate to decompose `goal` into a bounded list of
     /// steps. Falls back to a single-step plan if decomposition fails or the
     /// model is unavailable.
-    fn plan_steps(&self, goal: &str, workspace: &Path, max_steps: u32) -> Vec<String> {
+    fn plan_steps(
+        &self,
+        goal: &str,
+        history_brief: &str,
+        workspace: &Path,
+        max_steps: u32,
+    ) -> Vec<String> {
         let prompt = format!(
             "Break the following goal into at most {} concise, ordered steps. \
              Return one step per line starting with a number and a period. \
-             Do not add extra commentary.\n\nGoal: {}\n\nSteps:",
+             Do not add extra commentary.\n\n{}Goal: {}\n\nSteps:",
             max_steps.clamp(1, 8),
+            history_brief,
             goal
         );
         let response =
