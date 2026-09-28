@@ -43,7 +43,6 @@ mod tests {
     use ra2a::server::{AgentExecutor, EventQueue, RequestContext};
     use ra2a::types::{Message, Part, TaskState};
     use std::sync::Arc;
-    use susi_gawd_agents::GawdAgentFleet;
 
     /// Drives a future to completion on the bare test thread. The fleet's
     /// inference path internally creates a `tokio::runtime::Runtime` and calls
@@ -87,7 +86,7 @@ mod tests {
 
     #[test]
     fn agent_card_advertises_orchestrator_identity() {
-        let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
+        let executor = GawdA2AExecutor::new();
         let card = executor.agent_card();
         assert_eq!(card.name, "susi-gawd");
         assert!(!card.version.is_empty());
@@ -112,7 +111,9 @@ mod tests {
 
     #[test]
     fn execute_emits_completed_task_with_agent_message() {
-        let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
+        let executor = GawdA2AExecutor::with_runner(Arc::new(|intent: &str| {
+            Ok(format!("answer to {intent}"))
+        }));
         let queue = EventQueue::new(8);
         let mut rx = queue.subscribe();
         let mut ctx = RequestContext::new("task-1", "ctx-1");
@@ -135,7 +136,7 @@ mod tests {
     fn execute_without_message_reports_failed_task() {
         // No message => empty content => fleet error maps to an A2A `failed`
         // task carrying the failure text, never a panic or silent drop.
-        let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
+        let executor = GawdA2AExecutor::new();
         let queue = EventQueue::new(8);
         let mut rx = queue.subscribe();
         let ctx = RequestContext::new("task-2", "ctx-2");
@@ -150,7 +151,7 @@ mod tests {
 
     #[test]
     fn execute_with_non_text_part_reports_failed_task() {
-        let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
+        let executor = GawdA2AExecutor::new();
         let queue = EventQueue::new(8);
         let mut rx = queue.subscribe();
         let mut ctx = RequestContext::new("task-3", "ctx-3");
@@ -165,7 +166,7 @@ mod tests {
 
     #[test]
     fn cancel_emits_canceled_task() {
-        let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
+        let executor = GawdA2AExecutor::new();
         let queue = EventQueue::new(8);
         let mut rx = queue.subscribe();
         let ctx = RequestContext::new("task-4", "ctx-4");

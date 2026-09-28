@@ -93,9 +93,9 @@ never consume an unterminated source tail.
 | `susi-vendor-fastembed` | One process-wide fastembed model (ONNX) behind `embed` / `embed_one`; cached load failure is visible to provider health | `embed`, `embed_one`, `load_failed` | `susi-error`; fastembed (hf-hub + rustls ORT download) | workspace crates | no | model cache | no |
 | `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation and the `ast_analyze` tool | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)` | syn | workspace crates | no | no | no |
 | `susi-vendor-chrome` | Headless Chrome page capture (PNG + DOM) for an already-validated URL | `capture_page`, `PageCapture` | `susi-error`; headless_chrome | workspace crates | Chrome/Chromium | no | no |
-| `susi-vendor-cloud` | Provision/manage local+cloud hosts via operator CLIs (no AWS/GCP/K8s SDK) | `probe_all`, `list_nodes`, `apply_manifest` | std `Command` | `susi-daemon` | kubectl/docker/aws/gcloud/az | no | no |
+| `susi-vendor-cloud` | Provision/manage local+cloud hosts via operator CLIs (no AWS/GCP/K8s SDK). Tick = `probe_all`; list/apply only via `susi os provision` | `probe_all`, `list_nodes`, `apply_manifest`, `CloudKind::parse` | std `Command` | `susi-daemon`, root CLI | kubectl/docker/aws/gcloud/az | no | no |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
-| `susi-daemon` | Persistent host: HMAC gossip 9095 + persisted caps, egress-gated STUN / env-TURN, live OS-plane ticks including cloud CLI inventory, `os_planes.json` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-vendor-cloud` + `susi-abi` + server + tools + agents; `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
+| `susi-daemon` | Persistent host: per-peer HMAC gossip 9095 + sealed (fail-closed without a MAC key) `gossip_caps.json`, egress-gated STUN / TURN MESSAGE-INTEGRITY, live OS-plane ticks (cloud **version-probe** only), `os_planes.json` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-vendor-cloud` + `susi-abi` + server + tools + agents; `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + `susi-leaf-services` (`service-run`) + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
@@ -730,12 +730,108 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 298 | Negotiation cannot commit before accept | tick advances one phase per 30s |
 | 299 | Unwired ratchet documentation vs code | AGENTS/identity/architecture agree at 0 |
 | 300 | Iteration ledger stopped at 200 | this table through 300 |
-| 301 | Devin branch: OS-plane reachability claims were built from probes and discarded results | retracted on the Devin branch in parallel; main later kept the planes with real held managers + tick side effects — merged keeping main's structure plus egress gating and fail-closed gossip key |
-| 302 | `swarm_host_snapshot` used empty scheduler input, synthetic fallback/gateway results, and a runbooks-directory check to claim four live modules | scheduler probe already removed on main; the remaining three probes (fallback, self_healing, http_gateway) were the only references to their modules — probes and modules deleted together, keeping the zero-unreachable ratchet honest |
-| 303 | Cluster peer RTT/uptime fields were serialized as measured zeros | RTT comes from signed ping/pong; each nonce is accepted once per node within a bounded window; uptime remains unknown until the wire carries it (convergent with main's honesty pass) |
-| 304 | Candle and fastembed providers reported healthy unconditionally | Candle checks for a selectable local model via `spawn_blocking`; fastembed health reflects a cached load failure (convergent with main) |
-| 305 | Host-token seeding swallowed every failure: a weak pid/time fallback could mint the token, a losing seed race overwrote the winner's file, and callers discarded errors | `ensure_api_auth_token_seeded` now returns `EaiResult`: CSPRNG failure is an error, symlink/empty/unreadable token paths abort, `O_EXCL` install keeps the winner's token; the daemon refuses to bind ports or spawn leaf services/cells, and leaf mains propagate the failure |
-| 306 | Boot audit recorded only the `root` host grant; cloud CLIs re-probed every 30s; STUN ran without an egress check | all three real grants logged; cloud re-probe every 20th tick; STUN/TURN gated on `egress_permitted` or explicit `SUSI_TURN_*` |
+| 301 | TURN long-term creds unimplemented | HMAC-SHA1 MESSAGE-INTEGRITY + MD5(user:realm:pass) |
+| 302 | 401 Allocate had no retry | parse REALM/NONCE; retry with USERNAME/REALM/NONCE/MI |
+| 303 | Stale nonce 438 untreated | same retry path as 401 |
+| 304 | Allocate omitted REQUESTED-TRANSPORT | UDP protocol 17 attr 0x0019 on every Allocate |
+| 305 | Open relays still work | first attempt unauthenticated; success returns XOR-RELAYED-ADDRESS |
+| 306 | Missing creds on 401 lied about "not implemented" | asks for `SUSI_TURN_USER`/`SUSI_TURN_PASS` or `SUSI_TURN_RELAY` |
+| 307 | `SUSI_TURN_REALM` unused | overrides empty 401 realm |
+| 308 | TURN crypto would pull a vendor SDK | rustcrypto `sha1` + `md-5` on daemon only (not HTTP) |
+| 309 | HMAC-SHA1 hand-rolled like cluster HMAC-SHA256 | ipad/opad block 64 |
+| 310 | Header length must include MI | HMAC covers header+attrs preceding MI with length set to include MI |
+| 311 | Relayed multiaddr stuffed `host:port` into `/ip4/` | `/ip4|ip6/{ip}/udp/{port}/turn` |
+| 312 | Gossip MAC was cluster-wide only | `key_for(peer)=HMAC(cluster_mac, susi-gossip-peer-v1:{id})` |
+| 313 | Packets for A replayed onto B | `seal_for(peer_id)`; `open` verifies `key_for(wire_node_id())` |
+| 314 | Holders of cluster.key can still mint any peer MAC | documented as destination-binding, not a per-peer secret |
+| 315 | Tests/loopback still need a seal | `seal()` = `seal_for(local_node_id())` |
+| 316 | Fanout used hardcoded `susi-host` cell id | advertises `wire_node_id()` sealed for each roster id |
+| 317 | PeerDiscovery had no sender id | `from_id`; reply `seal_for(from_id)` |
+| 318 | Discovery reply advertised without peer key | 4-arg `advertise(addr, peer_id, cell_id, caps)` |
+| 319 | `gossip_caps.json` was unsigned JSON | wrapper `{v, mac, caps}` HMAC over canonical caps bytes |
+| 320 | Unsigned/legacy caps files would load spoofed cells | ignored; table refills via gossip |
+| 321 | Persist vs load MAC used HashMap order | MAC over `serde_json::Value` bytes (stable object keys) |
+| 322 | Persist was a non-atomic write | tmp + `rename` |
+| 323 | Store key collided with datagram key | `susi-gossip-store-v1` derived key |
+| 324 | MAC compare used zip without length check | `mac_eq` length-then-XOR |
+| 325 | Snapshot omitted MAC scope | `gossip_mac: per-peer`, `gossip_store: hmac-sealed` |
+| 326 | `susi os provision` missing | `probe` / `list` / `apply` subcommands |
+| 327 | Root CLI could not call vendor-cloud | `susi-vendor-cloud` on the root package |
+| 328 | Kind strings were unparsed | `CloudKind::parse` (k8s/kubectl aliases) |
+| 329 | Tick vs CLI contract undocumented | tick = `probe_all` only; list/apply never unsolicited |
+| 330 | `os_planes.json` omitted the contract | `provision_tick_contract: probe_all_only` |
+| 331 | Apply on docker/aws would need a silent API | still kubectl-only explicit error |
+| 332 | Probe JSON had no tick note | `tick_contract: probe_all_only` in probe JSON |
+| 333 | 9095 vs `ports::ALL` still a comment only | `SWARM_UDP` published; ALL stays the 5-tuple |
+| 334 | Why 9095 is outside ALL was implicit | external clients hard-code 9090–9094; 9092 is A2A UDP |
+| 335 | Offset still applies to gossip | `SusiConfig::gossip_port` / `ports::effective` |
+| 336 | `susi os --json` gossip looked like a host-contract port | `host_contract: false` + note |
+| 337 | a2a-udp JSON omitted the flag | `host_contract: true` |
+| 338 | Devin merge: convergent honesty fixes collided | fail-closed token seeding kept (absent on main); per-(nonce,node) pong dedup kept; STUN egress gate added; gossip key fail-closed on entropy failure; three snapshot-probe-only modules (fallback, self_healing, http_gateway) deleted with their probes |
+| 339 | Boot audit recorded only the `root` host grant; cloud CLIs re-probed every 30s | all three real grants logged; re-probe every 20th tick (~10 min) |
+| 338 | README host-contract table implied 9095 | prose: 9095 is swarm-internal |
+| 339 | README item 11 stopped at 9090–9094 | names SWARM_UDP exception |
+| 340 | README still claimed held contract/mount/vfs sketches | those 12 stay deleted; live_planes mapping |
+| 341 | Resurrecting deleted sketches would fight origin/main | map needs onto live planes |
+| 342 | contract sketch | GMCP tool schemas |
+| 343 | execution_mode sketch | signal `run_state` |
+| 344 | lineage sketch | identity manager |
+| 345 | migration sketch | checkpoint + cell_snapshot |
+| 346 | mount sketch | susi-sandbox workspace jail |
+| 347 | negotiation sketch | gawd cluster peers + p2p_router |
+| 348 | offline_queue sketch | sealed gossip store + os_planes persist |
+| 349 | org_policy sketch | CapabilityPolicy grants |
+| 350 | packages sketch | PluginManager |
+| 351 | scaffold sketch | checkpoint + plugins |
+| 352 | vfs sketch | SusiDirs + sandbox |
+| 353 | workloads sketch | task_queue + SwarmTaskManager auto-tune |
+| 354 | Mapping invisible to operators | `live_planes` object on `os_planes.json` |
+| 355 | `SWARM_UDP` unused would rot | emitted on `os_planes.json` |
+| 356 | Identity Mandate 45 still said cluster-wide gossip MAC / Allocate-only TURN | per-peer MAC, MI TURN, provision CLI |
+| 357 | SusiDaemon blurb still said unsigned persist / env TURN | sealed store + HMAC-SHA1 Allocate |
+| 358 | ARCHITECTURE vendor-cloud consumers omitted CLI | daemon + root CLI |
+| 359 | Daemon crate row omitted MI / tick contract | updated |
+| 360 | Isolation: sha1/md-5 must not land in core | daemon-only; core stays SHA-256 |
+| 361 | Isolation: daemon still has no reqwest/ureq | Command cloud + std UDP STUN/TURN |
+| 362 | Isolation: HTTP clients remain vendor/transport | grep of daemon sources is clean |
+| 363 | Duplicate cluster HMAC vs gossip datagram HMAC | both `cluster_key::hmac_sha256`; peer label differs |
+| 364 | Gossip bind comment still accurate | instance UDP 9095 not A2A 9092 |
+| 365 | Config `gossip_port` already said not host-contract | kept; SWARM_UDP matches |
+| 366 | Fanout PeerDiscovery sealed cluster-wide | now `seal_for(roster id)` |
+| 367 | Empty `from_id` would advertise anyway | skip reply when empty |
+| 368 | 3 Allocate attempts bound DoS on 401 loops | cap 3 |
+| 369 | TURN error parse ignored wrong txid | cookie+txid checked |
+| 370 | ERROR-CODE class/number | `class*100+number` (401/438) |
+| 371 | SASLprep skipped | UTF-8 username/realm as given (documented honesty) |
+| 372 | FINGERPRINT attr skipped | MI is last attribute we send |
+| 373 | `SUSI_TURN_RELAY` still wins | parsed first, no Allocate |
+| 374 | README examples omitted provision | `susi os provision probe/list/apply` |
+| 375 | Evidence after anyhow-unification 310 | EV-2022928-320 (renumbered from -311 at merge) |
+| 376 | Cooperative FF of origin/main `14a4be10` | anyhow-free libraries before 301 |
+| 377 | Clippy `unwrap_used` on STUN length | `try_from` + `unwrap_or(u16::MAX)` not unwrap |
+| 378 | Mutex poison on cloud inventory | existing `into_inner` |
+| 379 | Gossip tests still compile without extra cases | `seal()` destination is local id |
+| 380 | No new tests (operator standing order) | cargo check / fmt only |
+| 381 | `os_cli` endpoints text already printed gossip-udp | kept; JSON now flags contract |
+| 382 | Provision apply reads file then kubectl stdin | no cloud SDK |
+| 383 | List kind aliases | kubernetes/k8s/kubectl, gcp/gcloud, azure/az |
+| 384 | Unknown kind must not guess | parse error string lists expected tokens |
+| 385 | Probe text view labels missing CLIs | `ok` / `missing` |
+| 386 | Tick comment in composition | list/apply never from 30s loop |
+| 387 | Identity remaining 12 sketches stay deleted | 5437 lines / six batches unchanged |
+| 388 | Unwired ratchet still 0 of 60 | no new daemon modules |
+| 389 | `ports::ALL` length stays 5 | adding 9095 would break external clients |
+| 390 | Dev offset 100 → gossip 9195 | same saturating add as ALL |
+| 391 | Cluster-less gossip still local MAC | process-local `mac_key` + per-peer derive |
+| 392 | Persist parent dir | existing `create_dir_all` |
+| 393 | hex crate already on daemon | store MAC hex encoding |
+| 394 | `wire_node_id` never a shared constant | ephemeral fallback still unique per process |
+| 395 | P2P table still fed from roster + TURN multiaddr | tick unchanged besides comments |
+| 396 | Auto-tune stays on live task table | not resurrected as a cell-OS sketch |
+| 397 | Vendor APIs remain `susi-vendor-*` | cloud CLIs, mcp-server, candle, wasmer |
+| 398 | Root anyhow still CLI-only | provision returns `anyhow::Result` |
+| 399 | Architecture isolation row for daemon HTTP | still "HTTP client crates" forbidden |
+| 400 | Iteration ledger stopped at 300 | this table through 400 |
 
 ## Claude RSI run (2026-09-28, iterations 1-100)
 

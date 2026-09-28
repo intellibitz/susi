@@ -1,17 +1,23 @@
 //! Gossip Protocol for Peer-to-Peer Capability Propagation
 //!
 //! Epidemic capability routing over UDP. Datagrams are HMAC-SHA256 sealed
-//! with a cluster-key-derived `susi-gossip-v1` key (process-local fallback
-//! when no `cluster.key` exists) so a spoofed packet cannot enter the table.
+//! with a *per-peer* key derived from the cluster-key `susi-gossip-v1` MAC
+//! (`susi-gossip-peer-v1:{node_id}`) so a packet destined for A cannot be
+//! replayed onto B. Holders of `cluster.key` can still mint a valid MAC for
+//! any id — this is destination-binding, not a per-peer secret. The capability
+//! store `gossip_caps.json` is HMAC-sealed (`susi-gossip-store-v1`); unsigned
+//! files are ignored.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
 const GOSSIP_LABEL: &[u8] = b"susi-gossip-v1";
+const PEER_LABEL: &[u8] = b"susi-gossip-peer-v1:";
+const STORE_LABEL: &[u8] = b"susi-gossip-store-v1";
 const MAC_LEN: usize = 32;
 
 /// A gossip message exchanged between Swarm OS nodes.
@@ -24,7 +30,7 @@ pub enum GossipMessage {
         timestamp: u64,
     },
     /// Requests peer routing table.
-    PeerDiscovery { from_ip: String },
+    PeerDiscovery { from_ip: String, from_id: String },
 }
 
 /// Manages epidemic gossip state and UDP binding.
@@ -45,6 +51,25 @@ impl Default for GossipManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn local_node_id() -> String {
+    crate::susi_config::cluster_key::wire_node_id()
+}
+
+fn mac_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn hmac(key: &[u8; 32], msg: &[u8]) -> [u8; 32] {
+    crate::susi_config::cluster_key::hmac_sha256(key, msg)
 }
 
 fn process_mac_key() -> Option<[u8; 32]> {
@@ -76,8 +101,8 @@ impl GossipManager {
     pub fn with_store(path: PathBuf) -> Self {
         let mut manager = Self::new();
         manager.store = Some(path.clone());
-        if let Ok(text) = std::fs::read_to_string(&path)
-            && let Ok(map) = serde_json::from_str::<HashMap<String, Vec<String>>>(&text)
+        if let Ok(bytes) = std::fs::read(&path)
+            && let Some(map) = manager.open_store(&bytes)
         {
             let mut caps = manager
                 .peer_capabilities
@@ -118,34 +143,67 @@ impl GossipManager {
             .len()
     }
 
-    /// HMAC-SHA256 seal: 32-byte MAC then body. `None` when no MAC key
-    /// exists — callers skip the send rather than emit a forgeable datagram.
+    /// HMAC-SHA256 seal destined to `peer_id` (per-peer MAC). `None` when no
+    /// MAC key exists — callers skip the send rather than emit a forgeable
+    /// datagram.
     #[must_use]
-    pub fn seal(&self, body: &[u8]) -> Option<Vec<u8>> {
-        let key = self.mac_key.as_deref()?;
-        let mac = crate::susi_config::cluster_key::hmac_sha256(key, body);
+    pub fn seal_for(&self, peer_id: &str, body: &[u8]) -> Option<Vec<u8>> {
+        let mac = hmac(&self.key_for(peer_id)?, body);
         let mut out = Vec::with_capacity(MAC_LEN + body.len());
         out.extend_from_slice(&mac);
         out.extend_from_slice(body);
         Some(out)
     }
 
+    /// Seal for this host (tests and loopback ingest).
+    #[must_use]
+    pub fn seal(&self, body: &[u8]) -> Option<Vec<u8>> {
+        self.seal_for(&local_node_id(), body)
+    }
+
+    fn key_for(&self, peer_id: &str) -> Option<[u8; 32]> {
+        let key = self.mac_key.as_deref()?;
+        let mut msg = Vec::with_capacity(PEER_LABEL.len() + peer_id.len());
+        msg.extend_from_slice(PEER_LABEL);
+        msg.extend_from_slice(peer_id.as_bytes());
+        Some(hmac(key, &msg))
+    }
+
+    fn store_key(&self) -> Option<[u8; 32]> {
+        self.mac_key.as_deref().map(|key| hmac(key, STORE_LABEL))
+    }
+
     fn open<'a>(&self, payload: &'a [u8]) -> Result<&'a [u8], String> {
-        let key = self
-            .mac_key
-            .as_deref()
-            .ok_or("no gossip MAC key (no cluster key, no OS entropy)")?;
         let mac = payload.get(..MAC_LEN).ok_or("unsigned gossip datagram")?;
         let body = payload.get(MAC_LEN..).ok_or("truncated gossip datagram")?;
-        let expected = crate::susi_config::cluster_key::hmac_sha256(key, body);
-        let mut diff = 0u8;
-        for (a, b) in mac.iter().zip(expected.iter()) {
-            diff |= a ^ b;
-        }
-        if diff != 0 || mac.len() != MAC_LEN {
+        let expected = hmac(
+            &self
+                .key_for(&local_node_id())
+                .ok_or("no gossip MAC key (no cluster key, no OS entropy)")?,
+            body,
+        );
+        if !mac_eq(mac, &expected) {
             return Err("gossip HMAC mismatch".to_string());
         }
         Ok(body)
+    }
+
+    fn open_store(&self, bytes: &[u8]) -> Option<HashMap<String, Vec<String>>> {
+        let text = std::str::from_utf8(bytes).ok()?;
+        let wrap: serde_json::Value = serde_json::from_str(text).ok()?;
+        let v = wrap.get("v")?.as_u64()?;
+        if v != 1 {
+            return None;
+        }
+        let mac_hex = wrap.get("mac")?.as_str()?;
+        let caps = wrap.get("caps")?;
+        let caps_bytes = serde_json::to_vec(caps).ok()?;
+        let expected = hmac(&self.store_key()?, &caps_bytes);
+        let got = hex::decode(mac_hex).ok()?;
+        if !mac_eq(&got, &expected) {
+            return None;
+        }
+        serde_json::from_value(caps.clone()).ok()
     }
 
     fn persist(&self) {
@@ -156,7 +214,7 @@ impl GossipManager {
             .peer_capabilities
             .read()
             .unwrap_or_else(|e| e.into_inner());
-        let json: HashMap<String, Vec<String>> = map
+        let json: BTreeMap<String, Vec<String>> = map
             .iter()
             .map(|(k, v)| {
                 let mut caps: Vec<String> = v.iter().cloned().collect();
@@ -164,11 +222,25 @@ impl GossipManager {
                 (k.clone(), caps)
             })
             .collect();
-        if let Ok(text) = serde_json::to_string_pretty(&json) {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
+        if let Ok(caps_value) = serde_json::to_value(&json)
+            && let Ok(caps_bytes) = serde_json::to_vec(&caps_value)
+            && let Some(store_key) = self.store_key()
+        {
+            let mac = hmac(&store_key, &caps_bytes);
+            let wrap = serde_json::json!({
+                "v": 1,
+                "mac": hex::encode(mac),
+                "caps": caps_value,
+            });
+            if let Ok(text) = serde_json::to_string_pretty(&wrap) {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let tmp = path.with_extension("json.tmp");
+                if std::fs::write(&tmp, text).is_ok() {
+                    let _ = std::fs::rename(&tmp, path);
+                }
             }
-            let _ = std::fs::write(path, text);
         }
     }
 
@@ -221,11 +293,14 @@ impl GossipManager {
                 drop(map);
                 self.persist();
             }
-            GossipMessage::PeerDiscovery { .. } => {
-                if let Some(addr) = from {
+            GossipMessage::PeerDiscovery { from_id, .. } => {
+                if let Some(addr) = from
+                    && !from_id.is_empty()
+                {
                     let _ = self.advertise(
                         addr,
-                        "susi-host",
+                        &from_id,
+                        &local_node_id(),
                         vec!["host".to_string(), "infer".to_string()],
                     );
                 }
@@ -288,19 +363,22 @@ impl GossipManager {
             return;
         };
         let from_ip = self.local_addr().unwrap_or_default();
-        for (_id, addr) in peers {
+        let us = local_node_id();
+        for (id, addr) in peers {
             let target = Self::gossip_target(&addr, gossip_port);
             let _ = self.advertise(
                 &target,
-                "susi-host",
+                &id,
+                &us,
                 vec!["host".to_string(), "infer".to_string()],
             );
             if let Some(socket) = &self.socket {
                 let msg = GossipMessage::PeerDiscovery {
                     from_ip: from_ip.clone(),
+                    from_id: us.clone(),
                 };
                 if let Ok(body) = serde_json::to_vec(&msg)
-                    && let Some(payload) = self.seal(&body)
+                    && let Some(payload) = self.seal_for(&id, &body)
                 {
                     let _ = socket.send_to(&payload, &target);
                 }
@@ -313,6 +391,7 @@ impl GossipManager {
     pub fn advertise(
         &self,
         target_addr: &str,
+        peer_id: &str,
         cell_id: &str,
         capabilities: Vec<String>,
     ) -> std::io::Result<()> {
@@ -327,7 +406,7 @@ impl GossipManager {
             };
             let body = serde_json::to_vec(&msg)?;
             let payload = self
-                .seal(&body)
+                .seal_for(peer_id, &body)
                 .ok_or_else(|| std::io::Error::other("no gossip MAC key"))?;
             socket.send_to(&payload, target_addr)?;
         }

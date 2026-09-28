@@ -9,7 +9,6 @@ use ra2a::types::{Message, Part, Task, TaskState, TaskStatus};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use susi_gawd_agents::GawdAgentFleet;
 
 /// Concurrent fleet executions are bounded: each task owns a dedicated OS
 /// thread while the fleet runs (see `run_fleet`), and unbounded thread growth
@@ -34,38 +33,67 @@ impl Drop for InflightPermit {
     }
 }
 
-/// Run `GawdAgentFleet::process_request` on a dedicated OS thread.
-///
-/// The fleet's provider dispatch owns a `current_thread` tokio runtime and
-/// `block_on`s it — legal on a plain thread, but a panic inside the axum
-/// worker runtime that drives this executor. The result crosses back on a
-/// tokio oneshot so the caller `await`s without blocking the worker.
-async fn run_fleet(
-    fleet: Arc<GawdAgentFleet>,
+/// Runs one A2A task's text as a SUSI mission and returns the answer, or
+/// the failure text. Injected so the protocol mapping is testable without a
+/// live GAWD plane.
+pub type MissionRunner = Arc<dyn Fn(&str) -> std::result::Result<String, String> + Send + Sync>;
+
+/// The production runner: a real mission through the GAWD plane
+/// (`plane_bus::gawd::solve_mission`, served by the swarm master). An empty
+/// reply means the plane was unreachable or produced nothing — reported as
+/// a failure, never as a completed task.
+fn plane_bus_mission(intent: &str) -> std::result::Result<String, String> {
+    let workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let answer = susi_core::plane_bus::gawd::solve_mission(
+        intent,
+        &workspace,
+        susi_gawd_agents::AlphaSelf::VERSION,
+    );
+    if answer.trim().is_empty() {
+        Err("mission produced no result (GAWD plane unreachable or empty answer)".to_string())
+    } else {
+        Ok(answer)
+    }
+}
+
+/// Run the mission on a dedicated OS thread: mission dispatch blocks (IPC,
+/// provider calls with their own runtimes), which must not happen on the
+/// axum worker driving this executor. The result crosses back on a tokio
+/// oneshot so the caller `await`s without blocking the worker.
+async fn run_mission(
+    runner: MissionRunner,
     content: String,
 ) -> std::result::Result<String, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     std::thread::spawn(move || {
-        let result = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt.block_on(fleet.process_request(&content)),
-            Err(e) => Err(format!("fleet runtime unavailable: {e}")),
-        };
-        let _ = tx.send(result);
+        let _ = tx.send(runner(&content));
     });
     rx.await
-        .unwrap_or_else(|_| Err("fleet thread dropped".to_string()))
+        .unwrap_or_else(|_| Err("mission thread dropped".to_string()))
 }
 
 /// susi-gawd's A2A protocol executor
 pub struct GawdA2AExecutor {
-    agent_fleet: Arc<GawdAgentFleet>,
+    runner: MissionRunner,
     capabilities: GawdCapabilities,
 }
 
+impl Default for GawdA2AExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GawdA2AExecutor {
-    pub fn new(agent_fleet: Arc<GawdAgentFleet>) -> Self {
+    /// Executor that answers A2A tasks with real GAWD missions.
+    pub fn new() -> Self {
+        Self::with_runner(Arc::new(plane_bus_mission))
+    }
+
+    /// Executor with an injected mission runner (tests, embedding hosts).
+    pub fn with_runner(runner: MissionRunner) -> Self {
         Self {
-            agent_fleet,
+            runner,
             capabilities: GawdCapabilities::orchestrator(),
         }
     }
@@ -157,11 +185,25 @@ impl AgentExecutor for GawdA2AExecutor {
                 })
                 .unwrap_or_default();
 
-            // Route to appropriate agent based on message content. The fleet
-            // must not run on this executor's tokio worker — see `run_fleet`.
+            // A task without a text part is invalid input at the protocol
+            // edge: fail it here instead of relying on the mission layer.
+            if content.trim().is_empty() {
+                let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+                task.status = TaskStatus::with_message(
+                    TaskState::Failed,
+                    Message::agent(vec![Part::text(
+                        "A2A message carried no text part to run as a mission".to_string(),
+                    )]),
+                );
+                queue.send(Event::Task(task))?;
+                return Ok(());
+            }
+
+            // The mission must not run on this executor's tokio worker —
+            // see `run_mission`.
             let permit = InflightPermit::try_acquire();
             let (state, response_content) = match permit {
-                Some(_) => match run_fleet(Arc::clone(&self.agent_fleet), content).await {
+                Some(_) => match run_mission(Arc::clone(&self.runner), content).await {
                     Ok(response) => (TaskState::Completed, response),
                     Err(error) => (TaskState::Failed, error),
                 },

@@ -64,6 +64,36 @@ pub enum OsCommands {
         #[command(subcommand)]
         resource: OsManageCommands,
     },
+    /// Explicit cloud/local host provision. The 30s OS tick only
+    /// version-probes operator CLIs (`probe_all`); list/apply never run
+    /// unsolicited — that is the OS contract, not a silent cloud API.
+    Provision {
+        #[command(subcommand)]
+        action: OsProvisionAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OsProvisionAction {
+    /// PATH version-probe of kubectl/docker/aws/gcloud/az (same as the 30s tick)
+    Probe {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Live inventory (`kubectl get nodes`, `docker ps`, cloud instance list)
+    List {
+        /// kubernetes|docker|aws|gcp|azure
+        kind: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Apply a Kubernetes manifest (`kubectl apply -f`). Other kinds refuse.
+    Apply {
+        /// kubernetes (kubectl-only)
+        kind: String,
+        /// Manifest file path
+        manifest: std::path::PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -237,7 +267,64 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, workspace: &Path) -> 
         } => route(json || top_json, requires.as_deref(), max_cost, !no_cloud),
         OsCommands::RouteReset { provider } => route_reset(&provider, top_json, workspace),
         OsCommands::Manage { resource } => manage(resource, workspace),
+        OsCommands::Provision { action } => provision(action, top_json),
     }
+}
+
+fn provision(action: OsProvisionAction, top_json: bool) -> Result<()> {
+    match action {
+        OsProvisionAction::Probe { json } => {
+            let inv = susi_vendor_cloud::probe_all();
+            if json || top_json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "tick_contract": "probe_all_only",
+                        "inventory": inv.iter().map(|c| serde_json::json!({
+                            "kind": c.kind,
+                            "tool": c.tool,
+                            "available": c.available,
+                            "summary": c.summary,
+                        })).collect::<Vec<_>>(),
+                    }))?
+                );
+            } else {
+                println!("provision probe (tick contract: version-only, no list/apply)");
+                for c in inv {
+                    let flag = if c.available { "ok" } else { "missing" };
+                    println!(
+                        "  {kind} ({tool}): {flag} — {summary}",
+                        kind = c.kind,
+                        tool = c.tool,
+                        summary = c.summary
+                    );
+                }
+            }
+        }
+        OsProvisionAction::List { kind, json } => {
+            let kind = susi_vendor_cloud::CloudKind::parse(&kind).map_err(anyhow::Error::msg)?;
+            let out = susi_vendor_cloud::list_nodes(kind).map_err(anyhow::Error::msg)?;
+            if json || top_json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "kind": kind.as_str(),
+                        "explicit": true,
+                        "nodes": out,
+                    }))?
+                );
+            } else {
+                println!("{out}");
+            }
+        }
+        OsProvisionAction::Apply { kind, manifest } => {
+            let kind = susi_vendor_cloud::CloudKind::parse(&kind).map_err(anyhow::Error::msg)?;
+            let text = std::fs::read_to_string(&manifest)?;
+            let out = susi_vendor_cloud::apply_manifest(kind, &text).map_err(anyhow::Error::msg)?;
+            println!("{out}");
+        }
+    }
+    Ok(())
 }
 
 fn route_reset(provider: &str, json: bool, workspace: &Path) -> Result<()> {
@@ -802,6 +889,12 @@ fn status(json: bool) -> Result<()> {
             }).chain(std::iter::once(serde_json::json!({
                 "name": "a2a-udp", "port": udp_port(),
                 "up": null,
+                "host_contract": true,
+            }))).chain(std::iter::once(serde_json::json!({
+                "name": "gossip-udp", "port": gossip_port(),
+                "up": null,
+                "host_contract": false,
+                "note": "swarm-internal; not in ports::ALL (9092 is A2A discovery)",
             }))).collect::<Vec<_>>(),
             "substrate_usage": substrate_usage().iter().take(8).map(|(name, bytes)| {
                 serde_json::json!({ "entry": name, "bytes": bytes })
@@ -1298,6 +1391,12 @@ fn udp_port() -> u16 {
     susi_config::SusiConfig::load_global()
         .map(|c| c.udp_discovery_port())
         .unwrap_or(susi_paths::ports::UDP_DISCOVERY)
+}
+
+fn gossip_port() -> u16 {
+    susi_config::SusiConfig::load_global()
+        .map(|c| c.gossip_port())
+        .unwrap_or(susi_paths::ports::effective(susi_paths::ports::GOSSIP))
 }
 
 /// Live TCP probes of the public host-contract endpoints — shared by the

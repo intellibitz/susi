@@ -100,7 +100,8 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-error", 1),
     ("susi-config", 2),
     ("susi-native-client", 2),
-    ("susi-http-transport", 2),
+    // No SUSI dependencies: a leaf, reachable from every rank above it.
+    ("susi-http-transport", 0),
     ("susi-vendor-candle", 2),
     ("susi-adapters-llm", 2),
     ("susi-core", 3),
@@ -362,7 +363,8 @@ fn layer_matrix_forbidden_edges() {
                 "susi-native-client",
                 "susi-sandbox",
                 "susi-sandbox-client",
-                "susi-http-transport",
+                // `susi-http-transport` is allowed: adapters-llm posts its
+                // wire shapes over the one shared transport (`post_json`).
                 "susi-vendor-candle",
                 "susi-tools",
                 "susi-agents",

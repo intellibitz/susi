@@ -292,8 +292,9 @@ fn tick_host_control_planes() {
     {
         host.p2p.add_peer("susi-host", &ma);
     }
-    // Cloud CLIs are probed at activation; re-probing spawns five
-    // subprocesses, so it refreshes every 20 ticks (~10 min), not every tick.
+    // Tick contract: PATH version-probe only. `susi os provision list|apply`
+    // hits live cloud APIs; never from this 30s loop. Re-probing spawns five
+    // subprocesses, so the inventory refreshes every 20 ticks (~10 min).
     if n > 0 && n % 20 == 0 {
         let mut cloud = host.cloud.lock().unwrap_or_else(|e| e.into_inner());
         *cloud = susi_vendor_cloud::probe_all();
@@ -314,6 +315,62 @@ fn nat_status_label(status: crate::nat::NatStatus) -> &'static str {
 fn os_planes_json() -> serde_json::Value {
     let os = DAEMON_OS.get();
     let host = HOST_PLANES.get();
+    let nat_multiaddr = os.and_then(|p| {
+        p.nat
+            .generate_external_multiaddr(susi_paths::ports::effective(susi_paths::ports::A2A_HTTP))
+            .ok()
+    });
+    let host_run_state = host.and_then(|h| {
+        h.signal.run_state("susi-host").map(|s| match s {
+            crate::signal::CellRunState::Running => "running",
+            crate::signal::CellRunState::Stopped => "stopped",
+            crate::signal::CellRunState::Terminated => "terminated",
+        })
+    });
+    let admin_uptime_secs = host.and_then(|h| {
+        h.admin
+            .get_diagnostics(&h.policy, 1, 0)
+            .ok()
+            .map(|d| d.uptime_seconds)
+    });
+    let cloud = host.and_then(|h| {
+        h.cloud.lock().ok().map(|inv| {
+            inv.iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "kind": c.kind,
+                        "tool": c.tool,
+                        "available": c.available,
+                        "summary": c.summary,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+    });
+    let swarm_udp: Vec<serde_json::Value> = susi_paths::ports::SWARM_UDP
+        .iter()
+        .map(|(port, name)| {
+            serde_json::json!({
+                "port": susi_paths::ports::effective(*port),
+                "name": name,
+                "host_contract": false,
+            })
+        })
+        .collect();
+    let live_planes = serde_json::json!({
+        "contract": "gmcp tool schemas",
+        "execution_mode": "signal run_state",
+        "lineage": "identity manager",
+        "migration": "checkpoint + cell_snapshot",
+        "mount": "susi-sandbox workspace jail",
+        "negotiation": "gawd cluster peers + p2p_router",
+        "offline_queue": "gossip_caps.json + os_planes.json persist",
+        "org_policy": "CapabilityPolicy grants",
+        "packages": "PluginManager",
+        "scaffold": "checkpoint + plugins",
+        "vfs": "SusiDirs + sandbox",
+        "workloads": "task_queue + SwarmTaskManager auto-tune"
+    });
     serde_json::json!({
         "checkpoint": os.is_some(),
         "logger": os.is_some_and(|p| p.logger.is_some()),
@@ -324,6 +381,8 @@ fn os_planes_json() -> serde_json::Value {
         "gossip_bound": os.and_then(|p| p.gossip.local_addr()),
         "gossip_port": gossip_port(),
         "gossip_auth": crate::gossip::GossipManager::auth_mode(),
+        "gossip_mac": "per-peer",
+        "gossip_store": "hmac-sealed",
         "gossip_peers": os.map(|p| p.gossip.peer_count()),
         "gossip_rejected": os.map(|p| p.gossip.rejected_count()),
         "snapshots": os.is_some(),
@@ -331,45 +390,18 @@ fn os_planes_json() -> serde_json::Value {
         "nat_public_ip": os.and_then(|p| p.nat.public_ip()),
         "nat_stun_error": os.and_then(|p| p.nat.last_error()),
         "nat_turn_relay": os.and_then(|p| p.nat.turn_relay()),
-        "nat_multiaddr": os.and_then(|p| {
-            p.nat
-                .generate_external_multiaddr(susi_paths::ports::effective(
-                    susi_paths::ports::A2A_HTTP,
-                ))
-                .ok()
-        }),
+        "nat_multiaddr": nat_multiaddr,
         "tool_proxy": os.is_some(),
         "audit": os.is_some(),
         "driven": host.is_some(),
         "ticks": host.map(|h| h.ticks.load(Ordering::Relaxed)),
         "budget_remaining": host.and_then(|h| h.budget.cell_remaining("susi-host")),
-        "host_run_state": host.and_then(|h| {
-            h.signal.run_state("susi-host").map(|s| match s {
-                crate::signal::CellRunState::Running => "running",
-                crate::signal::CellRunState::Stopped => "stopped",
-                crate::signal::CellRunState::Terminated => "terminated",
-            })
-        }),
-        "admin_uptime_secs": host.and_then(|h| {
-            h.admin
-                .get_diagnostics(&h.policy, 1, 0)
-                .ok()
-                .map(|d| d.uptime_seconds)
-        }),
-        "cloud": host.and_then(|h| {
-            h.cloud.lock().ok().map(|inv| {
-                inv.iter()
-                    .map(|c| {
-                        serde_json::json!({
-                            "kind": c.kind,
-                            "tool": c.tool,
-                            "available": c.available,
-                            "summary": c.summary,
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            })
-        }),
+        "host_run_state": host_run_state,
+        "admin_uptime_secs": admin_uptime_secs,
+        "cloud": cloud,
+        "provision_tick_contract": "probe_all_only",
+        "swarm_udp": swarm_udp,
+        "live_planes": live_planes,
     })
 }
 

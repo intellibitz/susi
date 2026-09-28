@@ -90,6 +90,24 @@ impl CloudKind {
             Self::Azure,
         ]
     }
+
+    /// Parse an operator-facing kind name (`kubernetes`/`k8s`/`kubectl`,
+    /// `docker`, `aws`, `gcp`/`gcloud`, `azure`/`az`).
+    ///
+    /// # Errors
+    /// Unknown token — list/apply stay explicit; never guess a cloud.
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "k8s" | "kubernetes" | "kubectl" => Ok(Self::Kubernetes),
+            "docker" => Ok(Self::Docker),
+            "aws" => Ok(Self::Aws),
+            "gcp" | "gcloud" | "google" => Ok(Self::Gcp),
+            "azure" | "az" => Ok(Self::Azure),
+            other => Err(format!(
+                "unknown cloud kind '{other}'; expected kubernetes|docker|aws|gcp|azure"
+            )),
+        }
+    }
 }
 
 /// CLI probe result — availability of the operator tool, not a fake cluster.

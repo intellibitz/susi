@@ -29,6 +29,10 @@ hex = { workspace = true }
 getrandom = { workspace = true }
 ed25519-dalek = { workspace = true }
 sha2 = { workspace = true }
+# RFC 5389 long-term TURN credentials: MD5(user:realm:pass) then HMAC-SHA1
+# MESSAGE-INTEGRITY. Crypto primitives, not vendor SDKs / HTTP clients.
+sha1 = "0.11"
+md-5 = "0.11"
 
 tokio = { version = "1.53", features = ["full"] }
 tracing = "0.1"

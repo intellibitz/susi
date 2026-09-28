@@ -3143,26 +3143,6 @@
     },
     {
       "anchor": {
-        "label": "RSI OS hardening iterations 1-10",
-        "ref": "file://ARCHITECTURE.md"
-      },
-      "id": "EV-2022928-320",
-      "milestone": "Workspace dependency-scope audit: remove repeated normal dependencies from dev scopes where no test-only feature is required.",
-      "proof": "Removed root serde_json and susi-gmcp tokio duplicate dev-dependency declarations after confirming normal dependencies already provide them; kept tokio test-util in susi-daemon and target-specific variants where feature scopes differ. Tests were not run per operator instruction; cargo metadata/fmt/diff checks are the non-test verification.",
-      "type": "AUDIT"
-    },
-    {
-      "anchor": {
-        "label": "RSI OS hardening iterations 11-20",
-        "ref": "file://ARCHITECTURE.md"
-      },
-      "id": "EV-2022928-321",
-      "milestone": "Centralize bounded HTTP response ownership in susi-http-transport.",
-      "proof": "HttpCall::into_bytes now rejects payloads over the requested cap after reading at most one overflow byte; duplicate overflow checks were removed from transport consumers. Tests were not run per operator instruction; cargo fmt, metadata, and diff checks are the non-test verification.",
-      "type": "AUDIT"
-    },
-    {
-      "anchor": {
         "label": "RSI OS hardening iterations 21-30",
         "ref": "file://ARCHITECTURE.md"
       },
@@ -3280,6 +3260,54 @@
       "milestone": "Merge origin/main (iterations through Claude run close + Cursor 201-300) into the Devin RSI branch; renumber colliding evidence ids; keep honesty bar.",
       "proof": "Both branches independently applied the same honesty fixes (measured peer RTT, provider health, probe removal); Devin's EV-2022928-307..319 collided with Claude's same-numbered entries and were renumbered to EV-2022928-320..332 \u2014 no content lost. Post-merge hardening on top of main's kept OS planes: STUN/TURN discovery now respects mac_policy egress posture (explicit SUSI_TURN_* env still wins); gossip's CSPRNG-failure path fails closed (no known zero key); the boot audit log records all three real susi-host grants; cloud CLI re-probe throttled to every 20th tick; and the three modules main still kept reachable only through synthetic snapshot probes (fallback empty-payload route, runbooks-dir self_healing check, constant-success gateway request) were removed with their modules, matching main's delete-unwired convention and keeping the zero-unreachable ratchet honest. Tests not run per operator instruction.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 301-400",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-320",
+      "milestone": "RSI OS isolation iterations 301-400: TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (HMAC-SHA1, MD5 long-term key, 401/438 retry); per-peer gossip MAC plus HMAC-sealed gossip_caps.json; susi os provision probe/list/apply (tick stays version-probe); 9095 stays outside ports::ALL as SWARM_UDP; deleted cell-OS sketches stay deleted and map onto live planes. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "test chore",
+        "ref": "file://crates/susi-gawd-a2a/src/executor.rs"
+      },
+      "id": "EV-2022928-321",
+      "milestone": "Post-run test chore (Claude): full workspace suite run for the first time since the 100 iterations \u2014 4 failures found and fixed, including A2A answering every task with a fabricated completion; Cursor's WIP merged into main.",
+      "proof": "`cargo nextest run --workspace --locked --no-fail-fast` on 9e971376: 994 run, 990 passed, 4 failed, 3 skipped (the #[ignore]d wasm/native-service/repo-audit tests); doc-tests: none exist in any crate. Failures: (1+2) `layer_matrix_forbidden_edges` and `workspace_edges_follow_the_leaf_order` \u2014 iterations 37-48 (0c3c4ff1) made `susi-adapters-llm` post over `susi-http-transport` (the edge README documents), but LEAF_RANK had both at rank 2 and the layer matrix forbade the edge; `susi-http-transport` has no SUSI dependencies, so it is now rank 0 and the matrix entry allows it. (3+4) `execute_without_message_reports_failed_task` / `execute_with_non_text_part_reports_failed_task` got `Completed`: `GawdA2AExecutor` routed every A2A task through `GawdAgentFleet::process_request`, which only synthesized an agent list and returned `Ok(\"Processed request with N agents\")` (\"For now, return a simple acknowledgment\") \u2014 every task another agent delegated to SUSI over A2A was reported complete with that string as the answer (Mandate 1). Now the executor fails a task with no text part at the protocol edge, and runs the text as a real mission via `plane_bus::gawd::solve_mission` (served by the swarm master) on a dedicated thread, mapping an empty reply (plane unreachable) to `Failed`; the mission runner is injectable (`GawdA2AExecutor::with_runner`) so the protocol mapping is tested without a live plane; the fake `process_request` and the executor's unused fleet field were removed. Merge note: Cursor's uncommitted work in the primary checkout was committed as e87e96d3 and merged with origin/main at the operator's request (75884103; gossip.rs/nat.rs took Cursor's logic, docs unioned, Cursor's colliding EV-2022928-311 renumbered to EV-2022928-320). Result on the combined tree: 994 run, 994 passed, 3 skipped; cargo clippy --workspace --all-targets -D warnings clean.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS hardening iterations 1-10",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-334",
+      "milestone": "Workspace dependency-scope audit: remove repeated normal dependencies from dev scopes where no test-only feature is required.",
+      "proof": "Removed root serde_json and susi-gmcp tokio duplicate dev-dependency declarations after confirming normal dependencies already provide them; kept tokio test-util in susi-daemon and target-specific variants where feature scopes differ. Tests were not run per operator instruction; cargo metadata/fmt/diff checks are the non-test verification. (Renumbered from EV-2022928-320 after a second collision with the rsi-os-100-iterations ledger.)",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS hardening iterations 11-20",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-336",
+      "milestone": "Centralize bounded HTTP response ownership in susi-http-transport.",
+      "proof": "HttpCall::into_bytes now rejects payloads over the requested cap after reading at most one overflow byte; duplicate overflow checks were removed from transport consumers. Tests were not run per operator instruction; cargo fmt, metadata, and diff checks are the non-test verification. (Renumbered from EV-2022928-321 after a second collision with the rsi-os-100-iterations ledger.)",
+      "type": "AUDIT"
+    },
+    {
+      "id": "EV-2022928-337",
+      "step": 337,
+      "date": "2026-06-01T00:00:00Z",
+      "milestone": "Merge origin/main 1d7cc9c8 (Cursor 301-400 + Claude test close): keep A2A real-mission fix, per-peer HMAC gossip, sealed caps store, TURN MESSAGE-INTEGRITY.",
+      "proof": "Second origin/main merge resolved 12 conflicts toward upstream's per-peer derived gossip keys (susi-gossip-peer-v1), HMAC-sealed gossip_caps.json, egress-gated TURN Allocate with MESSAGE-INTEGRITY credentials via env, and the A2A fix that runs tasks as real missions instead of fabricated completions. Devin's fail-closed bearer token seeding and private ureq::Agent boundary were preserved; susi_paths::ports::GOSSIP, SusiConfig::gossip_port(), and os_cli gossip_port() were restored where upstream kept the gossip surface. cargo fmt + cargo check --workspace pass; no tests run per operator instruction.",
+      "evidence_artifact": ".agents/evidence.json"
     }
   ],
   "epistemic_score": 1.0,

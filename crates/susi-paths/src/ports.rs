@@ -3,6 +3,11 @@
 //! `port_offset` (config key or `SUSI_PORT_OFFSET` env, env wins) shifts all
 //! five together — the contract shape stays fixed while a second instance or
 //! a nonstandard host layout gets clean ports (e.g. offset 100 → 9190–9194).
+//!
+//! **9095 stays outside [`ALL`] on purpose.** External MCP/A2A clients
+//! hard-code 9090–9094; 9092 already occupies the UDP slot as A2A discovery.
+//! Swarm gossip is cluster-member traffic (`SWARM_UDP`), offset with the
+//! instance, printed by `susi os`, and never a public client API.
 
 pub const GMCP: u16 = 9090;
 pub const GEMI: u16 = 9091;
@@ -28,6 +33,9 @@ pub const ALL: [(u16, &str); 5] = [
     (GMCP_HTTP, "GMCP HTTP alias"),
     (A2A_HTTP, "A2A HTTP (JSON-RPC + SSE + agent card)"),
 ];
+
+/// Swarm-internal UDP. Same offset as [`ALL`]; **not** the host contract.
+pub const SWARM_UDP: [(u16, &str); 1] = [(GOSSIP, "swarm capability gossip")];
 
 /// Offset from `SUSI_PORT_OFFSET` alone — leaf-safe resolution for code
 /// without a `SusiConfig` in scope. `SusiConfig::port_offset()` additionally

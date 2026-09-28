@@ -24,9 +24,18 @@ const BINDING_SUCCESS: u16 = 0x0101;
 const ATTR_MAPPED_ADDRESS: u16 = 0x0001;
 const ATTR_XOR_MAPPED_ADDRESS: u16 = 0x0020;
 const ATTR_XOR_RELAYED_ADDRESS: u16 = 0x0016;
+const ATTR_ERROR_CODE: u16 = 0x0009;
+const ATTR_REALM: u16 = 0x0014;
+const ATTR_NONCE: u16 = 0x0015;
+const ATTR_USERNAME: u16 = 0x0006;
+const ATTR_MESSAGE_INTEGRITY: u16 = 0x0008;
+const ATTR_REQUESTED_TRANSPORT: u16 = 0x0019;
 const TURN_ALLOCATE: u16 = 0x0003;
 const TURN_ALLOCATE_SUCCESS: u16 = 0x0103;
+const TURN_ALLOCATE_ERROR: u16 = 0x0113;
 const STUN_HEADER_LEN: usize = 20;
+const STUN_MI_LEN: usize = 20;
+const UDP_TRANSPORT: u8 = 17;
 
 /// Tracks the discovered public address and NAT classification.
 pub struct NatManager {
@@ -167,12 +176,13 @@ impl NatManager {
 
     /// TURN Allocate (RFC 5766) against `SUSI_TURN_SERVER`, or adopt
     /// `SUSI_TURN_RELAY` as an already-allocated relay. Does not invent a
-    /// mapping when neither is set.
+    /// mapping when neither is set. Long-term credentials (RFC 5389
+    /// MESSAGE-INTEGRITY HMAC-SHA1) use `SUSI_TURN_USER` / `SUSI_TURN_PASS`
+    /// and the 401 REALM/NONCE (`SUSI_TURN_REALM` overrides an empty realm).
     ///
     /// # Errors
-    /// Fails when no TURN config is present, DNS fails, or Allocate does not
-    /// return XOR-RELAYED-ADDRESS (typical for servers that require
-    /// MESSAGE-INTEGRITY long-term credentials).
+    /// Fails when no TURN config is present, DNS fails, Allocate is rejected,
+    /// or a 401 arrives without operator credentials.
     pub fn allocate_turn_from_env(&self) -> Result<SocketAddr, String> {
         if let Ok(relay) = std::env::var("SUSI_TURN_RELAY") {
             let relay = relay.trim();
@@ -197,15 +207,13 @@ impl NatManager {
             .map_err(|e| format!("TURN DNS: {e}"))?
             .next()
             .ok_or_else(|| "TURN DNS produced no addresses".to_string())?;
-        match turn_allocate(addr, Duration::from_secs(2)) {
+        match turn_allocate(addr, Duration::from_secs(2), turn_long_term_creds()) {
             Ok(relayed) => {
                 self.set_turn_relay(relayed);
                 Ok(relayed)
             }
             Err(e) => {
-                self.record_error(format!(
-                    "TURN Allocate failed ({e}); long-term MESSAGE-INTEGRITY is not implemented — set SUSI_TURN_RELAY to an allocated relay"
-                ));
+                self.record_error(format!("TURN Allocate failed ({e})"));
                 Err(e)
             }
         }
@@ -243,7 +251,7 @@ impl NatManager {
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
             {
-                return Ok(format!("/ip4/{relay}/udp/turn"));
+                return Ok(turn_multiaddr(relay));
             }
             return Err("Symmetric NAT detected. Direct P2P requires a TURN relay.".to_string());
         }
@@ -255,7 +263,7 @@ impl NatManager {
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
         {
-            return Ok(format!("/ip4/{relay}/udp/turn"));
+            return Ok(turn_multiaddr(relay));
         }
 
         match ip.as_ref() {
@@ -301,6 +309,16 @@ pub fn stun_binding(socket: &UdpSocket, server: SocketAddr) -> Result<SocketAddr
             Some(addr) => return Ok(addr),
             None => return Err(format!("malformed STUN response from {server}")),
         }
+    }
+}
+
+fn turn_multiaddr(relay: &str) -> String {
+    match relay.parse::<SocketAddr>() {
+        Ok(sa) => match sa.ip() {
+            IpAddr::V4(ip) => format!("/ip4/{ip}/udp/{}/turn", sa.port()),
+            IpAddr::V6(ip) => format!("/ip6/{ip}/udp/{}/turn", sa.port()),
+        },
+        Err(_) => format!("/udp/{relay}/turn"),
     }
 }
 
@@ -354,8 +372,210 @@ fn parse_stun_success(
     plain
 }
 
-/// RFC 5766 Allocate without MESSAGE-INTEGRITY (open relays only).
-fn turn_allocate(server: SocketAddr, timeout: Duration) -> Result<SocketAddr, String> {
+struct TurnCreds {
+    user: String,
+    pass: String,
+    realm_override: Option<String>,
+}
+
+fn turn_long_term_creds() -> Option<TurnCreds> {
+    let user = std::env::var("SUSI_TURN_USER")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())?;
+    let pass = std::env::var("SUSI_TURN_PASS")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())?;
+    let realm_override = std::env::var("SUSI_TURN_REALM")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    Some(TurnCreds {
+        user,
+        pass,
+        realm_override,
+    })
+}
+
+fn append_stun_attr(buf: &mut Vec<u8>, typ: u16, value: &[u8]) {
+    buf.extend_from_slice(&typ.to_be_bytes());
+    let len = u16::try_from(value.len()).unwrap_or(u16::MAX);
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(value);
+    let pad = (4 - (value.len() % 4)) % 4;
+    buf.resize(buf.len() + pad, 0);
+}
+
+fn stun_allocate_header(txid: &[u8; 12], body_len: u16) -> [u8; STUN_HEADER_LEN] {
+    let mut header = [0u8; STUN_HEADER_LEN];
+    header[0..2].copy_from_slice(&TURN_ALLOCATE.to_be_bytes());
+    header[2..4].copy_from_slice(&body_len.to_be_bytes());
+    header[4..8].copy_from_slice(&STUN_MAGIC_COOKIE.to_be_bytes());
+    header[8..20].copy_from_slice(txid);
+    header
+}
+
+/// RFC 5389 long-term credential key = MD5(username:realm:password).
+fn turn_long_term_key(user: &str, realm: &str, pass: &str) -> [u8; 16] {
+    use md5::{Digest, Md5};
+    let mut h = Md5::new();
+    h.update(user.as_bytes());
+    h.update(b":");
+    h.update(realm.as_bytes());
+    h.update(b":");
+    h.update(pass.as_bytes());
+    h.finalize().into()
+}
+
+/// HMAC-SHA1 (STUN MESSAGE-INTEGRITY). Block size 64; 16-byte MD5 keys pad.
+fn hmac_sha1(key: &[u8], message: &[u8]) -> [u8; STUN_MI_LEN] {
+    use sha1::{Digest, Sha1};
+    const BLOCK: usize = 64;
+    let mut keyed = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        let hashed = Sha1::digest(key);
+        keyed[..STUN_MI_LEN].copy_from_slice(&hashed);
+    } else {
+        keyed[..key.len()].copy_from_slice(key);
+    }
+    let mut ipad = [0x36u8; BLOCK];
+    let mut opad = [0x5cu8; BLOCK];
+    for i in 0..BLOCK {
+        ipad[i] ^= keyed[i];
+        opad[i] ^= keyed[i];
+    }
+    let mut inner = Sha1::new();
+    inner.update(ipad);
+    inner.update(message);
+    let inner_hash = inner.finalize();
+    let mut outer = Sha1::new();
+    outer.update(opad);
+    outer.update(inner_hash);
+    let out = outer.finalize();
+    let mut mac = [0u8; STUN_MI_LEN];
+    mac.copy_from_slice(&out);
+    mac
+}
+
+fn requested_transport_attr() -> Vec<u8> {
+    let mut body = Vec::new();
+    append_stun_attr(
+        &mut body,
+        ATTR_REQUESTED_TRANSPORT,
+        &[UDP_TRANSPORT, 0, 0, 0],
+    );
+    body
+}
+
+fn build_allocate_request(
+    txid: &[u8; 12],
+    integrity: Option<(&str, &str, &str, &[u8; 16])>,
+) -> Vec<u8> {
+    let mut body = requested_transport_attr();
+    if let Some((user, realm, nonce, key)) = integrity {
+        append_stun_attr(&mut body, ATTR_USERNAME, user.as_bytes());
+        append_stun_attr(&mut body, ATTR_REALM, realm.as_bytes());
+        append_stun_attr(&mut body, ATTR_NONCE, nonce.as_bytes());
+        let mi_attr_len = 4 + STUN_MI_LEN;
+        let total = u16::try_from(body.len() + mi_attr_len).unwrap_or(u16::MAX);
+        let header = stun_allocate_header(txid, total);
+        let mut mac_input = Vec::with_capacity(STUN_HEADER_LEN + body.len());
+        mac_input.extend_from_slice(&header);
+        mac_input.extend_from_slice(&body);
+        let mac = hmac_sha1(key, &mac_input);
+        append_stun_attr(&mut body, ATTR_MESSAGE_INTEGRITY, &mac);
+        let mut msg = Vec::with_capacity(STUN_HEADER_LEN + body.len());
+        msg.extend_from_slice(&header);
+        msg.extend_from_slice(&body);
+        msg
+    } else {
+        let total = u16::try_from(body.len()).unwrap_or(u16::MAX);
+        let header = stun_allocate_header(txid, total);
+        let mut msg = Vec::with_capacity(STUN_HEADER_LEN + body.len());
+        msg.extend_from_slice(&header);
+        msg.extend_from_slice(&body);
+        msg
+    }
+}
+
+struct StunAllocateError {
+    code: u16,
+    realm: Option<String>,
+    nonce: Option<String>,
+}
+
+fn parse_stun_allocate_error(msg: &[u8], txid: &[u8; 12]) -> Option<StunAllocateError> {
+    if be_u16(msg, 0)? != TURN_ALLOCATE_ERROR
+        || msg.get(4..8)? != STUN_MAGIC_COOKIE.to_be_bytes()
+        || msg.get(8..20)? != txid
+    {
+        return None;
+    }
+    let body_len = usize::from(be_u16(msg, 2)?);
+    let body = msg.get(STUN_HEADER_LEN..STUN_HEADER_LEN + body_len)?;
+    let mut code = None;
+    let mut realm = None;
+    let mut nonce = None;
+    let mut at = 0;
+    while at + 4 <= body.len() {
+        let attr = be_u16(body, at)?;
+        let len = usize::from(be_u16(body, at + 2)?);
+        let value = body.get(at + 4..at + 4 + len)?;
+        if attr == ATTR_ERROR_CODE && value.len() >= 4 {
+            let class = u16::from(*value.get(2)?);
+            let number = u16::from(*value.get(3)?);
+            code = Some(class.saturating_mul(100).saturating_add(number));
+        } else if attr == ATTR_REALM {
+            realm = String::from_utf8(value.to_vec()).ok();
+        } else if attr == ATTR_NONCE {
+            nonce = String::from_utf8(value.to_vec()).ok();
+        }
+        at += 4 + len.div_ceil(4) * 4;
+    }
+    Some(StunAllocateError {
+        code: code?,
+        realm,
+        nonce,
+    })
+}
+
+fn recv_allocate_reply(
+    socket: &UdpSocket,
+    server: SocketAddr,
+    txid: &[u8; 12],
+) -> Result<Result<SocketAddr, StunAllocateError>, String> {
+    let mut buf = [0u8; 576];
+    loop {
+        let (n, from) = socket
+            .recv_from(&mut buf)
+            .map_err(|e| format!("TURN recv from {server}: {e}"))?;
+        if from != server {
+            continue;
+        }
+        let msg = buf.get(..n).unwrap_or_default();
+        if let Some(addr) = parse_stun_success(
+            msg,
+            txid,
+            TURN_ALLOCATE_SUCCESS,
+            ATTR_XOR_RELAYED_ADDRESS,
+            ATTR_XOR_RELAYED_ADDRESS,
+        ) {
+            return Ok(Ok(addr));
+        }
+        if let Some(err) = parse_stun_allocate_error(msg, txid) {
+            return Ok(Err(err));
+        }
+        return Err(format!("malformed TURN Allocate reply from {server}"));
+    }
+}
+
+/// RFC 5766 Allocate: unauthenticated first, then MESSAGE-INTEGRITY on 401/438.
+fn turn_allocate(
+    server: SocketAddr,
+    timeout: Duration,
+    creds: Option<TurnCreds>,
+) -> Result<SocketAddr, String> {
     let bind: SocketAddr = if server.is_ipv4() {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
     } else {
@@ -365,39 +585,61 @@ fn turn_allocate(server: SocketAddr, timeout: Duration) -> Result<SocketAddr, St
     socket
         .set_read_timeout(Some(timeout))
         .map_err(|e| format!("set TURN timeout: {e}"))?;
-    let mut txid = [0u8; 12];
-    getrandom::fill(&mut txid).map_err(|e| format!("TURN transaction id: {e}"))?;
-    let mut request = Vec::with_capacity(STUN_HEADER_LEN);
-    request.extend_from_slice(&TURN_ALLOCATE.to_be_bytes());
-    request.extend_from_slice(&0u16.to_be_bytes());
-    request.extend_from_slice(&STUN_MAGIC_COOKIE.to_be_bytes());
-    request.extend_from_slice(&txid);
-    socket
-        .send_to(&request, server)
-        .map_err(|e| format!("TURN send to {server}: {e}"))?;
-    let mut buf = [0u8; 576];
-    loop {
-        let (n, from) = socket
-            .recv_from(&mut buf)
-            .map_err(|e| format!("TURN recv from {server}: {e}"))?;
-        if from != server {
-            continue;
-        }
-        match parse_stun_success(
-            buf.get(..n).unwrap_or_default(),
-            &txid,
-            TURN_ALLOCATE_SUCCESS,
-            ATTR_XOR_RELAYED_ADDRESS,
-            ATTR_XOR_RELAYED_ADDRESS,
-        ) {
-            Some(addr) => return Ok(addr),
-            None => {
+
+    let mut realm = creds
+        .as_ref()
+        .and_then(|c| c.realm_override.clone())
+        .unwrap_or_default();
+    let mut nonce = String::new();
+    let mut use_integrity = false;
+    for attempt in 0..3 {
+        let mut txid = [0u8; 12];
+        getrandom::fill(&mut txid).map_err(|e| format!("TURN transaction id: {e}"))?;
+        let request = if use_integrity {
+            let Some(c) = creds.as_ref() else {
+                return Err(
+                    "TURN 401: set SUSI_TURN_USER and SUSI_TURN_PASS (or SUSI_TURN_RELAY)"
+                        .to_string(),
+                );
+            };
+            if realm.is_empty() || nonce.is_empty() {
+                return Err("TURN 401 missing REALM/NONCE".to_string());
+            }
+            let key = turn_long_term_key(&c.user, &realm, &c.pass);
+            build_allocate_request(&txid, Some((&c.user, &realm, &nonce, &key)))
+        } else {
+            build_allocate_request(&txid, None)
+        };
+        socket
+            .send_to(&request, server)
+            .map_err(|e| format!("TURN send to {server}: {e}"))?;
+        match recv_allocate_reply(&socket, server, &txid)? {
+            Ok(addr) => return Ok(addr),
+            Err(err) => {
+                if err.code == 401 || err.code == 438 {
+                    if let Some(r) = err.realm.filter(|s| !s.is_empty()) {
+                        realm = r;
+                    }
+                    if let Some(n) = err.nonce.filter(|s| !s.is_empty()) {
+                        nonce = n;
+                    }
+                    if creds.is_none() {
+                        return Err(format!(
+                            "TURN {code} at {server}: set SUSI_TURN_USER and SUSI_TURN_PASS (or SUSI_TURN_RELAY)",
+                            code = err.code
+                        ));
+                    }
+                    use_integrity = true;
+                    continue;
+                }
                 return Err(format!(
-                    "TURN Allocate rejected or unauthenticated at {server}"
+                    "TURN Allocate error {code} at {server} (attempt {attempt})",
+                    code = err.code
                 ));
             }
         }
     }
+    Err(format!("TURN Allocate exhausted retries at {server}"))
 }
 
 /// Decode a (XOR-)MAPPED-ADDRESS value; `xor_txid` set means XOR-encoded.
