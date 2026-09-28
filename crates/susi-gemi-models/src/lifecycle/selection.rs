@@ -1,7 +1,7 @@
 //! Model selection, preference scoring, and active engine/model overrides.
 
 use crate::susi_error::EaiResult;
-use crate::susi_sandbox::manager::ModelInfo;
+use crate::susi_sandbox::manager::DynamicModelInfo;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,7 +36,7 @@ impl ModelManager {
     pub fn identify_best_suited_local_model(
         workspace: &Path,
         intent: Option<crate::intent::IntentCategory>,
-    ) -> Option<ModelInfo> {
+    ) -> Option<DynamicModelInfo> {
         Self::identify_best_suited_local_model_with_complexity(workspace, intent, None)
     }
 
@@ -79,7 +79,7 @@ impl ModelManager {
     /// candidates, which requires knowing every size before scoring the
     /// first one.
     pub(crate) fn resolve_model_size_gb(
-        m: &ModelInfo,
+        m: &DynamicModelInfo,
         heuristics: &crate::susi_sandbox::manager::ModelScoringHeuristics,
     ) -> f32 {
         let p = PathBuf::from(m.model_id());
@@ -111,10 +111,10 @@ impl ModelManager {
         workspace: &Path,
         intent: Option<crate::intent::IntentCategory>,
         complexity: Option<crate::intent::TaskComplexity>,
-    ) -> Option<ModelInfo> {
+    ) -> Option<DynamicModelInfo> {
         let hw = HardwareProfiler::get_profile();
         let models = Self::list_models(workspace);
-        let local_models: Vec<ModelInfo> = models
+        let local_models: Vec<DynamicModelInfo> = models
             .into_iter()
             .filter(|m| m.is_local() && !m.model_id().contains("native"))
             .filter(|m| {
@@ -137,7 +137,7 @@ impl ModelManager {
         // needs the min/max across ALL candidates to place a percentile
         // target between them, which means every size must be known
         // before scoring the first one.
-        let sized_models: Vec<(ModelInfo, f32)> = local_models
+        let sized_models: Vec<(DynamicModelInfo, f32)> = local_models
             .into_iter()
             .filter_map(|m| {
                 let size_gb = Self::resolve_model_size_gb(&m, &heuristics);
@@ -163,7 +163,7 @@ impl ModelManager {
         let any_vram_fit = hw.acceleration_active
             && vram_budget_gb > 0.0
             && sized_models.iter().any(|(_, size)| *size <= vram_budget_gb);
-        let sized_models: Vec<(ModelInfo, f32)> = if any_vram_fit {
+        let sized_models: Vec<(DynamicModelInfo, f32)> = if any_vram_fit {
             sized_models
                 .into_iter()
                 .filter(|(_, size)| *size <= vram_budget_gb)
@@ -179,7 +179,7 @@ impl ModelManager {
             .iter()
             .map(|(_, s)| *s)
             .fold(f32::NEG_INFINITY, f32::max);
-        let mut scored_models: Vec<(f32, ModelInfo)> = Vec::new();
+        let mut scored_models: Vec<(f32, DynamicModelInfo)> = Vec::new();
 
         for (m, model_size_gb) in sized_models {
             let mut score = 0.0f32;

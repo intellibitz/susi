@@ -7,7 +7,7 @@ use crate::susi_core::provider::Provider;
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 use susi_gemi_models::coding_models::CodingModelManager;
 
-use crate::http_provider::{HttpProvider, InferenceProtocol};
+use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
 
 /// Build an [`HttpProvider`] for a curated coding/agent model.
 pub fn provider(manager: &CodingModelManager, id: &str) -> Result<HttpProvider> {

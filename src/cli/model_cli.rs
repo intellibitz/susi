@@ -3,7 +3,7 @@ use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::Path;
-use susi_gemi::coding_models::{CodingModelManager, CodingModelOverride};
+use susi_gemi::models::coding_models::{CodingModelManager, CodingModelOverride};
 
 #[derive(Debug, Subcommand)]
 pub enum ModelCommands {

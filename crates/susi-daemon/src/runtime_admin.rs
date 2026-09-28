@@ -276,7 +276,7 @@ impl SusiRuntimeAdmin {
 
     /// Hardware saturation audit, drift detection, and model substrate tuning.
     pub fn perform_substrate_audit(workspace: &Path) -> EaiResult<()> {
-        let profile = susi_gemi::hardware::HardwareProfiler::get_profile();
+        let profile = susi_gemi::models::hardware::HardwareProfiler::get_profile();
 
         // 1. Hardware Saturation Audit
         if profile.acceleration_active {
@@ -289,8 +289,14 @@ impl SusiRuntimeAdmin {
             );
         }
 
-        // 2. Autonomous Drift Detection
-        let _ = susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
+        // 2. Autonomous Drift Detection -- recorded, then acted on: a
+        // recurring intent without a reflex gets one synthesized (rate-limited
+        // to one attempt per intent per 24h inside the evolution manager).
+        match susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace) {
+            Ok(report) => SusiAuditLogger::log_event(workspace, "DRIFT_AUDIT", &report),
+            Err(e) => SusiAuditLogger::log_event(workspace, "DRIFT_AUDIT_FAILED", &e.to_string()),
+        }
+        let _ = susi_gawd::evolution::EvolutionManager::evolve_recurring_intent(workspace);
 
         // 3. Model Substrate Tuning
         let _ = susi_gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);

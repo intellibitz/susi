@@ -20,7 +20,7 @@ impl EvolutionManager {
     pub fn perform_autonomous_drift_audit(workspace: &Path) -> EaiResult<String> {
         let frequent = match Self::detect_high_frequency_gap(workspace) {
             Some((intent, count)) => format!(
-                "Most frequent recent intent: '{intent}' ({count}x) — a candidate for a WASI reflex (`ReflexSynthesizer::synthesize_wasm_reflex`)."
+                "Most frequent recent intent: '{intent}' ({count}x) — a candidate for a WASI reflex (`EvolutionManager::evolve_recurring_intent`)."
             ),
             None => "No intent recurred often enough to suggest a reflex.".to_string(),
         };
@@ -33,6 +33,50 @@ impl EvolutionManager {
         Ok(format!(
             "Drift audit: {frequent}\n{ingestion}\n{staging_line}\n\n{bottlenecks}"
         ))
+    }
+
+    /// Act on the drift signal -- the self-improvement step of the loop: when
+    /// a mission intent recurred (see [`detect_high_frequency_gap`]) and no
+    /// reflex exists for it, synthesize one (`synthesize_capability_for`:
+    /// model-written, published only after it compiles and runs in the WASI
+    /// sandbox; else the probe). At most one attempt per intent per 24h
+    /// (`reflexes/<slug>.attempted`), since each is a model call and a
+    /// compile. Every outcome is audit-logged with the honest gap report.
+    /// Returns that report, or `None` when there was nothing to do.
+    ///
+    /// [`detect_high_frequency_gap`]: Self::detect_high_frequency_gap
+    pub fn evolve_recurring_intent(workspace: &Path) -> Option<String> {
+        use crate::reflex_synth::{reflex_path, slug_for, ReflexSynthesizer};
+        const RETRY_AFTER_SECS: u64 = 24 * 3600;
+        let (intent, count) = Self::detect_high_frequency_gap(workspace)?;
+        let slug = slug_for(&intent)?;
+        let wasm = reflex_path(&slug);
+        if wasm.exists() {
+            return None;
+        }
+        let marker = wasm.with_extension("attempted");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let last = std::fs::read_to_string(&marker)
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if now.saturating_sub(last) < RETRY_AFTER_SECS {
+            return None;
+        }
+        if let Some(dir) = marker.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&marker, now.to_string());
+        let outcome = ReflexSynthesizer::synthesize_capability_for(&slug, &intent, workspace);
+        let report = format!(
+            "recurring intent '{intent}' ({count}x): {}",
+            ReflexSynthesizer::gap_report(&slug, &outcome)
+        );
+        SusiAuditLogger::log_event(workspace, "EVOLUTION_REFLEX_ATTEMPT", &report);
+        Some(report)
     }
 
     /// Bottleneck Detection: latency violations and failure-signal events

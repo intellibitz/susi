@@ -69,7 +69,7 @@ impl EvalRunner {
 
             // Local Inference
             let local_resp =
-                crate::engine::GemiEngine::generate_reasoning_deep(q.prompt, workspace);
+                crate::engines::runtime::GemiEngine::generate_reasoning_deep(q.prompt, workspace);
             let local_correct = Self::check_correctness(&local_resp, q.expected_substrings);
             if local_correct {
                 local_score += 1;

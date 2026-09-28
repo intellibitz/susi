@@ -17,9 +17,13 @@ impl SandboxManager {
         // must not be re-implemented without bollard in every feature crate.
         match crate::service::docker_exec(cmd) {
             Some(out) => Ok(out),
-            None => Err(EaiError::process(
-                "susi-sandbox service unreachable; docker exec requires the sandbox service on 127.0.0.1:18083 (SUSI_SANDBOX_PORT)",
-            )),
+            None => Err(EaiError::process(format!(
+                "susi-sandbox service unreachable; docker exec requires the sandbox service on 127.0.0.1:{} (SUSI_SANDBOX_PORT)",
+                susi_paths::loopback::service_port(
+                    "SUSI_SANDBOX_PORT",
+                    susi_paths::ports::SANDBOX_SERVICE
+                )
+            ))),
         }
     }
 

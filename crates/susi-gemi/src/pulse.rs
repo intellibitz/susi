@@ -1,7 +1,7 @@
 // SUSI-Pulse: Tier 0 Native Bootstrap Brain
 // 100% Neural implementation - Zero Hardcoded Heuristics.
 
-use super::alpha::SusiAlphaModel;
+use crate::engines::alpha::SusiAlphaModel;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

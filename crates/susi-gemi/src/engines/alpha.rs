@@ -393,7 +393,7 @@ impl SusiAlphaModel {
         let alpha_filename =
             crate::susi_sandbox::manager::SusiConfig::load(global_dir)?.alpha_weights_filename();
         let weights_path = global_dir.join("models").join(&alpha_filename);
-        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let device = crate::models::hardware::HardwareProfiler::get_candle_device();
 
         let candidates = resolve_checkpoint_candidates(&weights_path)?;
         if !candidates.is_empty() {
@@ -503,7 +503,7 @@ impl SusiAlphaModel {
             validate_vocabulary(discovered_intents)?
         };
 
-        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let device = crate::models::hardware::HardwareProfiler::get_candle_device();
         let mut varmap = VarMap::new();
         let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
@@ -616,7 +616,7 @@ impl SusiAlphaModel {
     }
 
     pub fn predict_intent_with_confidence(&self, prompt: &str) -> Result<(String, f32)> {
-        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let device = crate::models::hardware::HardwareProfiler::get_candle_device();
         let input_vec = Self::semantic_centroid_projection(prompt, None)?;
         let input_tensor = Tensor::from_vec(input_vec, (1, Self::DIM), &device)
             .map_err(crate::engines::candle_err::from_candle)?;

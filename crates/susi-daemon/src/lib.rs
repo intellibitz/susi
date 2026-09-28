@@ -58,7 +58,6 @@ pub mod p2p_router;
 pub mod plugins;
 pub mod privacy;
 pub mod runtime_admin;
-pub mod scheduler;
 pub mod security;
 pub mod self_healing;
 pub mod server;

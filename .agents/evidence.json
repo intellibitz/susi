@@ -3053,10 +3053,100 @@
     },
     {
       "anchor": {
+        "label": "susi-daemon scheduler",
+        "ref": "file://crates/susi-daemon/src/composition.rs"
+      },
+      "id": "EV-2022928-311",
+      "milestone": "RSI iterations 55-58 (Claude run): last discarded-probe wiring removed (duplicate `scheduler`); main's clippy gate repaired after the iterations 201-300 merge.",
+      "proof": "`composition::swarm_host_snapshot` called `scheduler::schedule_cells(&[], \"\", Greedy)` and discarded the result — the only reference keeping the 211-line `scheduler` module reachable (added by an earlier swarm-host iteration). Its capability/trust ranking duplicates `SwarmBlackboard::find_capable_cells`, which the live blackboard already uses, so the probe and the module are removed. A workspace-wide scan for `let _ =` calls on empty/default inputs in non-test code finds none left. Replicated reachability: 59 modules, 0 unreachable (AGENTS.md / identity updated). Merged work from iterations 201-300 left two `collapsible_if` failures (`gossip.rs`, `nat.rs`) that turned `cargo clippy -D warnings` red on main; fixed via clippy's own suggestion. Note: the error-model entry committed as EV-2022928-309 was renumbered to EV-2022928-310 when a concurrent agent's entry took -309 during rebase (commit 14a4be10's message still says -309). Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "ReflexSynthesizer",
+        "ref": "file://crates/susi-gawd/src/reflex_synth.rs"
+      },
+      "id": "EV-2022928-312",
+      "milestone": "RSI iterations 59-62 (Claude run): capability-gap self-repair reports the truth — the hot-loaded WASI reflex is a probe, not an implementation; VC-200-002 and identity corrected.",
+      "proof": "`ReflexSynthesizer::generate_reflex_source` emits one fixed program for every intent: it FNV-hashes the runtime argument plus the intent string and prints `[REFLEX:<intent>] input=... signature=...`. Both capability-gap surfaces (`SusiEngineHooks::resolve_capability_gap` in susi-daemon and the `GAWD_CAPABILITY_GAP` plane handler in susi-gawd) replied \"[HOT_PATCH] Synthesized (and compiled) a WASI reflex for '<name>' ... Retry as 'reflex_<name>'\", which tells an agent the missing capability now exists; retrying returns only the signature line. Mandate 1 fix: one shared `ReflexSynthesizer::gap_report` now states that a probe reflex was compiled at <path>, that it verifies the hot-load path and returns an input signature only, and that it does not implement '<name>' so the gap remains open (the `[HOT_PATCH]`/`[CAPABILITY_GAP]` prefixes the e2e test matches are kept). The two duplicated message builders are gone. `roadmap.json` VC-200-002 said \"Delivered the real equivalent\"; it now says the mechanism was delivered, not yet the capability, and names model-generated, verified reflex source as the next real step. The identity `ReflexSynthesizer` component (\"Native Rust code distillation and reflex generation\") was rewritten to the same verified scope. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "ReflexSynthesizer::synthesize_capability",
+        "ref": "file://crates/susi-gawd/src/reflex_synth.rs"
+      },
+      "id": "EV-2022928-313",
+      "milestone": "RSI iterations 63-68 (Claude run): self-repair produces functional reflexes — model-written WASI source, published only after it parses, compiles and runs in the sandbox; probe fallback with the reason.",
+      "proof": "New `ReflexSynthesizer::synthesize_capability` (used by both capability-gap surfaces: `SusiEngineHooks::resolve_capability_gap` and the `GAWD_CAPABILITY_GAP` plane handler): (1) asks the local model via `plane_bus::gemi::GemiEngine::generate_reasoning` for a std-only program implementing the intent (no crates/networking/filesystem; input argv[1]; result on stdout); (2) takes the first fenced code block, requires `susi_vendor_syn::is_valid_rust` and `fn main`; (3) compiles to a private staging name with `rustc --target wasm32-wasip1`; (4) runs the staged module on a probe input through the `susi-native` WASI sandbox (`WasmHost::execute_reflex`) and requires success with non-empty output; (5) only then renames it to the live `reflexes/<slug>.wasm` that `ToolRegistry` executes. Any failure falls back to the existing signature-echo probe, and `ReflexSynthesis { functional, note }` carries the reason into `gap_report`, which says either \"compiled and ran on a probe input; its correctness for '<name>' is not verified\" or \"does not implement '<name>' ... gap remains open. Functional synthesis failed: <why>\". The compile/stage/verify/publish sequence was factored into one `compile_and_publish` shared by both paths; `synthesize_wasm_reflex` (probe) is unchanged for its existing tests. New unit tests: `extracts_first_fenced_block`, `gap_report_never_claims_a_probe_implements_the_capability`. Honest limits: the probe run proves the reflex executes, not that its output is right for the intent; the functional path was not exercised end to end here (needs a local model, the wasm32-wasip1 target and a running susi-native service; tests deferred by operator instruction). Verified: cargo clippy --workspace --all-targets -D warnings clean.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "EvolutionManager::evolve_recurring_intent",
+        "ref": "file://crates/susi-gawd/src/evolution.rs"
+      },
+      "id": "EV-2022928-314",
+      "milestone": "RSI iterations 69-74 (Claude run): the self-improvement loop closes — recurring mission intents trigger verified reflex synthesis; the drift audit is recorded instead of discarded.",
+      "proof": "`SusiRuntimeAdmin::perform_substrate_audit` (hourly) computed `EvolutionManager::perform_autonomous_drift_audit` with `let _ =`, so its only actionable output — \"most frequent recent intent ... a candidate for a WASI reflex\" — was never seen or acted on. Now: the report is audit-logged (`DRIFT_AUDIT` / `DRIFT_AUDIT_FAILED`), and new `EvolutionManager::evolve_recurring_intent` acts on it — for the most frequent `*MISSION_START` intent (>=3 of the last 100 audit entries) it derives a safe slug (`reflex_synth::slug_for`: lowercase alphanumerics, other runs → `_`, <=48 chars), skips if `reflexes/<slug>.wasm` already exists or an attempt was made in the last 24h (`<slug>.attempted` timestamp; each attempt is a model call plus a compile), then calls new `ReflexSynthesizer::synthesize_capability_for(slug, intent_text, ws)` (the model implements the full intent text; the reflex is named by the slug) and audit-logs `EVOLUTION_REFLEX_ATTEMPT` with the `gap_report` text, so an unverified or probe-only result is recorded as such. Observe → synthesize → verify (compile + sandbox probe run) → hot-load, with no daemon restart. Honest limits: correctness of a reflex's output for its intent is still unverified; not exercised end to end here (tests deferred by operator instruction). New unit test `slug_for_normalizes_free_text`. Verified: cargo clippy --workspace --all-targets -D warnings clean.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "susi-agents shims",
+        "ref": "file://crates/susi-agents/src/lib.rs"
+      },
+      "id": "EV-2022928-315",
+      "milestone": "RSI iterations 75-78 (Claude run): three re-export shim modules removed from susi-agents; capability-policy overlap between susi-core MacPolicy and the daemon's CapabilityPolicy recorded, not merged.",
+      "proof": "Same-named-module review. `susi-agents/src/{net_guard,task_manager,types}.rs` were one-line `pub use crate::susi_core::...` shims kept \"for existing call sites\": net_guard and task_manager had no user inside or outside the crate; types had two internal imports (`plane_handler.rs`, `registry.rs`), now importing `susi_core::agent_types::AgentProfile` directly, and the crate-root re-export points at `susi_core::agent_types`. Recorded, deliberately not merged: susi-core's `MacPolicy` (HMAC capability tokens checked on every tool dispatch) and susi-daemon's `security::CapabilityPolicy` (per-cell grant lists used by admin, tool_proxy and tool_catalog) are two capability-authorization models at different layers; unifying them changes security behaviour and should not land without the test suite, so it is left for the post-run test chore. `susi-core/task_manager.rs` (live task table) and `susi-gawd-agents/scheduler.rs` (mission admission control) are distinct features, not duplicates. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "susi-gemi module paths",
+        "ref": "file://crates/susi-gemi/src/lib.rs"
+      },
+      "id": "EV-2022928-316",
+      "milestone": "RSI iterations 79-84 (Claude run): duplicate module paths removed — susi-gemi's flat alias layer migrated away; ModelInfo alias, native-client `wasm` namespace and SusiConfig's Deref shim deleted.",
+      "proof": "`susi-gemi` exported every engine and model module twice — canonically (`engines::runtime`, `models::hardware`, …) and through a \"flat compatibility re-export\" block (`susi_gemi::engine`, `::http_provider`, `::routing`, `::hardware`, `::cloud`, `::ModelManager`, …, plus `telemetry` and a crate-internal `token_stream`), marked \"do not remove without a migration\". Migration done: ~110 references in 34 files (susi-gemi internals, root CLI, daemon, gmcp, tools) rewritten to the canonical path, then the alias block removed; the crate docs now state one path per module. Also removed: `pub type ModelInfo = DynamicModelInfo` (\"Backward compat alias\"; 18 uses renamed), susi-native-client's `pub mod wasm { pub use super::WasmHost; }` (one caller in susi-tools now names `WasmHost`), and `impl Deref<Target = DynamicRegistry> for SusiConfig` (\"Compatibility shim for old code that accessed fields directly\") — the workspace compiled with zero errors without it, so nothing depended on it. Kept by design: the susi-gawd host crate's re-exports of its three sub-crates are its documented facade, not duplicates. Verified: cargo check + clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "post-move sweep",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-317",
+      "milestone": "RSI iterations 85-88 (Claude run): post-move re-sweep — one more dead dependency removed; ARCHITECTURE.md crate table now covers every crate.",
+      "proof": "Re-ran the per-crate unused-dependency scan after the moves of iterations 1-84: `susi-daemon` still declared `chacha20poly1305`, whose only user was the `encryption` module removed in EV-2022928-301 — removed; the scan is otherwise empty. The duplicate-function scan is down to 4 groups / 38 lines, all in test fixtures (`argmax` in a qwen2_split test module, `manifest`/`snapshot` fixture builders) except `runtime_substrate` `forward`, which is two trait impls delegating to different weight types (not duplication). ARCHITECTURE.md's crate-boundary table was missing `susi-dsh-cell` (DeepSeek Harness CLI cell) and `susi-universal-cell` (manifest-described ecosystem plugin cell); rows added from their sources, so every directory under `crates/` now has exactly one row. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "leaf-service ports",
+        "ref": "file://crates/susi-paths/src/ports.rs"
+      },
+      "id": "EV-2022928-318",
+      "milestone": "RSI iterations 89-94 (Claude run): one source of truth for leaf-service ports; unreachable-service errors report the effective port.",
+      "proof": "The five leaf-service default ports were separate literals in `LEAF_SERVICES` (susi-core `service_table.rs`) and in each client (`susi-paths` 18080, `susi-error` 18081, `susi-config` 18082, `susi-sandbox-client` 18083, `susi-native-client` 18084) — nothing kept them in step. They are now `susi_paths::ports::{PATHS_SERVICE, ERROR_SERVICE, CONFIG_SERVICE, SANDBOX_SERVICE, NATIVE_SERVICE}`, and the service table plus all five clients name the constants. (`susi-abi`'s cell-port exclusion range keeps its literal: it is rank 0 beside susi-paths and does not depend on it; its doc comment names the range.) User-facing errors hard-coded the default: \"susi-native service unreachable on 127.0.0.1:18084\" and \"sandbox service on 127.0.0.1:18083\" were wrong for any offset instance (dev = +100); they now report `loopback::service_port(..)` (the port actually tried), and gmcp's docker-exec wrapper no longer repeats a stale port on top of it. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "Claude RSI run close-out",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-319",
+      "milestone": "RSI iterations 95-100 (Claude run, closing): AGENTS.md unsafe policy regenerated from the sources; run summary and open items recorded.",
+      "proof": "AGENTS.md's `#![forbid(unsafe_code)]` list named 15 crates while 25 workspace crates declare it (missing: susi-abi, susi-dsh-cell, susi-native-client, susi-sandbox-client, susi-universal-cell, susi-vendor-{chrome,fastembed,mcp,syn,tantivy}); the list is now generated from each crate's lib.rs/main.rs attribute (25 crates + xtask + root package); the `deny(unsafe_code)` list already matched the sources. Run totals (this agent's 19 commits since d359eeef): 341 file-changes, +3282/-6396 lines; evidence EV-2022928-296..302, 307, 308, 310-319 (303-306 and 309 are concurrent agents' entries). Final gate on the landed tip: `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -D warnings` clean. Open items, stated plainly: (1) no tests were run during the run (operator instruction) — the workspace test suite, including the new unit tests (susi-vendor-tantivy roundtrip, susi-vendor-syn, loopback parse, reflex_synth, xdg layout), is the pending chore; (2) a model-written reflex is verified to execute, not to be correct for its intent; (3) daemon `audit_log`/`logger` duplicate the signed audit chain / tracing sink — their deletion was blocked by the session's permission classifier as possible audit tampering and needs an explicit operator decision; (4) `MacPolicy` (tool-dispatch HMAC tokens) and the daemon's `CapabilityPolicy` (per-cell grants) are overlapping capability models, not merged without tests; (5) the susi-gawd host crate keeps its facade re-exports by design.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
         "label": "RSI OS isolation iterations 301-400",
         "ref": "file://ARCHITECTURE.md"
       },
-      "id": "EV-2022928-311",
+      "id": "EV-2022928-320",
       "milestone": "RSI OS isolation iterations 301-400: TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (HMAC-SHA1, MD5 long-term key, 401/438 retry); per-peer gossip MAC plus HMAC-sealed gossip_caps.json; susi os provision probe/list/apply (tick stays version-probe); 9095 stays outside ports::ALL as SWARM_UDP; deleted cell-OS sketches stay deleted and map onto live planes. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"

@@ -364,11 +364,11 @@ fn route(
     max_cost: Option<f64>,
     allow_cloud: bool,
 ) -> Result<()> {
-    susi_gemi::http_provider::register_configured_cloud_endpoints(
+    susi_gemi::engines::http_provider::register_configured_cloud_endpoints(
         susi_gemi::susi_core::registry::CapabilityRegistry::global(),
     );
     let providers = susi_gemi::susi_core::registry::CapabilityRegistry::global().list_providers();
-    let decision = susi_gemi::routing::InferenceRouter::plan_placement_for(
+    let decision = susi_gemi::engines::routing::InferenceRouter::plan_placement_for(
         &providers,
         requires,
         max_cost,
@@ -425,8 +425,9 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                 OsModelAction::List => model_cli::ModelCommands::List,
                 OsModelAction::Doctor { name } => model_cli::ModelCommands::Doctor { model: name },
                 OsModelAction::Install { source } => {
-                    let installed = susi_gemi::ModelManager::install_model_foreground(&source)
-                        .map_err(anyhow::Error::msg)?;
+                    let installed =
+                        susi_gemi::models::ModelManager::install_model_foreground(&source)
+                            .map_err(anyhow::Error::msg)?;
                     println!("{installed}");
                     return Ok(());
                 }
@@ -544,7 +545,7 @@ fn uninstall_managed_model(name: &str) -> Result<()> {
     {
         anyhow::bail!("model uninstall accepts one managed .gguf filename, not a path");
     }
-    let models_dir = susi_gemi::ModelManager::get_models_dir()
+    let models_dir = susi_gemi::models::ModelManager::get_models_dir()
         .canonicalize()
         .map_err(|error| anyhow::anyhow!("resolve managed model directory: {error}"))?;
     let canonical = models_dir
@@ -572,7 +573,7 @@ fn uninstall_managed_model(name: &str) -> Result<()> {
             );
         }
     }
-    if susi_gemi::ModelManager::get_selected_model(None)
+    if susi_gemi::models::ModelManager::get_selected_model(None)
         .as_deref()
         .is_some_and(|selected| selected == name || selected == canonical.to_string_lossy())
     {
@@ -666,7 +667,7 @@ fn runtime_inventory() -> Vec<serde_json::Value> {
 }
 
 fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
-    let hardware = susi_gemi::hardware::HardwareProfiler::get_profile();
+    let hardware = susi_gemi::models::hardware::HardwareProfiler::get_profile();
     let runtimes = runtime_inventory();
     let models = susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
     let model_count = models.as_array().map_or(0, Vec::len);

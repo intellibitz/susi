@@ -2,7 +2,7 @@
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
-use susi_gemi::open_weight::{OpenWeightManager, OpenWeightOverride};
+use susi_gemi::models::open_weight::{OpenWeightManager, OpenWeightOverride};
 
 #[derive(Debug, Subcommand)]
 pub enum OpenWeightCommands {

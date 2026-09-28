@@ -98,15 +98,15 @@ impl GossipManager {
     pub fn with_store(path: PathBuf) -> Self {
         let mut manager = Self::new();
         manager.store = Some(path.clone());
-        if let Ok(bytes) = std::fs::read(&path) {
-            if let Some(map) = manager.open_store(&bytes) {
-                let mut caps = manager
-                    .peer_capabilities
-                    .write()
-                    .unwrap_or_else(|e| e.into_inner());
-                for (cell, list) in map {
-                    caps.insert(cell, list.into_iter().collect());
-                }
+        if let Ok(bytes) = std::fs::read(&path)
+            && let Some(map) = manager.open_store(&bytes)
+        {
+            let mut caps = manager
+                .peer_capabilities
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            for (cell, list) in map {
+                caps.insert(cell, list.into_iter().collect());
             }
         }
         manager
@@ -208,22 +208,22 @@ impl GossipManager {
                 (k.clone(), caps)
             })
             .collect();
-        if let Ok(caps_value) = serde_json::to_value(&json) {
-            if let Ok(caps_bytes) = serde_json::to_vec(&caps_value) {
-                let mac = hmac(&self.store_key(), &caps_bytes);
-                let wrap = serde_json::json!({
-                    "v": 1,
-                    "mac": hex::encode(mac),
-                    "caps": caps_value,
-                });
-                if let Ok(text) = serde_json::to_string_pretty(&wrap) {
-                    if let Some(parent) = path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    let tmp = path.with_extension("json.tmp");
-                    if std::fs::write(&tmp, text).is_ok() {
-                        let _ = std::fs::rename(&tmp, path);
-                    }
+        if let Ok(caps_value) = serde_json::to_value(&json)
+            && let Ok(caps_bytes) = serde_json::to_vec(&caps_value)
+        {
+            let mac = hmac(&self.store_key(), &caps_bytes);
+            let wrap = serde_json::json!({
+                "v": 1,
+                "mac": hex::encode(mac),
+                "caps": caps_value,
+            });
+            if let Ok(text) = serde_json::to_string_pretty(&wrap) {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let tmp = path.with_extension("json.tmp");
+                if std::fs::write(&tmp, text).is_ok() {
+                    let _ = std::fs::rename(&tmp, path);
                 }
             }
         }
@@ -279,15 +279,15 @@ impl GossipManager {
                 self.persist();
             }
             GossipMessage::PeerDiscovery { from_id, .. } => {
-                if let Some(addr) = from {
-                    if !from_id.is_empty() {
-                        let _ = self.advertise(
-                            addr,
-                            &from_id,
-                            &local_node_id(),
-                            vec!["host".to_string(), "infer".to_string()],
-                        );
-                    }
+                if let Some(addr) = from
+                    && !from_id.is_empty()
+                {
+                    let _ = self.advertise(
+                        addr,
+                        &from_id,
+                        &local_node_id(),
+                        vec!["host".to_string(), "infer".to_string()],
+                    );
                 }
             }
         }

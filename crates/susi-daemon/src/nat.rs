@@ -256,15 +256,14 @@ impl NatManager {
             return Err("Symmetric NAT detected. Direct P2P requires a TURN relay.".to_string());
         }
 
-        if *status == NatStatus::TurnRelayed {
-            if let Some(relay) = self
+        if *status == NatStatus::TurnRelayed
+            && let Some(relay) = self
                 .turn_relay
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
-            {
-                return Ok(turn_multiaddr(relay));
-            }
+        {
+            return Ok(turn_multiaddr(relay));
         }
 
         match ip.as_ref() {

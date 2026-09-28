@@ -17,6 +17,14 @@ pub const A2A_HTTP: u16 = 9094;
 /// Swarm-wide capability gossip. Not in [`ALL`]: 9092 stays A2A discovery.
 pub const GOSSIP: u16 = 9095;
 
+/// Leaf-service default ports (before the instance offset). `LEAF_SERVICES`
+/// and every service client name these, so no two copies can drift.
+pub const PATHS_SERVICE: u16 = 18080;
+pub const ERROR_SERVICE: u16 = 18081;
+pub const CONFIG_SERVICE: u16 = 18082;
+pub const SANDBOX_SERVICE: u16 = 18083;
+pub const NATIVE_SERVICE: u16 = 18084;
+
 /// Stable host contract advertised to external clients.
 pub const ALL: [(u16, &str); 5] = [
     (GMCP, "GMCP/MCP HTTP"),

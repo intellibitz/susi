@@ -2,7 +2,7 @@
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
-use susi_gemi::frontier::{FrontierManager, FrontierOverride};
+use susi_gemi::models::frontier::{FrontierManager, FrontierOverride};
 
 #[derive(Debug, Subcommand)]
 pub enum FrontierCommands {

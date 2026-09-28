@@ -3,7 +3,7 @@
 
 use super::download_controller::{ModelDownloadController, ModelDownloadProgress};
 use crate::susi_core::task_manager::TaskHandle;
-use crate::susi_sandbox::manager::ModelInfo;
+use crate::susi_sandbox::manager::DynamicModelInfo;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -161,8 +161,8 @@ impl ModelManager {
         global_dir
     }
 
-    pub fn list_models(workspace: &Path) -> Vec<ModelInfo> {
-        let mut list: Vec<ModelInfo> = Vec::new();
+    pub fn list_models(workspace: &Path) -> Vec<DynamicModelInfo> {
+        let mut list: Vec<DynamicModelInfo> = Vec::new();
         let system_models = Self::scan_system_for_local_models(workspace);
         for sys_model in system_models {
             if !list.iter().any(|m| m.model_id() == sys_model.model_id()) {
@@ -171,7 +171,7 @@ impl ModelManager {
         }
 
         if list.is_empty() {
-            list.push(ModelInfo::new(
+            list.push(DynamicModelInfo::new(
                 "Native Rust Logic".to_string(),
                 "SUSI Native".to_string(),
                 "susi-native-synthesis".to_string(),

@@ -316,9 +316,7 @@ fn os_planes_json() -> serde_json::Value {
     let host = HOST_PLANES.get();
     let nat_multiaddr = os.and_then(|p| {
         p.nat
-            .generate_external_multiaddr(susi_paths::ports::effective(
-                susi_paths::ports::A2A_HTTP,
-            ))
+            .generate_external_multiaddr(susi_paths::ports::effective(susi_paths::ports::A2A_HTTP))
             .ok()
     });
     let host_run_state = host.and_then(|h| {
@@ -427,7 +425,6 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
         return serde_json::json!({ "wired": false });
     };
     let (workers, busy) = host.orchestrator.pool_summary();
-    let _ = crate::scheduler::schedule_cells(&[], "", crate::scheduler::SchedulingStrategy::Greedy);
     let self_healing =
         crate::self_healing::SelfHealingManager::new(&susi_paths::SusiDirs::substrate_home())
             .is_ok();
@@ -485,7 +482,7 @@ pub fn wire_plane_bus() {
     susi_gawd::plane_handler::register();
     susi_tools::plane_handler::register();
     susi_agents::plane_handler::register();
-    susi_gemi::http_provider::register_configured_cloud_endpoints(
+    susi_gemi::engines::http_provider::register_configured_cloud_endpoints(
         susi_gemi::susi_core::registry::CapabilityRegistry::global(),
     );
 }

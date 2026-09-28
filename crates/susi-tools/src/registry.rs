@@ -195,11 +195,7 @@ impl ToolRegistry {
                     name,
                     arg,
                     workspace,
-                    || {
-                        crate::susi_native::wasm::WasmHost::execute_untrusted_wasm(
-                            &wasm_path, &arg_str,
-                        )
-                    },
+                    || crate::susi_native::WasmHost::execute_untrusted_wasm(&wasm_path, &arg_str),
                 ) {
                     Ok(res) => return res,
                     Err(e) => return format!("Reflex Error: {}", e),

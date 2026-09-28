@@ -45,7 +45,7 @@ pub(crate) mod service {
     use std::time::Duration;
     use susi_paths::loopback::{self, Auth};
 
-    const DEFAULT_PORT: u16 = 18083;
+    const DEFAULT_PORT: u16 = susi_paths::ports::SANDBOX_SERVICE;
     const TIMEOUT: Duration = Duration::from_millis(200);
     /// Docker container create/start/logs can exceed the fast IPC timeout.
     const DOCKER_TIMEOUT: Duration = Duration::from_secs(120);

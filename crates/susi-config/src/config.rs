@@ -656,14 +656,6 @@ fn managed_peers_from_catalogs() -> Vec<ExternalPeerAgentSpec> {
     out
 }
 
-// Compatibility shim for old code that accessed fields directly
-impl std::ops::Deref for SusiConfig {
-    type Target = DynamicRegistry;
-    fn deref(&self) -> &Self::Target {
-        &self.settings
-    }
-}
-
 /// The one credential redactor for text leaving SUSI's trust boundary
 /// (CLI output, peer/agent logs, provider errors). Masks the value of every
 /// environment variable named `*_API_KEY` / `*_TOKEN` / `*_SECRET` (8+

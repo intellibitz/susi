@@ -104,9 +104,6 @@ impl DynamicModelInfo {
     }
 }
 
-// Backward compat alias
-pub type ModelInfo = DynamicModelInfo;
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DynamicNeuralCheckpoint {

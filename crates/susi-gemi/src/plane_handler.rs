@@ -8,13 +8,13 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::engine::{GemiEngine, MissionPlanner};
-use crate::hardware::HardwareProfiler;
-use crate::http_provider;
+use crate::engines::http_provider;
+use crate::engines::routing::InferenceRouter;
+use crate::engines::runtime::{GemiEngine, MissionPlanner};
+use crate::models::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::pulse::SusiPulse;
-use crate::routing::InferenceRouter;
-use crate::telemetry;
+use crate::susi_core::telemetry;
 use susi_gemi_models::coding_models::CodingModelManager;
 use susi_gemi_models::intent::{IntentCategory, IntentClassifier, TaskComplexity};
 
@@ -40,7 +40,7 @@ fn eai_to_string<T>(r: EaiResult<T>) -> Result<T, String> {
     r.map_err(|e| e.to_string())
 }
 
-fn profile_dto(p: crate::hardware::HardwareProfile) -> HardwareProfileDto {
+fn profile_dto(p: crate::models::hardware::HardwareProfile) -> HardwareProfileDto {
     HardwareProfileDto {
         cpus: p.cpus,
         cpu_brand: p.cpu_brand,
@@ -331,29 +331,32 @@ impl PlaneHandler for GemiPlaneHandler {
             }
             topics::GEMI_ALPHA_PROJECTION => {
                 let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                let vec = crate::alpha::SusiAlphaModel::semantic_centroid_projection(text, None)
-                    .map_err(|e| e.to_string())?;
+                let vec =
+                    crate::engines::alpha::SusiAlphaModel::semantic_centroid_projection(text, None)
+                        .map_err(|e| e.to_string())?;
                 Ok(json!({ "vector": vec }))
             }
             topics::GEMI_ALPHA_TRAIN => {
                 let ws = workspace_path(&payload);
                 let global_dir = susi_paths::SusiDirs::config_dir();
                 let staged_file = ws.join(".susi/distillation_staged.jsonl");
-                let text =
-                    crate::alpha::SusiAlphaModel::train_on_staged_file(&global_dir, &staged_file)
-                        .map_err(|e| e.to_string())?;
+                let text = crate::engines::alpha::SusiAlphaModel::train_on_staged_file(
+                    &global_dir,
+                    &staged_file,
+                )
+                .map_err(|e| e.to_string())?;
                 Ok(json!({ "text": text }))
             }
             topics::GEMI_MODELS_LOADED => Ok(json!({
                 "pid": std::process::id(),
-                "models": crate::engine::InferenceHost::loaded_models(),
+                "models": crate::engines::runtime::InferenceHost::loaded_models(),
             })),
             topics::GEMI_MODELS_PRELOAD | topics::GEMI_MODELS_UNLOAD => {
                 let model = payload.get("model").and_then(|v| v.as_str()).unwrap_or("");
                 let result = if topic == topics::GEMI_MODELS_PRELOAD {
-                    crate::engine::InferenceHost::preload(model)
+                    crate::engines::runtime::InferenceHost::preload(model)
                 } else {
-                    crate::engine::InferenceHost::unload(model)
+                    crate::engines::runtime::InferenceHost::unload(model)
                 };
                 result.map_err(|e| e.to_string())
             }

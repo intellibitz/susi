@@ -3,8 +3,8 @@ use crate::susi_core::provider::Provider;
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 use susi_gemi_models::frontier::FrontierManager;
 
-use crate::http_provider::{HttpProvider, InferenceProtocol};
-use crate::routing::InferenceRouter;
+use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
+use crate::engines::routing::InferenceRouter;
 
 /// Build an [`HttpProvider`] for a curated frontier model.
 pub fn provider(manager: &FrontierManager, id: &str) -> Result<HttpProvider> {
