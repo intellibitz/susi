@@ -22,6 +22,7 @@ pub enum GossipMessage {
 }
 
 /// Manages epidemic gossip state and UDP binding.
+#[derive(Clone)]
 pub struct GossipManager {
     /// Maps cell_id to a list of known capabilities.
     pub peer_capabilities: Arc<RwLock<HashMap<String, HashSet<String>>>>,
@@ -61,6 +62,11 @@ impl GossipManager {
 
     /// Handles an incoming gossip payload.
     pub fn handle_gossip(&self, payload: &[u8]) -> Result<(), String> {
+        self.ingest(payload, None)
+    }
+
+    /// Ingest a payload, optionally advertising back to `from` on discovery.
+    pub fn ingest(&self, payload: &[u8], from: Option<&str>) -> Result<(), String> {
         let msg: GossipMessage = serde_json::from_slice(payload).map_err(|e| e.to_string())?;
 
         match msg {
@@ -79,11 +85,88 @@ impl GossipManager {
                 }
             }
             GossipMessage::PeerDiscovery { .. } => {
-                // In a real deployment, we would respond with known peers.
+                if let Some(addr) = from {
+                    let _ = self.advertise(
+                        addr,
+                        "susi-host",
+                        vec!["host".to_string(), "infer".to_string()],
+                    );
+                }
             }
         }
 
         Ok(())
+    }
+
+    /// One non-blocking recv. `Ok(true)` means a datagram was ingested.
+    pub fn poll_recv(&self) -> std::io::Result<bool> {
+        let Some(socket) = &self.socket else {
+            return Ok(false);
+        };
+        let mut buf = [0u8; 2048];
+        match socket.recv_from(&mut buf) {
+            Ok((n, src)) => {
+                let _ = self.ingest(&buf[..n], Some(&src.to_string()));
+                Ok(true)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Recv loop for the daemon process lifetime.
+    pub fn spawn_recv_loop(&self) {
+        let this = self.clone();
+        let _ = std::thread::Builder::new()
+            .name("susi-gossip-recv".into())
+            .spawn(move || {
+                loop {
+                    match this.poll_recv() {
+                        Ok(true) => {}
+                        Ok(false) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                        Err(_) => std::thread::sleep(std::time::Duration::from_millis(200)),
+                    }
+                }
+            });
+    }
+
+    /// Rewrite a cluster peer host:port onto the gossip UDP port.
+    #[must_use]
+    pub fn gossip_target(peer_addr: &str, gossip_port: u16) -> String {
+        if let Ok(mut sa) = peer_addr.parse::<std::net::SocketAddr>() {
+            sa.set_port(gossip_port);
+            return sa.to_string();
+        }
+        match peer_addr.rsplit_once(':') {
+            Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => {
+                format!("{host}:{gossip_port}")
+            }
+            _ => format!("{peer_addr}:{gossip_port}"),
+        }
+    }
+
+    /// Fan out host capabilities (and a discovery ping) to verified cluster peers.
+    pub fn fanout_to_cluster(&self, gossip_port: u16) {
+        let Ok(peers) = susi_core::plane_bus::gawd::cluster_peers() else {
+            return;
+        };
+        let from_ip = self.local_addr().unwrap_or_default();
+        for (_id, addr) in peers {
+            let target = Self::gossip_target(&addr, gossip_port);
+            let _ = self.advertise(
+                &target,
+                "susi-host",
+                vec!["host".to_string(), "infer".to_string()],
+            );
+            if let Some(socket) = &self.socket {
+                let msg = GossipMessage::PeerDiscovery {
+                    from_ip: from_ip.clone(),
+                };
+                if let Ok(payload) = serde_json::to_vec(&msg) {
+                    let _ = socket.send_to(&payload, &target);
+                }
+            }
+        }
     }
 
     /// Advertises this node's capabilities to a known peer.

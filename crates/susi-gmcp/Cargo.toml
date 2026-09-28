@@ -13,7 +13,7 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 dashmap = { workspace = true }
-rmcp = { version = "3.4.0", features = ["server", "transport-io", "transport-streamable-http-server", "elicitation", "request-state"] }
+susi-vendor-mcp-server = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = { workspace = true }

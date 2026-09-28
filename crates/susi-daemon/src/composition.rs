@@ -7,6 +7,8 @@
 
 use std::path::Path;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 /// Production swarm-host surface: orchestrator, watchdog, cell identity,
 /// load balancer, task queue, TTL, metrics, inference fallback, HTTP
@@ -83,14 +85,55 @@ struct DaemonOsPlanes {
 }
 
 static DAEMON_OS: OnceLock<DaemonOsPlanes> = OnceLock::new();
+static HOST_PLANES: OnceLock<HostControlPlanes> = OnceLock::new();
+static OS_TICK_STARTED: OnceLock<()> = OnceLock::new();
+
+struct HostControlPlanes {
+    admin: crate::admin::AdminServer,
+    budget: crate::budget::HierarchicalBudget,
+    cas: crate::cas::CasManager,
+    p2p: crate::p2p_router::P2pRouter,
+    signal: crate::signal::SignalRouter,
+    policy: crate::security::CapabilityPolicy,
+    ticks: AtomicU64,
+}
+
+fn gossip_port() -> u16 {
+    susi_config::SusiConfig::load_global()
+        .map(|c| c.gossip_port())
+        .unwrap_or(susi_paths::ports::effective(susi_paths::ports::GOSSIP))
+}
+
+fn os_planes_report_path() -> std::path::PathBuf {
+    susi_paths::SusiDirs::substrate_home().join("os_planes.json")
+}
+
+fn unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn bind_swarm_gossip(gossip: &mut crate::gossip::GossipManager) {
+    let port = gossip_port();
+    let bind = format!("0.0.0.0:{port}");
+    if gossip.bind(&bind).is_err() {
+        let _ = gossip.bind("0.0.0.0:0");
+    }
+}
 
 /// Open host-owned OS directories and hold the managers for the daemon
-/// process lifetime.
+/// process lifetime. Gossip binds instance UDP 9095 (not A2A 9092).
 pub fn wire_daemon_os_planes(workspace: &Path) {
     let _ = DAEMON_OS.get_or_init(|| {
         let mut gossip = crate::gossip::GossipManager::new();
-        // Ephemeral loopback: do not steal host-contract UDP 9092 (A2A discovery).
-        let _ = gossip.bind("127.0.0.1:0");
+        bind_swarm_gossip(&mut gossip);
+        gossip.spawn_recv_loop();
+        let audit = crate::audit_log::AuditLogger::new(Some(
+            workspace.join("logs").join("capability_audit.tsv"),
+        ));
+        let _ = audit.log_grant("susi-host", "root");
         DaemonOsPlanes {
             checkpoint: crate::checkpoint::CheckpointManager::new(workspace.join("checkpoints")),
             logger: crate::logger::RollingLogger::new(crate::logger::LoggerConfig {
@@ -106,7 +149,6 @@ pub fn wire_daemon_os_planes(workspace: &Path) {
             snapshots: crate::cell_snapshot::SnapshotManager::new(),
             nat: {
                 let nat = crate::nat::NatManager::new();
-                // Operator-advertised public IP (no STUN). Empty/unset stays Unknown.
                 if let Ok(ip) = std::env::var("SUSI_PUBLIC_IP") {
                     let ip = ip.trim();
                     if !ip.is_empty() {
@@ -119,25 +161,52 @@ pub fn wire_daemon_os_planes(workspace: &Path) {
                 "susi-host",
                 Vec::new(),
             )),
-            audit: crate::audit_log::AuditLogger::new(Some(
-                workspace.join("logs").join("capability_audit.tsv"),
-            )),
+            audit,
         }
     });
     activate_host_control_planes();
+    spawn_stun_if_unknown();
+    start_os_plane_ticks();
 }
 
-/// In-memory host control planes that are unique (not duplicates of
-/// live core/gawd features). Constructed from the daemon loop so they
-/// participate in the running OS rather than remaining compiled-only.
+fn spawn_stun_if_unknown() {
+    let _ = std::thread::Builder::new()
+        .name("susi-stun".into())
+        .spawn(|| {
+            if let Some(planes) = DAEMON_OS.get() {
+                if matches!(planes.nat.status(), crate::nat::NatStatus::Unknown) {
+                    let _ = planes.nat.discover_default();
+                    persist_os_planes_report();
+                }
+            }
+        });
+}
+
+/// Live host control planes held for the daemon lifetime and driven on a tick.
 fn activate_host_control_planes() {
-    let _ = crate::admin::AdminServer::default();
-    let _ = crate::auto_tune::advise(
-        &crate::swarm_metrics::SwarmMetricsSnapshot::default(),
-        &crate::sla_monitor::SlaTargets::default(),
-    );
-    let _ = crate::budget::HierarchicalBudget::default();
-    let _ = crate::cas::CasManager::default();
+    let _ = HOST_PLANES.get_or_init(|| {
+        let budget = crate::budget::HierarchicalBudget::default();
+        budget.set_cell_cap("susi-host", 1_000_000);
+        let policy = crate::security::CapabilityPolicy::new(
+            "susi-host",
+            vec![crate::security::CapabilityGrant {
+                capability: "root".to_string(),
+                scope: None,
+                ephemeral: false,
+            }],
+        );
+        let signal = crate::signal::SignalRouter::default();
+        let _ = signal.dispatch_signal("susi-host", crate::signal::CellSignal::SigCont);
+        HostControlPlanes {
+            admin: crate::admin::AdminServer::default(),
+            budget,
+            cas: crate::cas::CasManager::default(),
+            p2p: crate::p2p_router::P2pRouter::default(),
+            signal,
+            policy,
+            ticks: AtomicU64::new(0),
+        }
+    });
     let _ = crate::contract::ContractManager::default();
     let _ = crate::execution_mode::woken_by(&[], crate::execution_mode::Trigger::Event);
     let _ = crate::lineage::spawn_child("susi-host", &[], &[], 1, 1);
@@ -145,12 +214,42 @@ fn activate_host_control_planes() {
     let _ = crate::mount::MountManager::default();
     let _ = crate::negotiation::Negotiation::offer("n1", "susi-host", "peer", "task");
     let _ = crate::offline_queue::OfflineQueue::default();
-    let _ = crate::org_policy::decide(&[], "tool:git", None);
-    let _ = crate::p2p_router::P2pRouter::default();
-    let _ = crate::packages::resolve(&[], "susi", "0");
     let _ = crate::scaffold::scaffold(crate::scaffold::AgentTemplate::Ops, "susi-host");
     let _ = crate::signal::SignalRouter::default();
     let _ = crate::vfs::VfsManager::default();
+}
+
+fn start_os_plane_ticks() {
+    let _ = OS_TICK_STARTED.get_or_init(|| {
+        tick_host_control_planes();
+        let _ = std::thread::Builder::new()
+            .name("susi-os-tick".into())
+            .spawn(|| {
+                loop {
+                    std::thread::sleep(Duration::from_secs(30));
+                    tick_host_control_planes();
+                }
+            });
+    });
+}
+
+fn tick_host_control_planes() {
+    let Some(host) = HOST_PLANES.get() else {
+        return;
+    };
+    let Some(os) = DAEMON_OS.get() else {
+        return;
+    };
+    let n = host.ticks.fetch_add(1, Ordering::Relaxed);
+    let _ = host.admin.get_diagnostics(&host.policy, 1, 0);
+    let _ = host.budget.try_spend("susi", "susi", "susi-host", 0);
+    let _ = host.cas.put(b"susi-host-heartbeat".to_vec());
+    let _ = crate::auto_tune::advise(
+        &crate::swarm_metrics::SwarmMetricsSnapshot::default(),
+        &crate::sla_monitor::SlaTargets::default(),
+    );
+    let _ = crate::org_policy::decide(&[], "tool:git", None);
+    let _ = crate::packages::resolve(&[], "susi", "0");
     let _ = crate::workloads::complete(&crate::workloads::WorkloadRun {
         kind: crate::workloads::WorkloadKind::Engineering,
         evidence_ids: Vec::new(),
@@ -158,6 +257,101 @@ fn activate_host_control_planes() {
         playbook_steps_completed: 0,
         regions: Vec::new(),
     });
+    let _ = crate::auto_discovery::reap_exited_cells();
+    let _ = os.plugins.list_plugins();
+    let _ = host.signal.run_state("susi-host");
+    if let Some(log) = &os.logger {
+        let _ = log.log("susi-host", "info", &format!("os tick {n}"));
+    }
+    let _ = os
+        .checkpoint
+        .save_checkpoint(&crate::checkpoint::CellCheckpoint {
+            cell_id: "susi-host".into(),
+            timestamp: unix_secs(),
+            memory_state: Vec::new(),
+            step_counter: n,
+        });
+    os.snapshots
+        .set_base_snapshot("susi-host", n.to_le_bytes().to_vec());
+    let port = gossip_port();
+    os.gossip.fanout_to_cluster(port);
+    if let Ok(peers) = susi_core::plane_bus::gawd::cluster_peers() {
+        for (id, addr) in peers {
+            host.p2p.add_peer(&id, &addr);
+        }
+    }
+    if let Ok(ma) = os
+        .nat
+        .generate_external_multiaddr(susi_paths::ports::effective(susi_paths::ports::A2A_HTTP))
+    {
+        host.p2p.add_peer("susi-host", &ma);
+    }
+    persist_os_planes_report();
+}
+
+fn nat_status_label(status: crate::nat::NatStatus) -> &'static str {
+    match status {
+        crate::nat::NatStatus::Open => "open",
+        crate::nat::NatStatus::Symmetric => "symmetric",
+        crate::nat::NatStatus::PortRestricted => "port_restricted",
+        crate::nat::NatStatus::Unknown => "unknown",
+    }
+}
+
+fn os_planes_json() -> serde_json::Value {
+    let os = DAEMON_OS.get();
+    let host = HOST_PLANES.get();
+    serde_json::json!({
+        "checkpoint": os.is_some(),
+        "logger": os.is_some_and(|p| p.logger.is_some()),
+        "plugins": os.is_some(),
+        "fork": os.is_some_and(|p| p.fork.is_some()),
+        "hibernate": os.is_some_and(|p| p.hibernate.is_some()),
+        "reloader": os.is_some(),
+        "gossip_bound": os.and_then(|p| p.gossip.local_addr()),
+        "gossip_port": gossip_port(),
+        "snapshots": os.is_some(),
+        "nat_status": os.map(|p| nat_status_label(p.nat.status())),
+        "nat_public_ip": os.and_then(|p| p.nat.public_ip()),
+        "nat_multiaddr": os.and_then(|p| {
+            p.nat
+                .generate_external_multiaddr(susi_paths::ports::effective(
+                    susi_paths::ports::A2A_HTTP,
+                ))
+                .ok()
+        }),
+        "tool_proxy": os.is_some(),
+        "audit": os.is_some(),
+        "driven": host.is_some(),
+        "ticks": host.map(|h| h.ticks.load(Ordering::Relaxed)),
+        "budget_remaining": host.and_then(|h| h.budget.cell_remaining("susi-host")),
+        "host_run_state": host.and_then(|h| {
+            h.signal.run_state("susi-host").map(|s| match s {
+                crate::signal::CellRunState::Running => "running",
+                crate::signal::CellRunState::Stopped => "stopped",
+                crate::signal::CellRunState::Terminated => "terminated",
+            })
+        }),
+        "admin_uptime_secs": host.and_then(|h| {
+            h.admin
+                .get_diagnostics(&h.policy, 1, 0)
+                .ok()
+                .map(|d| d.uptime_seconds)
+        }),
+    })
+}
+
+fn persist_os_planes_report() {
+    if let Ok(text) = serde_json::to_string_pretty(&os_planes_json()) {
+        let _ = std::fs::write(os_planes_report_path(), text);
+    }
+}
+
+/// CLI-readable OS-plane report written by the daemon tick (OnceLocks are
+/// process-local and invisible to `susi os`).
+pub fn load_os_planes_report() -> Option<serde_json::Value> {
+    let text = std::fs::read_to_string(os_planes_report_path()).ok()?;
+    serde_json::from_str(&text).ok()
 }
 
 /// Snapshot of the in-process swarm host for `susi os`. Wires the host
@@ -206,27 +400,11 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
         "fallback_local": fallback_ok.is_ok(),
         "metrics_ready": !host.metrics.export_prometheus().is_empty(),
         "tool_cards": crate::tool_catalog::builtin_cards().len(),
-        "os_planes": DAEMON_OS.get().map(|p| {
-            serde_json::json!({
-                "checkpoint": true,
-                "logger": p.logger.is_some(),
-                "plugins": true,
-                "fork": p.fork.is_some(),
-                "hibernate": p.hibernate.is_some(),
-                "reloader": true,
-                "gossip_bound": p.gossip.local_addr(),
-                "snapshots": true,
-                "nat_status": match p.nat.status() {
-                    crate::nat::NatStatus::Open => "open",
-                    crate::nat::NatStatus::Symmetric => "symmetric",
-                    crate::nat::NatStatus::PortRestricted => "port_restricted",
-                    crate::nat::NatStatus::Unknown => "unknown",
-                },
-                "nat_public_ip": p.nat.public_ip(),
-                "tool_proxy": true,
-                "audit": true,
-            })
-        }),
+        "os_planes": if DAEMON_OS.get().is_some() {
+            os_planes_json()
+        } else {
+            load_os_planes_report().unwrap_or(serde_json::Value::Null)
+        },
     })
 }
 

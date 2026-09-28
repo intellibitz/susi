@@ -4,6 +4,7 @@ use crate::{protocol::GmcpService, tools::ToolRegistry};
 use rmcp::{model::*, ErrorData};
 use serde_json::json;
 use std::sync::Arc;
+use susi_vendor_mcp_server as rmcp;
 
 pub fn install(service: &GmcpService) -> Result<(), ErrorData> {
     service.register_resource(Resource::new("susi://tools", "tools").with_mime_type("application/json"), Arc::new(|request, _| Box::pin(async move {

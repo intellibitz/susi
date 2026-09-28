@@ -3000,6 +3000,16 @@
       "milestone": "RSI OS isolation iterations 149-154: susi-tools drops leftover tokio after MCP moved to susi-vendor-mcp; susi-gawd-a2a drops unused ra2a client; peer UTF-8 POSTs go through susi_http_transport::http_post_utf8; NAT manager exposes status/public_ip and seeds Open from SUSI_PUBLIC_IP; susi os reports nat_status. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 155-200",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-306",
+      "milestone": "RSI OS isolation iterations 155-200: GMCP no longer declares rmcp (new susi-vendor-mcp-server); swarm gossip UDP 9095 with recv/fanout to cluster peers (9092 stays A2A discovery); NAT STUN discover_default in the daemon; HostControlPlanes driven on a 30s tick with os_planes.json for susi os. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

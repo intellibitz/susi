@@ -3,12 +3,16 @@
 //! `port_offset` (config key or `SUSI_PORT_OFFSET` env, env wins) shifts all
 //! five together — the contract shape stays fixed while a second instance or
 //! a nonstandard host layout gets clean ports (e.g. offset 100 → 9190–9194).
+//! Swarm gossip uses [`GOSSIP`] (9095) with the same offset and is *not* part
+//! of the five-tuple host contract (9092 remains A2A UDP discovery).
 
 pub const GMCP: u16 = 9090;
 pub const GEMI: u16 = 9091;
 pub const UDP_DISCOVERY: u16 = 9092;
 pub const GMCP_HTTP: u16 = 9093;
 pub const A2A_HTTP: u16 = 9094;
+/// Swarm-wide capability gossip. Not in [`ALL`]: 9092 stays A2A discovery.
+pub const GOSSIP: u16 = 9095;
 
 /// Stable host contract advertised to external clients.
 pub const ALL: [(u16, &str); 5] = [

@@ -6505,7 +6505,6 @@ dependencies = [
  "jsonschema",
  "libc",
  "parking_lot",
- "rmcp",
  "serde",
  "serde_json",
  "shlex 2.0.1",
@@ -6518,6 +6517,7 @@ dependencies = [
  "susi-sandbox-client",
  "susi-vendor-chrome",
  "susi-vendor-fastembed",
+ "susi-vendor-mcp-server",
  "susi-vendor-syn",
  "susi-vendor-tantivy",
  "tokio",
@@ -6682,6 +6682,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "susi-vendor-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "rmcp",
 ]
 
 [[package]]

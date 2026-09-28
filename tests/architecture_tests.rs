@@ -107,6 +107,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-sandbox-client", 3),
     ("susi-vendor-wasmer", 2),
     ("susi-vendor-mcp", 0),
+    ("susi-vendor-mcp-server", 0),
     ("susi-vendor-tantivy", 2),
     ("susi-vendor-fastembed", 2),
     ("susi-vendor-chrome", 2),
@@ -606,6 +607,47 @@ fn core_os_crates_must_not_declare_http_clients() {
                     "{crate_name} must not declare `{client}` (HTTP clients belong in susi-http-transport / adapters / vendor crates)"
                 );
             }
+        }
+    }
+}
+
+/// Only `susi-vendor-mcp` (client) and `susi-vendor-mcp-server` (server)
+/// may declare the `rmcp` SDK. Feature planes depend on those crates.
+#[test]
+fn mcp_sdk_stays_in_vendor_crates() {
+    let root = workspace_root();
+    let mut forbidden_in: Vec<String> = std::fs::read_dir(root.join("crates"))
+        .expect("crates dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name != "susi-vendor-mcp" && name != "susi-vendor-mcp-server")
+        .collect();
+    forbidden_in.sort();
+    for crate_name in forbidden_in {
+        let Ok(text) =
+            std::fs::read_to_string(root.join(format!("crates/{crate_name}/Cargo.toml")))
+        else {
+            continue;
+        };
+        let mut in_deps = false;
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                in_deps = trimmed == "[dependencies]"
+                    || trimmed.starts_with("[dependencies.")
+                    || (trimmed.starts_with("[target.")
+                        && trimmed.contains("dependencies]")
+                        && !trimmed.contains("dev-dependencies]"));
+                continue;
+            }
+            if !in_deps {
+                continue;
+            }
+            let declared = trimmed.starts_with("rmcp ") || trimmed.starts_with("rmcp=");
+            assert!(
+                !declared,
+                "{crate_name} must not declare `rmcp` (MCP SDK belongs in susi-vendor-mcp / susi-vendor-mcp-server)"
+            );
         }
     }
 }

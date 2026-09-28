@@ -100,6 +100,25 @@ impl NatManager {
         Ok(status)
     }
 
+    /// Resolve public STUN servers and classify this host (2s per server).
+    ///
+    /// # Errors
+    /// Fails when DNS yields no addresses or no server answers.
+    pub fn discover_default(&self) -> Result<NatStatus, String> {
+        use std::net::ToSocketAddrs;
+        const SERVERS: [&str; 2] = ["stun.l.google.com:19302", "stun.cloudflare.com:3478"];
+        let mut addrs = Vec::new();
+        for host in SERVERS {
+            if let Ok(iter) = host.to_socket_addrs() {
+                addrs.extend(iter.take(1));
+            }
+        }
+        if addrs.is_empty() {
+            return Err("STUN DNS produced no addresses".to_string());
+        }
+        self.discover(&addrs, Duration::from_secs(2))
+    }
+
     /// Last classified NAT behaviour (`Unknown` until discovery).
     pub fn status(&self) -> NatStatus {
         self.status

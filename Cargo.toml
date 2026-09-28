@@ -8,6 +8,7 @@ members = [
     "crates/susi-core",
     "crates/susi-vendor-wasmer",
     "crates/susi-vendor-mcp",
+    "crates/susi-vendor-mcp-server",
     "crates/susi-vendor-tantivy",
     "crates/susi-vendor-fastembed",
     "crates/susi-vendor-chrome",
@@ -92,6 +93,7 @@ susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-vendor-wasmer = { path = "crates/susi-vendor-wasmer" }
 susi-vendor-mcp = { path = "crates/susi-vendor-mcp" }
+susi-vendor-mcp-server = { path = "crates/susi-vendor-mcp-server" }
 susi-vendor-tantivy = { path = "crates/susi-vendor-tantivy" }
 susi-vendor-fastembed = { path = "crates/susi-vendor-fastembed" }
 susi-vendor-chrome = { path = "crates/susi-vendor-chrome" }

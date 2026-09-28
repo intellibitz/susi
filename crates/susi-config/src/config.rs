@@ -195,6 +195,10 @@ impl SusiConfig {
     pub fn a2a_http_port(&self) -> u16 {
         susi_paths::ports::A2A_HTTP.saturating_add(self.port_offset())
     }
+    /// Swarm gossip UDP. Offset with the rest of the instance; not a host-contract port.
+    pub fn gossip_port(&self) -> u16 {
+        susi_paths::ports::GOSSIP.saturating_add(self.port_offset())
+    }
     pub fn execution_lease_secs(&self) -> u64 {
         self.get_or_bundled_default("execution_lease_secs")
     }

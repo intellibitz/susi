@@ -801,6 +801,9 @@ fn status(json: bool) -> Result<()> {
             }).chain(std::iter::once(serde_json::json!({
                 "name": "a2a-udp", "port": udp_port(),
                 "up": null,
+            }))).chain(std::iter::once(serde_json::json!({
+                "name": "gossip-udp", "port": gossip_port(),
+                "up": null,
             }))).collect::<Vec<_>>(),
             "substrate_usage": substrate_usage().iter().take(8).map(|(name, bytes)| {
                 serde_json::json!({ "entry": name, "bytes": bytes })
@@ -943,9 +946,10 @@ fn status(json: bool) -> Result<()> {
             .map(|(name, port, up)| format!("{name} :{port} {}", if *up { "up" } else { "DOWN" }))
             .collect();
         println!(
-            "endpoints:   {} (+a2a-udp :{})",
+            "endpoints:   {} (+a2a-udp :{} · gossip-udp :{})",
             fields.join(" · "),
-            udp_port()
+            udp_port(),
+            gossip_port()
         );
     }
     if let Some((avail, total)) = disk_free(&susi_paths::SusiDirs::substrate_home()) {
@@ -1297,6 +1301,12 @@ fn udp_port() -> u16 {
     susi_config::SusiConfig::load_global()
         .map(|c| c.udp_discovery_port())
         .unwrap_or(susi_paths::ports::UDP_DISCOVERY)
+}
+
+fn gossip_port() -> u16 {
+    susi_config::SusiConfig::load_global()
+        .map(|c| c.gossip_port())
+        .unwrap_or(susi_paths::ports::effective(susi_paths::ports::GOSSIP))
 }
 
 /// Live TCP probes of the public host-contract endpoints — shared by the

@@ -93,7 +93,8 @@ pub mod workflows;
 pub mod workloads;
 
 pub use composition::{
-    swarm_host_snapshot, wire_cli_substrate, wire_daemon_os_planes, wire_engine_hooks,
+    load_os_planes_report, swarm_host_snapshot, wire_cli_substrate, wire_daemon_os_planes,
+    wire_engine_hooks,
 };
 pub use engine_hooks::SusiEngineHooks;
 pub use server::SusiDaemon;
