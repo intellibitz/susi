@@ -13,15 +13,10 @@ susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-native-client = { workspace = true }
 susi-http-transport = { workspace = true }
-crossbeam = "0.8"
-regex = "1.13"
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 dashmap = { workspace = true }
-flume = { workspace = true }
-parking_lot = { workspace = true }
-tracing = { workspace = true }
 
 tokio = { workspace = true }
 rmcp = { version = "3.4.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest", "elicitation"] }
@@ -30,5 +25,3 @@ reqwest = { workspace = true }
 [lints]
 workspace = true
 
-[dev-dependencies]
-proptest = "1.11.0"

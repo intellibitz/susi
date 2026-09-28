@@ -3,7 +3,7 @@
 
 use super::alpha::SusiAlphaModel;
 use anyhow::{anyhow, Result};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock as Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

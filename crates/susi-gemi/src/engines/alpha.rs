@@ -367,8 +367,8 @@ impl SusiAlphaModel {
     /// config and re-mmap the weights for every uncached prompt.
     pub fn cached(global_dir: &Path) -> Result<std::sync::Arc<Self>> {
         type Slot = Option<(PathBuf, String, std::sync::Arc<SusiAlphaModel>)>;
-        static CACHE: once_cell::sync::Lazy<parking_lot::RwLock<Slot>> =
-            once_cell::sync::Lazy::new(|| parking_lot::RwLock::new(None));
+        static CACHE: std::sync::LazyLock<parking_lot::RwLock<Slot>> =
+            std::sync::LazyLock::new(|| parking_lot::RwLock::new(None));
         let before = Self::get_model_fingerprint(global_dir);
         if let Some((dir, cached_fingerprint, model)) = CACHE.read().as_ref() {
             if dir == global_dir && *cached_fingerprint == before && fingerprint_is_stable(&before)

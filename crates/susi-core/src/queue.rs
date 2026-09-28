@@ -1,8 +1,7 @@
-// Priority queue for incoming intents ("pulses"), backed by crossbeam's
-// lock-free SegQueue.
+// Priority queue for incoming intents ("pulses"): two unbounded flume
+// channels (lock-free MPMC), one per priority class.
 
 use crate::susi_error::EaiResult;
-use crossbeam::queue::SegQueue;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
@@ -17,9 +16,36 @@ pub struct PulseEntry {
     pub priority: u8, // 0: Normal, 1: Correction, 2: High
 }
 
+/// One FIFO lane: both channel ends live here, so the queue itself can never
+/// disconnect and `pop` is a non-blocking `try_recv`.
+struct Lane {
+    tx: flume::Sender<PulseEntry>,
+    rx: flume::Receiver<PulseEntry>,
+}
+
+impl Lane {
+    fn new() -> Self {
+        let (tx, rx) = flume::unbounded();
+        Self { tx, rx }
+    }
+
+    fn push(&self, entry: PulseEntry) {
+        // Cannot fail: `rx` is owned alongside `tx` for the queue's lifetime.
+        let _ = self.tx.send(entry);
+    }
+
+    fn pop(&self) -> Option<PulseEntry> {
+        self.rx.try_recv().ok()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.rx.is_empty()
+    }
+}
+
 pub struct SubstratePulseQueue {
-    priority_queue: SegQueue<PulseEntry>,
-    standard_queue: SegQueue<PulseEntry>,
+    priority_queue: Lane,
+    standard_queue: Lane,
     consumer_thread: parking_lot::RwLock<Option<Thread>>,
     /// Set when ingest runs before a consumer is registered, so register_consumer
     /// can unpark immediately and avoid a lost-wakeup hang on a non-empty queue.
@@ -29,8 +55,8 @@ pub struct SubstratePulseQueue {
 impl SubstratePulseQueue {
     fn new() -> Self {
         Self {
-            priority_queue: SegQueue::new(),
-            standard_queue: SegQueue::new(),
+            priority_queue: Lane::new(),
+            standard_queue: Lane::new(),
             consumer_thread: parking_lot::RwLock::new(None),
             pending_wake: AtomicBool::new(false),
         }

@@ -217,14 +217,7 @@ impl LocalDirs {
     }
 
     fn home_dir() -> PathBuf {
-        directories::BaseDirs::new()
-            .map(|d| d.home_dir().to_path_buf())
-            .unwrap_or_else(|| {
-                std::env::var_os("HOME")
-                    .or_else(|| std::env::var_os("USERPROFILE"))
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from("."))
-            })
+        xdg::home_dir().unwrap_or_else(|| PathBuf::from("."))
     }
 
     fn use_xdg() -> bool {
@@ -241,15 +234,11 @@ impl LocalDirs {
         }
     }
 
-    fn project_dirs() -> Option<directories::ProjectDirs> {
-        directories::ProjectDirs::from("", "intellibitz", "susi")
-    }
-
     #[must_use]
     fn config_dir() -> PathBuf {
         if Self::use_xdg() {
-            if let Some(p) = Self::project_dirs() {
-                return p.config_dir().to_path_buf();
+            if let Some(p) = xdg::config_dir() {
+                return p;
             }
         }
         Self::legacy_base()
@@ -258,8 +247,8 @@ impl LocalDirs {
     #[must_use]
     fn data_dir() -> PathBuf {
         if Self::use_xdg() {
-            if let Some(p) = Self::project_dirs() {
-                return p.data_local_dir().to_path_buf();
+            if let Some(p) = xdg::data_dir() {
+                return p;
             }
         }
         Self::legacy_base()
@@ -268,8 +257,8 @@ impl LocalDirs {
     #[must_use]
     fn cache_dir() -> PathBuf {
         if Self::use_xdg() {
-            if let Some(p) = Self::project_dirs() {
-                return p.cache_dir().to_path_buf();
+            if let Some(p) = xdg::cache_dir() {
+                return p;
             }
         }
         Self::legacy_base()
@@ -286,6 +275,7 @@ impl LocalDirs {
 }
 
 pub mod ports;
+mod xdg;
 
 /// Percent-encode a string for a query component (RFC 3986 unreserved
 /// plus the extra bytes in `keep`). Used by live search and sandbox IPC

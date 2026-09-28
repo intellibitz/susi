@@ -1176,9 +1176,9 @@ impl SusiMasterAgent {
                         }
                         Err(e) if e.to_string().contains("TRUTH_VIOLATION") => {
                             let error_str = e.to_string();
-                            let error_sig = format!("{:x}", md5::compute(error_str.as_bytes()));
-
-                            if previous_errors.contains(&error_sig) {
+                            // In-memory loop detection only: the text itself is
+                            // the signature (no digest crate needed).
+                            if previous_errors.contains(&error_str) {
                                 crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                                     workspace,
                                     "RETRY_LOOP_DETECTED",
@@ -1187,7 +1187,7 @@ impl SusiMasterAgent {
                                 return Err(e);
                             }
 
-                            previous_errors.insert(error_sig);
+                            previous_errors.insert(error_str.clone());
                             retry_count += 1;
                             last_error = error_str;
                             crate::susi_sandbox::manager::SusiAuditLogger::log_event(

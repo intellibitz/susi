@@ -48,7 +48,6 @@ tools-rich = []
 [dev-dependencies]
 # test-util enables #[tokio::test(start_paused)] for virtual-clock tests.
 tokio = { version = "1.53", features = ["test-util"] }
-proptest = "1.11.0"
 
 [target.'cfg(not(windows))'.dependencies]
 wasmer = { version = "7.4.2", features = ["cranelift", "sys", "wat"] }
