@@ -40,6 +40,133 @@ impl HttpProvider {
     }
 }
 
+fn header_refs(headers: &[(String, String)]) -> Vec<(&str, &str)> {
+    headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
+}
+
+fn openai_headers(api_key: &str, api_base: &str) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    if !api_key.is_empty() {
+        headers.push(("Authorization".into(), format!("Bearer {api_key}")));
+    }
+    if susi_gemi_models::openrouter::is_openrouter_base(api_base) {
+        let (referer, title) = susi_gemi_models::openrouter::attribution_headers();
+        headers.push(("HTTP-Referer".into(), referer));
+        headers.push(("X-Title".into(), title));
+    }
+    headers
+}
+
+fn http_ok(status: u16) -> bool {
+    (200..300).contains(&status)
+}
+
+fn healthy_blocking(
+    api_base: &str,
+    api_key: &str,
+    protocol: InferenceProtocol,
+    model: &str,
+) -> bool {
+    match protocol {
+        InferenceProtocol::Anthropic => !api_key.is_empty(),
+        InferenceProtocol::Gemini => {
+            if api_key.is_empty() {
+                return false;
+            }
+            let url = format!(
+                "{}/models/{}",
+                api_base.trim_end_matches('/'),
+                wire::gemini_model_path(model)
+            );
+            susi_http_transport::http_call("GET", &url, &[("x-goog-api-key", api_key)], 5, 0)
+                .ok()
+                .is_some_and(|c| http_ok(c.status))
+        }
+        InferenceProtocol::Triton => susi_http_transport::http_call("GET", api_base, &[], 5, 0)
+            .ok()
+            .is_some_and(|c| http_ok(c.status) || c.status == 405),
+        InferenceProtocol::OpenAiChat | InferenceProtocol::OpenAiCompletions => {
+            let url = format!("{}/models", api_base.trim_end_matches('/'));
+            let owned = openai_headers(api_key, api_base);
+            let refs = header_refs(&owned);
+            susi_http_transport::http_call("GET", &url, &refs, 5, 0)
+                .ok()
+                .is_some_and(|c| http_ok(c.status))
+        }
+    }
+}
+
+fn generate_blocking(
+    api_base: &str,
+    model: &str,
+    api_key: &str,
+    protocol: InferenceProtocol,
+    prompt: &str,
+) -> Result<String, String> {
+    match protocol {
+        InferenceProtocol::OpenAiChat => {
+            let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
+            let body = wire::openai_chat_body(model, prompt, 2048);
+            let owned = openai_headers(api_key, api_base);
+            let refs = header_refs(&owned);
+            wire::openai_chat_text(&wire::post_json_timeout(&url, &refs, &body, 120)?)
+        }
+        InferenceProtocol::OpenAiCompletions => {
+            let url = format!("{}/completions", api_base.trim_end_matches('/'));
+            let body = wire::openai_completions_body(model, prompt, 2048);
+            let owned = openai_headers(api_key, api_base);
+            let refs = header_refs(&owned);
+            wire::openai_completions_text(&wire::post_json_timeout(&url, &refs, &body, 120)?)
+        }
+        InferenceProtocol::Anthropic => {
+            if api_key.is_empty() {
+                return Err("ANTHROPIC_API_KEY (or api_key_env) not set".into());
+            }
+            let url = format!("{}/messages", api_base);
+            let body = serde_json::json!({
+                "model": model,
+                "max_tokens": 2048,
+                "messages": [{"role": "user", "content": prompt}]
+            });
+            let json = wire::post_json_timeout(
+                &url,
+                &[
+                    ("x-api-key", api_key),
+                    ("anthropic-version", "2023-06-01"),
+                    ("content-type", "application/json"),
+                ],
+                &body,
+                120,
+            )?;
+            wire::anthropic_text(&json)
+        }
+        InferenceProtocol::Gemini => {
+            if api_key.is_empty() {
+                return Err("GEMINI_API_KEY / GOOGLE_API_KEY (or api_key_env) not set".into());
+            }
+            let url = format!(
+                "{}/models/{}:generateContent",
+                api_base,
+                wire::gemini_model_path(model)
+            );
+            let body = serde_json::json!({
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }]
+            });
+            let json = wire::post_json_timeout(&url, &[("x-goog-api-key", api_key)], &body, 120)?;
+            wire::gemini_text(&json)
+        }
+        InferenceProtocol::Triton => {
+            let body = wire::triton_body(prompt, 512);
+            wire::triton_text(&wire::post_json_timeout(api_base, &[], &body, 120)?)
+        }
+    }
+}
+
 impl Provider for HttpProvider {
     fn name(&self) -> &str {
         &self.name
@@ -51,59 +178,13 @@ impl Provider for HttpProvider {
         let protocol = self.protocol;
         let model = self.model.clone();
         Box::pin(async move {
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
-
-            match protocol {
-                InferenceProtocol::Anthropic => {
-                    // Anthropic has no cheap public ping; key presence is the gate.
-                    Ok(!api_key.is_empty())
-                }
-                InferenceProtocol::Gemini => {
-                    if api_key.is_empty() {
-                        return Ok(false);
-                    }
-                    let url = format!(
-                        "{}/models/{}",
-                        api_base.trim_end_matches('/'),
-                        wire::gemini_model_path(&model)
-                    );
-                    // A health probe that can't reach the endpoint is the
-                    // expected answer for an absent engine — `false`, not a
-                    // logged error. Constructing EaiError::network here wrote
-                    // a metrics record per absent provider per rediscovery
-                    // pass (perpetual noise on hosts without e.g. Ollama).
-                    let Ok(res) = client
-                        .get(&url)
-                        .header("x-goog-api-key", &api_key)
-                        .send()
-                        .await
-                    else {
-                        return Ok(false);
-                    };
-                    Ok(res.status().is_success())
-                }
-                InferenceProtocol::Triton => {
-                    let Ok(res) = client.get(&api_base).send().await else {
-                        return Ok(false);
-                    };
-                    Ok(res.status().is_success() || res.status().as_u16() == 405)
-                }
-                InferenceProtocol::OpenAiChat | InferenceProtocol::OpenAiCompletions => {
-                    let url = format!("{}/models", api_base.trim_end_matches('/'));
-                    let mut req = client.get(&url);
-                    if !api_key.is_empty() {
-                        req = req.bearer_auth(&api_key);
-                    }
-                    req = apply_openrouter_attribution(req, &api_base);
-                    let Ok(res) = req.send().await else {
-                        return Ok(false);
-                    };
-                    Ok(res.status().is_success())
-                }
-            }
+            // A health probe that can't reach the endpoint is `false`, not a
+            // logged error — absent local engines (Ollama, etc.) are expected.
+            Ok(tokio::task::spawn_blocking(move || {
+                healthy_blocking(&api_base, &api_key, protocol, &model)
+            })
+            .await
+            .unwrap_or(false))
         })
     }
 
@@ -120,31 +201,15 @@ impl Provider for HttpProvider {
 
         Box::pin(async move {
             refuse_off_host_under_local_only(&api_base)?;
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
-
-            match protocol {
-                InferenceProtocol::OpenAiChat => {
-                    generate_openai_chat(&client, &api_base, &model, &api_key, &prompt).await
-                }
-                InferenceProtocol::OpenAiCompletions => {
-                    generate_openai_completions(&client, &api_base, &model, &api_key, &prompt).await
-                }
-                InferenceProtocol::Anthropic => {
-                    generate_anthropic(&client, &api_base, &model, &api_key, &prompt).await
-                }
-                InferenceProtocol::Gemini => {
-                    generate_gemini(&client, &api_base, &model, &api_key, &prompt).await
-                }
-                InferenceProtocol::Triton => generate_triton(&client, &api_base, &prompt).await,
-            }
+            tokio::task::spawn_blocking(move || {
+                generate_blocking(&api_base, &model, &api_key, protocol, &prompt)
+            })
+            .await
             .map_err(|e| {
-                crate::susi_core::susi_error::EaiError::process(format!(
-                    "Provider '{}': {}",
-                    name, e
-                ))
+                crate::susi_core::susi_error::EaiError::process(format!("Provider '{name}': {e}"))
+            })?
+            .map_err(|e| {
+                crate::susi_core::susi_error::EaiError::process(format!("Provider '{name}': {e}"))
             })
         })
     }
@@ -168,259 +233,41 @@ impl Provider for HttpProvider {
                     "Embeddings only supported on OpenAI-compatible providers",
                 ));
             }
-            // Bounded like the chat path: a stalled endpoint must not hang
-            // the embedding caller (semantic index refresh) forever.
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .unwrap_or_default();
-            let url = format!("{}/embeddings", api_base);
-            let body = serde_json::json!({
-                "model": model,
-                "input": text,
-                "encoding_format": "float"
-            });
-            let mut req = client.post(&url).json(&body);
-            if !api_key.is_empty() {
-                req = req.bearer_auth(&api_key);
-            }
-            let res = req
-                .send()
-                .await
-                .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
-            if !res.status().is_success() {
-                return Err(crate::susi_core::susi_error::EaiError::process(format!(
-                    "HTTP Error: {}",
-                    res.status()
-                )));
-            }
-            let json: serde_json::Value = res
-                .json()
-                .await
-                .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
-            let embedding: Vec<f32> = json["data"][0]["embedding"]
-                .as_array()
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(|v| v.as_f64().map(|f| f as f32))
-                        .collect()
-                })
-                .unwrap_or_default();
-            if embedding.is_empty() {
-                return Err(crate::susi_core::susi_error::EaiError::process(
-                    "embeddings response carried no data[0].embedding vector",
-                ));
-            }
-            Ok(embedding)
+            tokio::task::spawn_blocking(move || {
+                let url = format!("{}/embeddings", api_base);
+                let body = serde_json::json!({
+                    "model": model,
+                    "input": text,
+                    "encoding_format": "float"
+                });
+                let owned = openai_headers(&api_key, &api_base);
+                let refs = header_refs(&owned);
+                let json = wire::post_json_timeout(&url, &refs, &body, 60)
+                    .map_err(|e| crate::susi_core::susi_error::EaiError::network(e))?;
+                let embedding: Vec<f32> = json["data"][0]["embedding"]
+                    .as_array()
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(|v| v.as_f64().map(|f| f as f32))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if embedding.is_empty() {
+                    return Err(crate::susi_core::susi_error::EaiError::process(
+                        "embeddings response carried no data[0].embedding vector",
+                    ));
+                }
+                Ok(embedding)
+            })
+            .await
+            .map_err(|e| crate::susi_core::susi_error::EaiError::process(e.to_string()))?
         })
     }
 
     fn as_any(&self) -> &dyn Any {
         self
     }
-}
-
-async fn generate_openai_chat(
-    client: &reqwest::Client,
-    api_base: &str,
-    model: &str,
-    api_key: &str,
-    prompt: &str,
-) -> Result<String, String> {
-    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-    let body = wire::openai_chat_body(model, prompt, 2048);
-    let json = post_openai(client, &url, api_key, api_base, &body).await?;
-    wire::openai_chat_text(&json)
-}
-
-/// POST an OpenAI-API body, retrying once with `max_completion_tokens` when
-/// the provider rejects `max_tokens` (see `inference_wire::token_param_retry`).
-async fn post_openai(
-    client: &reqwest::Client,
-    url: &str,
-    api_key: &str,
-    api_base: &str,
-    body: &serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let send = |body: &serde_json::Value| {
-        let mut req = client.post(url).json(body);
-        if !api_key.is_empty() {
-            req = req.bearer_auth(api_key);
-        }
-        apply_openrouter_attribution(req, api_base).send()
-    };
-    let mut res = send(body).await.map_err(|e| e.to_string())?;
-    if res.status() == reqwest::StatusCode::BAD_REQUEST {
-        let text = text_capped(res).await;
-        let Some(retry) = wire::token_param_retry(body, &text) else {
-            return Err(format!(
-                "HTTP 400 Bad Request: {}",
-                text.chars().take(200).collect::<String>()
-            ));
-        };
-        res = send(&retry).await.map_err(|e| e.to_string())?;
-    }
-    if !res.status().is_success() {
-        return Err(http_failure(res).await);
-    }
-    json_capped(res).await
-}
-
-/// HTTP failure with the provider's (truncated) error body.
-/// Largest provider response body read into memory. Replies and model
-/// lists are far smaller; a broken or hostile endpoint streaming without
-/// end must not exhaust the daemon's memory.
-const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
-
-/// Reads a response body, failing past `MAX_RESPONSE_BYTES`.
-pub(crate) async fn body_capped(mut res: reqwest::Response) -> Result<Vec<u8>, String> {
-    let mut body = Vec::new();
-    while let Some(chunk) = res.chunk().await.map_err(|e| e.to_string())? {
-        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err(format!(
-                "response body exceeds {} MiB",
-                MAX_RESPONSE_BYTES / (1024 * 1024)
-            ));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
-}
-
-/// `Response::json` with the body cap.
-pub(crate) async fn json_capped(res: reqwest::Response) -> Result<serde_json::Value, String> {
-    serde_json::from_slice(&body_capped(res).await?).map_err(|e| e.to_string())
-}
-
-/// `Response::text` with the body cap (lossy UTF-8; empty on failure).
-pub(crate) async fn text_capped(res: reqwest::Response) -> String {
-    body_capped(res)
-        .await
-        .map(|b| String::from_utf8_lossy(&b).into_owned())
-        .unwrap_or_default()
-}
-
-async fn http_failure(res: reqwest::Response) -> String {
-    let status = res.status();
-    let body = text_capped(res).await;
-    format!(
-        "HTTP {}: {}",
-        status,
-        body.chars().take(200).collect::<String>()
-    )
-}
-
-async fn generate_openai_completions(
-    client: &reqwest::Client,
-    api_base: &str,
-    model: &str,
-    api_key: &str,
-    prompt: &str,
-) -> Result<String, String> {
-    let url = format!("{}/completions", api_base.trim_end_matches('/'));
-    let body = wire::openai_completions_body(model, prompt, 2048);
-    let json = post_openai(client, &url, api_key, api_base, &body).await?;
-    wire::openai_completions_text(&json)
-}
-
-fn apply_openrouter_attribution(
-    mut req: reqwest::RequestBuilder,
-    api_base: &str,
-) -> reqwest::RequestBuilder {
-    if susi_gemi_models::openrouter::is_openrouter_base(api_base) {
-        let (referer, title) = susi_gemi_models::openrouter::attribution_headers();
-        req = req.header("HTTP-Referer", referer).header("X-Title", title);
-    }
-    req
-}
-
-async fn generate_anthropic(
-    client: &reqwest::Client,
-    api_base: &str,
-    model: &str,
-    api_key: &str,
-    prompt: &str,
-) -> Result<String, String> {
-    if api_key.is_empty() {
-        return Err("ANTHROPIC_API_KEY (or api_key_env) not set".into());
-    }
-    let url = format!("{}/messages", api_base);
-    let body = serde_json::json!({
-        "model": model,
-        "max_tokens": 2048,
-        "messages": [{"role": "user", "content": prompt}]
-    });
-    let res = client
-        .post(&url)
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !res.status().is_success() {
-        return Err(http_failure(res).await);
-    }
-    let json = json_capped(res).await?;
-    wire::anthropic_text(&json)
-}
-
-async fn generate_gemini(
-    client: &reqwest::Client,
-    api_base: &str,
-    model: &str,
-    api_key: &str,
-    prompt: &str,
-) -> Result<String, String> {
-    if api_key.is_empty() {
-        return Err("GEMINI_API_KEY / GOOGLE_API_KEY (or api_key_env) not set".into());
-    }
-    // Key travels in `x-goog-api-key`, never the URL: reqwest errors
-    // render the request URL, which would leak a query-string key into
-    // error strings and logs.
-    let url = format!(
-        "{}/models/{}:generateContent",
-        api_base,
-        wire::gemini_model_path(model)
-    );
-    let body = serde_json::json!({
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
-    });
-    let res = client
-        .post(&url)
-        .header("x-goog-api-key", api_key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !res.status().is_success() {
-        return Err(http_failure(res).await);
-    }
-    let json = json_capped(res).await?;
-    wire::gemini_text(&json)
-}
-
-async fn generate_triton(
-    client: &reqwest::Client,
-    api_base: &str,
-    prompt: &str,
-) -> Result<String, String> {
-    let body = wire::triton_body(prompt, 512);
-    let res = client
-        .post(api_base)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !res.status().is_success() {
-        return Err(http_failure(res).await);
-    }
-    let json = json_capped(res).await?;
-    wire::triton_text(&json)
 }
 
 // Cloud env / endpoint metadata lives in susi-gemi-models (models must not
@@ -726,26 +573,29 @@ fn key_required_but_missing(api_key_env: &str, resolved_key: &str) -> bool {
 
 /// Probe an OpenAI-compatible `/models` listing and register each model id.
 /// Returns how many new providers were registered.
-pub async fn register_openai_compat_models(
+pub fn register_openai_compat_models(
     registry: &crate::susi_core::registry::CapabilityRegistry,
     engine_label: &str,
     api_base: &str,
     api_key: &str,
-    client: &reqwest::Client,
 ) -> usize {
     let base = api_base.trim_end_matches('/');
     let url = format!("{base}/models");
-    let mut req = client.get(&url);
-    if !api_key.is_empty() {
-        req = req.bearer_auth(api_key);
-    }
-    let Ok(res) = req.send().await else {
+    let owned = openai_headers(api_key, api_base);
+    let refs = header_refs(&owned);
+    let Ok(call) = susi_http_transport::http_call("GET", &url, &refs, 1, 0) else {
         return 0;
     };
-    if !res.status().is_success() {
+    if !http_ok(call.status) {
         return 0;
     }
-    let Ok(json) = json_capped(res).await else {
+    let Ok(bytes) = call.into_bytes(32 * 1024 * 1024) else {
+        return 0;
+    };
+    if bytes.len() > 32 * 1024 * 1024 {
+        return 0;
+    }
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
         return 0;
     };
     let Some(models) = json.get("data").and_then(|d| d.as_array()) else {
@@ -879,14 +729,8 @@ pub async fn auto_discover_local_engines(
         endpoints.push((ep.name.clone(), api_base, key));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(500))
-        .build()
-        .unwrap_or_default();
-
     for (engine_type, api_base, api_key) in &endpoints {
-        let _ =
-            register_openai_compat_models(registry, engine_type, api_base, api_key, &client).await;
+        let _ = register_openai_compat_models(registry, engine_type, api_base, api_key);
     }
 }
 

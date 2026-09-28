@@ -78,7 +78,7 @@ never consume an unterminated source tail.
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client`; `susi-http-transport` (Devin/Manus) | feature planes; peers via `plane_bus`; reqwest/ureq | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` (device / GGUF inspect / tokenizers); `susi-http-transport` (HF download/discovery) | gemi engines crate; peer feature crates; reqwest/tokenizers | catalogs | cache dirs | yes |
-| `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` | peer feature planes | providers | model weights | yes |
+| `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-vendor-candle`; `susi-http-transport` | peer feature planes; reqwest | providers | model weights | yes |
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client`; `susi-http-transport` (live search / peer HTTP) | peer feature planes; reqwest/ureq | agents | mission-local | yes |
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes; HTTP clients | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` + `susi-http-transport` | peer feature planes; reqwest/ureq | transport | tasks | yes |
@@ -559,3 +559,8 @@ the same commit as the code.
 | 93 | `plugins` unreachable | type reachable (no plugin dir) |
 | 94 | `suspend` unreachable | type reachable (no hibernate dir) |
 | 95 | `tool_proxy` unreachable | type reachable (no host exec) |
+| 96 | GEMI `HttpProvider` generate/health/embed used async reqwest | blocking `post_json_timeout` / `http_call` via `spawn_blocking` |
+| 97 | `/models` discovery used a reqwest client | `register_openai_compat_models` uses `http_call` |
+| 98 | `susi-gemi` still declared `reqwest` | dropped |
+| 99 | live_search and MCP catalog fetch still named `http_agent().get` | `http_call` GET |
+| 100 | Ratchet still allowed gemi reqwest | `susi-gemi` on the HTTP-client forbidden list; remaining `reqwest` is `susi-tools` rmcp |

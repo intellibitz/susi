@@ -2870,6 +2870,16 @@
       "milestone": "RSI OS isolation iterations 49-95: every remaining unreachable susi-daemon module is named from composition::activate_remaining_os_planes. In-memory OS planes (admin, auth, budget, CAS, consensus, discovery, encryption, event sourcing, causal ledger, root cause, scheduler siblings, query, world model, VFS, workloads, …) construct; bind/mkdir/Wasmer constructors are type-reachable only. Unreachable daemon-module ceiling 47→0. Remaining: reqwest still in susi-gemi http_provider and susi-tools MCP. Verification: cargo check -p susi-daemon / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 96-100",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-293",
+      "milestone": "RSI OS isolation iterations 96-100: GEMI HttpProvider health, generate, embed, and /models discovery leave reqwest; calls go through susi-http-transport (120s generation timeout). susi-gemi no longer declares an HTTP client. live_search and the MCP catalog fetch use http_call. Ratchet core_os_crates_must_not_declare_http_clients includes susi-gemi. Remaining: susi-tools still declares reqwest because rmcp's streamable HTTP client feature requires it. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

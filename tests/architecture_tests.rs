@@ -553,11 +553,10 @@ fn susi_core_must_not_depend_on_infra_or_features() {
     }
 }
 
-/// Core/OS crates plus agents, daemon, adapters-llm, and gmcp must not
+/// Core/OS crates plus agents, daemon, adapters-llm, gmcp, and gemi must not
 /// declare third-party HTTP client crates. Outbound JSON HTTP lives in
 /// `susi-http-transport`; vendor APIs live in `susi-adapters-*` /
-/// `susi-vendor-*`. Remaining exceptions: `susi-gemi` (async http_provider)
-/// and `susi-tools` (rmcp reqwest transport).
+/// `susi-vendor-*`. Remaining exception: `susi-tools` (rmcp reqwest transport).
 #[test]
 fn core_os_crates_must_not_declare_http_clients() {
     let root = workspace_root();
@@ -574,6 +573,7 @@ fn core_os_crates_must_not_declare_http_clients() {
         "susi-daemon",
         "susi-adapters-llm",
         "susi-gmcp",
+        "susi-gemi",
     ];
     for crate_name in forbidden_in {
         let text = std::fs::read_to_string(root.join(format!("crates/{crate_name}/Cargo.toml")))
