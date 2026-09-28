@@ -3307,7 +3307,11 @@
       "date": "2026-06-01T00:00:00Z",
       "milestone": "Merge origin/main 1d7cc9c8 (Cursor 301-400 + Claude test close): keep A2A real-mission fix, per-peer HMAC gossip, sealed caps store, TURN MESSAGE-INTEGRITY.",
       "proof": "Second origin/main merge resolved 12 conflicts toward upstream's per-peer derived gossip keys (susi-gossip-peer-v1), HMAC-sealed gossip_caps.json, egress-gated TURN Allocate with MESSAGE-INTEGRITY credentials via env, and the A2A fix that runs tasks as real missions instead of fabricated completions. Devin's fail-closed bearer token seeding and private ureq::Agent boundary were preserved; susi_paths::ports::GOSSIP, SusiConfig::gossip_port(), and os_cli gossip_port() were restored where upstream kept the gossip surface. cargo fmt + cargo check --workspace pass; no tests run per operator instruction.",
-      "evidence_artifact": ".agents/evidence.json"
+      "anchor": {
+        "label": "Devin/main merge: A2A real missions + per-peer gossip",
+        "ref": "file://crates/susi-daemon/src/gossip.rs"
+      },
+      "type": "AUDIT"
     },
     {
       "id": "EV-2022928-338",
@@ -3315,7 +3319,11 @@
       "date": "2026-06-01T00:00:00Z",
       "milestone": "Meter and memory-cap WASI reflex execution with the same budget cells get.",
       "proof": "WasmHost::execute_reflex previously compiled model-written reflexes on a plain engine with no fuel metering and no memory maximum, so a reflex that looped forever pinned the calling thread and one that grew memory grew the host's. Reflexes now compile on the shared metered engine (CELL_FUEL, wasmer_middlewares::Metering, 1 point per operator) and pass through cap_memory's 256 MiB maximum-clamp before instantiation; a new infinite_loop WAT test (deferred test chore) asserts the trap. No preopened dirs or ambient WASI capabilities are granted; the existing HOST_FS_PROBE test already asserts path_open returns DENIED. cargo fmt --all --check and cargo check pass; no tests run per operator instruction.",
-      "evidence_artifact": ".agents/evidence.json"
+      "anchor": {
+        "label": "WASI reflex fuel and memory bound",
+        "ref": "file://crates/susi-vendor-wasmer/src/wasm.rs"
+      },
+      "type": "SECURITY"
     }
   ],
   "epistemic_score": 1.0,
