@@ -553,6 +553,52 @@ fn susi_core_must_not_depend_on_infra_or_features() {
     }
 }
 
+/// Core/OS crates (paths/error/config/gawd host/swarm/agents/a2a) must not
+/// declare third-party HTTP client crates. Outbound JSON HTTP lives in
+/// `susi-http-transport`; vendor APIs live in `susi-adapters-*` /
+/// `susi-vendor-*`. `susi-core` still carries `ureq` types for the MCP
+/// session client (extraction is a later isolation iteration).
+#[test]
+fn core_os_crates_must_not_declare_http_clients() {
+    let root = workspace_root();
+    let forbidden_in = [
+        "susi-paths",
+        "susi-error",
+        "susi-config",
+        "susi-gawd",
+        "susi-gawd-swarm",
+        "susi-gawd-agents",
+        "susi-gawd-a2a",
+    ];
+    for crate_name in forbidden_in {
+        let text = std::fs::read_to_string(root.join(format!("crates/{crate_name}/Cargo.toml")))
+            .unwrap_or_else(|_| panic!("{crate_name} Cargo.toml"));
+        let mut in_deps = false;
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                in_deps = trimmed == "[dependencies]"
+                    || trimmed.starts_with("[dependencies.")
+                    || (trimmed.starts_with("[target.")
+                        && trimmed.contains("dependencies]")
+                        && !trimmed.contains("dev-dependencies]"));
+                continue;
+            }
+            if !in_deps {
+                continue;
+            }
+            for client in ["reqwest", "ureq"] {
+                let declared = trimmed.starts_with(&format!("{client} "))
+                    || trimmed.starts_with(&format!("{client}="));
+                assert!(
+                    !declared,
+                    "{crate_name} must not declare `{client}` (HTTP clients belong in susi-http-transport / adapters / vendor crates)"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn architecture_md_exists() {
     let path = workspace_root().join("ARCHITECTURE.md");

@@ -1067,7 +1067,7 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
                 self.endpoint_name, self.api_base_url
             )));
         }
-        let agent = crate::susi_sandbox::manager::http_agent();
+        let agent = susi_http_transport::http_agent();
         let key = resolve_inference_key(&self.api_key_env);
         let body = wire::post_json(
             || {
@@ -1150,7 +1150,7 @@ impl GawdAgent for LibraryScoutAgent {
         // Crate search sends the derived query off-host: under a posture that
         // blocks egress, skip it and fall through to local reasoning below.
         let live = if crate::susi_core::mac_policy::egress_permitted(&url) {
-            crate::susi_sandbox::manager::http_agent()
+            susi_http_transport::http_agent()
                 .get(&url)
                 .header("User-Agent", "SUSI/0.1")
                 .call()

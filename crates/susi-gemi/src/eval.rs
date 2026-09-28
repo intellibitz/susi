@@ -84,7 +84,7 @@ impl EvalRunner {
                     crate::susi_core::inference_wire::openai_chat_body(&model, q.prompt, 50);
 
                 let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-                let agent = crate::susi_sandbox::manager::http_agent();
+                let agent = susi_http_transport::http_agent();
                 let reply = crate::susi_core::inference_wire::post_json(
                     || {
                         let req = agent.post(&url);

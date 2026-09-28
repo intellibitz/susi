@@ -132,9 +132,9 @@ pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
 pub use config::{redact_credentials, SusiConfig};
 pub use json_util::{
     atomic_replace_file, atomic_write_bytes, atomic_write_json_pretty, confined_workspace_join,
-    create_private_dir, http_agent, install_private_file, load_or_create_secret,
-    merge_missing_json_defaults, merge_missing_registry_defaults, remove_file_if_present,
-    DynamicRegistry, DynamicValue, ModelTier, ProviderType, StringRegistry,
+    create_private_dir, install_private_file, load_or_create_secret, merge_missing_json_defaults,
+    merge_missing_registry_defaults, remove_file_if_present, DynamicRegistry, DynamicValue,
+    ModelTier, ProviderType, StringRegistry,
 };
 pub use types::*;
 pub use versioned_store::VersionedJsonStore;

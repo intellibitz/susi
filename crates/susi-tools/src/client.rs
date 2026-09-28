@@ -163,7 +163,7 @@ impl GmcpClient {
                         }
                     }
                     let _guard = FetchGuard;
-                    if let Ok(resp) = crate::susi_sandbox::manager::http_agent()
+                    if let Ok(resp) = susi_http_transport::http_agent()
                         .get(&url)
                         .header("User-Agent", "SUSI/0.1")
                         .call()

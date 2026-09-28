@@ -44,7 +44,7 @@ use super::tx_cli;
 #[derive(Parser)]
 #[command(name = "susi")]
 #[command(version = SUSI_VERSION)]
-#[command(about = "susi: self-improving swarm OS layer for local and cloud AI agents — GAWD, GEMI & GMCP", long_about = None)]
+#[command(about = "susi: RSI swarm AI OS for hosting, provisioning, and managing local and cloud AI — GAWD, GEMI & GMCP", long_about = None)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,

@@ -1,9 +1,10 @@
 //! Zero-config live evidence fetch for SearchAgent.
 //! Uses public HTTP APIs (Open-Meteo, DuckDuckGo) — no vendor keys required.
+//! Outbound HTTP goes through `susi-http-transport`, not a vendor SDK.
 
 use crate::susi_error::{EaiError, EaiResult};
 
-const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+const USER_AGENT: &str = "susi/0.4 (+https://github.com/intellibitz/susi)";
 
 /// Live search sends the mission goal to public APIs; under a posture
 /// that blocks egress (local_only without consent) it must not leave the
@@ -18,12 +19,16 @@ fn require_egress(url: &str) -> EaiResult<()> {
     }
 }
 
-fn http_client() -> EaiResult<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .timeout(HTTP_TIMEOUT)
-        .user_agent("susi/0.4 (+https://github.com/intellibitz/susi)")
-        .build()
-        .map_err(|e| EaiError::process(format!("HTTP client init failed: {e}")))
+fn get_json(url: &str) -> Result<serde_json::Value, String> {
+    let resp = susi_http_transport::http_agent()
+        .get(url)
+        .header("User-Agent", USER_AGENT)
+        .call()
+        .map_err(|e| e.to_string())?;
+    crate::susi_core::bounded_io::json_capped(
+        resp.into_body().into_reader(),
+        crate::susi_core::bounded_io::JSON_BODY_CAP,
+    )
 }
 
 pub fn looks_like_weather_goal(goal: &str) -> bool {
@@ -105,22 +110,11 @@ fn wmo_label(code: i64) -> &'static str {
 /// Live observation via Open-Meteo (no API key).
 pub fn fetch_open_meteo_weather(place: &str) -> EaiResult<String> {
     require_egress("https://geocoding-api.open-meteo.com")?;
-    let client = http_client()?;
     let geo_url = format!(
         "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&language=en&format=json",
         urlencoding_lite(place)
     );
-    let geo: serde_json::Value = client
-        .get(&geo_url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| e.to_string())
-        .and_then(|r| {
-            crate::susi_core::bounded_io::json_capped(
-                r,
-                crate::susi_core::bounded_io::JSON_BODY_CAP,
-            )
-        })
+    let geo: serde_json::Value = get_json(&geo_url)
         .map_err(|e| EaiError::process(format!("Open-Meteo geocoding failed: {e}")))?;
 
     let result = geo
@@ -153,17 +147,7 @@ pub fn fetch_open_meteo_weather(place: &str) -> EaiResult<String> {
         "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone={}",
         urlencoding_lite(tz)
     );
-    let wx: serde_json::Value = client
-        .get(&wx_url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| e.to_string())
-        .and_then(|r| {
-            crate::susi_core::bounded_io::json_capped(
-                r,
-                crate::susi_core::bounded_io::JSON_BODY_CAP,
-            )
-        })
+    let wx: serde_json::Value = get_json(&wx_url)
         .map_err(|e| EaiError::process(format!("Open-Meteo forecast failed: {e}")))?;
 
     let current = wx
@@ -215,23 +199,12 @@ pub fn fetch_open_meteo_weather(place: &str) -> EaiResult<String> {
 /// DuckDuckGo Instant Answer (zero-config) for non-weather factual lookups.
 pub fn fetch_duckduckgo_instant(query: &str) -> EaiResult<String> {
     require_egress("https://api.duckduckgo.com")?;
-    let client = http_client()?;
     let url = format!(
         "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1",
         urlencoding_lite(query)
     );
-    let body: serde_json::Value = client
-        .get(&url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| e.to_string())
-        .and_then(|r| {
-            crate::susi_core::bounded_io::json_capped(
-                r,
-                crate::susi_core::bounded_io::JSON_BODY_CAP,
-            )
-        })
-        .map_err(|e| EaiError::process(format!("DuckDuckGo lookup failed: {e}")))?;
+    let body: serde_json::Value =
+        get_json(&url).map_err(|e| EaiError::process(format!("DuckDuckGo lookup failed: {e}")))?;
 
     let heading = body
         .get("Heading")

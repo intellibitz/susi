@@ -16,7 +16,6 @@ crossbeam = "0.8"
 regex = "1.13"
 serde = { workspace = true }
 serde_json = { workspace = true }
-reqwest = { workspace = true }
 rayon = "1.12"
 tokio = { workspace = true }
 parking_lot = { workspace = true }

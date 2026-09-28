@@ -343,25 +343,3 @@ pub fn merge_missing_registry_defaults(
     }
     changed
 }
-
-/// Shared ureq Agent with connect/read/write timeouts. `ureq::get`/`ureq::post`
-/// free functions use a default agent with NO timeouts at all — a stalled
-/// remote (or one that completes the handshake but then goes silent
-/// mid-response, e.g. during SSE body streaming) blocks the calling thread
-/// forever. Agent-level timeout_read/timeout_write bound every socket read
-/// and write, including streaming body reads after the initial response
-/// headers arrive, which a per-request `.timeout()` alone would not cover.
-static HTTP_AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
-
-pub fn http_agent() -> ureq::Agent {
-    HTTP_AGENT
-        .get_or_init(|| {
-            let config = ureq::Agent::config_builder()
-                .timeout_connect(Some(std::time::Duration::from_secs(10)))
-                .timeout_recv_body(Some(std::time::Duration::from_secs(20)))
-                .timeout_send_body(Some(std::time::Duration::from_secs(20)))
-                .build();
-            ureq::Agent::new_with_config(config)
-        })
-        .clone()
-}

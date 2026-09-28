@@ -2,7 +2,7 @@
 
 ![SUSI Version](https://img.shields.io/badge/version-v0.15.2-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
-**The self-improving swarm OS layer for local and cloud AI agents** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS; Mandate 45). Verify the crown with `susi crown`.
+**The RSI swarm AI OS for hosting, provisioning, and managing any local and cloud AI ecosystem** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS or a chatbot wrapper; Mandate 45). Verify the crown with `susi crown`.
 
 susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
 
@@ -26,9 +26,11 @@ susi runs a persistent host daemon, stable network ports external clients can ha
   request instead of being an opaque provider choice.
 
 
-### What "self-improving" means here
+### What RSI means here
 
-Scoped claim (Mandate 1, Mandate 45). Two loops exist; only one runs unattended.
+Scoped claim (Mandate 1, Mandate 45). Recursive self-improvement is two
+loops; only one runs unattended. This is not an unattended rewrite of
+SUSI's own source.
 
 - **Automatic: learning from receipts.** Successful execution receipts are
   staged as training samples; after each swarm mission SUSI checks the
@@ -41,6 +43,8 @@ Scoped claim (Mandate 1, Mandate 45). Two loops exist; only one runs unattended.
   unless the request sets `auto_apply` or `trust_level` is `autonomous`.
   Nothing schedules it on SUSI's own source by itself; the
   `susi-builder.yml` workflow runs `susi solve` only on labelled issues/PRs.
+  Mandate 48 keeps the installed `~/.susi/bin/susi` as the release toolchain
+  that builds the next susi.
 
 The drift audit (`evolution.rs`) suggests reflex candidates; it does not
 write code. SUSI does not recursively rewrite itself without an operator.
@@ -250,7 +254,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
 | Daemon feature surface | 31 of 90 `susi-daemon` modules are wired into a production path; 59 are compiled and self-tested only (not features yet) and a ratchet test keeps that number from growing. Twenty-nine isolated feature sketches (1963 source lines) have been removed rather than advertised, including BI export, marketplace, playground/simulation, a disconnected reliability batch, dormant storage/policy helpers, sandbox resource sketches, and six more self-tested-only cells (A/B swarm, approval quorum, cell profile, compliance map, playbook, security scan) nothing called. |
 | Native service boundary | Wasmer is linked only by `susi-native`; feature planes share one compiled, typed `susi-native-client` instead of source-mounting a misleading `vendor_template` copy |
-| Shared foundation | shared code is reached through Cargo edges that point down the leaf order (`paths → error → config → core/sandbox → services → daemon`, enforced by an architecture test). `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`, `susi-core`, `susi-abi`, `susi-http-transport`, `susi-vendor-candle` and `susi-adapters-llm` are single crates (the ABI cell TCP loop is the same crate, behind the `cell-server` feature) — replacing seventy-six private source-mounted copies (bollard is linked only by the `susi-sandbox` service) — every crate now returns the same `EaiError`, so 38 identity re-wrap conversions (each of which logged a second metrics event for one failure) were deleted; remaining cross-crate `#[path]` mounts are counted by a ratchet that only decreases (159 → 0) |
+| Shared foundation | shared code is reached through Cargo edges that point down the leaf order (`paths → error → config → core/sandbox → services → daemon`, enforced by an architecture test). `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`, `susi-core`, `susi-abi`, `susi-http-transport` (accept loop **and** the one outbound `http_agent`), `susi-vendor-candle` and `susi-adapters-llm` are single crates — core/OS crates (config/gawd host/swarm/agents/a2a) declare neither `reqwest` nor `ureq`. Remaining cross-crate `#[path]` mounts are counted by a ratchet that only decreases (159 → 0) |
 | Repository hygiene | the root carries no scratch artifacts (a stray 4.5 MB `test_verify` binary and five unreferenced experiment files were removed); leftover mount-era crypto and HTTP deps were dropped from twelve crates after the contract remounts; GPU features exist only where Candle reads them (`susi-vendor-candle`, forwarded by `susi-gemi` / `susi-gemi-models`) |
 | Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
 

@@ -327,7 +327,8 @@ mod tests {
             tokio::spawn(async move { axum::serve(listener, app).await });
             addr
         });
-        let reply: serde_json::Value = ureq::post(format!("http://{addr}/"))
+        let reply: serde_json::Value = susi_http_transport::http_agent()
+            .post(format!("http://{addr}/"))
             .header("A2A-Version", a2a_wire::A2A_VERSION)
             .send_json(a2a_wire::message_send_request("ping"))
             .unwrap()

@@ -149,7 +149,7 @@ fn invoke_openai_chat(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<Str
         "messages": [{"role": "user", "content": goal}],
         "max_tokens": 2048
     });
-    let mut req = crate::susi_sandbox::manager::http_agent()
+    let mut req = susi_http_transport::http_agent()
         .post(&url)
         .header("Content-Type", "application/json");
     let bearer = resolve_bearer(spec);
@@ -196,7 +196,7 @@ fn invoke_http_json(
         "goal": goal,
         "workspace": workspace.display().to_string(),
     });
-    let mut req = crate::susi_sandbox::manager::http_agent()
+    let mut req = susi_http_transport::http_agent()
         .post(url)
         .header("Content-Type", "application/json");
     let bearer = resolve_bearer(spec);
@@ -236,7 +236,7 @@ fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
     let body =
         serde_json::to_vec(&payload).map_err(|e| EaiError::process(format!("a2a encode: {e}")))?;
     let url = format!("{base}/");
-    let mut req = crate::susi_sandbox::manager::http_agent()
+    let mut req = susi_http_transport::http_agent()
         .post(&url)
         .header("Content-Type", "application/json")
         .header("A2A-Version", a2a_wire::A2A_VERSION);

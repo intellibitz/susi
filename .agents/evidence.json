@@ -2820,6 +2820,16 @@
       "milestone": "Compiled genome rules now carry their real source and citation instead of synthetic numbers. build.rs used to give DNA mandates their own IDs, roadmap vectors 50+seq, engine protocols 100+id, and ledger entries 150+seq. Ledger IDs use seven counters (EV-2022920 through EV-2022928), so the offsets collided: EV-2022920-031 and EV-2022924-031 were both 181. Every consumer also printed them as mandates. The mission trace's [GENOMIC MANDATES] block filtered on titles containing Universal/Agnosticism; no current mandate matches, so it showed a ledger entry as \"Mandate 352\" (seen in the v0.15.2 release smoke). SusiAxiomRule now has `kind: RuleKind` (Mandate / EngineProtocol / RoadmapVector / Evidence) and `cite`, which follows identity.json canonical_addressing: `Mandate N`, `Pillar IV item N`, or the vector or ledger ID. The trace lists only mandates under that heading, with a per-kind summary. Identity reports, the substrate report, the tri-state line, and genome distillation cite rules by source, and the single \"Hardcoded Axiom Rules: 338\" total is replaced by counts per kind. Ledger entries with no numeric suffix are no longer silently dropped. Test every_rule_is_cited_by_its_real_source asserts unique citations and correct prefixes per kind. Verified live on the dev instance: `target/debug/susi identity` printed \"[GENOMIC MANDATES] 48 mandates, 7 engine protocols, 2 roadmap vectors, 281 ledger entries\", then Mandate 1 through 48. Checks: cargo fmt and clippy -D warnings clean. cargo test --workspace --no-fail-fast: 1048 passed, 2 failed; the failures are the known host-dependent susi-gawd-a2a tests, which fail while the release daemon runs.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 1-12",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-288",
+      "milestone": "RSI OS isolation iterations 1-12: outbound HTTP leaves core/OS crates. Unused reqwest dropped from susi-gawd, susi-gawd-swarm, susi-gawd-a2a, and susi-gawd-agents; unused ra2a/axum/tower/tokio-rustls dropped from the gawd host (protocol stays in susi-gawd-a2a). The timeout-bounded ureq agent moved from susi-config to susi-http-transport::http_agent; MCP, eval, benchmark, tools, native proxy, peer HTTP, live search, and the A2A round-trip test now share that agent. susi-config no longer declares ureq. live_search no longer uses reqwest. Architecture ratchet core_os_crates_must_not_declare_http_clients forbids reqwest/ureq on paths/error/config/gawd host/swarm/agents/a2a. Identity Mandate 45 and README now name SUSI as an RSI swarm AI OS for hosting, provisioning, and managing any local/cloud AI ecosystem (scoped: not a host OS, not a chatbot wrapper, not unattended source rewrite). Remaining: ureq types still in susi-core mcp_client; reqwest still in susi-gemi http_provider, susi-gemi-models HF download, susi-agents cloud, susi-tools MCP. Verification: cargo check / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

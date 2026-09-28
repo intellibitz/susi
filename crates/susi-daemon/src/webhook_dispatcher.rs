@@ -5,9 +5,9 @@
 //! JSON. Uses its own short-timeout `ureq::Agent` rather than the bare
 //! `ureq::post`/`get` free functions — those use a default agent with NO
 //! timeouts at all and can block a calling thread forever on a stalled
-//! remote, the same reasoning `susi_config::service::http_agent`'s doc
-//! comment gives for the daemon's own shared agent (not reachable here:
-//! that module is private to `susi_config.rs`).
+//! remote, the same reasoning `susi_http_transport::http_agent` uses for
+//! the process-wide outbound agent. This dispatcher keeps a shorter
+//! timeout because webhook delivery must not stall the blackboard.
 
 use std::collections::HashMap;
 use std::sync::RwLock;

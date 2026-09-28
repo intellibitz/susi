@@ -131,7 +131,7 @@ fn post(
             "[PRIVACY] network egress to {url} blocked by the privacy posture"
         ));
     }
-    let mut req = crate::susi_config::http_agent()
+    let mut req = susi_http_transport::http_agent()
         .post(url)
         .header("accept", "application/json, text/event-stream");
     if let Some(token) = bearer {
@@ -195,7 +195,7 @@ fn post(
 /// client-initiated termination — or a transport error only means the
 /// server reclaims the session on its own idle timeout.
 fn delete_session(url: &str, bearer: Option<&str>, session: &Session) {
-    let mut req = crate::susi_config::http_agent()
+    let mut req = susi_http_transport::http_agent()
         .delete(url)
         .header("mcp-session-id", &session.id)
         .header("mcp-protocol-version", &session.version);

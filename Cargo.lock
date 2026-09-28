@@ -6318,7 +6318,6 @@ dependencies = [
  "susi-error",
  "susi-paths",
  "tokio",
- "ureq 3.4.2",
  "x25519-dalek",
 ]
 
@@ -6342,6 +6341,7 @@ dependencies = [
  "susi-adapters-llm",
  "susi-config",
  "susi-error",
+ "susi-http-transport",
  "susi-paths",
  "tempfile",
  "tokio",
@@ -6416,16 +6416,13 @@ dependencies = [
 name = "susi-gawd"
 version = "0.15.2"
 dependencies = [
- "axum",
  "crossbeam",
  "dashmap",
  "flume",
  "parking_lot",
  "proptest",
- "ra2a",
  "rayon",
  "regex",
- "reqwest",
  "serde",
  "serde_json",
  "shlex 2.0.1",
@@ -6442,8 +6439,6 @@ dependencies = [
  "syn 3.0.6",
  "tempfile",
  "tokio",
- "tokio-rustls",
- "tower",
  "tracing",
 ]
 
@@ -6460,7 +6455,6 @@ dependencies = [
  "ra2a",
  "rayon",
  "regex",
- "reqwest",
  "serde",
  "serde_json",
  "shlex 2.0.1",
@@ -6475,7 +6469,6 @@ dependencies = [
  "tokio-rustls",
  "tower",
  "tracing",
- "ureq 3.4.2",
 ]
 
 [[package]]
@@ -6489,13 +6482,13 @@ dependencies = [
  "proptest",
  "rayon",
  "regex",
- "reqwest",
  "serde",
  "serde_json",
  "shlex 2.0.1",
  "susi-config",
  "susi-core",
  "susi-error",
+ "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
  "tokio",
@@ -6514,7 +6507,6 @@ dependencies = [
  "proptest",
  "rayon",
  "regex",
- "reqwest",
  "serde",
  "serde_json",
  "shlex 2.0.1",
@@ -6552,6 +6544,7 @@ dependencies = [
  "susi-core",
  "susi-error",
  "susi-gemi-models",
+ "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-candle",
@@ -6641,6 +6634,7 @@ dependencies = [
  "hyper-util",
  "tokio",
  "tokio-rustls",
+ "ureq 3.4.2",
 ]
 
 [[package]]
@@ -6755,6 +6749,7 @@ dependencies = [
  "susi-config",
  "susi-core",
  "susi-error",
+ "susi-http-transport",
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",

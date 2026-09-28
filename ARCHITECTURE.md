@@ -69,20 +69,20 @@ never consume an unterminated source tail.
 | `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-adapters-llm` (re-export `inference_wire`); std, serde, concurrency libs | feature planes | providers/tools via registry | process registry | receipt archive paths |
 | `susi-native` | Leaf REST (`:18084`): Wasmer Wasm host | service `WasmHost` | `susi-paths`, `susi-error`; wasmer (service only) | feature planes | Wasm modules | instance | yes |
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmer, feature planes | no | no | loopback HTTP |
-| `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde, ureq | everything above paths/error | no | config files | yes |
+| `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde | HTTP clients, everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker exec (bollard) + ensure/daemon-integrity endpoints; re-exports the client's helpers | `serve`, re-exported `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`; bollard | feature crates | Docker optional | config files | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
-| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder | `dual_transport`, `http_conn` | tokio, tokio-rustls, hyper-util | all workspace crates | no | no | sockets |
+| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` agent | `dual_transport`, `http_conn`, `http_agent` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
 | `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split (forked from candle-transformers) | `device`, `qwen2_split`, re-exported `candle_core` / `candle_nn` / `candle_transformers` | candle-core, candle-nn, candle-transformers | all workspace crates | no | process device cache | GPU FFI via Candle |
 | `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies and extractors | `inference_wire` | serde_json, ureq | all workspace crates | no | no | HTTP via callers |
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client` | feature planes; peers via `plane_bus` | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` (device / GGUF inspect) | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` | peer feature planes | providers | model weights | yes |
-| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client` | peer feature planes | agents | mission-local | yes |
-| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | no | blackboard | yes |
-| `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` + `susi-http-transport` | peer feature planes | transport | tasks | yes |
-| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | `susi-gawd-{agents,swarm,a2a}` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client | no | genome/reflexes | yes |
+| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client`; `susi-http-transport` (live search / peer HTTP) | peer feature planes; reqwest/ureq | agents | mission-local | yes |
+| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes; HTTP clients | no | blackboard | yes |
+| `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` + `susi-http-transport` | peer feature planes; reqwest/ureq | transport | tasks | yes |
+| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | `susi-gawd-{agents,swarm,a2a}` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client; ra2a/reqwest/axum | no | genome/reflexes | yes |
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, `susi-http-transport`, rmcp | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + `susi-abi` + server + tools + agents (composition root) | — | no | lock/PID | yes |
@@ -147,8 +147,11 @@ remount a hard failure.
 
 **`susi-http-transport` is a Cargo dependency, not a mount.** GEMI REST,
 GMCP and A2A share one TLS-sniffing accept loop and one Hyper connection
-builder; `susi_server_transport_is_never_source_mounted_into_a_consumer`
-makes a remount a hard failure.
+builder; MCP/peer/search callers share one timeout-bounded outbound `ureq`
+agent (`http_agent`). Vendor SDKs and provider wire shapes stay out.
+`susi_server_transport_is_never_source_mounted_into_a_consumer` makes a
+remount a hard failure. `core_os_crates_must_not_declare_http_clients`
+forbids `reqwest`/`ureq` on paths/error/config/gawd host/swarm/agents/a2a.
 
 **`susi-vendor-candle` is a Cargo dependency, not a mount.** Candle,
 CUDA, Metal and the Qwen2 GGUF split live in one rank-2 crate so
@@ -451,3 +454,25 @@ operation log, and there is no cross-coordinator term ordering.
 Semver GitHub Releases keep the newest **two** `vX.Y.Z` entries (assets).
 The rolling `dev` pre-release is managed by `dev-release.yml` and is never pruned.
 Older GitHub Release objects are deleted by `scripts/prune-old-github-releases.sh` after each tagged release build (`release.yml` job `prune-old-releases`); **git tags are retained**.
+
+## RSI OS isolation iterations (2026-09-28)
+
+Running ledger for the `rsi-os-100-iterations` isolation/dedup/OS-surface
+pass. Each row is a concrete gap that landed in code. Docs (this file,
+`README.md`, `.agents/identity.json`, `.agents/evidence.json`) update in
+the same commit as the code.
+
+| N | Gap | Fix |
+|---|-----|-----|
+| 1 | `susi-gawd` declared unused `reqwest` | dropped; host crate has no HTTP client |
+| 2 | `susi-gawd-swarm` declared unused `reqwest` | dropped |
+| 3 | `susi-gawd-a2a` declared unused `reqwest` | dropped; `ra2a` remains the A2A vendor crate |
+| 4 | `susi-gawd` declared unused `ra2a` (protocol lives in a2a crate) | dropped |
+| 5 | `susi-gawd` leftover axum/tower/tokio-rustls after ra2a removal | dropped unused HTTP server stack from host |
+| 6 | Shared `ureq` agent lived in `susi-config` | moved to `susi-http-transport::http_agent` |
+| 7 | `susi-core` MCP client used config's agent | now uses transport crate |
+| 8 | gemi/tools/gawd-agents called `susi_sandbox::manager::http_agent` | switched to `susi_http_transport::http_agent` |
+| 9 | `susi-config` still declared `ureq` | dropped |
+| 10 | A2A round-trip test used a second `ureq::post` | uses shared `http_agent` |
+| 11 | `susi-gawd-agents` live_search used `reqwest` against Open-Meteo/DDG | rewritten onto transport `ureq`; `reqwest` dropped from agents |
+| 12 | No ratchet against HTTP-client relapse in OS crates | `core_os_crates_must_not_declare_http_clients` |
