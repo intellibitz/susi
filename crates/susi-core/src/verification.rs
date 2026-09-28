@@ -329,7 +329,6 @@ pub fn verify_all(contracts: &[Contract], workspace: &Path) -> Vec<ContractVerdi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     fn ws() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()

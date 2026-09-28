@@ -844,9 +844,9 @@ impl SusiMasterAgent {
             deliberation.candidates[0].steps.clone()
         } else {
             eprintln!(
-                "- [Deliberation] No candidate consensus under {} scope — \
+                "- [Deliberation] No candidate consensus under {:?} scope — \
                  declining multi-step autonomy; running goal as one step.",
-                format!("{:?}", manifold.scope_of_impact)
+                manifold.scope_of_impact
             );
             vec![goal.clone()]
         };

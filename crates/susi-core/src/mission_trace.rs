@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn promotion_requires_verified_success_and_clean_window() {
-        let mut t = |outcome: &str| MissionTrace::new("m", "deploy the api", outcome, "swarm");
+        let t = |outcome: &str| MissionTrace::new("m", "deploy the api", outcome, "swarm");
 
         // No traces → insufficient, never promotable.
         assert!(matches!(
