@@ -2,7 +2,7 @@
 
 ![SUSI Version](https://img.shields.io/badge/version-v0.15.0-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
-**The OS layer for AI agents** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS; Mandate 45). Verify the crown with `susi crown`.
+**The self-improving swarm OS layer for local and cloud AI agents** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS; Mandate 45). Verify the crown with `susi crown`.
 
 susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
 
@@ -24,6 +24,26 @@ susi runs a persistent host daemon, stable network ports external clients can ha
   `GET /runtime/placement`. The returned decision id resolves to its signed
   `INFERENCE_PLACEMENT` audit record, so routing is inspectable after the
   request instead of being an opaque provider choice.
+
+
+### What "self-improving" means here
+
+Scoped claim (Mandate 1, Mandate 45). Two loops exist; only one runs unattended.
+
+- **Automatic: learning from receipts.** Successful execution receipts are
+  staged as training samples; after each swarm mission SUSI checks the
+  staged count and, past `reflex_training_threshold`, retrains its Tier-0
+  neural reflex (`crates/susi-gawd/src/reflex_trainer.rs`). Checkpoints
+  publish atomically with one last-known-good generation for recovery.
+- **Gated: patching code.** `apply_patch_cycle` (`susi patch`, MCP tool)
+  applies a workspace-confined patch, runs the test command, and rolls back
+  on failure (`crates/susi-gawd/src/patch_cycle.rs`). It refuses to apply
+  unless the request sets `auto_apply` or `trust_level` is `autonomous`.
+  Nothing schedules it on SUSI's own source by itself; the
+  `susi-builder.yml` workflow runs `susi solve` only on labelled issues/PRs.
+
+The drift audit (`evolution.rs`) suggests reflex candidates; it does not
+write code. SUSI does not recursively rewrite itself without an operator.
 
 ---
 

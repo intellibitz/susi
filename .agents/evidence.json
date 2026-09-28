@@ -2750,6 +2750,16 @@
       "milestone": "Dedup pass step 15: a fourth unreachable-daemon deletion batch removes six isolated sketches with zero inbound references: `ab_swarm`, `approval`, `cell_profile`, `compliance_map`, `playbook`, and `security_scan`. Each was exercised only by tests in its own file. A path-reference audit matching `unreachable_daemon_modules_only_decrease` found no caller outside the `lib.rs` module declaration. This removes 356 source lines and reduces the daemon surface from 96 to 90 modules while preserving the same 31 production-reachable modules. The compiled-only count and ratchet ceiling fall from 65 to 59. README, ARCHITECTURE, AGENTS.md, and identity report the reduced surface. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings; the test suite was NOT executed for this step, deferred by the user's direction.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "README self-improvement scope",
+        "ref": "file://README.md"
+      },
+      "id": "EV-2022928-281",
+      "milestone": "Positioning: tagline becomes \"self-improving swarm OS layer for local and cloud AI agents\" in README, root Cargo.toml description, and `susi --help`. Audited each word against code before adopting it. Swarm: consensus supervision and a cluster-key-verified peer roster (`susi-gawd-swarm/src/amas.rs`, `peer_registry.rs`). Local + cloud: one placement plane with audited INFERENCE_PLACEMENT decisions (`susi-server/src/lib.rs`), already Mandate 45 text. OS layer: kept Mandate 45's scoped form; no replacement-host-OS claim. Self-improving: scoped in a new README subsection. Only receipt-backed Tier-0 reflex retraining runs unattended (`amas.rs` spawns `audit_distillation_state` after each mission). Code self-patching (`patch_cycle.rs`) is gated on auto_apply or trust_level=autonomous with test+rollback, and nothing schedules it on SUSI's own source. The bare acronym \"RSI\" was rejected under Mandate 1 because no unattended code-rewriting loop exists. Git history shows no commits landed by the susi-builder workflow bot.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
