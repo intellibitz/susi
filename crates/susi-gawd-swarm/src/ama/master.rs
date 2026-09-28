@@ -810,7 +810,7 @@ impl SusiMasterAgent {
         }
         budgets.dedup();
         let history = crate::deliberation::HistorySignals {
-            failed: crate::susi_core::mission_trace::failing_tools(&goal, &traces, 8),
+            failed: crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8),
             proven: crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8),
         };
         let mut deliberation =

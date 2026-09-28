@@ -319,30 +319,44 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
     }
 }
 
-/// Tools that appeared in failed missions similar to `goal` — the
-/// anti-pattern signal plan search penalizes against. Successes using the
-/// same tool don't clear it here (the scorer weighs it, the gate may still
-/// pass); a tool only on failed runs is a real signal.
+/// Tools that appeared in failed missions similar to `goal`, with the
+/// number of failed missions each appeared on — repeated failures weigh
+/// more than one-offs. Successes using the same tool don't clear it here
+/// (the scorer weighs it); a tool only on failed runs is a real signal.
+pub fn failing_tool_counts(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeMap<String, u32> {
+    let (mut failed, mut succeeded) = (
+        std::collections::BTreeMap::<String, u32>::new(),
+        std::collections::BTreeSet::<String>::new(),
+    );
+    for t in similar(goal, traces, limit) {
+        if t.succeeded() {
+            succeeded.extend(t.tools.iter().cloned());
+        } else {
+            for tool in &t.tools {
+                *failed.entry(tool.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    // A tool that also appears on successful similar missions is ambiguous —
+    // only unambiguous failure carries the penalty.
+    failed.retain(|tool, _| !succeeded.contains(tool));
+    failed
+}
+
+/// The set view of `failing_tool_counts` — every tool with ≥1 unambiguous
+/// failure on similar missions.
 pub fn failing_tools(
     goal: &str,
     traces: &[MissionTrace],
     limit: usize,
 ) -> std::collections::BTreeSet<String> {
-    let (mut failed, mut succeeded) = (
-        std::collections::BTreeSet::new(),
-        std::collections::BTreeSet::new(),
-    );
-    for t in similar(goal, traces, limit) {
-        let target = if t.succeeded() {
-            &mut succeeded
-        } else {
-            &mut failed
-        };
-        target.extend(t.tools.iter().cloned());
-    }
-    // A tool that also appears on successful similar missions is ambiguous —
-    // only unambiguous failure carries the veto penalty.
-    failed.difference(&succeeded).cloned().collect()
+    failing_tool_counts(goal, traces, limit)
+        .into_keys()
+        .collect()
 }
 
 /// The positive counterpart of `failing_tools`: tools that appear only on
@@ -558,6 +572,10 @@ mod tests {
         let failed = failing_tools("deploy api service", &traces, 8);
         assert!(failed.contains("broken_tool"), "{failed:?}");
         assert!(!failed.contains("exec_command"), "{failed:?}");
+        // Counts scale with repeated failures for penalty weighting.
+        let counts = failing_tool_counts("deploy api service", &traces, 8);
+        assert_eq!(counts.get("broken_tool"), Some(&2));
+        assert!(!counts.contains_key("exec_command"));
     }
 
     #[test]

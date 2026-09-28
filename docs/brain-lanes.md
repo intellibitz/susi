@@ -60,3 +60,6 @@ One line per landed step, newest last.
    agreement (hiding them blocked mutating approvals).
 10. Unverified-mutation penalty: consensus-gated intents lose -0.20 when a
     candidate has zero verifiable steps; reads exempt.
+11. Repetition-scaled failure penalty: `failing_tool_counts` →
+    `HistorySignals.failed` is now a count map; each mention costs
+    0.10×min(count,3). `failing_tools` stays as the set view.

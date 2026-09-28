@@ -94,22 +94,26 @@ pub fn score_plan_weighted(
     max_steps: u32,
     failed_tools: &std::collections::BTreeSet<String>,
 ) -> (f32, String) {
+    let counts: std::collections::BTreeMap<String, u32> =
+        failed_tools.iter().map(|t| (t.clone(), 1)).collect();
     score_plan_with_history(
         goal,
         steps,
         max_steps,
-        failed_tools,
+        &counts,
         &std::collections::BTreeSet::new(),
     )
 }
 
-/// Full history-weighted scoring: `failed_tools` penalize, `proven_tools`
-/// reward (each capped so one keyword-stuffed step cannot dominate).
+/// Full history-weighted scoring: each failed-history mention costs
+/// 0.10 per past failed mission it appeared on (capped at 3), each proven
+/// mention earns 0.05 (capped at 4) — repetition matters, stuffing does
+/// not.
 pub fn score_plan_with_history(
     goal: &str,
     steps: &[String],
     max_steps: u32,
-    failed_tools: &std::collections::BTreeSet<String>,
+    failed_tools: &std::collections::BTreeMap<String, u32>,
     proven_tools: &std::collections::BTreeSet<String>,
 ) -> (f32, String) {
     if steps.is_empty() {
@@ -144,10 +148,18 @@ pub fn score_plan_with_history(
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
             .collect::<Vec<_>>()
     };
+    // Penalty scales with how often the tool failed on similar missions —
+    // three past failures dock 0.30 per mention, not 0.10.
+    let history_penalty: u32 = steps
+        .iter()
+        .flat_map(step_words)
+        .filter_map(|t| failed_tools.get(t.as_str()))
+        .map(|count| (*count).min(3))
+        .sum();
     let history_hits = steps
         .iter()
         .flat_map(step_words)
-        .filter(|t| failed_tools.contains(t))
+        .filter(|t| failed_tools.contains_key(t.as_str()))
         .count();
     let proven_hits = steps
         .iter()
@@ -158,12 +170,13 @@ pub fn score_plan_with_history(
     let score =
         (0.4 + 0.5 * coverage + 0.05 * verifiable.min(4) as f32 + 0.05 * proven_hits.min(4) as f32
             - 0.15 * risk_hits as f32
-            - 0.1 * history_hits as f32
+            - 0.1 * history_penalty as f32
             - 0.1 * over_budget as f32)
             .clamp(0.0, 1.0);
     let rationale = format!(
         "coverage={coverage:.2} risk_tokens={risk_hits} failed_history_tools={history_hits} \
-         proven_tools={proven_hits} verifiable_steps={verifiable} steps={} over_budget={over_budget}",
+         failure_penalty={history_penalty} proven_tools={proven_hits} \
+         verifiable_steps={verifiable} steps={} over_budget={over_budget}",
         steps.len()
     );
     (score, rationale)
@@ -187,7 +200,9 @@ pub fn consensus_required(manifold: &IntentManifold) -> bool {
 /// successful ones reward it.
 #[derive(Debug, Clone, Default)]
 pub struct HistorySignals {
-    pub failed: std::collections::BTreeSet<String>,
+    /// Tool → count of failed similar missions it appeared on; repeated
+    /// failures weigh more in scoring.
+    pub failed: std::collections::BTreeMap<String, u32>,
     pub proven: std::collections::BTreeSet<String>,
 }
 
@@ -460,13 +475,38 @@ mod tests {
     }
 
     #[test]
+    fn repeated_failures_dock_harder_than_one_offs() {
+        let once: std::collections::BTreeMap<String, u32> =
+            [("flaky".to_string(), 1)].into_iter().collect();
+        let thrice: std::collections::BTreeMap<String, u32> =
+            [("flaky".to_string(), 3)].into_iter().collect();
+        let ten: std::collections::BTreeMap<String, u32> =
+            [("flaky".to_string(), 10)].into_iter().collect();
+        let none = std::collections::BTreeSet::new();
+        let steps = vec!["run flaky deploy".to_string()];
+        let (s1, r1) = score_plan_with_history("deploy", &steps, 5, &once, &none);
+        let (s3, r3) = score_plan_with_history("deploy", &steps, 5, &thrice, &none);
+        let (s10, _) = score_plan_with_history("deploy", &steps, 5, &ten, &none);
+        assert!(s1 > s3, "{r1} {r3}");
+        // Beyond three failures the cap flattens the penalty.
+        assert!((s3 - s10).abs() < 0.001, "{s3} {s10}");
+        assert!(r3.contains("failure_penalty=3"), "{r3}");
+    }
+
+    #[test]
     fn proven_history_tools_reward_but_stay_capped() {
         let proven: std::collections::BTreeSet<String> = ["cargo".to_string(), "git".to_string()]
             .into_iter()
             .collect();
-        let none = std::collections::BTreeSet::new();
-        let (plain, _) =
-            score_plan_with_history("build the crate", &["build crate".into()], 5, &none, &none);
+        let none: std::collections::BTreeMap<String, u32> = Default::default();
+        let empty_set = std::collections::BTreeSet::new();
+        let (plain, _) = score_plan_with_history(
+            "build the crate",
+            &["build crate".into()],
+            5,
+            &none,
+            &empty_set,
+        );
         let (boosted, r) = score_plan_with_history(
             "build the crate",
             &["cargo build crate via git".into()],

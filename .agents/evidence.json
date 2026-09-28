@@ -3544,6 +3544,16 @@
     "label": "Unverified-mutation penalty",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-023",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 5 \u2014 repetition-scaled failure penalties. mission_trace::failing_tool_counts returns tool\u2192failed-mission-count maps (ambiguous still excluded); score_plan_with_history docks each mention 0.10 per past failure, capped at 3 occurrences (max -0.30/mention). A tool that failed three similar missions now visibly outranks a one-off flake. failing_tools() kept as the set view for existing callers.",
+   "proof": "Tests: repeated_failures_dock_harder_than_one_offs (monotonic + cap), counts asserted in failing_tools test. susi-core 207, susi-gawd-swarm 59 pass; clippy clean.",
+   "anchor": {
+    "label": "Count-scaled failure penalty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
