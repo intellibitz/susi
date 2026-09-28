@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::cloud::{effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key};
+use crate::cloud::{is_remote_cloud, resolve_api_key};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodingModelDefinition {
@@ -113,24 +113,20 @@ impl CodingModelManager {
 
     pub fn configure(&self, id: &str, over: &CodingModelOverride) -> Result<CodingModelDefinition> {
         let def = Self::definition(id)?;
-        crate::susi_config::create_private_dir(&self.config)?;
-        crate::susi_config::atomic_write_json_pretty(
-            &self.config.join(format!("{}.json", def.id)),
-            over,
-        )?;
+        crate::susi_config::write_json_override(&self.config, &def.id, over)?;
         self.effective(&def.id)
     }
 
     pub fn reset(&self, id: &str) -> Result<CodingModelDefinition> {
         let def = Self::definition(id)?;
-        crate::susi_config::remove_file_if_present(&self.config.join(format!("{}.json", def.id)))?;
+        crate::susi_config::clear_json_override(&self.config, &def.id)?;
         self.effective(&def.id)
     }
 
     /// Local readiness only — does not call a paid model.
     pub fn preflight(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
-        let endpoint = endpoint_for(&def.engine)
+        let endpoint = crate::cloud::endpoint_named(&def.engine)
             .with_context(|| format!("inference endpoint '{}' is not configured", def.engine))?;
         if endpoint.api_base.trim().is_empty() {
             bail!("endpoint '{}' has an empty api_base", def.engine);
@@ -157,7 +153,8 @@ impl CodingModelManager {
     pub fn resolve_endpoint(&self, id: &str) -> Result<CodingModelEndpoint> {
         let def = self.effective(id)?;
         self.preflight(&def.id)?;
-        let endpoint = endpoint_for(&def.engine).context("endpoint missing after preflight")?;
+        let endpoint = crate::cloud::endpoint_named(&def.engine)
+            .context("endpoint missing after preflight")?;
         let key_env = if def.api_key_env.is_empty() {
             endpoint.api_key_env.clone()
         } else {
@@ -242,13 +239,6 @@ impl CodingModelDefinition {
         }
         Ok(())
     }
-}
-
-fn endpoint_for(name: &str) -> Option<crate::susi_sandbox::manager::InferenceEndpointItem> {
-    let lower = name.to_ascii_lowercase();
-    effective_inference_endpoints_pub()
-        .into_iter()
-        .find(|e| e.name.to_ascii_lowercase() == lower)
 }
 
 #[cfg(test)]

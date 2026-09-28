@@ -6,7 +6,8 @@ are enforced mechanically where possible; the rest are reviewed in CI.
 ## Enforced (compiler — violations fail the build)
 
 - **`unsafe` is forbidden or denied in every crate.**
-  - `#![forbid(unsafe_code)]`: susi-paths, susi-error, susi-native, susi-core,
+  - `#![forbid(unsafe_code)]`: susi-paths, susi-error, susi-vendor-wasmer,
+    susi-leaf-services, susi-core,
     susi-sandbox, susi-gmcp, susi-server, susi-gawd, susi-gawd-agents,
     susi-http-transport, susi-vendor-candle, susi-adapters-llm, xtask,
     root package.
@@ -49,6 +50,8 @@ this for the panic-path lints.
   (e.g. `SocketAddr::new(...)` not `"127.0.0.1:80".parse().unwrap()`).
 - No new inter-crate edges without necessity; leaf order is
   `paths → error → config → core/sandbox → services → daemon`.
+- `susi_http_transport::http_call*` returns non-2xx responses; callers must
+  check status. `HttpCall::into_bytes(max)` reads `max + 1` for overflow checks.
 - No stubs: no `todo!()`, `unimplemented!()`, or dead `pub` surfaces left
   "for later".
 - **Mandate 48 (Self-Build Order).** The local susi (`~/.susi/bin/susi` + its daemon) is release-only: it builds
@@ -78,9 +81,9 @@ cargo test --workspace --locked
   should be pedantic-clean even though the lint isn't denied workspace-wide.
 - `Mutex`/`RwLock` in hot paths: prefer bounded `flume`/tokio channels for new
   work; existing locks are being migrated incrementally.
-- Unwired `susi-daemon` modules: 59 of 90 are reachable from no production
-  path (compiled and self-tested only; `tests/architecture_tests.rs`
-  `unreachable_daemon_modules_only_decrease`). Wire or remove; never add more.
+- Unwired `susi-daemon` modules: 30 of 72 are compiled and self-tested only
+  (`tests/architecture_tests.rs` `unreachable_daemon_modules_only_decrease`).
+  Wire or remove; discarded probes and type-only references do not count.
 - Formal verification (`kani`) and `cargo-geiger` unsafe-tree auditing are
   roadmap items — see `.agents/roadmap.json`.
 

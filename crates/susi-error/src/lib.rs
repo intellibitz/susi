@@ -11,8 +11,9 @@
 )]
 
 //! The `EaiError` contract every SUSI crate returns, plus the error-event
-//! sink behind it. Error events go to the standalone `susi-error` service
-//! (`POST 127.0.0.1:18081/log_error`, override via `SUSI_ERROR_PORT`); when
+//! sink behind it. Error events go to the `susi-error` service
+//! (`POST 127.0.0.1:<service_port()>/log_error`, served by
+//! `susi-leaf-services`); when
 //! it is unreachable, or when this process *is* the service, they are
 //! appended to the shared `error_metrics.jsonl` directly, so the metrics
 //! guarantee never depends on service health.
@@ -22,8 +23,6 @@ pub mod redact;
 #[path = "redact_tests.rs"]
 mod redact_test_suite;
 
-use std::io::Write;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -111,7 +110,7 @@ fn is_signed_audit_chain(path: &std::path::Path) -> bool {
 mod contract;
 pub use contract::{EaiError, EaiResult};
 
-/// Set by [`serve`]: the service must not post events to itself.
+/// Set by [`enter_service_mode`]: the service must not post events to itself.
 static SERVICE_MODE: AtomicBool = AtomicBool::new(false);
 
 /// Error-event sink for the contract: the `susi-error` service when
@@ -123,26 +122,21 @@ fn record_event(entry: &serde_json::Value) {
     }
 }
 
-/// Best-effort `POST /log_error` against the `susi-error` service.
+/// Best-effort `POST /log_error` against the `susi-error` service; `true`
+/// only when the service accepted the event (2xx), so a rejected or
+/// unanswered post still falls back to the local metrics file.
 fn post_event(entry: &serde_json::Value) -> bool {
-    let port = std::env::var("SUSI_ERROR_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(18081);
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    let timeout = Duration::from_millis(200);
-    let Ok(mut stream) = TcpStream::connect_timeout(&addr, timeout) else {
-        return false;
-    };
-    let _ = stream.set_read_timeout(Some(timeout));
-    let _ = stream.set_write_timeout(Some(timeout));
-    let body = entry.to_string();
-    let req = format!(
-        "POST /log_error HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    stream.write_all(req.as_bytes()).is_ok()
+    susi_paths::loopback::request(
+        &susi_paths::loopback::Endpoint {
+            port: service_port(),
+            timeout: Duration::from_millis(200),
+            auth: susi_paths::loopback::Auth::None,
+        },
+        "POST",
+        "/log_error",
+        Some(&entry.to_string()),
+    )
+    .is_some_and(|resp| resp.is_success())
 }
 
 /// Rebuilds an error from another boundary's rendered text, preserving its
@@ -194,149 +188,97 @@ pub fn rewrap(kind_name: &str, msg: String) -> EaiError {
     }
 }
 
-/// Embedded REST service mode: accepts error events over HTTP and appends
-/// them to the shared `error_metrics.jsonl` sink. Shared by the standalone
-/// `susi-error` binary and the root `susi` binary's `service-run` dispatch.
-/// Bearer check for a dependency-free leaf service. The daemon's supervisor
-/// passes the host token in `SUSI_HOST_TOKEN`; a bare instance started
-/// without it (local dev, CI harness) stays open.
-fn leaf_authorized(header: Option<&str>) -> bool {
-    let Some(expected) = std::env::var("SUSI_HOST_TOKEN")
+/// Default `susi-error` service port before the instance port offset.
+pub const DEFAULT_SERVICE_PORT: u16 = 18081;
+
+/// Port the error-event client posts to: `SUSI_ERROR_PORT` wins, else the
+/// default shifted by the instance offset — a dev instance (offset 100)
+/// reports to its own service, not the release instance's.
+#[must_use]
+pub fn service_port() -> u16 {
+    std::env::var("SUSI_ERROR_PORT")
         .ok()
-        .filter(|t| !t.trim().is_empty())
-    else {
-        return true;
-    };
-    let Some(presented) = header.and_then(|h| h.strip_prefix("Bearer ")) else {
-        return false;
-    };
-    let (a, b) = (presented.trim().as_bytes(), expected.trim().as_bytes());
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+        .and_then(|v| v.trim().parse::<u16>().ok())
+        .unwrap_or_else(|| susi_paths::ports::effective(DEFAULT_SERVICE_PORT))
 }
 
-async fn require_bearer(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    let header = req
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
-    if leaf_authorized(header) {
-        next.run(req).await
-    } else {
-        axum::response::IntoResponse::into_response(axum::http::StatusCode::UNAUTHORIZED)
-    }
-}
-
-pub fn serve(port: u16) -> std::io::Result<()> {
+/// Marks this process as the `susi-error` service: its own events go
+/// straight to the metrics file instead of being posted back to itself.
+pub fn enter_service_mode() {
     SERVICE_MODE.store(true, Ordering::Relaxed);
-    use axum::{extract::Query, http::StatusCode, routing::get, routing::post, Json, Router};
-    use serde::Deserialize;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+}
 
-    #[derive(Deserialize)]
-    struct ErrorEvent {
-        variant: Option<String>,
-        message: Option<String>,
-        kind: Option<String>,
-        code: Option<String>,
-        retryable: Option<bool>,
-        ts: Option<u64>,
-        error: Option<String>,
+/// An error event as posted to `POST /log_error` by any local client.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct PostedErrorEvent {
+    pub variant: Option<String>,
+    pub message: Option<String>,
+    pub kind: Option<String>,
+    pub code: Option<String>,
+    pub retryable: Option<bool>,
+    pub ts: Option<u64>,
+    pub error: Option<String>,
+}
+
+/// Normalise, redact and append a posted event to the metrics sink.
+///
+/// # Errors
+/// Fails when the metrics file cannot be written.
+pub fn append_posted_event(event: PostedErrorEvent) -> std::io::Result<()> {
+    let ts = event.ts.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    });
+    let kind = event
+        .kind
+        .or(event.variant)
+        .unwrap_or_else(|| "External".to_string());
+    // Posted events are masked here too: any local client can post.
+    let message = contract::redact_for_metrics(&event.error.or(event.message).unwrap_or_default());
+    let code = event
+        .code
+        .unwrap_or_else(|| format!("susi.{}", kind.to_lowercase()));
+    let entry = serde_json::json!({
+        "ts": ts,
+        "error": message,
+        "kind": kind,
+        "code": code,
+        "retryable": event.retryable.unwrap_or(false),
+    });
+    sink::append_metrics_line(&error_metrics_path(), &entry)
+}
+
+/// The newest `limit` (≤ 500) metrics entries, newest first. Bounded: never
+/// reads more than the last 512 KiB of the (capped, rotated) file.
+#[must_use]
+pub fn recent_error_entries(limit: usize) -> Vec<serde_json::Value> {
+    use std::io::{Read, Seek, SeekFrom};
+    let limit = limit.min(500);
+    let path = error_metrics_path();
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return Vec::new();
+    };
+    let Ok(mut f) = std::fs::File::open(&path) else {
+        return Vec::new();
+    };
+    let skip = meta.len().saturating_sub(512 * 1024);
+    let mut buf = String::new();
+    if f.seek(SeekFrom::Start(skip)).is_err() || f.read_to_string(&mut buf).is_err() {
+        return Vec::new();
     }
-
-    async fn log_error(Json(event): Json<ErrorEvent>) -> StatusCode {
-        let ts = event.ts.unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0)
-        });
-        let kind = event
-            .kind
-            .or(event.variant)
-            .unwrap_or_else(|| "External".to_string());
-        // Posted events are masked here too: any local client can post.
-        let message =
-            crate::contract::redact_for_metrics(&event.error.or(event.message).unwrap_or_default());
-        let code = event
-            .code
-            .unwrap_or_else(|| format!("susi.{}", kind.to_lowercase()));
-
-        let entry = serde_json::json!({
-            "ts": ts,
-            "error": message,
-            "kind": kind,
-            "code": code,
-            "retryable": event.retryable.unwrap_or(false),
-        });
-
-        match crate::sink::append_metrics_line(&error_metrics_path(), &entry) {
-            Ok(()) => StatusCode::NO_CONTENT,
-            Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        }
+    // Starting mid-file leaves a partial first line — drop it.
+    let mut lines: Vec<&str> = buf.lines().collect();
+    if skip > 0 && !lines.is_empty() {
+        lines.remove(0);
     }
-
-    #[derive(Deserialize)]
-    struct RecentQuery {
-        n: Option<usize>,
-    }
-
-    /// `GET /errors/recent?n=<limit>` — the read side of the metrics
-    /// sink. Bounded: never reads more than the last 512 KiB of the
-    /// (capped, rotated) file, never returns more than 500 entries.
-    async fn recent_errors(Query(q): Query<RecentQuery>) -> Json<serde_json::Value> {
-        let limit = q.n.unwrap_or(50).min(500);
-        let path = error_metrics_path();
-        let entries: Vec<serde_json::Value> = std::fs::metadata(&path)
-            .ok()
-            .and_then(|m| {
-                use std::io::{Read, Seek, SeekFrom};
-                let mut f = std::fs::File::open(&path).ok()?;
-                let skip = m.len().saturating_sub(512 * 1024);
-                if f.seek(SeekFrom::Start(skip)).is_err() {
-                    return None;
-                }
-                let mut buf = String::new();
-                if f.read_to_string(&mut buf).is_err() {
-                    return None;
-                }
-                // Starting mid-file leaves a partial first line — drop it.
-                let mut lines: Vec<&str> = buf.lines().collect();
-                if skip > 0 && !lines.is_empty() {
-                    lines.remove(0);
-                }
-                Some(
-                    lines
-                        .iter()
-                        .rev()
-                        .take(limit)
-                        .filter_map(|l| serde_json::from_str(l).ok())
-                        .collect(),
-                )
-            })
-            .unwrap_or_default();
-        Json(serde_json::json!({ "entries": entries, "returned": entries.len() }))
-    }
-
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            // Error history can carry paths and details: token-gated.
-            // log_error stays open — best-effort, write-only logging.
-            let app = Router::new()
-                .route(
-                    "/errors/recent",
-                    get(recent_errors).layer(axum::middleware::from_fn(require_bearer)),
-                )
-                .route("/log_error", post(log_error));
-            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-            let listener = tokio::net::TcpListener::bind(addr).await?;
-            eprintln!("susi-error service listening on {addr}");
-            axum::serve(listener, app).await
-        })
+    lines
+        .iter()
+        .rev()
+        .take(limit)
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
 }
 
 #[cfg(test)]

@@ -159,7 +159,7 @@ mod tests {
 
         for src in [&a, &b] {
             assert!(
-                syn::parse_file(src).is_ok(),
+                susi_vendor_syn::is_valid_rust(src),
                 "synthesized reflex source failed to parse as valid Rust:\n{}",
                 src
             );
@@ -175,7 +175,7 @@ mod tests {
         // An intent containing a quote must not break the embedded string literal.
         let src = ReflexSynthesizer::generate_reflex_source(r#"weird "intent" with quotes"#);
         assert!(
-            syn::parse_file(&src).is_ok(),
+            susi_vendor_syn::is_valid_rust(&src),
             "hostile intent text broke the generated source:\n{}",
             src
         );

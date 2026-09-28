@@ -11,25 +11,8 @@
 use crate::susi_core::provider::{BoxFuture, Provider};
 use crate::susi_error::{EaiError, EaiResult};
 use std::any::Any;
-use std::sync::{Mutex, OnceLock};
 
 pub struct LocalEmbedProvider;
-
-/// One `TextEmbedding` for the process — model load is the expensive part
-/// (ONNX session init), so the first `embed` pays it once and every later
-/// call reuses the warm model. A failed load is cached: a machine that
-/// cannot load the embedder refuses fast instead of retrying per call.
-fn embedder() -> Result<&'static Mutex<fastembed::TextEmbedding>, String> {
-    static MODEL: OnceLock<Result<Mutex<fastembed::TextEmbedding>, String>> = OnceLock::new();
-    MODEL
-        .get_or_init(|| {
-            fastembed::TextEmbedding::try_new(Default::default())
-                .map(Mutex::new)
-                .map_err(|e| format!("embedder unavailable: {e}"))
-        })
-        .as_ref()
-        .map_err(Clone::clone)
-}
 
 impl Provider for LocalEmbedProvider {
     fn name(&self) -> &str {
@@ -49,17 +32,10 @@ impl Provider for LocalEmbedProvider {
     }
 
     fn embed(&self, text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+        // One process-wide model, shared with the semantic index
+        // (`susi_vendor_fastembed`); the first call pays the ONNX load.
         let text = text.to_string();
-        Box::pin(async move {
-            let model = embedder().map_err(EaiError::inference)?;
-            let mut guard = model.lock().unwrap_or_else(|e| e.into_inner());
-            let mut vectors = guard
-                .embed(vec![text], None)
-                .map_err(|e| EaiError::inference(format!("embed failed: {e}")))?;
-            vectors
-                .pop()
-                .ok_or_else(|| EaiError::inference("embedder returned no vector"))
-        })
+        Box::pin(async move { susi_vendor_fastembed::embed_one(&text) })
     }
 
     fn as_any(&self) -> &dyn Any {

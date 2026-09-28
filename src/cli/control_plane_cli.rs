@@ -379,17 +379,5 @@ fn service_run(name: &str, port: Option<u16>) -> anyhow::Result<()> {
         ));
     };
     let port = port.unwrap_or_else(|| svc.port());
-    match name {
-        "susi-paths" => susi_paths::serve(port),
-        "susi-error" => susi_error::serve(port),
-        "susi-config" => susi_config::serve(port),
-        "susi-sandbox" => susi_sandbox::serve(port),
-        "susi-native" => susi_native::serve(port),
-        // `find` above already guarantees membership in LEAF_SERVICES.
-        _ => Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("leaf service '{name}' has no embedded serve entry"),
-        )),
-    }
-    .map_err(anyhow::Error::from)
+    susi_leaf_services::serve(name, port).map_err(anyhow::Error::from)
 }

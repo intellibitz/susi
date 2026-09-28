@@ -15,8 +15,6 @@
 //! Keeping the transport in its own crate gives every caller one compiled
 //! implementation without linking Wasmer into feature planes.
 
-use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::Path;
 use std::time::Duration;
 use susi_error::{EaiError, EaiResult};
@@ -54,27 +52,6 @@ impl WasmHost {
     }
 }
 
-fn addr() -> SocketAddr {
-    let port = std::env::var("SUSI_NATIVE_PORT")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .unwrap_or(DEFAULT_PORT);
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)
-}
-
-fn with_bearer(request: &str) -> String {
-    let token = std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    match (token, request.split_once("\r\n")) {
-        (Some(token), Some((line, rest))) => {
-            format!("{line}\r\nAuthorization: Bearer {token}\r\n{rest}")
-        }
-        _ => request.to_string(),
-    }
-}
-
 fn error_message(head: &str, message: String) -> String {
     if !message.is_empty() {
         return message;
@@ -88,31 +65,26 @@ fn error_message(head: &str, message: String) -> String {
 }
 
 fn execute(wasm_path: &Path, arg: &str) -> Option<Result<String, String>> {
+    use susi_paths::loopback::{self, Auth};
     let payload = serde_json::to_string(&serde_json::json!({
         "wasm_path": wasm_path.to_string_lossy(),
         "arg": arg,
     }))
     .ok()?;
-    let request = format!(
-        "POST /wasm/execute HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        payload.len(),
-        payload
-    );
-    let mut stream = TcpStream::connect_timeout(&addr(), WASM_TIMEOUT).ok()?;
-    let _ = stream.set_read_timeout(Some(WASM_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(WASM_TIMEOUT));
-    stream.write_all(with_bearer(&request).as_bytes()).ok()?;
-    let mut response = String::new();
-    stream.read_to_string(&mut response).ok()?;
-    let (head, body) = response.split_once("\r\n\r\n")?;
-    if head.starts_with("HTTP/1.1 2") || head.starts_with("HTTP/1.0 2") {
-        let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let ep = loopback::Endpoint {
+        port: loopback::service_port("SUSI_NATIVE_PORT", DEFAULT_PORT),
+        timeout: WASM_TIMEOUT,
+        auth: Auth::HostToken,
+    };
+    let resp = loopback::request(&ep, "POST", "/wasm/execute", Some(&payload))?;
+    if resp.is_success() {
+        let value: serde_json::Value = serde_json::from_str(&resp.body).ok()?;
         value
             .get("output")
             .and_then(|output| output.as_str())
             .map(|output| Ok(output.to_string()))
     } else {
-        let message = serde_json::from_str::<serde_json::Value>(body)
+        let message = serde_json::from_str::<serde_json::Value>(&resp.body)
             .ok()
             .and_then(|value| {
                 value
@@ -120,8 +92,11 @@ fn execute(wasm_path: &Path, arg: &str) -> Option<Result<String, String>> {
                     .and_then(|error| error.as_str())
                     .map(str::to_string)
             })
-            .unwrap_or_else(|| body.trim().to_string());
-        Some(Err(error_message(head, message)))
+            .unwrap_or_else(|| resp.body.trim().to_string());
+        Some(Err(error_message(
+            &format!("HTTP {}", resp.status),
+            message,
+        )))
     }
 }
 

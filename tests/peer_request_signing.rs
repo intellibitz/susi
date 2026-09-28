@@ -13,64 +13,12 @@
 //! member's registered address are refused, and nonces can't replay.
 
 use std::net::IpAddr;
-use std::path::PathBuf;
 use susi_config::cluster_key;
 use susi_core::commit_log;
 use susi_core::net_guard::{NetGuard, SignedRequest};
 
-/// Env-seamed HOME/XDG; restores prior values on drop.
-struct HomeGuard {
-    tmp: PathBuf,
-    prev_home: Option<std::ffi::OsString>,
-    prev_userprofile: Option<std::ffi::OsString>,
-    prev_xdg: Option<std::ffi::OsString>,
-}
-
-impl HomeGuard {
-    fn new() -> Self {
-        let tmp = std::env::temp_dir().join(format!(
-            "susi_rsig_it_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(tmp.join(".susi")).unwrap();
-        let g = Self {
-            prev_home: std::env::var_os("HOME"),
-            prev_userprofile: std::env::var_os("USERPROFILE"),
-            prev_xdg: std::env::var_os("XDG_CONFIG_HOME"),
-            tmp,
-        };
-        std::env::set_var("HOME", &g.tmp);
-        std::env::set_var("USERPROFILE", &g.tmp);
-        std::env::set_var("XDG_CONFIG_HOME", g.tmp.join("xdg"));
-        g
-    }
-    fn config(&self) -> PathBuf {
-        self.tmp.join(".susi")
-    }
-}
-
-impl Drop for HomeGuard {
-    fn drop(&mut self) {
-        match &self.prev_home {
-            Some(v) => std::env::set_var("HOME", v),
-            None => std::env::remove_var("HOME"),
-        }
-        match &self.prev_userprofile {
-            Some(v) => std::env::set_var("USERPROFILE", v),
-            None => std::env::remove_var("USERPROFILE"),
-        }
-        match &self.prev_xdg {
-            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-        let _ = std::fs::remove_dir_all(&self.tmp);
-    }
-}
+mod common;
+use common::HomeGuard;
 
 const UNSIGNED: SignedRequest<'static> = SignedRequest {
     node: None,
@@ -136,7 +84,7 @@ fn bound_member_authenticates_by_signature_and_loses_bearer() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("rsig");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xCCu8; 32])).unwrap();
 
@@ -202,7 +150,7 @@ fn v2_body_bound_signature_rejects_substituted_content() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("rsig");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xCEu8; 32])).unwrap();
 
@@ -244,7 +192,7 @@ fn unbound_member_keeps_bearer_and_unknown_signers_fall_through() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("rsig");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xDDu8; 32])).unwrap();
 

@@ -88,9 +88,9 @@ impl ModelManager {
 
     #[allow(clippy::type_complexity)] // one-off function-local cache tuple; a named type would add no clarity
     pub fn scan_system_for_local_models(workspace: &Path) -> Vec<ModelInfo> {
-        static MODEL_SCAN_CACHE: once_cell::sync::Lazy<
+        static MODEL_SCAN_CACHE: std::sync::LazyLock<
             parking_lot::RwLock<Option<(PathBuf, u64, std::time::Instant, Vec<ModelInfo>)>>,
-        > = once_cell::sync::Lazy::new(|| parking_lot::RwLock::new(None));
+        > = std::sync::LazyLock::new(|| parking_lot::RwLock::new(None));
 
         {
             let cache = MODEL_SCAN_CACHE.read();

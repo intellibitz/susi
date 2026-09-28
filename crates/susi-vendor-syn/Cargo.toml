@@ -1,0 +1,13 @@
+[package]
+name = "susi-vendor-syn"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "Rust source analysis (syn): validity, bloat metrics, top-level outline"
+
+[dependencies]
+syn = { version = "3.0.6", features = ["full", "visit"] }
+
+[lints]
+workspace = true

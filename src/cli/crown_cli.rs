@@ -281,7 +281,7 @@ fn sandbox_check(scratch: &Path) -> UspCheck {
     let run = |name: &str, wat: &str| -> Result<String, String> {
         let path = scratch.join(name);
         std::fs::write(&path, wat).map_err(|e| e.to_string())?;
-        susi_native::wasm::WasmHost::execute_untrusted_wasm(&path, "crown")
+        susi_vendor_wasmer::wasm::WasmHost::execute_untrusted_wasm(&path, "crown")
             .map_err(|e| e.to_string())
     };
     match (

@@ -1401,19 +1401,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam"
-version = "0.8.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e71406cd8807725f7ac2f999a4cdd32e98f829fdf65f528343cebf945e41df1e"
-dependencies = [
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-epoch",
- "crossbeam-queue",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1856,15 +1843,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a49173b84e034382284f27f1af4dcbbd231ffa358c0fe316541a7337f376a35"
 dependencies = [
  "dirs-sys 0.4.1",
-]
-
-[[package]]
-name = "directories"
-version = "6.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16f5094c54661b38d03bd7e50df373292118db60b585c08a411c6d840017fe7d"
-dependencies = [
- "dirs-sys 0.5.0",
 ]
 
 [[package]]
@@ -3814,12 +3792,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "md5"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
-
-[[package]]
 name = "measure_time"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4305,7 +4277,7 @@ dependencies = [
  "base16ct",
  "base64 0.22.1",
  "chrono",
- "directories 5.0.1",
+ "directories",
  "flate2",
  "lazy_static",
  "log",
@@ -6246,17 +6218,17 @@ dependencies = [
  "susi-gawd",
  "susi-gemi",
  "susi-gmcp",
- "susi-native",
+ "susi-leaf-services",
  "susi-paths",
  "susi-sandbox",
  "susi-server",
  "susi-tools",
+ "susi-vendor-wasmer",
  "sysinfo",
  "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "winapi",
 ]
 
 [[package]]
@@ -6282,14 +6254,8 @@ name = "susi-agents"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "crossbeam",
- "dashmap",
- "flume",
  "getrandom 0.4.3",
  "libc",
- "parking_lot",
- "proptest",
- "regex",
  "serde",
  "serde_json",
  "susi-config",
@@ -6298,15 +6264,12 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "tokio",
- "tracing",
 ]
 
 [[package]]
 name = "susi-config"
 version = "0.1.0"
 dependencies = [
- "axum",
  "chacha20poly1305",
  "ed25519-dalek",
  "getrandom 0.4.3",
@@ -6317,7 +6280,6 @@ dependencies = [
  "sha2 0.11.0",
  "susi-error",
  "susi-paths",
- "tokio",
  "x25519-dalek",
 ]
 
@@ -6326,7 +6288,6 @@ name = "susi-core"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "crossbeam",
  "dashmap",
  "flume",
  "getrandom 0.4.3",
@@ -6360,7 +6321,6 @@ dependencies = [
  "hex",
  "libc",
  "parking_lot",
- "proptest",
  "rcgen",
  "serde",
  "serde_json",
@@ -6379,12 +6339,10 @@ dependencies = [
  "susi-sandbox-client",
  "susi-server",
  "susi-tools",
+ "susi-vendor-wasmer",
  "tokio",
  "tokio-rustls",
  "tracing",
- "wasm-encoder 0.259.0",
- "wasmer",
- "wasmer-middlewares",
  "winapi",
 ]
 
@@ -6392,8 +6350,6 @@ dependencies = [
 name = "susi-dsh-cell"
 version = "0.14.1"
 dependencies = [
- "proptest",
- "serde",
  "serde_json",
  "susi-abi",
  "tokio",
@@ -6403,28 +6359,19 @@ dependencies = [
 name = "susi-error"
 version = "0.1.0"
 dependencies = [
- "axum",
  "proptest",
  "serde",
  "serde_json",
  "susi-paths",
- "tokio",
 ]
 
 [[package]]
 name = "susi-gawd"
 version = "0.15.2"
 dependencies = [
- "crossbeam",
- "dashmap",
- "flume",
- "parking_lot",
- "proptest",
  "rayon",
- "regex",
  "serde",
  "serde_json",
- "shlex 2.0.1",
  "susi-abi",
  "susi-config",
  "susi-core",
@@ -6435,10 +6382,9 @@ dependencies = [
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",
- "syn 3.0.6",
+ "susi-vendor-syn",
  "tempfile",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -6446,39 +6392,23 @@ name = "susi-gawd-a2a"
 version = "0.1.0"
 dependencies = [
  "axum",
- "crossbeam",
- "dashmap",
- "flume",
- "parking_lot",
- "proptest",
  "ra2a",
- "rayon",
- "regex",
- "serde",
  "serde_json",
- "shlex 2.0.1",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-gawd-agents",
  "susi-http-transport",
- "susi-paths",
  "susi-sandbox-client",
  "tokio",
  "tokio-rustls",
  "tower",
- "tracing",
 ]
 
 [[package]]
 name = "susi-gawd-agents"
 version = "0.1.0"
 dependencies = [
- "crossbeam",
- "dashmap",
- "flume",
- "parking_lot",
- "proptest",
  "rayon",
  "regex",
  "serde",
@@ -6490,25 +6420,18 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "tokio",
- "tracing",
 ]
 
 [[package]]
 name = "susi-gawd-swarm"
 version = "0.1.0"
 dependencies = [
- "crossbeam",
  "dashmap",
  "flume",
- "md5",
  "parking_lot",
- "proptest",
  "rayon",
- "regex",
  "serde",
  "serde_json",
- "shlex 2.0.1",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -6516,7 +6439,6 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -6524,16 +6446,10 @@ name = "susi-gemi"
 version = "0.15.2"
 dependencies = [
  "anyhow",
- "crossbeam",
- "dashmap",
  "flume",
  "hex",
  "indicatif",
- "once_cell",
  "parking_lot",
- "proptest",
- "rayon",
- "regex",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -6558,16 +6474,11 @@ name = "susi-gemi-models"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "crossbeam",
  "dashmap",
- "flume",
  "hex",
  "libc",
- "once_cell",
  "parking_lot",
- "proptest",
  "rayon",
- "regex",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -6578,8 +6489,6 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-candle",
- "tokio",
- "tracing",
  "url",
 ]
 
@@ -6588,11 +6497,7 @@ name = "susi-gmcp"
 version = "0.15.2"
 dependencies = [
  "bytes",
- "crossbeam",
  "dashmap",
- "fastembed",
- "flume",
- "headless_chrome",
  "hex",
  "http-body-util",
  "hyper",
@@ -6600,8 +6505,6 @@ dependencies = [
  "jsonschema",
  "libc",
  "parking_lot",
- "proptest",
- "regex",
  "rmcp",
  "serde",
  "serde_json",
@@ -6613,12 +6516,13 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "syn 3.0.6",
- "tantivy",
+ "susi-vendor-chrome",
+ "susi-vendor-fastembed",
+ "susi-vendor-syn",
+ "susi-vendor-tantivy",
  "tokio",
  "tokio-rustls",
  "tower-service",
- "tracing",
  "url",
 ]
 
@@ -6633,18 +6537,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-native"
+name = "susi-leaf-services"
 version = "0.1.0"
 dependencies = [
  "axum",
  "serde",
  "serde_json",
+ "susi-config",
+ "susi-core",
  "susi-error",
  "susi-paths",
+ "susi-sandbox",
+ "susi-sandbox-client",
+ "susi-vendor-wasmer",
  "tokio",
- "wasmer",
- "wasmer-types",
- "wasmer-wasix",
 ]
 
 [[package]]
@@ -6660,25 +6566,17 @@ dependencies = [
 name = "susi-paths"
 version = "0.1.0"
 dependencies = [
- "axum",
- "directories 6.0.0",
- "serde",
  "serde_json",
- "tokio",
 ]
 
 [[package]]
 name = "susi-sandbox"
 version = "0.1.0"
 dependencies = [
- "axum",
  "bollard",
  "futures",
- "serde",
- "serde_json",
  "susi-config",
  "susi-error",
- "susi-paths",
  "susi-sandbox-client",
  "tokio",
 ]
@@ -6703,22 +6601,15 @@ version = "0.15.2"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "crossbeam",
- "dashmap",
- "flume",
  "http-body-util",
  "hyper",
  "hyper-util",
- "parking_lot",
- "proptest",
- "regex",
  "serde",
  "serde_json",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-http-transport",
- "susi-paths",
  "susi-sandbox-client",
  "tokio",
  "tokio-rustls",
@@ -6731,14 +6622,7 @@ name = "susi-tools"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "crossbeam",
  "dashmap",
- "flume",
- "parking_lot",
- "proptest",
- "regex",
- "reqwest",
- "rmcp",
  "serde",
  "serde_json",
  "susi-config",
@@ -6748,15 +6632,14 @@ dependencies = [
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-mcp",
  "tokio",
- "tracing",
 ]
 
 [[package]]
 name = "susi-universal-cell"
 version = "0.14.1"
 dependencies = [
- "proptest",
  "serde",
  "serde_json",
  "susi-abi",
@@ -6773,6 +6656,61 @@ dependencies = [
  "susi-paths",
  "tokenizers",
  "tracing",
+]
+
+[[package]]
+name = "susi-vendor-chrome"
+version = "0.1.0"
+dependencies = [
+ "headless_chrome",
+ "susi-error",
+]
+
+[[package]]
+name = "susi-vendor-fastembed"
+version = "0.1.0"
+dependencies = [
+ "fastembed",
+ "susi-error",
+]
+
+[[package]]
+name = "susi-vendor-mcp"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "susi-vendor-syn"
+version = "0.1.0"
+dependencies = [
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "susi-vendor-tantivy"
+version = "0.1.0"
+dependencies = [
+ "susi-error",
+ "tantivy",
+]
+
+[[package]]
+name = "susi-vendor-wasmer"
+version = "0.1.0"
+dependencies = [
+ "susi-error",
+ "tracing",
+ "wasm-encoder 0.259.0",
+ "wasmer",
+ "wasmer-middlewares",
+ "wasmer-types",
+ "wasmer-wasix",
 ]
 
 [[package]]

@@ -22,9 +22,15 @@ fn require_egress(url: &str) -> EaiResult<()> {
 fn get_json(url: &str) -> Result<serde_json::Value, String> {
     let call = susi_http_transport::http_call("GET", url, &[("User-Agent", USER_AGENT)], 20, 0)
         .map_err(|e| e.to_string())?;
+    if !(200..300).contains(&call.status) {
+        return Err(format!("HTTP {}", call.status));
+    }
     let bytes = call
         .into_bytes(crate::susi_core::bounded_io::JSON_BODY_CAP)
         .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > crate::susi_core::bounded_io::JSON_BODY_CAP {
+        return Err("response body exceeds JSON cap".into());
+    }
     crate::susi_core::bounded_io::json_capped(
         std::io::Cursor::new(bytes),
         crate::susi_core::bounded_io::JSON_BODY_CAP,

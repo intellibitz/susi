@@ -64,29 +64,35 @@ never consume an unterminated source tail.
 | Crate | Responsibility | Public API (shape) | May import | Must not import | Replaceable at runtime | Owns state | I/O |
 |-------|----------------|--------------------|------------|-----------------|------------------------|------------|-----|
 | `susi-abi` | Swarm OS ABI: AI syscalls, stigmergic pheromones, evidence receipts, wire framing; optional `cell-server` TCP loop | `SyscallOp`, `SwarmPheromone`, `ToolReceipt`, `WireFrame`, `cell_server` (feature) | std, serde, serde_json; tokio behind `cell-server` | all workspace crates | no | no | cell TCP when featured |
-| `susi-paths` | Leaf REST (`:18080`) and its client: XDG / substrate paths + host-contract ports, host bearer helpers | `SusiDirs` (service with local fallback), `ports`, `host_token`/`with_bearer`/`bearer_authorized` | std, directories | everything else | no | no | reads env for XDG |
-| `susi-error` | Leaf REST (`:18081`): stable error model + metrics sink | `EaiError`, `EaiResult`, `rewrap`, metrics sink + service-backed event reporter | `susi-paths`, std, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
+| `susi-paths` | Host path/port contract and its service-backed client (served on `:18080` by `susi-leaf-services`); XDG / substrate paths + host-contract ports, both host bearer policies | `SusiDirs` (service with local fallback), `ports`, `loopback` (the one std-only loopback HTTP/1.0 client every leaf-service client uses: `Endpoint`, `request`, `service_port`, `local_env_override`), `local_paths_json`/`ports_json`, `host_token`/`with_bearer`/`bearer_authorized`/`supervisor_bearer_authorized` | std, serde_json (per-OS user dirs are a std-only `xdg` module) | everything else | no | no | reads env for XDG |
+| `susi-error` | Stable error model + metrics sink (served on `:18081` by `susi-leaf-services`) | `EaiError`, `EaiResult`, `rewrap`, metrics sink, offset-aware service-backed event reporter (`service_port`), `append_posted_event`/`recent_error_entries` | `susi-paths`, std, serde, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
 | `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-adapters-llm` (re-export `inference_wire`); `susi-http-transport` (MCP session client); std, serde, concurrency libs | feature planes; HTTP client crates | providers/tools via registry | process registry | receipt archive paths |
-| `susi-native` | Leaf REST (`:18084`): Wasmer Wasm host | service `WasmHost` | `susi-paths`, `susi-error`; wasmer (service only) | feature planes | Wasm modules | instance | yes |
+| `susi-vendor-wasmer` | The one wasmer crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmer, wasmer-wasix, wasmer-middlewares, wasm-encoder | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmer, feature planes | no | no | loopback HTTP |
-| `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde | HTTP clients, everything above paths/error | no | config files | yes |
-| `susi-sandbox` | Leaf REST (`:18083`): Docker exec (bollard) + ensure/daemon-integrity endpoints; re-exports the client's helpers | `serve`, re-exported `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`; bollard | feature crates | Docker optional | config files | yes |
+| `susi-config` | `SusiConfig` + extension packs + versioned JSON store (served on `:18082` by `susi-leaf-services`) | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP clients, everything above paths/error | no | config files | yes |
+| `susi-sandbox` | Docker (bollard) integration for the `:18083` leaf service (HTTP shell in `susi-leaf-services`); re-exports the client's helpers | `execute_in_docker`, re-exported `SandboxManager`, `manager` | `susi-error`, `susi-config`, `susi-sandbox-client`; bollard, tokio (time) | feature crates | Docker optional | config files | yes |
+| `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox`, `susi-sandbox-client`, `susi-vendor-wasmer`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` (GET/HEAD/DELETE/POST/PUT/PATCH) | `dual_transport`, `http_conn`, `http_call`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
 | `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split + Hugging Face tokenizers | `device`, `qwen2_split`, re-exported `candle_*` / `tokenizers` | candle-core, candle-nn, candle-transformers, tokenizers | all workspace crates | no | process device cache | GPU FFI via Candle |
 | `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies, extractors, `InferenceProtocol`, and `post_json` | `inference_wire` | serde_json, `susi-http-transport` | all workspace crates; ureq/reqwest | no | no | HTTP via transport |
-| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
+| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; `susi-vendor-mcp` (MCP client; lease/handshake budgets from `SusiConfig` in `mcp_budget`) | workspace crates except core/sandbox/native clients; rmcp/reqwest; peers via `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client`; `susi-http-transport` (Devin/Manus) | feature planes; peers via `plane_bus`; reqwest/ureq | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` (device / GGUF inspect / tokenizers); `susi-http-transport` (HF download/discovery) | gemi engines crate; peer feature crates; reqwest/tokenizers | catalogs | cache dirs | yes |
-| `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-vendor-candle`; `susi-http-transport` | peer feature planes; reqwest | providers | model weights | yes |
+| `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` | peer feature planes | providers | model weights | yes |
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client`; `susi-http-transport` (live search / peer HTTP) | peer feature planes; reqwest/ureq | agents | mission-local | yes |
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes; HTTP clients | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` + `susi-http-transport` | peer feature planes; reqwest/ureq | transport | tasks | yes |
 | `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | `susi-gawd-{agents,swarm,a2a}` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client; ra2a/reqwest/axum | no | genome/reflexes | yes |
-| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, `susi-http-transport`, rmcp | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
+| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, `susi-http-transport`, rmcp (server side); optional `susi-vendor-{chrome,tantivy,fastembed}` (`tools-rich`) | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
+| `susi-vendor-mcp` | The MCP client SDK (rmcp) + its reqwest streamable-HTTP transport: pooled connections, connect-failure cooldown, lease-bounded blocking `list_tools_blocking` / `call_blocking_result` over `McpServerConfig` | `McpServerConfig`, blocking calls | rmcp, reqwest, tokio | workspace crates | MCP servers | connection pool | no |
+| `susi-vendor-tantivy` | Full-text `DocIndex` (doc_id/source/content): add, replace, BM25 search, get, enumerate | `DocIndex`, `DocWriter`, `StoredDoc` | `susi-error`; tantivy | workspace crates | no | index dir | no |
+| `susi-vendor-fastembed` | One process-wide fastembed model (ONNX) behind `embed` / `embed_one` | `embed`, `embed_one` | `susi-error`; fastembed (hf-hub + rustls ORT download) | workspace crates | no | model cache | no |
+| `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation and the `ast_analyze` tool | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)` | syn | workspace crates | no | no | no |
+| `susi-vendor-chrome` | Headless Chrome page capture (PNG + DOM) for an already-validated URL | `capture_page`, `PageCapture` | `susi-error`; headless_chrome | workspace crates | Chrome/Chromium | no | no |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery; swarm host (orchestrator / watchdog / identity / scheduler / load balancer / self-healing / queue / TTL / metrics / fallback / gateway / tool cards) wired from `composition` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot` | **all** feature crates + `susi-abi` + server + tools + agents (composition root); `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID | yes |
-| `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
+| `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + `susi-leaf-services` (`service-run`) + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
 peer dependencies** on each other (no `susi-gemi` ↔ `susi-gawd` ↔ `susi-tools`
@@ -356,8 +362,9 @@ service crate, which every consumer depends on (IPC + local fallback).
 - Layer matrix from this document.
 - `ARCHITECTURE.md` documents `plane_bus`.
 - No new unwired `susi-daemon` module: modules unreachable from any production
-  path are a ratchet at **zero** (`UNREACHABLE_DAEMON_MODULES_CEILING`). Wire
-  from `composition` or remove; never add more.
+  path are a ratchet with ceiling **47** (`UNREACHABLE_DAEMON_MODULES_CEILING`).
+  Wire from `composition` or remove; discarded probes and type-only references
+  do not count as production wiring.
 - No new cross-crate `#[path]` mount: 159 existed on 2026-09-28; the count
   may only decrease (142 after `susi-paths` became a crate dependency, 125
   after `susi-error`, 105 after `susi-config`, 94 after
@@ -492,7 +499,7 @@ the same commit as the code.
 | 26 | OpenRouter live `/models` used async reqwest | rewritten onto `http_call` |
 | 27 | `susi-agents` cloud (Devin/Manus) used reqwest blocking | rewritten onto `http_call_with_body` |
 | 28 | `susi-agents` still declared `reqwest` | dropped |
-| 29 | Daemon webhook dispatcher owned a private `ureq::Agent` | posts via transport; `ureq` dropped from `susi-daemon` |
+| 29 | Daemon webhook dispatcher owned a private `ureq::Agent` and did not surface HTTP error statuses | posts via transport; checks 2xx status and logs non-2xx; `ureq` dropped from `susi-daemon` |
 | 30 | Daemon `orchestrator` unreachable from production | constructed in `composition::SwarmHost` |
 | 31 | Daemon `watchdog` unreachable from production | host cell registered on the swarm host |
 | 32 | Daemon `identity` unreachable from production | host cell identity generated and counted |
@@ -512,67 +519,22 @@ the same commit as the code.
 | 46 | Daemon `task_queue`/`ttl`/`metrics` unreachable | held on `SwarmHost` |
 | 47 | Daemon `fallback`/`http_gateway`/`tool_catalog` unreachable | fallback + gateway + builtin cards on snapshot |
 | 48 | Ratchet still allowed ureq on core/adapters/gmcp; ceiling 53 | forbidden list includes core/adapters-llm/gmcp; ceiling 47 |
-| 49 | `admin` unreachable | `AdminServer::default` from composition |
-| 50 | `audit_log` unreachable | `AuditLogger::default` |
-| 51 | `auth` unreachable | `AuthManager::default` |
-| 52 | `auto_tune` unreachable | `advise` from swarm-host wire |
-| 53 | `budget` unreachable | `HierarchicalBudget::default` |
-| 54 | `cas` unreachable | `CasManager::default` |
-| 55 | `code_signing` unreachable | `CodeSigningPolicy::default` |
-| 56 | `consensus` unreachable | `RaftNode::new` for the host |
-| 57 | `contract` unreachable | `ContractManager::default` |
-| 58 | `cost_analyzer` unreachable | `CostAnalyzer::new` |
-| 59 | `discovery` unreachable | in-process `MdnsDiscovery` registry |
-| 60 | `encryption` unreachable | host `Encryptor` |
-| 61 | `event_sourcing` unreachable | `EventStore` on the host |
-| 62 | `causal_ledger` unreachable | `CausalLedger` on the host |
-| 63 | `root_cause` unreachable | `trace_failure` on empty store |
-| 64 | `execution_mode` unreachable | `woken_by` |
-| 65 | `lineage` unreachable | `spawn_child` |
-| 66 | `metrics_export` unreachable | `PrometheusExporter::default` |
-| 67 | `migration` unreachable | `MigrationManager::default` |
-| 68 | `mount` unreachable | `MountManager::default` |
-| 69 | `negotiation` unreachable | `Negotiation::offer` |
-| 70 | `offline_queue` unreachable | `OfflineQueue::default` |
-| 71 | `org_policy` unreachable | `decide` |
-| 72 | `p2p_router` unreachable | `P2pRouter::default` |
-| 73 | `packages` unreachable | `resolve` |
-| 74 | `pubsub` unreachable | `EventBus::default` |
-| 75 | `query_api` unreachable | `query` over empty stores |
-| 76 | `world_model` unreachable | `WorldModel::default` |
-| 77 | `registry` unreachable | `ServiceRegistry::default` |
-| 78 | `replay` unreachable | `ReplayManager::default` |
-| 79 | `scaffold` unreachable | Ops template for `susi-host` |
-| 80 | `schema` unreachable | `PayloadSchema::new` |
-| 81 | `semantic_memory` unreachable | `VectorMemoryStore::default` |
-| 82 | `signal` unreachable | `SignalRouter::default` |
-| 83 | `telemetry_stream` unreachable | `TelemetryManager::default` |
-| 84 | `vfs` unreachable | `VfsManager::default` |
-| 85 | `workloads` unreachable | `complete` gate |
-| 86 | `cell_snapshot` unreachable | type reachable (no mkdir) |
-| 87 | `checkpoint` unreachable | type reachable (no mkdir) |
-| 88 | `fork` unreachable | type reachable (no mkdir) |
-| 89 | `gossip` unreachable | type reachable (no bind) |
-| 90 | `hot_reload` unreachable | type reachable (no Wasmer engine) |
-| 91 | `logger` unreachable | type reachable (no log dir) |
-| 92 | `nat` unreachable | type reachable (no STUN bind) |
-| 93 | `plugins` unreachable | type reachable (no plugin dir) |
-| 94 | `suspend` unreachable | type reachable (no hibernate dir) |
-| 95 | `tool_proxy` unreachable | type reachable (no host exec) |
+| 49 | Reachability ratchet counted discarded probes and type-only references as production wiring | False anchors removed; ceiling remains 47 until modules are functionally integrated or removed |
 | 96 | GEMI `HttpProvider` generate/health/embed used async reqwest | blocking `post_json_timeout` / `http_call` via `spawn_blocking` |
 | 97 | `/models` discovery used a reqwest client | `register_openai_compat_models` uses `http_call` |
 | 98 | `susi-gemi` still declared `reqwest` | dropped |
 | 99 | live_search and MCP catalog fetch still named `http_agent().get` | `http_call` GET |
 | 100 | Ratchet still allowed gemi reqwest | `susi-gemi` on the HTTP-client forbidden list; remaining `reqwest` is `susi-tools` rmcp |
-| 101 | `http_agent()` still returned a public `ureq::Agent` | function removed; callers use `http_call` / `http_call_with_body` |
-| 102 | `HttpCall` had no UTF-8 helper | `into_utf8` bounds the body and decodes |
-| 103 | openai_chat peer POST named `http_agent().post` | `http_post_utf8` over transport |
-| 104 | http-json peer POST named `http_agent().post` | same helper |
-| 105 | A2A peer POST named `http_agent().post` plus signed headers | same helper with bearer + member sig headers |
-| 106 | crates.io scout GET named `http_agent().get` | `http_call` GET + `into_utf8` |
-| 107 | A2A round-trip test named `http_agent().post` | `http_call_with_body` |
-| 108 | Transport still exported `http_agent` from `lib.rs` | dropped from the public surface |
-| 109 | Shared `OnceLock<ureq::Agent>` unused after per-request timeouts | removed with `http_agent` |
-| 110 | No ratchet against naming `ureq::` outside transport | `ureq_types_stay_inside_http_transport` |
-| 111 | ARCHITECTURE crate table still listed `http_agent` | documents `http_call` / `into_utf8` |
-| 112 | Identity/README still described a public agent | Mandate 45 and README say callers never name `ureq::Agent` |
+| 101 | HTTP callers treated non-2xx as transport errors and accepted capped-plus-one bodies | explicitly check 2xx and reject overflow before parsing |
+| 102 | `http_agent()` still returned a public `ureq::Agent` | function removed; callers use `http_call` / `http_call_with_body` |
+| 103 | `HttpCall` had no UTF-8 helper | `into_utf8` bounds the body and decodes |
+| 104 | openai_chat peer POST named `http_agent().post` | `http_post_utf8` over transport |
+| 105 | http-json peer POST named `http_agent().post` | same helper |
+| 106 | A2A peer POST named `http_agent().post` plus signed headers | same helper with bearer + member sig headers |
+| 107 | crates.io scout GET named `http_agent().get` | `http_call` GET + `into_utf8` |
+| 108 | A2A round-trip test named `http_agent().post` | `http_call_with_body` |
+| 109 | Transport still exported `http_agent` from `lib.rs` | dropped from the public surface |
+| 110 | Shared `OnceLock<ureq::Agent>` unused after per-request timeouts | removed with `http_agent` |
+| 111 | No ratchet against naming `ureq::` outside transport | `ureq_types_stay_inside_http_transport` |
+| 112 | ARCHITECTURE crate table still listed `http_agent` | documents `http_call` / `into_utf8` |
+| 113 | Identity/README still described a public agent | Mandate 45 and README say callers never name `ureq::Agent` |

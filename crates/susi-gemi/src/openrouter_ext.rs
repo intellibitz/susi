@@ -75,6 +75,9 @@ fn fetch_live_models(api_key: &str, limit: usize) -> Result<Vec<String>> {
     let bytes = call
         .into_bytes(16 * 1024 * 1024)
         .context("OpenRouter /models body")?;
+    if bytes.len() > 16 * 1024 * 1024 {
+        bail!("OpenRouter /models body exceeds 16 MiB");
+    }
     if !(200..300).contains(&status) {
         let body = String::from_utf8_lossy(&bytes);
         bail!(

@@ -84,7 +84,7 @@ impl GmcpClient {
             let _probe = std::thread::Builder::new()
                 .name("mcp-probe".into())
                 .spawn(move || {
-                    let result = crate::connection::list_tools_blocking(srv);
+                    let result = crate::mcp_budget::list_tools(srv);
                     let _ = tx.send((server_name, result));
                 });
         }
@@ -163,27 +163,35 @@ impl GmcpClient {
                         }
                     }
                     let _guard = FetchGuard;
-                    if let Ok(call) = susi_http_transport::http_call(
+                    let Ok(call) = susi_http_transport::http_call(
                         "GET",
                         &url,
                         &[("User-Agent", "SUSI/0.1")],
                         20,
                         0,
-                    ) {
-                        if let Ok(bytes) = call.into_bytes(16 * 1024 * 1024) {
-                            if let Ok(remote_entries) =
-                                serde_json::from_slice::<Vec<GlobalMcpEntry>>(&bytes)
-                            {
-                                if !remote_entries.is_empty() {
-                                    let _ = crate::susi_config::atomic_write_bytes(
-                                        &reg_p,
-                                        serde_json::to_string_pretty(&remote_entries)
-                                            .unwrap_or_default()
-                                            .as_bytes(),
-                                    );
-                                }
-                            }
-                        }
+                    ) else {
+                        return;
+                    };
+                    if !(200..300).contains(&call.status) {
+                        return;
+                    }
+                    let Ok(bytes) = call.into_bytes(16 * 1024 * 1024) else {
+                        return;
+                    };
+                    if bytes.len() > 16 * 1024 * 1024 {
+                        return;
+                    }
+                    let Ok(remote_entries) = serde_json::from_slice::<Vec<GlobalMcpEntry>>(&bytes)
+                    else {
+                        return;
+                    };
+                    if !remote_entries.is_empty() {
+                        let _ = crate::susi_config::atomic_write_bytes(
+                            &reg_p,
+                            serde_json::to_string_pretty(&remote_entries)
+                                .unwrap_or_default()
+                                .as_bytes(),
+                        );
                     }
                 });
             }
@@ -349,7 +357,7 @@ impl GmcpClient {
             .get(server_name)
             .ok_or_else(|| crate::susi_error::EaiError::protocol("MCP server not configured"))?;
         if tool_name == "*" {
-            return match crate::connection::list_tools_blocking(srv.clone()) {
+            return match crate::mcp_budget::list_tools(srv.clone()) {
                 Ok(tools) if !tools.is_empty() => {
                     let names = tools
                         .iter()
@@ -371,7 +379,7 @@ impl GmcpClient {
         } else {
             serde_json::from_str(args).unwrap_or_else(|_| json!({"input":args}))
         };
-        crate::connection::call_blocking_result(srv.clone(), tool_name.to_owned(), arguments)
+        crate::mcp_budget::call(srv.clone(), tool_name.to_owned(), arguments)
             .map_err(crate::susi_error::EaiError::protocol)
     }
 

@@ -1,0 +1,17 @@
+[package]
+name = "susi-vendor-mcp"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "The MCP client SDK (rmcp) and its reqwest streamable-HTTP transport, behind SUSI-shaped blocking calls"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+rmcp = { version = "3.4.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest", "elicitation"] }
+reqwest = { workspace = true }
+
+[lints]
+workspace = true
