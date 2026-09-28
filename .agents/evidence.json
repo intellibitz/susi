@@ -3404,6 +3404,16 @@
     "label": "Workspace coverage baseline + ratchet fixes",
     "ref": "file://tests/architecture_tests.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-010",
+   "type": "ARCHITECTURE",
+   "milestone": "Coverage burn-down tranche 1 + per-crate floor ratchet. susi-leaf-services 7.6→78.5% (router tests under --all-features: host-token fail-closed, supervisor env policy, docker/native error arms); susi-sandbox 20.9→53.5% (hardened container contract extracted pure + asserted); susi-vendor-mcp 28.1→73.7% (HTTP transport branch, header validation, blocking wrappers); susi-agents 24.8→79.9% (all nine agents.* topics); susi-universal-cell 25.3→74.8% (handle_external success/error/spawn/stderr); susi-vendor-cloud 43.3→85.8% (run/probe/list/apply arms).",
+   "proof": "New jobs: Coverage Ratchet on main runs scripts/coverage-ratchet.sh (llvm-cov, two-pass: workspace default + leaf-services --all-features merge) against .agents/coverage-baseline.json floors — regression fails the gate; floors rise with each tranche. Local ratchet run green (susi-config floor set to fresh measurement 74). cargo test green on all touched crates; fmt clean.",
+   "anchor": {
+    "label": "Per-crate coverage floor ratchet",
+    "ref": "file://scripts/coverage-ratchet.sh"
+   }
   }
  ],
  "epistemic_score": 1.0,

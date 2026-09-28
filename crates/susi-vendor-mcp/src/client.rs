@@ -333,4 +333,114 @@ mod tests {
             assert!(start.elapsed() < Duration::from_secs(1));
         });
     }
+
+    fn http_config(extra: HashMap<String, Value>) -> McpServerConfig {
+        // Port 1 is never bound; connect fails fast against loopback.
+        McpServerConfig {
+            command: "http://127.0.0.1:1".to_string(),
+            args: vec![],
+            env: None,
+            extra,
+        }
+    }
+
+    #[test]
+    fn http_transport_builds_config_and_fails_closed() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let mut extra = HashMap::new();
+            extra.insert("auth_token".to_string(), Value::String("tok".to_string()));
+            extra.insert("headers".to_string(), serde_json::json!({"x-susi": "1"}));
+            let err = connect(&http_config(extra), ())
+                .await
+                .expect_err("port 1 must refuse");
+            assert!(!err.is_empty());
+        });
+    }
+
+    #[test]
+    fn http_transport_rejects_non_string_header_values() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let mut extra = HashMap::new();
+            extra.insert("headers".to_string(), serde_json::json!({"x-susi": 1}));
+            let err = connect(&http_config(extra), ())
+                .await
+                .expect_err("numeric header must be rejected");
+            assert!(err.contains("header values must be strings"));
+        });
+    }
+
+    #[test]
+    fn http_transport_rejects_invalid_header_names() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let mut extra = HashMap::new();
+            extra.insert(
+                "headers".to_string(),
+                serde_json::json!({"bad header name": "v"}),
+            );
+            assert!(connect(&http_config(extra), ()).await.is_err());
+        });
+    }
+
+    #[test]
+    fn http_transport_rejects_unparseable_command_url() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let mut config = http_config(HashMap::new());
+            config.command = "http://".to_string();
+            assert!(connect(&config, ()).await.is_err());
+        });
+    }
+
+    #[test]
+    fn stdio_transport_honours_cwd_workspace_template() {
+        // `{workspace}` resolves to the caller's cwd rather than spawning in a
+        // literal `{workspace}` directory.
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let mut extra = HashMap::new();
+            extra.insert("cwd".to_string(), Value::String("{workspace}".to_string()));
+            let config = McpServerConfig {
+                command: "/nonexistent-susi-test-binary-abc".to_string(),
+                args: vec![],
+                env: None,
+                extra,
+            };
+            assert!(connect(&config, ()).await.is_err());
+        });
+    }
+
+    #[test]
+    fn call_blocking_result_returns_errors_not_panics() {
+        // The cooled config resolves to an immediate cooldown error inside the
+        // spawned task; the wrapper must surface it as Err via the channel.
+        let config = McpServerConfig {
+            command: "/nonexistent-susi-test-binary-xyz".to_string(),
+            args: vec![],
+            env: None,
+            extra: HashMap::new(),
+        };
+        let res = call_blocking_result(
+            config,
+            "any_tool".to_string(),
+            serde_json::json!({}),
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn list_tools_blocking_returns_errors_not_panics() {
+        let config = McpServerConfig {
+            command: "/nonexistent-susi-test-binary-xyz".to_string(),
+            args: vec![],
+            env: None,
+            extra: HashMap::new(),
+        };
+        let res = list_tools_blocking(config, Duration::from_secs(2), Duration::from_secs(2));
+        assert!(res.is_err());
+    }
 }

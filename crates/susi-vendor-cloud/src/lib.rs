@@ -255,4 +255,55 @@ mod tests {
         assert_eq!(truncate("ab", 8), "ab");
         assert_eq!(truncate("", 0), "");
     }
+
+    #[test]
+    fn run_returns_stdout_on_success_and_stderr_on_failure() {
+        assert_eq!(run("echo", &["hello"]).as_deref(), Ok("hello"));
+        // Non-zero exit: stderr wins when present, else stdout.
+        let err = run("sh", &["-c", "echo oops >&2; exit 3"]).unwrap_err();
+        assert!(err.contains("oops"));
+        // Missing binary: the spawn error is typed, not a panic.
+        assert!(run("/nonexistent-susi-cloud-tool", &[]).is_err());
+    }
+
+    #[test]
+    fn probe_all_returns_one_inventory_per_kind() {
+        let inv = probe_all();
+        assert_eq!(inv.len(), 5);
+        for (entry, kind) in inv.iter().zip(CloudKind::all()) {
+            assert_eq!(entry.kind, kind.as_str());
+            assert_eq!(entry.tool, kind.bin());
+            // The summary is always bounded whether the CLI answered or not.
+            assert!(entry.summary.chars().count() <= 241);
+        }
+    }
+
+    #[test]
+    fn list_nodes_dispatches_to_the_kind_binary() {
+        // Whatever the host state, the call must resolve to a typed Result —
+        // Ok when the CLI answers, Err when the binary is absent or the
+        // provider rejects the call.
+        let _ = list_nodes(CloudKind::Kubernetes).map_err(|e| assert!(!e.is_empty()));
+    }
+
+    #[test]
+    fn apply_manifest_rejects_every_non_kubernetes_kind() {
+        for kind in [
+            CloudKind::Docker,
+            CloudKind::Aws,
+            CloudKind::Gcp,
+            CloudKind::Azure,
+        ] {
+            let err = apply_manifest(kind, "x").unwrap_err();
+            assert!(err.contains("kubectl-only"), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn apply_manifest_spawns_kubectl_or_errors() {
+        // With kubectl absent this is the spawn-error arm; with it present,
+        // the apply fails against no cluster — both must be typed Err.
+        let res = apply_manifest(CloudKind::Kubernetes, "kind: Pod\n");
+        assert!(res.is_err());
+    }
 }

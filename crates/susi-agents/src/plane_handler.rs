@@ -224,3 +224,200 @@ impl PlaneHandler for AgentsPlaneHandler {
 pub fn register() {
     PlaneBus::global().register_prefix("agents.", Arc::new(AgentsPlaneHandler));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Isolate the meta registry and the manager's run dirs in a throwaway
+    /// instance root; returns (guard, workspace).
+    fn isolated() -> (std::sync::MutexGuard<'static, ()>, PathBuf) {
+        let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::env::temp_dir().join(format!("susi_plane_test_{}", std::process::id()));
+        std::env::set_var("SUSI_HOME", &root);
+        let ws = root.join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        (guard, ws)
+    }
+
+    fn handler() -> AgentsPlaneHandler {
+        AgentsPlaneHandler
+    }
+
+    #[test]
+    fn unhandled_topic_errors() {
+        let _g = isolated();
+        let err = handler().handle("agents.unknown", json!({})).unwrap_err();
+        assert!(err.contains("agents.unknown"));
+    }
+
+    #[test]
+    fn meta_register_list_and_rank_round_trip() {
+        let (_g, _ws) = isolated();
+        // Missing required profile fields must surface as Err, not panic.
+        assert!(handler()
+            .handle(topics::AGENTS_META_REGISTER, json!({}))
+            .is_err());
+        let profile = json!({
+            "name": "plane-test-agent",
+            "description": "test",
+            "categories": ["test"],
+            "semantic_anchors": ["test"],
+            "base_rank": 0.5
+        });
+        let res = handler()
+            .handle(topics::AGENTS_META_REGISTER, json!({"profile": profile}))
+            .unwrap();
+        assert_eq!(res["ok"], true);
+        // The payload may also be the bare profile (no "profile" wrapper).
+        let profile2 = json!({
+            "name": "plane-test-agent-2",
+            "description": "test",
+            "categories": ["test"],
+            "semantic_anchors": ["test"],
+            "base_rank": 0.4
+        });
+        handler()
+            .handle(topics::AGENTS_META_REGISTER, profile2)
+            .unwrap();
+        let list = handler()
+            .handle(topics::AGENTS_META_LIST, json!({}))
+            .unwrap();
+        let names: Vec<&str> = list
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|a| a["name"].as_str())
+            .collect();
+        assert!(names.contains(&"plane-test-agent"));
+        // Rank update requires a name; a known name mutates and returns ok.
+        assert!(handler()
+            .handle(topics::AGENTS_META_UPDATE_RANK, json!({}))
+            .is_err());
+        let res = handler()
+            .handle(
+                topics::AGENTS_META_UPDATE_RANK,
+                json!({"name": "plane-test-agent", "delta": -0.4}),
+            )
+            .unwrap();
+        assert_eq!(res["ok"], true);
+    }
+
+    #[test]
+    fn external_run_validates_required_fields() {
+        let (_g, ws) = isolated();
+        let ws = ws.to_string_lossy().to_string();
+        let err = handler()
+            .handle(topics::AGENTS_EXTERNAL_RUN, json!({"workspace": ws}))
+            .unwrap_err();
+        assert!(err.contains("agent or run_id"));
+        let err = handler()
+            .handle(
+                topics::AGENTS_EXTERNAL_RUN,
+                json!({"workspace": ws, "agent": "aider"}),
+            )
+            .unwrap_err();
+        assert!(err.contains("prompt"));
+        // An unknown run_id takes the execute arm and must fail typed.
+        assert!(handler()
+            .handle(
+                topics::AGENTS_EXTERNAL_RUN,
+                json!({"workspace": ws, "run_id": "no-such-run"})
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn external_catalog_lists_both_kinds() {
+        let (_g, _ws) = isolated();
+        for kind in ["framework", "execution"] {
+            let res = handler()
+                .handle(topics::AGENTS_EXTERNAL_CATALOG, json!({"kind": kind}))
+                .unwrap();
+            assert!(res.is_array());
+        }
+    }
+
+    #[test]
+    fn external_list_and_runs_respond_against_a_fresh_workspace() {
+        let (_g, ws) = isolated();
+        let ws = ws.to_string_lossy().to_string();
+        let res = handler()
+            .handle(topics::AGENTS_EXTERNAL_LIST, json!({"workspace": ws}))
+            .unwrap();
+        let rows = res.as_array().unwrap();
+        assert!(rows
+            .iter()
+            .all(|r| r.get("prerequisites_present").is_some()));
+        let res = handler()
+            .handle(topics::AGENTS_EXTERNAL_RUNS, json!({"workspace": ws}))
+            .unwrap();
+        assert!(res.is_array());
+    }
+
+    #[test]
+    fn external_logs_requires_run_id() {
+        let (_g, ws) = isolated();
+        assert!(handler()
+            .handle(
+                topics::AGENTS_EXTERNAL_LOGS,
+                json!({"workspace": ws.to_string_lossy()})
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn external_control_requires_task_id_and_dispatches_actions() {
+        let (_g, ws) = isolated();
+        let ws = ws.to_string_lossy().to_string();
+        let err = handler()
+            .handle(topics::AGENTS_EXTERNAL_CONTROL, json!({"workspace": ws}))
+            .unwrap_err();
+        assert!(err.contains("task_id"));
+        // Unknown task ids fail typed across every action arm.
+        for payload in [
+            json!({"workspace": ws, "task_id": "no-such", "action": "logs"}),
+            json!({"workspace": ws, "task_id": "no-such", "action": "cancel"}),
+            json!({"workspace": ws, "task_id": "no-such", "action": "send"}),
+            json!({"workspace": ws, "task_id": "no-such", "action": "status", "refresh": true}),
+            json!({"workspace": ws, "task_id": "no-such"}),
+        ] {
+            assert!(handler()
+                .handle(topics::AGENTS_EXTERNAL_CONTROL, payload)
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn managed_requires_name_and_goal() {
+        let (_g, ws) = isolated();
+        let ws = ws.to_string_lossy().to_string();
+        assert!(handler()
+            .handle(topics::AGENTS_EXTERNAL_MANAGED, json!({"workspace": ws}))
+            .is_err());
+        assert!(handler()
+            .handle(
+                topics::AGENTS_EXTERNAL_MANAGED,
+                json!({"workspace": ws, "name": "nope"})
+            )
+            .is_err());
+        // Unknown managed names fail at resolve, not at spawn.
+        assert!(handler()
+            .handle(
+                topics::AGENTS_EXTERNAL_MANAGED,
+                json!({"workspace": ws, "name": "nope", "goal": "x"})
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn register_wires_the_prefix() {
+        let _g = isolated();
+        register();
+        let res = PlaneBus::global().request(topics::AGENTS_META_LIST, json!({}));
+        assert!(res.is_ok());
+    }
+}

@@ -1,29 +1,16 @@
 //! Docker execution for the `susi-sandbox` service. bollard is linked only
 //! here; every other process reaches it through the sandbox client.
 
+use bollard::models::{ContainerCreateBody, HostConfig};
 use susi_config::SusiConfig;
 use susi_error::{EaiError, EaiResult};
 
-/// Runs `cmd` in the hardened sandbox image and returns its captured output.
-pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
-    use bollard::container::LogOutput;
-    use bollard::models::{ContainerCreateBody, HostConfig};
-    use bollard::query_parameters::{
-        CreateContainerOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
-    };
-    use bollard::Docker;
-    use futures::stream::StreamExt;
-
-    let docker = Docker::connect_with_local_defaults()
-        .map_err(|e| EaiError::process(format!("Docker connection failed: {}", e)))?;
-
-    let sandbox_image = SusiConfig::load_global()
-        .unwrap_or_default()
-        .sandbox_image();
-    // Hardened defaults: no network, drop capabilities, read-only rootfs,
-    // memory cap, auto-remove. Authenticated callers still get a shell
-    // inside the image — isolation limits blast radius, not intent.
-    let config = ContainerCreateBody {
+/// Hardened sandbox container contract: no network, drop capabilities,
+/// read-only rootfs, memory cap, auto-remove. Authenticated callers still get
+/// a shell inside the image — isolation limits blast radius, not intent.
+/// Kept pure so the contract is testable without a docker daemon.
+pub(crate) fn hardened_container_config(sandbox_image: String, cmd: &str) -> ContainerCreateBody {
+    ContainerCreateBody {
         image: Some(sandbox_image),
         cmd: Some(vec!["sh".to_string(), "-c".to_string(), cmd.to_string()]),
         network_disabled: Some(true),
@@ -40,7 +27,25 @@ pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
             ..Default::default()
         }),
         ..Default::default()
+    }
+}
+
+/// Runs `cmd` in the hardened sandbox image and returns its captured output.
+pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
+    use bollard::container::LogOutput;
+    use bollard::query_parameters::{
+        CreateContainerOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
     };
+    use bollard::Docker;
+    use futures::stream::StreamExt;
+
+    let docker = Docker::connect_with_local_defaults()
+        .map_err(|e| EaiError::process(format!("Docker connection failed: {}", e)))?;
+
+    let sandbox_image = SusiConfig::load_global()
+        .unwrap_or_default()
+        .sandbox_image();
+    let config = hardened_container_config(sandbox_image, cmd);
 
     let container = docker
         .create_container(None::<CreateContainerOptions>, config)

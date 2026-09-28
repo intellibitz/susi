@@ -20,6 +20,10 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 
+[dev-dependencies]
+tower = { package = "susi-vendor-tower", path = "../susi-vendor-tower" }
+tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
+
 [features]
 default = []
 service-paths = []

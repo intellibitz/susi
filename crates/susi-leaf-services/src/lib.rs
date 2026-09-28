@@ -131,4 +131,214 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
         assert!(err.to_string().contains("definitely-not-a-service"));
     }
+
+    #[test]
+    fn run_standalone_rejects_names_outside_the_leaf_table() {
+        let err = super::run_standalone("definitely-not-a-service").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+}
+
+/// Router-level tests drive the feature-gated service shells through real
+/// HTTP requests (`tower::ServiceExt::oneshot`) — no listener needed.
+/// `cargo test -p susi-leaf-services --all-features` exercises every router;
+/// a default-feature build compiles this module empty.
+#[cfg(all(
+    test,
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
+mod router_tests {
+    use axum::body::Body;
+    use axum::http::{header::AUTHORIZATION, Request, StatusCode};
+    use tower::ServiceExt;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn get(uri: &str) -> Request<Body> {
+        Request::get(uri).body(Body::empty()).unwrap()
+    }
+
+    fn post_json(uri: &str, json: &str) -> Request<Body> {
+        Request::post(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(json.to_string()))
+            .unwrap()
+    }
+
+    fn bearer(req: Request<Body>, token: &str) -> Request<Body> {
+        let (mut parts, body) = req.into_parts();
+        parts
+            .headers
+            .insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
+        Request::from_parts(parts, body)
+    }
+
+    /// `SUSI_HOME` gives the test a fully isolated substrate root; seeding
+    /// `<root>/api_token` arms the host-token policy.
+    fn isolated_home() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("SUSI_HOME", dir.path());
+        dir
+    }
+
+    fn seed_host_token(home: &std::path::Path, token: &str) {
+        std::fs::write(home.join("api_token"), token).unwrap();
+    }
+
+    async fn status(app: axum::Router, req: Request<Body>) -> StatusCode {
+        app.oneshot(req).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn paths_router_answers_the_contract_without_auth() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _home = isolated_home();
+        assert_eq!(
+            status(super::paths_svc::router(), get("/paths")).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            status(super::paths_svc::router(), get("/ports")).await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn config_router_fails_closed_until_the_host_token_matches() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let home = isolated_home();
+        // No api_token seeded: the write/read policy must fail closed.
+        assert_eq!(
+            status(super::config_svc::router(), get("/config")).await,
+            StatusCode::UNAUTHORIZED
+        );
+        seed_host_token(home.path(), "test-host-token");
+        assert_eq!(
+            status(super::config_svc::router(), get("/config")).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            status(
+                super::config_svc::router(),
+                bearer(get("/config"), "test-host-token")
+            )
+            .await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn error_router_logs_events_and_gates_history() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _home = isolated_home();
+        // SUSI_HOST_TOKEN unset: supervisor policy is open by contract.
+        std::env::remove_var("SUSI_HOST_TOKEN");
+        let logged = status(
+            super::error_svc::router(),
+            post_json(
+                "/log_error",
+                r#"{"message":"router test","crate":"susi-leaf-services"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(logged, StatusCode::NO_CONTENT);
+        assert_eq!(
+            status(super::error_svc::router(), get("/errors/recent?n=5")).await,
+            StatusCode::OK
+        );
+        // With the supervisor token armed, a wrong bearer is rejected.
+        std::env::set_var("SUSI_HOST_TOKEN", "sup-token");
+        assert_eq!(
+            status(
+                super::error_svc::router(),
+                bearer(get("/errors/recent"), "wrong")
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            status(
+                super::error_svc::router(),
+                bearer(get("/errors/recent"), "sup-token")
+            )
+            .await,
+            StatusCode::OK
+        );
+        std::env::remove_var("SUSI_HOST_TOKEN");
+    }
+
+    #[tokio::test]
+    async fn sandbox_router_gates_everything_on_the_host_token() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let home = isolated_home();
+        assert_eq!(
+            status(
+                super::sandbox_svc::router(),
+                post_json("/sandbox/docker_exec", r#"{"cmd":"echo hi"}"#)
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        seed_host_token(home.path(), "test-host-token");
+        // Without a docker daemon the exec surfaces a typed 500, not a panic.
+        std::env::set_var("DOCKER_HOST", "unix:///nonexistent-susi-test.sock");
+        assert_eq!(
+            status(
+                super::sandbox_svc::router(),
+                bearer(
+                    post_json("/sandbox/docker_exec", r#"{"cmd":"echo hi"}"#),
+                    "test-host-token"
+                )
+            )
+            .await,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        // Daemon status over a temp workspace answers a typed bool.
+        assert_eq!(
+            status(
+                super::sandbox_svc::router(),
+                bearer(
+                    get(&format!(
+                        "/daemon/status?workspace={}&global_dir={}",
+                        home.path().join("ws").display(),
+                        home.path().display()
+                    )),
+                    "test-host-token"
+                )
+            )
+            .await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn native_router_executes_reflexes_and_surfaces_errors() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _home = isolated_home();
+        std::env::set_var("SUSI_HOST_TOKEN", "sup-token");
+        assert_eq!(
+            status(
+                super::native_svc::router(),
+                post_json("/wasm/execute", "{}")
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        let res = super::native_svc::router()
+            .oneshot(bearer(
+                post_json(
+                    "/wasm/execute",
+                    r#"{"wasm_path":"/nonexistent/reflex.wasm","arg":""}"#,
+                ),
+                "sup-token",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        std::env::remove_var("SUSI_HOST_TOKEN");
+    }
 }

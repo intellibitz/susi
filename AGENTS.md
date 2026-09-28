@@ -92,6 +92,13 @@ this for the panic-path lints.
   primitives (see `susi-error::redact::prop_tests`).
 - Integration tests live in `tests/`; they carry the panic-capable-macro
   exemption header already.
+- **Coverage ratchet (target 100%)**: `.agents/coverage-baseline.json` pins a
+  per-crate line-coverage floor; `scripts/coverage-ratchet.sh` (CI `Coverage
+  Ratchet` job on `main`) fails when a crate drops below its floor. Raising a
+  floor is done by committing the bump with the tests that earn it —
+  never lower one. Feature-gated code (e.g. `susi-leaf-services` shells) is
+  measured under its own `--all-features` pass; never run workspace-wide
+  `--all-features` (cuda/mkl/metal collide).
 
 ## Verify before pushing
 

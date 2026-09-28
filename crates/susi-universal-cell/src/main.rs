@@ -166,4 +166,67 @@ mod tests {
             assert!(matches!(role_of(bad), SwarmRole::ExternalPeer), "{bad:?}");
         }
     }
+
+    fn manifest(command: &str, args: &[&str]) -> PluginManifest {
+        PluginManifest {
+            name: "test".to_string(),
+            role: "ToolDriver".to_string(),
+            capabilities: vec![],
+            command: command.to_string(),
+            args: args.iter().map(|a| (*a).to_string()).collect(),
+        }
+    }
+
+    fn request(payload: serde_json::Value) -> SyscallRequest {
+        SyscallRequest {
+            id: "req-1".to_string(),
+            caller_id: "test".to_string(),
+            op: susi_abi::syscall::SyscallOp::ToolCall,
+            token: None,
+            workspace: None,
+            payload,
+            timestamp: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_external_returns_stdout_on_success() {
+        let m = manifest("echo", &[]);
+        let res = handle_external(request(serde_json::json!({"k": 1})), &m).await;
+        assert_eq!(res.status, SyscallStatus::Success);
+        assert_eq!(res.id, "req-1");
+        // The JSON payload is appended as the final argument — echo prints it.
+        assert!(res.data["stdout"].as_str().unwrap().contains("\"k\":1"));
+        assert!(res.message.is_none());
+    }
+
+    #[tokio::test]
+    async fn handle_external_marks_nonzero_exit_as_error() {
+        let m = manifest("false", &[]);
+        let res = handle_external(request(serde_json::json!({})), &m).await;
+        assert_eq!(res.status, SyscallStatus::Error);
+        assert_eq!(res.message.as_deref(), Some("Ecosystem execution failed"));
+    }
+
+    #[tokio::test]
+    async fn handle_external_surfaces_spawn_failure() {
+        let m = manifest("/nonexistent-susi-plugin-xyz", &[]);
+        let res = handle_external(request(serde_json::json!({})), &m).await;
+        assert_eq!(res.status, SyscallStatus::Error);
+        assert!(res
+            .message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Failed to spawn ecosystem plugin"));
+    }
+
+    #[tokio::test]
+    async fn handle_external_propagates_stderr() {
+        let m = manifest("sh", &["-c", "echo out; echo err >&2; exit 3"]);
+        let res = handle_external(request(serde_json::json!({})), &m).await;
+        assert_eq!(res.status, SyscallStatus::Error);
+        assert!(res.data["stdout"].as_str().unwrap().contains("out"));
+        assert!(res.data["stderr"].as_str().unwrap().contains("err"));
+        assert_eq!(res.data["code"], serde_json::json!(3));
+    }
 }
