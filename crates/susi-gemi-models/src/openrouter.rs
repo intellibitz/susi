@@ -3,10 +3,10 @@
 //! Catalog ranks are editorial. Paid probe / live `/models` live in
 //! `susi_gemi::openrouter_ext` so this crate never depends on engines HTTP.
 
-use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 use crate::cloud::{effective_inference_endpoints, list_api_key_status, resolve_api_key};
 

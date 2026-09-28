@@ -4,7 +4,7 @@
 //! Paid probe and provider construction stay here so models never depends on engines.
 
 use crate::susi_core::provider::Provider;
-use anyhow::{bail, Context, Result};
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 use susi_gemi_models::coding_models::CodingModelManager;
 
 use crate::http_provider::{HttpProvider, InferenceProtocol};
@@ -34,6 +34,6 @@ pub fn probe(id: &str, prompt: &str) -> Result<String> {
         .context("tokio runtime for model probe")?;
     let text = runtime
         .block_on(provider.generate(prompt))
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        .map_err(|e| susi_error::eai_err!(e.to_string()))?;
     Ok(crate::susi_config::redact_credentials(&text))
 }

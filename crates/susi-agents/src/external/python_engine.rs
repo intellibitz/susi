@@ -1,10 +1,10 @@
 //! Shared E2E helpers for Python agent-engine adapters (doctor / setup / init / bind).
 
 use super::catalog::{definition, Adapter, CatalogKind};
-use anyhow::{bail, Context, Result};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 #[derive(Debug, Clone, Copy)]
 pub struct EngineProfile {

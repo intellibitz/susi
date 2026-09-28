@@ -1,8 +1,8 @@
 //! Native Devin v3 session and Manus v2 task lifecycles.
 use super::{Adapter, AgentManager, RunRecord, RunStatus};
-use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::time::Duration;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 struct Cloud {
     /// Full API root including version prefix, e.g. `https://api.devin.ai/v3`.
@@ -90,7 +90,9 @@ impl Cloud {
         let call =
             susi_http_transport::http_call_with_body(method, &url, &refs, bytes.as_deref(), 30, 0)
                 .map_err(|e| {
-                    anyhow::anyhow!("cloud request failed; outcome may be unknown: {e}")
+                    susi_error::EaiError::internal(format!(
+                        "cloud request failed; outcome may be unknown: {e}"
+                    ))
                 })?;
         let status = call.status;
         let payload = call

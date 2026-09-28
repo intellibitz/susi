@@ -2,12 +2,12 @@
 // 100% Neural implementation - Zero Hardcoded Heuristics.
 
 use super::alpha::SusiAlphaModel;
-use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::LazyLock as Lazy;
+use susi_error::{eai_err as anyhow, EaiResult as Result};
 
 pub struct SusiPulse;
 

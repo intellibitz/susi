@@ -108,7 +108,7 @@ fn is_signed_audit_chain(path: &std::path::Path) -> bool {
 }
 
 mod contract;
-pub use contract::{EaiError, EaiResult};
+pub use contract::{EaiError, EaiResult, ResultExt};
 
 /// Set by [`enter_service_mode`]: the service must not post events to itself.
 static SERVICE_MODE: AtomicBool = AtomicBool::new(false);

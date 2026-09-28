@@ -3,13 +3,13 @@
 //! Catalog ranks are editorial (agentic reasoning / coding / local deploy).
 //! Live probe / HTTP live against Ollama live in `susi_gemi::open_weight_ext`.
 
-use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 use crate::cloud::{is_remote_cloud, resolve_api_key};
 
@@ -276,7 +276,7 @@ impl OpenWeightManager {
         })?;
         crate::susi_config::create_private_dir(&self.root)?;
         crate::susi_config::atomic_write_bytes(&self.preferred_path(), def.id.as_bytes())?;
-        crate::ModelManager::set_selected_model(&def.ollama_tag).map_err(|e| anyhow::anyhow!(e))?;
+        crate::ModelManager::set_selected_model(&def.ollama_tag)?;
         Ok(format!(
             "preferred open-weight model set to {} (ollama tag {})",
             def.id, def.ollama_tag

@@ -219,8 +219,95 @@ impl_from_err!(serde_json::Error, Config);
 // so `susi-error` stays free of inference-framework dependencies.
 impl_from_err!(std::string::FromUtf8Error, Protocol);
 impl_from_err!(std::num::ParseIntError, Protocol);
+impl_from_err!(std::env::VarError, Config);
+impl_from_err!(std::fs::TryLockError, Io);
+impl_from_err!(String, Internal);
+impl_from_err!(&str, Internal);
 
 pub type EaiResult<T> = Result<T, EaiError>;
+
+impl EaiError {
+    /// Prefix the message with `ctx` ("ctx: message"), keeping the kind.
+    /// Rewrites in place — no second metrics event for the same failure.
+    #[must_use]
+    pub fn context(self, ctx: impl fmt::Display) -> Self {
+        let prefix = |msg: String| format!("{ctx}: {msg}");
+        match self {
+            Self::Governance(m, b) => Self::Governance(prefix(m), b),
+            Self::Hardware(m, b) => Self::Hardware(prefix(m), b),
+            Self::Protocol(m, b) => Self::Protocol(prefix(m), b),
+            Self::Inference(m, b) => Self::Inference(prefix(m), b),
+            Self::Sandbox(m, b) => Self::Sandbox(prefix(m), b),
+            Self::Config(m, b) => Self::Config(prefix(m), b),
+            Self::Io(m, b) => Self::Io(prefix(m), b),
+            Self::Network(m, b) => Self::Network(prefix(m), b),
+            Self::Filesystem(m, b) => Self::Filesystem(prefix(m), b),
+            Self::Process(m, b) => Self::Process(prefix(m), b),
+            Self::Authentication(m, b) => Self::Authentication(prefix(m), b),
+            Self::Authorization(m, b) => Self::Authorization(prefix(m), b),
+            Self::Internal(m, b) => Self::Internal(prefix(m), b),
+            Self::Unknown(e, b) => Self::Internal(prefix(e.to_string()), b),
+        }
+    }
+}
+
+/// `anyhow`-style context for results and options, producing [`EaiError`].
+/// An error that already converts into `EaiError` (I/O, JSON, …) keeps
+/// its kind; a `None` becomes `Internal` with the context as the message.
+pub trait ResultExt<T> {
+    /// Attach `ctx` to the failure.
+    ///
+    /// # Errors
+    /// The original failure, as an `EaiError` prefixed with `ctx`.
+    fn context<C: fmt::Display>(self, ctx: C) -> EaiResult<T>;
+
+    /// Attach a lazily built context to the failure.
+    ///
+    /// # Errors
+    /// The original failure, as an `EaiError` prefixed with `f()`.
+    fn with_context<C: fmt::Display, F: FnOnce() -> C>(self, f: F) -> EaiResult<T>;
+}
+
+impl<T, E: Into<EaiError>> ResultExt<T> for Result<T, E> {
+    fn context<C: fmt::Display>(self, ctx: C) -> EaiResult<T> {
+        self.map_err(|e| e.into().context(ctx))
+    }
+
+    fn with_context<C: fmt::Display, F: FnOnce() -> C>(self, f: F) -> EaiResult<T> {
+        self.map_err(|e| e.into().context(f()))
+    }
+}
+
+impl<T> ResultExt<T> for Option<T> {
+    fn context<C: fmt::Display>(self, ctx: C) -> EaiResult<T> {
+        self.ok_or_else(|| EaiError::internal(ctx.to_string()))
+    }
+
+    fn with_context<C: fmt::Display, F: FnOnce() -> C>(self, f: F) -> EaiResult<T> {
+        self.ok_or_else(|| EaiError::internal(f().to_string()))
+    }
+}
+
+/// `EaiError::internal(format!(...))` — the `anyhow!` shape for crates on
+/// the workspace error contract.
+#[macro_export]
+macro_rules! eai_err {
+    ($fmt:literal $($arg:tt)*) => {
+        $crate::EaiError::internal(format!($fmt $($arg)*))
+    };
+    ($err:expr $(,)?) => {
+        $crate::EaiError::internal($err.to_string())
+    };
+}
+
+/// `return Err(EaiError::internal(format!(...)))` — the `anyhow::bail!`
+/// shape for crates on the workspace error contract.
+#[macro_export]
+macro_rules! eai_bail {
+    ($($arg:tt)*) => {
+        return ::core::result::Result::Err($crate::EaiError::internal(format!($($arg)*)))
+    };
+}
 
 #[cfg(test)]
 mod metrics_redaction_tests {

@@ -12,12 +12,12 @@
 //!
 //! Paid probe / `HttpProvider` construction lives in the engines crate
 //! (`susi_gemi::coding_models_ext`) so this models crate never depends on engines.
-use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 use crate::cloud::{is_remote_cloud, resolve_api_key};
 
@@ -182,7 +182,7 @@ impl CodingModelManager {
         let prefer = susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt");
         crate::susi_config::atomic_write_bytes(&prefer, def.id.as_bytes())?;
         // Also set the runtime override to the provider model id for cloud routing.
-        crate::ModelManager::set_selected_model(&def.model).map_err(|e| anyhow::anyhow!(e))?;
+        crate::ModelManager::set_selected_model(&def.model)?;
         Ok(format!(
             "preferred coding model set to {} (api id {})",
             def.id, def.model

@@ -3,12 +3,12 @@
 //! Catalog ranks are editorial industry consensus. Paid/local probe lives in
 //! `susi_gemi::frontier_ext` so this crate never depends on engines HTTP.
 
-use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 use crate::cloud::{is_remote_cloud, resolve_api_key};
 
@@ -238,7 +238,7 @@ impl FrontierManager {
             )?;
         }
         crate::susi_config::atomic_write_bytes(&self.preferred_path(), def.id.as_bytes())?;
-        crate::ModelManager::set_selected_model(&def.model).map_err(|e| anyhow::anyhow!(e))?;
+        crate::ModelManager::set_selected_model(&def.model)?;
         Ok(format!(
             "preferred frontier model set to {} (api id {})",
             def.id, def.model

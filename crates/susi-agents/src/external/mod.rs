@@ -28,7 +28,6 @@ pub use aider::{
     doctor as aider_doctor, setup as aider_setup, status as aider_status,
     AGENT_ID as AIDER_AGENT_ID,
 };
-use anyhow::{bail, Context, Result};
 pub use autogen::PROFILE as AUTOGEN_PROFILE;
 pub use browser_use::{
     doctor as browser_use_doctor, setup as browser_use_setup, status as browser_use_status,
@@ -68,6 +67,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 pub use swe_agent::{
     docker_present, doctor as swe_agent_doctor, setup as swe_agent_setup,
     status as swe_agent_status, AGENT_ID as SWE_AGENT_ID,
@@ -500,10 +500,7 @@ impl AgentManager {
     fn save(&self, run: &RunRecord) -> Result<()> {
         let mut run = run.clone();
         run.updated_at = now();
-        Ok(crate::susi_config::atomic_write_json_pretty(
-            &self.run_dir(&run.id)?.join("run.json"),
-            &run,
-        )?)
+        crate::susi_config::atomic_write_json_pretty(&self.run_dir(&run.id)?.join("run.json"), &run)
     }
 
     fn cancel_requested(&self, id: &str) -> Result<bool> {
@@ -523,7 +520,8 @@ fn now() -> u64 {
 }
 fn unique_id() -> Result<String> {
     let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("task ID entropy: {e}"))?;
+    getrandom::fill(&mut bytes)
+        .map_err(|e| susi_error::EaiError::internal(format!("task ID entropy: {e}")))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 /// Redact credentials on display; raw vendor logs stay in the private run directory.

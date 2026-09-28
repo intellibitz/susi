@@ -15,7 +15,6 @@ susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-anyhow = { workspace = true }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
 sha2 = { workspace = true }

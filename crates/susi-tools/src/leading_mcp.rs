@@ -1,10 +1,10 @@
 //! Durable management of the top MCP tool servers agents call.
-use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 use crate::config::{McpConfig, McpServerConfig};
 use crate::GmcpClient;
@@ -239,7 +239,8 @@ impl LeadingMcpDefinition {
 /// `disable` would then save over every other server.
 fn load_mcp_config() -> Result<McpConfig> {
     let path = GmcpClient::get_config_path();
-    GmcpClient::read_mcp_config(&path).map_err(|code| anyhow::anyhow!("{code}: {}", path.display()))
+    GmcpClient::read_mcp_config(&path)
+        .map_err(|code| susi_error::EaiError::internal(format!("{code}: {}", path.display())))
 }
 
 fn save_mcp_config(config: &McpConfig) -> Result<()> {
@@ -247,7 +248,7 @@ fn save_mcp_config(config: &McpConfig) -> Result<()> {
     if let Some(parent) = path.parent() {
         crate::susi_config::create_private_dir(parent)?;
     }
-    Ok(crate::susi_config::atomic_write_json_pretty(&path, config)?)
+    crate::susi_config::atomic_write_json_pretty(&path, config)
 }
 
 fn env_satisfied(key: &str) -> bool {
@@ -392,10 +393,14 @@ fn user_disabled_path(config_dir: &Path) -> PathBuf {
 fn load_user_disabled(config_dir: &Path) -> Result<Vec<String>> {
     let path = user_disabled_path(config_dir);
     match fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text)
-            .map_err(|e| anyhow::anyhow!("damaged {}: {e}", path.display())),
+        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+            susi_error::EaiError::internal(format!("damaged {}: {e}", path.display()))
+        }),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(anyhow::anyhow!("unreadable {}: {e}", path.display())),
+        Err(e) => Err(susi_error::EaiError::internal(format!(
+            "unreadable {}: {e}",
+            path.display()
+        ))),
     }
 }
 
@@ -405,10 +410,7 @@ fn mark_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
     if !list.iter().any(|x| x == id) {
         list.push(id.to_string());
     }
-    Ok(crate::susi_config::atomic_write_json_pretty(
-        &user_disabled_path(config_dir),
-        &list,
-    )?)
+    crate::susi_config::atomic_write_json_pretty(&user_disabled_path(config_dir), &list)
 }
 
 fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
@@ -419,10 +421,7 @@ fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
         return Ok(());
     }
     crate::susi_config::create_private_dir(config_dir)?;
-    Ok(crate::susi_config::atomic_write_json_pretty(
-        &user_disabled_path(config_dir),
-        &list,
-    )?)
+    crate::susi_config::atomic_write_json_pretty(&user_disabled_path(config_dir), &list)
 }
 
 #[cfg(test)]

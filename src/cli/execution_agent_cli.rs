@@ -13,7 +13,7 @@ pub struct ExecutionAgentPlane {
     /// Optional `SUSI_PROCESS_BANNER` for detached worker processes.
     pub process_banner: Option<&'static str>,
     pub status: fn() -> serde_json::Value,
-    pub doctor: fn() -> Result<String>,
+    pub doctor: fn() -> susi_error::EaiResult<String>,
     pub setup: fn() -> serde_json::Value,
 }
 

@@ -1,6 +1,6 @@
 //! Engines-side OpenRouter helpers (live `/models`, paid probe).
 use crate::susi_core::provider::Provider;
-use anyhow::{bail, Context, Result};
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 use susi_gemi_models::openrouter::{
     attribution_headers, is_openrouter_base, OpenRouterManager, API_BASE,
 };
@@ -31,7 +31,7 @@ pub fn prefer(model: Option<&str>, clear_model: bool) -> Result<String> {
     manager.doctor()?;
     let pin = manager.prefer(model)?;
     let cloud =
-        InferenceRouter::set_preferred_cloud("openrouter").map_err(|e| anyhow::anyhow!(e))?;
+        InferenceRouter::set_preferred_cloud("openrouter").map_err(|e| susi_error::eai_err!(e))?;
     Ok(format!("{pin} | {cloud}"))
 }
 
@@ -48,7 +48,7 @@ pub fn probe(prompt: &str) -> Result<String> {
         .context("tokio runtime for OpenRouter probe")?;
     let text = runtime
         .block_on(provider.generate(prompt))
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        .map_err(|e| susi_error::eai_err!(e.to_string()))?;
     Ok(crate::susi_config::redact_credentials(&text))
 }
 
@@ -70,7 +70,7 @@ fn fetch_live_models(api_key: &str, limit: usize) -> Result<Vec<String>> {
         headers.push(("X-Title", title.as_str()));
     }
     let call = susi_http_transport::http_call("GET", &url, &headers, 30, 0)
-        .map_err(|e| anyhow::anyhow!("OpenRouter /models request: {e}"))?;
+        .map_err(|e| susi_error::eai_err!("OpenRouter /models request: {e}"))?;
     let status = call.status;
     let bytes = call
         .into_bytes(16 * 1024 * 1024)

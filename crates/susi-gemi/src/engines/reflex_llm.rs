@@ -1,9 +1,9 @@
 // SUSI-Reflex: Tier 1 Generative Reflex Engine
 // 100% Rust implementation using Candle for Sub-1B LLM fast-path triage.
 
-use anyhow::{anyhow, Result};
 use std::path::Path;
 use std::sync::OnceLock;
+use susi_error::{eai_err as anyhow, EaiResult as Result};
 
 use super::runtime::InferenceHost;
 use crate::hardware::HardwareProfiler;

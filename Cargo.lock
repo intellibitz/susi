@@ -6253,7 +6253,6 @@ dependencies = [
 name = "susi-agents"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "getrandom 0.4.3",
  "libc",
  "serde",
@@ -6313,7 +6312,6 @@ dependencies = [
 name = "susi-daemon"
 version = "0.15.2"
 dependencies = [
- "anyhow",
  "chacha20poly1305",
  "dashmap",
  "ed25519-dalek",
@@ -6446,7 +6444,6 @@ dependencies = [
 name = "susi-gemi"
 version = "0.15.2"
 dependencies = [
- "anyhow",
  "flume",
  "hex",
  "indicatif",
@@ -6474,7 +6471,6 @@ dependencies = [
 name = "susi-gemi-models"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "dashmap",
  "hex",
  "libc",
@@ -6622,7 +6618,6 @@ dependencies = [
 name = "susi-tools"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "dashmap",
  "serde",
  "serde_json",

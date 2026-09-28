@@ -3,8 +3,8 @@
 //! Task lifecycle reuses [`super::AgentManager`]; this module owns doctor/setup
 //! checks that the generic command adapter cannot express (LLM_* env wiring).
 
-use anyhow::{bail, Result};
 use serde_json::json;
+use susi_error::{eai_bail as bail, EaiResult as Result};
 
 use super::catalog::{definition, resolve_program, CatalogKind};
 
