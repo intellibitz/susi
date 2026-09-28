@@ -18,7 +18,6 @@ use ra2a::server::{a2a_router, ServerState};
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
-use susi_gawd_agents::GawdAgentFleet;
 use tokio_rustls::TlsAcceptor;
 
 use crate::executor::GawdA2AExecutor;
@@ -176,7 +175,7 @@ pub fn serve(
             listener.set_nonblocking(true)?;
             inner.push(tokio::net::TcpListener::from_std(listener)?);
         }
-        let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
+        let executor = GawdA2AExecutor::new();
         let mut card = executor.agent_card();
         // Advertise the absolute endpoint — remote agents need a dialable URL
         // for follow-up JSON-RPC calls, not the relative forms the card
@@ -317,7 +316,7 @@ mod tests {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let addr = runtime.block_on(async {
             let card =
-                crate::executor::GawdA2AExecutor::new(Arc::new(susi_gawd_agents::GawdAgentFleet))
+                crate::executor::GawdA2AExecutor::new()
                     .agent_card();
             let handler = ra2a::server::DefaultRequestHandler::new(Shout, card.clone());
             let app =

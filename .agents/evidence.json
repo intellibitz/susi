@@ -3150,6 +3150,16 @@
       "milestone": "RSI OS isolation iterations 301-400: TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (HMAC-SHA1, MD5 long-term key, 401/438 retry); per-peer gossip MAC plus HMAC-sealed gossip_caps.json; susi os provision probe/list/apply (tick stays version-probe); 9095 stays outside ports::ALL as SWARM_UDP; deleted cell-OS sketches stay deleted and map onto live planes. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "test chore",
+        "ref": "file://crates/susi-gawd-a2a/src/executor.rs"
+      },
+      "id": "EV-2022928-321",
+      "milestone": "Post-run test chore (Claude): full workspace suite run for the first time since the 100 iterations — 4 failures found and fixed, including A2A answering every task with a fabricated completion; Cursor's WIP merged into main.",
+      "proof": "`cargo nextest run --workspace --locked --no-fail-fast` on 9e971376: 994 run, 990 passed, 4 failed, 3 skipped (the #[ignore]d wasm/native-service/repo-audit tests); doc-tests: none exist in any crate. Failures: (1+2) `layer_matrix_forbidden_edges` and `workspace_edges_follow_the_leaf_order` — iterations 37-48 (0c3c4ff1) made `susi-adapters-llm` post over `susi-http-transport` (the edge README documents), but LEAF_RANK had both at rank 2 and the layer matrix forbade the edge; `susi-http-transport` has no SUSI dependencies, so it is now rank 0 and the matrix entry allows it. (3+4) `execute_without_message_reports_failed_task` / `execute_with_non_text_part_reports_failed_task` got `Completed`: `GawdA2AExecutor` routed every A2A task through `GawdAgentFleet::process_request`, which only synthesized an agent list and returned `Ok(\"Processed request with N agents\")` (\"For now, return a simple acknowledgment\") — every task another agent delegated to SUSI over A2A was reported complete with that string as the answer (Mandate 1). Now the executor fails a task with no text part at the protocol edge, and runs the text as a real mission via `plane_bus::gawd::solve_mission` (served by the swarm master) on a dedicated thread, mapping an empty reply (plane unreachable) to `Failed`; the mission runner is injectable (`GawdA2AExecutor::with_runner`) so the protocol mapping is tested without a live plane; the fake `process_request` and the executor's unused fleet field were removed. Merge note: Cursor's uncommitted work in the primary checkout was committed as e87e96d3 and merged with origin/main at the operator's request (75884103; gossip.rs/nat.rs took Cursor's logic, docs unioned, Cursor's colliding EV-2022928-311 renumbered to EV-2022928-320). Result on the combined tree: 994 run, 994 passed, 3 skipped; cargo clippy --workspace --all-targets -D warnings clean.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,
