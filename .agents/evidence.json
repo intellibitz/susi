@@ -3624,6 +3624,16 @@
    "milestone": "The distill stage is proven end to end across process-plane boundaries, not only per crate. New integration test tests/distill_loop_tests.rs::staged_successes_train_publish_and_serve_a_tier0_reflex. It isolates HOME, USERPROFILE, XDG_CONFIG_HOME and XDG_DATA_HOME to a temp root, sets SUSI_TEST_MOCK_INFERENCE, and wires planes with susi_daemon::composition::wire_plane_bus plus the SusiEngineHooks the CLI and daemon use. It then (1) stages 54 successful pairs through the production writer ProtocolKnowledgeBase::stage_distillation_pair, plus one FAILED pair that must not teach; (2) runs ReflexTrainer::audit_distillation_state, which claims the buffer and trains over the plane bus (GEMI_ALPHA_TRAIN) through the held-out gate and publication; (3) asserts the report says distillation completed, the staging buffer was consumed, and distillation_summary shows published=1; (4) loads the published checkpoint from the isolated config dir and asserts it predicts 'ACTION: list_directory' for 'list files in src' with support > 0.9; (5) asserts SusiPulse::reason serves 'ACTION: list_directory ...' from Tier-0. It passed 3 of 3 runs, about 1.7s each. It runs in CI's root-cli shard (-p susi).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "support_matrix degrades on I/O fault",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-014",
+   "milestone": "Fixes a Tier-0 availability regression introduced by EV-CLAUDE-007: support_matrix propagated a replay-file read error with '?', so a replay set that existed but could not be read (permissions, a directory in its place, I/O fault) failed the checkpoint load for every candidate generation and disabled Tier-0 entirely. Now support_matrix returns Option: no replay set or an unreadable one both yield None, which is the confidence-only gate, and the unreadable case constructs an EaiError::io so the degradation reaches the error-metrics sink. Training still errors on an unreadable replay set, which is visible in the distillation log. Test extension in unfamiliar_prompts_are_refused_even_when_confident: the replay file is replaced by a directory, the trained checkpoint still loads, support() is None, and predict_intent still serves 'ACTION: list_directory' for the familiar prompt.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

@@ -581,7 +581,10 @@ only if its nearest trained intent is at cosine ≥ 0.6 (`SUPPORT_MIN`) *and*
 confidence > 0.5. Everyday out-of-distribution prompts measured ≤ 0.52
 against everyday training data, while a paraphrase sharing two of three
 content words sits near 0.67. Checkpoints without a replay set (bootstrap,
-pre-replay) keep the confidence-only gate. The replay file is written
+pre-replay) keep the confidence-only gate, and so does a checkpoint whose
+replay set cannot be read: support is a serving refinement, so an I/O
+fault degrades Tier-0 (recorded in the error-metrics sink) instead of
+failing the checkpoint load and disabling it. The replay file is written
 *before* the bundle publishes, because the bundle's mtime keys the model
 cache and a cached model must not carry a stale support set.
 

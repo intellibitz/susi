@@ -703,17 +703,27 @@ pub struct SusiAlphaModel {
 /// data; a paraphrase sharing two of three content words is ~0.67.
 const SUPPORT_MIN: f32 = 0.6;
 
-fn support_matrix(weights_path: &Path) -> Result<Option<Vec<f32>>> {
-    let replay = load_replay(weights_path)?;
-    if replay.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(
+/// The replay set's features, or `None` (confidence-only gate) when there
+/// is no replay set *or it cannot be read*: the support set is a serving
+/// refinement, and an unreadable file must degrade Tier-0, never disable
+/// it — as an error here would fail the whole checkpoint load.
+fn support_matrix(weights_path: &Path) -> Option<Vec<f32>> {
+    let replay = match load_replay(weights_path) {
+        Ok(replay) => replay,
+        Err(error) => {
+            // Construction records the degradation in the error-metrics sink.
+            let _emit = crate::susi_error::EaiError::io(format!(
+                "reflex support set unavailable, serving on confidence only: {error}"
+            ));
+            return None;
+        }
+    };
+    (!replay.is_empty()).then(|| {
         replay
             .iter()
             .flat_map(|sample| SusiAlphaModel::reflex_features(&sample.intent))
-            .collect(),
-    ))
+            .collect()
+    })
 }
 
 impl SusiAlphaModel {
@@ -765,7 +775,7 @@ impl SusiAlphaModel {
                         .map_err(crate::engines::candle_err::from_candle)?;
                     let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
                         .map_err(crate::engines::candle_err::from_candle)?;
-                    let support = support_matrix(&weights_path)?;
+                    let support = support_matrix(&weights_path);
                     Ok(Self {
                         fc1,
                         fc2,
@@ -1630,6 +1640,21 @@ mod tests {
         assert_eq!(
             SusiAlphaModel::load(fresh.path()).unwrap().support("x"),
             None
+        );
+
+        // An unreadable replay set degrades to the legacy gate; the trained
+        // checkpoint still loads and serves.
+        let filename = crate::susi_sandbox::manager::SusiConfig::load(dir.path())
+            .unwrap()
+            .alpha_weights_filename();
+        let replay = replay_path(&dir.path().join("models").join(filename));
+        std::fs::remove_file(&replay).unwrap();
+        std::fs::create_dir(&replay).unwrap(); // reading a directory fails
+        let degraded = SusiAlphaModel::load(dir.path()).unwrap();
+        assert_eq!(degraded.support("list files in src"), None);
+        assert_eq!(
+            degraded.predict_intent("list files in src").unwrap(),
+            "ACTION: list_directory"
         );
     }
 

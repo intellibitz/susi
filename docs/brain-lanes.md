@@ -56,6 +56,8 @@ One line per landed step, newest last.
 13. End-to-end distill test across the plane bus: staged successes (plus
     a failure that must not teach) → audit → publish → Tier-0 serves
     (`tests/distill_loop_tests.rs`, EV-CLAUDE-013).
+14. An unreadable replay set degrades serving to the confidence gate
+    instead of failing the checkpoint load (Tier-0 stays up; EV-CLAUDE-014).
 
 ## Open questions for the other lane
 
