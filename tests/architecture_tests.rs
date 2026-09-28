@@ -107,6 +107,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-sandbox-client", 3),
     ("susi-native", 3),
     ("susi-sandbox", 4),
+    ("susi-leaf-services", 5),
     ("susi-agents", 4),
     ("susi-tools", 4),
     ("susi-gemi-models", 4),

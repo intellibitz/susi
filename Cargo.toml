@@ -9,6 +9,7 @@ members = [
     "crates/susi-native",
     "crates/susi-native-client",
     "crates/susi-config",
+    "crates/susi-leaf-services",
     "crates/susi-sandbox",
     "crates/susi-sandbox-client",
     "crates/susi-http-transport",
@@ -104,6 +105,7 @@ susi-server = { path = "crates/susi-server" }
 susi-paths = { path = "crates/susi-paths" }
 susi-error = { path = "crates/susi-error" }
 susi-config = { path = "crates/susi-config" }
+susi-leaf-services = { path = "crates/susi-leaf-services" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
@@ -145,6 +147,7 @@ susi-tools = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }
+susi-leaf-services = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

@@ -99,6 +99,7 @@ pub fn http_call(
 
 /// GET/HEAD/DELETE/POST/PUT/PATCH. `body` is sent for methods that carry
 /// one; GET/HEAD ignore it. HTTP error statuses are returned, not `Err`.
+#[allow(clippy::too_many_arguments)] // six independent request facts every caller already has; a params struct would only move the count to all ten call sites
 pub fn http_call_with_body(
     method: &str,
     url: &str,

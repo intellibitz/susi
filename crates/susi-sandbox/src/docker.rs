@@ -5,7 +5,7 @@ use susi_config::SusiConfig;
 use susi_error::{EaiError, EaiResult};
 
 /// Runs `cmd` in the hardened sandbox image and returns its captured output.
-pub(crate) async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
+pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
     use bollard::container::LogOutput;
     use bollard::models::{ContainerCreateBody, HostConfig};
     use bollard::query_parameters::{

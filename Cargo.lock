@@ -6246,6 +6246,7 @@ dependencies = [
  "susi-gawd",
  "susi-gemi",
  "susi-gmcp",
+ "susi-leaf-services",
  "susi-native",
  "susi-paths",
  "susi-sandbox",
@@ -6306,7 +6307,6 @@ dependencies = [
 name = "susi-config"
 version = "0.1.0"
 dependencies = [
- "axum",
  "chacha20poly1305",
  "ed25519-dalek",
  "getrandom 0.4.3",
@@ -6317,7 +6317,6 @@ dependencies = [
  "sha2 0.11.0",
  "susi-error",
  "susi-paths",
- "tokio",
  "x25519-dalek",
 ]
 
@@ -6403,12 +6402,10 @@ dependencies = [
 name = "susi-error"
 version = "0.1.0"
 dependencies = [
- "axum",
  "proptest",
  "serde",
  "serde_json",
  "susi-paths",
- "tokio",
 ]
 
 [[package]]
@@ -6633,15 +6630,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "susi-native"
+name = "susi-leaf-services"
 version = "0.1.0"
 dependencies = [
  "axum",
  "serde",
  "serde_json",
+ "susi-config",
+ "susi-core",
  "susi-error",
+ "susi-native",
  "susi-paths",
+ "susi-sandbox",
+ "susi-sandbox-client",
  "tokio",
+]
+
+[[package]]
+name = "susi-native"
+version = "0.1.0"
+dependencies = [
+ "susi-error",
  "wasmer",
  "wasmer-types",
  "wasmer-wasix",
@@ -6660,25 +6669,18 @@ dependencies = [
 name = "susi-paths"
 version = "0.1.0"
 dependencies = [
- "axum",
  "directories 6.0.0",
- "serde",
  "serde_json",
- "tokio",
 ]
 
 [[package]]
 name = "susi-sandbox"
 version = "0.1.0"
 dependencies = [
- "axum",
  "bollard",
  "futures",
- "serde",
- "serde_json",
  "susi-config",
  "susi-error",
- "susi-paths",
  "susi-sandbox-client",
  "tokio",
 ]
