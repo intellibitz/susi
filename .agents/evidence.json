@@ -3764,6 +3764,16 @@
    "milestone": "Operators can see the Tier-0 model itself, not only its training log. SusiAlphaModel::inventory(global_dir) returns the active checkpoint filename (via the bundle manifest, falling back to the previous generation as load does), vocabulary size against the 128-slot capacity (reclamation starts when full, EV-CLAUDE-012), replay-set sample count and distinct replayed actions. It is read-only: unlike load(), it never publishes a bootstrap model. susi substrate status shows it as reflexes.tier0 next to reflexes.distillation. Verified on a dev build (target/debug/susi) with an isolated HOME/XDG_CONFIG_HOME: it printed checkpoint null, vocabulary 0, capacity 128, replay 0, and no .safetensors file was created. Test: inventory_reports_checkpoint_vocabulary_and_replay (an empty dir reports nothing and creates no models dir; after training on 12 samples over 6 actions it reports a .safetensors checkpoint, vocabulary >= 9, capacity 128, replay_samples 12, replay_actions 6).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "truth GOAL_CONTENT quoted literal",
+    "ref": "file://crates/susi-core/src/truth.rs"
+   },
+   "id": "EV-CLAUDE-028",
+   "milestone": "Write goals with a quoted content literal are now verified by content, not only existence. SusiTruthAgent::verify_mission_reality upgraded a goal's write contract from FileExists to FileContains only when the goal used a colon ('containing: <text>' / 'containing exactly: <text>'). A goal like 'Create a file named q.txt containing \"payload-7\"' therefore passed verification with any content in q.txt. The colon was a deliberate precision guard: unquoted prose such as 'containing the results of the analysis' is a description, not a literal. A quoted string is as explicit as the colon form. Now GOAL_CONTENT also accepts containing (exactly)? followed by a \"...\"/'...'/`...` literal, and unquoted prose without a colon still yields an existence contract. Test: quoted_containing_literal_is_a_content_contract_prose_is_not (wrong content violates the quoted literal; correct content passes; the prose goal passes with arbitrary content). The existing colon-form tests pass (16/16 truth tests).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

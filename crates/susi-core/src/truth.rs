@@ -34,10 +34,16 @@ impl SusiTruthAgent {
             )
             .expect("static goal write pattern")
         });
+        // `containing: <text>` (colon, rest of the goal) or a quoted literal
+        // `containing "<text>"`. Unquoted prose without a colon ("containing
+        // the results of the analysis") is not a literal and stays an
+        // existence contract.
         static GOAL_CONTENT: OnceLock<regex::Regex> = OnceLock::new();
         let goal_content = GOAL_CONTENT.get_or_init(|| {
-            regex::Regex::new(r#"(?i)\bcontaining(?:\s+exactly)?:\s*(.+)$"#)
-                .expect("static goal-content pattern")
+            regex::Regex::new(
+                r#"(?i)\bcontaining(?:\s+exactly)?(?::\s*(.+)$|\s+(?:"([^"]+)"|'([^']+)'|`([^`]+)`))"#,
+            )
+            .expect("static goal-content pattern")
         });
         for capture in goal_file_writes.captures_iter(goal) {
             let path = (1..=4)
@@ -46,7 +52,7 @@ impl SusiTruthAgent {
                 .unwrap_or_default();
             match goal_content
                 .captures(goal)
-                .and_then(|c| c.get(1))
+                .and_then(|c| (1..=4).find_map(|i| c.get(i)))
                 .map(|m| m.as_str().trim().to_string())
             {
                 Some(needle) if !needle.is_empty() => {
@@ -406,6 +412,28 @@ mod tests {
         std::fs::write(ws.0.join("sealed.txt"), "wrong").unwrap();
         assert!(
             SusiTruthAgent::verify_mission_reality(goal, "exec_command", "done", &ws.0).is_err()
+        );
+    }
+
+    #[test]
+    fn quoted_containing_literal_is_a_content_contract_prose_is_not() {
+        let ws = TempWorkspace::new();
+        let quoted = r#"Create a file named q.txt containing "payload-7""#;
+        std::fs::write(ws.0.join("q.txt"), "something else").unwrap();
+        assert!(
+            SusiTruthAgent::verify_mission_reality(quoted, "exec_command", "done", &ws.0).is_err(),
+            "wrong content must violate a quoted literal"
+        );
+        std::fs::write(ws.0.join("q.txt"), "xx payload-7 yy").unwrap();
+        assert!(
+            SusiTruthAgent::verify_mission_reality(quoted, "exec_command", "done", &ws.0).is_ok()
+        );
+
+        // Unquoted prose after "containing" is a description, not a literal.
+        let prose = "Create a file named r.txt containing the results of the analysis";
+        std::fs::write(ws.0.join("r.txt"), "42").unwrap();
+        assert!(
+            SusiTruthAgent::verify_mission_reality(prose, "exec_command", "done", &ws.0).is_ok()
         );
     }
 

@@ -464,8 +464,9 @@ spawns, never `Verified`. Until EV-CLAUDE-019, `sh`, `bash`, `git` and
 `cargo` were allowlisted with any arguments, so `sh -c "rm -rf ."` was a
 valid "probe". `verify_mission_reality`
 mines goal and result text into contracts: write *and* delete claims are
-checked, and a goal's `containing <text>` clause upgrades existence to a
-content assertion. A deletion claim about an absolute or `..`-escaping
+checked, and a goal's `containing: <text>` clause — or a quoted literal,
+`containing "<text>"` (EV-CLAUDE-028) — upgrades existence to a content
+assertion; unquoted prose after "containing" stays an existence check. A deletion claim about an absolute or `..`-escaping
 path is `Unverifiable`: absence outside the workspace is not something the
 registry can vouch for (it used to come back `Verified`).
 

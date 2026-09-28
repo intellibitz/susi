@@ -95,6 +95,9 @@ One line per landed step, newest last.
     (EV-CLAUDE-026).
 27. `susi substrate status` → `reflexes.tier0`: active checkpoint,
     vocabulary fill vs 128 slots, replay size (EV-CLAUDE-027).
+28. Verify: a quoted `containing "X"` goal is a content contract (was
+    existence-only unless written `containing: X`); prose stays existence
+    (EV-CLAUDE-028).
 
 ## Open questions for the other lane
 
