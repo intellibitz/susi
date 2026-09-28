@@ -12,9 +12,15 @@
 use std::sync::{Mutex, OnceLock};
 use susi_error::{EaiError, EaiResult};
 
+type ModelCell = OnceLock<Result<Mutex<fastembed::TextEmbedding>, String>>;
+
+fn model_cell() -> &'static ModelCell {
+    static MODEL: ModelCell = OnceLock::new();
+    &MODEL
+}
+
 fn model() -> EaiResult<&'static Mutex<fastembed::TextEmbedding>> {
-    static MODEL: OnceLock<Result<Mutex<fastembed::TextEmbedding>, String>> = OnceLock::new();
-    MODEL
+    model_cell()
         .get_or_init(|| {
             fastembed::TextEmbedding::try_new(Default::default())
                 .map(Mutex::new)
@@ -22,6 +28,14 @@ fn model() -> EaiResult<&'static Mutex<fastembed::TextEmbedding>> {
         })
         .as_ref()
         .map_err(|e| EaiError::inference(e.clone()))
+}
+
+/// True once a model load was attempted and failed (the failure is
+/// cached for the process). `false` before the first attempt: loading is
+/// lazy, so "not yet loaded" is not "unhealthy".
+#[must_use]
+pub fn load_failed() -> bool {
+    model_cell().get().is_some_and(Result::is_err)
 }
 
 /// Embed each text; one vector per input, in order.

@@ -173,11 +173,12 @@ fn spawn_stun_if_unknown() {
     let _ = std::thread::Builder::new()
         .name("susi-stun".into())
         .spawn(|| {
-            if let Some(planes) = DAEMON_OS.get() {
-                if matches!(planes.nat.status(), crate::nat::NatStatus::Unknown) {
-                    let _ = planes.nat.discover_default();
-                    persist_os_planes_report();
-                }
+            if let Some(planes) = DAEMON_OS
+                .get()
+                .filter(|p| matches!(p.nat.status(), crate::nat::NatStatus::Unknown))
+            {
+                let _ = planes.nat.discover_default();
+                persist_os_planes_report();
             }
         });
 }
@@ -207,16 +208,6 @@ fn activate_host_control_planes() {
             ticks: AtomicU64::new(0),
         }
     });
-    let _ = crate::contract::ContractManager::default();
-    let _ = crate::execution_mode::woken_by(&[], crate::execution_mode::Trigger::Event);
-    let _ = crate::lineage::spawn_child("susi-host", &[], &[], 1, 1);
-    let _ = crate::migration::MigrationManager::default();
-    let _ = crate::mount::MountManager::default();
-    let _ = crate::negotiation::Negotiation::offer("n1", "susi-host", "peer", "task");
-    let _ = crate::offline_queue::OfflineQueue::default();
-    let _ = crate::scaffold::scaffold(crate::scaffold::AgentTemplate::Ops, "susi-host");
-    let _ = crate::signal::SignalRouter::default();
-    let _ = crate::vfs::VfsManager::default();
 }
 
 fn start_os_plane_ticks() {
@@ -244,19 +235,6 @@ fn tick_host_control_planes() {
     let _ = host.admin.get_diagnostics(&host.policy, 1, 0);
     let _ = host.budget.try_spend("susi", "susi", "susi-host", 0);
     let _ = host.cas.put(b"susi-host-heartbeat".to_vec());
-    let _ = crate::auto_tune::advise(
-        &crate::swarm_metrics::SwarmMetricsSnapshot::default(),
-        &crate::sla_monitor::SlaTargets::default(),
-    );
-    let _ = crate::org_policy::decide(&[], "tool:git", None);
-    let _ = crate::packages::resolve(&[], "susi", "0");
-    let _ = crate::workloads::complete(&crate::workloads::WorkloadRun {
-        kind: crate::workloads::WorkloadKind::Engineering,
-        evidence_ids: Vec::new(),
-        citation_count: 0,
-        playbook_steps_completed: 0,
-        regions: Vec::new(),
-    });
     let _ = crate::auto_discovery::reap_exited_cells();
     let _ = os.plugins.list_plugins();
     let _ = host.signal.run_state("susi-host");
