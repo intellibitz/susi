@@ -50,7 +50,7 @@ fn sync_json_version(path: &Path, expected_schema: &str, version: &str) {
     if doc.get("version").and_then(|v| v.as_str()) != Some(version) {
         doc["version"] = Value::String(version.to_string());
         let pretty = serde_json::to_string_pretty(&doc).expect("serialize");
-        fs::write(path, pretty + "\n").expect("write synced version");
+        write_atomic(path, &(pretty + "\n")).expect("write synced version");
     }
 }
 
@@ -74,8 +74,17 @@ fn sync_readme_badge(version: &str) {
     }
     let new_readme = updated.join("\n") + "\n";
     if new_readme != readme_md_raw {
-        let _ = fs::write("README.md", new_readme);
+        let _ = write_atomic(Path::new("README.md"), &new_readme);
     }
+}
+
+/// Write via temp file + rename: the root and `susi-gawd-agents` build
+/// scripts run concurrently and both read these files, so a plain
+/// truncate-then-write could hand the other script a half-written ledger.
+fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    fs::write(&tmp, contents)?;
+    fs::rename(&tmp, path)
 }
 
 /// A bare `cargo build`/`cargo build --release` silently produces a

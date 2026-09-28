@@ -72,9 +72,18 @@ fn load_and_sync_version(path: &Path, expected_schema: &str, version: &str) -> V
     if cur != version {
         doc["version"] = Value::String(version.to_string());
         let pretty = serde_json::to_string_pretty(&doc).expect("serialize");
-        fs::write(path, pretty + "\n").ok();
+        write_atomic(path, &(pretty + "\n")).ok();
     }
     doc
+}
+
+/// Write via temp file + rename: the root and `susi-gawd-agents` build
+/// scripts run concurrently and both read these files, so a plain
+/// truncate-then-write could hand the other script a half-written ledger.
+fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    fs::write(&tmp, contents)?;
+    fs::rename(&tmp, path)
 }
 
 fn require_array<'a>(doc: &'a Value, path: &str) -> &'a Vec<Value> {
@@ -152,7 +161,7 @@ fn sync_readme_badge(readme_path: PathBuf, version: &str) {
     }
     let new_readme = updated.join("\n") + "\n";
     if new_readme != readme_md_raw {
-        let _ = fs::write(readme_path, new_readme);
+        let _ = write_atomic(&readme_path, &new_readme);
     }
 }
 

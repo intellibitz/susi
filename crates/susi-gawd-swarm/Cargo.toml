@@ -4,7 +4,6 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-build = "../susi-gawd-agents/build.rs"
 
 [dependencies]
 susi-core = { workspace = true }
@@ -26,9 +25,6 @@ dashmap = { workspace = true }
 md5 = "0.8.1"
 tracing = { workspace = true }
 shlex = "2.0"
-
-[build-dependencies]
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

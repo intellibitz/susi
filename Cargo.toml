@@ -212,5 +212,51 @@ codegen-units = 1
 debug = "line-tables-only"
 # Optimize dependencies in debug builds. This greatly improves runtime performance of
 # non-release builds without significantly slowing down compilation of the core code!
-[profile.dev.package."*"]
-opt-level = 3
+#
+# `"*"` outranks `[profile.dev.build-override]`, so it also compiles proc-macros
+# at -O3 — code that only runs inside rustc. A cold `cargo build --timings`
+# (28 cores) spent ~1500s of unit time optimizing proc-macros, with
+# syn → serde_derive gating `serde` until t=125s. Named entries beat `"*"`:
+# the proc-macros below each took >=15s at -O3 and go back to rustc's default.
+#
+# headless_chrome is the build's tail: its CDP bindings are one huge crate
+# compiled alone for the last ~50s. -O3 → -O0 cut it 110s → 31s in isolation
+# (codegen 78s → 4s); it drives a browser over a websocket, so its own code
+# speed is not what a dev run waits on.
+[profile.dev.package]
+"*" = { opt-level = 3 }
+headless_chrome = { opt-level = 0 }
+async-trait = { opt-level = 0 }
+bon-macros = { opt-level = 0 }
+bytecheck_derive = { opt-level = 0 }
+bytemuck_derive = { opt-level = 0 }
+clap_derive = { opt-level = 0 }
+curve25519-dalek-derive = { opt-level = 0 }
+derive_more-impl = { opt-level = 0 }
+displaydoc = { opt-level = 0 }
+enum-iterator-derive = { opt-level = 0 }
+enumset_derive = { opt-level = 0 }
+equator-macro = { opt-level = 0 }
+futures-macro = { opt-level = 0 }
+multiversion-macros = { opt-level = 0 }
+num_enum_derive = { opt-level = 0 }
+phf_macros = { opt-level = 0 }
+pin-project-internal = { opt-level = 0 }
+prost-derive = { opt-level = 0 }
+ptr_meta_derive = { opt-level = 0 }
+rkyv_derive = { opt-level = 0 }
+rmcp-macros = { opt-level = 0 }
+schemars_derive = { opt-level = 0 }
+serde_derive = { opt-level = 0 }
+serde_repr = { opt-level = 0 }
+strum_macros = { opt-level = 0 }
+thiserror-impl = { opt-level = 0 }
+tokio-macros = { opt-level = 0 }
+tracing-attributes = { opt-level = 0 }
+typetag-impl = { opt-level = 0 }
+wasmtime-internal-component-macro = { opt-level = 0 }
+yoke-derive = { opt-level = 0 }
+zerocopy-derive = { opt-level = 0 }
+zerofrom-derive = { opt-level = 0 }
+zeroize_derive = { opt-level = 0 }
+zerovec-derive = { opt-level = 0 }
