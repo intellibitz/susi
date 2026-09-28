@@ -89,6 +89,9 @@ fn collect(workspace: &Path) -> serde_json::Value {
             "reflex_dir": susi_paths::SusiDirs::data_dir().join("reflexes"),
             "training_threshold": cfg.reflex_training_threshold(),
             "distillation": susi_gawd::reflex_trainer::distillation_summary(workspace),
+            "tier0": susi_gemi::engines::alpha::SusiAlphaModel::inventory(
+                &susi_paths::SusiDirs::config_dir()
+            ),
         },
         "concurrency": {
             "swarm": "rayon work-stealing",

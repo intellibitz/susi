@@ -93,6 +93,8 @@ One line per landed step, newest last.
 26. Tier-0 serving binds only the exact `list_directory` action to the
     workspace; any action merely containing the name was rewritten
     (EV-CLAUDE-026).
+27. `susi substrate status` → `reflexes.tier0`: active checkpoint,
+    vocabulary fill vs 128 slots, replay size (EV-CLAUDE-027).
 
 ## Open questions for the other lane
 

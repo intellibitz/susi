@@ -644,7 +644,10 @@ samples (`STAGING_CAP`), recording any drop in the error-metrics sink, so
 even a persistently failing trainer cannot grow it without limit.
 `force_train` (operator-requested) bypasses the back-off.
 `susi substrate status` shows the log under `reflexes.distillation` (cycle
-counts by outcome plus the last cycle). `tests/distill_loop_tests.rs` exercises the whole
+counts by outcome plus the last cycle) and the model under `reflexes.tier0`
+(`SusiAlphaModel::inventory`: active checkpoint, vocabulary fill against
+the 128-slot capacity, replay-set samples and distinct actions — read-only,
+never bootstraps a model). `tests/distill_loop_tests.rs` exercises the whole
 stage end to end across the plane bus — production staging writer →
 automatic trainer audit → GEMI training, gate and publication → Tier-0
 serving through `SusiPulse` — under an isolated HOME/XDG root.

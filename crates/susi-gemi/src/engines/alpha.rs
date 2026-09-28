@@ -1121,6 +1121,34 @@ impl SusiAlphaModel {
         Ok(format!(" Held-out gate passed: {summary}."))
     }
 
+    /// Operator view of the published Tier-0 model: active checkpoint,
+    /// vocabulary fill (reclamation starts at `DIM`), and replay-set size.
+    /// Read-only; never publishes a bootstrap model the way `load` does.
+    pub fn inventory(global_dir: &Path) -> serde_json::Value {
+        let Ok(config) = crate::susi_sandbox::manager::SusiConfig::load(global_dir) else {
+            return serde_json::json!({ "error": "config unreadable" });
+        };
+        let weights_path = global_dir
+            .join("models")
+            .join(config.alpha_weights_filename());
+        let checkpoint = match usable_checkpoint(&weights_path) {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => return serde_json::json!({ "error": error.to_string() }),
+        };
+        let replay = load_replay(&weights_path).unwrap_or_default();
+        let replay_actions: std::collections::BTreeSet<String> =
+            replay.iter().map(|s| s.action.to_lowercase()).collect();
+        serde_json::json!({
+            "checkpoint": checkpoint.as_ref().and_then(|(path, _)| {
+                path.file_name().map(|n| n.to_string_lossy().to_string())
+            }),
+            "vocabulary": checkpoint.as_ref().map_or(0, |(_, intents)| intents.len()),
+            "vocabulary_capacity": Self::DIM,
+            "replay_samples": replay.len(),
+            "replay_actions": replay_actions.len(),
+        })
+    }
+
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
         let alpha_filename = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
             .unwrap_or_default()
@@ -1854,6 +1882,31 @@ mod tests {
         let capped = merge_replay(many, Vec::new());
         assert_eq!(capped.len(), REPLAY_CAPACITY);
         assert_eq!(capped[0].intent, "intent 10", "oldest are evicted first");
+    }
+
+    #[test]
+    fn inventory_reports_checkpoint_vocabulary_and_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = SusiAlphaModel::inventory(dir.path());
+        assert_eq!(empty["checkpoint"], serde_json::Value::Null);
+        assert_eq!(empty["replay_samples"], 0);
+        assert!(
+            !dir.path().join("models").exists(),
+            "inventory must not publish a bootstrap model"
+        );
+
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, EVERYDAY);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let inv = SusiAlphaModel::inventory(dir.path());
+        assert!(inv["checkpoint"]
+            .as_str()
+            .unwrap()
+            .ends_with(".safetensors"));
+        assert!(inv["vocabulary"].as_u64().unwrap() >= 9);
+        assert_eq!(inv["vocabulary_capacity"], SusiAlphaModel::DIM);
+        assert_eq!(inv["replay_samples"], EVERYDAY.len());
+        assert_eq!(inv["replay_actions"], 6);
     }
 
     #[test]
