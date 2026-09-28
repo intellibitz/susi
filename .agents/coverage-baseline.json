@@ -39,5 +39,10 @@
   "susi-vendor-wasmer": 83,
   "susi-vendor-web": 58.0,
   "xtask": 29.0
- }
+ },
+ "susi-config": 74,
+ "susi-tools": 59,
+ "susi-gawd": 59,
+ "susi-core": 88.0,
+ "susi-gawd-swarm": 53.0
 }

@@ -234,4 +234,73 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&ws);
     }
+
+    fn gate_workspace(intent: &str, traces: &[(&str, &str)]) -> std::path::PathBuf {
+        let ws = std::env::temp_dir().join(format!(
+            "susi_evo_gate_{}_{}",
+            std::process::id(),
+            intent.len()
+        ));
+        let _ = std::fs::remove_dir_all(&ws);
+        let susi = ws.join(".susi");
+        std::fs::create_dir_all(&susi).unwrap();
+        // Three starts is the frequency floor — the gate decides from there.
+        let entry = serde_json::json!({ "type": "MISSION_START", "details": intent }).to_string();
+        std::fs::write(
+            susi.join("audit.log"),
+            [entry.clone(), entry.clone(), entry].join("\n"),
+        )
+        .unwrap();
+        if !traces.is_empty() {
+            let body: String = traces
+                .iter()
+                .map(|(goal, outcome)| {
+                    serde_json::json!({
+                        "schema_version": 1,
+                        "mission_id": "m",
+                        "goal": goal,
+                        "outcome": outcome,
+                        "route": "swarm",
+                        "tools": [],
+                        "agents": [],
+                        "evidence_entries": 0,
+                        "duration_secs": null,
+                        "timestamp": 1
+                    })
+                    .to_string()
+                        + "\n"
+                })
+                .collect();
+            std::fs::write(susi.join("mission_traces.jsonl"), body).unwrap();
+        }
+        ws
+    }
+
+    #[test]
+    fn failed_intent_is_vetoed_before_synthesis() {
+        let ws = gate_workspace(
+            "vetoed mission intent",
+            &[("vetoed mission intent", "FAILED")],
+        );
+        let report = EvolutionManager::evolve_recurring_intent(&ws).unwrap();
+        assert!(report.contains("VETOED"), "{report}");
+        // A vetoed intent never consumed an attempt slot.
+        assert!(std::fs::read_dir(ws.join("reflexes")).is_err());
+        let log = std::fs::read_to_string(ws.join(".susi/audit.log")).unwrap();
+        assert!(log.contains("EVOLUTION_REFLEX_VETO"), "{log}");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn observed_but_unproven_intent_is_deferred() {
+        let ws = gate_workspace(
+            "deferred mission intent",
+            &[("deferred mission intent", "COMPLETE")],
+        );
+        let report = EvolutionManager::evolve_recurring_intent(&ws).unwrap();
+        assert!(report.contains("DEFERRED"), "{report}");
+        let log = std::fs::read_to_string(ws.join(".susi/audit.log")).unwrap();
+        assert!(log.contains("EVOLUTION_REFLEX_DEFER"), "{log}");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }
