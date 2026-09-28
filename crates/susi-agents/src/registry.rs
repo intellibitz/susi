@@ -156,3 +156,62 @@ impl AgentMetaRegistry {
         agents
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fresh_registry_home() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("susi_agents_test_{}", std::process::id()));
+        std::env::set_var("SUSI_HOME", &dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        guard
+    }
+
+    #[test]
+    fn list_agents_bootstraps_defaults_when_registry_absent() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::new();
+        let agents = reg.list_agents();
+        assert!(!agents.is_empty());
+        assert!(agents.iter().all(|a| !a.name.is_empty()));
+    }
+
+    #[test]
+    fn update_rank_clamps_into_bounds() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::new();
+        let name = reg
+            .list_agents()
+            .first()
+            .map(|a| a.name.clone())
+            .expect("bootstrap agents exist");
+        reg.update_rank(&name, 999.0, "test");
+        let rank = reg
+            .list_agents()
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.base_rank)
+            .unwrap_or(0.0);
+        assert!(rank <= 1.0, "rank {rank} exceeded 1.0");
+        reg.update_rank(&name, -999.0, "test");
+        let rank = reg
+            .list_agents()
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.base_rank)
+            .unwrap_or(1.0);
+        assert!(rank >= 0.1, "rank {rank} fell below 0.1");
+    }
+
+    #[test]
+    fn update_rank_on_unknown_agent_is_a_noop() {
+        let _g = fresh_registry_home();
+        let reg = AgentMetaRegistry::new();
+        let before = reg.list_agents().len();
+        reg.update_rank("no-such-agent", 0.5, "test");
+        assert_eq!(reg.list_agents().len(), before);
+    }
+}

@@ -183,3 +183,52 @@ pub fn http_post_utf8(
     let text = call.into_utf8(max_bytes)?;
     Ok((status, text))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::net::TcpListener;
+
+    /// Serve exactly one canned HTTP response, return its base URL.
+    fn serve_once(response: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    #[test]
+    fn http_call_reports_status_and_headers() {
+        let url =
+            serve_once("HTTP/1.1 201 Created\r\nContent-Length: 2\r\nX-Susi-Marker: yes\r\n\r\nok");
+        let call = http_call("GET", &url, &[], 5, 0).unwrap();
+        assert_eq!(call.status, 201);
+        assert_eq!(call.header("x-susi-marker"), Some("yes"));
+        assert_eq!(call.header("X-SUSI-MARKER"), Some("yes"));
+        assert_eq!(call.into_utf8(16).unwrap(), "ok");
+    }
+
+    #[test]
+    fn non_2xx_status_is_returned_not_raised() {
+        let url = serve_once("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+        let call = http_call("GET", &url, &[], 5, 0).unwrap();
+        assert_eq!(call.status, 404);
+    }
+
+    #[test]
+    fn into_bytes_rejects_bodies_over_the_cap() {
+        let url = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello world");
+        let call = http_call("GET", &url, &[], 5, 0).unwrap();
+        assert!(call.into_bytes(5).is_err());
+        let url = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello world");
+        let call = http_call("GET", &url, &[], 5, 0).unwrap();
+        assert_eq!(call.into_bytes(64).unwrap(), b"hello world");
+    }
+}

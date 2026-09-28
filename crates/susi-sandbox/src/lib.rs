@@ -27,3 +27,19 @@ pub use susi_sandbox_client::{
 
 mod docker;
 pub use docker::execute_in_docker;
+
+#[cfg(test)]
+mod tests {
+    /// With no docker daemon reachable, execution must fail as a typed
+    /// `EaiError`, not panic or block forever.
+    #[test]
+    fn docker_execute_errors_cleanly_without_a_daemon() {
+        std::env::set_var("DOCKER_HOST", "unix:///nonexistent-susi-test.sock");
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let res = rt.block_on(crate::execute_in_docker("echo hi"));
+        assert!(res.is_err());
+    }
+}

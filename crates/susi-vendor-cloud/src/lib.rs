@@ -210,3 +210,49 @@ pub fn apply_manifest(kind: CloudKind, manifest: &str) -> Result<String, String>
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_accepts_every_alias_case_insensitively() {
+        for (token, want) in [
+            ("kubernetes", CloudKind::Kubernetes),
+            ("k8s", CloudKind::Kubernetes),
+            ("Kubectl", CloudKind::Kubernetes),
+            ("docker", CloudKind::Docker),
+            ("aws", CloudKind::Aws),
+            (" gcp ", CloudKind::Gcp),
+            ("gcloud", CloudKind::Gcp),
+            ("google", CloudKind::Gcp),
+            ("azure", CloudKind::Azure),
+            ("AZ", CloudKind::Azure),
+        ] {
+            assert_eq!(CloudKind::parse(token), Ok(want), "token {token}");
+        }
+    }
+
+    #[test]
+    fn parse_rejects_unknown_kinds() {
+        for bad in ["", "heroku", "k8", "cloud", "aws2"] {
+            assert!(CloudKind::parse(bad).is_err(), "token {bad:?}");
+        }
+    }
+
+    #[test]
+    fn all_round_trips_through_parse() {
+        let all = CloudKind::all();
+        assert_eq!(all.len(), 5);
+        for kind in all {
+            assert_eq!(CloudKind::parse(kind.as_str()), Ok(kind));
+        }
+    }
+
+    #[test]
+    fn truncate_clips_at_the_limit() {
+        assert_eq!(truncate("abcdef", 3), "abc");
+        assert_eq!(truncate("ab", 8), "ab");
+        assert_eq!(truncate("", 0), "");
+    }
+}

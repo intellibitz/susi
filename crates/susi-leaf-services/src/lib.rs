@@ -11,6 +11,13 @@
 //! only their own feature so Wasmer and Bollard stay out of unrelated binaries.
 //! The service logic stays in each library as plain functions, so a shell is only routing.
 
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
 mod auth;
 #[cfg(feature = "service-config")]
 mod config_svc;
@@ -23,6 +30,13 @@ mod paths_svc;
 #[cfg(feature = "service-sandbox")]
 mod sandbox_svc;
 
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 /// Serve leaf service `name` on `port` (blocks). Dispatched by the root
@@ -31,6 +45,9 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 /// # Errors
 /// Unknown service name, or the listener cannot bind/serve.
 pub fn serve(name: &str, port: u16) -> std::io::Result<()> {
+    // Zero-feature builds still parse the dispatch table; `port` is used by
+    // every feature-gated arm.
+    let _ = port;
     match name {
         #[cfg(feature = "service-paths")]
         "susi-paths" => run(name, port, paths_svc::router()),
@@ -79,6 +96,13 @@ pub fn run_standalone(name: &str) -> std::io::Result<()> {
 /// Every leaf service also answers an unauthenticated `GET /healthz`
 /// (`{"service": name}`) so supervisors and CI can probe liveness without
 /// the host token.
+#[cfg(any(
+    feature = "service-paths",
+    feature = "service-error",
+    feature = "service-config",
+    feature = "service-sandbox",
+    feature = "service-native"
+))]
 fn run(name: &str, port: u16, app: axum::Router) -> std::io::Result<()> {
     let service = name.to_string();
     let app = app.route(
@@ -97,4 +121,14 @@ fn run(name: &str, port: u16, app: axum::Router) -> std::io::Result<()> {
             eprintln!("{name} service listening on {addr}");
             axum::serve(listener, app).await
         })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unknown_service_name_rejected() {
+        let err = super::serve("definitely-not-a-service", 0).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("definitely-not-a-service"));
+    }
 }

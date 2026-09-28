@@ -58,3 +58,11 @@ pub fn embed_one(text: &str) -> EaiResult<Vec<f32>> {
         .pop()
         .ok_or_else(|| EaiError::inference("embedder returned no vector"))
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn load_failed_is_false_before_any_load_attempt() {
+        assert!(!super::load_failed());
+    }
+}

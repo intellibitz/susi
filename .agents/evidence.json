@@ -3384,6 +3384,16 @@
       "milestone": "Live-search integrations (Open-Meteo weather, DuckDuckGo instant answers) moved out of susi-gawd-agents into crates/susi-vendor-web; susi crates now contain no third-party API endpoints.",
       "proof": "git-moved live_search.rs (361 lines) to susi-vendor-web::live_search; susi-gawd-agents re-exports it pub(crate) so SearchAgent/native.rs compile unchanged; every request stays egress-gated through mac_policy and bounded via susi-http-transport. Audited remaining third-party URLs across non-vendor crates: fleet.rs/mac_policy.rs hold policy/classification constants only (no vendor calls); susi-tools client/registry are SUSI-internal gmcp surfaces; cloud_recovery orchestrates CapabilityRegistry, not cloud SDKs. LEAF_RANK: susi-vendor-web=4, gawd-agents=5, gawd-swarm/gemi=6, gawd-a2a=7, gawd=8, daemon=9, susi=10. cargo check --workspace --all-targets and fmt clean. No tests run per operator instruction.",
       "type": "ARCHITECTURE"
+    },
+    {
+      "anchor": {
+        "label": "Test coverage floor: every non-facade crate carries tests",
+        "ref": "file://tests/architecture_tests.rs"
+      },
+      "id": "EV-DEVIN-008",
+      "milestone": "Test coverage review + floor ratchet. Inventory: ~84k LOC, ~1.1k test fns; zero-test non-facade crates closed: susi-agents (registry rank-clamp/dedup tests), susi-http-transport (loopback HTTP: status/header/non-2xx/byte-cap), susi-leaf-services (dispatch reject + dead-code feature gating fixed), susi-universal-cell (manifest parse + role mapping), susi-sandbox (docker error path), susi-vendor-cloud (CloudKind parse/all/truncate), susi-vendor-fastembed (load_failed), susi-vendor-mcp-server (rmcp surface), susi-vendor-chrome (capability-gap path).",
+      "proof": "cargo llvm-cov installed for real line coverage (baseline run in flight). New ratchet every_non_facade_crate_has_tests passes: all 34 non-facade members contain at least one test; pure re-export facades exempt (7-line pub use). Fixed real dead code found en route: susi-leaf-services auth/run/imports were compiled dead in zero-feature builds \u2014 now feature-gated. cargo check --workspace --all-targets and fmt clean.",
+      "type": "ARCHITECTURE"
     }
   ],
   "epistemic_score": 1.0,

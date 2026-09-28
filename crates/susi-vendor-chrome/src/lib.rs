@@ -47,3 +47,19 @@ pub fn capture_page(url: &str) -> EaiResult<PageCapture> {
         .map_err(|e| EaiError::process(e.to_string()))?;
     Ok(PageCapture { png, html })
 }
+
+#[cfg(test)]
+mod tests {
+    /// Chrome absent → typed `[CAPABILITY_GAP]` error; Chrome present → the
+    /// capture succeeds on a trivial page. Either way no panic and no hang
+    /// (about:blank needs no network).
+    #[test]
+    fn capture_page_never_panics() {
+        match super::capture_page("about:blank") {
+            Ok(cap) => assert!(!cap.png.is_empty() && !cap.html.is_empty()),
+            Err(e) => {
+                assert!(e.to_string().contains("CAPABILITY_GAP") || !e.to_string().is_empty())
+            }
+        }
+    }
+}

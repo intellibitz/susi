@@ -19,6 +19,17 @@ struct PluginManifest {
     args: Vec<String>,
 }
 
+/// Map a manifest role string to the swarm role; anything unrecognized is
+/// an external peer, never silently privileged.
+fn role_of(role: &str) -> SwarmRole {
+    match role {
+        "ToolDriver" => SwarmRole::ToolDriver,
+        "InferenceDriver" => SwarmRole::InferenceDriver,
+        "PlannerCell" => SwarmRole::PlannerCell,
+        _ => SwarmRole::ExternalPeer,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -38,12 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         manifest.name, bind_addr
     );
 
-    let role = match manifest.role.as_str() {
-        "ToolDriver" => SwarmRole::ToolDriver,
-        "InferenceDriver" => SwarmRole::InferenceDriver,
-        "PlannerCell" => SwarmRole::PlannerCell,
-        _ => SwarmRole::ExternalPeer,
-    };
+    let role = role_of(&manifest.role);
 
     let mut cell = SwarmCell::new(
         format!("universal-{}", manifest.name),
@@ -120,5 +126,44 @@ async fn handle_external(req: SyscallRequest, manifest: &PluginManifest) -> Sysc
             latency_us: u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX),
             message: Some(format!("Failed to spawn ecosystem plugin: {}", e)),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_deserializes_full_shape() {
+        let m: PluginManifest = serde_json::from_str(
+            r#"{"name":"aws","role":"ToolDriver","capabilities":["aws.ec2"],"command":"aws","args":["--json"]}"#,
+        )
+        .unwrap();
+        assert_eq!(m.name, "aws");
+        assert_eq!(m.capabilities, vec!["aws.ec2"]);
+        assert_eq!(m.command, "aws");
+    }
+
+    #[test]
+    fn manifest_rejects_malformed_json() {
+        assert!(serde_json::from_str::<PluginManifest>("{}").is_err());
+        assert!(serde_json::from_str::<PluginManifest>("not json").is_err());
+    }
+
+    #[test]
+    fn known_roles_map_to_their_swarm_role() {
+        assert!(matches!(role_of("ToolDriver"), SwarmRole::ToolDriver));
+        assert!(matches!(
+            role_of("InferenceDriver"),
+            SwarmRole::InferenceDriver
+        ));
+        assert!(matches!(role_of("PlannerCell"), SwarmRole::PlannerCell));
+    }
+
+    #[test]
+    fn unknown_roles_fall_back_to_external_peer() {
+        for bad in ["", "root", "Admin", "tooldriver", "SUPERUSER"] {
+            assert!(matches!(role_of(bad), SwarmRole::ExternalPeer), "{bad:?}");
+        }
     }
 }

@@ -1083,6 +1083,47 @@ fn unreachable_daemon_modules_only_decrease() {
     );
 }
 
+/// Coverage floor ratchet: every non-facade crate must contain at least one
+/// test (`#[test]`, `#[tokio::test]`, or `proptest!`). Pure re-export
+/// facades (`susi-vendor-*` crates whose only job is `pub use upstream::*`)
+/// are exempt — they carry no logic; their upstreams are tested upstream.
+/// Implementation vendor crates (wasmer, candle, agents, models, web,
+/// cloud, chrome, mcp-server, …) are NOT exempt: they hold real SUSI code.
+#[test]
+fn every_non_facade_crate_has_tests() {
+    let root = workspace_root();
+    let facades: HashSet<&str> = VENDOR_FACADES.iter().copied().collect();
+    let mut bare = Vec::new();
+    for dir in std::fs::read_dir(root.join("crates")).unwrap().flatten() {
+        let crate_dir = dir.path();
+        if !crate_dir.join("Cargo.toml").exists() {
+            continue;
+        }
+        let name = crate_dir.file_name().unwrap().to_string_lossy().to_string();
+        if facades.contains(name.as_str()) {
+            continue;
+        }
+        let mut text = String::new();
+        let mut files = Vec::new();
+        rust_files(&crate_dir.join("src"), &mut files);
+        rust_files(&crate_dir.join("tests"), &mut files);
+        for f in files {
+            text.push_str(&std::fs::read_to_string(&f).unwrap());
+        }
+        if !["#[test]", "#[tokio::test", "proptest!", "#[rstest]"]
+            .iter()
+            .any(|p| text.contains(p))
+        {
+            bare.push(name);
+        }
+    }
+    bare.sort();
+    assert!(
+        bare.is_empty(),
+        "every non-facade crate must carry tests; these have none: {bare:?}"
+    );
+}
+
 // ── Cross-crate source mount ratchet ────────────────────────────────────
 //
 // A `#[path]` attribute that reaches into another crate's directory compiles
