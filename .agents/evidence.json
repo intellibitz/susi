@@ -3934,6 +3934,16 @@
    "milestone": "Failed missions stop teaching Tier-0 through their tool receipts. EV-CLAUDE-003 filtered mission-trace samples by outcome, but receipt samples (ReceiptArchive: goal -> tool for each successful tool call) are staged at tool-call time, before the mission's outcome exists. A mission that ultimately failed still taught goal -> tool for every tool call that individually succeeded. Now ReflexTrainer::train_claim first runs drop_failed_mission_receipts. It reads the workspace's mission traces (mission_trace::read_all; the latest trace per mission_id wins) and removes claimed samples whose performance_metadata.source is tool_receipt and whose receipt_id session matches a trace recorded as not succeeded. The receipt id is '<session>:<index>' or '<session>:r-<nanos>' (capture.rs), and report.rs writes the trace's mission_id from the same EvidenceSession id. Receipts with no trace yet (outcome unknown) and non-receipt samples are kept; if nothing is left, the claim is retired as untrainable (EV-CLAUDE-017). Test: receipts_from_failed_missions_are_dropped_before_training (traces ok-session COMPLETE and bad-session FAILED; of 5 lines, both bad-session receipts, local and remote id forms, are dropped; ok, unknown and trace samples are kept). Trainer suite 17/17.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "DenseReflex serving",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-040",
+   "milestone": "Tier-0 serving latency cut about 6.5x, restoring margin under the sub-2ms reflex mandate that ReflexEngine audits as LATENCY_VIOLATION. Measured in a release build with a 2,057-row support set (2,100 staged samples), averaged over 400 calls: predict_intent 1.0ms, of which the classifier (predict_intent_with_confidence) was 730us and the support scan 134us. The classifier ran two candle Linear ops, a softmax and a copy-out per prompt, about 33K multiply-adds dominated by per-call tensor overhead. Now SusiAlphaModel holds DenseReflex: w1/b1/w2/b2 extracted once at load from the published Linears, with dimensions checked, and probabilities() computes W*x+b -> ReLU -> W*h+b -> softmax (over all outputs, as before) in plain Rust. The defensive rank-0 branch of the old code is gone. Measured after, same setup: classifier 18us, full predict_intent 155us. Test: dense_serving_matches_the_candle_network (max |diff| < 1e-5 against the candle forward for 4 prompts including the empty one). The alpha suite passed 3 of 3 runs and the distill-loop integration test passes. Training still uses candle (ReflexNet).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

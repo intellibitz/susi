@@ -646,6 +646,11 @@ fires — and otherwise escalates to tiers that read language
 currently registered agent/tool (`action_available`, a 30s capability
 snapshot). Vocabulary slots outlive uninstalled tools, so a model could
 otherwise confidently serve an action nothing can execute (EV-CLAUDE-034).
+Serving stays well inside the sub-2 ms Tier-0 mandate: the published network
+is extracted once at load into plain matrices (`DenseReflex`) and scored in
+Rust — measured (release, 2,057-row support set) at 18 µs for the
+classifier versus 730 µs through Candle's per-call tensors, and 155 µs for a
+full `predict_intent` versus 1.0 ms (EV-CLAUDE-040).
 
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged-or-replayed intents — chosen by a hash of the

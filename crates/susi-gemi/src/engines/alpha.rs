@@ -763,14 +763,80 @@ fn labeled_batch(
 
 /// SUSI-Alpha Intent Classifier (Neural Reflex)
 pub struct SusiAlphaModel {
-    fc1: Linear,
-    fc2: Linear,
+    dense: DenseReflex,
     intents: Vec<String>,
     /// Reflex features of every replayed training intent (flattened
     /// `n × DIM`) and each row's action. `None` when the checkpoint has no
     /// readable replay set (bootstrap or pre-replay checkpoints), which keeps
     /// the confidence-only legacy gate.
     support: Option<SupportSet>,
+}
+
+/// The published reflex network as plain row-major matrices, extracted once
+/// at load. Serving through Candle cost ~730 µs per prompt (release build) —
+/// tensor construction, two `Linear` ops, softmax and copy-out for ~33K
+/// multiply-adds — most of the Tier-0 sub-2 ms budget; this computes the
+/// identical `W·x + b → ReLU → W·h + b → softmax` directly.
+struct DenseReflex {
+    w1: Vec<f32>,
+    b1: Vec<f32>,
+    w2: Vec<f32>,
+    b2: Vec<f32>,
+}
+
+impl DenseReflex {
+    fn from_linears(fc1: &Linear, fc2: &Linear) -> Result<Self> {
+        let flat = |t: &Tensor| -> Result<Vec<f32>> {
+            t.flatten_all()
+                .and_then(|t| t.to_vec1::<f32>())
+                .map_err(crate::engines::candle_err::from_candle)
+        };
+        let bias = |l: &Linear| -> Result<Vec<f32>> {
+            l.bias()
+                .map(flat)
+                .unwrap_or_else(|| Ok(vec![0.0; SusiAlphaModel::DIM]))
+        };
+        let dense = Self {
+            w1: flat(fc1.weight())?,
+            b1: bias(fc1)?,
+            w2: flat(fc2.weight())?,
+            b2: bias(fc2)?,
+        };
+        let dim = SusiAlphaModel::DIM;
+        if dense.w1.len() != dim * dim
+            || dense.w2.len() != dim * dim
+            || dense.b1.len() != dim
+            || dense.b2.len() != dim
+        {
+            return Err(anyhow!("reflex weights are not {dim}x{dim}"));
+        }
+        Ok(dense)
+    }
+
+    /// Softmax over every output, as the Candle path computed it.
+    fn probabilities(&self, x: &[f32]) -> Vec<f32> {
+        let dim = SusiAlphaModel::DIM;
+        let layer = |w: &[f32], b: &[f32], input: &[f32]| -> Vec<f32> {
+            (0..dim)
+                .map(|o| {
+                    b[o] + w[o * dim..(o + 1) * dim]
+                        .iter()
+                        .zip(input)
+                        .map(|(wi, xi)| wi * xi)
+                        .sum::<f32>()
+                })
+                .collect()
+        };
+        let hidden: Vec<f32> = layer(&self.w1, &self.b1, x)
+            .into_iter()
+            .map(|v| v.max(0.0))
+            .collect();
+        let logits = layer(&self.w2, &self.b2, &hidden);
+        let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let exps: Vec<f32> = logits.iter().map(|l| (l - max).exp()).collect();
+        let total: f32 = exps.iter().sum();
+        exps.into_iter().map(|e| e / total).collect()
+    }
 }
 
 struct SupportSet {
@@ -1004,8 +1070,7 @@ impl SusiAlphaModel {
                         .map_err(crate::engines::candle_err::from_candle)?;
                     let support = support_matrix(&weights_path, &intents);
                     Ok(Self {
-                        fc1,
-                        fc2,
+                        dense: DenseReflex::from_linears(&fc1, &fc2)?,
                         intents,
                         support,
                     })
@@ -1032,8 +1097,7 @@ impl SusiAlphaModel {
         publish_checkpoint(&varmap, &weights_path, &intents)?;
 
         Ok(Self {
-            fc1,
-            fc2,
+            dense: DenseReflex::from_linears(&fc1, &fc2)?,
             intents,
             support: None,
         })
@@ -1370,74 +1434,18 @@ impl SusiAlphaModel {
     }
 
     pub fn predict_intent_with_confidence(&self, prompt: &str) -> Result<(String, f32)> {
-        let device = crate::models::hardware::HardwareProfiler::get_candle_device();
-        let input_vec = Self::reflex_features(prompt);
-        let input_tensor = Tensor::from_vec(input_vec, (1, Self::DIM), &device)
-            .map_err(crate::engines::candle_err::from_candle)?;
-
-        let output = self
-            .fc1
-            .forward(&input_tensor)
-            .map_err(crate::engines::candle_err::from_candle)?;
-        let output = output
-            .relu()
-            .map_err(crate::engines::candle_err::from_candle)?;
-        let output = self
-            .fc2
-            .forward(&output)
-            .map_err(crate::engines::candle_err::from_candle)?;
-
-        let probs =
-            candle_nn::ops::softmax(&output, 1).map_err(crate::engines::candle_err::from_candle)?;
-
-        // Absolute Rank Hardening
-        let mut p = probs;
-        while p.rank() > 1 {
-            let dims = p.dims();
-            p = p
-                .get(dims[0] - 1)
-                .map_err(crate::engines::candle_err::from_candle)?;
-        }
-
-        if p.rank() == 0 {
-            // Convert scalar to vector of 1
-            let val = p
-                .to_vec0::<f32>()
-                .map_err(crate::engines::candle_err::from_candle)?;
-            let results = [val];
-
-            let mut max_idx = 0;
-            let mut max_val = 0.0;
-            for (i, &val) in results.iter().enumerate() {
-                if val > max_val {
-                    max_val = val;
-                    max_idx = i;
-                }
-            }
-            if let Some(intent) = self.intents.get(max_idx) {
-                return Ok((format!("ACTION: {}", intent), max_val));
-            }
-            return Err(anyhow!("Logic failure in rank-0 handling"));
-        }
-
-        let results = p
-            .to_vec1::<f32>()
-            .map_err(crate::engines::candle_err::from_candle)?;
-
-        let mut max_idx = 0;
-        let mut max_val = 0.0;
-        for (i, &val) in results.iter().take(self.intents.len()).enumerate() {
-            if val > max_val {
-                max_val = val;
-                max_idx = i;
-            }
-        }
-
-        if let Some(intent) = self.intents.get(max_idx) {
-            return Ok((format!("ACTION: {}", intent), max_val));
-        }
-
-        Err(anyhow!("Low confidence in neural reflex."))
+        let probs = self.dense.probabilities(&Self::reflex_features(prompt));
+        probs
+            .iter()
+            .take(self.intents.len())
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .and_then(|(index, p)| {
+                self.intents
+                    .get(index)
+                    .map(|intent| (format!("ACTION: {intent}"), *p))
+            })
+            .ok_or_else(|| anyhow!("Low confidence in neural reflex."))
     }
 
     /// Deterministic Semantic Embedding Substrate
@@ -2021,6 +2029,34 @@ mod tests {
         }
         assert!(action_available("ACTION: STATUS"), "case-insensitive");
         assert!(!action_available("ACTION: zz_uninstalled_tool_for_test"));
+    }
+
+    #[test]
+    fn dense_serving_matches_the_candle_network() {
+        let device = susi_vendor_candle::candle_core::Device::Cpu;
+        let net = ReflexNet::init(None, &device).unwrap();
+        let dense = DenseReflex::from_linears(&net.fc1, &net.fc2).unwrap();
+        for prompt in [
+            "check system status",
+            "zorblat quux",
+            "list files in src",
+            "",
+        ] {
+            let features = SusiAlphaModel::reflex_features(prompt);
+            let x = projection_batch(&[prompt], &device).unwrap();
+            let candle = candle_nn::ops::softmax(&net.logits(&x).unwrap(), 1)
+                .unwrap()
+                .to_vec2::<f32>()
+                .unwrap()
+                .remove(0);
+            let ours = dense.probabilities(&features);
+            let worst = candle
+                .iter()
+                .zip(&ours)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            assert!(worst < 1e-5, "{prompt:?}: max |diff| {worst}");
+        }
     }
 
     #[test]

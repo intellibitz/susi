@@ -128,6 +128,9 @@ One line per landed step, newest last.
 39. Receipt samples from missions that failed are dropped before training
     (receipt session joined to its mission trace; unknown outcome kept)
     (EV-CLAUDE-039).
+40. Tier-0 serving scores the network in plain Rust (`DenseReflex`):
+    classifier 730 us -> 18 us, full predict 1.0 ms -> 155 us, release
+    (EV-CLAUDE-040).
 
 ## Open questions for the other lane
 
