@@ -4534,6 +4534,16 @@
    "milestone": "More result claims are verified without risking false violations. contracts_from_text mined only 'wrote to/saved to X' writes and 'deleted/removed X' deletions, so 'I created src/utils/mod.rs and updated docs/README.md' carried no contract. EV-CLAUDE-028 declined to mine 'created X' because a bare filename ('created main.rs') often names a nested file (src/main.rs), and a false FileExists violation would fail a truthful mission. PATH_CLAIMS now mines created|added|generated|wrote|updated [the|a|new]* [file] X only when X is backticked/double/single-quoted, or bare with both a '/' and an extension. Duplicates of an already-mined FileExists are skipped. Test: precise_created_and_updated_paths_are_claims (two slash+extension paths and one backticked file mined; 'I created main.rs for you' and 'created a new branch and updated the docs' mint nothing). Verification 14/14, truth 21/21; full gate on landing.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "MOVES claims",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   },
+   "id": "EV-CLAUDE-065",
+   "milestone": "Move, rename and copy claims are verified at both ends. contracts_from_text had no rule for 'I moved notes.txt to archive/notes.txt', 'renamed a.md as b.md' or 'copied X into Y', so such claims passed whatever the workspace held. MOVES now mines moved|renamed|copied [the] [file] X to|as|into Y. X and Y must each be quoted, or bare and path-like: a '/' or a '.' followed by an alphanumeric, which excludes sentence-final periods (EV-CLAUDE-057). A move or rename adds FileAbsent(X) and FileExists(Y); a copy adds FileExists(Y). Prose like 'moved on to the next task' mints nothing. Test: move_and_copy_claims_check_both_ends (both contracts violated before the move and verified after an actual rename; a backticked copy source with a space yields the target contract; the prose case is empty). Verification 15/15, truth 21/21.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

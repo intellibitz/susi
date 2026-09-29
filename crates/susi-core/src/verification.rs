@@ -472,6 +472,41 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
         }
     }
 
+    // "moved/renamed X to Y" leaves X gone and Y present; "copied X to Y"
+    // leaves Y present. Precise paths only (quoted, or with an extension or
+    // a '/'), like the other file claims.
+    static MOVES: OnceLock<regex::Regex> = OnceLock::new();
+    let moves = MOVES.get_or_init(|| {
+        const PATH: &str = r#"(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;`"']*(?:\.[A-Za-z0-9]|/)[^\s,;`"']*))"#;
+        // Static literal — validity is fixed at compile time.
+        #[allow(clippy::expect_used)]
+        regex::Regex::new(&format!(
+            r"(?i)\b(moved|renamed|copied)\s+(?:the\s+)?(?:file\s+)?{PATH}\s+(?:to|as|into)\s+{PATH}"
+        ))
+        .expect("static move-claim pattern")
+    });
+    for capture in moves.captures_iter(text) {
+        let group = |range: std::ops::RangeInclusive<usize>| {
+            range.into_iter().find_map(|i| capture.get(i)).map(|m| {
+                PathBuf::from(
+                    m.as_str()
+                        .trim_end_matches(['.', ',', ';', ':', '!', '?', ')']),
+                )
+            })
+        };
+        let (Some(source), Some(target)) = (group(2..=5), group(6..=9)) else {
+            continue;
+        };
+        let verb = capture
+            .get(1)
+            .map(|m| m.as_str().to_lowercase())
+            .unwrap_or_default();
+        if verb != "copied" {
+            contracts.push(Contract::FileAbsent { path: source });
+        }
+        contracts.push(Contract::FileExists { path: target });
+    }
+
     contracts
 }
 
@@ -803,6 +838,46 @@ mod tests {
         // Bare filenames and prose are not claims (nested-file ambiguity).
         assert!(contracts_from_text("I created main.rs for you").is_empty());
         assert!(contracts_from_text("created a new branch and updated the docs").is_empty());
+    }
+
+    #[test]
+    fn move_and_copy_claims_check_both_ends() {
+        let dir = ws();
+        std::fs::create_dir_all(dir.path().join("archive")).unwrap();
+        std::fs::write(dir.path().join("notes.txt"), "n").unwrap();
+        let claim = "I moved notes.txt to archive/notes.txt.";
+        let mined = contracts_from_text(claim);
+        assert_eq!(
+            mined,
+            [
+                Contract::FileAbsent {
+                    path: "notes.txt".into()
+                },
+                Contract::FileExists {
+                    path: "archive/notes.txt".into()
+                }
+            ]
+        );
+        // Not moved yet: both ends are violated.
+        assert!(verify_all(&mined, dir.path())
+            .iter()
+            .all(|v| v.violation().is_some()));
+        std::fs::rename(
+            dir.path().join("notes.txt"),
+            dir.path().join("archive/notes.txt"),
+        )
+        .unwrap();
+        assert!(verify_all(&mined, dir.path())
+            .iter()
+            .all(ContractVerdict::is_verified));
+
+        assert_eq!(
+            contracts_from_text("copied `a b.md` into backup/a.md"),
+            [Contract::FileExists {
+                path: "backup/a.md".into()
+            }]
+        );
+        assert!(contracts_from_text("moved on to the next task").is_empty());
     }
 
     #[test]

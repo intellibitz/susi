@@ -196,6 +196,8 @@ One line per landed step, newest last.
     checked (FileExists needs a regular file) (EV-CLAUDE-063).
 64. Verify: "created/updated src/x/y.rs"-style result claims with a
     precise path are checked; bare filenames still aren't (EV-CLAUDE-064).
+65. Verify: move/rename claims check both ends (source gone, target
+    present); copy claims check the target (EV-CLAUDE-065).
 
 ## Open questions for the other lane
 
