@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-255",
+  "title": "susi ecosystem kb: show, search, list",
+  "goal": "CLI over the knowledge base with filters by kind, capability and vendor and JSON output. Integration test eco_cli.rs.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-254"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "eco_cli"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-256",
+  "title": "Capability taxonomy shared by every profile",
+  "goal": "One vocabulary for chat, tool calling, vision, audio, embeddings, batch, realtime, prompt caching, structured output, reasoning, files and moderation, with definitions and mapping rules used by all profiles and routing.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_taxonomy"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551
+}

@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-346",
+  "title": "Compatibility check before enabling a provider, agent or MCP server",
+  "goal": "Before enabling anything, check its declared protocol and version against what susi speaks and refuse or warn with the reason.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-258"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "eco_compat_gate"
+    ]
+  },
+  "roadmap": "VC-201-088",
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553
+}

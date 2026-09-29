@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-252",
+  "title": "Ecosystem knowledge schema: components, standards, protocols, versions, relations",
+  "goal": "Define the schema (entities: component, vendor, standard, protocol, spec-version, capability; typed relations) as JSON Schema plus a Rust validator, so susi holds a structured model of the cloud AI ecosystem instead of scattered constants. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_schema"
+    ]
+  },
+  "roadmap": "VC-201-088",
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551
+}

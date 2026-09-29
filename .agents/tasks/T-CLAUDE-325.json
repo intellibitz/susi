@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-325",
+  "title": "Catalog: provider transparency and regulatory disclosures",
+  "goal": "Record what each provider publishes (system cards, usage policies, EU AI Act GPAI documentation links) as cited pointers, not legal advice. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_ai_disclosures"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713552
+}

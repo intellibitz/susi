@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-323",
+  "title": "Frameworks: OWASP LLM Top 10 mapped to susi's tests",
+  "goal": "Each risk category mapped to the susi control and the test that exercises it; uncovered categories become tasks. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "eco_owasp_llm"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713552
+}

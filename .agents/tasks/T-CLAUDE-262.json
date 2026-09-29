@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-262",
+  "title": "Knowledge base delivered through the signed catalog channel",
+  "goal": "Ship knowledge-base updates in the signed bundle (reusing the signed model-catalog mechanism): verify the signature, reject downgrades and tampering, keep a rollback.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-254",
+    "T-CLAUDE-28"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_signed_kb"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-344",
+  "title": "Choose the best protocol variant an endpoint supports",
+  "goal": "For an endpoint, pick Responses vs Chat, A2A dialect, MCP revision or transport from the matrix and probe evidence instead of hardcoded assumptions.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-258"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "eco_protocol_negotiation"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553
+}
