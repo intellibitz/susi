@@ -175,6 +175,8 @@ One line per landed step, newest last.
     (EV-CLAUDE-055).
 56. Verify: delete goals ("delete old.log") require the target gone; goals
     minted only write contracts before (EV-CLAUDE-056).
+57. Verify: "save the report to out.md"-style goals require the target;
+    path-likeness no longer counts a sentence-final period (EV-CLAUDE-057).
 
 ## Open questions for the other lane
 

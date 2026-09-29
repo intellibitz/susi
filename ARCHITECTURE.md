@@ -479,7 +479,12 @@ checked, and a goal's `containing: <text>` clause — or a quoted literal,
 assertion; unquoted prose after "containing" stays an existence check. Delete goals mint contracts too: "delete/remove [the] [file] X" with a
 quoted or path-like X (a `.` or `/`) requires X to be gone
 (EV-CLAUDE-056) — goals used to mint only write contracts, so "delete
-old.log" answered "Done." passed with `old.log` still present. A deletion claim about an absolute or `..`-escaping
+old.log" answered "Done." passed with `old.log` still present. Write goals
+that name a target after to/into ("save the report to out.md", "export
+the results into data/summary.csv") require it to exist, not only goals
+saying "file". A path-like target needs a `/` or a dot followed by a
+character, so a sentence-final period ("save it to memory.", "delete the
+cache.") is never a path (EV-CLAUDE-057). A deletion claim about an absolute or `..`-escaping
 path is `Unverifiable`: absence outside the workspace is not something the
 registry can vouch for (it used to come back `Verified`). Bare
 (unquoted) claim paths shed surrounding prose punctuation — `:`, `!`, `?`,

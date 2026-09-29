@@ -67,6 +67,40 @@ impl SusiTruthAgent {
             }
         }
 
+        // "save the report to out.md", "export results into data/x.csv":
+        // the target follows to/into, not the word "file", which
+        // GOAL_FILE_WRITES requires. Path-like only ('.' or '/'), so "save
+        // to disk" or "write to stdout" mint nothing.
+        static GOAL_WRITE_TARGETS: OnceLock<regex::Regex> = OnceLock::new();
+        let goal_write_targets = GOAL_WRITE_TARGETS.get_or_init(|| {
+            regex::Regex::new(
+                r#"(?i)\b(?:write|save|export|dump|store|output)\b[^.;\n]*?\b(?:to|into)\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]*(?:\.[A-Za-z0-9]|/)[^\s,;]*))"#,
+            )
+            .expect("static goal write-target pattern")
+        });
+        let already: std::collections::HashSet<PathBuf> = contracts
+            .iter()
+            .filter_map(|c| match c {
+                crate::verification::Contract::FileExists { path }
+                | crate::verification::Contract::FileContains { path, .. } => Some(path.clone()),
+                crate::verification::Contract::FileAbsent { .. }
+                | crate::verification::Contract::FileHash { .. }
+                | crate::verification::Contract::CommandExit { .. } => None,
+            })
+            .collect();
+        for capture in goal_write_targets.captures_iter(goal) {
+            if let Some(path) = (1..=4).find_map(|index| capture.get(index)) {
+                let path = path
+                    .as_str()
+                    .trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
+                if !path.is_empty() && !already.contains(&PathBuf::from(path)) {
+                    contracts.push(crate::verification::Contract::FileExists {
+                        path: PathBuf::from(path),
+                    });
+                }
+            }
+        }
+
         // A delete mission must leave its named target gone. Only a quoted
         // or path-like target (contains '.' or '/') counts, so "delete the
         // cache" mints nothing. Before, goals only minted write contracts:
@@ -74,7 +108,7 @@ impl SusiTruthAgent {
         static GOAL_DELETES: OnceLock<regex::Regex> = OnceLock::new();
         let goal_deletes = GOAL_DELETES.get_or_init(|| {
             regex::Regex::new(
-                r#"(?i)\b(?:delete|remove)\s+(?:the\s+)?(?:file\s+)?(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]*[./][^\s,;]*))"#,
+                r#"(?i)\b(?:delete|remove)\s+(?:the\s+)?(?:file\s+)?(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]*(?:\.[A-Za-z0-9]|/)[^\s,;]*))"#,
             )
             .expect("static goal delete pattern")
         });
@@ -665,6 +699,52 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("not absolute evidence"));
+    }
+
+    #[test]
+    fn write_goals_naming_a_target_require_it() {
+        let ws = TempWorkspace::new();
+        for goal in [
+            "save the report to out.md",
+            "export the results into data/summary.csv",
+        ] {
+            assert!(
+                SusiTruthAgent::verify_mission_reality(goal, "exec_command", "Done.", &ws.0)
+                    .is_err(),
+                "{goal}"
+            );
+        }
+        std::fs::write(ws.0.join("out.md"), "r").unwrap();
+        assert!(SusiTruthAgent::verify_mission_reality(
+            "save the report to out.md",
+            "exec_command",
+            "Done.",
+            &ws.0
+        )
+        .is_ok());
+        for goal in [
+            "save to disk",
+            "write the answer to stdout",
+            "save it to memory.",
+        ] {
+            assert!(
+                SusiTruthAgent::verify_mission_reality(goal, "exec_command", "Done.", &ws.0)
+                    .is_ok(),
+                "{goal}: no path, no contract"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sentence_final_period_is_not_a_path() {
+        let ws = TempWorkspace::new();
+        for goal in ["delete the cache.", "save it to memory."] {
+            assert!(
+                SusiTruthAgent::verify_mission_reality(goal, "exec_command", "Done.", &ws.0)
+                    .is_ok(),
+                "{goal}"
+            );
+        }
     }
 
     #[test]
