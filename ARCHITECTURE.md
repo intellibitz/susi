@@ -480,7 +480,9 @@ control flow.
 
 The `retrieve` stage consults history before planning
 (`susi_core::mission_trace::{similar, history_brief, difficulty}`): traces
-most similar to the goal (token-Jaccard ≥ 0.15, stopword-filtered) inject a
+most similar to the goal (IDF-weighted token overlap ≥ 0.15 — each token
+contributes its corpus IDF over the trace set, so a shared rare token like
+"kubernetes" outranks a ubiquitous "deploy"; stopword-filtered) inject a
 "prior outcomes" brief into the decomposition prompt, and a `Difficulty`
 estimate — novelty, similar-mission failure rate, manifold risk — decides
 routing: `demands_deliberation()` widens the candidate search *and* raises

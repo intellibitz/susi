@@ -3794,6 +3794,16 @@
     "label": "Doomed-step penalty",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-030",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 12 \u2014 IDF-weighted mission retrieval. `similar` now scores weighted token overlap: document frequency is computed over the trace corpus and each shared token contributes ln((N+1)/(df+1))+1. A shared rare token outranks a shared ubiquitous token; under plain Jaccard 'deploy kubernetes' tied with 'deploy database'. All downstream consumers (brief, difficulty, failing/proven tools, failed steps, success_rate) inherit the better ranking.",
+   "proof": "idf_ranks_rare_shared_tokens_over_common_ones: rare-token match ranks first while the common-token match drops below the similarity floor. susi-core 212 pass; susi-gawd-swarm 60, susi-gawd green; clippy -D warnings clean.",
+   "anchor": {
+    "label": "IDF retrieval",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

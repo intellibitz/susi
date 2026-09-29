@@ -197,38 +197,68 @@ pub fn bounded_list(items: impl IntoIterator<Item = String>) -> Vec<String> {
     items.into_iter().take(MAX_LISTED).collect()
 }
 
-/// Whitespace-token overlap between a query goal and a recorded trace.
-fn token_overlap(goal: &str, trace_goal: &str) -> f32 {
+/// Content tokens of a goal — stopword- and punctuation-filtered.
+fn goal_tokens(s: &str) -> std::collections::BTreeSet<String> {
     // Stopwords carry no intent signal — "the" alone must never make two
     // missions look similar.
     const STOPWORDS: &[&str] = &["the", "and", "for", "with", "this", "that", "from"];
-    let tokens = |s: &str| {
-        s.split_whitespace()
-            .map(|t| {
-                t.to_lowercase()
-                    .trim_matches(|c: char| !c.is_alphanumeric())
-                    .to_string()
-            })
-            .filter(|t| t.len() > 2 && !STOPWORDS.contains(&t.as_str()))
-            .collect::<std::collections::BTreeSet<_>>()
+    s.split_whitespace()
+        .map(|t| {
+            t.to_lowercase()
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
+        .filter(|t| t.len() > 2 && !STOPWORDS.contains(&t.as_str()))
+        .collect()
+}
+
+/// Weighted token overlap: each token contributes its IDF against the
+/// trace corpus, so a shared rare token ("kubernetes") outweighs a shared
+/// ubiquitous one ("deploy"). Plain Jaccard cannot tell "deploy api" from
+/// "deploy database" when the corpus is full of "deploy".
+fn token_overlap(
+    a: &std::collections::BTreeSet<String>,
+    b: &std::collections::BTreeSet<String>,
+    df: &std::collections::BTreeMap<String, u32>,
+    corpus: usize,
+) -> f32 {
+    let weight = |t: &String| {
+        let d = df.get(t).copied().unwrap_or(0) as f32;
+        ((corpus as f32 + 1.0) / (d + 1.0)).ln() + 1.0
     };
-    let (a, b) = (tokens(goal), tokens(trace_goal));
-    let union = a.union(&b).count();
-    if union == 0 {
-        return 0.0;
+    let inter: f32 = a.intersection(b).map(weight).sum();
+    let union: f32 = a.union(b).map(weight).sum();
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
     }
-    a.intersection(&b).count() as f32 / union as f32
 }
 
 /// Similarity floor for a trace to count as "the same kind of mission".
 const SIMILARITY_FLOOR: f32 = 0.15;
 
 /// Retrieve the `limit` traces most similar to `goal` — the retrieval stage
-/// of the loop: prior outcomes for the same kind of intent.
+/// of the loop: prior outcomes for the same kind of intent. Scored with
+/// IDF-weighted token overlap computed over the corpus being searched.
 pub fn similar<'a>(goal: &str, traces: &'a [MissionTrace], limit: usize) -> Vec<&'a MissionTrace> {
+    // Document frequency over the corpus: how many trace goals contain
+    // each token. Corpus-rare tokens get the most weight in overlap.
+    let mut df: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for t in traces {
+        for tok in goal_tokens(&t.goal) {
+            *df.entry(tok).or_insert(0) += 1;
+        }
+    }
+    let query = goal_tokens(goal);
     let mut scored: Vec<(f32, &'a MissionTrace)> = traces
         .iter()
-        .map(|t| (token_overlap(goal, &t.goal), t))
+        .map(|t| {
+            (
+                token_overlap(&query, &goal_tokens(&t.goal), &df, traces.len()),
+                t,
+            )
+        })
         .filter(|(s, _)| *s >= SIMILARITY_FLOOR)
         .collect();
     scored.sort_by(|a, b| {
@@ -675,6 +705,34 @@ mod tests {
         assert_eq!(got.plan_steps.len(), 3);
         let brief = history_brief("deploy api service", &traces, 3);
         assert!(brief.contains("failed at step 2"), "{brief}");
+    }
+
+    #[test]
+    fn idf_ranks_rare_shared_tokens_over_common_ones() {
+        let ws = workspace();
+        for (id, goal) in [
+            ("a", "deploy database backup"),
+            ("b", "deploy cache layer"),
+            ("c", "kubernetes pod status"),
+            ("d", "deploy network rules"),
+        ] {
+            MissionTrace::new(id, goal, "DONE", "swarm")
+                .emit(ws.path())
+                .unwrap();
+        }
+        let traces = read_all(ws.path());
+        // Plain Jaccard ties "deploy database backup" and "kubernetes pod
+        // status" at one shared token each. IDF sees "deploy" is corpus-
+        // ubiquitous and "kubernetes" rare — the rare match wins and the
+        // common-token match falls below the floor.
+        let hits = similar("deploy kubernetes service", &traces, 8);
+        assert_eq!(hits[0].goal, "kubernetes pod status");
+        assert_eq!(
+            hits.len(),
+            1,
+            "{:?}",
+            hits.iter().map(|t| &t.goal).collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -158,3 +158,8 @@ One line per landed step, newest last.
     tokens Jaccard≥0.6 with a doomed step — iteration-16's write becomes
     iteration-17's steering signal. The loop now steers around the exact
     step that broke, not just the tools that failed.
+18. IDF-weighted retrieval: `similar` scores weighted token overlap where
+    each token's weight is its corpus IDF over the trace set — a shared
+    rare token ("kubernetes") now outranks a shared ubiquitous one
+    ("deploy"); plain Jaccard couldn't separate them and common-token
+    matches could even crowd rare ones below the similarity floor.
