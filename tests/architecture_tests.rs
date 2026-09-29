@@ -1473,6 +1473,8 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         (52, "SUSI_HOME", "scripts/check-hermetic-tests.sh"),
         (53, "E2E_CHECKS", "tests/release_e2e_checks.rs"),
         (54, "pull_request", ".github/workflows/auto-merge.yml"),
+        (54, "scripts/reconcile-prs.sh", "scripts/reconcile-prs.sh"),
+        (54, "scripts/auto-merge-pr.sh", "scripts/auto-merge-pr.sh"),
         (55, "did-you-mean", "src/cli/intent_guard.rs"),
         (
             56,

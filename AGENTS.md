@@ -245,7 +245,9 @@ convergent:
   suite runs as six parallel nextest shards (foundation, daemon, gawd,
   gemi, vendor-cells, root-cli) plus a lint job and the live susi-native
   e2e job — the gate is the slowest shard, not one serial workspace build.
-  Auto-merge dispatches it on `main` right after each merge; PRs are gated by
+  Auto-merge dispatches it on `main` right after each merge, and a 15-minute
+  reconciler (`scripts/reconcile-prs.sh`) merges any green PR the events missed,
+  comments once on red or conflicting ones and closes PRs idle for 7 days; PRs are gated by
   the branch-push run (there is deliberately no `pull_request` trigger:
   bot-opened PRs' runs are held for approval and die jobs-less on merge).
   The rolling dev release builds only on `workflow_dispatch` or a
