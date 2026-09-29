@@ -63,7 +63,9 @@ docs:
 | [`.agents/identity.json`](.agents/identity.json) | Constitutional mandates, component topology, protocols (`susi/identity/v1`) |
 | [`.agents/roadmap.json`](.agents/roadmap.json) | Evolutionary vectors (`susi/roadmap/v1`) |
 | [`.agents/evidence.json`](.agents/evidence.json) | Append-only mission / audit ledger (`susi/evidence/v1`) |
-| [`.agents/schemas/`](.agents/schemas/) | JSON Schema contracts for all three |
+| [`.agents/tasks/`](.agents/tasks/) | The shared task queue: one file per task, each with an acceptance command (`susi tasks`) |
+| [`.agents/lanes/`](.agents/lanes/) | Which agent works which learning-loop stage: one file per agent |
+| [`.agents/schemas/`](.agents/schemas/) | JSON Schema contracts for identity, roadmap and evidence |
 
 When this README and `identity.json` disagree, source code wins and both are
 updated in the same change.
@@ -330,6 +332,46 @@ The release instance's `models/` and `cloud.env` are symlinked in (shared,
 not copied); config, audit chain, locks, and ports are separate. An explicit
 `SUSI_HOME` overrides this.
 
+### Building susi: the workflow (Mandates 49–56)
+
+Humans and agents (Claude, Codex, Cursor, Devin, Gemini, susi itself) follow one
+workflow, and it is enforced by git and CI, not by goodwill. The short version
+is the START HERE block at the top of [`AGENTS.md`](AGENTS.md):
+
+1. **Run `susi workflow check` first.** It says whether you are in your own
+   worktree, current with `origin/main`, have the hooks, and hold a claim, and
+   prints the command that fixes each failure. No installed susi:
+   `cargo run -q -- workflow check`.
+2. **Work in your own worktree, never the primary checkout or `main`:**
+   `scripts/susi-worktree.sh` (no name needed; or `susi workflow start`). It
+   branches off the latest `origin/main`, installs the hooks, parks the primary
+   checkout at `origin/main`, and prints `cd <path>`.
+3. **Work comes from the queue.** `susi tasks add "<title>" --accept "<cmd>"`,
+   `susi tasks claim <id>` (an atomic git ref with a lease, so two agents can
+   never both win), and end every commit with `Task: T-<AGENT>-<n>`.
+4. **Done means the acceptance check passes:** `susi tasks close <id>` runs it,
+   and a `cargo test` filter that ran zero tests does not count. Tasks may link
+   to a roadmap vector (`--roadmap VC-201-0NN`); `susi tasks roadmap` reports
+   coverage.
+5. **Push the branch; the rest is automatic.** The branch-push `Test` run is
+   the gate, a PR opens itself and merges itself when green, and a 15-minute
+   reconciler merges green PRs that events missed, comments once on red or
+   conflicting ones and closes ones idle for 7 days. Tests are hermetic: they
+   never touch `~/.susi`, `~/.susi-dev` or an inherited `SUSI_HOME`.
+
+What makes it binding: the `commit-msg` and pre-push hooks and the CI job
+**Workflow Compliance** reject commits without a valid `Task:` trailer (the CI
+job cannot be skipped with `--no-verify`), and `scripts/github-enforce.sh`
+installs a ruleset on `main` — pull requests only, no force-push, no deletion,
+no bypass actor — in phases (`--apply`, then `--apply --phase 2` for required
+checks), with `--relax` as an audited emergency switch. Releases are cut only by
+`susi admin release --cut <patch|minor|major>`; the gate also runs the freshly
+built binary on its own newest behaviour (`E2E_CHECKS`) before it tags.
+
+Each agent tool loads the first step on its own: `CLAUDE.md`, `GEMINI.md`,
+`.github/copilot-instructions.md`, `.cursor/rules/susi-workflow.mdc`, and a
+Claude Code SessionStart hook that runs the check.
+
 ### Windows PowerShell (native, not WSL)
 ```powershell
 irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex
@@ -365,6 +407,23 @@ susi os provision apply kubernetes ./cell.yaml
 susi keys set openai          # prompts, or pipe the key on stdin
 susi keys list
 susi keys prefer deepseek
+susi keys check               # one read-only /models call per vendor: valid / rejected / missing
+susi keys models fireworks    # the models a vendor serves right now
+
+# Local AI ecosystem: what is installed, what is running, what the hardware can host
+susi ecosystem scan           # hardware, engines (Ollama, LM Studio, llama.cpp, vLLM, …), GPU backends
+susi ecosystem start ollama   # only engines that need no model choice
+
+# The brain: which model susi trusts for which kind of work, and why
+susi brain
+susi brain classify "fix this bug in my parser"
+
+# Building susi (agents and humans): start here
+susi workflow check           # own worktree? current with origin/main? hooks? a claim?
+susi workflow start           # your own worktree, ready to work in
+susi tasks list               # the shared queue
+susi tasks claim T-CLAUDE-42  # atomic; nobody else can take it
+susi tasks roadmap --uncovered
 
 # Automation (evidence-gated swarm mission)
 susi automate "refactor the auth module and verify with tests"
@@ -429,20 +488,82 @@ susi mcp
 
 ---
 
+## Local and cloud AI ecosystem
+
+susi is hardware-aware at startup and manages the AI you already run.
+
+- **Local.** At bootstrap it inventories the hardware profile and the GPU
+  backends it finds evidence of (CUDA, ROCm, Metal, Vulkan, oneAPI) together with
+  the installed local engines and model stores: Ollama, LM Studio, llama.cpp,
+  vLLM, SGLang, LocalAI, Jan, GPT4All, KoboldCpp, text-generation-webui and the
+  Hugging Face cache — installed, running, endpoint, version, and whether susi can
+  start it. The result is saved to `~/.susi/local_ecosystem.json`; `susi
+  ecosystem scan|status|start <id>` shows it. `start` only launches engines that
+  need no model choice. Engines on non-default ports: `SUSI_ENGINE_PORTS=jan=1400,ollama=11435`.
+  Running engines join inference routing automatically.
+- **Cloud.** OpenAI, Anthropic, Gemini, DeepSeek, xAI, Together, Fireworks,
+  DeepInfra, Groq, Mistral, OpenRouter and others are keyed with `susi keys`.
+  `susi keys check [vendor]` makes one read-only `/models` call per vendor and
+  reports valid / rejected / rate-limited / missing / unreachable and whether the
+  configured default model is still served; `susi keys models <vendor>` lists what
+  a vendor serves now. A key check proves the key, not that the account has
+  credit — the brain learns that from real calls.
+
 ## Bring-your-own-key agents and open agent standards
 
 susi drives external autonomous agents with the keys you registered (`susi keys set <vendor>`); nothing is provisioned for you. Execution-catalog entries (`config/execution-agents.json`), run through the managed-agent manager:
 
 | Entry | Transport | Notes |
 |---|---|---|
+| `cursor` | headless CLI (`cursor-agent -p --trust`) | runs in the task's workspace; `--trust` is what lets a new directory run headless, so use it only in directories you own |
+| `devin` | Devin API v3 (cloud) | `DEVIN_API_KEY` + `DEVIN_ORG_ID`; a finished session settles as `waiting` (it awaits your reply): `susi agents send <id> "…"` continues it, `susi agents cancel <id>` closes it |
 | `openhands` | headless CLI | registered provider key is mapped to `LLM_API_KEY` / `LLM_BASE_URL`; an explicit `LLM_API_KEY` always wins and no model is chosen for you |
 | `openhands-server` | OpenHands app-server / Cloud REST (`/api/v1/app-conversations`) | `OPENHANDS_API_KEY`; cancel pauses the sandbox; follow-up messages are refused because the API documents none |
 | `gemini-acp` | Agent Client Protocol over stdio | any ACP agent by overriding program/args; tool permission requests are denied unless `SUSI_ACP_AUTO_APPROVE=1` |
 | `a2a` | outbound A2A JSON-RPC | override `url` (and `token_env`) to point at any A2A agent; card discovery, 0.3 and 1.x wire dialects |
 
+Run any of them with `susi agents run <id> --wait "<task>"`; `susi agents doctor <id>` checks prerequisites without spending anything. A failed local task reports the first and last stderr lines (credentials masked) in its `error` field.
+
 ## The brain: evidence-ranked model selection
 
-susi does not trust a fixed vendor order. Every inference call records, per provider and per task class (`reflex`, `chat`, `code`, `reasoning`), whether it answered and how fast (`~/.susi/brain_evidence.json`); providers are then tried best-first for that class. **Local is the floor, cloud is the ceiling**: without evidence, hard work leans to cloud models and reflex-sized work to local engines, but a provider that keeps failing (a dry account, a retired model) sinks and a proven one rises. Privacy policy, budget and cooldowns remain hard filters applied before ranking. Missions also teach the brain: each mission is tagged (non-citable `brain:*` receipt) with the providers that answered it, and its verified outcome (`SUCCESS`/`COMPLETE` vs failed; governance blocks skipped) is folded back into their record once per mission. A failed or unfunded model can never be the brain: an out-of-credit or rejected-key failure (HTTP 402/401/403, "insufficient balance") quarantines the vendor's whole credential scope on a ladder of 10 min, 1 h, then 6 h instead of a short retry timer, the failing provider sorts behind every healthy one **even if it is the sticky preferred cloud**, and the streak clears on its first successful call, on `susi keys set <vendor>` (a new key is the repair), or on an operator reset. Keys are never removed or disabled by a failure — you can top an account up at any time. If the sticky preferred cloud is the one that failed, susi moves the preference to the best healthy cloud (remembering yours as `auto_switched_from`), gives the original one trial call whenever its quarantine lapses, and puts your preference back the moment it answers; `susi keys prefer <vendor>` always wins over an automatic switch. Transient trouble (rate limits, network) keeps the short cooldowns. Cost is a factor too: providers sit in coarse marginal-cost tiers (`free`/`low`/`mid`/`high`, editable in `~/.susi/cost_tiers.json`, defaults in `config/cost-tiers.json`) and a tier step costs a candidate a lot for reflex work, little for hard reasoning; `SUSI_BUDGET=low|balanced|max` turns the dial (`max` ignores cost), and evidence still outweighs price. `susi brain` shows the ranking, `susi brain classify "<prompt>"` shows how a prompt is routed, `susi brain reset` forgets the history.
+susi does not trust a fixed vendor order. It learns which model to trust, per
+kind of work, from what actually happened.
+
+- **Per task class.** Every inference call records, per provider and per class
+  (`reflex`, `chat`, `code`, `reasoning`), whether it answered and how fast
+  (`~/.susi/brain_evidence.json`). Providers are tried best-first for the
+  prompt's class. **Local is the floor, cloud is the ceiling:** with no evidence,
+  hard work leans to cloud models and reflex-sized work to local engines, and
+  evidence overrides that lean.
+- **Missions teach it.** Each mission is tagged (a non-citable `brain:*`
+  receipt) with the providers that answered it; its verified outcome
+  (`SUCCESS`/`COMPLETE` vs failed, governance blocks skipped) is folded back
+  into their record once per mission.
+- **A failed or unfunded model can never be the brain.**
+  - A no-credit or rejected-key failure (HTTP 402/401/403, "insufficient
+    balance") quarantines the vendor's whole credential scope on a ladder:
+    10 minutes, 1 hour, then 6 hours. A provider with poor evidence and a recent
+    failure sorts behind every healthy one, **even if it is your sticky preferred
+    cloud**.
+  - If the preferred cloud is the one that failed, susi moves the preference to
+    the best healthy cloud (remembering yours as `auto_switched_from`), gives the
+    original one trial call whenever its quarantine lapses, and restores your
+    preference the moment it answers. `susi keys prefer <vendor>` always wins.
+  - The streak clears on its first successful call, on `susi keys set <vendor>`
+    (a new key is the repair) or on an operator reset. **Keys are never removed
+    or disabled by a failure**, so you can top an account up at any time.
+  - Transient trouble (rate limits, network) keeps the short cooldowns.
+- **Cost is a factor evidence outweighs.** Providers sit in coarse
+  marginal-cost tiers (`free`/`low`/`mid`/`high`; defaults in
+  `config/cost-tiers.json`, override in `~/.susi/cost_tiers.json`). A tier step
+  costs a candidate a lot for reflex work and little for hard reasoning.
+  `SUSI_BUDGET=low|balanced|max` turns the dial (`max` ignores cost).
+- **Hard filters come first.** Privacy policy, budget ceilings and cooldowns are
+  applied before ranking; the brain only orders what survives them.
+
+`susi brain` shows the ranking, budget, preferred cloud, failure streaks and
+cooled providers; `susi brain classify "<prompt>"` shows how a prompt is routed;
+`susi brain reset` forgets the history.
 
 ## Extension packs
 
