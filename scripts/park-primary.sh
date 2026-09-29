@@ -6,16 +6,40 @@
 # `susi workflow check` already refuse commits here; this removes the stale
 # branch that invited them, and it never undoes a human's own `git switch main`.
 #
-#   scripts/park-primary.sh            park (run from any worktree of the repo)
+#   scripts/park-primary.sh              park (run from any worktree of the repo)
+#   scripts/park-primary.sh --sync-only  keep an already-parked main current: fast-
+#                                        forward it to origin/main, and do nothing
+#                                        (silently) unless the primary checkout is on
+#                                        main, clean and has no local commits. It never
+#                                        switches a branch or touches a dirty tree, so it
+#                                        is safe to run from every workflow check.
 #
 # Refuses — and says why — when the primary checkout has uncommitted changes,
 # an operation in progress, or commits that are not in origin/main yet.
 set -euo pipefail
+sync_only=0
+[ "${1:-}" = "--sync-only" ] && sync_only=1
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 primary=$(dirname "$common")
 cd "$primary"
 [ "$(git rev-parse --path-format=absolute --git-dir)" = "$common" ] \
     || { echo "park-primary: $primary is not the primary checkout" >&2; exit 2; }
+
+if [ "$sync_only" = 1 ]; then
+    # Best effort and silent: an offline fetch or an unsafe state is not an error.
+    git fetch --quiet origin 2>/dev/null || exit 0
+    target=$(git rev-parse --verify -q origin/main) || exit 0
+    [ "$(git symbolic-ref -q --short HEAD || true)" = main ] || exit 0
+    [ -z "$(git status --porcelain)" ] || exit 0
+    [ "$(git rev-list --count "$target..main")" = 0 ] || exit 0
+    [ "$(git rev-parse HEAD)" != "$target" ] || exit 0
+    for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
+        [ ! -e "$common/$op" ] || exit 0
+    done
+    git merge --quiet --ff-only "$target" 2>/dev/null || exit 0
+    echo "primary checkout's main fast-forwarded to origin/main (${target:0:8})"
+    exit 0
+fi
 
 git fetch --quiet origin 2>/dev/null || { echo "park-primary: cannot fetch origin; not moving anything" >&2; exit 1; }
 target=$(git rev-parse --verify origin/main)
