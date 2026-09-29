@@ -484,7 +484,11 @@ that name a target after to/into ("save the report to out.md", "export
 the results into data/summary.csv") require it to exist, not only goals
 saying "file". A path-like target needs a `/` or a dot followed by a
 character, so a sentence-final period ("save it to memory.", "delete the
-cache.") is never a path (EV-CLAUDE-057). A deletion claim about an absolute or `..`-escaping
+cache.") is never a path (EV-CLAUDE-057). Directories have their own contract, `DirExists`
+(workspace-relative, confined, must be a directory): "create a
+directory/folder [named] X" in a goal and "created the directory/folder X"
+in a result mint it — `FileExists` requires a regular file, so directory
+creation was unverifiable before (EV-CLAUDE-063). A deletion claim about an absolute or `..`-escaping
 path is `Unverifiable`: absence outside the workspace is not something the
 registry can vouch for (it used to come back `Verified`). Bare
 (unquoted) claim paths shed surrounding prose punctuation — `:`, `!`, `?`,

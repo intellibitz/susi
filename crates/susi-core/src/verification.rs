@@ -24,6 +24,9 @@ pub enum Contract {
     FileExists { path: PathBuf },
     /// No filesystem entry at this path (deletion claims).
     FileAbsent { path: PathBuf },
+    /// A directory at this workspace-relative path (directory-creation
+    /// claims; `FileExists` requires a regular file).
+    DirExists { path: PathBuf },
     /// A file whose content contains `needle` byte-for-byte.
     FileContains { path: PathBuf, needle: String },
     /// A file whose SHA-256 equals `sha256_hex` (lowercase hex).
@@ -245,6 +248,36 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
                         path.display()
                     ),
                     evidence: "confinement check failed or file absent".into(),
+                },
+            }
+        }
+        Contract::DirExists { path } => {
+            if path.is_absolute()
+                || path
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                return ContractVerdict::Unverifiable {
+                    reason: format!(
+                        "directory claim '{}' is not workspace-relative",
+                        path.display()
+                    ),
+                };
+            }
+            let root = workspace.canonicalize().ok();
+            let resolved = workspace.join(path).canonicalize().ok();
+            match (root, resolved) {
+                (Some(root), Some(dir)) if dir.starts_with(&root) && dir.is_dir() => {
+                    ContractVerdict::Verified {
+                        evidence: format!("directory {} present", dir.display()),
+                    }
+                }
+                _ => ContractVerdict::Violated {
+                    reason: format!(
+                        "Reality Mismatch: '{}' is not an existing workspace directory",
+                        path.display()
+                    ),
+                    evidence: "confinement check failed or directory absent".into(),
                 },
             }
         }
@@ -711,6 +744,24 @@ mod tests {
                 "{bad:?}: {v:?}"
             );
         }
+    }
+
+    #[test]
+    fn dir_exists_checks_a_confined_directory() {
+        let dir = ws();
+        std::fs::create_dir_all(dir.path().join("out/sub")).unwrap();
+        std::fs::write(dir.path().join("file.txt"), "x").unwrap();
+        let check = |p: &str| verify_contract(&Contract::DirExists { path: p.into() }, dir.path());
+        assert!(check("out/sub").is_verified());
+        assert!(check("missing").violation().is_some());
+        assert!(
+            check("file.txt").violation().is_some(),
+            "a file is not a directory"
+        );
+        assert!(matches!(
+            check("../elsewhere"),
+            ContractVerdict::Unverifiable { .. }
+        ));
     }
 
     #[test]

@@ -192,6 +192,8 @@ One line per landed step, newest last.
 62. Veto list extended with control verbs (terminate, abort, halt,
     disable, revoke, reformat, ...): 5 destructive tool-install prompts were
     served as read-style actions (EV-CLAUDE-062).
+63. Verify: `DirExists` contract; directory-creation goals and claims are
+    checked (FileExists needs a regular file) (EV-CLAUDE-063).
 
 ## Open questions for the other lane
 

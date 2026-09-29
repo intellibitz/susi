@@ -84,6 +84,7 @@ impl SusiTruthAgent {
                 crate::verification::Contract::FileExists { path }
                 | crate::verification::Contract::FileContains { path, .. } => Some(path.clone()),
                 crate::verification::Contract::FileAbsent { .. }
+                | crate::verification::Contract::DirExists { .. }
                 | crate::verification::Contract::FileHash { .. }
                 | crate::verification::Contract::CommandExit { .. } => None,
             })
@@ -97,6 +98,31 @@ impl SusiTruthAgent {
                     contracts.push(crate::verification::Contract::FileExists {
                         path: PathBuf::from(path),
                     });
+                }
+            }
+        }
+
+        // "create a directory/folder [named] X" (goal) and "created the
+        // directory/folder X" (result) name a directory, which FileExists —
+        // a regular file — could never verify.
+        static DIR_CREATES: OnceLock<regex::Regex> = OnceLock::new();
+        let dir_creates = DIR_CREATES.get_or_init(|| {
+            regex::Regex::new(
+                r#"(?i)\b(?:create|created|make|made|mkdir)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:directory|folder|dir)(?:\s+named|\s+called)?\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]+))"#,
+            )
+            .expect("static directory-creation pattern")
+        });
+        for text in [goal, result] {
+            for capture in dir_creates.captures_iter(text) {
+                if let Some(path) = (1..=4).find_map(|index| capture.get(index)) {
+                    let path = path
+                        .as_str()
+                        .trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
+                    if !path.is_empty() {
+                        contracts.push(crate::verification::Contract::DirExists {
+                            path: PathBuf::from(path),
+                        });
+                    }
                 }
             }
         }
@@ -745,6 +771,37 @@ mod tests {
                 "{goal}"
             );
         }
+    }
+
+    #[test]
+    fn directory_creation_is_verified_as_a_directory() {
+        let ws = TempWorkspace::new();
+        for (goal, result) in [
+            ("create a directory named build_out", "Done."),
+            ("set up the project", "I created the folder src/utils."),
+        ] {
+            assert!(
+                SusiTruthAgent::verify_mission_reality(goal, "exec_command", result, &ws.0)
+                    .is_err(),
+                "{goal} / {result}"
+            );
+        }
+        std::fs::create_dir_all(ws.0.join("build_out")).unwrap();
+        std::fs::create_dir_all(ws.0.join("src/utils")).unwrap();
+        assert!(SusiTruthAgent::verify_mission_reality(
+            "create a directory named build_out",
+            "exec_command",
+            "Done.",
+            &ws.0
+        )
+        .is_ok());
+        assert!(SusiTruthAgent::verify_mission_reality(
+            "set up the project",
+            "exec_command",
+            "I created the folder src/utils.",
+            &ws.0
+        )
+        .is_ok());
     }
 
     #[test]
