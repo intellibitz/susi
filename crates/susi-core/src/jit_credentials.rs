@@ -59,26 +59,33 @@ pub enum JitCredentialOutcome {
     NeedRecord(CredentialNeeded),
 }
 
+/// Inputs for a JIT credential request (keeps the public entry under clippy's
+/// argument limit).
+pub struct JitCredentialRequest<'a> {
+    pub provider: &'a str,
+    pub env_var: &'a str,
+    pub stdin_is_tty: bool,
+}
+
 /// Look up `env_var` via `lookup`. If missing and `stdin` is a TTY, prompt
 /// once on `stderr`/`stdin`; otherwise return [`JitCredentialOutcome::NeedRecord`].
 pub fn request_credential_jit<F>(
-    provider: &str,
-    env_var: &str,
+    req: &JitCredentialRequest<'_>,
     mut lookup: F,
-    stdin_is_tty: bool,
     prompt_out: &mut dyn Write,
     prompt_in: &mut dyn io::BufRead,
 ) -> io::Result<JitCredentialOutcome>
 where
     F: FnMut(&str) -> Option<String>,
 {
-    if let Some(v) = lookup(env_var).filter(|s| !s.trim().is_empty()) {
+    if let Some(v) = lookup(req.env_var).filter(|s| !s.trim().is_empty()) {
         return Ok(JitCredentialOutcome::AlreadyPresent(v));
     }
-    if stdin_is_tty {
+    if req.stdin_is_tty {
         writeln!(
             prompt_out,
-            "credential needed for `{provider}`: enter value for {env_var} (not saved to disk): "
+            "credential needed for `{}`: enter value for {} (not saved to disk): ",
+            req.provider, req.env_var
         )?;
         prompt_out.flush()?;
         let mut line = String::new();
@@ -86,13 +93,13 @@ where
         let value = line.trim().to_string();
         if value.is_empty() {
             return Ok(JitCredentialOutcome::NeedRecord(
-                CredentialNeeded::for_provider(provider, env_var),
+                CredentialNeeded::for_provider(req.provider, req.env_var),
             ));
         }
         return Ok(JitCredentialOutcome::SuppliedOnTty(value));
     }
     Ok(JitCredentialOutcome::NeedRecord(
-        CredentialNeeded::for_provider(provider, env_var),
+        CredentialNeeded::for_provider(req.provider, req.env_var),
     ))
 }
 

@@ -1,7 +1,8 @@
 //! Tests for JIT credentials (`zc_jit_credentials_*`).
 
 use crate::jit_credentials::{
-    request_credential_jit, CredentialNeeded, JitCredentialOutcome, CREDENTIAL_NEEDED_EXIT,
+    request_credential_jit, CredentialNeeded, JitCredentialOutcome, JitCredentialRequest,
+    CREDENTIAL_NEEDED_EXIT,
 };
 use std::io::Cursor;
 
@@ -9,15 +10,13 @@ use std::io::Cursor;
 fn zc_jit_credentials_already_present_short_circuits() {
     let mut out = Vec::new();
     let mut input = Cursor::new(String::new());
-    let outcome = request_credential_jit(
-        "openai",
-        "OPENAI_API_KEY",
-        |_| Some("sk-already".into()),
-        true,
-        &mut out,
-        &mut input,
-    )
-    .unwrap();
+    let req = JitCredentialRequest {
+        provider: "openai",
+        env_var: "OPENAI_API_KEY",
+        stdin_is_tty: true,
+    };
+    let outcome =
+        request_credential_jit(&req, |_| Some("sk-already".into()), &mut out, &mut input).unwrap();
     assert_eq!(
         outcome,
         JitCredentialOutcome::AlreadyPresent("sk-already".into())
@@ -29,15 +28,12 @@ fn zc_jit_credentials_already_present_short_circuits() {
 fn zc_jit_credentials_tty_prompts_once() {
     let mut out = Vec::new();
     let mut input = Cursor::new("sk-from-tty\n");
-    let outcome = request_credential_jit(
-        "openai",
-        "OPENAI_API_KEY",
-        |_| None,
-        true,
-        &mut out,
-        &mut input,
-    )
-    .unwrap();
+    let req = JitCredentialRequest {
+        provider: "openai",
+        env_var: "OPENAI_API_KEY",
+        stdin_is_tty: true,
+    };
+    let outcome = request_credential_jit(&req, |_| None, &mut out, &mut input).unwrap();
     assert_eq!(
         outcome,
         JitCredentialOutcome::SuppliedOnTty("sk-from-tty".into())
@@ -51,15 +47,12 @@ fn zc_jit_credentials_tty_prompts_once() {
 fn zc_jit_credentials_non_tty_emits_machine_record_and_exit_code() {
     let mut out = Vec::new();
     let mut input = Cursor::new(String::new());
-    let outcome = request_credential_jit(
-        "anthropic",
-        "ANTHROPIC_API_KEY",
-        |_| None,
-        false,
-        &mut out,
-        &mut input,
-    )
-    .unwrap();
+    let req = JitCredentialRequest {
+        provider: "anthropic",
+        env_var: "ANTHROPIC_API_KEY",
+        stdin_is_tty: false,
+    };
+    let outcome = request_credential_jit(&req, |_| None, &mut out, &mut input).unwrap();
     let JitCredentialOutcome::NeedRecord(rec) = outcome else {
         panic!("expected NeedRecord");
     };
@@ -69,7 +62,6 @@ fn zc_jit_credentials_non_tty_emits_machine_record_and_exit_code() {
     let line = rec.to_json_line();
     let parsed: CredentialNeeded = serde_json::from_str(&line).unwrap();
     assert_eq!(parsed.exit_code, 81);
-    // No stack-trace shaped output.
     assert!(!line.contains("stack"));
     assert!(!line.contains("panic"));
 }
