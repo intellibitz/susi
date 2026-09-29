@@ -339,3 +339,7 @@ One line per landed step, newest last.
     near-duplicate step (token Jaccard>=0.8 vs any earlier step) —
     repeated steps waste execution and a duplicate-heavy plan should
     lose to a varied one.
+37. Paraphrase-proof promotion: `promotion_status` now matches exact
+    signatures OR Jaccard>=0.6 paraphrases — an intent that failed
+    under slightly different phrasing can no longer escape the veto
+    window (or inflate a different intent's record).

@@ -400,9 +400,19 @@ pub fn has_traces_for(traces: &[MissionTrace], intent: &str) -> bool {
 
 pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatus {
     let signature = token_signature(intent);
+    let intent_tokens = goal_tokens(intent);
+    // Match exact signatures AND near-identical paraphrases (Jaccard ≥
+    // 0.6): an intent that failed under a slightly different phrasing is
+    // still the same habit — a paraphrase must not escape a veto.
     let matching: Vec<&MissionTrace> = traces
         .iter()
-        .filter(|t| token_signature(&t.goal) == signature)
+        .filter(|t| {
+            token_signature(&t.goal) == signature || {
+                let other = goal_tokens(&t.goal);
+                let union = intent_tokens.union(&other).count();
+                union > 0 && intent_tokens.intersection(&other).count() as f32 / union as f32 >= 0.6
+            }
+        })
         .collect();
     // Only evidence-backed wins count toward promotion — a bare "SUCCESS"
     // verdict with zero receipts is a claim, not proof a reflex helped.
@@ -888,6 +898,27 @@ mod tests {
         assert!(matches!(
             promotion_status(&recovered, "deploy the api"),
             PromotionStatus::Promotable { .. }
+        ));
+
+        // A paraphrase of a recently-failed intent is still vetoed —
+        // rephrasing does not reset the habit's record.
+        let paraphrase = vec![MissionTrace::new(
+            "m",
+            "deploy the api backend",
+            "FAILED",
+            "swarm",
+        )];
+        assert!(matches!(
+            promotion_status(&paraphrase, "deploy the api"),
+            PromotionStatus::Vetoed { .. }
+        ));
+        // A genuinely different intent is untouched by the same failure.
+        assert!(matches!(
+            promotion_status(&paraphrase, "uninstall the kernel module"),
+            PromotionStatus::Insufficient {
+                successes: 0,
+                failures: 0
+            }
         ));
     }
 

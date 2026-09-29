@@ -4184,6 +4184,16 @@
     "label": "Duplicate-step penalty",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-049",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 31 \u2014 paraphrase-proof promotion. promotion_status matched token signatures exactly, so 'deploy the api backend' escaped the veto after 'deploy the api' failed. Matching now includes token-Jaccard \u2265 0.6 paraphrases: near-identical phrasings share the habit's record for both veto and success counting.",
+   "proof": "promotion test: paraphrase of recently-failed intent \u2192 Vetoed; unrelated intent unaffected. susi-core 227 pass; clippy clean.",
+   "anchor": {
+    "label": "Paraphrase veto",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
