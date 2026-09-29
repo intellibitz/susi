@@ -493,7 +493,9 @@ are checked when the path is quoted or carries both a `/` and an
 extension ("created src/utils/mod.rs"); a bare filename ("created
 main.rs") is not mined, since it often names a nested file
 (EV-CLAUDE-064). "moved/renamed X to Y" requires X gone and Y present;
-"copied X to Y" requires Y (precise paths only; EV-CLAUDE-065). A deletion claim about an absolute or `..`-escaping
+"copied X to Y" requires Y (precise paths only; EV-CLAUDE-065). A quoted
+literal written to a path (`wrote "hello" to notes.txt`) is a content
+claim — `FileContains`, not mere existence (EV-CLAUDE-066). A deletion claim about an absolute or `..`-escaping
 path is `Unverifiable`: absence outside the workspace is not something the
 registry can vouch for (it used to come back `Verified`). Bare
 (unquoted) claim paths shed surrounding prose punctuation — `:`, `!`, `?`,

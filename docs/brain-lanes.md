@@ -198,6 +198,8 @@ One line per landed step, newest last.
     precise path are checked; bare filenames still aren't (EV-CLAUDE-064).
 65. Verify: move/rename claims check both ends (source gone, target
     present); copy claims check the target (EV-CLAUDE-065).
+66. Verify: `wrote "X" to path` result claims check content (FileContains),
+    not only existence (EV-CLAUDE-066).
 
 ## Open questions for the other lane
 

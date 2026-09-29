@@ -4544,6 +4544,16 @@
    "milestone": "Move, rename and copy claims are verified at both ends. contracts_from_text had no rule for 'I moved notes.txt to archive/notes.txt', 'renamed a.md as b.md' or 'copied X into Y', so such claims passed whatever the workspace held. MOVES now mines moved|renamed|copied [the] [file] X to|as|into Y. X and Y must each be quoted, or bare and path-like: a '/' or a '.' followed by an alphanumeric, which excludes sentence-final periods (EV-CLAUDE-057). A move or rename adds FileAbsent(X) and FileExists(Y); a copy adds FileExists(Y). Prose like 'moved on to the next task' mints nothing. Test: move_and_copy_claims_check_both_ends (both contracts violated before the move and verified after an actual rename; a backticked copy source with a space yields the target contract; the prose case is empty). Verification 15/15, truth 21/21.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "CONTENT_WRITES",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   },
+   "id": "EV-CLAUDE-066",
+   "milestone": "Result claims that state what was written are checked for that content. Goal content literals were verified since EV-CLAUDE-028, but a result such as 'I wrote \"hello world\" to notes.txt.' was at most existence-checked, so notes.txt with the wrong content passed. CONTENT_WRITES now mines wrote|saved|put|added|appended|inserted \"<literal>\" to|into|in <path>. The literal must be quoted; the path quoted or path-like. It becomes Contract::FileContains { path, needle }, replacing a plain FileExists for the same path. During the change, the EV-CLAUDE-064 PATH_CLAIMS rule was found to read the quoted literal after 'wrote' as a file path (FileExists('hello world')); the content rule now removes that spurious contract. Test: quoted_content_writes_are_content_contracts (exactly one FileContains is mined; it is violated for other content and verified once the text is present; the unquoted 'added some notes to the file' mints nothing). Verification 16/16, truth 21/21.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

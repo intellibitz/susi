@@ -472,6 +472,40 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
         }
     }
 
+    // `wrote "hello" to notes.txt` claims content, not only existence: a
+    // quoted literal written to/into a path becomes FileContains (and
+    // replaces a plain FileExists for the same path).
+    static CONTENT_WRITES: OnceLock<regex::Regex> = OnceLock::new();
+    let content_writes = CONTENT_WRITES.get_or_init(|| {
+        // Static literal — validity is fixed at compile time.
+        #[allow(clippy::expect_used)]
+        regex::Regex::new(
+            r#"(?i)\b(?:wrote|saved|put|added|appended|inserted)\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)')\s+(?:to|into|in)\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;`"']*(?:\.[A-Za-z0-9]|/)[^\s,;`"']*))"#,
+        )
+        .expect("static content-write pattern")
+    });
+    for capture in content_writes.captures_iter(text) {
+        let needle = (1..=3)
+            .find_map(|i| capture.get(i))
+            .map(|m| m.as_str().to_string());
+        let path = (4..=7).find_map(|i| capture.get(i)).map(|m| {
+            PathBuf::from(
+                m.as_str()
+                    .trim_end_matches(['.', ',', ';', ':', '!', '?', ')']),
+            )
+        });
+        if let (Some(needle), Some(path)) = (needle, path) {
+            // Drop the plain existence check for the same path, and the
+            // quoted literal that PATH_CLAIMS read as a path ("wrote
+            // "hello" ..." is content, not a file named hello).
+            let literal = PathBuf::from(&needle);
+            contracts.retain(
+                |c| !matches!(c, Contract::FileExists { path: p } if *p == path || *p == literal),
+            );
+            contracts.push(Contract::FileContains { path, needle });
+        }
+    }
+
     // "moved/renamed X to Y" leaves X gone and Y present; "copied X to Y"
     // leaves Y present. Precise paths only (quoted, or with an extension or
     // a '/'), like the other file claims.
@@ -838,6 +872,25 @@ mod tests {
         // Bare filenames and prose are not claims (nested-file ambiguity).
         assert!(contracts_from_text("I created main.rs for you").is_empty());
         assert!(contracts_from_text("created a new branch and updated the docs").is_empty());
+    }
+
+    #[test]
+    fn quoted_content_writes_are_content_contracts() {
+        let dir = ws();
+        let mined = contracts_from_text(r#"I wrote "hello world" to notes.txt."#);
+        assert_eq!(
+            mined,
+            [Contract::FileContains {
+                path: "notes.txt".into(),
+                needle: "hello world".into()
+            }]
+        );
+        std::fs::write(dir.path().join("notes.txt"), "something else").unwrap();
+        assert!(verify_contract(&mined[0], dir.path()).violation().is_some());
+        std::fs::write(dir.path().join("notes.txt"), "x hello world y").unwrap();
+        assert!(verify_contract(&mined[0], dir.path()).is_verified());
+        // An unquoted description is not a literal.
+        assert!(contracts_from_text("added some notes to the file").is_empty());
     }
 
     #[test]
