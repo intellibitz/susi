@@ -15,10 +15,13 @@ xn = "nextest run --workspace --locked"
 # linker hands linking back to the wrapper. Measured on the `susi` bin after
 # touching main.rs: 2.4–2.6s with mold vs ~3.0s with rust-lld. An explicit
 # RUSTFLAGS env var replaces these flags (cargo semantics).
+#
+# x86_64 only: rustc self-contains lld solely on x86_64 Linux, and on other
+# targets the flag is unstable (`-Z unstable-options` required), which broke
+# the linux-aarch64 release build of v0.16.0.
 [target.x86_64-unknown-linux-gnu]
 linker = ".cargo/fast-linker"
 rustflags = ["-Clinker-features=-lld"]
 
 [target.aarch64-unknown-linux-gnu]
 linker = ".cargo/fast-linker"
-rustflags = ["-Clinker-features=-lld"]

@@ -1370,3 +1370,25 @@ fn worktree_workflow_guard_is_wired_into_every_hook() {
         "setup-dev.sh must enable the hooks (Mandate 49)"
     );
 }
+
+/// `-Clinker-features=-lld` is stable only on x86_64 Linux; on any other
+/// target rustc rejects it, which failed v0.16.0's linux-aarch64 release build.
+#[test]
+fn linker_features_flag_is_x86_64_linux_only() {
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".cargo/config.toml"),
+    )
+    .unwrap();
+    let mut section = String::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            section = line.to_string();
+        } else if !line.starts_with('#') && line.contains("linker-features") {
+            assert_eq!(
+                section, "[target.x86_64-unknown-linux-gnu]",
+                "linker-features is unstable outside x86_64 Linux: {line}"
+            );
+        }
+    }
+}
