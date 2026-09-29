@@ -31,6 +31,7 @@ pub use susi_error;
 pub mod cloud_env;
 pub mod cluster_key;
 mod config;
+pub mod desired_state;
 pub mod explain;
 pub mod extensions;
 pub mod file_lock;
@@ -38,6 +39,7 @@ mod json_util;
 pub mod key_scope;
 pub mod rekey_schedule;
 pub mod selfheal;
+pub mod setting_registry;
 pub mod state_migration;
 mod types;
 pub mod validate;
@@ -110,6 +112,10 @@ mod service {
 
 pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
 pub use config::{redact_credentials, SusiConfig};
+pub use desired_state::{
+    parse_desired_state, round_trip_desired_state, validate_desired_state, DesiredRef,
+    DesiredState, DESIRED_STATE_SCHEMA,
+};
 pub use explain::{explain_key, explain_key_global, ConfigLayer, ConfigOrigin, ExplainedSetting};
 pub use json_util::{
     atomic_replace_file, atomic_write_bytes, atomic_write_json_pretty, clear_json_override,
@@ -135,6 +141,9 @@ mod cluster_key_tests;
 #[path = "tests/config_validate.rs"]
 mod config_validate_tests;
 #[cfg(test)]
+#[path = "tests/desired_state.rs"]
+mod desired_state_tests;
+#[cfg(test)]
 #[path = "tests/extensions.rs"]
 mod extensions_tests;
 #[cfg(test)]
@@ -158,6 +167,9 @@ mod versioned_store_tests;
 #[cfg(test)]
 #[path = "tests/zc_config_explain.rs"]
 mod zc_config_explain_tests;
+#[cfg(test)]
+#[path = "tests/zc_setting_registry.rs"]
+mod zc_setting_registry_tests;
 
 /// Serializes tests that mutate or read process-global environment-derived
 /// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock
