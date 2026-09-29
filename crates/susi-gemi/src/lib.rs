@@ -53,6 +53,7 @@ pub mod openrouter_ext;
 pub mod provider_contract;
 pub mod pulse;
 pub mod rate_limit_scheduler;
+pub mod region_eligibility;
 
 #[cfg(test)]
 #[path = "tests/engine_benchmark.rs"]
@@ -66,3 +67,6 @@ mod rate_limit_scheduler_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_051.rs"]
 mod vc_201_051_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_054.rs"]
+mod vc_201_054_tests;

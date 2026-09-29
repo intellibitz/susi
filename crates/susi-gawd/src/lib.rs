@@ -65,7 +65,9 @@ pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
 pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
 pub mod admin;
+pub mod baseline_capture;
 pub mod bloat_audit;
+pub mod eval_receipt;
 pub mod evolution;
 pub mod formal_invariants;
 pub mod genome_distiller;
@@ -83,6 +85,12 @@ mod formal_invariants_tests;
 #[cfg(test)]
 #[path = "tests/rsi_corpus.rs"]
 mod rsi_corpus_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_002.rs"]
+mod vc_201_002_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_004.rs"]
+mod vc_201_004_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
