@@ -311,3 +311,7 @@ One line per landed step, newest last.
     the same 0.5+0.5*e^(-age/30d) weight as retrieval ordering (shared
     `recency_weight` fn) — a failure yesterday outweighs one last year;
     recovered intents stop paying for ancient failures.
+30. Recency-weighted success rate: `success_rate` (and therefore
+    `unreliable_neighborhood`) weight outcomes by the same decay — a
+    stale success no longer papers over a fresh failure at half the
+    naive rate (0.33 vs 0.5 in the stale-win/fresh-loss case).

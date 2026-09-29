@@ -4114,6 +4114,16 @@
     "label": "Weighted failure rate",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-042",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 24 \u2014 recency-weighted success_rate. The similar-mission success fraction is now weighted by the shared decay, so unreliable_neighborhood sees a stale-success/fresh-failure pair as 0.33 (unreliable) instead of 0.5 (passing).",
+   "proof": "stale_success_does_not_paper_over_a_fresh_failure: rate ~0.33, neighborhood flagged. susi-core 224 pass; clippy clean.",
+   "anchor": {
+    "label": "Weighted success rate",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

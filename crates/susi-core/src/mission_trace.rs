@@ -528,8 +528,21 @@ pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option
     if neighbors.is_empty() {
         return None;
     }
-    let wins = neighbors.iter().filter(|t| t.succeeded()).count();
-    Some(wins as f32 / neighbors.len() as f32)
+    // Recency-weighted: a stale success papers over a fresh failure at
+    // half the naive rate — yesterday's outcomes are the honest signal.
+    let newest = traces.iter().map(|t| t.timestamp).max().unwrap_or(0);
+    let (mut wsum, mut wwin) = (0.0f32, 0.0f32);
+    for t in &neighbors {
+        let w = recency_weight(t.timestamp, newest);
+        wsum += w;
+        if t.succeeded() {
+            wwin += w;
+        }
+    }
+    if wsum == 0.0 {
+        return None;
+    }
+    Some(wwin / wsum)
 }
 
 /// True when enough similar missions exist to judge (≥2) and fewer than
@@ -537,8 +550,10 @@ pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option
 /// plan-search should demand candidate agreement before acting. A single
 /// neighbor is too thin to condemn (one failure can be noise).
 pub fn unreliable_neighborhood(goal: &str, traces: &[MissionTrace], limit: usize) -> bool {
-    let neighbors = similar(goal, traces, limit);
-    neighbors.len() >= 2 && neighbors.iter().filter(|t| t.succeeded()).count() * 2 < neighbors.len()
+    match success_rate(goal, traces, limit) {
+        Some(rate) => similar(goal, traces, limit).len() >= 2 && rate < 0.5,
+        None => false,
+    }
 }
 
 /// Whether plan scores predict outcomes: Pearson correlation of
@@ -945,6 +960,23 @@ mod tests {
         ));
         // Novel intent — nothing to judge.
         assert!(!unreliable_neighborhood("never seen intent", &traces, 8));
+    }
+
+    #[test]
+    fn stale_success_does_not_paper_over_a_fresh_failure() {
+        let ws = workspace();
+        // Same intent: ancient success, fresh failure. Naive rate is 0.5;
+        // recency-weighted the fresh failure dominates → unreliable.
+        let mut old = MissionTrace::new("o", "deploy api service", "SUCCESS", "swarm");
+        old.timestamp = 1;
+        let mut fresh = MissionTrace::new("f", "deploy api service", "FAILED", "swarm");
+        fresh.timestamp = 1_800_000_000;
+        old.emit(ws.path()).unwrap();
+        fresh.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        assert!(unreliable_neighborhood("deploy api service", &traces, 8));
+        let rate = success_rate("deploy api service", &traces, 8).unwrap();
+        assert!((rate - 1.0 / 3.0).abs() < 0.03, "got {rate}");
     }
 
     #[test]
