@@ -4,6 +4,7 @@
 mod release;
 pub mod tasks;
 mod version;
+pub mod workflow;
 
 pub use release::{E2eCheck, E2E_CHECKS};
 pub use version::VersionBump;

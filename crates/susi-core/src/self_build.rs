@@ -31,7 +31,7 @@ pub const VERIFY_COMMAND: &str = "cargo fmt --all --check \
 /// The contract, prepended to every task an agent receives in a SUSI tree.
 pub const BRIEF: &str = "\
 [SUSI SELF-BUILD CONTRACT — identity.json Mandates 48-56; full rules in AGENTS.md]
-You are changing SUSI's own source. The installed ~/.susi/bin/susi is the release \
+Run `susi workflow check` first; it says whether you may start. You are changing SUSI's own source. The installed ~/.susi/bin/susi is the release \
 toolchain running this work; do not break it.
 1. Build dev only into target/ (cargo build, cargo xb, ./build-gpu.sh). Never copy, \
 install, or symlink a binary into ~/.susi/bin, and never run install.sh or \
@@ -89,6 +89,7 @@ mod tests {
     fn the_contract_carries_the_workflow_mandates_agents_must_follow() {
         for needle in [
             "Mandates 48-56",
+            "susi workflow check",
             "scripts/susi-worktree.sh",
             "susi tasks claim",
             "susi tasks close",

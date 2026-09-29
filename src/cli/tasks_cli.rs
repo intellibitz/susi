@@ -68,7 +68,7 @@ pub enum TaskCommands {
     },
 }
 
-fn repo_root(cwd: &Path) -> PathBuf {
+pub(crate) fn repo_root(cwd: &Path) -> PathBuf {
     std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(cwd)
@@ -79,7 +79,7 @@ fn repo_root(cwd: &Path) -> PathBuf {
         .unwrap_or_else(|| cwd.to_path_buf())
 }
 
-fn who(agent: Option<String>, root: &Path) -> String {
+pub(crate) fn who(agent: Option<String>, root: &Path) -> String {
     agent
         .or_else(|| std::env::var("SUSI_AGENT").ok())
         .filter(|a| !a.trim().is_empty())

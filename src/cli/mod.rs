@@ -47,3 +47,4 @@ pub mod swe_agent_cli;
 pub mod tasks_cli;
 pub mod telemetry_cli;
 pub mod tx_cli;
+pub mod workflow_cli;
