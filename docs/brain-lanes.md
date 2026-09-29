@@ -335,3 +335,7 @@ One line per landed step, newest last.
     which candidate actually ran. Now tracks the executed candidate;
     score comes from the matching candidate or a fresh score_plan for
     the fallback — traces join the RIGHT plan to the outcome.
+36. Intra-plan duplicate penalty: score_plan_* now dock -0.05 per
+    near-duplicate step (token Jaccard>=0.8 vs any earlier step) —
+    repeated steps waste execution and a duplicate-heavy plan should
+    lose to a varied one.

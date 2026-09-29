@@ -169,6 +169,23 @@ pub fn score_plan_with_history(
         .filter(|t| VERIFIABLE_TOKENS.contains(&t.trim_matches(|c: char| !c.is_alphanumeric())))
         .count();
     let over_budget = steps.len().saturating_sub(max_steps as usize);
+    // Near-duplicate steps inside one plan waste execution — "scan files"
+    // twice is a worse plan than "scan files" then "fix findings".
+    let step_sets: Vec<std::collections::BTreeSet<String>> = steps
+        .iter()
+        .map(|s| crate::amas::tokenize_goal(s).into_iter().collect())
+        .collect();
+    let duplicate_steps = step_sets
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| {
+            !a.is_empty()
+                && step_sets[..*i].iter().any(|b| {
+                    let inter = a.intersection(b).count() as f32;
+                    inter / a.union(b).count() as f32 >= 0.8
+                })
+        })
+        .count();
     let step_words = |t: &String| {
         t.split_whitespace()
             .map(|w| w.to_lowercase())
@@ -198,12 +215,14 @@ pub fn score_plan_with_history(
         (0.4 + 0.5 * coverage + 0.05 * verifiable.min(4) as f32 + 0.05 * proven_hits.min(4) as f32
             - 0.15 * risk_hits as f32
             - 0.1 * history_penalty as f32
-            - 0.1 * over_budget as f32)
+            - 0.1 * over_budget as f32
+            - 0.05 * duplicate_steps as f32)
             .clamp(0.0, 1.0);
     let rationale = format!(
         "coverage={coverage:.2} risk_tokens={risk_hits} failed_history_tools={history_hits} \
          failure_penalty={history_penalty} proven_tools={proven_hits} \
-         verifiable_steps={verifiable} steps={} over_budget={over_budget}",
+         verifiable_steps={verifiable} steps={} over_budget={over_budget} \
+         duplicate_steps={duplicate_steps}",
         steps.len()
     );
     (score, rationale)
@@ -514,6 +533,22 @@ mod tests {
         });
         assert_eq!(tied.candidates.len(), 2);
         assert_eq!(tied.candidates[0].steps.len(), 1, "{:?}", tied.candidates);
+    }
+
+    #[test]
+    fn near_duplicate_steps_are_penalized() {
+        let (varied, _) = score_plan(
+            "scan the workspace",
+            &["scan files".into(), "fix findings".into()],
+            5,
+        );
+        let (repeated, r) = score_plan(
+            "scan the workspace",
+            &["scan files".into(), "scan files".into()],
+            5,
+        );
+        assert!(repeated < varied, "{r}");
+        assert!(r.contains("duplicate_steps=1"), "{r}");
     }
 
     #[test]

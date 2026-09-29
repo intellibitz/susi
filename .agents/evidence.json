@@ -4174,6 +4174,16 @@
     "label": "Executed-plan attribution",
     "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-048",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 30 \u2014 intra-plan duplicate penalty. Plan scoring docks -0.05 per step that is a near-duplicate (token Jaccard \u2265 0.8) of an earlier step: repeated steps waste execution, and a plan that repeats itself should lose to a varied one.",
+   "proof": "near_duplicate_steps_are_penalized: literal repeat scores lower and reports duplicate_steps=1. susi-gawd-swarm 64 pass; clippy clean.",
+   "anchor": {
+    "label": "Duplicate-step penalty",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
