@@ -161,12 +161,39 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
         cmd.process_group(0);
     }
     let result = supervise(manager, run, &mut cmd);
+    if run.status == RunStatus::Failed && run.error.is_none() {
+        // Without this a failed task reports `error: null` and the cause sits
+        // unread in stderr.log (e.g. an agent refusing an untrusted workspace).
+        run.error = manager
+            .run_dir(&run.id)
+            .ok()
+            .and_then(|d| failure_summary(&d.join("stderr.log")));
+    }
     if let Some(guard) = identity {
         if let Some(note) = guard.restore()? {
             run.error = Some(note);
         }
     }
     result
+}
+
+/// First and last non-empty stderr lines, credential-redacted and bounded.
+fn failure_summary(stderr_log: &std::path::Path) -> Option<String> {
+    use std::io::Read;
+    let mut head = String::new();
+    std::fs::File::open(stderr_log)
+        .ok()?
+        .take(16 * 1024)
+        .read_to_string(&mut head)
+        .ok()?;
+    let mut lines = head.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next()?;
+    let summary = match lines.last() {
+        Some(last) if last != first => format!("{first} | {last}"),
+        _ => first.to_string(),
+    };
+    let redacted = crate::susi_config::redact_credentials(&summary);
+    Some(redacted.chars().take(300).collect())
 }
 
 fn supervise(manager: &AgentManager, run: &mut RunRecord, cmd: &mut Command) -> Result<()> {
