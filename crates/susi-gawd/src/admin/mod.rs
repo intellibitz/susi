@@ -2,6 +2,7 @@
 // 100% Rust implementation for Full Compliance Enforcement, Version Synchronization & Release Orchestration
 
 mod release;
+pub mod tasks;
 mod version;
 
 pub use release::{E2eCheck, E2E_CHECKS};
