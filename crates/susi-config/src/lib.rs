@@ -35,6 +35,7 @@ pub mod extensions;
 pub mod file_lock;
 mod json_util;
 mod types;
+pub mod validate;
 pub mod versioned_store;
 
 /// IPC client for the standalone `susi-config` service. Only the global
@@ -111,11 +112,18 @@ pub use json_util::{
     write_json_override, DynamicRegistry, DynamicValue, ModelTier, ProviderType, StringRegistry,
 };
 pub use types::*;
+pub use validate::{
+    apply_fixes, validate_dir, validate_settings, ConfigFix, ConfigIssue, ConfigIssueKind,
+    ConfigValidationReport,
+};
 pub use versioned_store::VersionedJsonStore;
 
 #[cfg(test)]
 #[path = "tests/cluster_key.rs"]
 mod cluster_key_tests;
+#[cfg(test)]
+#[path = "tests/config_validate.rs"]
+mod config_validate_tests;
 #[cfg(test)]
 #[path = "tests/extensions.rs"]
 mod extensions_tests;
