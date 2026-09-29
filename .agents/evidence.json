@@ -4424,6 +4424,16 @@
    "milestone": "A request that names a model is answered by that model, not a reflex. The OpenAI-compatible /v1/chat/completions streaming path (susi-server build_streaming_response -> GemiEngine::generate_reasoning_stream_with_model_meta) forwards the client's 'model' verbatim. The server enforces the OpenAI contract that an unknown model is a 400, so the client picked a real one from /v1/models. The streaming layer labels frames with the backend that served (susi_meta provider). Yet reason_internal ran with allow_reflex=true, so a trained Tier-0 could answer a request for a specific model with an 'ACTION: status' line (or Tier-1's 0.5B model could answer), and the reflex path never reports a provider, so the stream was labelled as the requested model. Now runtime::reflex_allowed(requested_model) = requested_model.is_none() governs both generate_reasoning_stream_with_model (always Some, so reflexes are off) and generate_reasoning_stream_meta. Model-less prompts keep the reflex tiers. Test: a_requested_model_bypasses_the_reflex_tiers. The lanes board records the open design question this exposes: no code executes a served ACTION line, so after steps 31/50/51/54 a Tier-0 hit returns literal 'ACTION: <name>' text to model-less user prompts. Options are listed for agreement with Devin and the operator.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "descriptions never lift a veto",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-055",
+   "milestone": "Closes a veto bypass introduced by EV-CLAUDE-053. The support set's per-action learned words, which exempt an action from the VETO_WORDS guard, were built from every support row, including the new capability-description rows. A broad tool description such as 'Create, update or delete files in the workspace' for write_file therefore made 'delete' a learned word of write_file, and 'delete the config file' was no longer vetoed when the classifier predicted write_file. Proven by a failing test before the fix: vetoed_word('delete the config file', 'ACTION: write_file') returned None. Now support_matrix builds action_words only from verified experience (replayed samples) plus each action's own name. The description rows still contribute to the support matrix and to the typo-correction lexicon, both harmless. Test: descriptions_never_lift_a_veto (with that description primed and loaded, the veto still fires). The alpha suite passed 3 of 3 runs (44 tests).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

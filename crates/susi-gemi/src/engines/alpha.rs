@@ -1059,7 +1059,14 @@ fn support_matrix(
             .collect();
         let mut action_words: std::collections::HashMap<String, std::collections::HashSet<String>> =
             std::collections::HashMap::new();
-        for (intent, action) in &rows {
+        // Learned words lift the veto guard, so they come only from verified
+        // experience (replayed samples) and the action's own name — never
+        // from a registry description: "Create, update or delete files"
+        // would otherwise exempt write_file from the "delete" veto. The
+        // description rows (last in `rows`) still count for support and the
+        // typo lexicon.
+        let experienced = replay.len() + vocabulary.len();
+        for (intent, action) in rows.iter().take(experienced) {
             action_words
                 .entry(action.to_lowercase())
                 .or_default()
@@ -1069,6 +1076,7 @@ fn support_matrix(
             .values()
             .flatten()
             .cloned()
+            .chain(rows.iter().skip(experienced).flat_map(|(d, _)| words(d)))
             .chain(ANCHOR_WORDS.iter().map(|w| stem(w)))
             .chain(SYNONYMS.iter().map(|(w, _)| stem(w)))
             .filter(|w| w.len() >= 3)
@@ -2495,6 +2503,27 @@ mod tests {
         SusiAlphaModel::train_with(with.path(), &staged, &descriptions).unwrap();
         let described = SusiAlphaModel::load_with(with.path(), &descriptions).unwrap();
         assert_eq!(described.predict_intent(prompt).unwrap(), "ACTION: reason");
+    }
+
+    #[test]
+    fn descriptions_never_lift_a_veto() {
+        let descriptions: Descriptions = [(
+            "write_file".to_string(),
+            "Create, update or delete files in the workspace".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, EVERYDAY);
+        SusiAlphaModel::train_with(dir.path(), &staged, &descriptions).unwrap();
+        let model = SusiAlphaModel::load_with(dir.path(), &descriptions).unwrap();
+        assert!(
+            model
+                .vetoed_word("delete the config file", "ACTION: write_file")
+                .is_some(),
+            "a description mentioning delete must not exempt write_file"
+        );
     }
 
     #[test]

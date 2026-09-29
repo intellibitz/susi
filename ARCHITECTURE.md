@@ -621,7 +621,11 @@ name (`capability_descriptions`: agents' profiles, tools'
 `Tool::description`), and the description joins the support set: a fresh
 tool named `sql_query` is reachable as "run a SQL query against the
 database" before anyone has used it, not only by its identifier
-(EV-CLAUDE-053).
+(EV-CLAUDE-053). A description never lifts a veto: the words that exempt an
+action from the veto guard come only from verified experience (replayed
+samples) and the action's own name — "Create, update or delete files"
+must not make "delete the config file" servable as `write_file`
+(EV-CLAUDE-055).
 
 Labels must agree. Receipts stage `mission goal → tool` once per tool call,
 so a multi-tool mission stages one goal under several labels.

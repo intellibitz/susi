@@ -170,6 +170,9 @@ One line per landed step, newest last.
     (EV-CLAUDE-053).
 54. A request naming a model is answered by it: reflex tiers step aside when
     `/v1/chat/completions` (or any caller) sets a model (EV-CLAUDE-054).
+55. Descriptions never lift a veto: veto-exempt words come from replayed
+    experience and the action name only (closes a hole step 53 opened)
+    (EV-CLAUDE-055).
 
 ## Open questions for the other lane
 
