@@ -18,6 +18,7 @@ tower = { package = "susi-vendor-tower", path = "../susi-vendor-tower" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 
 [lints]
 workspace = true
