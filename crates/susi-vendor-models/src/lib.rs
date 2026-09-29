@@ -38,6 +38,7 @@ pub mod local_ecosystem;
 pub mod open_weight;
 pub mod openrouter;
 pub mod resource_inventory;
+pub mod signed_catalog;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]
