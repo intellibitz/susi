@@ -67,6 +67,30 @@ impl SusiTruthAgent {
             }
         }
 
+        // A delete mission must leave its named target gone. Only a quoted
+        // or path-like target (contains '.' or '/') counts, so "delete the
+        // cache" mints nothing. Before, goals only minted write contracts:
+        // "delete old.log" answered "Done." passed with old.log present.
+        static GOAL_DELETES: OnceLock<regex::Regex> = OnceLock::new();
+        let goal_deletes = GOAL_DELETES.get_or_init(|| {
+            regex::Regex::new(
+                r#"(?i)\b(?:delete|remove)\s+(?:the\s+)?(?:file\s+)?(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]*[./][^\s,;]*))"#,
+            )
+            .expect("static goal delete pattern")
+        });
+        for capture in goal_deletes.captures_iter(goal) {
+            if let Some(path) = (1..=4).find_map(|index| capture.get(index)) {
+                let path = path
+                    .as_str()
+                    .trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
+                if !path.is_empty() {
+                    contracts.push(crate::verification::Contract::FileAbsent {
+                        path: PathBuf::from(path),
+                    });
+                }
+            }
+        }
+
         // Claims in the result — writes *and* deletions — become contracts
         // evaluated against the workspace with evidence, rather than
         // existence-only spot checks.
@@ -641,6 +665,36 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("not absolute evidence"));
+    }
+
+    #[test]
+    fn delete_goals_require_the_target_to_be_gone() {
+        let ws = TempWorkspace::new();
+        std::fs::write(ws.0.join("old.log"), "x").unwrap();
+        let err = SusiTruthAgent::verify_mission_reality(
+            "delete old.log",
+            "exec_command",
+            "Done.",
+            &ws.0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("old.log"), "{err}");
+        std::fs::remove_file(ws.0.join("old.log")).unwrap();
+        assert!(SusiTruthAgent::verify_mission_reality(
+            "delete old.log",
+            "exec_command",
+            "Done.",
+            &ws.0
+        )
+        .is_ok());
+        // Not path-like: no contract, no false violation.
+        assert!(SusiTruthAgent::verify_mission_reality(
+            "delete the cache",
+            "exec_command",
+            "Done.",
+            &ws.0
+        )
+        .is_ok());
     }
 
     #[test]

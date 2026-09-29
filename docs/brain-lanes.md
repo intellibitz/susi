@@ -173,6 +173,8 @@ One line per landed step, newest last.
 55. Descriptions never lift a veto: veto-exempt words come from replayed
     experience and the action name only (closes a hole step 53 opened)
     (EV-CLAUDE-055).
+56. Verify: delete goals ("delete old.log") require the target gone; goals
+    minted only write contracts before (EV-CLAUDE-056).
 
 ## Open questions for the other lane
 

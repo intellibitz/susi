@@ -4434,6 +4434,16 @@
    "milestone": "Closes a veto bypass introduced by EV-CLAUDE-053. The support set's per-action learned words, which exempt an action from the VETO_WORDS guard, were built from every support row, including the new capability-description rows. A broad tool description such as 'Create, update or delete files in the workspace' for write_file therefore made 'delete' a learned word of write_file, and 'delete the config file' was no longer vetoed when the classifier predicted write_file. Proven by a failing test before the fix: vetoed_word('delete the config file', 'ACTION: write_file') returned None. Now support_matrix builds action_words only from verified experience (replayed samples) plus each action's own name. The description rows still contribute to the support matrix and to the typo-correction lexicon, both harmless. Test: descriptions_never_lift_a_veto (with that description primed and loaded, the veto still fires). The alpha suite passed 3 of 3 runs (44 tests).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "GOAL_DELETES",
+    "ref": "file://crates/susi-core/src/truth.rs"
+   },
+   "id": "EV-CLAUDE-056",
+   "milestone": "Delete goals are now verified against the workspace. SusiTruthAgent::verify_mission_reality mined contracts from the goal only for writes (GOAL_FILE_WRITES: create/write/save [a/an] [new] file [named/called] X), and from the result for write and delete claims. A goal 'delete old.log' answered with plain 'Done.' (no claim in the result) therefore passed with old.log still present. Now GOAL_DELETES mines 'delete|remove [the] [file] X' from the goal, where X is backticked/double/single-quoted or a bare path-like token containing '.' or '/'; trailing punctuation is trimmed. It adds Contract::FileAbsent, which inherits EV-CLAUDE-020's workspace-relative rule. Non-path phrasing ('delete the cache') mints nothing, so there is no false violation. Test: delete_goals_require_the_target_to_be_gone (violation naming old.log while it exists; passes once removed; 'delete the cache' passes). Truth tests 18/18.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
