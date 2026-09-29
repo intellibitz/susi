@@ -340,8 +340,9 @@ is the START HERE block at the top of [`AGENTS.md`](AGENTS.md):
 
 1. **Run `susi workflow check` first.** It says whether you are in your own
    worktree, current with `origin/main`, have the hooks, and hold a claim, and
-   prints the command that fixes each failure. No installed susi:
-   `cargo run -q -- workflow check`.
+   prints the command that fixes each failure. It also fast-forwards the primary
+   checkout's `main` when that is safe (clean, on `main`, no local commits), so it
+   never goes stale. No installed susi: `cargo run -q -- workflow check`.
 2. **Work in your own worktree, never the primary checkout or `main`:**
    `scripts/susi-worktree.sh` (no name needed; or `susi workflow start`). It
    branches off the latest `origin/main`, installs the hooks, parks the primary

@@ -78,8 +78,12 @@ impl World {
     }
 
     fn park(&self, from: &Path) -> (i32, String, String) {
+        self.park_with(from, &[])
+    }
+
+    fn park_with(&self, from: &Path, args: &[&str]) -> (i32, String, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/park-primary.sh");
-        run(from, script.to_str().unwrap(), &[])
+        run(from, script.to_str().unwrap(), args)
     }
 
     fn head_is_detached_at_origin_main(&self) -> bool {
@@ -225,4 +229,63 @@ fn commits_not_in_origin_main_block_parking() {
         git(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
         "stale-branch"
     );
+}
+
+#[test]
+fn sync_only_fast_forwards_a_clean_main_and_says_so() {
+    let w = World::new("sync-ff");
+    git(&w.primary, &["switch", "--quiet", "main"]); // one commit behind origin/main
+    let (code, out, err) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("fast-forwarded to origin/main"), "{out}");
+    assert!(w.on_main_at_origin_main());
+    // Already current: silent no-op.
+    let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!((code, out.trim()), (0, ""));
+}
+
+#[test]
+fn sync_only_never_switches_branches_or_touches_work() {
+    let w = World::new("sync-safe");
+    // On a (stale) feature branch: must stay there, silently.
+    let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!((code, out.trim()), (0, ""));
+    assert_eq!(
+        git(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
+        "stale-branch"
+    );
+
+    // On main with uncommitted changes: untouched.
+    git(&w.primary, &["switch", "--quiet", "main"]);
+    std::fs::write(w.primary.join("wip.txt"), "unsaved").unwrap();
+    let before = git(&w.primary, &["rev-parse", "HEAD"]);
+    let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!((code, out.trim()), (0, ""));
+    assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), before);
+    assert!(w.primary.join("wip.txt").exists());
+
+    // On main with a local commit: untouched.
+    std::fs::remove_file(w.primary.join("wip.txt")).unwrap();
+    git(
+        &w.primary,
+        &["commit", "--allow-empty", "--quiet", "-m", "local"],
+    );
+    let before = git(&w.primary, &["rev-parse", "HEAD"]);
+    let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!((code, out.trim()), (0, ""));
+    assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), before);
+}
+
+#[test]
+fn sync_only_is_silent_and_harmless_when_offline() {
+    let w = World::new("sync-offline");
+    git(&w.primary, &["switch", "--quiet", "main"]);
+    git(
+        &w.primary,
+        &["remote", "set-url", "origin", "/nonexistent/server.git"],
+    );
+    let before = git(&w.primary, &["rev-parse", "HEAD"]);
+    let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!((code, out.trim()), (0, ""));
+    assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), before);
 }
