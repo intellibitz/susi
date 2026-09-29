@@ -507,6 +507,28 @@ pub fn proven_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<St
         .collect()
 }
 
+/// Full step-lists of plans that ran on similar verified-success
+/// missions — a candidate matching one wholesale repeats a shape
+/// that already delivered.
+pub fn proven_plans(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<Vec<String>> {
+    similar(goal, traces, limit)
+        .iter()
+        .filter(|t| t.verified() && !t.plan_steps.is_empty())
+        .map(|t| t.plan_steps.clone())
+        .collect()
+}
+
+/// Full step-lists of plans that ran on similar *failed* missions —
+/// a candidate matching one wholesale replays a shape that already
+/// died once.
+pub fn failed_plans(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<Vec<String>> {
+    similar(goal, traces, limit)
+        .iter()
+        .filter(|t| !t.succeeded() && !t.plan_steps.is_empty())
+        .map(|t| t.plan_steps.clone())
+        .collect()
+}
+
 /// Median step count of plans that ran on similar verified-success
 /// missions — a plan-shape prior the candidate search should center
 /// on. `None` when no recorded plan succeeded here.

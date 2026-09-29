@@ -360,3 +360,6 @@ One line per landed step, newest last.
     missions now feeds the score (0..600s -> +0..0.15) and is stored
     as `median_duration_secs` — an intent class that historically
     takes ten minutes is empirically harder than a ten-second one.
+42. Whole-plan provenance: beyond per-step echoes, a candidate that
+    matches an entire decomposition that verified earns +0.10, and one
+    matching a plan that failed docks -0.15 (plan_similarity>=0.7).

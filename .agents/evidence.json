@@ -4234,6 +4234,16 @@
     "label": "Duration-aware difficulty",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-054",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 36 \u2014 whole-plan provenance. Step-level echoes now complemented by shape-level matching: proven_plans/failed_plans retrieve full step-lists from similar missions; a candidate matching a verified decomposition (plan_similarity \u2265 0.7) earns +0.10, matching a failed one docks -0.15.",
+   "proof": "whole_plan_shape_provenance_scored: identical candidate scores lower against failed-plan history, higher against proven-plan history. susi-gawd-swarm 66 pass; clippy clean.",
+   "anchor": {
+    "label": "Whole-plan provenance",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
