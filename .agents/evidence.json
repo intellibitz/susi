@@ -4554,6 +4554,16 @@
    "milestone": "Result claims that state what was written are checked for that content. Goal content literals were verified since EV-CLAUDE-028, but a result such as 'I wrote \"hello world\" to notes.txt.' was at most existence-checked, so notes.txt with the wrong content passed. CONTENT_WRITES now mines wrote|saved|put|added|appended|inserted \"<literal>\" to|into|in <path>. The literal must be quoted; the path quoted or path-like. It becomes Contract::FileContains { path, needle }, replacing a plain FileExists for the same path. During the change, the EV-CLAUDE-064 PATH_CLAIMS rule was found to read the quoted literal after 'wrote' as a file path (FileExists('hello world')); the content rule now removes that spurious contract. Test: quoted_content_writes_are_content_contracts (exactly one FileContains is mined; it is violated for other content and verified once the text is present; the unquoted 'added some notes to the file' mints nothing). Verification 16/16, truth 21/21.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "path-like delete claims + tool-output corpus",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   },
+   "id": "EV-CLAUDE-067",
+   "milestone": "Tool output echoed into mission answers no longer plants false verification evidence. Probed contracts_from_text on 15 realistic snippets (cargo, git, npm, pip output and prose). The deletion rule took any bare token after deleted/removed, so 'Deleted branch feature/login (was 1a2b3c4).' minted FileAbsent('branch'), 'removed 2 packages in 1s' FileAbsent('2') and 'Deleted 3 old log files.' FileAbsent('3'). Those usually verify (no such file), recording deletions that were never file claims, and could violate if such a file existed. A bare deletion target must now be path-like (a '.' followed by an alphanumeric, or a '/'), matching the goal-side rule (EV-CLAUDE-056/057); quoted targets are unchanged. 'Saved to memory for later.' still yields a violation, which is the registry's deliberate policy that a write claim must name a verifiable path. New corpus test echoed_tool_output_mints_no_contracts (12 snippets: cargo Compiling/Created, git commit/create mode/Deleted branch/Updated paths, npm added/removed, pip installed, and prose); existing delete-claim tests still pass. Verification 17/17, truth 21/21.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

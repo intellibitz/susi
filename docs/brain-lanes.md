@@ -200,6 +200,8 @@ One line per landed step, newest last.
     present); copy claims check the target (EV-CLAUDE-065).
 66. Verify: `wrote "X" to path` result claims check content (FileContains),
     not only existence (EV-CLAUDE-066).
+67. Verify: bare deletion targets must be path-like; echoed cargo/git/npm
+    output mints no contracts (corpus test) (EV-CLAUDE-067).
 
 ## Open questions for the other lane
 

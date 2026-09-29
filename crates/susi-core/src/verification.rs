@@ -425,12 +425,16 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
     }
 
     // "deleted/removed <path>" — the counterpart existence checks can't see.
+    // A bare target must be path-like (an extension or a '/'): "Deleted
+    // branch feature/login", "removed 2 packages", "Deleted 3 old log
+    // files" (git/npm/prose) minted FileAbsent("branch"/"2"/"3"), which
+    // "verified" and planted false deletion evidence.
     static DELETES: OnceLock<regex::Regex> = OnceLock::new();
     let deletes = DELETES.get_or_init(|| {
         // Static literal — validity is fixed at compile time.
         #[allow(clippy::expect_used)]
         regex::Regex::new(
-            r#"(?i)\b(?:deleted|removed)[ \t]+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s]+))"#,
+            r#"(?i)\b(?:deleted|removed)[ \t]+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;`"']*(?:\.[A-Za-z0-9]|/)[^\s,;`"']*))"#,
         )
         .expect("static delete-claim pattern")
     });
@@ -872,6 +876,31 @@ mod tests {
         // Bare filenames and prose are not claims (nested-file ambiguity).
         assert!(contracts_from_text("I created main.rs for you").is_empty());
         assert!(contracts_from_text("created a new branch and updated the docs").is_empty());
+    }
+
+    /// Tool output commonly echoed into answers must mint nothing.
+    #[test]
+    fn echoed_tool_output_mints_no_contracts() {
+        for text in [
+            "   Compiling susi v0.15.2 (/work/susi)\n    Finished dev profile",
+            "     Created binary (application) `hello` package",
+            "[main 1a2b3c4] add feature\n 2 files changed\n create mode 100644 src/feature.rs",
+            "Deleted branch feature/login (was 1a2b3c4).",
+            "Updated 3 paths from the index",
+            "added 57 packages, and audited 58 packages in 2s",
+            "removed 2 packages in 1s",
+            "Successfully installed requests-2.31.0",
+            "Deleted 3 old log files.",
+            "renamed variable foo to bar in src/lib.rs",
+            "moved on to the next task",
+            "copied the config to the clipboard",
+        ] {
+            assert!(
+                contracts_from_text(text).is_empty(),
+                "{text:?} -> {:?}",
+                contracts_from_text(text)
+            );
+        }
     }
 
     #[test]

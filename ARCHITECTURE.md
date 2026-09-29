@@ -495,7 +495,11 @@ main.rs") is not mined, since it often names a nested file
 (EV-CLAUDE-064). "moved/renamed X to Y" requires X gone and Y present;
 "copied X to Y" requires Y (precise paths only; EV-CLAUDE-065). A quoted
 literal written to a path (`wrote "hello" to notes.txt`) is a content
-claim — `FileContains`, not mere existence (EV-CLAUDE-066). A deletion claim about an absolute or `..`-escaping
+claim — `FileContains`, not mere existence (EV-CLAUDE-066). A bare deletion
+target must be path-like too: git/npm/prose ("Deleted branch
+feature/login", "removed 2 packages") minted `FileAbsent("branch")` /
+`("2")`, which verified and planted false deletion evidence; echoed tool
+output now mints nothing, pinned by a corpus test (EV-CLAUDE-067). A deletion claim about an absolute or `..`-escaping
 path is `Unverifiable`: absence outside the workspace is not something the
 registry can vouch for (it used to come back `Verified`). Bare
 (unquoted) claim paths shed surrounding prose punctuation — `:`, `!`, `?`,
