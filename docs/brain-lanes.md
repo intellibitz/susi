@@ -348,3 +348,7 @@ One line per landed step, newest last.
     Mutate/SelfExtend scope, 0.35 read-only — and is recorded on the
     Deliberation (and printed in the mission log) so a missed gate
     stays auditable.
+39. Plan-length prior: `proven_plan_length` (median step count of
+    similar verified successes) is pushed into the candidate budgets,
+    so the search explores the plan shape that actually worked for
+    this intent class, not only the fixed [4,2] grid.

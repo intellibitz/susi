@@ -825,6 +825,14 @@ impl SusiMasterAgent {
             // A novel or frequently-failed intent earns a wider search.
             budgets.push((max_steps + 4).min(8));
         }
+        // The shape that actually worked before is a prior worth
+        // searching around — similar verified successes say how long
+        // a plan for this intent class usually needs to be.
+        if let Some(shape) = crate::susi_core::mission_trace::proven_plan_length(&goal, &traces, 8)
+        {
+            budgets.push(shape.clamp(1, 12));
+        }
+        budgets.sort_unstable();
         budgets.dedup();
         let mut failed_entities =
             crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8);

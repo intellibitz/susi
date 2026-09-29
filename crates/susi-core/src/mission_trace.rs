@@ -491,6 +491,22 @@ pub fn proven_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<St
         .collect()
 }
 
+/// Median step count of plans that ran on similar verified-success
+/// missions — a plan-shape prior the candidate search should center
+/// on. `None` when no recorded plan succeeded here.
+pub fn proven_plan_length(goal: &str, traces: &[MissionTrace], limit: usize) -> Option<u32> {
+    let mut lengths: Vec<usize> = similar(goal, traces, limit)
+        .iter()
+        .filter(|t| t.verified() && !t.plan_steps.is_empty())
+        .map(|t| t.plan_steps.len())
+        .collect();
+    if lengths.is_empty() {
+        return None;
+    }
+    lengths.sort_unstable();
+    Some(lengths[lengths.len() / 2] as u32)
+}
+
 /// Tools that appeared in failed missions similar to `goal`, with the
 /// number of failed missions each appeared on — repeated failures weigh
 /// more than one-offs. Successes using the same tool don't clear it here
@@ -1307,5 +1323,37 @@ mod tests {
             let t = MissionTrace::new("m", "g", outcome, "r");
             assert_eq!(t.succeeded(), ok, "{outcome}");
         }
+    }
+
+    #[test]
+    fn proven_plan_length_median_of_verified_successes() {
+        let mk = |steps: &[&str]| {
+            let mut t = MissionTrace::new("m", "deploy api backend", "COMPLETE", "swarm");
+            t.plan_steps = steps.iter().map(|s| s.to_string()).collect();
+            t.evidence_entries = 1;
+            t
+        };
+        let traces = vec![
+            mk(&["a", "b"]),
+            mk(&["a", "b", "c", "d"]),
+            mk(&["a", "b", "c", "d"]),
+        ];
+        assert_eq!(
+            proven_plan_length("deploy api backend", &traces, 8),
+            Some(4)
+        );
+
+        // Unverified success claims don't feed the prior.
+        let bare = vec![MissionTrace::new(
+            "m",
+            "deploy api backend",
+            "COMPLETE",
+            "swarm",
+        )];
+        assert_eq!(proven_plan_length("deploy api backend", &bare, 8), None);
+        // Neither do failures that carried a plan.
+        let mut failed = MissionTrace::new("m", "deploy api backend", "FAILED", "swarm");
+        failed.plan_steps = vec!["a".into()];
+        assert_eq!(proven_plan_length("deploy api backend", &[failed], 8), None);
     }
 }

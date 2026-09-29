@@ -4204,6 +4204,16 @@
     "label": "Risk-scaled consensus",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-051",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 33 \u2014 plan-length prior. candidate budgets were a fixed grid; proven_plan_length (median plan_steps over similar verified-success traces) is now pushed into the budget list, so deliberation samples the shape that actually worked for the intent class. Budgets are sorted+deduped to keep the vector canonical.",
+   "proof": "proven_plan_length_median_of_verified_successes: median over verified successes only; bare success claims and failed plans yield None. susi-core 228 pass; clippy clean.",
+   "anchor": {
+    "label": "Plan-length prior",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
