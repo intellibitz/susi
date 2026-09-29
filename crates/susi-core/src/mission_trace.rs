@@ -124,6 +124,14 @@ impl MissionTrace {
         self.succeeded() && self.evidence_entries > 0
     }
 
+    /// Does this trace describe a *capability* outcome — something ran
+    /// and won or lost? A governance refusal isn't a mission that failed:
+    /// nothing executed, so it must not taint failure statistics for the
+    /// intent class (the block itself stays visible via signals).
+    pub fn capability_outcome(&self) -> bool {
+        !self.signals.iter().any(|s| s == "GOVERNANCE_BLOCK")
+    }
+
     /// Emit the record to its sinks. Best-effort at each sink — a full disk
     /// or an unwired graph must not fail a mission that already finished —
     /// but errors surface as `Err` so callers can observe a total failure.
@@ -336,6 +344,11 @@ pub fn difficulty(
     let newest = traces.iter().map(|t| t.timestamp).max().unwrap_or(0);
     let (mut wsum, mut wfail) = (0.0f32, 0.0f32);
     for t in &neighbors {
+        // Governance refusals excluded: a blocked mission is a policy
+        // outcome, not a capability failure for this intent class.
+        if !t.capability_outcome() {
+            continue;
+        }
         let w = recency_weight(t.timestamp, newest);
         wsum += w;
         if !t.succeeded() {
@@ -459,12 +472,16 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
     // Only evidence-backed wins count toward promotion — a bare "SUCCESS"
     // verdict with zero receipts is a claim, not proof a reflex helped.
     let successes = matching.iter().filter(|t| t.verified()).count();
-    let failures = matching.len() - matching.iter().filter(|t| t.succeeded()).count();
+    // Governance refusals aren't capability failures — nothing ran.
+    let failures = matching
+        .iter()
+        .filter(|t| !t.succeeded() && t.capability_outcome())
+        .count();
     if let Some(failed) = matching
         .iter()
         .rev()
         .take(RECENT_WINDOW)
-        .find(|t| !t.succeeded())
+        .find(|t| !t.succeeded() && t.capability_outcome())
     {
         return PromotionStatus::Vetoed {
             reason: format!(
@@ -490,7 +507,7 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
 pub fn failed_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<String> {
     similar(goal, traces, limit)
         .iter()
-        .filter(|t| !t.succeeded())
+        .filter(|t| !t.succeeded() && t.capability_outcome())
         .filter_map(|t| {
             t.failed_step
                 .and_then(|i| t.plan_steps.get(i.saturating_sub(1) as usize))
@@ -514,7 +531,7 @@ pub fn proven_agents(
     for t in similar(goal, traces, limit) {
         if t.verified() {
             proven.extend(t.agents.iter().cloned());
-        } else if !t.succeeded() {
+        } else if !t.succeeded() && t.capability_outcome() {
             failed.extend(t.agents.iter().cloned());
         }
     }
@@ -550,7 +567,7 @@ pub fn proven_plans(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<Ve
 pub fn failed_plans(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<Vec<String>> {
     similar(goal, traces, limit)
         .iter()
-        .filter(|t| !t.succeeded() && !t.plan_steps.is_empty())
+        .filter(|t| !t.succeeded() && t.capability_outcome() && !t.plan_steps.is_empty())
         .map(|t| t.plan_steps.clone())
         .collect()
 }
@@ -685,6 +702,11 @@ pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option
     let newest = traces.iter().map(|t| t.timestamp).max().unwrap_or(0);
     let (mut wsum, mut wwin) = (0.0f32, 0.0f32);
     for t in &neighbors {
+        // A governance refusal is not a capability failure — skip it so
+        // a disallowed goal class doesn't read as "we tried and lost".
+        if !t.capability_outcome() {
+            continue;
+        }
         let w = recency_weight(t.timestamp, newest);
         wsum += w;
         if t.succeeded() {
@@ -1305,6 +1327,34 @@ mod tests {
             "expected ~0.67, got {}",
             d2.failure_rate
         );
+    }
+
+    #[test]
+    fn governance_blocks_are_not_capability_failures() {
+        let mut blocked = MissionTrace::new("g", "wipe the disk", "FAILED", "swarm");
+        blocked.signals = vec!["GOVERNANCE_BLOCK".into()];
+        assert!(!blocked.capability_outcome());
+
+        // success_rate: a refusal plus a verified win is not "1 of 2
+        // failed" — it is a single capability outcome, which succeeded.
+        let mut ok = MissionTrace::new("o", "wipe the disk", "COMPLETE", "swarm");
+        ok.evidence_entries = 1;
+        let traces = vec![blocked.clone(), ok];
+        assert_eq!(success_rate("wipe the disk", &traces, 8), Some(1.0));
+        assert!(!unreliable_neighborhood("wipe the disk", &traces, 8));
+
+        // difficulty: the block contributes no failure evidence.
+        let d = difficulty("wipe the disk", &traces, crate::manifold::RiskProfile::Low);
+        assert_eq!(d.failure_rate, 0.0);
+
+        // promotion: a refusal alone cannot veto.
+        assert!(matches!(
+            promotion_status(&[blocked], "wipe the disk"),
+            PromotionStatus::Insufficient {
+                successes: 0,
+                failures: 0
+            }
+        ));
     }
 
     #[test]

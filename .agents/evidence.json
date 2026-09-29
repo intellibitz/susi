@@ -4254,6 +4254,16 @@
     "label": "Global difficulty prior",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-056",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 38 \u2014 governance blocks aren't capability failures. MissionTrace::capability_outcome() is false for GOVERNANCE_BLOCK traces; success_rate, difficulty's failure rate, the promotion veto window, Insufficient accounting, failed_steps and failed_plans now skip them. A refused goal class was inflating failure statistics even though nothing ever ran.",
+   "proof": "governance_blocks_are_not_capability_failures: block+verified-win reads 1.0 success, 0.0 failure_rate, Insufficient{0,0} not Vetoed. susi-core 232 pass; clippy clean.",
+   "anchor": {
+    "label": "Capability-outcome filter",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

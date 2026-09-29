@@ -367,3 +367,7 @@ One line per landed step, newest last.
     difficulty() previously scored novelty+risk only; it now adds half
     the recency-weighted global failure rate — a broadly-failing
     system treats the unknown as riskier than a healthy one.
+44. Governance blocks aren't capability failures: a GOVERNANCE_BLOCK
+    trace no longer counts as a failure in success_rate, difficulty
+    failure-rate, promotion veto, or failed-step/plan provenance — a
+    refused intent is a policy outcome, not "we tried and lost".
