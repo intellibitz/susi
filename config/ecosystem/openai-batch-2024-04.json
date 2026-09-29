@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "openai-batch-2024-04",
+    "name": "Batch 2024-04",
+    "version": "2024-04",
+    "released": "2024-04-15",
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference/batch",
+      "spec_version": "2024-04",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "openai-batch-2024-04",
+      "to": "openai-batch",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/batch",
+        "spec_version": "2024-04",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
