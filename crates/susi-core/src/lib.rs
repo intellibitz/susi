@@ -49,6 +49,7 @@ pub mod evidence;
 pub mod memory_provenance;
 pub mod memory_tombstone;
 pub mod untrusted_content;
+pub mod wasm_grants;
 pub use susi_adapters_llm::inference_wire;
 pub mod intent_bus;
 pub mod jit_credentials;
@@ -128,6 +129,9 @@ mod vc_201_071_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_074.rs"]
 mod vc_201_074_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_075.rs"]
+mod vc_201_075_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_081.rs"]
 mod vc_201_081_tests;
