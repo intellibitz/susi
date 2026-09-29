@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Mandate 49: merges follow the same worktree rules as commits.
+exec "$(dirname "$0")/workflow-guard" merge

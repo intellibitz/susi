@@ -10,12 +10,13 @@ SUSI is an autonomous entity maintained by a decentralized collaboration of subs
 
 ## Development Setup
 
-After cloning, enable the project's git hooks (one-time):
+After cloning (once per clone; worktrees share it):
 
 ```bash
-git config core.hooksPath .githooks
+scripts/setup-dev.sh
 ```
 
-This activates `pre-push`, which requires a `Cargo.toml` version bump for
-any push that touches `src/`, and keeps `README.md`'s version badge and the
-`.agents/*.md` version headers in sync with it.
+This enables `.githooks` (`pre-commit`: rustfmt; `pre-push`: clippy) and the
+`ledger` merge driver that unions entries appended to `.agents/evidence.json`
+by parallel agents. Work in your own worktree and branch, then `git fetch`,
+merge `origin/main`, and push (see AGENTS.md, "Multi-agent parallel work").

@@ -1,0 +1,45 @@
+name: Cleanup Workflow Runs
+
+# Deletes finished workflow runs so the Actions tab and storage never pile up.
+# Runs daily and on demand; scheduled triggers only fire from main.
+#   - completed runs (any conclusion) older than RETAIN_DAYS are deleted
+#   - runs still queued or in progress are never touched
+#   - the newest KEEP_LATEST runs of each workflow are always kept
+# Deleting a run removes its logs and artifacts; the commits and PRs remain.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      retain_days:
+        description: Delete completed runs older than this many days
+        default: '7'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RETAIN_DAYS: ${{ inputs.retain_days || '7' }}
+      KEEP_LATEST: '10'
+    steps:
+      - name: Delete old completed runs
+        run: |
+          cutoff=$(date -u -d "$RETAIN_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)
+          deleted=0
+          for wf in $(gh api "repos/$REPO/actions/workflows" --paginate --jq '.workflows[].id'); do
+            ids=$(gh api "repos/$REPO/actions/workflows/$wf/runs?status=completed&per_page=100" --paginate \
+                    --jq '.workflow_runs[] | [.id, .created_at] | @tsv' \
+                  | sort -k2,2r | tail -n +$((KEEP_LATEST + 1)) \
+                  | awk -v c="$cutoff" '$2 < c {print $1}')
+            for id in $ids; do
+              gh api -X DELETE "repos/$REPO/actions/runs/$id" >/dev/null && deleted=$((deleted + 1))
+            done
+          done
+          echo "deleted $deleted completed runs older than $RETAIN_DAYS days"

@@ -86,6 +86,25 @@ this for the panic-path lints.
   Dev binaries run as their own instance (`~/.susi-dev`, ports 9190–9194;
   `src/dev_instance.rs`) — verify dev features there, not on the release daemon.
 
+- **Mandate 49 (Worktree Workflow).** Every agent and user works in its own
+  git worktree on its own branch (`scripts/susi-worktree.sh <name>`); the
+  primary checkout is never committed to, `main` never receives plain commits
+  (only merges of `origin/main`-current branches), and `main` is only ever
+  fast-forwarded — never force-pushed or deleted. Enforced by
+  `.githooks/workflow-guard` (called from `pre-commit`, `pre-merge-commit`,
+  `pre-push`), enabled by `scripts/setup-dev.sh` (run automatically by
+  `cargo xb build`). Overrides (`SUSI_ALLOW_PRIMARY`, `SUSI_ALLOW_MAIN`,
+  `SUSI_ALLOW_FORCE`) are explicit env vars, never defaults. Hooks are
+  client-side: `--no-verify` bypasses them, so the server-side backstop is
+  GitHub branch protection on `main` (no force-push, no deletion, required
+  status checks) — a repo setting the owner applies.
+  GitHub side is automated by `.github/workflows/auto-merge.yml`: every
+  pushed branch gets a PR opened, and it merges itself when the Test gate
+  passes, after which the full suite is dispatched on `main`. Branches
+  prefixed `wip/` or `nopr/` opt out. Repo settings it needs are applied
+  idempotently by `scripts/github-setup.sh`. Finished workflow runs are
+  pruned daily by `.github/workflows/cleanup-runs.yml`.
+
 ## Test policy
 
 - Property-based testing with `proptest` for state machines and pure
@@ -123,6 +142,14 @@ convergent:
 - **On evidence/identity/README merge conflicts, union entries — never
   delete or renumber another agent's entries.** Resolve JSON conflicts by
   keeping both sides' entries, then validate with `jq empty`.
+- **One worktree per agent; never share a working directory.** If agents
+  must share one, commit path-limited (`git commit -- <file>`) — a plain
+  `git commit` sweeps up files another agent staged — and retry on
+  `index.lock`. Verified: 8 clones, 6 worktrees of one clone, and 4 agents in
+  one directory pushed 5 commits each concurrently with nothing lost.
+- **`.agents/evidence.json` appends merge automatically** via the `ledger`
+  merge driver (`scripts/setup-dev.sh`, run by `cargo xb build`). Any other
+  same-line edit conflicts; resolve by hand, never by force-push.
 - **Always `git fetch` + merge `origin/main` before pushing.** Pushes to
   `main` must be fast-forward; compile (`cargo check --workspace`) before
   pushing a merge so fixup commits never ship an uncompiled merge.

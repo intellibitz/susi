@@ -15,6 +15,9 @@
 # tag together in one step, so the tag can never again drift from the
 # version. Routine pushes just need to build and pass the checks below.
 
+# Mandate 49 (stdin carries the pushed refs; the guard must consume it first).
+"$(dirname "$0")/workflow-guard" push || exit 1
+
 echo "🛡️ Running SUSI Deep Compliance Checks (Deferred from Commit)..."
 
 # Fast path: only run the Rust-specific checks below if this push actually
@@ -30,14 +33,6 @@ if [ -n "$PUSHED_RUST_FILES" ]; then
     if [ $? -ne 0 ]; then
         echo "❌ Compliance Violation: Clippy found warnings/errors."
         echo "👉 Fix the clippy issues before pushing."
-        exit 1
-    fi
-
-    echo "- Checking vendored-copy sync..."
-    ./scripts/check-vendored-sync.sh
-    if [ $? -ne 0 ]; then
-        echo "❌ Compliance Violation: vendored copies drifted from canonical."
-        echo "👉 Re-mirror the changed module into every consumer crate."
         exit 1
     fi
 

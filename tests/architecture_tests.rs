@@ -1338,3 +1338,35 @@ fn self_build_contract_reaches_every_code_writing_path() {
         "susi-builder work must land as a PR"
     );
 }
+
+/// Mandate 49 regression guard: the worktree-workflow guard exists, is
+/// executable, and every hook that must enforce it actually calls it.
+#[cfg(unix)]
+#[test]
+fn worktree_workflow_guard_is_wired_into_every_hook() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = workspace_root();
+    let guard = root.join(".githooks/workflow-guard");
+    let mode = std::fs::metadata(&guard)
+        .expect("workflow-guard missing (Mandate 49)")
+        .permissions()
+        .mode();
+    assert!(mode & 0o111 != 0, "workflow-guard must be executable");
+    for (hook, stage) in [
+        ("pre-commit", "commit"),
+        ("pre-merge-commit", "merge"),
+        ("pre-push", "push"),
+    ] {
+        let body = std::fs::read_to_string(root.join(".githooks").join(hook))
+            .unwrap_or_else(|_| panic!("{hook} missing (Mandate 49)"));
+        assert!(
+            body.contains(&format!("workflow-guard\" {stage}")),
+            "{hook} must call workflow-guard {stage} (Mandate 49)"
+        );
+    }
+    let setup = std::fs::read_to_string(root.join("scripts/setup-dev.sh")).unwrap_or_default();
+    assert!(
+        setup.contains("core.hooksPath .githooks"),
+        "setup-dev.sh must enable the hooks (Mandate 49)"
+    );
+}

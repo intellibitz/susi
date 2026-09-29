@@ -80,6 +80,33 @@ fn detect_gpu_features() -> (Vec<String>, Option<String>) {
     (args, cudarc_ver)
 }
 
+/// Best-effort: enable the repo's git hooks and ledger merge driver once per
+/// clone (config is shared by every worktree) so parallel agents and users
+/// get the same pre-commit/pre-push gate without remembering to opt in.
+fn ensure_dev_setup() {
+    ensure_dev_setup_in(Path::new("."));
+}
+
+fn ensure_dev_setup_in(dir: &Path) {
+    let configured = Command::new("git")
+        .current_dir(dir)
+        .args(["config", "--get", "core.hooksPath"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == ".githooks")
+        .unwrap_or(false);
+    if configured || !dir.join("scripts/setup-dev.sh").is_file() {
+        return;
+    }
+    match Command::new("bash")
+        .current_dir(dir)
+        .arg("scripts/setup-dev.sh")
+        .status()
+    {
+        Ok(s) if s.success() => println!("xtask: enabled git hooks + ledger merge driver."),
+        Ok(_) | Err(_) => eprintln!("xtask: could not run scripts/setup-dev.sh (skipping)."),
+    }
+}
+
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     args.remove(0);
@@ -88,6 +115,7 @@ fn main() {
 
     let mut cmd = Command::new("cargo");
     if is_build {
+        ensure_dev_setup();
         println!("xtask: cargo build running GPU detection...");
         let (gpu_args, cudarc_ver) = detect_gpu_features();
         if gpu_args.is_empty() {
@@ -142,7 +170,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::with_detected_features;
+    use super::{ensure_dev_setup_in, with_detected_features};
+    use std::process::Command;
 
     fn v(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| (*s).to_string()).collect()
@@ -170,5 +199,48 @@ mod tests {
                 explicit
             );
         }
+    }
+
+    fn scratch_repo(tag: &str, setup_body: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("xtask-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scripts")).unwrap();
+        assert!(Command::new("git")
+            .current_dir(&dir)
+            .args(["init", "-q"])
+            .status()
+            .unwrap()
+            .success());
+        std::fs::write(dir.join("scripts/setup-dev.sh"), setup_body).unwrap();
+        dir
+    }
+
+    fn hooks_path(dir: &std::path::Path) -> String {
+        let out = Command::new("git")
+            .current_dir(dir)
+            .args(["config", "--get", "core.hooksPath"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn dev_setup_runs_the_script_once_when_hooks_are_off() {
+        let dir = scratch_repo("on", "git config core.hooksPath .githooks\n");
+        assert_eq!(hooks_path(&dir), "");
+        ensure_dev_setup_in(&dir);
+        assert_eq!(hooks_path(&dir), ".githooks");
+        ensure_dev_setup_in(&dir); // already configured: no-op
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dev_setup_tolerates_a_failing_or_missing_script() {
+        let dir = scratch_repo("fail", "exit 3\n");
+        ensure_dev_setup_in(&dir);
+        assert_eq!(hooks_path(&dir), "");
+        std::fs::remove_file(dir.join("scripts/setup-dev.sh")).unwrap();
+        ensure_dev_setup_in(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
