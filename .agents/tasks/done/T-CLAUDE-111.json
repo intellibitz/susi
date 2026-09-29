@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-111",
+  "title": "Release e2e checks must not discover the surrounding git repo",
+  "goal": "The v0.18.0 cut aborted: the gate's scratch dir lives under target/ inside the susi worktree, so 'susi tasks' in a check found the real repo and listed its tasks instead of an empty queue (the integration test uses a plain temp dir, so it never saw this). Run each check with GIT_CEILING_DIRECTORIES set to the scratch root so git cannot discover a parent repo, and add a regression test that runs the checks with the scratch inside a git repo holding a task.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_e2e_checks",
+      "surrounding_repo"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790699787,
+  "closed": {
+    "at_unix": 1790701082,
+    "commit": "629e2628427ab97c0ef7a1ee72c41d1b3f43feb8",
+    "by": "CLAUDE"
+  }
+}
