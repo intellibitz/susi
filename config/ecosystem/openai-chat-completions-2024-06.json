@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "openai-chat-completions-2024-06",
+    "name": "Chat Completions 2024-06",
+    "version": "2024-06",
+    "released": "2024-06-06",
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference",
+      "spec_version": "2024-06",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "openai-chat-completions-2024-06",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

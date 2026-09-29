@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "anthropic",
+    "name": "Anthropic",
+    "home": "https://anthropic.com",
+    "provenance": {
+      "source": "https://docs.anthropic.com/en/api/messages",
+      "spec_version": "2023-06-01",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "anthropic",
+      "to": "anthropic-api",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "anthropic",
+      "to": "anthropic-messages",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

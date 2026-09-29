@@ -53,6 +53,17 @@ pub fn default_store_dir() -> PathBuf {
     susi_paths::SusiDirs::config_dir().join(STORE_DIR)
 }
 
+/// Bundled-layer source inside this repository (`config/ecosystem/`) —
+/// what a release installs as the bundled layer and what offline profile
+/// tests validate. `SUSI_ECO_SOURCE` overrides (installed layouts).
+#[must_use]
+pub fn bundled_source_dir() -> PathBuf {
+    if let Some(d) = std::env::var_os("SUSI_ECO_SOURCE") {
+        return PathBuf::from(d);
+    }
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/ecosystem")
+}
+
 /// Persist a knowledge base as one file per entity. Refuses to write an
 /// invalid base — the store is only ever a serialization of facts that
 /// already passed [`validate`].

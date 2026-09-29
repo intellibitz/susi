@@ -1,0 +1,259 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "openai-api",
+    "name": "OpenAI API",
+    "category": "service",
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference",
+      "spec_version": "2024-06",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-chat-completions-2024-06",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-prompt-caching",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-responses-2025-03",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/responses",
+        "spec_version": "2025-03",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-batch",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/responses",
+        "spec_version": "2025-03",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-files",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/responses",
+        "spec_version": "2025-03",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-reasoning",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/responses",
+        "spec_version": "2025-03",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-realtime-2025-08",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/realtime",
+        "spec_version": "2025-08",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-realtime",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/realtime",
+        "spec_version": "2025-08",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-audio",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/realtime",
+        "spec_version": "2025-08",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-batch-2024-04",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/batch",
+        "spec_version": "2024-04",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-embeddings-v1",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-moderation-v1",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-images-v1",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-audio-v1",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-moderation",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-image-generation",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

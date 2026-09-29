@@ -1,0 +1,105 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "anthropic-api",
+    "name": "Anthropic API",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.anthropic.com/en/api/messages",
+      "spec_version": "2023-06-01",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements-version",
+      "from": "anthropic-api",
+      "to": "anthropic-messages-2023-06-01",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "anthropic-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "anthropic-api",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "anthropic-api",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "anthropic-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "anthropic-api",
+      "to": "cap-prompt-caching",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "anthropic-api",
+      "to": "cap-batch",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "anthropic-api",
+      "to": "cap-files",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

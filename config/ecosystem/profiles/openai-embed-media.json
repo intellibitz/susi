@@ -1,0 +1,271 @@
+{
+  "version": "eco-profile/v1",
+  "id": "openai-embed-media",
+  "name": "OpenAI Embeddings, Moderation, Images and Audio",
+  "subject": "openai-api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/embeddings",
+      "description": "Embed text (single or batch input).",
+      "request": "embed-request",
+      "response": "embed-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/moderations",
+      "description": "Classify text/image safety categories.",
+      "request": "moderation-request",
+      "response": "moderation-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/images/generations",
+      "description": "Generate images from a prompt.",
+      "request": "image-request",
+      "response": "image-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/images/edits",
+      "description": "Edit an image with a prompt (multipart).",
+      "request": "image-edit",
+      "response": "image-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/audio/speech",
+      "description": "Text to speech; audio bytes in the response body.",
+      "request": "tts-request",
+      "response": "audio-bytes"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/audio/transcriptions",
+      "description": "Speech to text (multipart upload).",
+      "request": "stt-request",
+      "response": "transcription"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/audio/translations",
+      "description": "Translate speech to English text.",
+      "request": "stt-request",
+      "response": "transcription"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "OPENAI_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "embed-request",
+      "format": "json",
+      "fields": [
+        "model",
+        "input",
+        "encoding_format",
+        "dimensions",
+        "user"
+      ],
+      "notes": "encoding_format: float|base64; dimensions is the matryoshka knob on text-embedding-3-*."
+    },
+    {
+      "name": "moderation-request",
+      "format": "json",
+      "fields": [
+        "model",
+        "input"
+      ],
+      "notes": "omnimoderation accepts text and image inputs."
+    },
+    {
+      "name": "image-request",
+      "format": "json",
+      "fields": [
+        "model",
+        "prompt",
+        "n",
+        "size",
+        "quality",
+        "response_format",
+        "style"
+      ],
+      "notes": "response_format url|b64_json (dall-e-2/3; gpt-image-1 always returns b64)."
+    },
+    {
+      "name": "image-edit",
+      "format": "json",
+      "fields": [
+        "image (multipart)",
+        "mask",
+        "prompt",
+        "n",
+        "size"
+      ]
+    },
+    {
+      "name": "tts-request",
+      "format": "json",
+      "fields": [
+        "model",
+        "input",
+        "voice",
+        "response_format",
+        "speed"
+      ],
+      "notes": "response_format mp3|opus|aac|flac|wav|pcm; response body is raw audio bytes."
+    },
+    {
+      "name": "stt-request",
+      "format": "json",
+      "fields": [
+        "file (multipart)",
+        "model",
+        "language",
+        "response_format",
+        "timestamp_granularities"
+      ],
+      "notes": "response_format json|text|srt|verbose_json|vtt; verbose_json adds timestamps."
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "embed-response",
+      "format": "json",
+      "fields": [
+        "data[].embedding",
+        "data[].index",
+        "model",
+        "usage"
+      ]
+    },
+    {
+      "name": "moderation-response",
+      "format": "json",
+      "fields": [
+        "results[].flagged",
+        "results[].categories",
+        "results[].category_scores",
+        "results[].category_applied_input_types"
+      ]
+    },
+    {
+      "name": "image-response",
+      "format": "json",
+      "fields": [
+        "created",
+        "data[].url|b64_json",
+        "data[].revised_prompt",
+        "usage"
+      ]
+    },
+    {
+      "name": "audio-bytes",
+      "format": "binary",
+      "fields": [
+        "audio body"
+      ]
+    },
+    {
+      "name": "transcription",
+      "format": "json",
+      "fields": [
+        "text",
+        "language",
+        "duration",
+        "segments[]",
+        "words[]"
+      ]
+    },
+    {
+      "name": "error-body",
+      "format": "json",
+      "fields": [
+        "error.message",
+        "error.type",
+        "error.param",
+        "error.code"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "invalid_request_error",
+      "retriable": false
+    },
+    {
+      "status": "401",
+      "code": "authentication_error",
+      "retriable": false
+    },
+    {
+      "status": "413",
+      "code": "payload_too_large",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limit_exceeded",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal_server_error",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "x-ratelimit-remaining-requests",
+      "meaning": "requests left in window"
+    },
+    {
+      "signal": "x-ratelimit-remaining-tokens",
+      "meaning": "tokens left in window (embeddings count tokens)"
+    },
+    {
+      "signal": "http-429",
+      "meaning": "hard rate-limit rejection"
+    }
+  ],
+  "streaming": null,
+  "capabilities": [
+    "cap-embeddings",
+    "cap-moderation",
+    "cap-image-generation",
+    "cap-audio"
+  ],
+  "deviations": [
+    {
+      "host": "openrouter",
+      "field": "embeddings",
+      "behavior": "Embedding support is model-routed; not every OpenAI-compatible host implements /v1/embeddings."
+    },
+    {
+      "host": "ollama",
+      "field": "audio-images-moderation",
+      "behavior": "Local engines generally do not implement the images/audio/moderation surfaces; only /v1/embeddings is commonly present."
+    }
+  ],
+  "provenance": {
+    "source": "https://platform.openai.com/docs/api-reference",
+    "spec_version": "2024-06",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

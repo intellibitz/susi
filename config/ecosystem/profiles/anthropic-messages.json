@@ -1,0 +1,243 @@
+{
+  "version": "eco-profile/v1",
+  "id": "anthropic-messages",
+  "name": "Anthropic Messages API",
+  "subject": "anthropic-messages",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "description": "Create a message; stream=true switches to SSE.",
+      "request": "messages-request",
+      "response": "message-object",
+      "streaming": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "description": "Streamed variant emitting message/content_block events.",
+      "request": "messages-request",
+      "response": "message-events",
+      "streaming": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/messages/count_tokens",
+      "description": "Count tokens for a would-be request.",
+      "response": "token-count"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "List models."
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "api-key-header",
+      "header": "x-api-key",
+      "prefix": "",
+      "env": [
+        "ANTHROPIC_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "2023-06-01",
+      "released": "2023-06-01",
+      "status": "current"
+    },
+    {
+      "id": "2023-01-01",
+      "released": "2023-01-01",
+      "status": "deprecated"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "messages-request",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages",
+        "max_tokens",
+        "system",
+        "tools",
+        "tool_choice",
+        "stop_sequences",
+        "temperature",
+        "stream",
+        "thinking",
+        "metadata"
+      ],
+      "notes": "Required headers: anthropic-version (e.g. 2023-06-01) + x-api-key; anthropic-beta opts into betas. system is a top-level parameter, not a message role; content is a typed block list (text|image|document|tool_use|tool_result|thinking)."
+    },
+    {
+      "name": "token-count-request",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages",
+        "system",
+        "tools"
+      ]
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "message-object",
+      "format": "json",
+      "fields": [
+        "id",
+        "type",
+        "role",
+        "content[]",
+        "model",
+        "stop_reason",
+        "stop_sequence",
+        "usage"
+      ],
+      "notes": "stop_reason: end_turn|max_tokens|stop_sequence|tool_use|pause_turn|refusal; content[] mixes text/tool_use/thinking blocks; usage has input_tokens/output_tokens (+ cache_* fields)."
+    },
+    {
+      "name": "message-events",
+      "format": "sse",
+      "fields": [
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+        "ping",
+        "error"
+      ],
+      "notes": "Deltas are typed (text_delta, input_json_delta, thinking_delta, signature_delta); usage arrives on message_delta."
+    },
+    {
+      "name": "token-count",
+      "format": "json",
+      "fields": [
+        "input_tokens"
+      ]
+    },
+    {
+      "name": "error-body",
+      "format": "json",
+      "fields": [
+        "type",
+        "error.type",
+        "error.message"
+      ],
+      "notes": "type is always `error`; error.type is the machine-readable kind."
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "invalid_request_error",
+      "retriable": false
+    },
+    {
+      "status": "401",
+      "code": "authentication_error",
+      "retriable": false
+    },
+    {
+      "status": "403",
+      "code": "permission_error",
+      "retriable": false
+    },
+    {
+      "status": "404",
+      "code": "not_found_error",
+      "retriable": false
+    },
+    {
+      "status": "413",
+      "code": "request_too_large",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limit_error",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "api_error",
+      "retriable": true
+    },
+    {
+      "status": "529",
+      "code": "overloaded_error",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "anthropic-ratelimit-requests-limit",
+      "meaning": "request budget per window"
+    },
+    {
+      "signal": "anthropic-ratelimit-requests-remaining",
+      "meaning": "requests left"
+    },
+    {
+      "signal": "anthropic-ratelimit-tokens-limit",
+      "meaning": "token budget per window"
+    },
+    {
+      "signal": "anthropic-ratelimit-tokens-remaining",
+      "meaning": "tokens left"
+    },
+    {
+      "signal": "retry-after",
+      "meaning": "seconds to wait before retrying a 429"
+    },
+    {
+      "signal": "http-529",
+      "meaning": "service overloaded \u2014 back off, not a quota error"
+    }
+  ],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "message_start",
+      "content_block_delta",
+      "message_delta",
+      "message_stop",
+      "ping",
+      "error"
+    ],
+    "notes": "Stream ends with message_stop; ping keepalives must be tolerated."
+  },
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-vision",
+    "cap-streaming",
+    "cap-prompt-caching",
+    "cap-batch",
+    "cap-files"
+  ],
+  "deviations": [
+    {
+      "host": "aws-bedrock",
+      "field": "auth",
+      "behavior": "Same message shape but SigV4-signed requests and a per-region invoke path; no x-api-key."
+    },
+    {
+      "host": "gcp-vertex",
+      "field": "auth",
+      "behavior": "Vertex hosts the Messages API under publisher/anthropic paths with Google bearer tokens; anthropic-version header still applies."
+    }
+  ],
+  "provenance": {
+    "source": "https://docs.anthropic.com/en/api/messages",
+    "spec_version": "2023-06-01",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

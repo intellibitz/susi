@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "openai-images-v1",
+    "name": "OpenAI Images API v1",
+    "version": "v1",
+    "released": null,
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference/embeddings",
+      "spec_version": "2024-06",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "openai-images-v1",
+      "to": "openai-images",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

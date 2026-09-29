@@ -1,0 +1,19 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "protocol",
+    "id": "openai-chat-completions",
+    "name": "OpenAI Chat Completions API",
+    "transports": [
+      "http",
+      "http-sse"
+    ],
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference",
+      "spec_version": "2024-06",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

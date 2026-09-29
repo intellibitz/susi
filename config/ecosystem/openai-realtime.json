@@ -1,0 +1,19 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "protocol",
+    "id": "openai-realtime",
+    "name": "OpenAI Realtime API",
+    "transports": [
+      "websocket",
+      "webrtc"
+    ],
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference/realtime",
+      "spec_version": "2025-08",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}
