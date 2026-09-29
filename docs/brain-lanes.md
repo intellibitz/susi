@@ -290,3 +290,7 @@ One line per landed step, newest last.
     0.5 + 0.5*e^(-age/30d) — a fresh trace outranks an ancient near-match;
     old lessons still count (never below half weight) but can't tie with
     yesterday's forever. All consumers inherit the ordering.
+25. Order-aware consensus: `plan_similarity` was bag-of-tokens Jaccard —
+    "read then write" and "write then read" scored 1.0. Now min(set,
+    positional step-Jaccard): a mutating plan backwards never counts as
+    agreement.

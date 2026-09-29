@@ -4064,6 +4064,16 @@
     "label": "Recency decay",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-037",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 19 \u2014 order-aware consensus. plan_similarity compared bag-of-tokens Jaccard, so a plan and its exact reverse scored 1.0 \u2014 consensus could approve a mutation executed backwards. Now min(set-similarity, aligned positional step-Jaccard): same work in the same order is required.",
+   "proof": "plan_similarity_is_order_aware: reversed steps < threshold, identical = 1.0, near-duplicate same-order \u2265 threshold. susi-gawd-swarm 61 pass; clippy clean.",
+   "anchor": {
+    "label": "Order-aware consensus",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

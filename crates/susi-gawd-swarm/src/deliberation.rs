@@ -62,19 +62,46 @@ const VERIFIABLE_TOKENS: &[&str] = &[
 
 /// Jaccard similarity over whitespace-token sets — a cheap, explainable
 /// measure of whether two plans describe the same approach.
+/// How much two plans agree — on the work *and* the order. The set
+/// component asks whether the plans contain the same tokens at all; the
+/// positional component compares step-vs-step at each index. Consensus
+/// takes the *minimum*: "read config, write result" and "write result,
+/// read config" share every token but are different plans, and a
+/// mutating plan executed backwards must never count as agreement.
 pub fn plan_similarity(a: &[String], b: &[String]) -> f32 {
-    let tokens = |steps: &[String]| {
+    let bag = |steps: &[String]| {
         steps
             .iter()
             .flat_map(|s| s.split_whitespace().map(|t| t.to_lowercase()))
             .collect::<std::collections::BTreeSet<_>>()
     };
-    let (ta, tb) = (tokens(a), tokens(b));
-    let union = ta.union(&tb).count();
-    if union == 0 {
-        return 1.0;
-    }
-    ta.intersection(&tb).count() as f32 / union as f32
+    let step_tokens = |s: &str| {
+        s.split_whitespace()
+            .map(|t| t.to_lowercase())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let jaccard = |x: &std::collections::BTreeSet<String>,
+                   y: &std::collections::BTreeSet<String>| {
+        let u = x.union(y).count();
+        if u == 0 {
+            1.0
+        } else {
+            x.intersection(y).count() as f32 / u as f32
+        }
+    };
+    let (ta, tb) = (bag(a), bag(b));
+    let set_sim = if ta.is_empty() && tb.is_empty() {
+        1.0
+    } else {
+        jaccard(&ta, &tb)
+    };
+    let positional = a
+        .iter()
+        .zip(b.iter())
+        .map(|(sa, sb)| jaccard(&step_tokens(sa), &step_tokens(sb)))
+        .sum::<f32>()
+        / a.len().max(b.len()).max(1) as f32;
+    set_sim.min(positional)
 }
 
 /// Score a candidate plan: goal-token coverage earns, risk vocabulary and
@@ -444,6 +471,26 @@ mod tests {
         });
         assert_eq!(tied.candidates.len(), 2);
         assert_eq!(tied.candidates[0].steps.len(), 1, "{:?}", tied.candidates);
+    }
+
+    #[test]
+    fn plan_similarity_is_order_aware() {
+        let forward = vec![
+            "read the config".to_string(),
+            "write the result".to_string(),
+        ];
+        let backward: Vec<String> = forward.iter().rev().cloned().collect();
+        // Same vocabulary, opposite order — not agreement.
+        let sim = plan_similarity(&forward, &backward);
+        assert!(sim < CONSENSUS_THRESHOLD, "reversed plan scored {sim}");
+        // Identical plans still agree fully.
+        assert_eq!(plan_similarity(&forward, &forward), 1.0);
+        // Same-order near-duplicate keeps high agreement.
+        let near = vec![
+            "read the config".to_string(),
+            "write the output".to_string(),
+        ];
+        assert!(plan_similarity(&forward, &near) >= CONSENSUS_THRESHOLD);
     }
 
     #[test]

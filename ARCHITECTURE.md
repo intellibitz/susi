@@ -525,9 +525,11 @@ are generated at several step budgets, scored purely (goal-token coverage
 budget −0.10), sorted best-first, and every rejected candidate's score and
 rationale lands in the mission record (`PLAN_SEARCH` interaction) and the
 printed omni-trace. Mutate/SelfExtend intents and High+ risk demand
-**consensus** — the top two candidates must reach a step-token Jaccard ≥
-0.35 or the mission declines multi-step autonomy in favor of the
-single-step goal. The gate also tightens on history: `Vetoed` intents
+**consensus** — the top two candidates must reach `plan_similarity` ≥
+0.35, computed as `min(bag-of-tokens Jaccard, aligned positional step
+Jaccard)`: the same vocabulary in a different order is *not* agreement —
+a mutating plan backwards never passes — or the mission declines
+multi-step autonomy in favor of the single-step goal. The gate also tightens on history: `Vetoed` intents
 (anti-patterns) and `unreliable_neighborhood` goals — ≥2 similar traces
 with a success rate under half — demand consensus even on read-scope
 missions. On step failure, Read-scope goals fall through to the
