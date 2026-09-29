@@ -652,6 +652,14 @@ first cut). The veto guard checks the original *and* corrected text and
 treats a word within one edit of a veto word as vetoed ("delte the config
 file" is refused). Typo'd paraphrases served 8/18 → 17/18 with the
 benchmark's precision and OOD refusal intact (EV-CLAUDE-048).
+Compound requests are refused, not half-served: the prompt is split on
+conjunctions and each clause classified; two clauses that each clear
+0.35 confidence with different actions ("check the status and list the
+files", "run the tests and fix the build" — each was served one action)
+escalate, while one action joined by a conjunction ("list files and
+folders") still serves. Short veto words (3-letter stems: no/not/don/rm)
+match only exactly — "notes" stemmed to "not" and vetoed every prompt
+mentioning notes (EV-CLAUDE-049).
 
 Fits run to convergence, not a fixed step count: full-batch AdamW until
 mean loss ≤ 0.15 (correct class ≈ 0.86 probability) or 600 epochs, and the

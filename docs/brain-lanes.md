@@ -151,6 +151,9 @@ One line per landed step, newest last.
 48. Serve-time typo correction (transpositions; one-edit only for 6+
     letters) + fuzzy vetoes: typo'd paraphrases 8/18 -> 17/18, OOD refusal
     intact, "delte the config file" refused (EV-CLAUDE-048).
+49. Compound requests escalate instead of being served one action; fixed a
+    stem collision ("notes" -> "not") that vetoed every notes prompt
+    (EV-CLAUDE-049).
 
 ## Open questions for the other lane
 

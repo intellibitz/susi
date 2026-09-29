@@ -1445,6 +1445,11 @@ impl SusiAlphaModel {
                 "Vetoed: '{word}' negates or reverses the request, and Tier-0 never learned it with {action}."
             ));
         }
+        if let Some((first, second)) = self.compound_actions(prompt) {
+            return Err(anyhow!(
+                "Compound request: asks for {first} and {second}; a reflex serves one action."
+            ));
+        }
         if serves(&action, confidence, nearest) {
             return Ok(action);
         }
@@ -1459,6 +1464,46 @@ impl SusiAlphaModel {
     /// vectors, so the dot product is the cosine.
     pub fn support(&self, prompt: &str) -> Option<f32> {
         self.nearest(prompt).map(|(cosine, _)| cosine)
+    }
+
+    /// Two different actions confidently requested in separate clauses
+    /// ("check the status and list the files"). The classifier answers one
+    /// action, so serving it silently drops the rest: measured on the
+    /// benchmark model, "check the status and list the files" was served
+    /// `status` alone, "run the tests and fix the build" `self_heal_build`.
+    /// A clause counts only when its own prediction clears
+    /// `AGREED_CONFIDENCE`, so "read and summarize the readme" or "list
+    /// files and folders" — one action — still serve.
+    fn compound_actions(&self, prompt: &str) -> Option<(String, String)> {
+        let lower = format!(" {} ", prompt.to_lowercase());
+        let mut clauses = vec![lower.as_str()];
+        for separator in [" and ", " then ", " also ", " plus ", " after ", ",", ";"] {
+            clauses = clauses
+                .into_iter()
+                .flat_map(|clause| clause.split(separator))
+                .collect();
+        }
+        let mut decided: Option<String> = None;
+        for clause in clauses {
+            let content = clause
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|w| !w.is_empty() && !REFLEX_STOPWORDS.contains(&w));
+            if !content {
+                continue;
+            }
+            let Ok((action, confidence)) = self.predict_intent_with_confidence(clause) else {
+                continue;
+            };
+            if confidence <= AGREED_CONFIDENCE {
+                continue;
+            }
+            match &decided {
+                Some(first) if *first != action => return Some((first.clone(), action)),
+                Some(_) => {}
+                None => decided = Some(action),
+            }
+        }
+        None
     }
 
     /// Serve-time spelling correction. A word of 4+ letters whose stem the
@@ -1516,17 +1561,34 @@ impl SusiAlphaModel {
             .unwrap_or(action)
             .to_lowercase();
         let learned = set.action_words.get(&predicted);
-        static VETO_STEMS: std::sync::LazyLock<std::collections::HashSet<String>> =
-            std::sync::LazyLock::new(|| VETO_WORDS.iter().map(|w| stem(w)).collect());
-        // Fail safe on misspellings: within one edit of a veto stem (4+
-        // letters) counts as the veto word ("delte", "remvoe").
-        words(prompt).find(|w| {
-            let vetoed = VETO_STEMS.contains(w)
-                || VETO_STEMS
+        // Veto words with 3-letter stems ("no", "not", "don", "rm") match
+        // only as exact raw words: short stems collide — "notes" → "note" →
+        // "not" vetoed every prompt mentioning notes. Stems of 4+ letters
+        // also match inflections ("stopped" → "stop", "deleting" → "delet"),
+        // and veto words of 5+ letters, failing safe on misspellings, match
+        // within one edit ("delte", "remvoe").
+        static STEMMED_VETOES: std::sync::LazyLock<Vec<(String, bool)>> =
+            std::sync::LazyLock::new(|| {
+                VETO_WORDS
                     .iter()
-                    .any(|v| v.len() >= 4 && w.len() >= 4 && one_edit_apart(w, v));
-            vetoed && !learned.is_some_and(|known| known.contains(w))
-        })
+                    .map(|w| (stem(w), w.len() >= 5))
+                    .filter(|(s, _)| s.len() >= 4)
+                    .collect()
+            });
+        let lower = prompt.to_lowercase();
+        lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .find_map(|raw| {
+                let stemmed = stem(raw);
+                let vetoed = VETO_WORDS.contains(&raw)
+                    || STEMMED_VETOES.iter().any(|(v, fuzzy)| {
+                        *v == stemmed
+                            || (*fuzzy && stemmed.len() >= 4 && one_edit_apart(&stemmed, v))
+                    });
+                (vetoed && !learned.is_some_and(|known| known.contains(&stemmed)))
+                    .then_some(stemmed)
+            })
     }
 
     /// The nearest replayed intent: its cosine and its action.
@@ -2520,6 +2582,41 @@ mod tests {
         assert!(one_edit_apart("tset", "test"));
         assert!(one_edit_apart("brokn", "broken"));
         assert!(!one_edit_apart("abcd", "badc"));
+    }
+
+    #[test]
+    fn compound_requests_are_not_served_as_one_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, BENCH_TRAIN);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let model = SusiAlphaModel::load(dir.path()).unwrap();
+        // Before: the first and last two were each served a single action.
+        for prompt in [
+            "check the status and list the files",
+            "read the config file then run the tests",
+            "fix the build, then run all tests",
+            "show the version and check health",
+            "run the tests and fix the build",
+        ] {
+            let error = model.predict_intent(prompt).unwrap_err().to_string();
+            assert!(error.contains("Compound request"), "{prompt}: {error}");
+        }
+        // One action joined by a conjunction still serves.
+        assert_eq!(
+            model.predict_intent("list files and folders").unwrap(),
+            "ACTION: list_directory"
+        );
+        assert_eq!(
+            model
+                .predict_intent("read and summarize the readme")
+                .unwrap(),
+            "ACTION: read_file"
+        );
+        // "notes" once stemmed to the veto word "not".
+        assert!(model
+            .vetoed_word("write notes to todo.md", "ACTION: write_file")
+            .is_none());
     }
 
     #[test]
