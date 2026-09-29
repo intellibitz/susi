@@ -124,8 +124,20 @@ pub(crate) fn transfer(
         .write(true)
         .open(lock_path)
         .map_err(|e| e.to_string())?;
-    lock.try_lock()
-        .map_err(|_| "Artifact is being downloaded by another worker".to_string())?;
+    // A sibling thread's fork briefly duplicates this descriptor into the
+    // child until its exec closes it (O_CLOEXEC applies at exec), holding
+    // the flock for that window; an immediate retry then saw "another
+    // worker" (a gate flake in interrupted_transfer_resumes_...). A real
+    // concurrent download holds it for seconds to minutes, so ~1s of
+    // retries absorbs the transient without masking contention.
+    let mut attempts = 0;
+    while lock.try_lock().is_err() {
+        attempts += 1;
+        if attempts >= 20 {
+            return Err("Artifact is being downloaded by another worker".to_string());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     let part = PathBuf::from(format!("{}.part", destination.display()));
     let checkpoint_path = PathBuf::from(format!("{}.download.json", destination.display()));
     let mut checkpoint: Checkpoint = fs::read(&checkpoint_path)
