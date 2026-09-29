@@ -129,6 +129,8 @@ pub enum Transport {
     Http,
     HttpSse,
     Websocket,
+    /// WebRTC (SRTP media + data channel) — realtime voice APIs.
+    Webrtc,
     Grpc,
     Stdio,
     InProcess,
