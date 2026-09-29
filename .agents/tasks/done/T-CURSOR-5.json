@@ -1,0 +1,23 @@
+{
+  "id": "T-CURSOR-5",
+  "title": "Land RSI budgets, repo gate, telemetry, keyring, prices, ZC debt",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_014"
+    ]
+  },
+  "created_by": "CURSOR",
+  "created_unix": 1790724597,
+  "closed": {
+    "at_unix": 1790724650,
+    "commit": "28bbae6b92e0524feb4548102d14deb9af918f1b",
+    "by": "CURSOR"
+  }
+}

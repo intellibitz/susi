@@ -37,6 +37,7 @@ pub mod extensions;
 pub mod file_lock;
 mod json_util;
 pub mod key_scope;
+pub mod keyring_storage;
 pub mod plan_apply;
 pub mod rekey_schedule;
 pub mod secret_ref;
@@ -47,6 +48,7 @@ pub mod state_migration;
 mod types;
 pub mod validate;
 pub mod versioned_store;
+pub mod zc_debt_report;
 
 /// IPC client for the standalone `susi-config` service. Only the global
 /// config path is routed here; per-directory loads and `cluster_key` stay
@@ -156,6 +158,9 @@ mod json_util_tests;
 #[path = "tests/key_scope.rs"]
 mod key_scope_tests;
 #[cfg(test)]
+#[path = "tests/keyring_storage.rs"]
+mod keyring_storage_tests;
+#[cfg(test)]
 #[path = "tests/rekey_schedule.rs"]
 mod rekey_schedule_tests;
 #[cfg(test)]
@@ -182,6 +187,9 @@ mod versioned_store_tests;
 #[cfg(test)]
 #[path = "tests/zc_config_explain.rs"]
 mod zc_config_explain_tests;
+#[cfg(test)]
+#[path = "tests/zc_debt_report.rs"]
+mod zc_debt_report_tests;
 #[cfg(test)]
 #[path = "tests/zc_setting_registry.rs"]
 mod zc_setting_registry_tests;
