@@ -3944,6 +3944,346 @@
    "milestone": "Tier-0 serving latency cut about 6.5x, restoring margin under the sub-2ms reflex mandate that ReflexEngine audits as LATENCY_VIOLATION. Measured in a release build with a 2,057-row support set (2,100 staged samples), averaged over 400 calls: predict_intent 1.0ms, of which the classifier (predict_intent_with_confidence) was 730us and the support scan 134us. The classifier ran two candle Linear ops, a softmax and a copy-out per prompt, about 33K multiply-adds dominated by per-call tensor overhead. Now SusiAlphaModel holds DenseReflex: w1/b1/w2/b2 extracted once at load from the published Linears, with dimensions checked, and probabilities() computes W*x+b -> ReLU -> W*h+b -> softmax (over all outputs, as before) in plain Rust. The defensive rank-0 branch of the old code is gone. Measured after, same setup: classifier 18us, full predict_intent 155us. Test: dense_serving_matches_the_candle_network (max |diff| < 1e-5 against the candle forward for 4 prompts including the empty one). The alpha suite passed 3 of 3 runs and the distill-loop integration test passes. Training still uses candle (ReflexNet).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "id": "EV-DEVIN-024",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 6 \u2014 planning can never be served by a reflex (cross-lane ask from Claude). ama::master::plan_steps used GemiEngine::generate_reasoning, which permits Tier-0 reflex serving; a trained reflex whose prompt embedding sits near the wrapped goal (measured cosine 0.72 vs SUPPORT_MIN 0.6) could answer the decomposition request with a bare 'ACTION: status' line, the numbered-step parser drops it, and the mission silently degrades to a single-step plan. Now uses generate_reasoning_deep \u2014 planning is deliberation, never a cached answer.",
+   "proof": "cargo check -p susi-gawd-swarm --all-targets clean; prior suite 59 pass unchanged (one-call-site behavior change).",
+   "anchor": {
+    "label": "plan_steps bypasses Tier-0",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-025",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 7 \u2014 reflex_served joins served Tier-0/1 actions to mission outcomes (Claude's distill ask). When ReflexEngine serves, reason_internal now records a non-citable 'reflex:<action>' receipt on the active EvidenceSession via capture_call (workspace-bound, works from rayon workers). emit_mission_trace lifts reflex:* tool names into MissionTrace.reflex_served \u2014 the trace says which reflex answered, so distill can suppress a served action that repeatedly precedes failures. is_citable_for_mission exempts reflex:* (same class as 'status'): a cached answer must neither certify the mission nor compel citations.",
+   "proof": "cargo check susi-gemi/susi-core/susi-gawd-swarm clean; mission_trace 9 pass; reflex receipts flow: capture_call -> receipts -> trace.tools + trace.reflex_served.",
+   "anchor": {
+    "label": "reflex_served trace field",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-026",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 8 \u2014 success_rate(goal, traces) API: Option<f32> fraction of similar missions that succeeded; None for novel intents so callers never misread absence as 0. One number for routing/promotion instead of each consumer recounting similar() results.",
+   "proof": "success_rate asserted inside retrieval test (1/3 and None arms). mission_trace 9 pass; clippy clean.",
+   "anchor": {
+    "label": "success_rate retrieval API",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-027",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 9 \u2014 mission_traces.jsonl is now bounded (8 MiB, ~16k records). emit() rotates under the existing FileLock: past the cap the oldest half is dropped starting at a line boundary so readers never see a partial first record. Mirrors Claude's 20k cap on the staging buffer \u2014 retrieval reads the whole file per mission, so unbounded growth was a compounding latency cost.",
+   "proof": "oversized_log_rotates_to_newest_parseable_half: over-cap file shrinks below cap, newest record intact. mission_trace 10 pass.",
+   "anchor": {
+    "label": "Bounded trace log",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-028",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 10 \u2014 plan metadata joins the mission trace. SusiMissionReport carries PlanRecord {steps, score, consensus, failed_step}: the abort path records the 1-based failing step; the synthesis-path final report gets the chosen candidate's record attached. MissionTrace gains plan_steps/plan_score/plan_consensus/failed_step (schema v2 defaults keep v1 lines readable) and history_brief annotates similar traces with '[failed at step N]' so planning-time retrieval surfaces where plans broke, not just that they failed.",
+   "proof": "plan_fields_flow_into_brief_with_step_attribution; susi-core 210 pass, susi-gawd-swarm 59 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "PlanRecord in trace",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/report.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-029",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 11 \u2014 closed the failed-step loop: mission_trace::failed_steps extracts the step text at each similar failure's failed_step index; HistorySignals carries it into deliberate, which docks a candidate -0.15 per step (cap 2) whose token Jaccard with any doomed step is \u22650.6. Plans now steer around the exact step that previously broke, not only away from tainted tools.",
+   "proof": "steps_echoing_a_doomed_step_are_docked (deliberation); failed_steps_extracts_only_doomed_step_texts (mission_trace). susi-core 211, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Doomed-step penalty",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-030",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 12 \u2014 IDF-weighted mission retrieval. `similar` now scores weighted token overlap: document frequency is computed over the trace corpus and each shared token contributes ln((N+1)/(df+1))+1. A shared rare token outranks a shared ubiquitous token; under plain Jaccard 'deploy kubernetes' tied with 'deploy database'. All downstream consumers (brief, difficulty, failing/proven tools, failed steps, success_rate) inherit the better ranking.",
+   "proof": "idf_ranks_rare_shared_tokens_over_common_ones: rare-token match ranks first while the common-token match drops below the similarity floor. susi-core 212 pass; susi-gawd-swarm 60, susi-gawd green; clippy -D warnings clean.",
+   "anchor": {
+    "label": "IDF retrieval",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-031",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 13 \u2014 few-shot plan exemplars. proven_plan_brief picks the most similar SUCCESSFUL trace with recorded plan_steps and injects its numbered decomposition into the plan_steps prompt. Failed traces and traces without plan metadata can never become exemplars; novel goals get none. Retrieval now informs the planner of what to copy, not only what to avoid.",
+   "proof": "proven_plan_brief_only_teaches_from_successes: exemplar carries the winning plan's numbered steps, failed-trace steps excluded, novel goal yields empty brief. susi-core 213, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Proven plan exemplar",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-032",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 14 \u2014 unreliable-neighborhood consensus. mission_trace::unreliable_neighborhood (\u22652 similar traces, <50% success rate) sets deliberation.consensus_required in solve_autonomous \u2014 a mixed track record demands plan agreement even when the intent isn't vetoed and the scope is read-only. success_rate is now consumed by routing decisions, not just exposed.",
+   "proof": "unreliable_neighborhood_needs_two_neighbors_and_below_half: 0.25 unreliable, 0.5 not, single neighbor too thin, novel intent clean. susi-core 214, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Neighborhood-risk gate",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-033",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 15 \u2014 two cross-lane asks landed. (1) dag.rs node execution now calls generate_reasoning_deep: node templates are dense with capability words and cleared Tier-0's support gate (Claude measured 0.60-0.64), so a served ACTION: line would complete a node having executed nothing. (2) receipt_archive staging_eligible excludes reflex:* receipts \u2014 untrainable serves were inflating the staging threshold (Claude's lane file, their proposed fix).",
+   "proof": "reflex_receipts_never_stage_training_samples: archived but training_staged=None, no staging file. susi-core 219, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "DAG deep path + staging exclusion",
+    "ref": "file://crates/susi-gawd-swarm/src/dag.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-034",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 16 \u2014 scorer self-measurement. plan_score_correlation computes Pearson r between recorded plan_score and verified outcome across scored traces (>=4 required); solve_autonomous prints score/outcome r in the [RETRIEVAL] line. The scorer is a model like any other \u2014 anti-correlated ranking now surfaces as a negative number rather than hiding inside plausible scores.",
+   "proof": "plan_score_correlation_flags_a_scorer_that_predicts_backwards: r < -0.5 on an inverted scorer; None under 4 scored missions and with no scores. susi-core 220, susi-gawd-swarm 60 pass; clippy clean.",
+   "anchor": {
+    "label": "Scorer calibration",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-035",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 17 \u2014 evidence-backed success. MissionTrace::verified() requires succeeded() && evidence_entries > 0. promotion_status, proven_tools, proven_plan_brief and failing_tool_counts treat a receipt-free SUCCESS as neutral: it can no longer promote a reflex, teach tools/plans, condemn tools, or exonerate failing ones.",
+   "proof": "promotion test asserts unverified SUCCESS \u2192 Insufficient{0,0}; teach-path tests updated to verified traces. susi-core 220, susi-gawd 55, susi-gawd-swarm 60 pass; clippy clean.",
+   "anchor": {
+    "label": "verified() success",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-036",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 18 \u2014 recency-decayed retrieval. similar() multiplies each trace's IDF similarity by 0.5 + 0.5\u00b7e^(-age/\u03c4) with \u03c4 = 30 days: a fresh less-similar trace outranks an ancient near-match, while old lessons fade toward half weight rather than dropping to zero. Briefs, difficulty, teach/exonerate paths inherit the ordering.",
+   "proof": "recency_decay_demotes_stale_near_matches: epoch-1 trace sharing two tokens loses to a fresh one sharing the rare token. susi-core 221, susi-gawd 55, susi-gawd-swarm 60 pass; clippy clean.",
+   "anchor": {
+    "label": "Recency decay",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-037",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 19 \u2014 order-aware consensus. plan_similarity compared bag-of-tokens Jaccard, so a plan and its exact reverse scored 1.0 \u2014 consensus could approve a mutation executed backwards. Now min(set-similarity, aligned positional step-Jaccard): same work in the same order is required.",
+   "proof": "plan_similarity_is_order_aware: reversed steps < threshold, identical = 1.0, near-duplicate same-order \u2265 threshold. susi-gawd-swarm 61 pass; clippy clean.",
+   "anchor": {
+    "label": "Order-aware consensus",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-038",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 20 \u2014 strategy-diverse plan search. style_hint(budget) injects a per-candidate decomposition strategy into plan_steps' prompt: \u22642-step budgets get a minimal-viable-sequence hint, \u22655 get explicit post-mutation verification. Candidates now disagree about approach, not only length \u2014 the consensus gate measures approach agreement, not paraphrases of one length choice.",
+   "proof": "budgets_span_distinct_strategies: hint mapping + max_steps=4 yields three distinct styles. susi-gawd-swarm 62 pass; clippy clean.",
+   "anchor": {
+    "label": "Strategy diversity",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-039",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 21 \u2014 signal-aware history briefs. history_brief annotates [governance-blocked] / [cloud-attempt-failed] on traces carrying GOVERNANCE_BLOCK or CLOUD_ATTEMPT_FAILED signals \u2014 refusal classes and failed cloud paths reach the planner instead of sitting unread in trace.signals.",
+   "proof": "brief_flags_governance_blocked_and_cloud_failed_history: both annotations appear; ordinary signals annotate nothing. susi-core 222 (mission_trace 18) pass; clippy clean.",
+   "anchor": {
+    "label": "Signal-aware briefs",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-040",
+   "type": "BUGFIX",
+   "milestone": "Iteration 22 \u2014 failing_tool_counts counted mentions, not missions: a tool invoked 5\u00d7 in one failed mission counted 5 failures, inflating the repetition-scaled deliberation penalty up to its cap on a single bad run. Now dedups per mission, matching the documented contract.",
+   "proof": "flaky_tool listed twice in one FAILED trace counts 1. susi-core 222 pass; clippy clean.",
+   "anchor": {
+    "label": "Per-mission failure counts",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-041",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 23 \u2014 recency-weighted difficulty. difficulty()'s failure_rate is now weighted by the same 0.5 + 0.5\u00b7e^(-age/30d) function used in retrieval ordering (extracted as shared recency_weight). A failure yesterday outweighs one a year old; intents that recovered stop paying full price for ancient failures.",
+   "proof": "difficulty_weights_recent_failures_heavier: ~0.33 with stale failure + fresh success, ~0.67 flipped. susi-core 223 pass; clippy clean.",
+   "anchor": {
+    "label": "Weighted failure rate",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-042",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 24 \u2014 recency-weighted success_rate. The similar-mission success fraction is now weighted by the shared decay, so unreliable_neighborhood sees a stale-success/fresh-failure pair as 0.33 (unreliable) instead of 0.5 (passing).",
+   "proof": "stale_success_does_not_paper_over_a_fresh_failure: rate ~0.33, neighborhood flagged. susi-core 224 pass; clippy clean.",
+   "anchor": {
+    "label": "Weighted success rate",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-043",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 25 \u2014 duration-aware briefs. duration_secs renders as [~Ns] in history_brief lines, so observed mission cost reaches the planner. Every MissionTrace field is now consumed by a downstream decision or prompt.",
+   "proof": "brief test asserts [~90s] annotation. susi-core 224 pass; clippy clean.",
+   "anchor": {
+    "label": "Duration in briefs",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-044",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 26 \u2014 failing-agent plan penalty. failing_agent_counts mirrors failing_tool_counts for the agents field: agents appearing only on failed similar missions (never a verified win) merge into HistorySignals.failed in solve_autonomous, so a plan step naming a historically-failing agent is docked like a tainted tool.",
+   "proof": "failing_agent_counts_track_missions_and_clear_on_verified_wins: dedup per mission, exonerated by verified success. susi-core 225, susi-gawd-swarm 62 pass; clippy clean.",
+   "anchor": {
+    "label": "Failing-agent signal",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-045",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 27 \u2014 proven-step bonus, mirror of the doomed-step penalty. mission_trace::proven_steps collects step texts from verified-successful similar missions; HistorySignals.proven_steps lets deliberate award +0.05 per candidate step echoing one (cap 3). Plans now lean toward moves that demonstrably worked, not only away from moves that broke.",
+   "proof": "steps_echoing_a_proven_step_earn_a_bonus. susi-core 225, susi-gawd-swarm 63 pass; clippy clean.",
+   "anchor": {
+    "label": "Proven-step bonus",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-046",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 28 \u2014 proven-agent bonus. proven_agents collects agents appearing only on verified-successful similar missions (ambiguous/unverified excluded); they merge into HistorySignals.proven in solve_autonomous so plan steps naming a trusted agent earn the proven bonus. Completes the agent-level history signal.",
+   "proof": "proven_agents_excludes_ambiguous_and_unverified: verified-only wins proven; failed-agent and bare-claim excluded. susi-core 226, susi-gawd-swarm 63 pass; clippy clean.",
+   "anchor": {
+    "label": "Proven agents",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-047",
+   "type": "BUGFIX",
+   "milestone": "Iteration 29 \u2014 PlanRecord attribution. Iter-10 recorded candidates[0].score and the initial plan's steps unconditionally: after a read-scope replan (candidate 2 succeeding) or the unapproved single-step fallback, the trace joined the wrong plan to the outcome. Now tracks the executed candidate across the attempts loop and looks its score up (or scores the fallback directly).",
+   "proof": "susi-gawd-swarm 63 pass; clippy clean.",
+   "anchor": {
+    "label": "Executed-plan attribution",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-048",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 30 \u2014 intra-plan duplicate penalty. Plan scoring docks -0.05 per step that is a near-duplicate (token Jaccard \u2265 0.8) of an earlier step: repeated steps waste execution, and a plan that repeats itself should lose to a varied one.",
+   "proof": "near_duplicate_steps_are_penalized: literal repeat scores lower and reports duplicate_steps=1. susi-gawd-swarm 64 pass; clippy clean.",
+   "anchor": {
+    "label": "Duplicate-step penalty",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-049",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 31 \u2014 paraphrase-proof promotion. promotion_status matched token signatures exactly, so 'deploy the api backend' escaped the veto after 'deploy the api' failed. Matching now includes token-Jaccard \u2265 0.6 paraphrases: near-identical phrasings share the habit's record for both veto and success counting.",
+   "proof": "promotion test: paraphrase of recently-failed intent \u2192 Vetoed; unrelated intent unaffected. susi-core 227 pass; clippy clean.",
+   "anchor": {
+    "label": "Paraphrase veto",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-050",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 32 \u2014 risk-scaled consensus. All gated intents demanded the same 0.35 top-two agreement; now the bar scales: High/Critical risk 0.55, Mutate/SelfExtend scope 0.45, read-only 0.35. The applied threshold is stored on Deliberation and logged, so gate decisions stay auditable.",
+   "proof": "consensus_threshold_scales_with_risk: a 0.5-similarity pair is rejected for a High-risk intent yet approved for a Medium mutating one. susi-gawd-swarm 65 pass; clippy clean.",
+   "anchor": {
+    "label": "Risk-scaled consensus",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-051",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 33 \u2014 plan-length prior. candidate budgets were a fixed grid; proven_plan_length (median plan_steps over similar verified-success traces) is now pushed into the budget list, so deliberation samples the shape that actually worked for the intent class. Budgets are sorted+deduped to keep the vector canonical.",
+   "proof": "proven_plan_length_median_of_verified_successes: median over verified successes only; bare success claims and failed plans yield None. susi-core 228 pass; clippy clean.",
+   "anchor": {
+    "label": "Plan-length prior",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-052",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 34 \u2014 route rollup in history_brief. Similar missions' per-line 'via route' is now aggregated into a header tally '(routes verified: cloud 0/1, swarm 1/1)' when multiple routes appear, so the planner can pick the route that actually delivered for the intent class.",
+   "proof": "brief_rolls_up_per_route_outcomes: mixed-route history shows the tally; single-route history stays terse. susi-core 229 pass; clippy clean.",
+   "anchor": {
+    "label": "Route rollup",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-053",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 35 \u2014 duration-aware difficulty. difficulty() ignored the recorded duration_secs; median duration of similar missions now adds a bounded bump (0\u2013600s \u2192 +0\u20130.15) to the score and is exposed as median_duration_secs on Difficulty and in the [RETRIEVAL] line.",
+   "proof": "slow_intent_history_raises_difficulty: 700s-history intent scores harder than a 30s-history twin; missing durations \u2192 no bump. susi-core 230 pass; clippy clean.",
+   "anchor": {
+    "label": "Duration-aware difficulty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-054",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 36 \u2014 whole-plan provenance. Step-level echoes now complemented by shape-level matching: proven_plans/failed_plans retrieve full step-lists from similar missions; a candidate matching a verified decomposition (plan_similarity \u2265 0.7) earns +0.10, matching a failed one docks -0.15.",
+   "proof": "whole_plan_shape_provenance_scored: identical candidate scores lower against failed-plan history, higher against proven-plan history. susi-gawd-swarm 66 pass; clippy clean.",
+   "anchor": {
+    "label": "Whole-plan provenance",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-055",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 37 \u2014 global prior for novel intents. difficulty() scored novel intents on novelty+risk alone, blind to the system's overall track record; it now adds 0.5\u00d7 the recency-weighted global failure rate when no neighbors exist.",
+   "proof": "novel_intent_reads_global_track_record: same novel goal scores harder against all-failed history than all-success; empty history keeps pure novelty score. susi-core 231 pass; clippy clean.",
+   "anchor": {
+    "label": "Global difficulty prior",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-056",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 38 \u2014 governance blocks aren't capability failures. MissionTrace::capability_outcome() is false for GOVERNANCE_BLOCK traces; success_rate, difficulty's failure rate, the promotion veto window, Insufficient accounting, failed_steps and failed_plans now skip them. A refused goal class was inflating failure statistics even though nothing ever ran.",
+   "proof": "governance_blocks_are_not_capability_failures: block+verified-win reads 1.0 success, 0.0 failure_rate, Insufficient{0,0} not Vetoed. susi-core 232 pass; clippy clean.",
+   "anchor": {
+    "label": "Capability-outcome filter",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-057",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 39 \u2014 exemplar quality + capability sizing. proven_plan_brief picked the first similar verified trace; it now prefers the highest plan_score so the exemplar teaches the best-scoring proven shape (unrecorded scores sort last, similarity breaks ties). unreliable_neighborhood's \u22652 evidence bar counts capability outcomes only.",
+   "proof": "proven_plan_brief_prefers_highest_scoring_exemplar. susi-core 233 pass; clippy clean.",
+   "anchor": {
+    "label": "Exemplar quality",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

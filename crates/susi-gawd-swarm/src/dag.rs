@@ -94,9 +94,16 @@ impl MissionDag {
                         "Execute task node '{}': {}. If you need to execute a shell command, provide it in a ```bash codeblock. The command must perform every requested side effect: printing intended file content is not file creation. For file writes, write the named workspace path and then verify that exact path and its contents.",
                         node.title, node.goal
                     ));
-                    let mut res = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(
-                        &prompt, &ws,
-                    );
+                    // Deep path, same rule as plan_steps: the node template is
+                    // full of capability words and clears Tier-0's support
+                    // gate, so a trained reflex could answer `ACTION:
+                    // write_file` with no ```bash block — the node would
+                    // "complete" having executed nothing (Claude's measured
+                    // 0.60–0.64 support on everyday intents).
+                    let mut res =
+                        crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+                            &prompt, &ws,
+                        );
 
                     let mut executed_scripts = String::new();
                     // Receipt arguments this node produced (JSON of the

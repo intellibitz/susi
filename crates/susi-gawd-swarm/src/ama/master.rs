@@ -125,6 +125,7 @@ impl SusiMasterAgent {
             status: "FAILED".into(),
             agents: vec![],
             interactions: vec![],
+            plan: None,
             final_answer: String::new(),
         };
         crate::cloud_recovery::recover(&mut report, workspace, model, true, session);
@@ -348,6 +349,7 @@ impl SusiMasterAgent {
                     status: "BLOCKED".to_string(),
                     agents: Vec::new(),
                     interactions: Vec::new(),
+                    plan: None,
                     final_answer: format!("[GOVERNANCE_BLOCK] {}", e),
                 };
                 report.persist_inspectable_trace(workspace);
@@ -538,6 +540,7 @@ impl SusiMasterAgent {
                     },
                 ],
                 interactions: Vec::new(),
+                plan: None,
                 final_answer,
             };
             crate::cloud_recovery::recover(
@@ -582,6 +585,7 @@ impl SusiMasterAgent {
                     status: "FAILED".to_string(),
                     agents: Vec::new(),
                     interactions: Vec::new(),
+                    plan: None,
                     final_answer: format!("SUSI Engine Error: {}", e),
                 };
                 crate::cloud_recovery::recover(
@@ -739,6 +743,7 @@ impl SusiMasterAgent {
             .to_string(),
             agents,
             interactions,
+            plan: None,
             final_answer: verified_final,
         })
     }
@@ -793,14 +798,30 @@ impl SusiMasterAgent {
         let traces = crate::susi_core::mission_trace::read_all(workspace);
         let difficulty =
             crate::susi_core::mission_trace::difficulty(&goal, &traces, manifold.risk_profile);
-        let brief = crate::susi_core::mission_trace::history_brief(&goal, &traces, 5);
+        let brief = format!(
+            "{}{}",
+            crate::susi_core::mission_trace::history_brief(&goal, &traces, 5),
+            // A worked exemplar: how a similar mission's plan actually
+            // decomposed when it succeeded — few-shot plan shape, not
+            // just outcome text.
+            crate::susi_core::mission_trace::proven_plan_brief(&goal, &traces)
+        );
         eprintln!(
-            "[RETRIEVAL] {} similar missions | difficulty={:.2} (novel={} failure_rate={:.0}% risk={:?})",
+            "[RETRIEVAL] {} similar missions | difficulty={:.2} (novel={} failure_rate={:.0}% risk={:?}){}{}",
             crate::susi_core::mission_trace::similar(&goal, &traces, 8).len(),
             difficulty.score,
             difficulty.novel,
             difficulty.failure_rate * 100.0,
-            difficulty.risk
+            difficulty.risk,
+            difficulty
+                .median_duration_secs
+                .map(|d| format!(" ~{d}s"))
+                .unwrap_or_default(),
+            // Scorer honesty, when enough scored missions exist to judge:
+            // does a higher plan_score actually predict success?
+            crate::susi_core::mission_trace::plan_score_correlation(&traces)
+                .map(|c| format!(" | score↔outcome r={c:.2}"))
+                .unwrap_or_default()
         );
 
         let mut budgets = crate::deliberation::candidate_budgets(max_steps);
@@ -808,10 +829,35 @@ impl SusiMasterAgent {
             // A novel or frequently-failed intent earns a wider search.
             budgets.push((max_steps + 4).min(8));
         }
+        // The shape that actually worked before is a prior worth
+        // searching around — similar verified successes say how long
+        // a plan for this intent class usually needs to be.
+        if let Some(shape) = crate::susi_core::mission_trace::proven_plan_length(&goal, &traces, 8)
+        {
+            budgets.push(shape.clamp(1, 12));
+        }
+        budgets.sort_unstable();
         budgets.dedup();
+        let mut failed_entities =
+            crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8);
+        // Agents that only ever ran on failed similar missions taint plans
+        // the same way tools do — a step naming one gets docked.
+        for (agent, count) in
+            crate::susi_core::mission_trace::failing_agent_counts(&goal, &traces, 8)
+        {
+            *failed_entities.entry(agent).or_insert(0) += count;
+        }
+        let mut proven_entities = crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8);
+        proven_entities.extend(crate::susi_core::mission_trace::proven_agents(
+            &goal, &traces, 8,
+        ));
         let history = crate::deliberation::HistorySignals {
-            failed: crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8),
-            proven: crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8),
+            failed: failed_entities,
+            proven: proven_entities,
+            failed_steps: crate::susi_core::mission_trace::failed_steps(&goal, &traces, 8),
+            proven_steps: crate::susi_core::mission_trace::proven_steps(&goal, &traces, 8),
+            proven_plans: crate::susi_core::mission_trace::proven_plans(&goal, &traces, 8),
+            failed_plans: crate::susi_core::mission_trace::failed_plans(&goal, &traces, 8),
         };
         let mut deliberation =
             crate::deliberation::deliberate(&goal, &manifold, &budgets, &history, |budget| {
@@ -829,11 +875,23 @@ impl SusiMasterAgent {
                 "- [Deliberation] Anti-pattern history for this intent — consensus required."
             );
         }
+        // Softer than a veto: when similar missions mostly failed without
+        // tripping the anti-pattern window, plan agreement is still
+        // warranted — one good guess isn't enough in a bad neighborhood.
+        if !deliberation.consensus_required
+            && crate::susi_core::mission_trace::unreliable_neighborhood(&goal, &traces, 8)
+        {
+            deliberation.consensus_required = true;
+            eprintln!(
+                "- [Deliberation] Low success rate among similar missions — consensus required."
+            );
+        }
         eprintln!(
-            "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?}",
+            "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?} threshold={:.2}",
             deliberation.candidates.len(),
             deliberation.consensus_required,
-            deliberation.consensus
+            deliberation.consensus,
+            deliberation.consensus_threshold
         );
         for (i, c) in deliberation.candidates.iter().enumerate() {
             eprintln!(
@@ -896,6 +954,18 @@ impl SusiMasterAgent {
         } else {
             vec![plan.clone()]
         };
+        // Honest attribution: the score of the plan that actually ran —
+        // a fallback single-step or a later candidate is not
+        // candidates[0], and the trace must not claim it is.
+        let executed_score = |executed: &[String]| {
+            deliberation
+                .candidates
+                .iter()
+                .find(|c| c.steps == executed)
+                .map(|c| c.score)
+                .unwrap_or_else(|| crate::deliberation::score_plan(&goal, executed, max_steps).0)
+        };
+        let mut succeeded_plan: Option<&Vec<String>> = None;
         'attempts: for (attempt, attempt_plan) in plans_to_try.iter().enumerate() {
             if attempt > 0 {
                 eprintln!(
@@ -952,6 +1022,12 @@ impl SusiMasterAgent {
                         status: "FAILED".to_string(),
                         agents: report.agents,
                         interactions: report.interactions,
+                        plan: Some(super::report::PlanRecord {
+                            steps: attempt_plan.clone(),
+                            score: executed_score(attempt_plan),
+                            consensus: deliberation.consensus,
+                            failed_step: Some((i + 1) as u32),
+                        }),
                         final_answer: format!(
                             "Autonomous plan aborted at step {}. Workspace changes made by earlier steps were not rolled back. {}\n\nDeliberation: {}\n\nPrior steps:\n{}",
                             i + 1,
@@ -964,6 +1040,7 @@ impl SusiMasterAgent {
                     return Ok(final_report);
                 }
             }
+            succeeded_plan = Some(attempt_plan);
             break;
         }
 
@@ -979,6 +1056,17 @@ impl SusiMasterAgent {
         };
         let mut final_report = self.solve_internal(&synthesis_goal, workspace, version, 0)?;
         crate::cloud_recovery::recover(&mut final_report, workspace, None, false, session.clone());
+        // The synthesis path's own report never saw plan search — attach the
+        // deliberation record so the mission trace joins plan to outcome.
+        // The recorded steps/score are the candidate that actually
+        // succeeded — not always candidates[0] after a replan.
+        let winning_plan = succeeded_plan.unwrap_or(&plan);
+        final_report.plan = Some(super::report::PlanRecord {
+            steps: winning_plan.clone(),
+            score: executed_score(winning_plan),
+            consensus: deliberation.consensus,
+            failed_step: None,
+        });
         final_report.interactions.push(crate::amas::A2AMessage {
             sender: "Deliberator".into(),
             recipient: "SUSI-Master".into(),
@@ -1002,15 +1090,19 @@ impl SusiMasterAgent {
         let prompt = format!(
             "Break the following goal into at most {} concise, ordered steps. \
              Return one step per line starting with a number and a period. \
-             Do not add extra commentary.\n\n{}Goal: {}\n\nSteps:",
+             Do not add extra commentary.{}\n\n{}Goal: {}\n\nSteps:",
             max_steps.clamp(1, 8),
+            // Strategy varies by budget: candidates should disagree about
+            // approach (minimal vs verify-everything), not only length.
+            crate::deliberation::style_hint(max_steps),
             history_brief,
             goal
         );
         // Deep path: planning must never be answered by a reflex tier. With
         // reflexes allowed, the decomposition template around a familiar goal
         // cleared Tier-0's support gate (cosine 0.72 measured) and could be
-        // answered `ACTION: status`, which the step parser then drops.
+        // answered `ACTION: status`, which the step parser then drops — the
+        // mission would silently degrade to a single-step plan.
         let response = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
             &prompt, workspace,
         );
@@ -1046,6 +1138,7 @@ impl SusiMasterAgent {
                 status: "ABORTED".to_string(),
                 agents: vec![],
                 interactions: vec![],
+                plan: None,
                 final_answer: format!("SUSI-Recursion-Limit-Reached: Substrate decay prevented infinite intent recursion (Depth: {}).", depth),
             });
         }
@@ -1064,6 +1157,7 @@ impl SusiMasterAgent {
                 status: "COMPLETE".to_string(),
                 agents,
                 interactions,
+                plan: None,
                 final_answer: format!(
                     "SUSI Substrate Identity Report ({}):\n\n{}",
                     version, identity_report
@@ -1078,6 +1172,7 @@ impl SusiMasterAgent {
                 status: "COMPLETE".to_string(),
                 agents,
                 interactions,
+                plan: None,
                 final_answer: format!("SUSI Engine Version: v{}", version),
             });
         }
@@ -1103,6 +1198,7 @@ impl SusiMasterAgent {
                 status: "COMPLETE".to_string(),
                 agents,
                 interactions,
+                plan: None,
                 final_answer: status_report,
             });
         }
@@ -1116,6 +1212,7 @@ impl SusiMasterAgent {
                 status: "COMPLETE".to_string(),
                 agents,
                 interactions,
+                plan: None,
                 final_answer: roster,
             });
         }
@@ -1326,6 +1423,7 @@ impl SusiMasterAgent {
                                 status: "COMPLETE".to_string(),
                                 agents,
                                 interactions,
+                                plan: None,
                                 final_answer: verified_answer,
                             });
                         }
@@ -1441,6 +1539,7 @@ impl SusiMasterAgent {
             status,
             agents: all_agents,
             interactions: all_interactions,
+            plan: None,
             final_answer,
         })
     }
@@ -1506,6 +1605,7 @@ impl SusiMasterAgent {
             status,
             agents: all_agents,
             interactions: all_interactions,
+            plan: None,
             final_answer,
         })
     }
@@ -1685,6 +1785,7 @@ mod compiled_read_truth_tests {
                 action: "EVIDENCE_CAPTURED".into(),
                 payload: r#"[{"id":"r1","tool":"exec_command"}]"#.into(),
             }],
+            plan: None,
             final_answer: "done; pushed with ghp_traceToken123".into(),
         };
         report.persist_inspectable_trace(&dir);

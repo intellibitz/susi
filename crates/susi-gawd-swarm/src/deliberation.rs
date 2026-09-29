@@ -33,10 +33,30 @@ pub struct Deliberation {
     /// `Some(similarity)` when the two best candidates agree; `None` when no
     /// pair reached the threshold.
     pub consensus: Option<f32>,
+    /// The agreement bar actually applied — scales with the manifold's
+    /// risk/scope so High/Critical intents demand closer agreement.
+    /// Kept on the record so a missed consensus stays auditable.
+    pub consensus_threshold: f32,
 }
 
 /// Two candidates agree when their step-token Jaccard clears this bar.
 const CONSENSUS_THRESHOLD: f32 = 0.35;
+
+/// Consensus bar scales with risk: a High/Critical intent needs the top
+/// candidates to agree more closely before a multi-step plan may run.
+/// A mutating scope sits in between; read-only missions keep the base bar.
+fn consensus_threshold(manifold: &IntentManifold) -> f32 {
+    if manifold.risk_profile >= RiskProfile::High {
+        0.55
+    } else if matches!(
+        manifold.scope_of_impact,
+        ScopeOfImpact::Mutate | ScopeOfImpact::SelfExtend
+    ) {
+        0.45
+    } else {
+        CONSENSUS_THRESHOLD
+    }
+}
 
 /// Tokens that mark a step as carrying real-world risk.
 const RISK_TOKENS: &[&str] = &[
@@ -62,19 +82,46 @@ const VERIFIABLE_TOKENS: &[&str] = &[
 
 /// Jaccard similarity over whitespace-token sets — a cheap, explainable
 /// measure of whether two plans describe the same approach.
+/// How much two plans agree — on the work *and* the order. The set
+/// component asks whether the plans contain the same tokens at all; the
+/// positional component compares step-vs-step at each index. Consensus
+/// takes the *minimum*: "read config, write result" and "write result,
+/// read config" share every token but are different plans, and a
+/// mutating plan executed backwards must never count as agreement.
 pub fn plan_similarity(a: &[String], b: &[String]) -> f32 {
-    let tokens = |steps: &[String]| {
+    let bag = |steps: &[String]| {
         steps
             .iter()
             .flat_map(|s| s.split_whitespace().map(|t| t.to_lowercase()))
             .collect::<std::collections::BTreeSet<_>>()
     };
-    let (ta, tb) = (tokens(a), tokens(b));
-    let union = ta.union(&tb).count();
-    if union == 0 {
-        return 1.0;
-    }
-    ta.intersection(&tb).count() as f32 / union as f32
+    let step_tokens = |s: &str| {
+        s.split_whitespace()
+            .map(|t| t.to_lowercase())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let jaccard = |x: &std::collections::BTreeSet<String>,
+                   y: &std::collections::BTreeSet<String>| {
+        let u = x.union(y).count();
+        if u == 0 {
+            1.0
+        } else {
+            x.intersection(y).count() as f32 / u as f32
+        }
+    };
+    let (ta, tb) = (bag(a), bag(b));
+    let set_sim = if ta.is_empty() && tb.is_empty() {
+        1.0
+    } else {
+        jaccard(&ta, &tb)
+    };
+    let positional = a
+        .iter()
+        .zip(b.iter())
+        .map(|(sa, sb)| jaccard(&step_tokens(sa), &step_tokens(sb)))
+        .sum::<f32>()
+        / a.len().max(b.len()).max(1) as f32;
+    set_sim.min(positional)
 }
 
 /// Score a candidate plan: goal-token coverage earns, risk vocabulary and
@@ -142,6 +189,23 @@ pub fn score_plan_with_history(
         .filter(|t| VERIFIABLE_TOKENS.contains(&t.trim_matches(|c: char| !c.is_alphanumeric())))
         .count();
     let over_budget = steps.len().saturating_sub(max_steps as usize);
+    // Near-duplicate steps inside one plan waste execution — "scan files"
+    // twice is a worse plan than "scan files" then "fix findings".
+    let step_sets: Vec<std::collections::BTreeSet<String>> = steps
+        .iter()
+        .map(|s| crate::amas::tokenize_goal(s).into_iter().collect())
+        .collect();
+    let duplicate_steps = step_sets
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| {
+            !a.is_empty()
+                && step_sets[..*i].iter().any(|b| {
+                    let inter = a.intersection(b).count() as f32;
+                    inter / a.union(b).count() as f32 >= 0.8
+                })
+        })
+        .count();
     let step_words = |t: &String| {
         t.split_whitespace()
             .map(|w| w.to_lowercase())
@@ -171,12 +235,14 @@ pub fn score_plan_with_history(
         (0.4 + 0.5 * coverage + 0.05 * verifiable.min(4) as f32 + 0.05 * proven_hits.min(4) as f32
             - 0.15 * risk_hits as f32
             - 0.1 * history_penalty as f32
-            - 0.1 * over_budget as f32)
+            - 0.1 * over_budget as f32
+            - 0.05 * duplicate_steps as f32)
             .clamp(0.0, 1.0);
     let rationale = format!(
         "coverage={coverage:.2} risk_tokens={risk_hits} failed_history_tools={history_hits} \
          failure_penalty={history_penalty} proven_tools={proven_hits} \
-         verifiable_steps={verifiable} steps={} over_budget={over_budget}",
+         verifiable_steps={verifiable} steps={} over_budget={over_budget} \
+         duplicate_steps={duplicate_steps}",
         steps.len()
     );
     (score, rationale)
@@ -204,6 +270,18 @@ pub struct HistorySignals {
     /// failures weigh more in scoring.
     pub failed: std::collections::BTreeMap<String, u32>,
     pub proven: std::collections::BTreeSet<String>,
+    /// Texts of the steps that actually aborted similar failed missions —
+    /// a candidate echoing one gets docked.
+    pub failed_steps: Vec<String>,
+    /// Texts of steps that ran on similar *verified-success* missions —
+    /// a candidate echoing one earns a bonus.
+    pub proven_steps: Vec<String>,
+    /// Whole decompositions that succeeded — a candidate matching one
+    /// wholesale repeats a shape that already delivered.
+    pub proven_plans: Vec<Vec<String>>,
+    /// Whole decompositions that failed — a candidate matching one
+    /// wholesale replays a shape that already died.
+    pub failed_plans: Vec<Vec<String>>,
 }
 
 pub fn deliberate(
@@ -214,6 +292,16 @@ pub fn deliberate(
     mut generate: impl FnMut(u32) -> Vec<String>,
 ) -> Deliberation {
     let gated = consensus_required(manifold);
+    let doomed: Vec<std::collections::BTreeSet<String>> = history
+        .failed_steps
+        .iter()
+        .map(|s| crate::amas::tokenize_goal(s).into_iter().collect())
+        .collect();
+    let winning: Vec<std::collections::BTreeSet<String>> = history
+        .proven_steps
+        .iter()
+        .map(|s| crate::amas::tokenize_goal(s).into_iter().collect())
+        .collect();
     let mut candidates: Vec<CandidatePlan> = budgets
         .iter()
         .map(|&budget| {
@@ -232,6 +320,71 @@ pub fn deliberate(
             {
                 score = (score - 0.2).max(0.0);
                 rationale.push_str(" unverified_mutation_penalty=-0.20");
+            }
+            // A step that echoes the step that aborted a similar mission
+            // before is a repeating failure pattern, not a coincidence.
+            if !doomed.is_empty() {
+                let echoes = steps
+                    .iter()
+                    .map(|s| {
+                        crate::amas::tokenize_goal(s)
+                            .into_iter()
+                            .collect::<std::collections::BTreeSet<_>>()
+                    })
+                    .filter(|toks| {
+                        !toks.is_empty()
+                            && doomed.iter().any(|d| {
+                                let inter = toks.intersection(d).count() as f32;
+                                inter / toks.union(d).count() as f32 >= 0.6
+                            })
+                    })
+                    .count();
+                if echoes > 0 {
+                    score = (score - 0.15 * echoes.min(2) as f32).max(0.0);
+                    rationale.push_str(&format!(" doomed_step_echoes={echoes}"));
+                }
+            }
+            // Mirror of the doomed-step penalty: a step matching one that
+            // ran on a verified success repeats a move that worked before.
+            if !winning.is_empty() {
+                let proven = steps
+                    .iter()
+                    .map(|s| {
+                        crate::amas::tokenize_goal(s)
+                            .into_iter()
+                            .collect::<std::collections::BTreeSet<_>>()
+                    })
+                    .filter(|toks| {
+                        !toks.is_empty()
+                            && winning.iter().any(|w| {
+                                let inter = toks.intersection(w).count() as f32;
+                                inter / toks.union(w).count() as f32 >= 0.6
+                            })
+                    })
+                    .count();
+                if proven > 0 {
+                    score = (score + 0.05 * proven.min(3) as f32).min(1.0);
+                    rationale.push_str(&format!(" proven_step_matches={proven}"));
+                }
+            }
+            // Whole-plan provenance: matching an entire decomposition that
+            // delivered before is stronger than echoing one of its steps;
+            // matching one that failed is worse than echoing a doomed step.
+            if history
+                .proven_plans
+                .iter()
+                .any(|p| plan_similarity(&steps, p) >= 0.7)
+            {
+                score = (score + 0.1).min(1.0);
+                rationale.push_str(" proven_plan_shape=+0.10");
+            }
+            if history
+                .failed_plans
+                .iter()
+                .any(|p| plan_similarity(&steps, p) >= 0.7)
+            {
+                score = (score - 0.15).max(0.0);
+                rationale.push_str(" failed_plan_shape=-0.15");
             }
             CandidatePlan {
                 steps,
@@ -253,9 +406,10 @@ pub fn deliberate(
     // Consensus is measured before dedup: two budgets producing the
     // identical decomposition is the *strongest* agreement signal, and
     // collapsing them first would hide it.
+    let threshold = consensus_threshold(manifold);
     let consensus = if candidates.len() >= 2 {
         let sim = plan_similarity(&candidates[0].steps, &candidates[1].steps);
-        (sim >= CONSENSUS_THRESHOLD).then_some(sim)
+        (sim >= threshold).then_some(sim)
     } else {
         None
     };
@@ -278,6 +432,7 @@ pub fn deliberate(
         candidates,
         consensus_required: consensus_required(manifold),
         consensus,
+        consensus_threshold: threshold,
     }
 }
 
@@ -285,6 +440,18 @@ pub fn deliberate(
 /// consensus demand, or the top candidates actually agree.
 pub fn approved(d: &Deliberation) -> bool {
     !d.consensus_required || d.consensus.is_some()
+}
+
+/// Decomposition strategy for a given step budget — candidates should
+/// disagree about *approach*, not only length. Tight budgets get a
+/// minimal-viable-sequence hint; loose ones get explicit verification.
+/// Pure function so prompt construction stays testable.
+pub fn style_hint(budget: u32) -> &'static str {
+    match budget {
+        0..=2 => " Keep the sequence minimal — fewest reliable steps.",
+        5..=8 => " Include an explicit verification step after each mutation.",
+        _ => "",
+    }
 }
 
 /// Step budgets that produce genuinely different decompositions: the
@@ -416,6 +583,106 @@ mod tests {
     }
 
     #[test]
+    fn near_duplicate_steps_are_penalized() {
+        let (varied, _) = score_plan(
+            "scan the workspace",
+            &["scan files".into(), "fix findings".into()],
+            5,
+        );
+        let (repeated, r) = score_plan(
+            "scan the workspace",
+            &["scan files".into(), "scan files".into()],
+            5,
+        );
+        assert!(repeated < varied, "{r}");
+        assert!(r.contains("duplicate_steps=1"), "{r}");
+    }
+
+    #[test]
+    fn budgets_span_distinct_strategies() {
+        assert!(style_hint(1).contains("minimal"));
+        assert!(style_hint(2).contains("minimal"));
+        assert!(style_hint(4).is_empty());
+        assert!(style_hint(6).contains("verification"));
+        assert!(style_hint(8).contains("verification"));
+        // The common max_steps=4 case yields three budgets spanning
+        // concise, neutral, and verify — real approach diversity.
+        let styles: std::collections::BTreeSet<&str> = candidate_budgets(4)
+            .iter()
+            .map(|&b| style_hint(b))
+            .collect();
+        assert_eq!(styles.len(), 3, "{styles:?}");
+    }
+
+    #[test]
+    fn plan_similarity_is_order_aware() {
+        let forward = vec![
+            "read the config".to_string(),
+            "write the result".to_string(),
+        ];
+        let backward: Vec<String> = forward.iter().rev().cloned().collect();
+        // Same vocabulary, opposite order — not agreement.
+        let sim = plan_similarity(&forward, &backward);
+        assert!(sim < CONSENSUS_THRESHOLD, "reversed plan scored {sim}");
+        // Identical plans still agree fully.
+        assert_eq!(plan_similarity(&forward, &forward), 1.0);
+        // Same-order near-duplicate keeps high agreement.
+        let near = vec![
+            "read the config".to_string(),
+            "write the output".to_string(),
+        ];
+        assert!(plan_similarity(&forward, &near) >= CONSENSUS_THRESHOLD);
+    }
+
+    #[test]
+    fn steps_echoing_a_doomed_step_are_docked() {
+        let m = manifold_for("read the workspace files");
+        let history = HistorySignals {
+            failed_steps: vec!["blindly rewrite the config".into()],
+            ..Default::default()
+        };
+        let echoing = deliberate("read the workspace files", &m, &[4], &history, |_| {
+            vec!["list files".into(), "blindly rewrite the config".into()]
+        });
+        let clean = deliberate("read the workspace files", &m, &[4], &history, |_| {
+            vec!["list files".into(), "inspect each file".into()]
+        });
+        assert!(
+            echoing.candidates[0].score < clean.candidates[0].score,
+            "echo={} clean={}",
+            echoing.candidates[0].score,
+            clean.candidates[0].score
+        );
+        assert!(echoing.candidates[0]
+            .rationale
+            .contains("doomed_step_echoes=1"));
+    }
+
+    #[test]
+    fn steps_echoing_a_proven_step_earn_a_bonus() {
+        let m = manifold_for("read the workspace files");
+        let history = HistorySignals {
+            proven_steps: vec!["verify the config parses".into()],
+            ..Default::default()
+        };
+        let echoing = deliberate("read the workspace files", &m, &[4], &history, |_| {
+            vec!["list files".into(), "verify the config parses".into()]
+        });
+        let plain = deliberate("read the workspace files", &m, &[4], &history, |_| {
+            vec!["list files".into(), "inspect each file".into()]
+        });
+        assert!(
+            echoing.candidates[0].score > plain.candidates[0].score,
+            "echo={} plain={}",
+            echoing.candidates[0].score,
+            plain.candidates[0].score
+        );
+        assert!(echoing.candidates[0]
+            .rationale
+            .contains("proven_step_matches=1"));
+    }
+
+    #[test]
     fn mutating_goals_require_consensus_reads_do_not() {
         assert!(consensus_required(&manifold_for(
             "audit the substrate state"
@@ -459,6 +726,47 @@ mod tests {
     }
 
     #[test]
+    fn consensus_threshold_scales_with_risk() {
+        // Top-two similarity lands at 0.5 — above the Mutate bar (0.45)
+        // but below the High-risk bar (0.55).
+        let gen = |budget: u32| {
+            if budget == 4 {
+                vec!["download the package".into(), "verify the install".into()]
+            } else {
+                vec!["fetch the package".into(), "install the package".into()]
+            }
+        };
+
+        let high = manifold_for("exec command to install pkg");
+        let d_high = deliberate(
+            "exec command to install pkg",
+            &high,
+            &[4, 2],
+            &Default::default(),
+            gen,
+        );
+        assert_eq!(d_high.consensus_threshold, 0.55);
+        assert!(d_high.consensus.is_none());
+        assert!(!approved(&d_high));
+
+        let medium = manifold_for("audit the substrate state");
+        let d_med = deliberate(
+            "audit the substrate state",
+            &medium,
+            &[4, 2],
+            &Default::default(),
+            gen,
+        );
+        assert_eq!(d_med.consensus_threshold, 0.45);
+        assert_eq!(d_med.consensus, Some(0.5));
+        assert!(approved(&d_med));
+
+        let read = manifold_for("read Cargo.toml");
+        let d_read = deliberate("read Cargo.toml", &read, &[4, 2], &Default::default(), gen);
+        assert_eq!(d_read.consensus_threshold, 0.35);
+    }
+
+    #[test]
     fn failed_history_tools_penalize_but_do_not_veto() {
         let failed: std::collections::BTreeSet<String> =
             ["broken_tool".to_string()].into_iter().collect();
@@ -472,6 +780,29 @@ mod tests {
         assert!(tainted < clean, "{r}");
         assert!(tainted > 0.0);
         assert!(r.contains("failed_history_tools=1"), "{r}");
+    }
+
+    #[test]
+    fn whole_plan_shape_provenance_scored() {
+        // Identical candidate scored against two histories: replaying a
+        // failed decomposition docks it; replaying a proven one boosts it.
+        let plan = || vec!["scan the repo".to_string(), "write the patch".to_string()];
+        let m = manifold_for("read Cargo.toml");
+        let gen = |_| plan();
+        let failed_hist = HistorySignals {
+            failed_plans: vec![plan()],
+            ..Default::default()
+        };
+        let proven_hist = HistorySignals {
+            proven_plans: vec![plan()],
+            ..Default::default()
+        };
+        let d_failed = deliberate("g", &m, &[4], &failed_hist, gen);
+        let d_proven = deliberate("g", &m, &[4], &proven_hist, gen);
+        let (f, p) = (&d_failed.candidates[0], &d_proven.candidates[0]);
+        assert!(f.rationale.contains("failed_plan_shape"), "{}", f.rationale);
+        assert!(p.rationale.contains("proven_plan_shape"), "{}", p.rationale);
+        assert!(p.score > f.score, "{} vs {}", p.score, f.score);
     }
 
     #[test]
