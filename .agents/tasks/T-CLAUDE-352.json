@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-352",
+  "title": "Park the primary checkout ON main when main is free (detach only as a fallback)",
+  "goal": "park-primary.sh always detached the primary checkout because main was held by the old susi-main-integration worktree; that worktree is gone (main is PR-only now) and a human running 'git switch main' hit 'main is already used by worktree'. When no other worktree holds main, switch the primary checkout to main and fast-forward it to origin/main (refuse if main has local commits or work would be lost); detach at origin/main only when another worktree holds main. It must be a no-op when already on main at origin/main, so the next susi-worktree.sh never undoes a human's choice.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "park_primary",
+      "main_"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790719660
+}
