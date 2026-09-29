@@ -31,10 +31,16 @@ pub use susi_error;
 pub mod cloud_env;
 pub mod cluster_key;
 mod config;
+pub mod explain;
 pub mod extensions;
 pub mod file_lock;
 mod json_util;
+pub mod key_scope;
+pub mod rekey_schedule;
+pub mod selfheal;
+pub mod state_migration;
 mod types;
+pub mod validate;
 pub mod versioned_store;
 
 /// IPC client for the standalone `susi-config` service. Only the global
@@ -104,18 +110,30 @@ mod service {
 
 pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
 pub use config::{redact_credentials, SusiConfig};
+pub use explain::{explain_key, explain_key_global, ConfigLayer, ConfigOrigin, ExplainedSetting};
 pub use json_util::{
     atomic_replace_file, atomic_write_bytes, atomic_write_json_pretty, clear_json_override,
     confined_workspace_join, create_private_dir, install_private_file, load_or_create_secret,
     merge_missing_json_defaults, merge_missing_registry_defaults, remove_file_if_present,
     write_json_override, DynamicRegistry, DynamicValue, ModelTier, ProviderType, StringRegistry,
 };
+pub use key_scope::{resolve_key_ref, KeyRef, KeyScope, ScopedSecret};
+pub use rekey_schedule::{evaluate_rekey_policy, RekeyPolicy, RekeyReason, RekeyScheduleDecision};
+pub use selfheal::{load_or_selfheal, SelfHealReport};
+pub use state_migration::{migrate_state_dir, MigrationReport};
 pub use types::*;
+pub use validate::{
+    apply_fixes, validate_dir, validate_settings, ConfigFix, ConfigIssue, ConfigIssueKind,
+    ConfigValidationReport,
+};
 pub use versioned_store::VersionedJsonStore;
 
 #[cfg(test)]
 #[path = "tests/cluster_key.rs"]
 mod cluster_key_tests;
+#[cfg(test)]
+#[path = "tests/config_validate.rs"]
+mod config_validate_tests;
 #[cfg(test)]
 #[path = "tests/extensions.rs"]
 mod extensions_tests;
@@ -123,8 +141,23 @@ mod extensions_tests;
 #[path = "tests/json_util.rs"]
 mod json_util_tests;
 #[cfg(test)]
+#[path = "tests/key_scope.rs"]
+mod key_scope_tests;
+#[cfg(test)]
+#[path = "tests/rekey_schedule.rs"]
+mod rekey_schedule_tests;
+#[cfg(test)]
+#[path = "tests/selfheal.rs"]
+mod selfheal_tests;
+#[cfg(test)]
+#[path = "tests/state_migration.rs"]
+mod state_migration_tests;
+#[cfg(test)]
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;
+#[cfg(test)]
+#[path = "tests/zc_config_explain.rs"]
+mod zc_config_explain_tests;
 
 /// Serializes tests that mutate or read process-global environment-derived
 /// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock

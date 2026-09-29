@@ -13,7 +13,12 @@
       "rate_limit_scheduler"
     ]
   },
+  "roadmap": "VC-201-053",
   "created_by": "CLAUDE",
   "created_unix": 1790698459,
-  "roadmap": "VC-201-053"
+  "closed": {
+    "at_unix": 1790719231,
+    "commit": "aec08055a6f9e4579daa5a540b39861518624c54",
+    "by": "CURSOR"
+  }
 }

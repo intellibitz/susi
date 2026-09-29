@@ -13,7 +13,12 @@
       "rekey_schedule"
     ]
   },
+  "roadmap": "VC-201-077",
   "created_by": "CLAUDE",
   "created_unix": 1790698460,
-  "roadmap": "VC-201-077"
+  "closed": {
+    "at_unix": 1790718007,
+    "commit": "f2b54d3dae2afad59b6fb8e68518c895aeb4709b",
+    "by": "CURSOR"
+  }
 }
