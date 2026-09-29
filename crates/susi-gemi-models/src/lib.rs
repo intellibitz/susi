@@ -36,6 +36,7 @@ pub use susi_vendor_models::{
 };
 pub mod coding_models;
 pub(crate) mod download;
+pub mod gpu_telemetry;
 pub mod hardware;
 pub mod intent;
 mod lifecycle;
