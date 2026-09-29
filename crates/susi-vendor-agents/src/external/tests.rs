@@ -340,3 +340,17 @@ fn python_framework_runner_invokes_absolute_script() {
         .contains("FRAMEWORK:hello-engine"));
     std::env::remove_var("SUSI_LANGGRAPH_CONFIG");
 }
+
+#[cfg(unix)]
+#[test]
+fn failed_task_reports_stderr_cause_redacted() {
+    let fx = Fixture::new();
+    let adapter = fx.command("echo 'Workspace Trust Required' >&2; echo more >&2; echo 'token sk-abcdef1234567890abcd' >&2; exit 3");
+    let run = fx.manager.prepare_adapter("cursor", "x", adapter).unwrap();
+    let done = fx.manager.execute(&run.id).unwrap();
+    assert_eq!(done.status, RunStatus::Failed);
+    assert_eq!(done.exit_code, Some(3));
+    let err = done.error.unwrap();
+    assert!(err.starts_with("Workspace Trust Required"), "{err}");
+    assert!(!err.contains("abcdef1234567890"), "{err}");
+}
