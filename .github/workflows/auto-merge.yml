@@ -1,0 +1,84 @@
+name: Auto PR + Merge
+
+# Mandate 49 automation — nobody opens, watches or merges a PR by hand.
+#
+#   push to any branch      -> open a PR into main if none exists
+#   Test workflow succeeds  -> merge that PR (merge commit, repo convention),
+#                              then dispatch the full Test suite on main
+#
+# Opt out per branch with a `wip/` or `nopr/` prefix (no PR, never merged).
+# A failing gate leaves the PR open; the next push re-runs it. Merge
+# conflicts leave the PR open with a comment — resolve by merging
+# origin/main into the branch and pushing (never force-push main).
+#
+# The workflow_run job only fires from the default branch's copy of this
+# file, so it goes live once this file is on main.
+#
+# Why the explicit dispatch: pushes made with GITHUB_TOKEN never trigger
+# other workflows, so the merge onto main would otherwise skip the full
+# test shards (branch pushes only run the fast compile check).
+
+on:
+  push:
+    branches-ignore: [main, 'wip/**', 'nopr/**', 'dependabot/**', 'gh-pages']
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: auto-merge-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  open-pr:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Open PR if none exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          existing=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq length)
+          if [ "$existing" != "0" ]; then echo "PR already open for $BRANCH"; exit 0; fi
+          ahead=$(git rev-list --count "origin/main..HEAD")
+          if [ "$ahead" = "0" ]; then echo "nothing ahead of main"; exit 0; fi
+          gh pr create --base main --head "$BRANCH" \
+            --title "$(git log -1 --format=%s)" \
+            --body "Automated PR for \`$BRANCH\` (Mandate 49). Merges itself once the Test gate passes."
+
+  merge-pr:
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch != 'main'
+      && !startsWith(github.event.workflow_run.head_branch, 'wip/')
+      && !startsWith(github.event.workflow_run.head_branch, 'nopr/')
+      && !startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge the PR for the tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --base main --state open --json number,headRefOid \
+                 --jq ".[] | select(.headRefOid==\"$SHA\") | .number" | head -1)
+          if [ -z "$pr" ]; then echo "no open PR whose head is $SHA (stale run or none)"; exit 0; fi
+          if gh pr merge "$pr" --repo "$REPO" --merge --match-head-commit "$SHA"; then
+            gh workflow run test.yml --repo "$REPO" --ref main
+          else
+            gh pr comment "$pr" --repo "$REPO" --body "Auto-merge could not complete (conflict with main?). Merge origin/main into the branch, resolve, and push; this re-runs automatically."
+            exit 1
+          fi

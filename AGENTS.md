@@ -98,6 +98,11 @@ this for the panic-path lints.
   client-side: `--no-verify` bypasses them, so the server-side backstop is
   GitHub branch protection on `main` (no force-push, no deletion, required
   status checks) — a repo setting the owner applies.
+  GitHub side is automated by `.github/workflows/auto-merge.yml`: every
+  pushed branch gets a PR opened, and it merges itself when the Test gate
+  passes, after which the full suite is dispatched on `main`. Branches
+  prefixed `wip/` or `nopr/` opt out. Repo settings it needs are applied
+  idempotently by `scripts/github-setup.sh`.
 
 ## Test policy
 
