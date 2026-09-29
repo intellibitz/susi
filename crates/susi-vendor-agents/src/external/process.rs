@@ -23,7 +23,7 @@ fn resolve_model_placeholder() -> String {
     "claude-sonnet-4-20250514".into()
 }
 
-struct OwnedChild(Child);
+pub(super) struct OwnedChild(Child);
 impl Drop for OwnedChild {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
@@ -38,6 +38,28 @@ impl Drop for OwnedChild {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
+}
+
+impl OwnedChild {
+    pub(super) fn id(&self) -> u32 {
+        self.0.id()
+    }
+    pub(super) fn take_stdin(&mut self) -> Option<std::process::ChildStdin> {
+        self.0.stdin.take()
+    }
+    pub(super) fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
+        self.0.stdout.take()
+    }
+}
+
+/// Spawn in its own process group; dropping the handle kills and reaps it.
+pub(super) fn spawn_owned(cmd: &mut Command) -> Result<OwnedChild> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    Ok(OwnedChild(cmd.spawn().context("start agent process")?))
 }
 
 #[allow(clippy::wildcard_enum_match_arm)] // only process adapters reach here; every other Adapter kind bails
@@ -97,6 +119,8 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
     // OpenHands headless banners pollute JSONL capture; suppress when we can.
     if matches!(&run.adapter, Adapter::Command { program, .. } if program == "openhands") {
         cmd.env("OPENHANDS_SUPPRESS_BANNER", "1");
+        // BYOK: translate the registered provider key into LLM_API_KEY/BASE_URL.
+        cmd.envs(super::byok::openhands_env(&super::byok::system_lookup));
     }
     // Gemini CLI: isolate from IDE gateway settings when API key auth is available.
     if matches!(&run.adapter, Adapter::Command { program, .. } if program == "gemini") {

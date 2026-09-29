@@ -74,6 +74,18 @@ pub enum Adapter {
     Manus {
         api_key_env: String,
     },
+    /// Remote A2A-compliant agent, discovered from `<url>/.well-known/agent-card.json`.
+    A2a {
+        url: String,
+        /// Env var holding a bearer token, when the remote agent requires one.
+        #[serde(default)]
+        token_env: Option<String>,
+    },
+    /// Agent Client Protocol agent spoken to over stdio (JSON-RPC).
+    Acp {
+        program: String,
+        args: Vec<String>,
+    },
 }
 
 fn default_devin_org_id_env() -> String {
@@ -191,6 +203,26 @@ impl Adapter {
                     );
                 }
             }
+            Self::A2a { url, token_env } => {
+                if !(url.starts_with("https://") || url.starts_with("http://"))
+                    || url.contains('\0')
+                {
+                    bail!("A2A url must be an http(s) URL");
+                }
+                if token_env.as_deref().is_some_and(|e| {
+                    e.is_empty() || !e.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                }) {
+                    bail!("token_env must name an environment variable, not contain a credential");
+                }
+            }
+            Self::Acp { program, args } => {
+                if program.trim().is_empty()
+                    || program.contains('\0')
+                    || args.iter().any(|a| a.contains('\0'))
+                {
+                    bail!("ACP command and arguments must be nonempty executable / NUL-free argv");
+                }
+            }
             Self::Qwen { .. } => {}
         }
         Ok(())
@@ -204,6 +236,28 @@ impl Adapter {
                 resolve_program(program)
                     .with_context(|| format!("missing executable: {program}"))?;
                 Ok("executable found; vendor login/permissions must be configured".into())
+            }
+            Self::A2a { url, token_env } => {
+                if let Some(env) = token_env {
+                    if crate::susi_config::env_or_cloud_env(env)
+                        .unwrap_or_default()
+                        .trim()
+                        .is_empty()
+                    {
+                        bail!("set {env} for the remote A2A agent's bearer token");
+                    }
+                }
+                Ok(format!(
+                    "A2A endpoint {url}; agent card is fetched at execution"
+                ))
+            }
+            Self::Acp { program, .. } => {
+                resolve_program(program)
+                    .with_context(|| format!("missing ACP executable: {program}"))?;
+                Ok(
+                    "ACP executable found; agent auth is checked by the initialize handshake"
+                        .into(),
+                )
             }
             Self::Qwen { python } => {
                 resolve_program(python).context("Python executable missing")?;
@@ -277,7 +331,10 @@ impl Adapter {
     }
 
     pub fn is_cloud(&self) -> bool {
-        matches!(self, Self::Devin { .. } | Self::Manus { .. })
+        matches!(
+            self,
+            Self::Devin { .. } | Self::Manus { .. } | Self::A2a { .. }
+        )
     }
 }
 
