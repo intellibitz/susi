@@ -181,21 +181,70 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "{err}");
 
-    // 5. A closed task is fine even though its claim is gone.
+    // 5. Work then close on the same branch passes: the task was open at the
+    //    work commit and the branch closed it (the claim is released on close).
+    let before = e.head();
+    e.commit("e", "fix: e", Some("T-TEST-1"));
     let (code, _, err) = e.susi(&["tasks", "close", "T-TEST-1"]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "close first task"]); // task-only: exempt
-    let before = e.head();
-    e.commit("e", "fix: e", Some("T-TEST-1"));
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "{err}");
+
+    // 5b. Once closed, a task cannot be cited again (unrelated work must not
+    //     ride on it).
+    let before = e.head();
+    e.commit("e2", "fix: sneaky", Some("T-TEST-1"));
+    let (code, err) = e.check(&before);
+    assert_eq!(code, 1);
+    assert!(err.contains("already closed"), "{err}");
 
     // 6. Release commits need no task.
     let before = e.head();
     e.commit("f", "chore: release v9.9.9", None);
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "{err}");
+}
+
+#[test]
+fn a_closed_task_cannot_be_cited_again() {
+    let e = Env::new("closed");
+    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh"),
+        e.repo.join("scripts/check-workflow-compliance.sh"),
+    )
+    .unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "install rule",
+            "-m",
+            "Task: T-TEST-1",
+        ],
+    );
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    e.commit("work", "feat: work", Some("T-TEST-1"));
+    let (code, _, err) = e.susi(&["tasks", "close", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "close"]);
+    let (code, err) = e.check("origin/main");
+    assert_eq!(code, 0, "work then close on one branch is compliant: {err}");
+    // A later commit citing the now-closed task is refused.
+    let before = e.head();
+    e.commit("more", "feat: more", Some("T-TEST-1"));
+    let (code, err) = e.check(&before);
+    assert_eq!(code, 1);
+    assert!(err.contains("already closed"), "{err}");
 }
 
 #[test]

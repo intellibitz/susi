@@ -5,9 +5,10 @@
 #
 # Each non-merge commit in <base>..<head> must carry a trailer
 #     Task: T-<AGENT>-<n>
-# naming a task that, at <head>, is either closed (.agents/tasks/done/<id>.json)
-# or open AND held by a live claim (refs/claims/<id> on <remote>, lease not
-# expired). Exempt: merge commits, `chore: release vX.Y.Z`, github-actions[bot],
+# naming a task that was OPEN in that commit's own tree and either is held by a
+# live claim (refs/claims/<id> on <remote>, lease not expired) or was closed by
+# the same branch (.agents/tasks/done/<id>.json at <head>). A commit citing a
+# task already closed at that commit is refused. Exempt: merge commits, `chore: release vX.Y.Z`, github-actions[bot],
 # and commits that touch only .agents/tasks/ (creating/closing a task).
 #
 # Runs locally from .githooks/pre-push and server-side in CI ("Workflow
@@ -64,14 +65,21 @@ while read -r c; do
         err "commit $short \"$subject\" has no 'Task: T-<AGENT>-<n>' trailer (Mandate 50: work comes from the queue — susi tasks add/claim)"
         continue
     fi
-    if git cat-file -e "$head:.agents/tasks/done/$task.json" 2>/dev/null; then
-        continue
-    elif git cat-file -e "$head:.agents/tasks/$task.json" 2>/dev/null; then
-        case "$(claim_state "$task")" in
-        live) ;;
-        expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task)" ;;
-        *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task first (Mandate 50)" ;;
-        esac
+    # Judge the commit against its own tree: it must be work on a task that
+    # was still open there. Citing an already-closed task would let unrelated
+    # work ride on it.
+    if git cat-file -e "$c:.agents/tasks/done/$task.json" 2>/dev/null; then
+        err "commit $short cites $task, which was already closed at that commit — add a new task (susi tasks add) instead"
+    elif git cat-file -e "$c:.agents/tasks/$task.json" 2>/dev/null; then
+        if git cat-file -e "$head:.agents/tasks/done/$task.json" 2>/dev/null; then
+            : # this branch went on to close it: the claim was released on close
+        else
+            case "$(claim_state "$task")" in
+            live) ;;
+            expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task)" ;;
+            *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task first (Mandate 50)" ;;
+            esac
+        fi
     else
         err "commit $short names $task, which is not a task in this branch (add or merge the task file first)"
     fi
