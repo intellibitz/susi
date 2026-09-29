@@ -352,3 +352,7 @@ One line per landed step, newest last.
     similar verified successes) is pushed into the candidate budgets,
     so the search explores the plan shape that actually worked for
     this intent class, not only the fixed [4,2] grid.
+40. Route rollup in history_brief: when similar missions ran on more
+    than one route, the header now tallies verified/total per route —
+    the planner sees which execution route actually delivered instead
+    of tallying lines itself.

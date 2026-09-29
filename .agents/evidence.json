@@ -4214,6 +4214,16 @@
     "label": "Plan-length prior",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-052",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 34 \u2014 route rollup in history_brief. Similar missions' per-line 'via route' is now aggregated into a header tally '(routes verified: cloud 0/1, swarm 1/1)' when multiple routes appear, so the planner can pick the route that actually delivered for the intent class.",
+   "proof": "brief_rolls_up_per_route_outcomes: mixed-route history shows the tally; single-route history stays terse. susi-core 229 pass; clippy clean.",
+   "anchor": {
+    "label": "Route rollup",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

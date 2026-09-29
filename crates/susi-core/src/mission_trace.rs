@@ -701,7 +701,19 @@ pub fn proven_plan_brief(goal: &str, traces: &[MissionTrace]) -> String {
 /// One-line history brief for prompt injection: what similar missions did
 /// and how they ended. Empty when nothing similar exists.
 pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
-    let lines: Vec<String> = similar(goal, traces, limit)
+    let near = similar(goal, traces, limit);
+    // Route rollup: which execution routes actually delivered for this
+    // intent class — the planner shouldn't have to tally every line.
+    let mut route_tally: std::collections::BTreeMap<String, (u32, u32)> =
+        std::collections::BTreeMap::new();
+    for t in &near {
+        let entry = route_tally.entry(t.route.clone()).or_default();
+        entry.1 += 1;
+        if t.verified() {
+            entry.0 += 1;
+        }
+    }
+    let lines: Vec<String> = near
         .iter()
         .map(|t| {
             let step_note = t
@@ -740,8 +752,18 @@ pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> Strin
     if lines.is_empty() {
         String::new()
     } else {
+        let route_note = if route_tally.len() > 1 {
+            let rollup = route_tally
+                .iter()
+                .map(|(r, (ok, total))| format!("{r} {ok}/{total}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(" (routes verified: {rollup})")
+        } else {
+            String::new()
+        };
         format!(
-            "Prior outcomes for similar goals:\n{}\n\n",
+            "Prior outcomes for similar goals{route_note}:\n{}\n\n",
             lines.join("\n")
         )
     }
@@ -1004,6 +1026,26 @@ mod tests {
         let plain_brief = history_brief("deploy api service", &[plain], 8);
         assert!(!plain_brief.contains("governance-blocked"));
         assert!(!plain_brief.contains("cloud-attempt-failed"));
+    }
+
+    #[test]
+    fn brief_rolls_up_per_route_outcomes() {
+        // Two routes tried for the same intent class — the header tallies
+        // which one actually verified.
+        let mut ok = MissionTrace::new("a", "deploy api service", "COMPLETE", "swarm");
+        ok.evidence_entries = 1;
+        let bad = MissionTrace::new("b", "deploy api service", "FAILED", "cloud");
+        let brief = history_brief("deploy api service", &[ok, bad], 8);
+        assert!(
+            brief.contains("(routes verified: cloud 0/1, swarm 1/1)"),
+            "{brief}"
+        );
+
+        // A single route needs no rollup.
+        let mut solo = MissionTrace::new("c", "deploy api service", "COMPLETE", "swarm");
+        solo.evidence_entries = 1;
+        let solo_brief = history_brief("deploy api service", &[solo], 8);
+        assert!(!solo_brief.contains("routes verified"), "{solo_brief}");
     }
 
     #[test]
