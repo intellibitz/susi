@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-104",
+  "title": "End-to-end autonomous builder: pick task, delegate, verify, open PR",
+  "goal": "Susi claims an open task, delegates it to the best agent in a worktree (with the self-build brief), verifies with the acceptance check and gate, commits with the Task trailer and pushes so auto-merge opens the PR. Integration test autonomous_builder.rs with fake agents.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-72"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "autonomous_builder"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

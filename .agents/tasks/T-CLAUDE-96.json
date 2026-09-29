@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-96",
+  "title": "Optional PII redaction for cloud egress",
+  "goal": "Reversible PII redaction (emails, phones, names via patterns) for cloud-bound prompts with restore on the response. Tests pii_redaction_*.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-95"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "pii_redaction"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

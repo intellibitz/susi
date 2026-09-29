@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-65",
+  "title": "Chaos tests for leader election and partitions",
+  "goal": "Simulate partitions, delayed and duplicated messages against the election and quorum-commit code with a deterministic network model; assert no split-brain commit. Tests swarm_chaos_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_chaos"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

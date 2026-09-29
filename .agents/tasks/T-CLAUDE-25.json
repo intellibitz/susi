@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-25",
+  "title": "Warm-model preload scheduler from usage patterns",
+  "goal": "Learn which local models are used at which times/classes and preload/keep-alive them (Ollama keep_alive, LM Studio load) ahead of need, unloading idle ones under memory pressure. Tests model_preload_* with a fake clock.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "model_preload"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

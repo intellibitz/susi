@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-29",
+  "title": "AWS Bedrock provider with SigV4",
+  "goal": "Add Bedrock (Converse API) as a provider with SigV4 signing implemented without new third-party crates in susi-* (facade rule), region config and model discovery. Tests bedrock_provider_* against recorded signatures.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "bedrock_provider"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

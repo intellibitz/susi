@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-46",
+  "title": "Regional endpoint latency probing and failover",
+  "goal": "Probe regional endpoints for vendors that offer them, prefer the fastest healthy region and fail over on regional outages. Tests region_failover_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "region_failover"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

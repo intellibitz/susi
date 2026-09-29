@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-84",
+  "title": "susi service install for systemd, launchd and Windows",
+  "goal": "`susi service install/uninstall/status` writing user-level units for each platform without root, idempotent and tested by rendering unit files. Integration test service_install.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "service_install"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

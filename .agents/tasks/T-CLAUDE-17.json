@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-17",
+  "title": "Offline GGUF metadata inspector",
+  "goal": "Parse GGUF headers without loading weights: architecture, parameter count, quantisation, context length, layer count, chat template. Reused by the launcher and quant recommender. Tests gguf_inspector_* against small crafted headers.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "gguf_inspector"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-37",
+  "title": "Rate-limit-aware scheduler using response headers",
+  "goal": "Parse Retry-After and x-ratelimit-* headers per vendor into a token bucket that delays or reroutes requests before a 429 happens. Tests rate_limit_scheduler_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "rate_limit_scheduler"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

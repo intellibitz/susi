@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-18",
+  "title": "Recommend the best quantisation that fits this host",
+  "goal": "Given a model family and the HardwareProfile (VRAM, free RAM, disk), choose the highest-quality quantisation that fits with headroom for KV cache at a target context, and say why. Tests quant_recommender_* over a table of hardware profiles.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-17"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "quant_recommender"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

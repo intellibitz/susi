@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-28",
+  "title": "Signed model-catalog updates",
+  "goal": "Fetch catalog updates (models, quants, cost tiers) as a signed bundle and verify the signature before applying; reject downgrades and tampering. Tests signed_catalog_updates_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "signed_catalog_updates"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

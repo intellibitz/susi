@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-64",
+  "title": "Peer capability marketplace with cost and latency",
+  "goal": "Peers advertise capabilities with measured cost/latency; recruitment weighs them alongside trust, so cheap fast peers win routine work. Tests capability_market_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "capability_market"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

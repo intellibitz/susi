@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-99",
+  "title": "Verified fully-offline operation",
+  "goal": "A test harness that blocks network egress and proves susi still routes to local engines, runs tasks and reports status; documents what degrades. Integration test airgap_mode.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "airgap_mode"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

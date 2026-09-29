@@ -441,7 +441,14 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     let out = Command::new(&task.accept.cmd[0])
         .args(&task.accept.cmd[1..])
         .current_dir(ws)
-        .output()?;
+        .output()
+        .map_err(|e| {
+            // A check that does not exist yet is "not done", not an I/O crash.
+            EaiError::process(format!(
+                "{id} is not done: acceptance command `{}` could not run ({e})",
+                task.accept.cmd.join(" ")
+            ))
+        })?;
     // Show the check's own output: the closer should see what proved it.
     eprint!("{}", String::from_utf8_lossy(&out.stderr));
     print!("{}", String::from_utf8_lossy(&out.stdout));
@@ -556,6 +563,28 @@ mod tests {
 
     fn true_cmd() -> Vec<String> {
         vec!["cargo".into(), "--version".into()]
+    }
+
+    #[test]
+    fn missing_accept_command_is_reported_as_not_done() {
+        let (r, a, _) = Repos::new("missing");
+        let t = addt!(
+            &a,
+            "claude",
+            "needs a script",
+            "",
+            "s",
+            &[],
+            vec!["scripts/does-not-exist-yet.sh".to_string()]
+        )
+        .unwrap();
+        claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
+        let err = close(&a, &t.id, "claude").unwrap_err().to_string();
+        assert!(err.contains("is not done"), "{err}");
+        assert!(err.contains("could not run"), "{err}");
+        assert!(err.contains("scripts/does-not-exist-yet.sh"), "{err}");
+        assert_eq!(list_open(&a).len(), 1);
+        drop(r);
     }
 
     #[test]

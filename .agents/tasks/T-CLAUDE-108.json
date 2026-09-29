@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-108",
+  "title": "Formal model of the claim protocol and quarantine ladder",
+  "goal": "Model-check (exhaustive small-state search in tests) that two claimants never both win, leases expire monotonically, and the quarantine ladder never exceeds its cap or skips a recovery probe. Tests formal_invariants_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "formal_invariants"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

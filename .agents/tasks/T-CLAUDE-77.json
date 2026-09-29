@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-77",
+  "title": "Gateway API keys with per-key quotas",
+  "goal": "Issue revocable API keys for the OpenAI-compatible gateway with per-key rate limits and token/spend budgets and audit records. Tests gateway_keys_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-server",
+      "gateway_keys"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

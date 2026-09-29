@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-27",
+  "title": "Hugging Face token and gated-model handling",
+  "goal": "Use HF_TOKEN from cloud.env for gated repos, surface licence-acceptance errors clearly, and never log the token. Tests hf_gated_models_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "hf_gated_models"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}
