@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-141",
+  "title": "Test resistance to tool-output prompt injection",
+  "goal": "Mark retrieved content and tool output as untrusted data and require policy checks for consequential actions; adversarial fixtures cannot turn embedded instructions into new permissions or secret disclosure. Delivers roadmap vector VC-201-074. Tests must be named vc_201_074_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-117",
+    "T-CLAUDE-140",
+    "T-CLAUDE-95"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_074"
+    ]
+  },
+  "roadmap": "VC-201-074",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702518
+}

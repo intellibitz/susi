@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-130",
+  "title": "Implement joint-consensus membership transitions",
+  "goal": "Extend existing member signatures and endorsements with serialized old/new electorate transitions; overlapping add/remove operations cannot commit disjoint active rosters under the documented fault model. Delivers roadmap vector VC-201-032. Tests must be named vc_201_032_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-129"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_032"
+    ]
+  },
+  "roadmap": "VC-201-032",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702518
+}

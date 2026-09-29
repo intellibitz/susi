@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-140",
+  "title": "Unify capability-policy decision semantics",
+  "goal": "Map existing MacPolicy and daemon CapabilityPolicy decisions into one authoritative evaluation contract while preserving layer responsibilities; conflicting rules deny consistently across tool, peer, and model entry points. Delivers roadmap vector VC-201-071. Tests must be named vc_201_071_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-136",
+    "T-CLAUDE-87"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_071"
+    ]
+  },
+  "roadmap": "VC-201-071",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702518
+}

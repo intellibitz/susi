@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-118",
+  "title": "Verify synthesized reflex intent correctness",
+  "goal": "Extend the existing compile-and-probe path with independent intent fixtures, malformed-input checks, and output assertions before registration; reject an executable signature-echo or semantically wrong reflex. Delivers roadmap vector VC-201-007. Tests must be named vc_201_007_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-116",
+    "T-CLAUDE-117"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_007"
+    ]
+  },
+  "roadmap": "VC-201-007",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}

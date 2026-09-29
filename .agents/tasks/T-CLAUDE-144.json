@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-144",
+  "title": "Define authoritative memory provenance and retention",
+  "goal": "Attach workspace, source receipt, source revision, data classification, expiry, and owner to durable memory; reads reject expired or unauthorized records and distinguish evidence from model-generated assertions. Delivers roadmap vector VC-201-081. Tests must be named vc_201_081_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-136",
+    "T-CLAUDE-140"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_081"
+    ]
+  },
+  "roadmap": "VC-201-081",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702529
+}

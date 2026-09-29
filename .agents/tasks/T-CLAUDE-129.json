@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-129",
+  "title": "Model-check membership and term transitions",
+  "goal": "Build a deterministic model of the existing signed roster and commit rules with reordered messages, partitions, and restarts; preserve discovered counterexamples and document the exact safety properties the implementation satisfies. Delivers roadmap vector VC-201-031. Tests must be named vc_201_031_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_031"
+    ]
+  },
+  "roadmap": "VC-201-031",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}

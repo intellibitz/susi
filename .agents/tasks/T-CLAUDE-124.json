@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-124",
+  "title": "Persist executable mission DAG state",
+  "goal": "Persist task inputs, dependencies, outputs, and terminal states for supported mission types; restarting between dependency completion and dispatch resumes runnable work without treating unfinished nodes as complete. Delivers roadmap vector VC-201-021. Tests must be named vc_201_021_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_021"
+    ]
+  },
+  "roadmap": "VC-201-021",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}

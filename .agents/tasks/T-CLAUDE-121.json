@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-121",
+  "title": "Enforce cumulative RSI experiment budgets",
+  "goal": "Reserve and debit tokens, wall time, subprocesses, and cloud spend across retries and delegated descendants; exhausting a budget durably stops new work and cancels eligible children. Delivers roadmap vector VC-201-014. Tests must be named vc_201_014_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-119",
+    "T-CLAUDE-120"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_014"
+    ]
+  },
+  "roadmap": "VC-201-014",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}

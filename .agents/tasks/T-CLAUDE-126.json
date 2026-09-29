@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-126",
+  "title": "Classify and reconcile task side effects",
+  "goal": "Declare read-only, idempotent, reconcilable, and non-retryable tool actions; crash tests retry only supported actions and surface uncertain external effects for reconciliation. Delivers roadmap vector VC-201-023. Tests must be named vc_201_023_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-124",
+    "T-CLAUDE-125"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_023"
+    ]
+  },
+  "roadmap": "VC-201-023",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}

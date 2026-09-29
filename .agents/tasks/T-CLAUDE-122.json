@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-122",
+  "title": "Gate self-patches on the full repository checks",
+  "goal": "Run cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, and cargo test --workspace --locked against the candidate; missing, skipped, or failing checks prevent promotion readiness. Delivers roadmap vector VC-201-015. Tests must be named vc_201_015_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-116",
+    "T-CLAUDE-120"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_015"
+    ]
+  },
+  "roadmap": "VC-201-015",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}
