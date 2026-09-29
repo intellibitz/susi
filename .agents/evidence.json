@@ -4384,6 +4384,16 @@
    "milestone": "Mission synthesis can no longer be answered by a reflex. After planning (EV-CLAUDE-031 / Devin iter6) and DAG nodes (Devin) moved to the deep path, two in-mission calls still used the reflex-allowing stream: SusiMasterAgent's final-answer synthesis ('MISSION_GOAL: <goal> LOCAL_SWARM_CONTEXT: ... [INSTRUCTION]: Resolve this mission. Output finalized verified actions.') and SusiSupervisor's consensus synthesis. Measured with reflex_features against everyday trained intents: the final-answer prompt for 'check system status' with a short context scored 0.706 support, over SUPPORT_MIN 0.6 ('list files in src' 0.475, 'run the tests' 0.516). A trained Tier-0 could therefore answer an entire mission with 'ACTION: status', and Tier-1's 0.5B model could write the final answer. Now plane_bus::gemi::GemiEngine::generate_reasoning_stream_deep sends GEMI_INFER_STREAM with 'deep': true. The payload flag is additive; absent means false, so the old behaviour is kept. The GEMI handler routes it to runtime GemiEngine::generate_reasoning_stream_deep_meta, which is reason_internal with allow_reflex=false, the same branch generate_reasoning_deep uses. The master final answer and amas consensus call it. The e2e test additionally asserts that through the plane bus the ordinary stream serves the reflex for a trained prompt. An end-to-end assertion of the deep side was written and passed, but it cost ~60s of provider discovery under mock inference, so it was removed from the gate, and that side is not end-to-end tested. While editing that file a marker-replacement bug deleted the second integration test; it was restored verbatim from HEAD and both tests pass. Workspace clippy is clean.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "internal templated prompts on deep path",
+    "ref": "file://crates/susi-gemi/src/engines/runtime.rs"
+   },
+   "id": "EV-CLAUDE-051",
+   "milestone": "Reflex tiers now answer only direct user prompts. After EV-CLAUDE-031/050 and Devin's DAG change, seven more internal call sites still used the reflex-allowing GemiEngine::generate_reasoning with templated prompts expecting a specific output format: MissionPlanner::plan_mission (two sites, a comma-separated goal list), fleet's agent factory (a JSON AgentProfile, parsed with serde), LibraryScoutAgent's keyword extraction ('Output ONLY the keyword'; an 'ACTION: status' reply would become the crate search term) and crate recommendation, the native agents' reasoning fallback, and reflex_synth::model_reflex_source (a Rust program in a fenced block, for WASM reflex synthesis). A served Tier-0 'ACTION:' line or a Tier-1 0.5B answer is never the right output for any of them. All now call generate_reasoning_deep (allow_reflex=false). Remaining reflex-allowing entry points are the user-facing ones: GEMI_INFER_GENERATE, GEMI_INFER_STREAM without the deep flag (chat), and the standalone gemi server. Workspace clippy is clean; full gate on landing.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

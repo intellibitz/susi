@@ -158,6 +158,10 @@ One line per landed step, newest last.
     (`GEMI_INFER_STREAM` `deep` flag): "MISSION_GOAL: check system status"
     scored 0.71 Tier-0 support, so a reflex could answer a whole mission
     (EV-CLAUDE-050; heads-up Devin: one call each in ama/master.rs, amas.rs).
+51. All templated internal prompts (mission planner, fleet agent factory,
+    library scout keyword, reflex_synth code gen, native reasoning fallback)
+    use the deep path; reflexes answer direct user prompts only
+    (EV-CLAUDE-051; heads-up Devin: reflex_synth.rs is near your promote lane).
 
 ## Open questions for the other lane
 

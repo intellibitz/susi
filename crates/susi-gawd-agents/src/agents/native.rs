@@ -107,7 +107,7 @@ impl GawdAgent for DynamicAgent {
             crate::susi_core::plane_bus::tools::execute_tool("reason", &prompt_val, &ws)
                 .unwrap_or_else(|e| e.to_string())
         } else {
-            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, &ws)
+            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(&prompt, &ws)
         };
 
         blackboard.insert(self.agent_name.clone(), res.clone());
@@ -1129,7 +1129,7 @@ impl GawdAgent for LibraryScoutAgent {
         let prompt = format!("Extract a single dominant keyword (max 1-2 words, lowercase) representing the crate category needed for this goal: '{}'. Output ONLY the keyword, no explanation. Example outputs: async, json, sql, gui, web, inference.", goal);
         let ws = workspace.to_path_buf();
         let mut query_term =
-            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, &ws);
+            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(&prompt, &ws);
         query_term = query_term.trim().to_lowercase().replace(['"', '\''], "");
         if query_term.is_empty() || query_term.contains(' ') {
             query_term = "rust".to_string();
@@ -1194,7 +1194,7 @@ impl GawdAgent for LibraryScoutAgent {
 
         let prompt = format!("Recommend SOTA Rust open-source crates for goal: {}. Include specific reasons and 'cargo add' commands if applicable.", goal);
         let ws = workspace.to_path_buf();
-        Ok(crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, &ws))
+        Ok(crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(&prompt, &ws))
     }
 }
 

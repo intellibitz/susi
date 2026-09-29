@@ -656,7 +656,9 @@ impl MissionPlanner {
     pub fn plan_mission(goal: &str, workspace: &Path) -> EaiResult<MissionPlan> {
         let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let plan_prompt = prompts.intent_planner_prompt().replace("{goal}", goal);
-        let plan_str = GemiEngine::generate_reasoning(&plan_prompt, workspace);
+        // Deep path (EV-CLAUDE-051): a templated planner prompt wants a
+        // goal list, never a reflex's bare `ACTION:` line.
+        let plan_str = GemiEngine::generate_reasoning_deep(&plan_prompt, workspace);
         let mut goals = Vec::new();
         if plan_str.contains(',') {
             for g in plan_str.split(',') {
@@ -674,7 +676,9 @@ impl MissionPlanner {
     pub fn partition_mission(goal: &str, workspace: &Path) -> EaiResult<MissionPlan> {
         let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let plan_prompt = prompts.mission_partition_prompt().replace("{goal}", goal);
-        let plan_str = GemiEngine::generate_reasoning(&plan_prompt, workspace);
+        // Deep path (EV-CLAUDE-051): a templated planner prompt wants a
+        // goal list, never a reflex's bare `ACTION:` line.
+        let plan_str = GemiEngine::generate_reasoning_deep(&plan_prompt, workspace);
         let mut goals = Vec::new();
         if plan_str.contains(',') {
             for g in plan_str.split(',') {

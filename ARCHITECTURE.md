@@ -527,7 +527,12 @@ stream through `generate_reasoning_stream_deep` (the `GEMI_INFER_STREAM`
 payload's `deep` flag, absent = reflexes allowed) — the "MISSION_GOAL:
 check system status …" synthesis prompt measured 0.71 Tier-0 support, so
 a trained reflex could have answered a whole mission `ACTION: status`
-(EV-CLAUDE-050).
+(EV-CLAUDE-050). Every internal caller that wraps a template and expects a
+specific format — the mission planner's goal list, the fleet's JSON agent
+profile, the library scout's one-word keyword, reflex synthesis's Rust
+program, native agents' reasoning fallback — uses the deep path too;
+reflex tiers answer only direct user prompts (chat, the generic generate
+topic) (EV-CLAUDE-051).
 
 The `deliberate` stage is plan search (`susi_gawd_swarm::deliberation`):
 `solve_autonomous` no longer commits to the first decomposition. Candidates

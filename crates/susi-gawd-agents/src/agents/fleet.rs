@@ -120,8 +120,9 @@ impl NeuralAgentFactory {
         let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let prompt = prompts.agent_factory_prompt().replace("{goal}", goal);
 
-        let res =
-            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
+        let res = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+            &prompt, workspace,
+        );
         let profile: AgentProfile = serde_json::from_str(&res).map_err(|e| {
             crate::susi_error::EaiError::protocol(format!(
                 "Neural Agent Synthesis Failed: {}. Raw: {}",

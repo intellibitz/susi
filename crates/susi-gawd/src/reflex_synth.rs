@@ -176,8 +176,9 @@ impl ReflexSynthesizer {
              (std::env::args().nth(1)) and print the result to stdout. \
              Reply with the program in a single ```rust code block."
         );
-        let reply =
-            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
+        let reply = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+            &prompt, workspace,
+        );
         let source = extract_rust_block(&reply)
             .ok_or_else(|| EaiError::inference("model reply contained no Rust code block"))?;
         if !susi_vendor_syn::is_valid_rust(&source) || !source.contains("fn main") {
