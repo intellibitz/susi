@@ -4484,6 +4484,16 @@
    "milestone": "Tier-0 serves new phrasings of known requests without opening the out-of-distribution gate. On the tool-heavy benchmark most misses were support-gate refusals of prompts the classifier got right, for example 'email this to carol' at cosine ~0.41 against 'email the report to alice'. predict_intent now computes the prediction before the support gate. Below SUPPORT_MIN (0.6), a prompt still passes when support >= LOW_SUPPORT_MIN, confidence > STRONG_CONFIDENCE, and the nearest trained example carries the predicted action. The veto, availability, compound, confidence and suppression checks all still apply. Threshold sweep, measured on the tool-heavy benchmark with both OOD lists and 9 adversarial prompts: 0.4/0.7 gave tool recall 47, 46, 46/60 with 1 wrong serve per run, but served 'write a poem about the ocean' in 1 of 3 inits. 0.45/0.8 (chosen) gave 44, 45, 46, 45, 44, 45/60 over 6 inits, 1-2 wrong serves, 0 TOOL_OOD, 0 foundational-OOD beyond prompts that a tool in the scenario legitimately covers (translate/weather/summarize), and 0 adversarial serves. Baseline before: 43/60. The full alpha suite, including the foundational benchmark (<= 1 OOD, no tools) and the veto/compound tests, passed 3 of 3 runs.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "VETO_WORDS control verbs",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-062",
+   "milestone": "The veto guard covers control verbs, not only delete-style ones. Probed on the tool-heavy benchmark model (EV-CLAUDE-059) with 18 destructive or control requests. Five were served as the opposite, read-style action: 'terminate the running processes' -> process_list, 'abort the build' -> version, 'halt the docker containers' -> docker_ps, 'disable git commits' -> git_commit, 'reformat the disk usage report' -> disk_usage. The original list (kill, truncate, cancel, uninstall, erase, wipe, purge, reset, ...) held for the other covered verbs. VETO_WORDS gains terminate, abort, halt, disable, deactivate, suspend, pause, revoke, reformat, unsubscribe, unlink, detach, deny, block, ban and clear. EV-CLAUDE-049's matching rules apply: 3-letter stems like 'ban' match exact words only, 4+-letter stems match inflections, 5+-letter words also match one edit away. After: all 18 refused. New test destructive_requests_are_never_served_on_a_tool_heavy_install (13 prompts, including all 5 former leaks). Recall is unchanged: the alpha suite, including the foundational and tool-heavy benchmarks, passed 3 of 3 runs (46 tests).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

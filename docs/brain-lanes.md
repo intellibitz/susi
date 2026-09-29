@@ -189,6 +189,9 @@ One line per landed step, newest last.
 61. Agreement at lower support: a new phrasing of a known request (nearest
     example's action == a >0.8-confident prediction) serves down to 0.45
     support; tool recall 43 -> 44-46/60, 0 OOD in 6 inits (EV-CLAUDE-061).
+62. Veto list extended with control verbs (terminate, abort, halt,
+    disable, revoke, reformat, ...): 5 destructive tool-install prompts were
+    served as read-style actions (EV-CLAUDE-062).
 
 ## Open questions for the other lane
 

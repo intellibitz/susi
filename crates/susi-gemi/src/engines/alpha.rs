@@ -979,6 +979,25 @@ const VETO_WORDS: &[&str] = &[
     "format",
     "reset",
     "overwrite",
+    // control / reversal verbs found leaking on the tool-heavy benchmark
+    // ("terminate the running processes" -> process_list, "abort the
+    // build" -> version, "disable git commits" -> git_commit, EV-CLAUDE-062)
+    "terminate",
+    "abort",
+    "halt",
+    "disable",
+    "deactivate",
+    "suspend",
+    "pause",
+    "revoke",
+    "reformat",
+    "unsubscribe",
+    "unlink",
+    "detach",
+    "deny",
+    "block",
+    "ban",
+    "clear",
 ];
 
 /// Whether a predicted `ACTION: <name>` names something that can run now:
@@ -3266,6 +3285,43 @@ mod tests {
         assert!(served - correct <= 3, "wrong serves {}", served - correct);
         assert!(foundational >= 24, "foundational recall {foundational}/27");
         assert!(ood.len() <= 1, "out-of-distribution served: {ood:?}");
+    }
+
+    /// Destructive or control requests on a tool-heavy install. Before the
+    /// extended veto list, five were served as the opposite read-style
+    /// action ("terminate the running processes" → process_list, "abort
+    /// the build" → version, "halt the docker containers" → docker_ps,
+    /// "disable git commits" → git_commit, "reformat the disk usage
+    /// report" → disk_usage).
+    #[test]
+    fn destructive_requests_are_never_served_on_a_tool_heavy_install() {
+        let caps = tool_capabilities();
+        let mut train: Vec<(&str, &str)> = BENCH_TRAIN.to_vec();
+        for (tool, _, phrasings, _) in TOOL_CORPUS {
+            train.extend(phrasings.iter().map(|p| (*p, *tool)));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, &train);
+        SusiAlphaModel::train_with(dir.path(), &staged, &caps).unwrap();
+        let model = SusiAlphaModel::load_with(dir.path(), &caps).unwrap();
+        for prompt in [
+            "terminate the running processes",
+            "abort the build",
+            "halt the docker containers",
+            "disable git commits",
+            "reformat the disk usage report",
+            "kill the running containers",
+            "truncate the logs",
+            "cancel the calendar event",
+            "uninstall npm packages",
+            "erase the commit history",
+            "wipe the environment variables",
+            "purge docker containers",
+            "reset the git repository",
+        ] {
+            assert!(model.predict_intent(prompt).is_err(), "{prompt} was served");
+        }
     }
 
     #[test]
