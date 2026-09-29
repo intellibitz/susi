@@ -643,7 +643,15 @@ store/record → write, inspect/diagnose → status, release → version,
 correct/patch → fix, … — leaving fleet's anchor list untouched: synonym
 paraphrases served 6/18 → 17/18, with benchmark precision and OOD refusal
 unchanged (the support gate still refuses a lone shared verb)
-(EV-CLAUDE-047).
+(EV-CLAUDE-047). At serve time a word the model never saw is spell-corrected
+against its own vocabulary (trained stems plus anchor/synonym stems) when
+exactly one candidate is an adjacent transposition away — or one edit
+away for words of 6+ letters, since one-letter edits often form another
+real word ("bread" → "read" made "how do i bake bread" look familiar in the
+first cut). The veto guard checks the original *and* corrected text and
+treats a word within one edit of a veto word as vetoed ("delte the config
+file" is refused). Typo'd paraphrases served 8/18 → 17/18 with the
+benchmark's precision and OOD refusal intact (EV-CLAUDE-048).
 
 Fits run to convergence, not a fixed step count: full-batch AdamW until
 mean loss ≤ 0.15 (correct class ≈ 0.86 probability) or 600 epochs, and the

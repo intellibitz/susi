@@ -148,6 +148,9 @@ One line per landed step, newest last.
 47. Reflex synonym table (display/view -> read, enumerate -> list, ...):
     synonym paraphrases served 6/18 -> 17/18, precision/OOD unchanged
     (EV-CLAUDE-047).
+48. Serve-time typo correction (transpositions; one-edit only for 6+
+    letters) + fuzzy vetoes: typo'd paraphrases 8/18 -> 17/18, OOD refusal
+    intact, "delte the config file" refused (EV-CLAUDE-048).
 
 ## Open questions for the other lane
 

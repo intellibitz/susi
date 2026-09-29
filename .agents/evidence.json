@@ -4354,6 +4354,16 @@
    "milestone": "Tier-0 understands common synonyms. Category bands knew only the fixed anchor list (shared with fleet recruitment), so everyday verbs such as display, view, print, open, enumerate, store, record, inspect, diagnose, release, correct, patch, explore, hunt, ponder and figure were opaque hashes. Measured on a model trained on BENCH_TRAIN: 6 of 18 synonym paraphrases of trained intents were served. Now synonym_category, a reflex-only table keyed by stem, maps 30 such verbs onto the existing 8 category bands and is consulted after the anchor and stem lookups. Fleet's anchor_category and semantic_centroid_projection are unchanged. Measured after: 17 of 18 served. The out-of-distribution guard is unaffected because a lone shared verb band is far below SUPPORT_MIN against any trained intent; the Tier-0 benchmark (precision, <= 1 OOD served) and all alpha tests passed 3 of 3 runs. New test synonyms_reach_their_reflex asserts >= 14/18 on BENCH_SYNONYMS.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "correct_typos + fuzzy veto",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-048",
+   "milestone": "Tier-0 tolerates typos without opening a hole. Measured on a model trained on BENCH_TRAIN: 8 of 18 typo'd paraphrases of trained intents were served ('chek system status', 'run the tsets', 'raed the config file', ...). SupportSet now carries a lexicon: every stem the model trained with, plus anchor and synonym stems, with ANCHOR_WORDS/SYNONYMS hoisted to module level. predict_intent spell-corrects the prompt first (correct_typos): an unknown word of 4+ letters is replaced by the unique lexicon stem an adjacent transposition away, or any single Damerau edit away for words of 6+ letters, and ambiguous candidates are not corrected. The first cut allowed any single edit for 4+ letters and broke the Tier-0 benchmark in 3 of 3 runs. 'how do i bake bread' ('bread' -> 'read') and 'book a flight to tokyo' ('book' -> 'look') were served, because one-letter edits often form real words. In the same cut 'delte the config file' was served, because the veto only matched exact stems. Final design: transpositions for 4+ letters, other edits only for 6+; the veto checks both the raw and the corrected prompt and treats a word within one edit of a 4+-letter veto stem as vetoed (fail-safe). Measured after, over 5 inits: typo recall 17/18 every time. Test typos_are_corrected_but_misspelled_vetoes_still_hold asserts >= 15/18, and that 'delte the config file', 'remvoe all files' and 'dont raed the file' are refused, with one_edit_apart/transposed spot checks. The Tier-0 benchmark (<= 1 OOD served, precision) and all 41 alpha tests passed 3 of 3 runs. Training features are unchanged.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
