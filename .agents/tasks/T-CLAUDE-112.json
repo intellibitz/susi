@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-112",
+  "title": "Link tasks to roadmap vectors and report roadmap coverage",
+  "goal": "Tasks and roadmap vectors (.agents/roadmap.json VC-*) are separate backlogs. Add an optional 'roadmap' field to tasks (validated against roadmap.json), '--roadmap VC-...' on 'susi tasks add', and 'susi tasks roadmap [--uncovered]' reporting per vector its priority, linked open/closed tasks and whether it is uncovered, with totals by priority. Tests roadmap_link_* (validation, coverage maths, unknown vector rejected).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "roadmap_link"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790702413
+}
