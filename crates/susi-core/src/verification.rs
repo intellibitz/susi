@@ -215,6 +215,14 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
             }
         }
         Contract::FileHash { path, sha256_hex } => {
+            // A claimed digest that is not 64 hex chars (truncated or garbled
+            // model output) cannot be checked; "hash differs" would blame the
+            // workspace for a malformed claim.
+            if sha256_hex.len() != 64 || !sha256_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                return ContractVerdict::Unverifiable {
+                    reason: format!("claimed sha256 '{sha256_hex}' is not a 64-char hex digest"),
+                };
+            }
             match confined_file(workspace, path).and_then(|p| stream_sha256(&p)) {
                 Some(actual) => {
                     if actual.eq_ignore_ascii_case(sha256_hex) {
@@ -684,6 +692,25 @@ mod tests {
             stream_sha256(&path).unwrap(),
             hex::encode(Sha256::digest(&body))
         );
+    }
+
+    #[test]
+    fn malformed_claimed_digests_are_unverifiable_not_violations() {
+        let dir = ws();
+        std::fs::write(dir.path().join("f.txt"), "x").unwrap();
+        for bad in ["abc123", "", &"z".repeat(64), &"a".repeat(65)] {
+            let v = verify_contract(
+                &Contract::FileHash {
+                    path: "f.txt".into(),
+                    sha256_hex: bad.to_string(),
+                },
+                dir.path(),
+            );
+            assert!(
+                matches!(v, ContractVerdict::Unverifiable { .. }),
+                "{bad:?}: {v:?}"
+            );
+        }
     }
 
     #[test]

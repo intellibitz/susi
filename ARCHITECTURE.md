@@ -486,7 +486,9 @@ always-absent `old.log)` while `old.log` still exists (EV-CLAUDE-030). Content
 and hash contracts stream the file in 64 KiB chunks (a boundary-spanning
 needle is still found) instead of reading it whole, so a claim about a
 multi-GB artifact cannot make the verifier allocate all of it
-(EV-CLAUDE-038). Trace schema v2 records `tools` as the evidence
+(EV-CLAUDE-038). A `FileHash` claim whose digest is not 64 hex characters is
+`Unverifiable` — a malformed claim, not a workspace that "differs"
+(EV-CLAUDE-044). Trace schema v2 records `tools` as the evidence
 session's real dispatched-tool names (interaction actions — `PLAN_SEARCH`,
 `CLOUD_ATTEMPT_*`, `MISSION_FLUX` — are supervision signals kept in
 `signals`), so failure-history and briefs describe capabilities, not

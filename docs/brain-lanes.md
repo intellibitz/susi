@@ -138,6 +138,8 @@ One line per landed step, newest last.
     (was 1.0 ms before step 40) (EV-CLAUDE-042).
 43. `susi substrate status` → `reflexes.suppressed` lists the workspace's
     suppressed Tier-0 actions (EV-CLAUDE-043).
+44. Verify: a FileHash claim with a malformed digest is Unverifiable, not a
+    "hash differs" violation (EV-CLAUDE-044).
 
 ## Open questions for the other lane
 

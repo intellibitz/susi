@@ -4314,6 +4314,16 @@
    "milestone": "Operators can see which Tier-0 reflexes are suppressed and why they stopped firing. EV-CLAUDE-041 suppresses per workspace any action served on >= 3 failed of its last 5 missions, and that was otherwise silent. SusiPulse::suppressed_reflexes(workspace) returns the sorted suppressed set (the same mtime-cached computation that serving uses), and susi substrate status shows it as reflexes.suppressed. Verified on a dev build (target/debug/susi, isolated HOME/XDG): a scratch workspace with three schema-v2 FAILED traces that served read_file printed [\"read_file\"]. A first attempt with hand-written schema-v1-shaped lines printed [] because read_all skips lines that don't match the schema, which is the intended tolerance. Test: suppressed_reflexes_are_listed_per_workspace (empty for a fresh workspace; three emitted FAILED traces serving status -> [\"status\"]). Pulse tests 8/8.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "FileHash digest validation",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   },
+   "id": "EV-CLAUDE-044",
+   "milestone": "A malformed hash claim is no longer reported as a workspace violation. Contract::FileHash compared the file's SHA-256 against any claimed string, so a truncated, empty, non-hex or over-long digest (typical of garbled model output) produced Violated 'hash differs from claimed digest', blaming the workspace for an uncheckable claim. The registry's rule is that claims it cannot check are Unverifiable, never a verdict either way. Now a claimed sha256_hex that is not exactly 64 ASCII hex characters returns Unverifiable before the file is read; well-formed digests behave as before (case-insensitive match). Test: malformed_claimed_digests_are_unverifiable_not_violations ('abc123', '', 64 x 'z', 65 x 'a'). Verification tests 12/12.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
