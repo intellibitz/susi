@@ -21,6 +21,13 @@ impl FileLock {
     /// ~3s of 10ms retries — the guarded sections are millisecond-scale,
     /// so a longer wait means a wedged holder, not contention.
     pub fn acquire(dir: &Path, name: &str) -> Option<Self> {
+        Self::acquire_within(dir, name, std::time::Duration::from_secs(3))
+    }
+
+    /// `acquire`, retrying for up to `timeout` — for a lock whose holders
+    /// legitimately work for seconds (Tier-0 training), where a waiter should
+    /// take its turn rather than fail after the default ~3 s.
+    pub fn acquire_within(dir: &Path, name: &str, timeout: std::time::Duration) -> Option<Self> {
         // A bare filename's parent is the empty path — normalize it to
         // the current directory so lock placement is well-defined.
         let dir = if dir.as_os_str().is_empty() {
@@ -32,7 +39,8 @@ impl FileLock {
         // same directory, so it must be created before O_EXCL can succeed.
         fs::create_dir_all(dir).ok()?;
         let lock = dir.join(format!("{name}.lock"));
-        for _ in 0..300 {
+        let attempts = (timeout.as_millis() / 10).max(1);
+        for _ in 0..attempts {
             match fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)

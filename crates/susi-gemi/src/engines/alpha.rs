@@ -570,6 +570,8 @@ const MIN_HOLDOUT: usize = 3;
 /// loss at 1.6: 95% argmax accuracy yet 0% of samples above the 0.5 serve
 /// confidence — Tier-0 was right and silent. By 200 steps 92% served.
 const TARGET_LOSS: f32 = 0.15;
+/// How long a trainer waits for another training cycle to finish.
+const TRAINING_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 const MAX_EPOCHS: usize = 600;
 
 /// Stable across cycles (hash of the normalized intent, not of its position
@@ -1296,9 +1298,15 @@ impl SusiAlphaModel {
     }
 
     pub fn train_on_staged_file(global_dir: &Path, staged_file: &Path) -> Result<String> {
-        let training_lock =
-            crate::susi_config::file_lock::FileLock::acquire(global_dir, "reflex_training")
-                .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
+        // Wait a turn: another workspace's cycle can hold this for tens of
+        // seconds; failing after the default ~3 s logged a spurious error
+        // cycle (and failed concurrent integration tests).
+        let training_lock = crate::susi_config::file_lock::FileLock::acquire_within(
+            global_dir,
+            "reflex_training",
+            TRAINING_LOCK_WAIT,
+        )
+        .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
         // A gated cycle is two fits of up to MAX_EPOCHS each — measured ~53s
         // at 2048 samples without convergence, close to the lock's 60s
         // wedged-holder age. Keep it fresh so a concurrent trainer cannot
@@ -1314,9 +1322,15 @@ impl SusiAlphaModel {
         staged_file: &Path,
         capabilities: &Capabilities,
     ) -> Result<String> {
-        let training_lock =
-            crate::susi_config::file_lock::FileLock::acquire(global_dir, "reflex_training")
-                .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
+        // Wait a turn: another workspace's cycle can hold this for tens of
+        // seconds; failing after the default ~3 s logged a spurious error
+        // cycle (and failed concurrent integration tests).
+        let training_lock = crate::susi_config::file_lock::FileLock::acquire_within(
+            global_dir,
+            "reflex_training",
+            TRAINING_LOCK_WAIT,
+        )
+        .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
         training_lock.hold_while(|| Self::train_locked(global_dir, staged_file, capabilities))
     }
 
