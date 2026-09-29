@@ -12,6 +12,8 @@ susi-config = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-http-transport = { workspace = true }
+ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 jsonschema = { package = "susi-vendor-jsonschema", path = "../susi-vendor-jsonschema" }
 rayon = { package = "susi-vendor-rayon", path = "../susi-vendor-rayon" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
