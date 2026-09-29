@@ -544,6 +544,11 @@ samples staged before the source guard and any future writer. Receipt
 samples carry no outcome (they come from successful tool calls) and stay
 trainable.
 
+Intents longer than 240 characters (the mission-trace goal bound) are not
+reflex samples: receipts stage the whole mission goal unbounded, and a
+multi-paragraph goal would bloat the replay set and dilute each action's
+veto-word vocabulary (EV-CLAUDE-035).
+
 Labels must agree. Receipts stage `mission goal → tool` once per tool call,
 so a multi-tool mission stages one goal under several labels.
 `resolve_label_conflicts` keeps an intent's samples only for the label

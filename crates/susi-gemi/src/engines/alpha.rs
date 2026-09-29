@@ -22,6 +22,13 @@ pub struct DistillationStaged {
     pub performance_metadata: Option<serde_json::Value>,
 }
 
+/// A reflex answers a short command-like prompt. Receipt samples stage the
+/// whole mission goal as the intent, unbounded, so a multi-paragraph goal
+/// would enter the replay set (bloating it and diluting each action's
+/// veto-word vocabulary with incidental words). Same bound as a mission
+/// trace goal (`mission_trace` MAX_GOAL_CHARS).
+const MAX_REFLEX_INTENT_CHARS: usize = 240;
+
 /// A sample whose mission outcome is recorded and is not a success teaches
 /// the classifier to repeat a failure; it is never trainable. Mirrors
 /// `MissionTrace::succeeded`.
@@ -85,8 +92,9 @@ fn resolve_label_conflicts(
 }
 
 /// Malformed or blank lines fail the batch. Well-formed records that cannot
-/// be labeled (blank intent, failed mission outcome, action outside the
-/// vocabulary, no majority label for the intent) are skipped and counted: a restored claim would otherwise
+/// be labeled (blank or over-long intent, failed mission outcome, action
+/// outside the vocabulary, no majority label for the intent) are skipped
+/// and counted: a restored claim would otherwise
 /// fail on them every cycle, and once the vocabulary is full an unknown
 /// action never becomes trainable.
 fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<TrainingBatch> {
@@ -105,7 +113,10 @@ fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<T
                 line_index + 1
             )
         })?;
-        if entry.intent.trim().is_empty() || failed_outcome(&entry) {
+        if entry.intent.trim().is_empty()
+            || entry.intent.chars().count() > MAX_REFLEX_INTENT_CHARS
+            || failed_outcome(&entry)
+        {
             skipped += 1;
             continue;
         }
@@ -2538,6 +2549,20 @@ mod tests {
             [("Why so slow", 0), ("why so slow", 0), ("check it", 1)]
         );
         assert_eq!(parsed.skipped, 3);
+    }
+
+    #[test]
+    fn over_long_intents_are_not_reflex_samples() {
+        let long = "word ".repeat(60); // 300 chars
+        let content = [
+            format!(r#"{{"intent":"{long}","action":"status","timestamp":1}}"#),
+            r#"{"intent":"check status","action":"status","timestamp":2}"#.to_string(),
+        ]
+        .join("\n");
+        let parsed = parse_training_entries(&content, &intents()).unwrap();
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].0.intent, "check status");
+        assert_eq!(parsed.skipped, 1);
     }
 
     #[test]

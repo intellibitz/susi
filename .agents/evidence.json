@@ -3884,6 +3884,16 @@
    "milestone": "Tier-0 no longer serves actions that nothing can execute. Vocabulary slots persist after a tool or agent is uninstalled (EV-CLAUDE-012 reclamation only reuses an unsupported slot later, and a trained slot keeps its weights), so a model could confidently serve 'ACTION: <uninstalled_tool>' and the mission then failed downstream. Now predict_intent requires action_available(action): the action is a FOUNDATIONAL_INTENTS entry or a currently registered agent/tool name (SusiAlphaModel::capability_names), compared case-insensitively. The capability set is snapshotted for 30s (AVAILABILITY_TTL) behind an RwLock so serving does not rescan the registries per prompt. Refusal message: '<action> is no longer an installed capability; not served as a reflex.' Test: only_foundational_or_installed_actions_are_servable (all 9 foundational intents servable, case-insensitive; an unknown tool is not). The alpha suite passed 3 of 3 runs and the end-to-end distill-loop test passes.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "MAX_REFLEX_INTENT_CHARS",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-035",
+   "milestone": "Over-long intents no longer enter Tier-0 training. ReceiptArchive stages each successful receipt with the session's whole (redacted) mission goal as the intent, with no length bound; mission traces bound goals to 240 chars (MAX_GOAL_CHARS). A multi-paragraph goal therefore became a replay intent. It inflated the 2048-entry replay file, and after EV-CLAUDE-033 it would have diluted the action's learned veto-word vocabulary with every incidental word in the goal ('delete', 'stop', ...), weakening the veto guard. Now parse_training_entries skips intents longer than MAX_REFLEX_INTENT_CHARS (240, the trace goal bound) as untrainable, counted in skipped. Skipping rather than truncating is deliberate, because a truncated goal is a different sentence. Test: over_long_intents_are_not_reflex_samples (a 300-char intent is skipped; the short one is kept). Alpha suite 36/36.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

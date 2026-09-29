@@ -115,6 +115,8 @@ One line per landed step, newest last.
     refused unless the action was trained with that word (EV-CLAUDE-033).
 34. Availability: Tier-0 serves only foundational or currently installed
     actions — slots outlive uninstalled tools (EV-CLAUDE-034).
+35. Intents over 240 chars are not reflex samples (receipts staged whole
+    mission goals unbounded) (EV-CLAUDE-035).
 
 ## Open questions for the other lane
 
