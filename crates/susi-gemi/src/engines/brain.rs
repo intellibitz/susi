@@ -116,6 +116,25 @@ const LATENCY_EMA_ALPHA: f32 = 0.3;
 pub struct Store {
     /// Key: `<provider>|<class>`.
     records: BTreeMap<String, Record>,
+    /// Mission ids whose verified outcome was already applied (bounded), so a
+    /// re-read of the trace file never double-counts a mission.
+    #[serde(default)]
+    applied: Vec<String>,
+}
+
+/// Applied-mission ids kept; older missions fall out and are never re-read
+/// because traces are only scanned newest-first.
+const APPLIED_CAP: usize = 500;
+
+/// The receipt tool name that tags a mission with the provider that answered.
+pub fn receipt_tool(provider: &str, class: TaskClass) -> String {
+    format!("brain:{}", key(provider, class))
+}
+
+fn parse_served(entry: &str) -> Option<(&str, TaskClass)> {
+    let (provider, class) = entry.rsplit_once('|')?;
+    let class = TaskClass::ALL.into_iter().find(|c| c.label() == class)?;
+    (!provider.is_empty()).then_some((provider, class))
 }
 
 fn key(provider: &str, class: TaskClass) -> String {
@@ -184,6 +203,37 @@ impl Store {
         }
     }
 
+    /// Fold a mission's verified outcome into the providers that answered it.
+    /// Counts one sample per provider without touching latency. Returns
+    /// whether anything was applied (a mission is applied at most once).
+    pub fn apply_mission(&mut self, mission_id: &str, served: &[String], succeeded: bool) -> bool {
+        if self.applied.iter().any(|id| id == mission_id) {
+            return false;
+        }
+        let mut any = false;
+        for entry in served {
+            let Some((provider, class)) = parse_served(entry) else {
+                continue;
+            };
+            let rec = self.records.entry(key(provider, class)).or_default();
+            if succeeded {
+                rec.ok += 1;
+            } else {
+                rec.fail += 1;
+            }
+            if rec.samples() > HISTORY_CAP {
+                rec.ok /= 2;
+                rec.fail /= 2;
+            }
+            any = true;
+        }
+        self.applied.push(mission_id.to_string());
+        if self.applied.len() > APPLIED_CAP {
+            self.applied.remove(0);
+        }
+        any
+    }
+
     /// Best first. Ties keep the caller's order (stable), so the router's
     /// static preference remains the tiebreaker for providers with no data.
     pub fn rank(&self, providers: &[String], class: TaskClass) -> Vec<Ranked> {
@@ -248,6 +298,10 @@ pub fn record_outcome(provider: &str, class: TaskClass, ok: bool, latency_ms: u6
     let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
     let store = guard.get_or_insert_with(load);
     store.record(provider, class, ok, latency_ms);
+    persist(store);
+}
+
+fn persist(store: &Store) {
     // Unit tests that drive live routing must not persist into the host's
     // real evidence; only an explicit file override writes under test.
     if cfg!(test) && std::env::var_os("SUSI_BRAIN_EVIDENCE_FILE").is_none() {
@@ -262,6 +316,42 @@ pub fn record_outcome(provider: &str, class: TaskClass, ok: bool, latency_ms: u6
 pub fn rank(providers: &[String], class: TaskClass) -> Vec<Ranked> {
     let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
     guard.get_or_insert_with(load).rank(providers, class)
+}
+
+/// Learn from the verified outcomes of this workspace's recent missions.
+/// Governance blocks are not capability outcomes and are skipped. Cheap when
+/// nothing is new: the trace file is only re-read when its mtime changes.
+pub fn apply_mission_verdicts(workspace: &std::path::Path) {
+    use std::time::SystemTime;
+    static SEEN: Mutex<BTreeMap<PathBuf, Option<SystemTime>>> = Mutex::new(BTreeMap::new());
+    let traces = workspace.join(".susi").join("mission_traces.jsonl");
+    let mtime = std::fs::metadata(&traces).and_then(|m| m.modified()).ok();
+    {
+        let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+        if seen.get(workspace) == Some(&mtime) {
+            return;
+        }
+        seen.insert(workspace.to_path_buf(), mtime);
+    }
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    let store = guard.get_or_insert_with(load);
+    let mut changed = false;
+    for trace in crate::susi_core::mission_trace::read_all(workspace)
+        .iter()
+        .rev()
+        .take(APPLIED_CAP)
+    {
+        if trace.brain_served.is_empty()
+            || !trace.capability_outcome()
+            || trace.outcome == "BLOCKED"
+        {
+            continue;
+        }
+        changed |= store.apply_mission(&trace.mission_id, &trace.brain_served, trace.succeeded());
+    }
+    if changed {
+        persist(store);
+    }
 }
 
 /// Forget all evidence (a new account, a changed model lineup).
@@ -398,6 +488,78 @@ mod tests {
                 .unwrap()
                 > 0.4
         );
+    }
+
+    #[test]
+    fn mission_verdicts_teach_the_brain_once() {
+        let mut s = Store::default();
+        let served = vec![receipt_tool("groq-y", TaskClass::Code)
+            .strip_prefix("brain:")
+            .unwrap()
+            .to_string()];
+        assert!(s.apply_mission("m1", &served, false));
+        assert!(
+            !s.apply_mission("m1", &served, false),
+            "a mission counts once"
+        );
+        let r = &s.rank(&names(&["groq-y"]), TaskClass::Code)[0];
+        assert_eq!((r.samples, r.success_rate), (1, Some(0.0)));
+        assert_eq!(r.avg_latency_ms, None, "verdicts must not invent latency");
+        assert!(s.apply_mission("m2", &served, true));
+        assert_eq!(
+            s.rank(&names(&["groq-y"]), TaskClass::Code)[0].success_rate,
+            Some(0.5)
+        );
+    }
+
+    #[test]
+    fn malformed_served_entries_are_ignored_and_applied_ids_are_bounded() {
+        let mut s = Store::default();
+        assert!(!s.apply_mission(
+            "m",
+            &["nope".into(), "p|bogus".into(), "|chat".into()],
+            true
+        ));
+        for i in 0..(APPLIED_CAP + 10) {
+            s.apply_mission(&format!("m{i}"), &[], true);
+        }
+        assert_eq!(s.applied.len(), APPLIED_CAP);
+    }
+
+    #[test]
+    fn a_failed_mission_lowers_the_provider_that_answered_it() {
+        let dir = std::env::temp_dir().join(format!("susi-brain-join-{}", std::process::id()));
+        let ws = dir.join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        let file = dir.join("e.json");
+        let _g = crate::engines::env_test_lock();
+        std::env::set_var("SUSI_BRAIN_EVIDENCE_FILE", &file);
+        let _ = reset();
+
+        let served = receipt_tool("groq-join", TaskClass::Code)
+            .strip_prefix("brain:")
+            .unwrap()
+            .to_string();
+        for (id, outcome) in [("j1", "FAILED"), ("j2", "FAILED"), ("j3", "BLOCKED")] {
+            let mut t = crate::susi_core::mission_trace::MissionTrace::new(
+                id,
+                "goal",
+                outcome,
+                "fast-path",
+            );
+            t.brain_served = vec![served.clone()];
+            t.emit(&ws).unwrap();
+        }
+        apply_mission_verdicts(&ws);
+        apply_mission_verdicts(&ws); // idempotent: mtime unchanged, ids applied
+        let r = load().rank(&names(&["groq-join"]), TaskClass::Code)[0].clone();
+        std::env::remove_var("SUSI_BRAIN_EVIDENCE_FILE");
+        assert_eq!(
+            (r.samples, r.success_rate),
+            (2, Some(0.0)),
+            "two failed missions count; the governance block does not"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -74,7 +74,8 @@ impl ReceiptArchive {
         let staging_eligible = receipt.successful
             && !training_intent.trim().is_empty()
             && !receipt.tool.trim().is_empty()
-            && !receipt.tool.starts_with("reflex:");
+            && !receipt.tool.starts_with("reflex:")
+            && !receipt.tool.starts_with("brain:");
         let mut record = ArchivedReceipt {
             schema: ARCHIVE_SCHEMA.into(),
             kind: "tool_receipt".into(),
@@ -513,6 +514,21 @@ mod tests {
             !ws.0.join(".susi/distillation_staged.jsonl").exists(),
             "no staging file should exist for unsuccessful receipts"
         );
+    }
+
+    #[test]
+    fn brain_receipts_never_stage_training_samples() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call("brain:groq-y|code", &serde_json::json!({}), &ws.0, || {
+            Ok("answered".to_string())
+        })
+        .unwrap();
+        let lines = ReceiptArchive::load_audit_lines(&ws.0);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].training_staged, None);
+        assert!(!ws.0.join(".susi/distillation_staged.jsonl").exists());
     }
 
     #[test]

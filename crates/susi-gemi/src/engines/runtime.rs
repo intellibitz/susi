@@ -193,6 +193,23 @@ impl GemiEngine {
             }
         }
 
+        // Learn from how recent missions in this workspace actually ended
+        // before ranking providers for this one.
+        crate::engines::brain::apply_mission_verdicts(workspace);
+        // Tag the mission with each provider that answers (non-citable
+        // `brain:*` receipt) so its verified outcome can be joined back.
+        let class = crate::engines::brain::TaskClass::classify(prompt);
+        let tagged_meta = |provider: &str| {
+            let _ = crate::susi_core::capture::EvidenceSession::capture_call(
+                &crate::engines::brain::receipt_tool(provider, class),
+                &serde_json::json!({}),
+                workspace,
+                || Ok("answered".to_string()),
+            );
+            meta(provider);
+        };
+        let meta = &tagged_meta;
+
         // Ensure configured cloud endpoints are registered before routing.
         crate::engines::http_provider::register_configured_cloud_endpoints(
             crate::susi_core::registry::CapabilityRegistry::global(),

@@ -190,7 +190,15 @@ impl SusiMissionReport {
                 .filter(|t| t.starts_with("reflex:"))
                 .map(|t| t.trim_start_matches("reflex:").to_string()),
         );
-        trace.tools = crate::susi_core::mission_trace::bounded_list(tools);
+        trace.brain_served = crate::susi_core::mission_trace::bounded_list(
+            tools
+                .iter()
+                .filter_map(|t| t.strip_prefix("brain:").map(str::to_string)),
+        );
+        // `brain:*` is provenance for the brain's learning, not a capability.
+        trace.tools = crate::susi_core::mission_trace::bounded_list(
+            tools.into_iter().filter(|t| !t.starts_with("brain:")),
+        );
         trace.signals = crate::susi_core::mission_trace::bounded_list(
             self.interactions.iter().map(|msg| msg.action.clone()),
         );
