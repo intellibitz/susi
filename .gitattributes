@@ -1,0 +1,2 @@
+# Append-only ledger: union entries added by parallel agents (scripts/merge-ledger.py).
+.agents/evidence.json merge=ledger
