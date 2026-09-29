@@ -7,6 +7,7 @@
 //! Each engine module has exactly one path, `susi_gemi::engines::<module>`.
 
 pub mod alpha;
+pub mod brain;
 pub(crate) mod candle_err;
 pub mod candle_provider;
 pub mod http_provider;

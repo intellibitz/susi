@@ -63,6 +63,11 @@ pub struct MissionTrace {
     /// not celebrated.
     #[serde(default)]
     pub reflex_served: Vec<String>,
+    /// `provider|task_class` for each provider that generated an answer
+    /// during the mission (`brain:*` receipts, non-citable). Lets the brain
+    /// learn from the mission's verified outcome, not just from "it replied".
+    #[serde(default)]
+    pub brain_served: Vec<String>,
     /// The executed plan's steps, when the mission ran plan search.
     /// Lets retrieval learn plan *shape*, not just goal text.
     #[serde(default)]
@@ -96,6 +101,7 @@ impl MissionTrace {
             tools: Vec::new(),
             signals: Vec::new(),
             reflex_served: Vec::new(),
+            brain_served: Vec::new(),
             plan_steps: Vec::new(),
             plan_score: None,
             plan_consensus: None,

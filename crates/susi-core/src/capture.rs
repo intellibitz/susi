@@ -113,8 +113,13 @@ impl ToolReceipt {
     /// reflex answered (so the mission trace and distill can join served
     /// actions to outcomes); a cached answer is not mission evidence and
     /// must not certify, nor compel citations for, the mission's answer.
+    /// `brain:*` receipts (which provider generated an answer, for the
+    /// brain's outcome learning) are provenance, not evidence, for the same
+    /// reason.
     fn is_citable_for_mission(&self) -> bool {
-        self.tool != "status" && !self.tool.starts_with("reflex:")
+        self.tool != "status"
+            && !self.tool.starts_with("reflex:")
+            && !self.tool.starts_with("brain:")
     }
 }
 
@@ -1092,6 +1097,21 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(rendered.contains("susi-host") && rendered.contains("output_hash"));
+    }
+
+    #[test]
+    fn brain_provenance_receipts_are_not_citable_evidence() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call("brain:groq-y|chat", &serde_json::json!({}), &ws.0, || {
+            Ok("answered".into())
+        })
+        .unwrap();
+        assert!(
+            !EvidenceSession::has_citable_receipts_for(&ws.0),
+            "which provider answered is provenance, not mission evidence"
+        );
     }
 
     #[test]

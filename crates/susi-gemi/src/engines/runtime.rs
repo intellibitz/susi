@@ -193,6 +193,23 @@ impl GemiEngine {
             }
         }
 
+        // Learn from how recent missions in this workspace actually ended
+        // before ranking providers for this one.
+        crate::engines::brain::apply_mission_verdicts(workspace);
+        // Tag the mission with each provider that answers (non-citable
+        // `brain:*` receipt) so its verified outcome can be joined back.
+        let class = crate::engines::brain::TaskClass::classify(prompt);
+        let tagged_meta = |provider: &str| {
+            let _ = crate::susi_core::capture::EvidenceSession::capture_call(
+                &crate::engines::brain::receipt_tool(provider, class),
+                &serde_json::json!({}),
+                workspace,
+                || Ok("answered".to_string()),
+            );
+            meta(provider);
+        };
+        let meta = &tagged_meta;
+
         // Ensure configured cloud endpoints are registered before routing.
         crate::engines::http_provider::register_configured_cloud_endpoints(
             crate::susi_core::registry::CapabilityRegistry::global(),
@@ -483,6 +500,16 @@ impl GemiEngine {
             return None;
         }
 
+        // Evidence-driven ordering: how each provider has actually performed
+        // on this kind of prompt; the static rank stays the tiebreaker.
+        let class = crate::engines::brain::TaskClass::classify(prompt);
+        let scores: std::collections::HashMap<String, i64> =
+            crate::engines::brain::rank(&names, class)
+                .into_iter()
+                .map(|r| (r.provider, (r.score * 10_000.0) as i64))
+                .collect();
+        let brain_score = |n: &String| scores.get(n).copied().unwrap_or(0);
+
         if let Some(model) = requested_model {
             let model_l = model.to_ascii_lowercase();
             // Strict honoring: a requested name that matches no registered
@@ -500,13 +527,24 @@ impl GemiEngine {
                 let hit = n.to_ascii_lowercase().contains(&model_l);
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
-                (!hit, !preferred, Self::rank_provider_name(n), n.clone())
+                (
+                    !hit,
+                    !preferred,
+                    std::cmp::Reverse(brain_score(n)),
+                    Self::rank_provider_name(n),
+                    n.clone(),
+                )
             });
         } else {
             names.sort_by_key(|n| {
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
-                (!preferred, Self::rank_provider_name(n), n.clone())
+                (
+                    !preferred,
+                    std::cmp::Reverse(brain_score(n)),
+                    Self::rank_provider_name(n),
+                    n.clone(),
+                )
             });
         }
 
@@ -519,7 +557,20 @@ impl GemiEngine {
             let Some(provider) = registry.get_provider(&name) else {
                 continue;
             };
-            match runtime.block_on(provider.generate(prompt)) {
+            let started = std::time::Instant::now();
+            // Adapters flatten failures into `Ok("... Error: ...")`; counting that
+            // as an answer would teach the brain to prefer a broken provider
+            // and would hand the caller the error text as the reply.
+            let outcome = match runtime.block_on(provider.generate(prompt)) {
+                Ok(text) if Self::looks_like_error_text(&text) => {
+                    Err(crate::susi_core::susi_error::EaiError::process(text))
+                }
+                other => other,
+            };
+            let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let answered = matches!(&outcome, Ok(text) if !text.trim().is_empty());
+            crate::engines::brain::record_outcome(&name, class, answered, elapsed_ms);
+            match outcome {
                 Ok(text) if !text.trim().is_empty() => {
                     crate::engines::routing::InferenceRouter::record_provider_success(&name);
                     if !errors.is_empty() {
@@ -1130,6 +1181,56 @@ mod tests {
 
         let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("recovered"));
+    }
+
+    #[test]
+    fn test_try_providers_records_outcomes_that_reorder_the_brain() {
+        use crate::engines::brain::{rank, TaskClass};
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        // Same static rank; name order would try `brainlearn-a` first.
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-brainlearn-a",
+            reply: "ERR:boom",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-brainlearn-b",
+            reply: "fine",
+        });
+        let prompt = "brainlearn ping";
+        assert_eq!(TaskClass::classify(prompt), TaskClass::Reflex);
+        let out = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        assert_eq!(out.as_deref(), Some("fine"));
+        let both = vec![
+            "ollama-brainlearn-a".to_string(),
+            "ollama-brainlearn-b".to_string(),
+        ];
+        let ranked = rank(&both, TaskClass::Reflex);
+        assert_eq!(ranked[0].provider, "ollama-brainlearn-b");
+        assert_eq!(ranked[1].success_rate, Some(0.0));
+    }
+
+    #[test]
+    fn test_try_providers_treats_flattened_error_text_as_failure() {
+        use crate::engines::brain::{rank, TaskClass};
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-flatten-a",
+            reply: "[INFERENCE_FAILED] upstream 500",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-flatten-b",
+            reply: "real answer",
+        });
+        let prompt = "flatten check";
+        let out = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        assert_eq!(out.as_deref(), Some("real answer"));
+        let names = vec!["ollama-flatten-a".to_string()];
+        let a = &rank(&names, TaskClass::classify(prompt))[0];
+        assert_eq!(
+            a.success_rate,
+            Some(0.0),
+            "error text must not count as an answer"
+        );
     }
 
     #[test]

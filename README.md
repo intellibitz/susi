@@ -440,6 +440,10 @@ susi drives external autonomous agents with the keys you registered (`susi keys 
 | `gemini-acp` | Agent Client Protocol over stdio | any ACP agent by overriding program/args; tool permission requests are denied unless `SUSI_ACP_AUTO_APPROVE=1` |
 | `a2a` | outbound A2A JSON-RPC | override `url` (and `token_env`) to point at any A2A agent; card discovery, 0.3 and 1.x wire dialects |
 
+## The brain: evidence-ranked model selection
+
+susi does not trust a fixed vendor order. Every inference call records, per provider and per task class (`reflex`, `chat`, `code`, `reasoning`), whether it answered and how fast (`~/.susi/brain_evidence.json`); providers are then tried best-first for that class. **Local is the floor, cloud is the ceiling**: without evidence, hard work leans to cloud models and reflex-sized work to local engines, but a provider that keeps failing (a dry account, a retired model) sinks and a proven one rises. Privacy policy, budget and cooldowns remain hard filters applied before ranking. Missions also teach the brain: each mission is tagged (non-citable `brain:*` receipt) with the providers that answered it, and its verified outcome (`SUCCESS`/`COMPLETE` vs failed; governance blocks skipped) is folded back into their record once per mission. `susi brain` shows the ranking, `susi brain classify "<prompt>"` shows how a prompt is routed, `susi brain reset` forgets the history.
+
 ## Extension packs
 
 Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opinions — cloud env aliases, curated catalog pointers, ranks — live in **extension packs**. Zero-config lifecycle:
