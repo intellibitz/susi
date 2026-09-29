@@ -45,9 +45,10 @@ impl SusiConfig {
         })
     }
 
-    /// Bundled defaults with host-contract port keys removed — used only for
-    /// heal merges so polluted/legacy port fields are never re-persisted.
-    fn heal_defaults() -> &'static DynamicRegistry {
+    /// Bundled defaults with host-contract port keys removed — used for
+    /// heal merges and schema validation so polluted/legacy port fields are
+    /// never re-persisted or required.
+    pub(crate) fn heal_defaults() -> &'static DynamicRegistry {
         static DEFAULTS: std::sync::OnceLock<DynamicRegistry> = std::sync::OnceLock::new();
         DEFAULTS.get_or_init(|| {
             let mut settings = Self::bundled_defaults().settings.clone();
