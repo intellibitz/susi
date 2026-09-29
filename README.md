@@ -51,6 +51,25 @@ write code. SUSI does not recursively rewrite itself without an operator.
 
 ---
 
+## Genome
+
+susi's constitutional source of truth is machine-readable and **compiled into
+the binary** at build time (`susi-gawd-agents` `build.rs` → `AlphaSelf`). The
+ledgers live in [`.agents/`](.agents/) — agent-governance data, not end-user
+docs:
+
+| File | Role |
+|------|------|
+| [`.agents/identity.json`](.agents/identity.json) | Constitutional mandates, component topology, protocols (`susi/identity/v1`) |
+| [`.agents/roadmap.json`](.agents/roadmap.json) | Evolutionary vectors (`susi/roadmap/v1`) |
+| [`.agents/evidence.json`](.agents/evidence.json) | Append-only mission / audit ledger (`susi/evidence/v1`) |
+| [`.agents/schemas/`](.agents/schemas/) | JSON Schema contracts for all three |
+
+When this README and `identity.json` disagree, source code wins and both are
+updated in the same change.
+
+---
+
 ## Host contract
 
 External clients can trust these ports — the daemon never silently drifts them:
