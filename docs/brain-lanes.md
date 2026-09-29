@@ -363,3 +363,7 @@ One line per landed step, newest last.
 42. Whole-plan provenance: beyond per-step echoes, a candidate that
     matches an entire decomposition that verified earns +0.10, and one
     matching a plan that failed docks -0.15 (plan_similarity>=0.7).
+43. Global prior for novel intents: with no similar neighbors,
+    difficulty() previously scored novelty+risk only; it now adds half
+    the recency-weighted global failure rate — a broadly-failing
+    system treats the unknown as riskier than a healthy one.

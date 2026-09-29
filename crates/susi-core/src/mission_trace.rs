@@ -361,8 +361,34 @@ pub fn difficulty(
         crate::manifold::RiskProfile::Critical => 0.4,
     };
     let novelty_weight = if novel { 0.35 } else { 0.0 };
-    let score =
-        (novelty_weight + 0.4 * failure_rate + risk_weight + duration_weight).clamp(0.0, 1.0);
+    // A novel intent has no neighborhood prior — the system's overall
+    // recent track record is the only evidence. A brain that has been
+    // failing broadly should treat the unknown as riskier than one on
+    // a streak; half the global failure rate tempers the novelty bump.
+    let global_failure_rate = if novel && !traces.is_empty() {
+        let newest_all = newest;
+        let (mut gw, mut gwf) = (0.0f32, 0.0f32);
+        for t in traces {
+            let w = recency_weight(t.timestamp, newest_all);
+            gw += w;
+            if !t.succeeded() {
+                gwf += w;
+            }
+        }
+        if gw == 0.0 {
+            0.0
+        } else {
+            gwf / gw
+        }
+    } else {
+        0.0
+    };
+    let score = (novelty_weight
+        + 0.4 * failure_rate
+        + risk_weight
+        + duration_weight
+        + 0.2 * global_failure_rate)
+        .clamp(0.0, 1.0);
     Difficulty {
         score,
         novel,
@@ -1279,6 +1305,36 @@ mod tests {
             "expected ~0.67, got {}",
             d2.failure_rate
         );
+    }
+
+    #[test]
+    fn novel_intent_reads_global_track_record() {
+        // No neighbors for this goal — the only prior is the system's
+        // overall recent record. Broad failure should temper optimism.
+        let failed = vec![
+            MissionTrace::new("a", "unrelated alpha task", "FAILED", "swarm"),
+            MissionTrace::new("b", "unrelated beta task", "FAILED", "swarm"),
+        ];
+        let ok = vec![
+            MissionTrace::new("a", "unrelated alpha task", "COMPLETE", "swarm"),
+            MissionTrace::new("b", "unrelated beta task", "COMPLETE", "swarm"),
+        ];
+        let d_bad = difficulty(
+            "brand new intent",
+            &failed,
+            crate::manifold::RiskProfile::Low,
+        );
+        let d_good = difficulty("brand new intent", &ok, crate::manifold::RiskProfile::Low);
+        assert!(d_bad.novel && d_good.novel);
+        assert!(
+            d_bad.score > d_good.score,
+            "failing world {} vs healthy world {}",
+            d_bad.score,
+            d_good.score
+        );
+        // Empty history keeps the pure-novelty score.
+        let d_empty = difficulty("brand new intent", &[], crate::manifold::RiskProfile::Low);
+        assert_eq!(d_empty.score, 0.35);
     }
 
     #[test]

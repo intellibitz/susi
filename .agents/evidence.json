@@ -4244,6 +4244,16 @@
     "label": "Whole-plan provenance",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-055",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 37 \u2014 global prior for novel intents. difficulty() scored novel intents on novelty+risk alone, blind to the system's overall track record; it now adds 0.5\u00d7 the recency-weighted global failure rate when no neighbors exist.",
+   "proof": "novel_intent_reads_global_track_record: same novel goal scores harder against all-failed history than all-success; empty history keeps pure novelty score. susi-core 231 pass; clippy clean.",
+   "anchor": {
+    "label": "Global difficulty prior",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
