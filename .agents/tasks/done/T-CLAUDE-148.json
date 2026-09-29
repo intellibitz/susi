@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-148",
+  "title": "Agents bootstrap themselves into their own worktree automatically",
+  "goal": "An agent must land in its own worktree without anyone telling it: (1) scripts/susi-worktree.sh works with no name (auto <agent>-<timestamp>), runs setup-dev.sh in the new worktree, parks the primary checkout and prints 'cd <path>' last; (2) 'susi workflow start [name]' wraps it; (3) the guard's refusal in the primary checkout names that one command; (4) every agent tool's auto-loaded file (CLAUDE.md, GEMINI.md, .cursor/rules, .github/copilot-instructions.md, plus a Claude Code SessionStart hook) points at 'susi workflow check' and the worktree command; AGENTS.md remains the single source. Tests in tests/agent_bootstrap.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "agent_bootstrap"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790709954,
+  "closed": {
+    "at_unix": 1790710276,
+    "commit": "385e8bbe0dab7a696073a95cef01ec39c16db274",
+    "by": "CLAUDE"
+  }
+}

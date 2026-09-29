@@ -9,6 +9,15 @@ use susi_gawd::admin::workflow::{self, State};
 
 #[derive(Debug, Subcommand)]
 pub enum WorkflowCommands {
+    /// Create your own worktree on a fresh branch off origin/main, ready to
+    /// work in (hooks installed, primary checkout parked). Prints `cd <path>`.
+    Start {
+        /// Branch/worktree name (default: <agent>-<timestamp>)
+        name: Option<String>,
+        /// Who you are (default: $SUSI_AGENT or your git user)
+        #[arg(long)]
+        agent: Option<String>,
+    },
     /// Check that this checkout follows the susi workflow (Mandates 49-51)
     Check {
         /// Machine-readable output
@@ -21,7 +30,10 @@ pub enum WorkflowCommands {
 }
 
 pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
-    let WorkflowCommands::Check { json, agent } = action;
+    let (json, agent) = match action {
+        WorkflowCommands::Check { json, agent } => (json, agent),
+        WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
+    };
     let root = crate::cli::tasks_cli::repo_root(cwd);
     let agent = crate::cli::tasks_cli::who(agent, &root)
         .to_ascii_uppercase()
@@ -60,6 +72,29 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
     }
     if !ok {
         bail!("workflow check failed");
+    }
+    Ok(())
+}
+
+/// `susi workflow start`: the whole "get me a workspace of my own" step, so an
+/// agent never has to assemble it from instructions.
+fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> {
+    let root = crate::cli::tasks_cli::repo_root(cwd);
+    let script = root.join("scripts").join("susi-worktree.sh");
+    if !script.is_file() {
+        bail!("{} not found — is this a susi checkout?", script.display());
+    }
+    let who = crate::cli::tasks_cli::who(agent, &root);
+    let mut cmd = std::process::Command::new(&script);
+    cmd.current_dir(&root).env("SUSI_AGENT", who);
+    if let Some(n) = name {
+        cmd.arg(n);
+    }
+    // The script narrates on stderr and prints `cd <path>` last on stdout.
+    let out = cmd.stderr(std::process::Stdio::inherit()).output()?;
+    print!("{}", String::from_utf8_lossy(&out.stdout));
+    if !out.status.success() {
+        bail!("worktree setup failed");
     }
     Ok(())
 }

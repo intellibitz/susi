@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Session-start hook for agent tools (Claude Code SessionStart, or any wrapper):
+# run the workflow check and print the result into the session, so the agent
+# learns the rules and what to fix before it edits. It never blocks a session.
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 0
+if command -v susi >/dev/null 2>&1 && susi workflow --help >/dev/null 2>&1; then
+    susi workflow check 2>&1 || true
+elif [ -x ./target/debug/susi ]; then
+    ./target/debug/susi workflow check 2>&1 || true
+else
+    echo "susi workflow check is not installed here; run: cargo run -q -- workflow check"
+fi
+cat <<'MSG'
+
+Not ready? In the primary checkout or on main: scripts/susi-worktree.sh   (no name needed; it prints `cd <path>`)
+Then: susi tasks list && susi tasks claim <id>, and end every commit with `Task: <id>`. Rules: AGENTS.md (START HERE).
+MSG
+exit 0
