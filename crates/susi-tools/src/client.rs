@@ -422,8 +422,9 @@ impl GmcpClient {
     /// Interrogates global registries and benchmarks servers for swarm inclusion.
     pub fn autonomous_web_scout() -> Vec<GlobalMcpEntry> {
         let mut entries = Self::fetch_global_registry();
-        let home = susi_paths::SusiDirs::home_dir();
-        let registry_path = home.join(".susi/mcp_web_registry.json");
+        // Through SusiDirs, never a hardcoded `~/.susi`: creating that dir
+        // on an XDG install would switch later processes to the legacy layout.
+        let registry_path = susi_paths::SusiDirs::cache_dir().join("mcp_web_registry.json");
 
         // Benchmark and Rank each entry
         for entry in &mut entries {
@@ -588,11 +589,12 @@ mod tests {
     #[test]
     fn admit_mcp_server_writes_http_and_stdio() {
         // SUSI_HOME pins the config dir. Repointing HOME/XDG_CONFIG_HOME
-        // instead was flaky: `use_xdg` re-checks whether `$HOME/.susi`
-        // exists on every call, and concurrent tests create it under the
+        // instead was flaky: `use_xdg` used to re-check whether `$HOME/.susi`
+        // existed on every call, and concurrent tests create it under the
         // borrowed HOME, so the second admit resolved to the legacy path
         // (captured: `.../config/susi/mcp_config.json` then
-        // `.../.susi/mcp_config.json`) and only `fs` was listed.
+        // `.../.susi/mcp_config.json`) and only `fs` was listed. susi-paths
+        // now pins that decision per process (`tests/layout_stability.rs`).
         let (_guard, dir, prev) = isolated_home();
         let res = GmcpClient::admit_mcp_server("remote", "http://127.0.0.1:3100/mcp", &[]);
         assert_eq!(res, "SUCCESS_ADMITTED");
