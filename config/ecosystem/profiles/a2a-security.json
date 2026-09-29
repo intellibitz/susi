@@ -1,0 +1,110 @@
+{
+  "version": "eco-profile/v1",
+  "id": "a2a-security",
+  "name": "A2A security schemes and extensions",
+  "subject": "a2a",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/.well-known/agent.json",
+      "description": "Agent card",
+      "response": "agent-card"
+    },
+    {
+      "method": "POST",
+      "path": "/",
+      "description": "JSON-RPC methods",
+      "request": "json-rpc",
+      "response": "json-rpc-result"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "A2A_TOKEN"
+      ]
+    },
+    {
+      "scheme": "api-key-header",
+      "header": "x-api-key",
+      "env": [
+        "A2A_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "0.2",
+      "status": "deprecated"
+    },
+    {
+      "id": "0.3",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "json-rpc",
+      "format": "json",
+      "fields": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ]
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "json-rpc-result",
+      "format": "json",
+      "fields": [
+        "jsonrpc",
+        "id",
+        "result"
+      ]
+    },
+    {
+      "name": "agent-card",
+      "format": "json",
+      "fields": [
+        "name",
+        "url",
+        "skills",
+        "securitySchemes",
+        "security"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "Caller exceeded agent rate limit"
+    }
+  ],
+  "capabilities": [
+    "oauth2",
+    "apiKey",
+    "mutualTls",
+    "extensions"
+  ],
+  "deviations": [
+    "Extension declarations in agent card are advisory until negotiated"
+  ],
+  "provenance": {
+    "source": "https://a2a-protocol.org/latest/specification",
+    "spec_version": "0.3",
+    "retrieved": "2026-09-30",
+    "confidence": "verified"
+  }
+}

@@ -37,6 +37,7 @@ pub mod extensions;
 pub mod file_lock;
 mod json_util;
 pub mod key_scope;
+pub mod plan_apply;
 pub mod rekey_schedule;
 pub mod secret_ref;
 pub mod selfheal;
@@ -166,6 +167,9 @@ mod setup_workflow_tests;
 #[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_063.rs"]
+mod vc_201_063_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_066.rs"]
 mod vc_201_066_tests;

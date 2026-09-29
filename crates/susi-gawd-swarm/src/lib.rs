@@ -29,10 +29,13 @@ pub(crate) mod cloud_recovery;
 pub mod dag;
 pub mod deliberation;
 pub mod host_hooks;
+pub mod identity_revoke;
+pub mod independent_verify;
 pub mod joint_consensus;
 pub mod membership_model;
 pub mod mission_persist;
 pub mod peer_registry;
+pub mod side_effects;
 pub mod swarm_chaos;
 pub mod task_lease;
 
@@ -59,11 +62,20 @@ mod vc_201_021_tests;
 #[path = "tests/vc_201_022.rs"]
 mod vc_201_022_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_023.rs"]
+mod vc_201_023_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_028.rs"]
+mod vc_201_028_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_031.rs"]
 mod vc_201_031_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_032.rs"]
 mod vc_201_032_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_033.rs"]
+mod vc_201_033_tests;
 
 /// Wire the MissionDag post-swarm hook into the agents leaf.
 ///

@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "a2a-0.2",
+    "name": "A2A 0.2",
+    "version": "0.2",
+    "provenance": {
+      "source": "https://a2a-protocol.org/latest/specification",
+      "spec_version": "0.2",
+      "retrieved": "2026-09-30",
+      "confidence": "verified"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "a2a-0.2",
+      "to": "a2a",
+      "provenance": {
+        "source": "https://a2a-protocol.org/latest/specification",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-30",
+        "confidence": "verified"
+      }
+    },
+    {
+      "kind": "supersedes",
+      "from": "a2a-0.3",
+      "to": "a2a-0.2",
+      "provenance": {
+        "source": "https://a2a-protocol.org/latest/specification",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-30",
+        "confidence": "verified"
+      }
+    }
+  ]
+}
