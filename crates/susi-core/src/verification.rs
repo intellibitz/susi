@@ -447,6 +447,31 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
         }
     }
 
+    // "created/added/generated/wrote/updated <path>" — only for a quoted
+    // path or a bare one with both a '/' and an extension ("created
+    // src/utils/mod.rs"). A bare filename ("created main.rs") often names a
+    // nested file, and a false violation would fail a truthful mission.
+    static PATH_CLAIMS: OnceLock<regex::Regex> = OnceLock::new();
+    let path_claims = PATH_CLAIMS.get_or_init(|| {
+        // Static literal — validity is fixed at compile time.
+        #[allow(clippy::expect_used)]
+        regex::Regex::new(
+            r#"(?i)\b(?:created|added|generated|wrote|updated)\s+(?:the\s+|a\s+|new\s+)*(?:file\s+)?(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;`"']*/[^\s,;`"']*\.[A-Za-z0-9]+))"#,
+        )
+        .expect("static path-claim pattern")
+    });
+    for capture in path_claims.captures_iter(text) {
+        if let Some(path) = (1..=4).find_map(|i| capture.get(i)).map(|v| v.as_str()) {
+            let path = PathBuf::from(path);
+            let already = contracts
+                .iter()
+                .any(|c| matches!(c, Contract::FileExists { path: p } if *p == path));
+            if !already {
+                contracts.push(Contract::FileExists { path });
+            }
+        }
+    }
+
     contracts
 }
 
@@ -762,6 +787,22 @@ mod tests {
             check("../elsewhere"),
             ContractVerdict::Unverifiable { .. }
         ));
+    }
+
+    #[test]
+    fn precise_created_and_updated_paths_are_claims() {
+        let exists = |p: &str| Contract::FileExists { path: p.into() };
+        assert_eq!(
+            contracts_from_text("I created src/utils/mod.rs and updated docs/README.md."),
+            [exists("src/utils/mod.rs"), exists("docs/README.md")]
+        );
+        assert_eq!(
+            contracts_from_text("Added the file `notes.txt`."),
+            [exists("notes.txt")]
+        );
+        // Bare filenames and prose are not claims (nested-file ambiguity).
+        assert!(contracts_from_text("I created main.rs for you").is_empty());
+        assert!(contracts_from_text("created a new branch and updated the docs").is_empty());
     }
 
     #[test]

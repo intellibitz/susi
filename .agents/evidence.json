@@ -4524,6 +4524,16 @@
    "milestone": "Directory creation is now verified. The contract registry could only assert regular files: FileExists goes through confined_file, which requires is_file. A goal 'create a directory named build_out' minted nothing, and a result 'I created the folder src/utils.' was unchecked, so both passed whether or not the directory existed. New Contract::DirExists { path }. An absolute or '..' path is Unverifiable (the EV-CLAUDE-020 rule). Otherwise the path must canonicalize inside the canonical workspace root and be a directory, and a regular file at that path is a violation. verify_mission_reality mines 'create|created|make|made|mkdir [a|an|the] [new] directory|folder|dir [named|called] X' (quoted or bare, with trailing punctuation trimmed) from both the goal and the result. The exhaustive Contract match in truth.rs lists the new variant. Tests: dir_exists_checks_a_confined_directory (present dir verified; missing and file-instead-of-dir violated; '../elsewhere' unverifiable); directory_creation_is_verified_as_a_directory (goal and result forms fail while absent and pass once created). Verification 13/13, truth 21/21; workspace clippy clean.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "PATH_CLAIMS",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   },
+   "id": "EV-CLAUDE-064",
+   "milestone": "More result claims are verified without risking false violations. contracts_from_text mined only 'wrote to/saved to X' writes and 'deleted/removed X' deletions, so 'I created src/utils/mod.rs and updated docs/README.md' carried no contract. EV-CLAUDE-028 declined to mine 'created X' because a bare filename ('created main.rs') often names a nested file (src/main.rs), and a false FileExists violation would fail a truthful mission. PATH_CLAIMS now mines created|added|generated|wrote|updated [the|a|new]* [file] X only when X is backticked/double/single-quoted, or bare with both a '/' and an extension. Duplicates of an already-mined FileExists are skipped. Test: precise_created_and_updated_paths_are_claims (two slash+extension paths and one backticked file mined; 'I created main.rs for you' and 'created a new branch and updated the docs' mint nothing). Verification 14/14, truth 21/21; full gate on landing.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

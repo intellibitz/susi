@@ -488,7 +488,11 @@ cache.") is never a path (EV-CLAUDE-057). Directories have their own contract, `
 (workspace-relative, confined, must be a directory): "create a
 directory/folder [named] X" in a goal and "created the directory/folder X"
 in a result mint it — `FileExists` requires a regular file, so directory
-creation was unverifiable before (EV-CLAUDE-063). A deletion claim about an absolute or `..`-escaping
+creation was unverifiable before (EV-CLAUDE-063). Result claims "created/added/generated/wrote/updated <path>"
+are checked when the path is quoted or carries both a `/` and an
+extension ("created src/utils/mod.rs"); a bare filename ("created
+main.rs") is not mined, since it often names a nested file
+(EV-CLAUDE-064). A deletion claim about an absolute or `..`-escaping
 path is `Unverifiable`: absence outside the workspace is not something the
 registry can vouch for (it used to come back `Verified`). Bare
 (unquoted) claim paths shed surrounding prose punctuation — `:`, `!`, `?`,

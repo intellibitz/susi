@@ -194,6 +194,8 @@ One line per landed step, newest last.
     served as read-style actions (EV-CLAUDE-062).
 63. Verify: `DirExists` contract; directory-creation goals and claims are
     checked (FileExists needs a regular file) (EV-CLAUDE-063).
+64. Verify: "created/updated src/x/y.rs"-style result claims with a
+    precise path are checked; bare filenames still aren't (EV-CLAUDE-064).
 
 ## Open questions for the other lane
 
