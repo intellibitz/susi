@@ -54,6 +54,18 @@ fn cache_lookup(
         .then(|| value.clone())
 }
 
+/// A cached Tier-0 action (`ACTION: name [args]`) is servable only while
+/// its action is still runnable; Tier-1 answers (free text) expire by TTL.
+fn still_servable(cached: &str) -> bool {
+    match cached.strip_prefix("ACTION: ") {
+        Some(rest) => {
+            let name = rest.split_whitespace().next().unwrap_or_default();
+            crate::engines::alpha::action_available(&format!("ACTION: {name}"))
+        }
+        None => true,
+    }
+}
+
 /// `list_directory` needs a target, so the Tier-0 action is bound to the
 /// workspace. Exact match only: the old `contains("list_directory")` would
 /// rewrite any action merely containing the name (a `list_directory_tree`
@@ -107,7 +119,12 @@ impl SusiPulse {
 
         // Sub-100us Reflex Cache
         if let Some(cached) = cache_lookup(&REFLEX_CACHE.read(), &key, std::time::Instant::now()) {
-            return Ok(cached);
+            // Tier-0 entries never expire by time, so a cached action must
+            // still be runnable: its tool may have been uninstalled since.
+            if still_servable(&cached) {
+                return Ok(cached);
+            }
+            REFLEX_CACHE.write().remove(&key);
         }
 
         // Neural Reflex Attempt (Tier 0 Classifier)
@@ -186,6 +203,16 @@ mod tests {
         ] {
             assert_eq!(bind_workspace(other.into(), ws), other);
         }
+    }
+
+    #[test]
+    fn cached_actions_must_still_be_runnable() {
+        assert!(still_servable("ACTION: list_directory /w"));
+        assert!(still_servable("ACTION: status"));
+        assert!(still_servable("A generated Tier-1 answer."));
+        assert!(!still_servable(
+            "ACTION: zz_uninstalled_tool_for_test --flag"
+        ));
     }
 
     #[test]

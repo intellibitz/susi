@@ -117,6 +117,8 @@ One line per landed step, newest last.
     actions — slots outlive uninstalled tools (EV-CLAUDE-034).
 35. Intents over 240 chars are not reflex samples (receipts staged whole
     mission goals unbounded) (EV-CLAUDE-035).
+36. Reflex cache hits on Tier-0 actions re-check availability, closing the
+    cache bypass of step 34 (EV-CLAUDE-036).
 
 ## Open questions for the other lane
 

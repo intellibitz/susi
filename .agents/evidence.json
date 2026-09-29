@@ -3894,6 +3894,16 @@
    "milestone": "Over-long intents no longer enter Tier-0 training. ReceiptArchive stages each successful receipt with the session's whole (redacted) mission goal as the intent, with no length bound; mission traces bound goals to 240 chars (MAX_GOAL_CHARS). A multi-paragraph goal therefore became a replay intent. It inflated the 2048-entry replay file, and after EV-CLAUDE-033 it would have diluted the action's learned veto-word vocabulary with every incidental word in the goal ('delete', 'stop', ...), weakening the veto guard. Now parse_training_entries skips intents longer than MAX_REFLEX_INTENT_CHARS (240, the trace goal bound) as untrainable, counted in skipped. Skipping rather than truncating is deliberate, because a truncated goal is a different sentence. Test: over_long_intents_are_not_reflex_samples (a 300-char intent is skipped; the short one is kept). Alpha suite 36/36.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "pulse::still_servable",
+    "ref": "file://crates/susi-gemi/src/pulse.rs"
+   },
+   "id": "EV-CLAUDE-036",
+   "milestone": "Closes a cache bypass of EV-CLAUDE-034. SusiPulse::reason returns reflex-cache hits before reaching predict_intent, and Tier-0 cache entries have no time expiry (they are invalidated only by a Tier-0 model fingerprint change). So an 'ACTION: <tool>' cached while the tool was installed would keep being served after the tool was uninstalled, until the next Tier-0 publish. Now a cache hit whose value is a Tier-0 action is served only if pulse::still_servable holds, which reuses alpha::action_available (now pub(crate), backed by the 30s capability snapshot) on the action name, ignoring bound arguments such as list_directory's workspace. Otherwise the entry is evicted and resolution continues to the live tiers. Tier-1 free-text answers are unaffected (they expire by TTL, EV-CLAUDE-024). Test: cached_actions_must_still_be_runnable (list_directory with a path, status, and a Tier-1 text are servable; an uninstalled tool with args is not). Pulse tests 6/6.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

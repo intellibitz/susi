@@ -708,7 +708,9 @@ routing output is a failure, never a served `ACTION: ` (EV-CLAUDE-021). The refl
 cache keys on (workspace, prompt); Tier-0 actions stay valid until the
 model fingerprint changes, while Tier-1 answers — generated content — expire
 after 10 minutes (`TIER1_CACHE_TTL`, EV-CLAUDE-024) instead of being served
-stale for as long as the Tier-0 model stays unchanged.
+stale for as long as the Tier-0 model stays unchanged. A cache hit on a
+Tier-0 action re-checks `action_available`, so an action cached before its
+tool was uninstalled is evicted, not served (EV-CLAUDE-036).
 
 Tier-0 quality is pinned by a fixed benchmark
 (`alpha::tests::tier0_benchmark_recall_precision_and_ood_refusal`): ~10

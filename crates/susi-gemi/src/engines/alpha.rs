@@ -834,7 +834,7 @@ const VETO_WORDS: &[&str] = &[
 /// a trained model could otherwise serve an action nothing can execute.
 /// The capability set is snapshotted for `AVAILABILITY_TTL` so serving does
 /// not rescan the registries per prompt.
-fn action_available(action: &str) -> bool {
+pub(crate) fn action_available(action: &str) -> bool {
     const AVAILABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(30);
     type Snapshot = Option<(
         std::time::Instant,
