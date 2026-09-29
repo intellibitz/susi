@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-166",
+  "title": "First-run local model chosen and fetched for this hardware",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. On first run pick the best model that fits RAM/VRAM/disk, download it resumably with progress, and fall back cleanly offline. Tests zc_first_model_* over a table of hardware profiles.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi-models",
+      "zc_first_model"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

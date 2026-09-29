@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-198",
+  "title": "Detect installed agent CLIs and register them ready-to-run",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Find claude, codex, cursor-agent, gemini, aider, openhands, opencode and friends, run their doctor checks and mark them ready without 'susi agents configure'. Tests zc_agent_autodetect_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "zc_agent_autodetect"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

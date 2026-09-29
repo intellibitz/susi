@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-176",
+  "title": "Just-in-time credential request instead of a failure",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. When a mission needs a cloud model and no key exists: ask once on a tty, otherwise emit a machine-readable 'credential needed' record and a distinct exit code so agents and CI can supply it, never a stack trace. Tests zc_jit_credentials_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "zc_jit_credentials"
+    ]
+  },
+  "roadmap": "VC-201-066",
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

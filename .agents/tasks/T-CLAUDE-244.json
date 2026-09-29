@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-244",
+  "title": "Time-to-first-answer benchmark from a clean install",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Measure install to first useful mission answer on a clean HOME with a mock model download and fail on regressions past a budget. Integration test zc_time_to_answer.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "zc_time_to_answer"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979
+}

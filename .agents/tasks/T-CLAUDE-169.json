@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-169",
+  "title": "Pick free ports automatically and publish them",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. If 9090-9094 are taken, choose a free block, persist it and publish ~/.susi/ports.json so clients find susi; SUSI_PORT_OFFSET stays only as an override. Tests zc_port_autoselect_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "zc_port_autoselect"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

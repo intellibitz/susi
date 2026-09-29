@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-161",
+  "title": "A bad config never blocks startup: back up, repair, continue",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Invalid JSON or unknown/deprecated keys must not fail startup: keep a timestamped backup, fall back to derived defaults, and print what was done. Tests zc_config_selfheal_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "zc_config_selfheal"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

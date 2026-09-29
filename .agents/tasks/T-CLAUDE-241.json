@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-241",
+  "title": "Clean merged worktrees and branches automatically",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Detect worktrees whose branch is merged and clean, offer or perform removal, and keep the primary checkout parked. Tests zc_worktree_gc_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "zc_worktree_gc"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979
+}

@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-175",
+  "title": "Discover credentials where they already live, with consent",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Offer to import keys from the environment, a workspace .env, and standard tool locations (aws credentials, gcloud ADC, gh auth token) one source at a time, only after an explicit yes, never silently. Tests zc_key_sources_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "zc_key_sources"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

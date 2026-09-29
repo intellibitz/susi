@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-159",
+  "title": "susi config diff: show only user overrides (goal: empty)",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. List keys whose effective value differs from the derived default; an empty list is the zero-config state. Tests zc_config_overrides_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "zc_config_overrides"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

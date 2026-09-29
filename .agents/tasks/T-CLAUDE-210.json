@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-210",
+  "title": "Detect NAT and public reachability without env vars",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Use STUN/UPnP to learn the public address, fall back to relay, and drop SUSI_PUBLIC_IP/SUSI_TURN_* as required inputs. Tests zc_nat_auto_* with a fake STUN.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "zc_nat_auto"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

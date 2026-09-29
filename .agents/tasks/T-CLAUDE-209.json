@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-209",
+  "title": "Pick the agent for a task without naming one",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. 'susi run \"<task>\"' chooses swarm or an external agent from evidence, cost and privacy; naming an agent is an override. Tests zc_agent_pick_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "zc_agent_pick"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

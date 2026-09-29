@@ -1,0 +1,14 @@
+{
+  "id": "T-CLAUDE-243",
+  "title": "Fresh-environment matrix in CI",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Run the fresh-HOME journey on clean containers for cpu-only, emulated-GPU and low-memory profiles; the check script validates the matrix definition and its expected outcomes.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-zc-matrix.sh"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979
+}

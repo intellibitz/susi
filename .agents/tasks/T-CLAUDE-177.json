@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-177",
+  "title": "Discover the Devin organization id from the API key",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. DEVIN_ORG_ID is only needed because it is not discovered; list organizations with the key, pick the single one (ask if several) and store it. Tests zc_devin_org_* against a fake API.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "zc_devin_org"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

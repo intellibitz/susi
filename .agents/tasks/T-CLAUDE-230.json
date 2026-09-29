@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-230",
+  "title": "End-of-sequence tokens taken from the model",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. eos_token_ids come from model metadata rather than a global list. Tests zc_eos_tokens_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "zc_eos_tokens"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979
+}
