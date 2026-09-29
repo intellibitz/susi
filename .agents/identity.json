@@ -612,7 +612,7 @@
         },
         {
           "id": 54,
-          "imperative": "The gate for merging is the **branch-push `Test` run**: checks attach to the commit, `auto-merge.yml` opens the PR and merges it when that run is green, and the full suite then runs on `main` by dispatch. `pull_request`-triggered workflows are forbidden for `Test`, and `SUSI Builder OS` reacts only to a maintainer's `labeled` event: every PR is opened by `github-actions[bot]`, whose PR runs GitHub holds for approval and which die jobs-less when the PR merges seconds later. `tests/architecture_tests.rs` pins both. A red run on the Actions page is a defect to fix, not noise to ignore.",
+          "imperative": "The gate for merging is the **branch-push `Test` run**: checks attach to the commit, `auto-merge.yml` opens the PR and merges it when that run is green, and the full suite then runs on `main` by dispatch. `pull_request`-triggered workflows are forbidden for `Test`, and `SUSI Builder OS` reacts only to a maintainer's `labeled` event: every PR is opened by `github-actions[bot]`, whose PR runs GitHub holds for approval and which die jobs-less when the PR merges seconds later. `tests/architecture_tests.rs` pins both. A red run on the Actions page is a defect to fix, not noise to ignore. **No PR waits in the queue forever:** the merge decision lives in `scripts/auto-merge-pr.sh` and is made by every path — the `workflow_run` job, the open-pr job (a green run can finish before the PR exists) and `scripts/reconcile-prs.sh`, which runs every 15 minutes to merge green PRs that events missed, comment once on red or conflicting ones, and close PRs idle for 7 days that are not green (branch kept).",
           "title": "Branch-Push Gate"
         },
         {
