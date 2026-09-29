@@ -432,6 +432,16 @@ pub(crate) enum KeyCommands {
     },
     /// Remove a vendor API key from ~/.susi/cloud.env
     Remove { vendor: String },
+    /// Live-check registered keys against each vendor (one read-only /models call each)
+    Check {
+        /// Vendor or alias (e.g. xai, grok, together). Omit to check every cloud vendor.
+        vendor: Option<String>,
+    },
+    /// List the models a vendor serves right now (uses the registered key)
+    Models {
+        /// Vendor or alias (e.g. fireworks, deepinfra)
+        vendor: String,
+    },
 }
 
 #[derive(Subcommand)]

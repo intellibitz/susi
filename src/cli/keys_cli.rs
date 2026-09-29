@@ -51,6 +51,8 @@ pub(crate) fn run(action: Option<KeyCommands>) {
                 );
             }
         }
+        Some(KeyCommands::Check { vendor }) => run_check(vendor.as_deref()),
+        Some(KeyCommands::Models { vendor }) => run_models(&vendor),
         Some(KeyCommands::Remove { vendor }) => {
             match susi_gemi::engines::http_provider::remove_api_key(&vendor) {
                 Ok(msg) => println!("{}", msg),
@@ -111,4 +113,60 @@ fn prompt_api_key(vendor: &str) -> io::Result<String> {
         ));
     }
     Ok(key)
+}
+
+fn run_check(vendor: Option<&str>) {
+    let rows = match susi_gemi::models::cloud_manage::check(vendor) {
+        Ok(rows) => rows,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+    println!(
+        "{:<12} {:<13} {:>7}  default model",
+        "vendor", "key", "models"
+    );
+    for r in &rows {
+        let state = serde_json::to_value(r.state)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default();
+        let default = match r.default_model_served {
+            Some(true) => format!("{} (served)", r.default_model),
+            Some(false) => format!("{} (NOT served — pick another)", r.default_model),
+            None => r.default_model.clone(),
+        };
+        println!(
+            "{:<12} {:<13} {:>7}  {}",
+            r.vendor, state, r.model_count, default
+        );
+    }
+    let bad = rows
+        .iter()
+        .any(|r| matches!(r.state, susi_gemi::models::cloud_manage::KeyState::Rejected));
+    if bad {
+        std::process::exit(2);
+    }
+}
+
+fn run_models(vendor: &str) {
+    match susi_gemi::models::cloud_manage::check(Some(vendor)) {
+        Ok(rows) => {
+            for r in rows {
+                if r.state != susi_gemi::models::cloud_manage::KeyState::Valid {
+                    eprintln!("{}: key state {:?}; no model list", r.vendor, r.state);
+                    std::process::exit(1);
+                }
+                println!("{} — {} models", r.vendor, r.model_count);
+                for m in r.models {
+                    println!("  {m}");
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
 }

@@ -22,6 +22,7 @@ pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
 
 pub mod cloud;
+pub mod cloud_manage;
 pub mod frontier;
 pub mod hf_discovery;
 pub mod local_ecosystem;
