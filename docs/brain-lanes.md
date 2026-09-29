@@ -318,3 +318,37 @@ One line per landed step, newest last.
 31. Duration-aware briefs: trace `duration_secs` now renders as `[~Ns]`
     on each brief line — observed mission cost reaches the planner;
     every trace field is now consumed downstream.
+32. Failing-agent history: `failing_agent_counts` mirrors the tool
+    signal for the `agents` field — an agent only on failed similar
+    missions (never a verified win) merges into HistorySignals.failed,
+    so plans naming it get docked the same as tainted tools.
+33. Proven-step bonus (mirror of #11): `proven_steps` collects step texts
+    from verified-success similar missions; a candidate step matching one
+    (token Jaccard>=0.6) earns +0.05 (cap 3) — plans lean toward moves
+    that demonstrably worked, not only away from moves that broke.
+34. Proven-agent bonus: `proven_agents` mirrors `failing_agent_counts` —
+    agents only on verified-success missions merge into
+    HistorySignals.proven, so steps naming a trusted agent earn the
+    same bonus as proven tools. Agent signal symmetry complete.
+35. PlanRecord attribution fix (iter-10 bug): abort and success paths
+    recorded `candidates[0]`'s score and `plan`'s steps regardless of
+    which candidate actually ran. Now tracks the executed candidate;
+    score comes from the matching candidate or a fresh score_plan for
+    the fallback — traces join the RIGHT plan to the outcome.
+36. Intra-plan duplicate penalty: score_plan_* now dock -0.05 per
+    near-duplicate step (token Jaccard>=0.8 vs any earlier step) —
+    repeated steps waste execution and a duplicate-heavy plan should
+    lose to a varied one.
+37. Paraphrase-proof promotion: `promotion_status` now matches exact
+    signatures OR Jaccard>=0.6 paraphrases — an intent that failed
+    under slightly different phrasing can no longer escape the veto
+    window (or inflate a different intent's record).
+38. Risk-scaled consensus bar: the top-two similarity threshold now
+    scales with the manifold — 0.55 for High/Critical risk, 0.45 for
+    Mutate/SelfExtend scope, 0.35 read-only — and is recorded on the
+    Deliberation (and printed in the mission log) so a missed gate
+    stays auditable.
+39. Plan-length prior: `proven_plan_length` (median step count of
+    similar verified successes) is pushed into the candidate budgets,
+    so the search explores the plan shape that actually worked for
+    this intent class, not only the fixed [4,2] grid.

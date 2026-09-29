@@ -400,9 +400,19 @@ pub fn has_traces_for(traces: &[MissionTrace], intent: &str) -> bool {
 
 pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatus {
     let signature = token_signature(intent);
+    let intent_tokens = goal_tokens(intent);
+    // Match exact signatures AND near-identical paraphrases (Jaccard ≥
+    // 0.6): an intent that failed under a slightly different phrasing is
+    // still the same habit — a paraphrase must not escape a veto.
     let matching: Vec<&MissionTrace> = traces
         .iter()
-        .filter(|t| token_signature(&t.goal) == signature)
+        .filter(|t| {
+            token_signature(&t.goal) == signature || {
+                let other = goal_tokens(&t.goal);
+                let union = intent_tokens.union(&other).count();
+                union > 0 && intent_tokens.intersection(&other).count() as f32 / union as f32 >= 0.6
+            }
+        })
         .collect();
     // Only evidence-backed wins count toward promotion — a bare "SUCCESS"
     // verdict with zero receipts is a claim, not proof a reflex helped.
@@ -447,6 +457,56 @@ pub fn failed_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<St
         .collect()
 }
 
+/// Agents that appear only on *verified-successful* similar missions —
+/// the agent mirror of `proven_tools`: an agent that also ran on a
+/// failure is ambiguous and earns nothing.
+pub fn proven_agents(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeSet<String> {
+    let (mut failed, mut proven) = (
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+    );
+    for t in similar(goal, traces, limit) {
+        if t.verified() {
+            proven.extend(t.agents.iter().cloned());
+        } else if !t.succeeded() {
+            failed.extend(t.agents.iter().cloned());
+        }
+    }
+    proven.retain(|a| !failed.contains(a));
+    proven
+}
+
+/// The step texts of similar missions that *verified* — the positive
+/// counterpart of `failed_steps`: a candidate echoing a proven step
+/// repeats a move that demonstrably worked.
+pub fn proven_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<String> {
+    similar(goal, traces, limit)
+        .iter()
+        .filter(|t| t.verified())
+        .flat_map(|t| t.plan_steps.iter().cloned())
+        .collect()
+}
+
+/// Median step count of plans that ran on similar verified-success
+/// missions — a plan-shape prior the candidate search should center
+/// on. `None` when no recorded plan succeeded here.
+pub fn proven_plan_length(goal: &str, traces: &[MissionTrace], limit: usize) -> Option<u32> {
+    let mut lengths: Vec<usize> = similar(goal, traces, limit)
+        .iter()
+        .filter(|t| t.verified() && !t.plan_steps.is_empty())
+        .map(|t| t.plan_steps.len())
+        .collect();
+    if lengths.is_empty() {
+        return None;
+    }
+    lengths.sort_unstable();
+    Some(lengths[lengths.len() / 2] as u32)
+}
+
 /// Tools that appeared in failed missions similar to `goal`, with the
 /// number of failed missions each appeared on — repeated failures weigh
 /// more than one-offs. Successes using the same tool don't clear it here
@@ -478,6 +538,34 @@ pub fn failing_tool_counts(
     // A tool that also appears on successful similar missions is ambiguous —
     // only unambiguous failure carries the penalty.
     failed.retain(|tool, _| !succeeded.contains(tool));
+    failed
+}
+
+/// Agents that appeared only on failed similar missions, counted per
+/// mission — the same provenance rule as `failing_tool_counts` applied
+/// to the agents field: an agent that also ran on a verified success is
+/// ambiguous and carries no taint.
+pub fn failing_agent_counts(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeMap<String, u32> {
+    let (mut failed, mut cleared) = (
+        std::collections::BTreeMap::<String, u32>::new(),
+        std::collections::BTreeSet::<String>::new(),
+    );
+    for t in similar(goal, traces, limit) {
+        if t.verified() {
+            cleared.extend(t.agents.iter().cloned());
+        } else if t.succeeded() {
+            continue;
+        } else {
+            for agent in t.agents.iter().collect::<std::collections::BTreeSet<_>>() {
+                *failed.entry(agent.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    failed.retain(|agent, _| !cleared.contains(agent));
     failed
 }
 
@@ -827,6 +915,27 @@ mod tests {
             promotion_status(&recovered, "deploy the api"),
             PromotionStatus::Promotable { .. }
         ));
+
+        // A paraphrase of a recently-failed intent is still vetoed —
+        // rephrasing does not reset the habit's record.
+        let paraphrase = vec![MissionTrace::new(
+            "m",
+            "deploy the api backend",
+            "FAILED",
+            "swarm",
+        )];
+        assert!(matches!(
+            promotion_status(&paraphrase, "deploy the api"),
+            PromotionStatus::Vetoed { .. }
+        ));
+        // A genuinely different intent is untouched by the same failure.
+        assert!(matches!(
+            promotion_status(&paraphrase, "uninstall the kernel module"),
+            PromotionStatus::Insufficient {
+                successes: 0,
+                failures: 0
+            }
+        ));
     }
 
     #[test]
@@ -970,6 +1079,51 @@ mod tests {
         ));
         // Novel intent — nothing to judge.
         assert!(!unreliable_neighborhood("never seen intent", &traces, 8));
+    }
+
+    #[test]
+    fn failing_agent_counts_track_missions_and_clear_on_verified_wins() {
+        let ws = workspace();
+        let mut f1 = MissionTrace::new("f1", "review the change", "FAILED", "swarm");
+        f1.agents = vec!["reviewer".into(), "reviewer".into(), "helper".into()];
+        let mut f2 = MissionTrace::new("f2", "review the change", "FAILED", "swarm");
+        f2.agents = vec!["helper".into()];
+        let mut ok = MissionTrace::new("ok", "review the change", "SUCCESS", "swarm");
+        ok.agents = vec!["reviewer".into()];
+        ok.evidence_entries = 1;
+        f1.emit(ws.path()).unwrap();
+        f2.emit(ws.path()).unwrap();
+        ok.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let counts = failing_agent_counts("review the change", &traces, 8);
+        // helper failed on two missions; reviewer is exonerated by the
+        // verified success; the duplicate in f1 counts once.
+        assert_eq!(counts.get("helper"), Some(&2));
+        assert!(!counts.contains_key("reviewer"));
+    }
+
+    #[test]
+    fn proven_agents_excludes_ambiguous_and_unverified() {
+        let ws = workspace();
+        let mut ok1 = MissionTrace::new("o1", "review the change", "SUCCESS", "swarm");
+        ok1.agents = vec!["reviewer".into(), "drafter".into()];
+        ok1.evidence_entries = 1;
+        // Bare-claim success proves nothing — scout is not "proven".
+        let mut bare = MissionTrace::new("o2", "review the change", "SUCCESS", "swarm");
+        bare.agents = vec!["scout".into()];
+        let mut bad = MissionTrace::new("b", "review the change", "FAILED", "swarm");
+        bad.agents = vec!["drafter".into(), "flaky".into()];
+        ok1.emit(ws.path()).unwrap();
+        bare.emit(ws.path()).unwrap();
+        bad.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let proven = proven_agents("review the change", &traces, 8);
+        // reviewer: verified win only → proven. drafter: also failed →
+        // ambiguous. scout: unverified claim → not proven. flaky: failed.
+        assert!(proven.contains("reviewer"), "{proven:?}");
+        assert!(!proven.contains("drafter"));
+        assert!(!proven.contains("scout"));
+        assert!(!proven.contains("flaky"));
     }
 
     #[test]
@@ -1169,5 +1323,37 @@ mod tests {
             let t = MissionTrace::new("m", "g", outcome, "r");
             assert_eq!(t.succeeded(), ok, "{outcome}");
         }
+    }
+
+    #[test]
+    fn proven_plan_length_median_of_verified_successes() {
+        let mk = |steps: &[&str]| {
+            let mut t = MissionTrace::new("m", "deploy api backend", "COMPLETE", "swarm");
+            t.plan_steps = steps.iter().map(|s| s.to_string()).collect();
+            t.evidence_entries = 1;
+            t
+        };
+        let traces = vec![
+            mk(&["a", "b"]),
+            mk(&["a", "b", "c", "d"]),
+            mk(&["a", "b", "c", "d"]),
+        ];
+        assert_eq!(
+            proven_plan_length("deploy api backend", &traces, 8),
+            Some(4)
+        );
+
+        // Unverified success claims don't feed the prior.
+        let bare = vec![MissionTrace::new(
+            "m",
+            "deploy api backend",
+            "COMPLETE",
+            "swarm",
+        )];
+        assert_eq!(proven_plan_length("deploy api backend", &bare, 8), None);
+        // Neither do failures that carried a plan.
+        let mut failed = MissionTrace::new("m", "deploy api backend", "FAILED", "swarm");
+        failed.plan_steps = vec!["a".into()];
+        assert_eq!(proven_plan_length("deploy api backend", &[failed], 8), None);
     }
 }

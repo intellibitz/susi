@@ -825,11 +825,33 @@ impl SusiMasterAgent {
             // A novel or frequently-failed intent earns a wider search.
             budgets.push((max_steps + 4).min(8));
         }
+        // The shape that actually worked before is a prior worth
+        // searching around — similar verified successes say how long
+        // a plan for this intent class usually needs to be.
+        if let Some(shape) = crate::susi_core::mission_trace::proven_plan_length(&goal, &traces, 8)
+        {
+            budgets.push(shape.clamp(1, 12));
+        }
+        budgets.sort_unstable();
         budgets.dedup();
+        let mut failed_entities =
+            crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8);
+        // Agents that only ever ran on failed similar missions taint plans
+        // the same way tools do — a step naming one gets docked.
+        for (agent, count) in
+            crate::susi_core::mission_trace::failing_agent_counts(&goal, &traces, 8)
+        {
+            *failed_entities.entry(agent).or_insert(0) += count;
+        }
+        let mut proven_entities = crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8);
+        proven_entities.extend(crate::susi_core::mission_trace::proven_agents(
+            &goal, &traces, 8,
+        ));
         let history = crate::deliberation::HistorySignals {
-            failed: crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8),
-            proven: crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8),
+            failed: failed_entities,
+            proven: proven_entities,
             failed_steps: crate::susi_core::mission_trace::failed_steps(&goal, &traces, 8),
+            proven_steps: crate::susi_core::mission_trace::proven_steps(&goal, &traces, 8),
         };
         let mut deliberation =
             crate::deliberation::deliberate(&goal, &manifold, &budgets, &history, |budget| {
@@ -859,10 +881,11 @@ impl SusiMasterAgent {
             );
         }
         eprintln!(
-            "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?}",
+            "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?} threshold={:.2}",
             deliberation.candidates.len(),
             deliberation.consensus_required,
-            deliberation.consensus
+            deliberation.consensus,
+            deliberation.consensus_threshold
         );
         for (i, c) in deliberation.candidates.iter().enumerate() {
             eprintln!(
@@ -925,6 +948,18 @@ impl SusiMasterAgent {
         } else {
             vec![plan.clone()]
         };
+        // Honest attribution: the score of the plan that actually ran —
+        // a fallback single-step or a later candidate is not
+        // candidates[0], and the trace must not claim it is.
+        let executed_score = |executed: &[String]| {
+            deliberation
+                .candidates
+                .iter()
+                .find(|c| c.steps == executed)
+                .map(|c| c.score)
+                .unwrap_or_else(|| crate::deliberation::score_plan(&goal, executed, max_steps).0)
+        };
+        let mut succeeded_plan: Option<&Vec<String>> = None;
         'attempts: for (attempt, attempt_plan) in plans_to_try.iter().enumerate() {
             if attempt > 0 {
                 eprintln!(
@@ -983,7 +1018,7 @@ impl SusiMasterAgent {
                         interactions: report.interactions,
                         plan: Some(super::report::PlanRecord {
                             steps: attempt_plan.clone(),
-                            score: deliberation.candidates[0].score,
+                            score: executed_score(attempt_plan),
                             consensus: deliberation.consensus,
                             failed_step: Some((i + 1) as u32),
                         }),
@@ -999,6 +1034,7 @@ impl SusiMasterAgent {
                     return Ok(final_report);
                 }
             }
+            succeeded_plan = Some(attempt_plan);
             break;
         }
 
@@ -1016,9 +1052,12 @@ impl SusiMasterAgent {
         crate::cloud_recovery::recover(&mut final_report, workspace, None, false, session.clone());
         // The synthesis path's own report never saw plan search — attach the
         // deliberation record so the mission trace joins plan to outcome.
+        // The recorded steps/score are the candidate that actually
+        // succeeded — not always candidates[0] after a replan.
+        let winning_plan = succeeded_plan.unwrap_or(&plan);
         final_report.plan = Some(super::report::PlanRecord {
-            steps: plan.clone(),
-            score: deliberation.candidates[0].score,
+            steps: winning_plan.clone(),
+            score: executed_score(winning_plan),
             consensus: deliberation.consensus,
             failed_step: None,
         });
