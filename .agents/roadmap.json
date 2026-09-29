@@ -1,7 +1,7 @@
 {
   "description": "Structural roadmap and future evolution goals of the SUSI local-and-cloud AI operating layer (agent governance — not end-user docs). Implemented truth remains identity.json plus evidence.json; roadmap text is not proof.",
   "schema": "susi/roadmap/v1",
-  "strategic_priority": "Local + Cloud Federation",
+  "strategic_priority": "Evidence-Gated Recursive Self-Improvement + Swarm Local/Cloud AI Operations",
   "target_version": "0.15.0",
   "title": "SUSI Substrate Roadmap: The Sovereign Will",
   "vectors": [
@@ -18,6 +18,1279 @@
       "progress": "PARTIAL, reinterpreted: literal runtime Rust trait patching isn't achievable in safe Rust. Delivered the mechanism, not yet the capability — `resolve_capability_gap` now falls back to `ReflexSynthesizer::synthesize_wasm_reflex`, which generates and compiles an input-dependent WASI reflex and hot-loads it via the existing `reflex_<name>` convention with **no daemon restart** (`src/gawd/reflex_synth.rs`, `src/gmcp/tools/mod.rs`). Also fixed two latent bugs found while building this: the target triple (`wasm32-wasi`, removed from rustc) was corrected to `wasm32-wasip1`, and the synthesized source previously had no `fn main()`/`_start`, so it could never have executed even if it had compiled. Compilation requires the `wasm32-wasip1` rustup target; the live end-to-end test (`test_wasm_reflex_hot_patch_end_to_end`) honestly skips (not silently) when that target is absent rather than assuming success. As of 2026-09-22 (EV-2022922-099), that target IS installed in this dev environment and the test was run directly (not just checked for the skip path): it took the real compile-and-execute branch and passed, `rustc --target wasm32-wasip1` compiling the synthesized reflex and `WasmHost::execute_reflex` running it under WASI with correct output. This confirms the full live path genuinely works, at least in one environment with the toolchain present — it is still environment-dependent (unverified whether `wasm32-wasip1` is installed in CI or other dev machines), and this run only exercised `synthesize_wasm_reflex` + `WasmHost::execute_reflex` directly, not a full pass through `resolve_capability_gap`'s own call site. Call-site e2e closed 2026-09-24: capability_gap_e2e drives an unregistered tool name through the real ToolRegistry::execute_tool → resolve_capability_gap → SusiEngineHooks → synthesize_wasm_reflex path (rustc wasm32-wasip1 compile verified passing, no skip), then hot-loads and executes the resulting reflex through a second execute_tool under the reflex_<slug> convention against the live susi-native service. As of 2026-09-28 (EV-2022928-312): the synthesized reflex is a fixed signature-echo template, so the hot-patch path is proven but no capability is actually closed by it; the capability-gap reply previously said \"Synthesized ... Retry as reflex_<name>\", implying the gap was resolved, and now states that the probe does not implement the capability and the gap remains open. Next real step: model-generated reflex source, compiled and verified against the intent before it is registered. As of 2026-09-28 (EV-2022928-313): the capability-gap path now tries model-written reflex source first — published only after it parses, compiles, and runs on a probe input in the WASI sandbox — and falls back to the probe with the failure reason. Still open: verifying a reflex's output is correct for its intent (the probe run proves it executes, not that it is right); not exercised end to end in this run (tests deferred by operator instruction).",
       "type": "CORE",
       "vector": "Neural Self-Repair & Hot-Reload"
+    },
+    {
+      "id": "VC-201-001",
+      "type": "RSI_EVALUATION",
+      "vector": "Version the RSI evaluation corpus",
+      "mastery_target": "Create versioned coding, repair, orchestration, and local/cloud operations fixtures with input hashes and held-out splits; replay the same revision with recorded seeds and no evaluator-data exposure to the candidate.",
+      "priority": "P0",
+      "depends_on": [],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-002",
+      "type": "RSI_EVALUATION",
+      "vector": "Capture a reproducible released baseline",
+      "mastery_target": "Benchmark the installed release as an unchanged reference and candidates on the isolated dev instance; record commit, hardware, runtime, dataset, success rate, latency, tokens, and cost with reproducible commands.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-001"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-003",
+      "type": "RSI_EVALUATION",
+      "vector": "Define a measurable improvement scorecard",
+      "mastery_target": "Publish separate quality, reliability, latency, resource, and operator-effort measures with predeclared comparison thresholds; report uncertainty and never equate task count with a percentage improvement.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-001",
+        "VC-201-002"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-004",
+      "type": "RSI_EVALUATION",
+      "vector": "Bind evaluation receipts to candidate artifacts",
+      "mastery_target": "Each evaluation receipt identifies source revision, binary or Wasm digest, suite revision, environment, and actual exit status; a changed artifact or missing receipt invalidates the comparison.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-001"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-005",
+      "type": "RSI_EVALUATION",
+      "vector": "Separate candidate generation from judging",
+      "mastery_target": "Run the evaluator with held-out inputs and write permissions unavailable to the candidate; demonstrate that a patch altering its own expected results cannot satisfy the promotion gate.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-001",
+        "VC-201-004"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-006",
+      "type": "RSI_EVALUATION",
+      "vector": "Add paired statistical regression decisions",
+      "mastery_target": "Compare baseline and candidate over repeated paired trials with configured confidence and minimum sample counts; noisy or undersampled results return inconclusive rather than improved.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-001",
+        "VC-201-002"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-007",
+      "type": "RSI_EVALUATION",
+      "vector": "Verify synthesized reflex intent correctness",
+      "mastery_target": "Extend the existing compile-and-probe path with independent intent fixtures, malformed-input checks, and output assertions before registration; reject an executable signature-echo or semantically wrong reflex.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-004",
+        "VC-201-005"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-008",
+      "type": "RSI_EVALUATION",
+      "vector": "Generate property and metamorphic intent checks",
+      "mastery_target": "Attach independently reviewed invariants to eligible pure reflexes and state machines using proptest; minimized counterexamples reproduce against the exact failing artifact.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-001",
+        "VC-201-004"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-009",
+      "type": "RSI_EVALUATION",
+      "vector": "Detect evaluation contamination",
+      "mastery_target": "Track evaluation-data access and overlaps between training, memory, and held-out fixtures; a contaminated run is excluded from improvement evidence with an inspectable reason.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-001",
+        "VC-201-005"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-010",
+      "type": "RSI_EVALUATION",
+      "vector": "Publish evidence-backed RSI experiment comparisons",
+      "mastery_target": "Expose candidate-versus-baseline metrics and receipt links through CLI and machine-readable output; failed, inconclusive, and rejected trials remain visible alongside successful ones.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-003",
+        "VC-201-006",
+        "VC-201-007",
+        "VC-201-009"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-011",
+      "type": "RSI_EXECUTION",
+      "vector": "Persist the self-improvement experiment lifecycle",
+      "mastery_target": "Implement proposed, isolated, evaluated, rejected, and promotion-ready states with durable transitions; kill-and-resume tests neither skip evaluation nor duplicate an applied transition.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-004"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-012",
+      "type": "RSI_EXECUTION",
+      "vector": "Prioritize capability gaps by observed impact",
+      "mastery_target": "Turn recurring typed failures into deduplicated proposals ranked by measured frequency, user impact, and expected evaluation cost; one failure pattern produces one active proposal with receipt links.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-003",
+        "VC-201-011"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-013",
+      "type": "RSI_EXECUTION",
+      "vector": "Fence autonomous patches into isolated workspaces",
+      "mastery_target": "Create a candidate checkout with explicit path and command scope for each experiment; concurrent experiments preserve user changes and cannot write the installed release or another experiment's workspace.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-011"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-014",
+      "type": "RSI_EXECUTION",
+      "vector": "Enforce cumulative RSI experiment budgets",
+      "mastery_target": "Reserve and debit tokens, wall time, subprocesses, and cloud spend across retries and delegated descendants; exhausting a budget durably stops new work and cancels eligible children.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-011",
+        "VC-201-013"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-015",
+      "type": "RSI_EXECUTION",
+      "vector": "Gate self-patches on the full repository checks",
+      "mastery_target": "Run cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, and cargo test --workspace --locked against the candidate; missing, skipped, or failing checks prevent promotion readiness.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-004",
+        "VC-201-013"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-016",
+      "type": "RSI_EXECUTION",
+      "vector": "Version and revoke generated reflexes",
+      "mastery_target": "Store source, compiler, Wasm digest, intent tests, and grants per reflex revision; pinned callers retain their revision while revocation blocks new execution and rollback restores a previously verified artifact.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-007",
+        "VC-201-011",
+        "VC-201-013"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-017",
+      "type": "RSI_EXECUTION",
+      "vector": "Run candidate canaries on the dev instance",
+      "mastery_target": "Compare a candidate on ~/.susi-dev and ports 9190-9194 using an isolated evaluation workload; crossing a declared regression limit stops the trial without replacing the installed release.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-006",
+        "VC-201-014",
+        "VC-201-015"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-018",
+      "type": "RSI_EXECUTION",
+      "vector": "Connect RSI promotion to release-only self-build",
+      "mastery_target": "A passing experiment produces a reviewable release candidate and evidence manifest; only susi release and scripts/susi-release-sync.sh promote tagged builds, and attempts to install target/ binaries into ~/.susi/bin are rejected.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-015",
+        "VC-201-017"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-019",
+      "type": "RSI_EXECUTION",
+      "vector": "Learn from failed and rejected experiments",
+      "mastery_target": "Store failure causes, counterexamples, and proposal lineage in scoped experiment memory; repeated proposals must address the previous rejection or explicitly declare new evidence.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-010",
+        "VC-201-011"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-020",
+      "type": "RSI_EXECUTION",
+      "vector": "Validate multiple generations of recursive improvement",
+      "mastery_target": "Run at least three successive candidate generations on a fixed held-out suite with unchanged gates; publish each generation's deltas, budget, and rejection history and stop on non-improvement or regression.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-010",
+        "VC-201-014",
+        "VC-201-018",
+        "VC-201-019"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-021",
+      "type": "SWARM_EXECUTION",
+      "vector": "Persist executable mission DAG state",
+      "mastery_target": "Persist task inputs, dependencies, outputs, and terminal states for supported mission types; restarting between dependency completion and dispatch resumes runnable work without treating unfinished nodes as complete.",
+      "priority": "P0",
+      "depends_on": [],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-022",
+      "type": "SWARM_EXECUTION",
+      "vector": "Fence swarm task ownership with durable leases",
+      "mastery_target": "Assign expiring ownership and monotonic fencing tokens to dispatched tasks; a recovered or partitioned worker with an old token cannot publish authoritative task completion.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-021"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-023",
+      "type": "SWARM_EXECUTION",
+      "vector": "Classify and reconcile task side effects",
+      "mastery_target": "Declare read-only, idempotent, reconcilable, and non-retryable tool actions; crash tests retry only supported actions and surface uncertain external effects for reconciliation.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-021",
+        "VC-201-022"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-024",
+      "type": "SWARM_EXECUTION",
+      "vector": "Schedule by live resource and capability constraints",
+      "mastery_target": "Use measured CPU, GPU memory, model readiness, and tool grants to admit runnable DAG nodes; oversubscribed fixtures queue work and never exceed declared resource reservations.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-021"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-025",
+      "type": "SWARM_EXECUTION",
+      "vector": "Add bounded fair queues for concurrent missions",
+      "mastery_target": "Apply configurable per-workspace concurrency and queue limits with aging or weighted fairness; sustained load from one mission cannot indefinitely starve another admitted mission.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-021",
+        "VC-201-024"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-026",
+      "type": "SWARM_EXECUTION",
+      "vector": "Propagate cancellation through the entire swarm",
+      "mastery_target": "Carry cancellation and remaining deadlines through local workers, external agents, peer dispatch, and model calls; integration tests terminate cancellable descendants and report any irreversibly running remote job.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-014",
+        "VC-201-021",
+        "VC-201-022"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-027",
+      "type": "SWARM_EXECUTION",
+      "vector": "Select complementary swarm roles from evidence",
+      "mastery_target": "Choose implementer, verifier, and specialist roles using measured task suitability and granted capabilities; controlled benchmarks report when extra agents improve outcomes and when single-agent execution is cheaper.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-021",
+        "VC-201-024"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-028",
+      "type": "SWARM_EXECUTION",
+      "vector": "Require independent evidence for swarm verification",
+      "mastery_target": "Bind review conclusions to tool receipts and reviewer provenance; duplicate outputs or the implementer's own unsupported assertion cannot satisfy an independent verification requirement.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-005",
+        "VC-201-021"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-029",
+      "type": "SWARM_EXECUTION",
+      "vector": "Resolve concurrent workspace edits transactionally",
+      "mastery_target": "Stage agent patches against a known base and detect overlapping changes before applying them; conflicting edits produce a reviewable conflict while unrelated user modifications are preserved.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-021",
+        "VC-201-023",
+        "VC-201-028"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-030",
+      "type": "SWARM_EXECUTION",
+      "vector": "Expose durable mission resume and partial outcomes",
+      "mastery_target": "Provide CLI and API views of blocked, running, cancelled, uncertain, and completed DAG nodes with recovery actions; a restart drill resumes only supported work and never reports partial success as full completion.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-021",
+        "VC-201-022",
+        "VC-201-023",
+        "VC-201-026"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-031",
+      "type": "FEDERATION",
+      "vector": "Model-check membership and term transitions",
+      "mastery_target": "Build a deterministic model of the existing signed roster and commit rules with reordered messages, partitions, and restarts; preserve discovered counterexamples and document the exact safety properties the implementation satisfies.",
+      "priority": "P0",
+      "depends_on": [],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-032",
+      "type": "FEDERATION",
+      "vector": "Implement joint-consensus membership transitions",
+      "mastery_target": "Extend existing member signatures and endorsements with serialized old/new electorate transitions; overlapping add/remove operations cannot commit disjoint active rosters under the documented fault model.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-031"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-033",
+      "type": "FEDERATION",
+      "vector": "Revoke compromised peer identities durably",
+      "mastery_target": "Commit node-key rotation and revocation with old/new key authorization and quorum checks; revoked credentials fail after restart while historical signed records remain verifiable.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-031",
+        "VC-201-032"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-034",
+      "type": "FEDERATION",
+      "vector": "Negotiate federation protocol compatibility",
+      "mastery_target": "Advertise supported wire and ledger versions with explicit minimum security requirements; mixed-version tests accept compatible peers and reject unsupported or insecure downgrades with actionable errors.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-031"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-035",
+      "type": "FEDERATION",
+      "vector": "Fence coordinator failover during live missions",
+      "mastery_target": "Tie task leases and authoritative mission writes to accepted leadership epochs; partition and reconnect tests reject stale-coordinator writes and preserve the surviving mission state.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-022",
+        "VC-201-031",
+        "VC-201-032"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-036",
+      "type": "FEDERATION",
+      "vector": "Authenticate snapshot-based peer bootstrap",
+      "mastery_target": "Bootstrap a new peer from a signed snapshot manifest plus verified ledger tail; reject tampered state, missing anchors, and roster histories that cannot establish the snapshot's authority.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-031",
+        "VC-201-032"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-037",
+      "type": "FEDERATION",
+      "vector": "Bound anti-entropy catch-up under sustained load",
+      "mastery_target": "Add bounded batches, rate limits, and resumable cursors to existing ledger repair; a lagging peer converges after interruption without unbounded memory or starving foreground missions.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-031",
+        "VC-201-036"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-038",
+      "type": "FEDERATION",
+      "vector": "Admit explicitly configured WAN peers",
+      "mastery_target": "Support pinned remote endpoints and authenticated relay or direct transport through the existing peer contract; reconnect tests preserve identity, confidentiality, replay checks, and operator egress policy.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-033",
+        "VC-201-034"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-039",
+      "type": "FEDERATION",
+      "vector": "Place federated tasks by data locality",
+      "mastery_target": "Score eligible peers using dataset location, verified capabilities, available resources, and residency constraints; a local-only dataset cannot be moved or routed off its permitted hosts.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-024",
+        "VC-201-034",
+        "VC-201-038"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-040",
+      "type": "FEDERATION",
+      "vector": "Run a multi-node federation fault matrix",
+      "mastery_target": "Exercise partitions, clock skew, duplicate delivery, stale keys, failed rekeys, mixed versions, and crash recovery against real dev nodes; archive traces and explicitly enumerate unsupported failure guarantees.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-032",
+        "VC-201-033",
+        "VC-201-034",
+        "VC-201-035",
+        "VC-201-036",
+        "VC-201-037",
+        "VC-201-038",
+        "VC-201-039"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-041",
+      "type": "LOCAL_HOSTING",
+      "vector": "Publish an observed local AI resource inventory",
+      "mastery_target": "Unify actual CPU, RAM, GPU, VRAM, disk, model, and runtime observations with timestamps and provenance; unavailable probes are unknown rather than zero or fabricated readiness.",
+      "priority": "P0",
+      "depends_on": [],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-042",
+      "type": "LOCAL_HOSTING",
+      "vector": "Conform local runtimes to one lifecycle contract",
+      "mastery_target": "Exercise discover, load, ready, infer, cancel, unload, and health behavior for supported native and HTTP-managed runtimes; unsupported operations return typed errors and process presence alone cannot establish readiness.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-041"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-043",
+      "type": "LOCAL_HOSTING",
+      "vector": "Reserve accelerator memory before model admission",
+      "mastery_target": "Coordinate model loads and inference reservations using measured memory headroom; concurrent load and out-of-memory tests release reservations and preserve a responsive control plane.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-024",
+        "VC-201-041",
+        "VC-201-042"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-044",
+      "type": "LOCAL_HOSTING",
+      "vector": "Publish model downloads transactionally",
+      "mastery_target": "Extend managed installation with resumable content verification and staging; interrupted or checksum-mismatched downloads never appear as ready models and disk-full failures leave recoverable state.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-041",
+        "VC-201-042"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-045",
+      "type": "LOCAL_HOSTING",
+      "vector": "Benchmark model and quantization placement choices",
+      "mastery_target": "Measure representative candidate formats and quantizations on the actual host with correctness and memory checks; recommendations identify their measurements and reject unsupported format/backend combinations.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-041",
+        "VC-201-042",
+        "VC-201-043"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-046",
+      "type": "LOCAL_HOSTING",
+      "vector": "Batch compatible local inference requests",
+      "mastery_target": "Introduce bounded batching only for backends that support it, with per-request deadlines and cancellation; load tests demonstrate throughput changes without violating configured latency or memory limits.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-024",
+        "VC-201-025",
+        "VC-201-042",
+        "VC-201-043"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-047",
+      "type": "LOCAL_HOSTING",
+      "vector": "Tune model residency from measured demand",
+      "mastery_target": "Extend current idle and pressure eviction with workload-aware prewarming and hysteresis; a mixed-workload benchmark measures cold starts and proves the cache avoids repeated load/evict oscillation.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-041",
+        "VC-201-042",
+        "VC-201-043"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-048",
+      "type": "LOCAL_HOSTING",
+      "vector": "Make placement respect host thermal and power limits",
+      "mastery_target": "Use available thermal and power telemetry with explicit unknown states and operator limits; simulated pressure throttles or reroutes eligible work while preserving local-only requirements.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-041",
+        "VC-201-043"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-049",
+      "type": "LOCAL_HOSTING",
+      "vector": "Drain local AI workloads for suspend and maintenance",
+      "mastery_target": "Quiesce supported jobs, checkpoint resumable work, and re-probe runtimes after resume or driver reset; interrupted requests report their actual outcome and stale GPU readiness is discarded.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-030",
+        "VC-201-041",
+        "VC-201-042"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-050",
+      "type": "LOCAL_HOSTING",
+      "vector": "Support verified offline bootstrap and recovery",
+      "mastery_target": "Import a checksummed bundle of supported binaries, models, and extension metadata into an isolated host; a network-disabled drill boots, serves a local mission, and diagnoses missing artifacts without cloud fallback.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-041",
+        "VC-201-042",
+        "VC-201-044"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-051",
+      "type": "CLOUD_HOSTING",
+      "vector": "Probe cloud provider contracts reproducibly",
+      "mastery_target": "Execute opt-in credentialed and fixture-backed checks for authentication, streaming, tool calls, embeddings, usage, and errors; capability claims include provider/model/version, observation time, and unsupported cases.",
+      "priority": "P0",
+      "depends_on": [],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-052",
+      "type": "CLOUD_HOSTING",
+      "vector": "Reserve and reconcile cloud inference spend",
+      "mastery_target": "Reserve estimated spend before requests and reconcile provider-reported usage afterward across parallel agents and retries; unknown prices or missing usage follow explicit policy and cannot silently bypass a hard budget.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-014",
+        "VC-201-051"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-053",
+      "type": "CLOUD_HOSTING",
+      "vector": "Coordinate provider quotas and retry budgets",
+      "mastery_target": "Share request/token quotas, Retry-After handling, and circuit-breaker state across local workers; concurrent throttling tests bound retries and prevent a failing provider from causing retry storms.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-025",
+        "VC-201-051",
+        "VC-201-052"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-054",
+      "type": "CLOUD_HOSTING",
+      "vector": "Enforce provider region and residency eligibility",
+      "mastery_target": "Attach verified or operator-attested region metadata with provenance to cloud targets; placement rejects unknown or disallowed regions for constrained workloads before any payload is sent.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-039",
+        "VC-201-051"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-055",
+      "type": "CLOUD_HOSTING",
+      "vector": "Reconcile managed cloud inference deployments",
+      "mastery_target": "Extend the existing provisioning path with desired/observed state, stable operation IDs, health checks, and rollback for an explicitly supported backend; repeated apply and crash recovery do not create duplicate resources.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-023",
+        "VC-201-051",
+        "VC-201-052",
+        "VC-201-054"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-056",
+      "type": "CLOUD_HOSTING",
+      "vector": "Autoscale managed endpoints within spend limits",
+      "mastery_target": "Scale an admitted deployment using queue depth, latency, min/max replicas, and stabilization windows; load tests show bounded scale decisions and scale-down drains in-flight requests.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-024",
+        "VC-201-052",
+        "VC-201-055"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-057",
+      "type": "CLOUD_HOSTING",
+      "vector": "Recover supported work from preemptible capacity",
+      "mastery_target": "Checkpoint eligible managed jobs and resume them after eviction under fencing and retry policy; non-checkpointable jobs report interruption and all duplicate compute is included in cost accounting.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-023",
+        "VC-201-030",
+        "VC-201-055"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-058",
+      "type": "CLOUD_HOSTING",
+      "vector": "Validate policy-preserving local/cloud failover",
+      "mastery_target": "Extend routing tests across local OOM, provider outages, authentication failure, and exhausted quotas; fallback preserves capability, privacy, deadline, and budget constraints or returns an explicit failure.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-051",
+        "VC-201-052",
+        "VC-201-053",
+        "VC-201-054"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-059",
+      "type": "CLOUD_HOSTING",
+      "vector": "Collect orphaned managed cloud resources",
+      "mastery_target": "Tag owned resources with mission and deployment identities and reconcile them against authoritative state; dry-run and apply tests remove only expired SUSI-owned resources and preserve explicitly retained assets.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-052",
+        "VC-201-055"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-060",
+      "type": "CLOUD_HOSTING",
+      "vector": "Export and restore portable AI deployment specifications",
+      "mastery_target": "Round-trip supported model endpoints, runtime requirements, secret references, and placement policies between local and supported cloud targets; compatibility checks surface nonportable settings before any changes.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-051",
+        "VC-201-055",
+        "VC-201-056",
+        "VC-201-058",
+        "VC-201-059"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-061",
+      "type": "CONFIGURATION",
+      "vector": "Define a versioned desired-state configuration contract",
+      "mastery_target": "Describe models, runtimes, providers, peers, tools, and policy using validated references and explicit schema versions; invalid relationships fail before mutation and unknown preserved keys survive round-trips.",
+      "priority": "P0",
+      "depends_on": [],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-062",
+      "type": "CONFIGURATION",
+      "vector": "Explain effective configuration and provenance",
+      "mastery_target": "Expose the resolved value and origin of each setting across defaults, packs, host overrides, workspace overrides, and environment; secret values are redacted and precedence fixtures match runtime behavior.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-061"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-063",
+      "type": "CONFIGURATION",
+      "vector": "Implement inspectable configuration plan and apply",
+      "mastery_target": "Produce a deterministic diff with preconditions and operation IDs using the same resolver as execution; applying a stale plan fails safely and replaying a successful apply does not repeat side effects.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-023",
+        "VC-201-061",
+        "VC-201-062"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-064",
+      "type": "CONFIGURATION",
+      "vector": "Detect and reconcile managed configuration drift",
+      "mastery_target": "Compare desired and observed state while distinguishing SUSI-owned resources from external resources; operator-selected repair changes only owned fields and reports conflicts without overwriting foreign state.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-061",
+        "VC-201-063"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-065",
+      "type": "CONFIGURATION",
+      "vector": "Migrate configuration with crash recovery",
+      "mastery_target": "Version migrations with durable backups and validation before activation; termination between each write either restores the previous usable configuration or resumes a verifiable migration.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-061",
+        "VC-201-063"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-066",
+      "type": "CONFIGURATION",
+      "vector": "Resolve secrets through scoped references",
+      "mastery_target": "Replace plaintext deployment credentials with secret references resolved only at the authorized execution boundary; plan, export, tracing, and errors never disclose resolved values.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-061",
+        "VC-201-062"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-067",
+      "type": "CONFIGURATION",
+      "vector": "Separate workspace and environment configuration profiles",
+      "mastery_target": "Support explicit development, staging, and production profiles with inspectable inheritance; a dev mission cannot accidentally resolve production endpoints or credentials from ambient configuration.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-061",
+        "VC-201-062",
+        "VC-201-063"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-068",
+      "type": "CONFIGURATION",
+      "vector": "Roll configuration changes across a fleet in stages",
+      "mastery_target": "Apply a pinned configuration revision to selected canary nodes, verify health, then advance bounded waves; a failing wave pauses rollout and exposes rollback state per node.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-063",
+        "VC-201-064",
+        "VC-201-065",
+        "VC-201-067"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-069",
+      "type": "CONFIGURATION",
+      "vector": "Provide an end-to-end ecosystem setup workflow",
+      "mastery_target": "Guide discovery and configuration of an available local runtime, an optional cloud provider, tools, and policy through validated plans; the completion check runs a real mission and reports missing prerequisites.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-041",
+        "VC-201-051",
+        "VC-201-062",
+        "VC-201-063",
+        "VC-201-066"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-070",
+      "type": "CONFIGURATION",
+      "vector": "Back up and restore ecosystem configuration",
+      "mastery_target": "Export versioned configuration, artifact references, and encrypted secret material only when explicitly included; restore to a clean dev instance verifies references and reports unavailable external resources.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-060",
+        "VC-201-061",
+        "VC-201-065",
+        "VC-201-066"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-071",
+      "type": "GOVERNANCE",
+      "vector": "Unify capability-policy decision semantics",
+      "mastery_target": "Map existing MacPolicy and daemon CapabilityPolicy decisions into one authoritative evaluation contract while preserving layer responsibilities; conflicting rules deny consistently across tool, peer, and model entry points.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-061",
+        "VC-201-062"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-072",
+      "type": "GOVERNANCE",
+      "vector": "Issue scoped expiring workload credentials",
+      "mastery_target": "Bind credentials to workspace, mission, capabilities, audience, and expiry; an agent cannot reuse a token for a different mission or broader tool scope and cancellation revokes eligible credentials.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-071"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-073",
+      "type": "GOVERNANCE",
+      "vector": "Enforce data classifications at every egress boundary",
+      "mastery_target": "Propagate local-only, workspace-private, and approved-cloud labels through inference, MCP, A2A, generated tools, and artifacts; indirect delegation cannot strip a label to bypass an egress denial.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-038",
+        "VC-201-054",
+        "VC-201-071"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-074",
+      "type": "GOVERNANCE",
+      "vector": "Test resistance to tool-output prompt injection",
+      "mastery_target": "Mark retrieved content and tool output as untrusted data and require policy checks for consequential actions; adversarial fixtures cannot turn embedded instructions into new permissions or secret disclosure.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-005",
+        "VC-201-071",
+        "VC-201-073"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-075",
+      "type": "GOVERNANCE",
+      "vector": "Attenuate grants for generated Wasm capabilities",
+      "mastery_target": "Derive each reflex's filesystem, network, memory, fuel, and time grants from its parent mission; malicious generated code is contained and cannot acquire permissions through registration or delegation.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-007",
+        "VC-201-016",
+        "VC-201-071",
+        "VC-201-072"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-076",
+      "type": "GOVERNANCE",
+      "vector": "Verify extension and adapter supply-chain provenance",
+      "mastery_target": "Bind admitted extension manifests and managed adapter artifacts to checksums, signatures where available, and explicit trust policy; a changed artifact is quarantined until re-admitted.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-051",
+        "VC-201-061",
+        "VC-201-071"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-077",
+      "type": "GOVERNANCE",
+      "vector": "Rotate secrets and certificates without silent downgrade",
+      "mastery_target": "Roll credentials and transport certificates with bounded overlap and explicit revocation; interrupted rotation recovers and expired credentials cannot trigger plaintext or unauthenticated fallback.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-066",
+        "VC-201-072"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-078",
+      "type": "GOVERNANCE",
+      "vector": "Isolate tenant resource and data access",
+      "mastery_target": "Enforce per-tenant workspace paths, memory namespaces, tool grants, queues, and budgets in the supported isolation mode; cross-tenant read and resource-exhaustion tests establish the documented boundary.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-025",
+        "VC-201-043",
+        "VC-201-071",
+        "VC-201-072"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-079",
+      "type": "GOVERNANCE",
+      "vector": "Export independently verifiable audit evidence",
+      "mastery_target": "Provide redacted exports with chain anchors, signature metadata, and a verification command; truncation, tampering, missing segments, and unknown keys produce distinct failures without exposing secrets.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-004",
+        "VC-201-071",
+        "VC-201-072"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-080",
+      "type": "GOVERNANCE",
+      "vector": "Apply an operator emergency stop across the fleet",
+      "mastery_target": "Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-026",
+        "VC-201-068",
+        "VC-201-071",
+        "VC-201-072"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-081",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Define authoritative memory provenance and retention",
+      "mastery_target": "Attach workspace, source receipt, source revision, data classification, expiry, and owner to durable memory; reads reject expired or unauthorized records and distinguish evidence from model-generated assertions.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-061",
+        "VC-201-071"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-082",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Evaluate retrieval quality before promoting memory changes",
+      "mastery_target": "Use a versioned relevance and grounded-answer suite to compare retrieval/index revisions; a larger index or higher recall alone cannot hide regression in answer correctness or private-data isolation.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-001",
+        "VC-201-081"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-083",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Propagate memory deletion into derived stores",
+      "mastery_target": "Delete selected records from authoritative memory, semantic indexes, caches, and supported replicas with durable tombstones; interrupted deletion resumes and retrieval cannot resurrect deleted content.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-073",
+        "VC-201-081"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-084",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Replicate only policy-eligible swarm memory",
+      "mastery_target": "Synchronize scoped records with provenance, conflict handling, and deletion semantics over authenticated peers; disconnected replicas converge without exporting local-only memory or reviving tombstoned records.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-033",
+        "VC-201-073",
+        "VC-201-081",
+        "VC-201-083"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-085",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Share verified skills as versioned artifacts",
+      "mastery_target": "Package approved reflexes, prompts, fixtures, and capability requirements with immutable versions and signatures; importing a skill verifies provenance and tests before granting it executable status.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-016",
+        "VC-201-076",
+        "VC-201-081"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-086",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Publish executable MCP lifecycle conformance",
+      "mastery_target": "Probe admitted MCP servers for initialization, discovery, cancellation, timeouts, malformed responses, and credential isolation; compatibility status records tested behavior rather than catalog membership.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-026",
+        "VC-201-071",
+        "VC-201-076"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-087",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Normalize A2A and external-agent recovery contracts",
+      "mastery_target": "Exercise task identity, status, cancellation, artifact ownership, and retry semantics through supported adapters; duplicate deliveries and unknown remote outcomes cannot silently produce duplicate authoritative completion.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-022",
+        "VC-201-023",
+        "VC-201-026",
+        "VC-201-072"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-088",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Maintain a live ecosystem compatibility inventory",
+      "mastery_target": "Join provider, model, MCP, A2A, and extension probe results by exact version with freshness windows; operators can filter verified, stale, failed, and untested combinations.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-051",
+        "VC-201-061",
+        "VC-201-076",
+        "VC-201-086",
+        "VC-201-087"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-089",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Sandbox and roll back adapter upgrades",
+      "mastery_target": "Install an adapter revision beside the active one, run contract checks, and switch only after success; a failed upgrade preserves the working revision and in-flight session ownership.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-061",
+        "VC-201-063",
+        "VC-201-076",
+        "VC-201-086"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-090",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Deliver one vertical workflow across the AI ecosystem",
+      "mastery_target": "Run an evidence-backed workspace task using local retrieval, an allowed model target, an MCP tool, and a delegated agent when policy permits; demonstrate offline, denied-egress, and failed-dependency outcomes.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-030",
+        "VC-201-073",
+        "VC-201-081",
+        "VC-201-086",
+        "VC-201-087"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-091",
+      "type": "OPERATIONS",
+      "vector": "Correlate observability across models, tools, and peers",
+      "mastery_target": "Carry mission, task, placement, experiment, and deployment IDs through bounded redacted logs, metrics, and traces; one failed distributed request can be followed end to end without recording credentials.",
+      "priority": "P0",
+      "depends_on": [
+        "VC-201-004",
+        "VC-201-021",
+        "VC-201-051"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-092",
+      "type": "OPERATIONS",
+      "vector": "Define and measure operating-layer service objectives",
+      "mastery_target": "Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-003",
+        "VC-201-030",
+        "VC-201-091"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-093",
+      "type": "OPERATIONS",
+      "vector": "Exercise disaster recovery from authoritative backups",
+      "mastery_target": "Restore configuration, workflow state, keys under explicit policy, and required ledger history to isolated nodes; verify audit continuity and report measured recovery time and data loss against declared targets.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-040",
+        "VC-201-049",
+        "VC-201-055",
+        "VC-201-070",
+        "VC-201-091"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-094",
+      "type": "OPERATIONS",
+      "vector": "Benchmark and enforce control-plane capacity limits",
+      "mastery_target": "Load-test simultaneous missions, streaming calls, peer repair, and model churn with recorded hardware; report saturation points and verify overload rejection preserves health and cancellation responsiveness.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-025",
+        "VC-201-043",
+        "VC-201-053",
+        "VC-201-091",
+        "VC-201-092"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-095",
+      "type": "OPERATIONS",
+      "vector": "Run repeatable ecosystem chaos drills",
+      "mastery_target": "Inject network loss, disk-full, runtime crashes, corrupt state, and revoked credentials in isolated dev deployments; verify bounded recovery, explicit degraded states, and preservation of privacy and budget constraints.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-040",
+        "VC-201-058",
+        "VC-201-080",
+        "VC-201-091"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-096",
+      "type": "OPERATIONS",
+      "vector": "Add targeted Kani verification harnesses",
+      "mastery_target": "Verify bounded critical primitives for lease fencing, budget transitions, and policy precedence with documented assumptions; CI retains counterexamples and reports proof bounds instead of claiming whole-system correctness.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-022",
+        "VC-201-023",
+        "VC-201-031",
+        "VC-201-071"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-097",
+      "type": "OPERATIONS",
+      "vector": "Ratchet dependency unsafe exposure and provenance",
+      "mastery_target": "Run cargo-geiger and software-bill-of-materials generation for pinned feature sets, recording first-party exceptions and transitive changes; CI flags new exposure with an auditable review path.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-015",
+        "VC-201-076"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-098",
+      "type": "OPERATIONS",
+      "vector": "Verify host-platform lifecycle compatibility",
+      "mastery_target": "Run supported Linux, macOS, and Windows install, start, stop, upgrade, and local-runtime smoke cases in isolated environments; the published matrix distinguishes tested features from unsupported GPU or sandbox paths.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-041",
+        "VC-201-042",
+        "VC-201-050",
+        "VC-201-065"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-099",
+      "type": "OPERATIONS",
+      "vector": "Provide a unified operator control surface",
+      "mastery_target": "Expose actual workload, resource, provider, configuration, federation, and evidence state through consistent CLI/API views; drill-down explains blocked work and actions obey the same grants and preconditions as automation.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-030",
+        "VC-201-040",
+        "VC-201-062",
+        "VC-201-088",
+        "VC-201-091"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
+    },
+    {
+      "id": "VC-201-100",
+      "type": "OPERATIONS",
+      "vector": "Qualify a complete RSI swarm AI operating-layer release",
+      "mastery_target": "On isolated local and explicitly configured cloud environments, configure the ecosystem, run and recover a swarm mission, evaluate a self-patch, and promote only through the tagged release path; publish reproducible scorecard deltas and remaining limitations, including a 2x improvement claim only if its predeclared metric and evidence support it.",
+      "priority": "P1",
+      "depends_on": [
+        "VC-201-010",
+        "VC-201-018",
+        "VC-201-020",
+        "VC-201-040",
+        "VC-201-050",
+        "VC-201-058",
+        "VC-201-068",
+        "VC-201-070",
+        "VC-201-078",
+        "VC-201-080",
+        "VC-201-090",
+        "VC-201-092",
+        "VC-201-093",
+        "VC-201-094",
+        "VC-201-095",
+        "VC-201-096",
+        "VC-201-097",
+        "VC-201-098",
+        "VC-201-099"
+      ],
+      "progress": "PLANNED: Requires implementation and verification; not an implemented capability."
     }
   ],
   "version": "0.18.0"

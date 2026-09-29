@@ -23,7 +23,13 @@
           "type": { "type": "string" },
           "vector": { "type": "string" },
           "mastery_target": { "type": "string" },
-          "progress": { "type": "string" }
+          "progress": { "type": "string" },
+          "priority": { "type": "string", "enum": ["P0", "P1", "P2"] },
+          "depends_on": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^VC-" }
+          }
         }
       }
     }
