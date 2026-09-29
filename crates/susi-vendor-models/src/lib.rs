@@ -32,6 +32,11 @@ pub mod hf_discovery;
 pub mod local_ecosystem;
 pub mod open_weight;
 pub mod openrouter;
+pub mod resource_inventory;
+
+#[cfg(test)]
+#[path = "tests/resource_inventory.rs"]
+mod resource_inventory_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries

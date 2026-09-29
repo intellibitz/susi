@@ -31,6 +31,7 @@ pub use susi_error;
 pub mod cloud_env;
 pub mod cluster_key;
 mod config;
+pub mod desired_state;
 pub mod explain;
 pub mod extensions;
 pub mod file_lock;
@@ -110,6 +111,10 @@ mod service {
 
 pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
 pub use config::{redact_credentials, SusiConfig};
+pub use desired_state::{
+    parse_desired_state, round_trip_desired_state, validate_desired_state, DesiredRef,
+    DesiredState, DESIRED_STATE_SCHEMA,
+};
 pub use explain::{explain_key, explain_key_global, ConfigLayer, ConfigOrigin, ExplainedSetting};
 pub use json_util::{
     atomic_replace_file, atomic_write_bytes, atomic_write_json_pretty, clear_json_override,
@@ -134,6 +139,9 @@ mod cluster_key_tests;
 #[cfg(test)]
 #[path = "tests/config_validate.rs"]
 mod config_validate_tests;
+#[cfg(test)]
+#[path = "tests/desired_state.rs"]
+mod desired_state_tests;
 #[cfg(test)]
 #[path = "tests/extensions.rs"]
 mod extensions_tests;
