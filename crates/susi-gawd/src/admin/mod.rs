@@ -4,6 +4,7 @@
 mod release;
 mod version;
 
+pub use release::{E2eCheck, E2E_CHECKS};
 pub use version::VersionBump;
 
 use crate::susi_error::{EaiError, EaiResult};
