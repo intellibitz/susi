@@ -520,7 +520,11 @@ that the step parser drops (EV-CLAUDE-031).
 
 The `deliberate` stage is plan search (`susi_gawd_swarm::deliberation`):
 `solve_autonomous` no longer commits to the first decomposition. Candidates
-are generated at several step budgets, scored purely (goal-token coverage
+are generated at several step budgets — each budget also carries a
+decomposition strategy (`style_hint`): tight budgets get a
+minimal-viable-sequence prompt, loose budgets get verify-after-mutation —
+so candidates disagree about approach, not only length — scored purely
+(goal-token coverage
 +0.5·coverage, risk-vocabulary −0.15/token, verifiable steps +0.05, over-
 budget −0.10), sorted best-first, and every rejected candidate's score and
 rationale lands in the mission record (`PLAN_SEARCH` interaction) and the

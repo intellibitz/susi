@@ -1045,8 +1045,11 @@ impl SusiMasterAgent {
         let prompt = format!(
             "Break the following goal into at most {} concise, ordered steps. \
              Return one step per line starting with a number and a period. \
-             Do not add extra commentary.\n\n{}Goal: {}\n\nSteps:",
+             Do not add extra commentary.{}\n\n{}Goal: {}\n\nSteps:",
             max_steps.clamp(1, 8),
+            // Strategy varies by budget: candidates should disagree about
+            // approach (minimal vs verify-everything), not only length.
+            crate::deliberation::style_hint(max_steps),
             history_brief,
             goal
         );

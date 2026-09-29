@@ -4074,6 +4074,16 @@
     "label": "Order-aware consensus",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-038",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 20 \u2014 strategy-diverse plan search. style_hint(budget) injects a per-candidate decomposition strategy into plan_steps' prompt: \u22642-step budgets get a minimal-viable-sequence hint, \u22655 get explicit post-mutation verification. Candidates now disagree about approach, not only length \u2014 the consensus gate measures approach agreement, not paraphrases of one length choice.",
+   "proof": "budgets_span_distinct_strategies: hint mapping + max_steps=4 yields three distinct styles. susi-gawd-swarm 62 pass; clippy clean.",
+   "anchor": {
+    "label": "Strategy diversity",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

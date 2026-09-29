@@ -345,6 +345,18 @@ pub fn approved(d: &Deliberation) -> bool {
     !d.consensus_required || d.consensus.is_some()
 }
 
+/// Decomposition strategy for a given step budget — candidates should
+/// disagree about *approach*, not only length. Tight budgets get a
+/// minimal-viable-sequence hint; loose ones get explicit verification.
+/// Pure function so prompt construction stays testable.
+pub fn style_hint(budget: u32) -> &'static str {
+    match budget {
+        0..=2 => " Keep the sequence minimal — fewest reliable steps.",
+        5..=8 => " Include an explicit verification step after each mutation.",
+        _ => "",
+    }
+}
+
 /// Step budgets that produce genuinely different decompositions: the
 /// requested bound, a tighter conservative variant, and a looser one.
 pub fn candidate_budgets(max_steps: u32) -> Vec<u32> {
@@ -471,6 +483,22 @@ mod tests {
         });
         assert_eq!(tied.candidates.len(), 2);
         assert_eq!(tied.candidates[0].steps.len(), 1, "{:?}", tied.candidates);
+    }
+
+    #[test]
+    fn budgets_span_distinct_strategies() {
+        assert!(style_hint(1).contains("minimal"));
+        assert!(style_hint(2).contains("minimal"));
+        assert!(style_hint(4).is_empty());
+        assert!(style_hint(6).contains("verification"));
+        assert!(style_hint(8).contains("verification"));
+        // The common max_steps=4 case yields three budgets spanning
+        // concise, neutral, and verify — real approach diversity.
+        let styles: std::collections::BTreeSet<&str> = candidate_budgets(4)
+            .iter()
+            .map(|&b| style_hint(b))
+            .collect();
+        assert_eq!(styles.len(), 3, "{styles:?}");
     }
 
     #[test]

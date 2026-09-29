@@ -294,3 +294,8 @@ One line per landed step, newest last.
     "read then write" and "write then read" scored 1.0. Now min(set,
     positional step-Jaccard): a mutating plan backwards never counts as
     agreement.
+26. Strategy-diverse candidates: `style_hint(budget)` gives the
+    decomposition prompt a distinct strategy per candidate — tight
+    budgets get minimal-viable-sequence, loose budgets get
+    verify-after-each-mutation. Plan search now explores different
+    approaches, not just different lengths (max_steps=4 → 3 styles).
