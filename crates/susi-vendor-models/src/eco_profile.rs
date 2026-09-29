@@ -123,6 +123,9 @@ pub struct Deviation {
 pub struct Profile {
     /// Must equal [`PROFILE_VERSION`].
     pub version: String,
+    /// Document kind; gates which fact classes [`validate`] requires.
+    #[serde(default)]
+    pub kind: ProfileKind,
     /// Profile id, e.g. `openai-chat-completions` (`valid_id` rules).
     pub id: String,
     pub name: String,
@@ -149,6 +152,35 @@ pub struct Profile {
     #[serde(default)]
     pub deviations: Vec<Deviation>,
     pub provenance: Provenance,
+}
+
+/// What sort of document this is — decides which fact classes are required.
+/// `Api` needs endpoints/auth/errors/rate-limits; `Format`, `Framework`,
+/// `Platform` and `Catalog` documents (standards, licences, residency
+/// tables) describe ecosystems, not wire surfaces, so they require only
+/// versions + provenance and whatever fact classes they declare.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProfileKind {
+    /// A wire API surface (the default).
+    #[default]
+    Api,
+    /// A file/wire format or spec (GGUF, safetensors, OpenAPI).
+    Format,
+    /// A framework or integration surface (LangGraph, NIST AI RMF).
+    Framework,
+    /// A platform catalog (Bedrock, Vertex, NIM).
+    Platform,
+    /// A catalog of attributes (residency, disclosures, licences).
+    Catalog,
+}
+
+impl Profile {
+    /// What kind of document this is.
+    #[must_use]
+    pub fn is_api(&self) -> bool {
+        self.kind == ProfileKind::Api
+    }
 }
 
 /// One declared auth mechanism.
@@ -208,7 +240,9 @@ pub fn validate(p: &Profile) -> Vec<Issue> {
     if p.provenance.source.trim().is_empty() {
         out.push(issue("/provenance/source", "source must not be empty"));
     }
-    if p.endpoints.is_empty() {
+    // API documents must describe a wire surface; catalog/format/framework
+    // documents may legitimately have none.
+    if p.is_api() && p.endpoints.is_empty() {
         out.push(issue("/endpoints", "profile declares no endpoints"));
     }
     for (i, e) in p.endpoints.iter().enumerate() {
@@ -222,7 +256,7 @@ pub fn validate(p: &Profile) -> Vec<Issue> {
             ));
         }
     }
-    if p.auth.is_empty() {
+    if p.is_api() && p.auth.is_empty() {
         out.push(issue(
             "/auth",
             "profile declares no auth scheme (use `none` to document an open API)",
@@ -242,7 +276,7 @@ pub fn validate(p: &Profile) -> Vec<Issue> {
             ));
         }
     }
-    if p.capabilities.is_empty() {
+    if p.is_api() && p.capabilities.is_empty() {
         out.push(issue(
             "/capabilities",
             "profile declares no capability tags",
@@ -256,14 +290,19 @@ pub fn validate(p: &Profile) -> Vec<Issue> {
             ));
         }
     }
-    if p.errors.is_empty() {
-        out.push(issue("/errors", "profile documents no error shapes"));
+    if p.is_api() {
+        if p.errors.is_empty() {
+            out.push(issue("/errors", "profile documents no error shapes"));
+        }
+        if p.rate_limits.is_empty() {
+            out.push(issue(
+                "/rate_limits",
+                "profile documents no rate-limit signals",
+            ));
+        }
     }
-    if p.rate_limits.is_empty() {
-        out.push(issue(
-            "/rate_limits",
-            "profile documents no rate-limit signals",
-        ));
+    if p.versions.is_empty() {
+        out.push(issue("/versions", "profile declares no versions"));
     }
     // Shape references on endpoints resolve.
     let req: std::collections::HashSet<&str> =
@@ -350,6 +389,7 @@ mod tests {
     fn minimal() -> Profile {
         Profile {
             version: PROFILE_VERSION.into(),
+            kind: ProfileKind::Api,
             id: "test-profile".into(),
             name: "Test".into(),
             subject: "test-proto".into(),
