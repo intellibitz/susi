@@ -3924,6 +3924,16 @@
    "milestone": "Content and hash verification no longer loads whole files into memory. Contract::FileContains and Contract::FileHash called std::fs::read on the confined file, so a mission claiming a large artifact (a multi-GB dump or log with a hash or content claim) made the verifier allocate the entire file. Now stream_contains reads 64 KiB chunks (STREAM_CHUNK) and keeps the last needle.len()-1 bytes as carry-over, so a needle spanning a chunk boundary is still found; an empty needle is verified when the file is readable, as before. stream_sha256 feeds chunks into an incremental Sha256. Verdicts and messages are unchanged: unreadable or unconfined still yields the 'not an existing regular workspace file' violation. Test: streamed_checks_find_boundary_spanning_content_and_match_digests (a needle straddling the first 64 KiB boundary of a 192 KiB file is found; a missing needle is not; empty needle true; an absent file None; the streamed digest equals the one-shot SHA-256). Verification 11/11 and truth 16/16 tests pass.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "drop_failed_mission_receipts",
+    "ref": "file://crates/susi-gawd/src/reflex_trainer.rs"
+   },
+   "id": "EV-CLAUDE-039",
+   "milestone": "Failed missions stop teaching Tier-0 through their tool receipts. EV-CLAUDE-003 filtered mission-trace samples by outcome, but receipt samples (ReceiptArchive: goal -> tool for each successful tool call) are staged at tool-call time, before the mission's outcome exists. A mission that ultimately failed still taught goal -> tool for every tool call that individually succeeded. Now ReflexTrainer::train_claim first runs drop_failed_mission_receipts. It reads the workspace's mission traces (mission_trace::read_all; the latest trace per mission_id wins) and removes claimed samples whose performance_metadata.source is tool_receipt and whose receipt_id session matches a trace recorded as not succeeded. The receipt id is '<session>:<index>' or '<session>:r-<nanos>' (capture.rs), and report.rs writes the trace's mission_id from the same EvidenceSession id. Receipts with no trace yet (outcome unknown) and non-receipt samples are kept; if nothing is left, the claim is retired as untrainable (EV-CLAUDE-017). Test: receipts_from_failed_missions_are_dropped_before_training (traces ok-session COMPLETE and bad-session FAILED; of 5 lines, both bad-session receipts, local and remote id forms, are dropped; ok, unknown and trace samples are kept). Trainer suite 17/17.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

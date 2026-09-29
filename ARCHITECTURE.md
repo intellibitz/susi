@@ -545,8 +545,11 @@ failure. `SusiMissionReport` stages a pair only when `MissionTrace::succeeded`
 (`SUCCESS`/`COMPLETE`), and `parse_training_entries` independently skips any
 record whose `performance_metadata.outcome` is anything else — covering
 samples staged before the source guard and any future writer. Receipt
-samples carry no outcome (they come from successful tool calls) and stay
-trainable.
+samples carry no outcome of their own — they are staged at tool-call time,
+before the mission ends — so before training the trainer joins each
+receipt's session (`<session>:<index>`) to its mission trace and drops
+receipts from missions recorded as failed; a receipt whose mission has no
+trace yet is kept (EV-CLAUDE-039).
 
 Intents longer than 240 characters (the mission-trace goal bound) are not
 reflex samples: receipts stage the whole mission goal unbounded, and a

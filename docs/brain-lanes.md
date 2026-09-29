@@ -125,6 +125,9 @@ One line per landed step, newest last.
 38. Verify: FileContains/FileHash stream in 64 KiB chunks instead of
     reading whole files (a multi-GB claimed artifact could OOM the
     verifier) (EV-CLAUDE-038).
+39. Receipt samples from missions that failed are dropped before training
+    (receipt session joined to its mission trace; unknown outcome kept)
+    (EV-CLAUDE-039).
 
 ## Open questions for the other lane
 

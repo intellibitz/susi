@@ -75,6 +75,12 @@ const MIN_STAGED_RECORD_BYTES: u64 = 40;
 /// audit "recover" this live claim back into staging mid-training. A held-back or
 /// failed cycle restores the claim so its samples are retried later.
 fn train_claim(workspace: &Path, claim: &TrainingClaim) -> EaiResult<String> {
+    let dropped = drop_failed_mission_receipts(workspace, &claim.path)?;
+    if dropped > 0 {
+        eprintln!(
+            "[Reflex Trainer] Dropped {dropped} receipt sample(s) from missions that failed."
+        );
+    }
     match SusiAlphaModel::train_on_staged_data(&claim.root) {
         Ok(report) => {
             retire_claim(claim)?;
@@ -106,6 +112,57 @@ fn train_claim(workspace: &Path, claim: &TrainingClaim) -> EaiResult<String> {
             )))
         }
     }
+}
+
+/// Receipt samples are staged at tool-call time, before the mission's
+/// outcome exists, so a mission that ultimately failed still taught
+/// `goal → tool` for each tool call that individually succeeded (the
+/// outcome filter only sees mission-trace samples). A receipt id is
+/// `<session>:<index>` (or `<session>:r-<nanos>` for remote copies) and a
+/// mission trace's `mission_id` is that session, so receipt samples whose
+/// mission is recorded as failed are removed from the claim. A receipt
+/// with no trace yet (outcome unknown) is kept. Returns the dropped count.
+fn drop_failed_mission_receipts(workspace: &Path, claim_path: &Path) -> EaiResult<usize> {
+    let mut outcome: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    for trace in crate::susi_core::mission_trace::read_all(workspace) {
+        // Later traces for the same mission win.
+        outcome.insert(trace.mission_id.clone(), trace.succeeded());
+    }
+    if !outcome.values().any(|ok| !ok) {
+        return Ok(0);
+    }
+    let content = match std::fs::read_to_string(claim_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error.into()),
+    };
+    let from_failed_mission = |line: &str| {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            return false;
+        };
+        let meta = &value["performance_metadata"];
+        if meta["source"] != "tool_receipt" {
+            return false;
+        }
+        meta["receipt_id"]
+            .as_str()
+            .and_then(|id| id.rsplit_once(':'))
+            .and_then(|(session, _)| outcome.get(session))
+            .is_some_and(|succeeded| !succeeded)
+    };
+    let kept: Vec<&str> = content
+        .lines()
+        .filter(|l| !from_failed_mission(l))
+        .collect();
+    let dropped = content.lines().count() - kept.len();
+    if dropped > 0 {
+        let mut body = kept.join("\n");
+        if !body.is_empty() {
+            body.push('\n');
+        }
+        crate::susi_config::atomic_write_bytes(claim_path, body.as_bytes())?;
+    }
+    Ok(dropped)
 }
 
 /// GEMI errors meaning the claim held nothing trainable
@@ -470,6 +527,45 @@ mod tests {
             "{}",
             minimal.len()
         );
+    }
+
+    #[test]
+    fn receipts_from_failed_missions_are_dropped_before_training() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path();
+        for (mission, outcome) in [("ok-session", "COMPLETE"), ("bad-session", "FAILED")] {
+            crate::susi_core::mission_trace::MissionTrace::new(mission, "goal", outcome, "swarm")
+                .emit(ws)
+                .unwrap();
+        }
+        let receipt = |id: &str| {
+            format!(
+                r#"{{"intent":"g","action":"read_file","timestamp":1,"performance_metadata":{{"source":"tool_receipt","receipt_id":"{id}"}}}}"#
+            )
+        };
+        let claim = ws.join("claim.jsonl");
+        std::fs::write(
+            &claim,
+            [
+                receipt("ok-session:0"),
+                receipt("bad-session:0"),
+                receipt("bad-session:r-123"),
+                receipt("unknown-session:4"),
+                r#"{"intent":"g","action":"status","timestamp":1,"performance_metadata":{"outcome":"SUCCESS"}}"#.to_string(),
+            ]
+            .join("\n")
+                + "\n",
+        )
+        .unwrap();
+        assert_eq!(super::drop_failed_mission_receipts(ws, &claim).unwrap(), 2);
+        let kept = std::fs::read_to_string(&claim).unwrap();
+        assert!(kept.contains("ok-session:0"));
+        assert!(
+            kept.contains("unknown-session:4"),
+            "unknown outcome is kept"
+        );
+        assert!(!kept.contains("bad-session"));
+        assert_eq!(kept.lines().count(), 3);
     }
 
     #[test]
