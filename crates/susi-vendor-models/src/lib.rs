@@ -23,7 +23,12 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub mod cloud;
 pub mod cloud_manage;
+pub mod eco_conflicts;
+pub mod eco_consistency;
+pub mod eco_coverage;
+pub mod eco_matrix;
 pub mod eco_provenance;
+pub mod eco_relations;
 pub mod eco_schema;
 pub mod eco_store;
 pub mod eco_taxonomy;

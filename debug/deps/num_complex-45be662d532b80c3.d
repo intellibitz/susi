@@ -1,0 +1,10 @@
+/home/ramadoss/github.com/intellibitz/susi/.claude/worktrees/close-completed-actions-b809a8/debug/deps/num_complex-45be662d532b80c3.d: /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/lib.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/cast.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/pow.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/complex_float.rs
+
+/home/ramadoss/github.com/intellibitz/susi/.claude/worktrees/close-completed-actions-b809a8/debug/deps/libnum_complex-45be662d532b80c3.rlib: /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/lib.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/cast.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/pow.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/complex_float.rs
+
+/home/ramadoss/github.com/intellibitz/susi/.claude/worktrees/close-completed-actions-b809a8/debug/deps/libnum_complex-45be662d532b80c3.rmeta: /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/lib.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/cast.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/pow.rs /home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/complex_float.rs
+
+/home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/lib.rs:
+/home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/cast.rs:
+/home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/pow.rs:
+/home/ramadoss/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-complex-0.4.6/src/complex_float.rs:

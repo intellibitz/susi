@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-257",
+  "title": "Relation graph queries",
+  "goal": "Answer 'which components implement protocol X', 'what supersedes Y', 'what does Z require' over typed relations, with cycle-safe traversal.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_relations"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551,
+  "closed": {
+    "at_unix": 1790717397,
+    "commit": "b35e6fcac73afa6225dc7ae78543bc5cbf260a70",
+    "by": "INTELLIBITZ"
+  }
+}

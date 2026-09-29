@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-259",
+  "title": "Knowledge-base consistency checks",
+  "goal": "A test-suite validator: unique ids, no dangling references, every protocol has a spec link, every profile validates against the schema, no orphan entities.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-254"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_consistency"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551,
+  "closed": {
+    "at_unix": 1790720375,
+    "commit": "3fc006fdbb1278db2898ad31356791dfcb4e5cbb",
+    "by": "INTELLIBITZ"
+  }
+}

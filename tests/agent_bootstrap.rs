@@ -138,10 +138,10 @@ fn no_name_needed_the_agent_gets_a_ready_worktree() {
         git(&dest, &["config", "--get", "core.hooksPath"]),
         ".githooks"
     );
-    // The primary checkout was parked: detached at origin/main, off the stale branch.
-    assert_ne!(
-        run(&w.primary, "git", &["symbolic-ref", "-q", "HEAD"], &[]).0,
-        0
+    // The primary checkout was parked: on main at origin/main, off the stale branch.
+    assert_eq!(
+        git(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
+        "main"
     );
     assert_eq!(
         git(&w.primary, &["rev-parse", "HEAD"]),
