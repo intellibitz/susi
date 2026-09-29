@@ -49,6 +49,9 @@ pub enum Stage {
     Schema,
     /// Typed-model stage: references, relation typing, provenance, graph rules.
     Model,
+    /// Policy stage: freshness windows and source citability
+    /// (`crate::eco_provenance`).
+    Policy,
 }
 
 /// A single validation failure. `path` is a JSON-pointer-ish location such as
@@ -215,7 +218,9 @@ pub enum EntityKind {
 }
 
 impl EntityKind {
-    fn label(self) -> &'static str {
+    /// Lowercase kebab-case name, matching the serde representation.
+    #[must_use]
+    pub fn label(self) -> &'static str {
         match self {
             Self::Component => "component",
             Self::Vendor => "vendor",
@@ -315,7 +320,9 @@ pub enum RelationKind {
 }
 
 impl RelationKind {
-    fn label(self) -> &'static str {
+    /// Lowercase kebab-case name, matching the serde representation.
+    #[must_use]
+    pub fn label(self) -> &'static str {
         match self {
             Self::Provides => "provides",
             Self::Publishes => "publishes",
@@ -403,22 +410,22 @@ fn valid_id(id: &str) -> bool {
         })
 }
 
-/// ISO 8601 `YYYY-MM-DD` that is a real calendar date in 2000..=2100 — the
-/// JSON Schema pattern only pins the shape, the calendar check lives here.
-fn valid_date(s: &str) -> bool {
+/// Parse a `YYYY-MM-DD` string into a real calendar `(year, month, day)`.
+/// No year bound — spec release dates can predate this codebase.
+fn parse_ymd(s: &str) -> Option<(u32, u32, u32)> {
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
-        return false;
+        return None;
     }
     let (Ok(year), Ok(month), Ok(day)) = (
         parts[0].parse::<u32>(),
         parts[1].parse::<u32>(),
         parts[2].parse::<u32>(),
     ) else {
-        return false;
+        return None;
     };
-    if !(2000..=2100).contains(&year) || !(1..=12).contains(&month) {
-        return false;
+    if !(1..=12).contains(&month) {
+        return None;
     }
     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     let days = [
@@ -435,7 +442,29 @@ fn valid_date(s: &str) -> bool {
         30,
         31,
     ][month as usize - 1];
-    (1..=days).contains(&day)
+    (1..=days).contains(&day).then_some((year, month, day))
+}
+
+/// ISO 8601 `YYYY-MM-DD` that is a real calendar date in 2000..=2100 — the
+/// JSON Schema pattern only pins the shape, the calendar check lives here.
+#[must_use]
+pub fn valid_date(s: &str) -> bool {
+    parse_ymd(s).is_some_and(|(year, _, _)| (2000..=2100).contains(&year))
+}
+
+/// Days since the Unix epoch for a `YYYY-MM-DD` date (Howard Hinnant's
+/// days-from-civil). `None` when the date is not a real calendar day.
+#[must_use]
+pub fn date_to_days(s: &str) -> Option<i64> {
+    let (y, m, d) = parse_ymd(s)?;
+    let y = i64::from(y) - i64::from(m <= 2);
+    let (m, d) = (i64::from(m), i64::from(d));
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146_097 + doe - 719_468)
 }
 
 fn check_provenance(p: &Provenance, path: &str, issues: &mut Vec<Issue>) {
