@@ -13,6 +13,7 @@ pub struct HomeGuard {
     prev_home: Option<std::ffi::OsString>,
     prev_userprofile: Option<std::ffi::OsString>,
     prev_xdg: Option<std::ffi::OsString>,
+    prev_susi_home: Option<std::ffi::OsString>,
 }
 
 impl HomeGuard {
@@ -32,11 +33,15 @@ impl HomeGuard {
             prev_home: std::env::var_os("HOME"),
             prev_userprofile: std::env::var_os("USERPROFILE"),
             prev_xdg: std::env::var_os("XDG_CONFIG_HOME"),
+            prev_susi_home: std::env::var_os("SUSI_HOME"),
             tmp,
         };
         std::env::set_var("HOME", &g.tmp);
         std::env::set_var("USERPROFILE", &g.tmp);
         std::env::set_var("XDG_CONFIG_HOME", g.tmp.join("xdg"));
+        // A dev susi exports SUSI_HOME=~/.susi-dev; left set it overrides the
+        // HOME/XDG swap and the tests would touch the launching instance.
+        std::env::remove_var("SUSI_HOME");
         g
     }
 
@@ -59,6 +64,10 @@ impl Drop for HomeGuard {
         match &self.prev_xdg {
             Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
             None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        match &self.prev_susi_home {
+            Some(v) => std::env::set_var("SUSI_HOME", v),
+            None => std::env::remove_var("SUSI_HOME"),
         }
         let _ = std::fs::remove_dir_all(&self.tmp);
     }

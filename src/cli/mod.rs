@@ -21,6 +21,7 @@ pub mod framework_cli;
 pub mod frontier_cli;
 pub mod gemini_cli;
 pub mod intent_cli;
+pub mod intent_guard;
 pub mod keys_cli;
 pub mod mcp_cli;
 pub mod mission_cli;
