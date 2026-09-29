@@ -636,8 +636,14 @@ Both long locks run under a 20 s heartbeat (`FileLock::hold_while`, 029).
 
 Features are stemmed, synonym-aware bags of words (`reflex_features`,
 046–047, 006, 004); the network is scored in plain Rust (040). Quality is
-pinned by the benchmark tests (022, 045–049): recall, precision,
-out-of-distribution refusal, inflections, synonyms, typos, compounds.
+pinned by the benchmark tests (022, 045–049, 059): recall, precision,
+out-of-distribution refusal, inflections, synonyms, typos, compounds, and a
+tool-heavy install — 30 MCP-style tools with overlapping vocabulary
+(git/docker/sql/web/calendar/lint…), injected through `Capabilities`
+(names, descriptions, pinned availability) instead of the global
+registries. Its baseline: tool recall 43/60, 1–3 wrong serves (category
+collisions such as "search online" → `scout`), foundational 26–27/27,
+0/12 out-of-distribution.
 
 The `distill` stage turns staged pairs into Tier-0 weights
 (`susi_gawd::reflex_trainer` → `SusiAlphaModel::train_on_staged_file`).

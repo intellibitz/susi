@@ -180,6 +180,10 @@ One line per landed step, newest last.
 58. ARCHITECTURE.md "Tier-0 at a glance": the training cycle and the serve
     decision as two ordered tables (step, function, EV id) ahead of the
     detailed prose — the place to start when a reflex does or doesn't fire.
+59. `Capabilities` context (names, descriptions, pinned availability)
+    makes a tool-heavy install testable; new 30-tool benchmark baseline:
+    tool recall 43/60, 1-3 wrong, foundational 26-27/27, 0/12 OOD
+    (EV-CLAUDE-059).
 
 ## Open questions for the other lane
 

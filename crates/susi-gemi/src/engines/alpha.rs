@@ -709,6 +709,38 @@ const SERVE_CONFIDENCE: f32 = 0.5;
 /// Capability descriptions by lowercased action name.
 pub type Descriptions = std::collections::HashMap<String, String>;
 
+/// The capabilities Tier-0 trains and serves against. Production uses
+/// [`Capabilities::live`] (the agent and tool registries; availability
+/// re-checked on a 30 s snapshot). Tests pin an explicit set, which is how
+/// a tool-heavy install can be exercised without mutating global
+/// registries.
+pub struct Capabilities {
+    pub names: Vec<String>,
+    pub descriptions: Descriptions,
+    /// Serve-time availability is exactly `names` (plus foundational)
+    /// instead of the live registry snapshot.
+    pub pinned: bool,
+}
+
+impl Capabilities {
+    pub fn live() -> Self {
+        Self {
+            names: SusiAlphaModel::capability_names(),
+            descriptions: SusiAlphaModel::capability_descriptions(),
+            pinned: false,
+        }
+    }
+
+    #[cfg(test)]
+    fn pinned(names: &[&str], descriptions: Descriptions) -> Self {
+        Self {
+            names: names.iter().map(|n| n.to_string()).collect(),
+            descriptions,
+            pinned: true,
+        }
+    }
+}
+
 /// Description rows usable as intent text: non-empty and within the reflex
 /// intent bound.
 fn description_for<'a>(descriptions: &'a Descriptions, action: &str) -> Option<&'a str> {
@@ -782,6 +814,8 @@ pub struct SusiAlphaModel {
     /// readable replay set (bootstrap or pre-replay checkpoints), which keeps
     /// the confidence-only legacy gate.
     support: Option<SupportSet>,
+    /// Pinned serve-time availability (tests); `None` = live snapshot.
+    available: Option<std::collections::HashSet<String>>,
 }
 
 /// The published reflex network as plain row-major matrices, extracted once
@@ -1124,13 +1158,22 @@ impl SusiAlphaModel {
     }
 
     pub fn load(global_dir: &Path) -> Result<Self> {
-        Self::load_with(global_dir, &Self::capability_descriptions())
+        Self::load_with(global_dir, &Capabilities::live())
     }
 
     /// `load` with explicit capability descriptions (tests inject them
     /// without touching the global registries).
     #[allow(unsafe_code)]
-    pub fn load_with(global_dir: &Path, descriptions: &Descriptions) -> Result<Self> {
+    pub fn load_with(global_dir: &Path, capabilities: &Capabilities) -> Result<Self> {
+        let descriptions = &capabilities.descriptions;
+        let available = capabilities.pinned.then(|| {
+            capabilities
+                .names
+                .iter()
+                .map(|n| n.to_lowercase())
+                .chain(FOUNDATIONAL_INTENTS.iter().map(|f| f.to_string()))
+                .collect::<std::collections::HashSet<String>>()
+        });
         let alpha_filename =
             crate::susi_sandbox::manager::SusiConfig::load(global_dir)?.alpha_weights_filename();
         let weights_path = global_dir.join("models").join(&alpha_filename);
@@ -1156,6 +1199,7 @@ impl SusiAlphaModel {
                         dense: DenseReflex::from_linears(&fc1, &fc2)?,
                         intents,
                         support,
+                        available: available.clone(),
                     })
                 })();
                 match attempt {
@@ -1183,17 +1227,30 @@ impl SusiAlphaModel {
             dense: DenseReflex::from_linears(&fc1, &fc2)?,
             intents,
             support: None,
+            available,
         })
     }
 
     /// Dynamic Intent Surface Discovery
     pub fn list_dynamic_intents() -> Vec<String> {
+        Self::vocabulary_for(&Self::capability_names())
+    }
+
+    /// The seed vocabulary for a capability set: foundational intents, then
+    /// capabilities alphabetically up to `DIM`.
+    fn vocabulary_for(capabilities: &[String]) -> Vec<String> {
         let mut intents: Vec<String> = FOUNDATIONAL_INTENTS.map(String::from).to_vec();
         // Dynamic entries fill remaining DIM capacity after the foundational
         // intents, so truncation can never evict a base intent when the
         // registry is crowded. Truncation is alphabetical; slots for the
         // capabilities actually used are won back by `admit_staged_actions`.
-        let mut dynamic = Self::capability_names();
+        let mut dynamic: Vec<String> = capabilities
+            .iter()
+            .filter(|name| !FOUNDATIONAL_INTENTS.contains(&name.as_str()))
+            .cloned()
+            .collect();
+        dynamic.sort();
+        dynamic.dedup();
         dynamic.truncate(Self::DIM.saturating_sub(intents.len()));
         intents.extend(dynamic);
         intents.sort();
@@ -1246,8 +1303,8 @@ impl SusiAlphaModel {
         // at 2048 samples without convergence, close to the lock's 60s
         // wedged-holder age. Keep it fresh so a concurrent trainer cannot
         // break it and publish over this cycle.
-        let descriptions = Self::capability_descriptions();
-        training_lock.hold_while(|| Self::train_locked(global_dir, staged_file, &descriptions))
+        let capabilities = Capabilities::live();
+        training_lock.hold_while(|| Self::train_locked(global_dir, staged_file, &capabilities))
     }
 
     /// `train_on_staged_file` with explicit capability descriptions.
@@ -1255,19 +1312,20 @@ impl SusiAlphaModel {
     fn train_with(
         global_dir: &Path,
         staged_file: &Path,
-        descriptions: &Descriptions,
+        capabilities: &Capabilities,
     ) -> Result<String> {
         let training_lock =
             crate::susi_config::file_lock::FileLock::acquire(global_dir, "reflex_training")
                 .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
-        training_lock.hold_while(|| Self::train_locked(global_dir, staged_file, descriptions))
+        training_lock.hold_while(|| Self::train_locked(global_dir, staged_file, capabilities))
     }
 
     fn train_locked(
         global_dir: &Path,
         staged_file: &Path,
-        descriptions: &Descriptions,
+        capabilities: &Capabilities,
     ) -> Result<String> {
+        let descriptions = &capabilities.descriptions;
         if !staged_file.exists() {
             return Err(anyhow!(
                 "No staged distillation data found at {}.",
@@ -1280,7 +1338,7 @@ impl SusiAlphaModel {
         let models_dir = global_dir.join("models");
         std::fs::create_dir_all(&models_dir)?;
         let weights_path = models_dir.join(&alpha_filename);
-        let discovered_intents = Self::list_dynamic_intents();
+        let discovered_intents = Self::vocabulary_for(&capabilities.names);
         let active_checkpoint = usable_checkpoint(&weights_path)?;
         let dynamic_intents = if let Some((_, intents)) = &active_checkpoint {
             extend_vocabulary(intents.clone(), discovered_intents)
@@ -1298,7 +1356,7 @@ impl SusiAlphaModel {
         let (dynamic_intents, reclaimed) = admit_staged_actions(
             dynamic_intents,
             &staged_actions(&content),
-            &Self::capability_names(),
+            &capabilities.names,
             &supported,
         );
         let batch = parse_training_entries(&content, &dynamic_intents)?;
@@ -1505,7 +1563,16 @@ impl SusiAlphaModel {
             }
         }
         let (action, confidence) = self.predict_intent_with_confidence(prompt)?;
-        if !action_available(&action) {
+        let runnable = match &self.available {
+            Some(pinned) => pinned.contains(
+                &action
+                    .strip_prefix("ACTION: ")
+                    .unwrap_or(&action)
+                    .to_lowercase(),
+            ),
+            None => action_available(&action),
+        };
+        if !runnable {
             return Err(anyhow!(
                 "{action} is no longer an installed capability; not served as a reflex."
             ));
@@ -2490,8 +2557,9 @@ mod tests {
         let without = tempfile::tempdir().unwrap();
         let staged = without.path().join("staged.jsonl");
         stage(&staged, EVERYDAY);
-        SusiAlphaModel::train_with(without.path(), &staged, &Descriptions::new()).unwrap();
-        let bare = SusiAlphaModel::load_with(without.path(), &Descriptions::new()).unwrap();
+        let none = Capabilities::pinned(&[], Descriptions::new());
+        SusiAlphaModel::train_with(without.path(), &staged, &none).unwrap();
+        let bare = SusiAlphaModel::load_with(without.path(), &none).unwrap();
         assert!(
             bare.predict_intent(prompt).is_err(),
             "unreachable without a description"
@@ -2500,8 +2568,9 @@ mod tests {
         let with = tempfile::tempdir().unwrap();
         let staged = with.path().join("staged.jsonl");
         stage(&staged, EVERYDAY);
-        SusiAlphaModel::train_with(with.path(), &staged, &descriptions).unwrap();
-        let described = SusiAlphaModel::load_with(with.path(), &descriptions).unwrap();
+        let described_caps = Capabilities::pinned(&[], descriptions);
+        SusiAlphaModel::train_with(with.path(), &staged, &described_caps).unwrap();
+        let described = SusiAlphaModel::load_with(with.path(), &described_caps).unwrap();
         assert_eq!(described.predict_intent(prompt).unwrap(), "ACTION: reason");
     }
 
@@ -2516,8 +2585,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let staged = dir.path().join("staged.jsonl");
         stage(&staged, EVERYDAY);
-        SusiAlphaModel::train_with(dir.path(), &staged, &descriptions).unwrap();
-        let model = SusiAlphaModel::load_with(dir.path(), &descriptions).unwrap();
+        let caps = Capabilities::pinned(&[], descriptions);
+        SusiAlphaModel::train_with(dir.path(), &staged, &caps).unwrap();
+        let model = SusiAlphaModel::load_with(dir.path(), &caps).unwrap();
         assert!(
             model
                 .vetoed_word("delete the config file", "ACTION: write_file")
@@ -2747,6 +2817,422 @@ mod tests {
         assert!(model
             .vetoed_word("write notes to todo.md", "ACTION: write_file")
             .is_none());
+    }
+
+    /// (tool, description, 4 training phrasings, 2 unseen test phrasings)
+    type ToolCase = (
+        &'static str,
+        &'static str,
+        [&'static str; 4],
+        [&'static str; 2],
+    );
+
+    const TOOL_CORPUS: &[ToolCase] = &[
+        (
+            "git_commit",
+            "Commit staged changes to the git repository",
+            [
+                "commit my changes",
+                "git commit the staged work",
+                "make a commit",
+                "commit everything to git",
+            ],
+            ["commit these changes to the repo", "create a git commit"],
+        ),
+        (
+            "git_status",
+            "Show the working tree status of the git repository",
+            [
+                "git status",
+                "what changed in git",
+                "show uncommitted changes",
+                "which files are modified in git",
+            ],
+            [
+                "show me the git status",
+                "any uncommitted changes in the repo",
+            ],
+        ),
+        (
+            "git_log",
+            "Show the commit history",
+            [
+                "show git log",
+                "recent commits",
+                "commit history please",
+                "list the last commits",
+            ],
+            ["what were the latest commits", "show the git history"],
+        ),
+        (
+            "docker_ps",
+            "List running docker containers",
+            [
+                "list docker containers",
+                "which containers are running",
+                "docker ps",
+                "show running containers",
+            ],
+            [
+                "what docker containers are up",
+                "list the running containers",
+            ],
+        ),
+        (
+            "docker_logs",
+            "Fetch logs from a docker container",
+            [
+                "docker logs for web",
+                "show container logs",
+                "tail the container logs",
+                "get logs from the api container",
+            ],
+            ["show the docker logs", "fetch the container logs"],
+        ),
+        (
+            "k8s_pods",
+            "List kubernetes pods in a namespace",
+            [
+                "list kubernetes pods",
+                "kubectl get pods",
+                "show the pods",
+                "which pods are running in prod",
+            ],
+            ["list pods in the default namespace", "show kubernetes pods"],
+        ),
+        (
+            "sql_query",
+            "Run a SQL query against the database",
+            [
+                "run a sql query",
+                "query the database",
+                "select users from the db",
+                "execute this sql",
+            ],
+            ["run sql against the database", "query the users table"],
+        ),
+        (
+            "db_backup",
+            "Back up the database to a dump file",
+            [
+                "back up the database",
+                "dump the database",
+                "database backup now",
+                "make a db dump",
+            ],
+            ["take a database backup", "dump the db to a file"],
+        ),
+        (
+            "web_search",
+            "Search the web for a query",
+            [
+                "search the web for rust async",
+                "google this",
+                "look up on the internet",
+                "web search for tokio",
+            ],
+            ["search online for serde", "look this up on the web"],
+        ),
+        (
+            "weather",
+            "Get the weather forecast for a city",
+            [
+                "weather in chennai",
+                "will it rain tomorrow",
+                "forecast for london",
+                "what is the temperature outside",
+            ],
+            ["weather forecast for paris", "is it going to rain"],
+        ),
+        (
+            "calendar_add",
+            "Add an event to the calendar",
+            [
+                "add a meeting to my calendar",
+                "schedule a call at 3pm",
+                "put lunch on the calendar",
+                "create a calendar event",
+            ],
+            ["schedule a meeting tomorrow", "add an event to my calendar"],
+        ),
+        (
+            "email_send",
+            "Send an email message",
+            [
+                "send an email to bob",
+                "email the report to alice",
+                "mail this to the team",
+                "send a message by email",
+            ],
+            ["email this to carol", "send an email to the team"],
+        ),
+        (
+            "slack_post",
+            "Post a message to a Slack channel",
+            [
+                "post to slack",
+                "message the team on slack",
+                "send this to the dev channel",
+                "slack the update",
+            ],
+            ["post this in slack", "share it on the slack channel"],
+        ),
+        (
+            "jira_create",
+            "Create a Jira ticket",
+            [
+                "open a jira ticket",
+                "file a bug in jira",
+                "create a jira issue",
+                "log this in jira",
+            ],
+            ["create a ticket in jira", "file a jira bug"],
+        ),
+        (
+            "pdf_extract",
+            "Extract text from a PDF document",
+            [
+                "extract text from the pdf",
+                "get text out of report.pdf",
+                "pull the text from this pdf",
+                "pdf to text",
+            ],
+            ["extract the pdf text", "convert this pdf to text"],
+        ),
+        (
+            "image_resize",
+            "Resize an image file",
+            [
+                "resize the image",
+                "make the picture smaller",
+                "scale logo.png to 200px",
+                "shrink this image",
+            ],
+            ["resize this picture", "scale down the image"],
+        ),
+        (
+            "translate_text",
+            "Translate text into another language",
+            [
+                "translate to french",
+                "translate this paragraph",
+                "say this in spanish",
+                "translate the text to german",
+            ],
+            ["translate this into japanese", "translate the sentence"],
+        ),
+        (
+            "summarize_doc",
+            "Summarize a long document",
+            [
+                "summarize this document",
+                "give me a summary",
+                "tl;dr of the doc",
+                "summarize the article",
+            ],
+            ["summarize the long document", "short summary of this doc"],
+        ),
+        (
+            "cargo_build",
+            "Compile the Rust project with cargo",
+            [
+                "cargo build",
+                "compile the rust project",
+                "build with cargo",
+                "cargo build release",
+            ],
+            ["compile with cargo", "run cargo build"],
+        ),
+        (
+            "npm_install",
+            "Install node packages with npm",
+            [
+                "npm install",
+                "install node modules",
+                "install the npm packages",
+                "npm i",
+            ],
+            ["install packages with npm", "run npm install"],
+        ),
+        (
+            "pytest_run",
+            "Run the python test suite with pytest",
+            [
+                "run pytest",
+                "run the python tests",
+                "pytest the project",
+                "execute python unit tests",
+            ],
+            ["run the pytest suite", "run python tests"],
+        ),
+        (
+            "lint_code",
+            "Lint the source code for style issues",
+            [
+                "lint the code",
+                "run the linter",
+                "check code style",
+                "lint src",
+            ],
+            ["run lint on the code", "check the code style"],
+        ),
+        (
+            "disk_usage",
+            "Report disk usage of directories",
+            [
+                "disk usage",
+                "how much space is used",
+                "du of the folder",
+                "check free disk space",
+            ],
+            ["show disk usage", "how much disk space is left"],
+        ),
+        (
+            "process_list",
+            "List running processes",
+            [
+                "list processes",
+                "ps aux",
+                "what is running on this machine",
+                "show running processes",
+            ],
+            ["list the running processes", "which processes are running"],
+        ),
+        (
+            "port_scan",
+            "Check which ports are open",
+            [
+                "scan open ports",
+                "which ports are listening",
+                "port scan localhost",
+                "check open ports",
+            ],
+            ["what ports are open", "scan the ports"],
+        ),
+        (
+            "cert_check",
+            "Check TLS certificate expiry for a domain",
+            [
+                "check the tls certificate",
+                "when does the cert expire",
+                "ssl cert expiry for example.com",
+                "check certificate expiry",
+            ],
+            ["check the ssl certificate", "is the certificate expiring"],
+        ),
+        (
+            "env_show",
+            "Show environment variables",
+            [
+                "show env vars",
+                "print environment",
+                "list environment variables",
+                "what is in my env",
+            ],
+            ["show the environment variables", "print my env"],
+        ),
+        (
+            "http_get",
+            "Fetch a URL over HTTP",
+            [
+                "fetch this url",
+                "http get example.com",
+                "download the page",
+                "curl the endpoint",
+            ],
+            ["fetch the url", "get the page over http"],
+        ),
+        (
+            "zip_archive",
+            "Compress files into a zip archive",
+            [
+                "zip the folder",
+                "compress these files",
+                "make a zip archive",
+                "archive the logs",
+            ],
+            ["zip up the files", "compress into an archive"],
+        ),
+        (
+            "timezone_convert",
+            "Convert a time between time zones",
+            [
+                "convert 3pm ist to utc",
+                "what time is it in tokyo",
+                "time zone conversion",
+                "convert this time to pst",
+            ],
+            ["convert the time to utc", "what's the time in new york"],
+        ),
+    ];
+
+    /// Everyday prompts no tool in `TOOL_CORPUS` covers (the foundational
+    /// OOD list includes translate/summarize/weather, which tools here do).
+    const TOOL_OOD: &[&str] = &[
+        "what is the capital of france",
+        "write a poem about the ocean",
+        "who won the world cup in 2018",
+        "explain quantum entanglement simply",
+        "tell me a joke",
+        "book a flight to tokyo",
+        "how do i bake bread",
+        "recommend a good movie",
+        "what is love",
+        "play some music",
+        "order a pizza",
+        "compose a haiku about autumn",
+    ];
+
+    fn tool_capabilities() -> Capabilities {
+        let names: Vec<&str> = TOOL_CORPUS.iter().map(|t| t.0).collect();
+        let descriptions: Descriptions = TOOL_CORPUS
+            .iter()
+            .map(|t| (t.0.to_string(), t.1.to_string()))
+            .collect();
+        Capabilities::pinned(&names, descriptions)
+    }
+
+    /// Tier-0 on a tool-heavy install (30 MCP-style tools with overlapping
+    /// vocabulary, 4 training phrasings each, next to the foundational
+    /// corpus), scored on 2 unseen phrasings per tool. Baseline when
+    /// written (3 inits): tool recall 43/60, 1-3 wrong serves, foundational
+    /// 26-27/27, 0/12 out-of-distribution served.
+    #[test]
+    fn tier0_tool_heavy_benchmark() {
+        let caps = tool_capabilities();
+        let mut train: Vec<(&str, &str)> = BENCH_TRAIN.to_vec();
+        for (tool, _, phrasings, _) in TOOL_CORPUS {
+            train.extend(phrasings.iter().map(|p| (*p, *tool)));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, &train);
+        SusiAlphaModel::train_with(dir.path(), &staged, &caps).unwrap();
+        let model = SusiAlphaModel::load_with(dir.path(), &caps).unwrap();
+        let (mut served, mut correct) = (0, 0);
+        for (tool, _, _, tests) in TOOL_CORPUS {
+            for prompt in tests {
+                if let Ok(action) = model.predict_intent(prompt) {
+                    served += 1;
+                    if action == format!("ACTION: {tool}") {
+                        correct += 1;
+                    }
+                }
+            }
+        }
+        let foundational = BENCH_TEST
+            .iter()
+            .filter(|(p, a)| model.predict_intent(p).ok() == Some(format!("ACTION: {a}")))
+            .count();
+        let ood: Vec<&str> = TOOL_OOD
+            .iter()
+            .copied()
+            .filter(|p| model.predict_intent(p).is_ok())
+            .collect();
+        assert!(correct >= 38, "tool recall {correct}/60");
+        assert!(served - correct <= 4, "wrong serves {}", served - correct);
+        assert!(foundational >= 24, "foundational recall {foundational}/27");
+        assert!(ood.len() <= 1, "out-of-distribution served: {ood:?}");
     }
 
     #[test]
