@@ -1652,3 +1652,56 @@ fn agents_md_opens_with_start_here_and_the_workflow_check() {
         );
     }
 }
+
+/// The README is the front door: it must cover the workflow, the task queue,
+/// the ecosystem and brain commands, and its mandate range must match
+/// identity.json — so it cannot silently fall behind again.
+#[test]
+fn readme_covers_the_workflow_ecosystem_and_brain() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let readme = std::fs::read_to_string(root.join("README.md")).unwrap();
+    for needle in [
+        "susi workflow check",
+        "susi workflow start",
+        "scripts/susi-worktree.sh",
+        "susi tasks claim",
+        "susi tasks roadmap",
+        "Task: T-<AGENT>-<n>",
+        "Workflow Compliance",
+        "scripts/github-enforce.sh",
+        "susi ecosystem scan",
+        "susi keys check",
+        "susi brain",
+        "SUSI_BUDGET",
+        "susi admin release",
+        ".agents/tasks/",
+        ".agents/lanes/",
+    ] {
+        assert!(readme.contains(needle), "README.md must cover `{needle}`");
+    }
+    // "Mandates 49–N": N must be the highest mandate in identity.json.
+    let identity: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(".agents/identity.json")).unwrap())
+            .unwrap();
+    let max = identity["pillars"]["dna"]["mandates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["id"].as_u64())
+        .max()
+        .unwrap();
+    let after = readme
+        .split("Mandates 49–")
+        .nth(1)
+        .expect("README names the workflow mandates as `Mandates 49–N`");
+    let stated: u64 = after
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        stated, max,
+        "README says Mandates 49–{stated}; identity.json goes to {max}"
+    );
+}

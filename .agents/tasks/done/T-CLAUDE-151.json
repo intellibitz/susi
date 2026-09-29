@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-151",
+  "title": "README: document the workflow, task queue, ecosystem and brain, and pin it against drift",
+  "goal": "README predates the task queue, susi workflow check/start, the roadmap link, susi ecosystem, susi keys check/models and the phased ruleset; the brain section is one unreadable paragraph. Update Genome (tasks, lanes), Quickstart, add a 'Building susi: the workflow (Mandates 49-56)' section and a 'Local and cloud AI ecosystem' section, restructure the brain section. An architecture test fails if the README stops covering these commands or the mandate range stops matching identity.json.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "readme_covers"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712297,
+  "closed": {
+    "at_unix": 1790712534,
+    "commit": "5a979f1b73c00ef5c98bbea4cd1dac98326df4ff",
+    "by": "CLAUDE"
+  }
+}
