@@ -23,11 +23,16 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub mod cloud;
 pub mod cloud_manage;
+pub mod eco_anthropic_messages;
 pub mod eco_conflicts;
 pub mod eco_consistency;
 pub mod eco_coverage;
 pub mod eco_matrix;
+pub mod eco_openai_batch_files;
 pub mod eco_openai_chat;
+pub mod eco_openai_embed_media;
+pub mod eco_openai_realtime;
+pub mod eco_openai_responses;
 pub mod eco_profile;
 pub mod eco_provenance;
 pub mod eco_relations;
