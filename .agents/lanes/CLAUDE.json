@@ -1,0 +1,15 @@
+{
+  "agent": "CLAUDE",
+  "stages": [
+    "distill",
+    "verify"
+  ],
+  "note": "Distill (staging -> Tier-0 training -> checkpoint publication) and verify. Picked up verify on 2026-09-29 as it was unlisted; Devin can take it back.",
+  "files": [
+    "susi-gawd-agents::pkb",
+    "susi-gawd::reflex_trainer",
+    "susi-gemi::engines::alpha",
+    "susi-core::receipt_archive (staging writer)",
+    "susi-core::verification"
+  ]
+}
