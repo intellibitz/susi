@@ -15,6 +15,9 @@
 # tag together in one step, so the tag can never again drift from the
 # version. Routine pushes just need to build and pass the checks below.
 
+# Mandate 49 (stdin carries the pushed refs; the guard must consume it first).
+"$(dirname "$0")/workflow-guard" push || exit 1
+
 echo "🛡️ Running SUSI Deep Compliance Checks (Deferred from Commit)..."
 
 # Fast path: only run the Rust-specific checks below if this push actually

@@ -86,6 +86,19 @@ this for the panic-path lints.
   Dev binaries run as their own instance (`~/.susi-dev`, ports 9190–9194;
   `src/dev_instance.rs`) — verify dev features there, not on the release daemon.
 
+- **Mandate 49 (Worktree Workflow).** Every agent and user works in its own
+  git worktree on its own branch (`scripts/susi-worktree.sh <name>`); the
+  primary checkout is never committed to, `main` never receives plain commits
+  (only merges of `origin/main`-current branches), and `main` is only ever
+  fast-forwarded — never force-pushed or deleted. Enforced by
+  `.githooks/workflow-guard` (called from `pre-commit`, `pre-merge-commit`,
+  `pre-push`), enabled by `scripts/setup-dev.sh` (run automatically by
+  `cargo xb build`). Overrides (`SUSI_ALLOW_PRIMARY`, `SUSI_ALLOW_MAIN`,
+  `SUSI_ALLOW_FORCE`) are explicit env vars, never defaults. Hooks are
+  client-side: `--no-verify` bypasses them, so the server-side backstop is
+  GitHub branch protection on `main` (no force-push, no deletion, required
+  status checks) — a repo setting the owner applies.
+
 ## Test policy
 
 - Property-based testing with `proptest` for state machines and pure
