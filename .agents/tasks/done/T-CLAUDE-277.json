@@ -17,5 +17,10 @@
   },
   "roadmap": "VC-201-087",
   "created_by": "CLAUDE",
-  "created_unix": 1790713551
+  "created_unix": 1790713551,
+  "closed": {
+    "at_unix": 1790723391,
+    "commit": "8645cd91379d1a8ba53f9e742e5ba35116326c3d",
+    "by": "CURSOR"
+  }
 }

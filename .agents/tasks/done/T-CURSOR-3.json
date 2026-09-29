@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CURSOR",
-  "created_unix": 1790723240
+  "created_unix": 1790723240,
+  "closed": {
+    "at_unix": 1790723418,
+    "commit": "8645cd91379d1a8ba53f9e742e5ba35116326c3d",
+    "by": "CURSOR"
+  }
 }
