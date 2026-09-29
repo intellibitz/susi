@@ -1512,3 +1512,53 @@ fn github_ruleset_requires_only_checks_the_workflows_produce() {
     // The compliance job must run on the pushes the ruleset gates.
     assert!(test_yml.contains("scripts/check-workflow-compliance.sh origin/main"));
 }
+
+/// The brain-lanes markdown board was retired: lane ownership is one JSON file
+/// per agent (no shared table to conflict on), its step logs live in the
+/// evidence ledger, and nothing may point at the deleted file.
+#[test]
+fn brain_lanes_board_is_retired_into_data() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(
+        !root.join("docs/brain-lanes.md").exists(),
+        "docs/brain-lanes.md must stay deleted; use .agents/lanes/<AGENT>.json and `susi tasks`"
+    );
+    let mut agents = Vec::new();
+    for entry in std::fs::read_dir(root.join(".agents/lanes")).unwrap() {
+        let path = entry.unwrap().path();
+        let lane: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let agent = lane["agent"].as_str().unwrap();
+        assert_eq!(
+            path.file_stem().unwrap().to_string_lossy(),
+            agent,
+            "lane file name must match its agent"
+        );
+        assert!(agent
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()));
+        assert!(
+            !lane["stages"].as_array().unwrap().is_empty(),
+            "{agent} lane needs at least one stage"
+        );
+        assert!(!lane["files"].as_array().unwrap().is_empty());
+        agents.push(agent.to_string());
+    }
+    agents.sort();
+    assert_eq!(agents, ["CLAUDE", "DEVIN"]);
+    // Each lane's history must exist in the ledger it now lives in.
+    let ledger = std::fs::read_to_string(root.join(".agents/evidence.json")).unwrap();
+    for agent in &agents {
+        assert!(
+            ledger.contains(&format!("EV-{agent}-001")),
+            "the ledger must hold {agent}'s history (EV-{agent}-001)"
+        );
+    }
+    for rel in ["ARCHITECTURE.md", "AGENTS.md", "README.md"] {
+        let text = std::fs::read_to_string(root.join(rel)).unwrap();
+        assert!(
+            !text.contains("brain-lanes.md"),
+            "{rel} still points at the deleted brain-lanes.md"
+        );
+    }
+}

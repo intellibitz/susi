@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-7",
+  "title": "Retire docs/brain-lanes.md into lane data, the ledger and the queue",
+  "goal": "brain-lanes.md was a shared markdown board (lanes table + two agents' step logs + agent chatter). The logs are already ledger entries (EV-CLAUDE-001..067, EV-DEVIN-001..060); lane ownership becomes one JSON file per agent under .agents/lanes/ (Mandate 51: one file per record); the one unresolved design question moves to its own task. Delete docs/brain-lanes.md and fix every reference.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "brain_lanes"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790697736,
+  "closed": {
+    "at_unix": 1790697889,
+    "commit": "5960f20e652b15a13193a1f55ead4be9d87f1655",
+    "by": "CLAUDE"
+  }
+}

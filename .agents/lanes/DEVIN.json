@@ -1,0 +1,16 @@
+{
+  "agent": "DEVIN",
+  "stages": [
+    "perceive",
+    "retrieve",
+    "deliberate",
+    "promote"
+  ],
+  "note": "Learning-loop steps 1-5, including plan scoring from failed-tool history. See ARCHITECTURE.md 'The learning loop'.",
+  "files": [
+    "susi-core::mission_trace",
+    "susi-gawd-swarm::{deliberation, ama::master}",
+    "susi-gawd::evolution",
+    "susi-tools::plane_handler"
+  ]
+}

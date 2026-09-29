@@ -926,8 +926,13 @@ never bootstraps a model). `tests/distill_loop_tests.rs` exercises the whole
 stage end to end across the plane bus — production staging writer →
 automatic trainer audit → GEMI training, gate and publication → Tier-0
 serving through `SusiPulse` — under an isolated HOME/XDG root.
-Lane ownership for concurrent brain work is in
-`docs/brain-lanes.md`.
+Lane ownership for concurrent brain work is one file per agent in
+`.agents/lanes/` (loop stages and the modules each mostly touches); individual
+work is claimed through `susi tasks`. Surfaces every lane touches — rebase
+before editing and keep hunks small: this file (each lane edits its own stage
+paragraph), `.agents/evidence.json` (namespaced `EV-<AGENT>-<n>` ids) and
+`.agents/coverage-baseline.json`. The step-by-step history of the loop is in
+the evidence ledger (`EV-CLAUDE-*`, `EV-DEVIN-*`).
 
 When Tier-0 declines, `SusiPulse` falls to Tier 1, the embedded sub-1B
 generative reflex (`GenerativeReflexEngine`): a full answer first, the
