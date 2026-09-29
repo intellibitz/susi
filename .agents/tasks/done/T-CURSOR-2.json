@@ -1,0 +1,23 @@
+{
+  "id": "T-CURSOR-2",
+  "title": "Clippy: collapse identical deny branches in capability_contract",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_071"
+    ]
+  },
+  "created_by": "CURSOR",
+  "created_unix": 1790722710,
+  "closed": {
+    "at_unix": 1790722741,
+    "commit": "b5b7c5ae4773a1674db788a97a32df3775b2bc3e",
+    "by": "CURSOR"
+  }
+}

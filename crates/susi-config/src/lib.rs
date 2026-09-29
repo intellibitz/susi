@@ -38,8 +38,10 @@ pub mod file_lock;
 mod json_util;
 pub mod key_scope;
 pub mod rekey_schedule;
+pub mod secret_ref;
 pub mod selfheal;
 pub mod setting_registry;
+pub mod setup_workflow;
 pub mod state_migration;
 mod types;
 pub mod validate;
@@ -159,8 +161,14 @@ mod rekey_schedule_tests;
 #[path = "tests/selfheal.rs"]
 mod selfheal_tests;
 #[cfg(test)]
+#[path = "tests/setup_workflow.rs"]
+mod setup_workflow_tests;
+#[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_066.rs"]
+mod vc_201_066_tests;
 #[cfg(test)]
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;

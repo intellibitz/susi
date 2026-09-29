@@ -44,17 +44,29 @@ pub mod plane_handler;
 
 pub mod benchmark;
 pub mod coding_models_ext;
+pub mod engine_benchmark;
 pub mod eval;
 pub mod frontier_ext;
 pub mod model_preload;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
+pub mod provider_contract;
 pub mod pulse;
 pub mod rate_limit_scheduler;
+pub mod region_eligibility;
 
+#[cfg(test)]
+#[path = "tests/engine_benchmark.rs"]
+mod engine_benchmark_tests;
 #[cfg(test)]
 #[path = "tests/model_preload.rs"]
 mod model_preload_tests;
 #[cfg(test)]
 #[path = "tests/rate_limit_scheduler.rs"]
 mod rate_limit_scheduler_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_051.rs"]
+mod vc_201_051_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_054.rs"]
+mod vc_201_054_tests;
