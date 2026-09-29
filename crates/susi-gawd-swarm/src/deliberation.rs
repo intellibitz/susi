@@ -276,6 +276,12 @@ pub struct HistorySignals {
     /// Texts of steps that ran on similar *verified-success* missions —
     /// a candidate echoing one earns a bonus.
     pub proven_steps: Vec<String>,
+    /// Whole decompositions that succeeded — a candidate matching one
+    /// wholesale repeats a shape that already delivered.
+    pub proven_plans: Vec<Vec<String>>,
+    /// Whole decompositions that failed — a candidate matching one
+    /// wholesale replays a shape that already died.
+    pub failed_plans: Vec<Vec<String>>,
 }
 
 pub fn deliberate(
@@ -360,6 +366,25 @@ pub fn deliberate(
                     score = (score + 0.05 * proven.min(3) as f32).min(1.0);
                     rationale.push_str(&format!(" proven_step_matches={proven}"));
                 }
+            }
+            // Whole-plan provenance: matching an entire decomposition that
+            // delivered before is stronger than echoing one of its steps;
+            // matching one that failed is worse than echoing a doomed step.
+            if history
+                .proven_plans
+                .iter()
+                .any(|p| plan_similarity(&steps, p) >= 0.7)
+            {
+                score = (score + 0.1).min(1.0);
+                rationale.push_str(" proven_plan_shape=+0.10");
+            }
+            if history
+                .failed_plans
+                .iter()
+                .any(|p| plan_similarity(&steps, p) >= 0.7)
+            {
+                score = (score - 0.15).max(0.0);
+                rationale.push_str(" failed_plan_shape=-0.15");
             }
             CandidatePlan {
                 steps,
@@ -755,6 +780,29 @@ mod tests {
         assert!(tainted < clean, "{r}");
         assert!(tainted > 0.0);
         assert!(r.contains("failed_history_tools=1"), "{r}");
+    }
+
+    #[test]
+    fn whole_plan_shape_provenance_scored() {
+        // Identical candidate scored against two histories: replaying a
+        // failed decomposition docks it; replaying a proven one boosts it.
+        let plan = || vec!["scan the repo".to_string(), "write the patch".to_string()];
+        let m = manifold_for("read Cargo.toml");
+        let gen = |_| plan();
+        let failed_hist = HistorySignals {
+            failed_plans: vec![plan()],
+            ..Default::default()
+        };
+        let proven_hist = HistorySignals {
+            proven_plans: vec![plan()],
+            ..Default::default()
+        };
+        let d_failed = deliberate("g", &m, &[4], &failed_hist, gen);
+        let d_proven = deliberate("g", &m, &[4], &proven_hist, gen);
+        let (f, p) = (&d_failed.candidates[0], &d_proven.candidates[0]);
+        assert!(f.rationale.contains("failed_plan_shape"), "{}", f.rationale);
+        assert!(p.rationale.contains("proven_plan_shape"), "{}", p.rationale);
+        assert!(p.score > f.score, "{} vs {}", p.score, f.score);
     }
 
     #[test]

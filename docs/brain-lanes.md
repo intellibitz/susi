@@ -352,3 +352,26 @@ One line per landed step, newest last.
     similar verified successes) is pushed into the candidate budgets,
     so the search explores the plan shape that actually worked for
     this intent class, not only the fixed [4,2] grid.
+40. Route rollup in history_brief: when similar missions ran on more
+    than one route, the header now tallies verified/total per route —
+    the planner sees which execution route actually delivered instead
+    of tallying lines itself.
+41. Duration-aware difficulty: median observed duration of similar
+    missions now feeds the score (0..600s -> +0..0.15) and is stored
+    as `median_duration_secs` — an intent class that historically
+    takes ten minutes is empirically harder than a ten-second one.
+42. Whole-plan provenance: beyond per-step echoes, a candidate that
+    matches an entire decomposition that verified earns +0.10, and one
+    matching a plan that failed docks -0.15 (plan_similarity>=0.7).
+43. Global prior for novel intents: with no similar neighbors,
+    difficulty() previously scored novelty+risk only; it now adds half
+    the recency-weighted global failure rate — a broadly-failing
+    system treats the unknown as riskier than a healthy one.
+44. Governance blocks aren't capability failures: a GOVERNANCE_BLOCK
+    trace no longer counts as a failure in success_rate, difficulty
+    failure-rate, promotion veto, or failed-step/plan provenance — a
+    refused intent is a policy outcome, not "we tried and lost".
+45. Exemplar quality + capability sizing: proven_plan_brief now picks
+    the verified trace with the highest plan_score (best teacher, not
+    first match); unreliable_neighborhood sizes the >=2 bar on
+    capability outcomes, so refusals don't pad the neighborhood.

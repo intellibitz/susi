@@ -4214,6 +4214,66 @@
     "label": "Plan-length prior",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-052",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 34 \u2014 route rollup in history_brief. Similar missions' per-line 'via route' is now aggregated into a header tally '(routes verified: cloud 0/1, swarm 1/1)' when multiple routes appear, so the planner can pick the route that actually delivered for the intent class.",
+   "proof": "brief_rolls_up_per_route_outcomes: mixed-route history shows the tally; single-route history stays terse. susi-core 229 pass; clippy clean.",
+   "anchor": {
+    "label": "Route rollup",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-053",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 35 \u2014 duration-aware difficulty. difficulty() ignored the recorded duration_secs; median duration of similar missions now adds a bounded bump (0\u2013600s \u2192 +0\u20130.15) to the score and is exposed as median_duration_secs on Difficulty and in the [RETRIEVAL] line.",
+   "proof": "slow_intent_history_raises_difficulty: 700s-history intent scores harder than a 30s-history twin; missing durations \u2192 no bump. susi-core 230 pass; clippy clean.",
+   "anchor": {
+    "label": "Duration-aware difficulty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-054",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 36 \u2014 whole-plan provenance. Step-level echoes now complemented by shape-level matching: proven_plans/failed_plans retrieve full step-lists from similar missions; a candidate matching a verified decomposition (plan_similarity \u2265 0.7) earns +0.10, matching a failed one docks -0.15.",
+   "proof": "whole_plan_shape_provenance_scored: identical candidate scores lower against failed-plan history, higher against proven-plan history. susi-gawd-swarm 66 pass; clippy clean.",
+   "anchor": {
+    "label": "Whole-plan provenance",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-055",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 37 \u2014 global prior for novel intents. difficulty() scored novel intents on novelty+risk alone, blind to the system's overall track record; it now adds 0.5\u00d7 the recency-weighted global failure rate when no neighbors exist.",
+   "proof": "novel_intent_reads_global_track_record: same novel goal scores harder against all-failed history than all-success; empty history keeps pure novelty score. susi-core 231 pass; clippy clean.",
+   "anchor": {
+    "label": "Global difficulty prior",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-056",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 38 \u2014 governance blocks aren't capability failures. MissionTrace::capability_outcome() is false for GOVERNANCE_BLOCK traces; success_rate, difficulty's failure rate, the promotion veto window, Insufficient accounting, failed_steps and failed_plans now skip them. A refused goal class was inflating failure statistics even though nothing ever ran.",
+   "proof": "governance_blocks_are_not_capability_failures: block+verified-win reads 1.0 success, 0.0 failure_rate, Insufficient{0,0} not Vetoed. susi-core 232 pass; clippy clean.",
+   "anchor": {
+    "label": "Capability-outcome filter",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-057",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 39 \u2014 exemplar quality + capability sizing. proven_plan_brief picked the first similar verified trace; it now prefers the highest plan_score so the exemplar teaches the best-scoring proven shape (unrecorded scores sort last, similarity breaks ties). unreliable_neighborhood's \u22652 evidence bar counts capability outcomes only.",
+   "proof": "proven_plan_brief_prefers_highest_scoring_exemplar. susi-core 233 pass; clippy clean.",
+   "anchor": {
+    "label": "Exemplar quality",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

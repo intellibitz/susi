@@ -124,6 +124,14 @@ impl MissionTrace {
         self.succeeded() && self.evidence_entries > 0
     }
 
+    /// Does this trace describe a *capability* outcome — something ran
+    /// and won or lost? A governance refusal isn't a mission that failed:
+    /// nothing executed, so it must not taint failure statistics for the
+    /// intent class (the block itself stays visible via signals).
+    pub fn capability_outcome(&self) -> bool {
+        !self.signals.iter().any(|s| s == "GOVERNANCE_BLOCK")
+    }
+
     /// Emit the record to its sinks. Best-effort at each sink — a full disk
     /// or an unwired graph must not fail a mission that already finished —
     /// but errors surface as `Err` so callers can observe a total failure.
@@ -301,6 +309,9 @@ pub struct Difficulty {
     pub failure_rate: f32,
     /// Manifold risk contribution already applied.
     pub risk: crate::manifold::RiskProfile,
+    /// Median observed duration of similar missions — the empirical
+    /// cost signal folded into the score.
+    pub median_duration_secs: Option<u64>,
 }
 
 impl Difficulty {
@@ -333,6 +344,11 @@ pub fn difficulty(
     let newest = traces.iter().map(|t| t.timestamp).max().unwrap_or(0);
     let (mut wsum, mut wfail) = (0.0f32, 0.0f32);
     for t in &neighbors {
+        // Governance refusals excluded: a blocked mission is a policy
+        // outcome, not a capability failure for this intent class.
+        if !t.capability_outcome() {
+            continue;
+        }
         let w = recency_weight(t.timestamp, newest);
         wsum += w;
         if !t.succeeded() {
@@ -340,6 +356,17 @@ pub fn difficulty(
         }
     }
     let failure_rate = if wsum == 0.0 { 0.0 } else { wfail / wsum };
+    // Empirical cost: an intent class whose missions historically take
+    // ten minutes is harder than one that finishes in seconds. Median
+    // duration over similar traces maps 0..600s onto a 0..0.15 bump.
+    let mut durations: Vec<u64> = neighbors.iter().filter_map(|t| t.duration_secs).collect();
+    let median_duration = if durations.is_empty() {
+        None
+    } else {
+        durations.sort_unstable();
+        Some(durations[durations.len() / 2])
+    };
+    let duration_weight = median_duration.map_or(0.0, |d| (d as f32 / 600.0).min(1.0) * 0.15);
     let risk_weight = match risk {
         crate::manifold::RiskProfile::Low => 0.0,
         crate::manifold::RiskProfile::Medium => 0.15,
@@ -347,12 +374,40 @@ pub fn difficulty(
         crate::manifold::RiskProfile::Critical => 0.4,
     };
     let novelty_weight = if novel { 0.35 } else { 0.0 };
-    let score = (novelty_weight + 0.4 * failure_rate + risk_weight).clamp(0.0, 1.0);
+    // A novel intent has no neighborhood prior — the system's overall
+    // recent track record is the only evidence. A brain that has been
+    // failing broadly should treat the unknown as riskier than one on
+    // a streak; half the global failure rate tempers the novelty bump.
+    let global_failure_rate = if novel && !traces.is_empty() {
+        let newest_all = newest;
+        let (mut gw, mut gwf) = (0.0f32, 0.0f32);
+        for t in traces {
+            let w = recency_weight(t.timestamp, newest_all);
+            gw += w;
+            if !t.succeeded() {
+                gwf += w;
+            }
+        }
+        if gw == 0.0 {
+            0.0
+        } else {
+            gwf / gw
+        }
+    } else {
+        0.0
+    };
+    let score = (novelty_weight
+        + 0.4 * failure_rate
+        + risk_weight
+        + duration_weight
+        + 0.2 * global_failure_rate)
+        .clamp(0.0, 1.0);
     Difficulty {
         score,
         novel,
         failure_rate,
         risk,
+        median_duration_secs: median_duration,
     }
 }
 
@@ -417,12 +472,16 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
     // Only evidence-backed wins count toward promotion — a bare "SUCCESS"
     // verdict with zero receipts is a claim, not proof a reflex helped.
     let successes = matching.iter().filter(|t| t.verified()).count();
-    let failures = matching.len() - matching.iter().filter(|t| t.succeeded()).count();
+    // Governance refusals aren't capability failures — nothing ran.
+    let failures = matching
+        .iter()
+        .filter(|t| !t.succeeded() && t.capability_outcome())
+        .count();
     if let Some(failed) = matching
         .iter()
         .rev()
         .take(RECENT_WINDOW)
-        .find(|t| !t.succeeded())
+        .find(|t| !t.succeeded() && t.capability_outcome())
     {
         return PromotionStatus::Vetoed {
             reason: format!(
@@ -448,7 +507,7 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
 pub fn failed_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<String> {
     similar(goal, traces, limit)
         .iter()
-        .filter(|t| !t.succeeded())
+        .filter(|t| !t.succeeded() && t.capability_outcome())
         .filter_map(|t| {
             t.failed_step
                 .and_then(|i| t.plan_steps.get(i.saturating_sub(1) as usize))
@@ -472,7 +531,7 @@ pub fn proven_agents(
     for t in similar(goal, traces, limit) {
         if t.verified() {
             proven.extend(t.agents.iter().cloned());
-        } else if !t.succeeded() {
+        } else if !t.succeeded() && t.capability_outcome() {
             failed.extend(t.agents.iter().cloned());
         }
     }
@@ -488,6 +547,28 @@ pub fn proven_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<St
         .iter()
         .filter(|t| t.verified())
         .flat_map(|t| t.plan_steps.iter().cloned())
+        .collect()
+}
+
+/// Full step-lists of plans that ran on similar verified-success
+/// missions — a candidate matching one wholesale repeats a shape
+/// that already delivered.
+pub fn proven_plans(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<Vec<String>> {
+    similar(goal, traces, limit)
+        .iter()
+        .filter(|t| t.verified() && !t.plan_steps.is_empty())
+        .map(|t| t.plan_steps.clone())
+        .collect()
+}
+
+/// Full step-lists of plans that ran on similar *failed* missions —
+/// a candidate matching one wholesale replays a shape that already
+/// died once.
+pub fn failed_plans(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<Vec<String>> {
+    similar(goal, traces, limit)
+        .iter()
+        .filter(|t| !t.succeeded() && t.capability_outcome() && !t.plan_steps.is_empty())
+        .map(|t| t.plan_steps.clone())
         .collect()
 }
 
@@ -621,6 +702,11 @@ pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option
     let newest = traces.iter().map(|t| t.timestamp).max().unwrap_or(0);
     let (mut wsum, mut wwin) = (0.0f32, 0.0f32);
     for t in &neighbors {
+        // A governance refusal is not a capability failure — skip it so
+        // a disallowed goal class doesn't read as "we tried and lost".
+        if !t.capability_outcome() {
+            continue;
+        }
         let w = recency_weight(t.timestamp, newest);
         wsum += w;
         if t.succeeded() {
@@ -639,7 +725,16 @@ pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option
 /// neighbor is too thin to condemn (one failure can be noise).
 pub fn unreliable_neighborhood(goal: &str, traces: &[MissionTrace], limit: usize) -> bool {
     match success_rate(goal, traces, limit) {
-        Some(rate) => similar(goal, traces, limit).len() >= 2 && rate < 0.5,
+        // Size the neighborhood on capability outcomes too — a refusal
+        // shouldn't count toward the ≥2 evidence bar.
+        Some(rate) => {
+            similar(goal, traces, limit)
+                .iter()
+                .filter(|t| t.capability_outcome())
+                .count()
+                >= 2
+                && rate < 0.5
+        }
         None => false,
     }
 }
@@ -682,9 +777,21 @@ pub fn plan_score_correlation(traces: &[MissionTrace]) -> Option<f32> {
 /// mission's steps teach what to avoid, never what to copy. Empty when
 /// nothing similar succeeded, so novel intents get no fabricated guidance.
 pub fn proven_plan_brief(goal: &str, traces: &[MissionTrace]) -> String {
+    // The exemplar should teach the *best* proven shape: among verified
+    // candidates prefer the one whose plan scored highest at
+    // deliberation (a lucky low-scored pass is a worse teacher);
+    // unrecorded scores sort last, similarity order breaking ties.
     let Some(t) = similar(goal, traces, 8)
         .into_iter()
-        .find(|t| t.verified() && !t.plan_steps.is_empty())
+        .filter(|t| t.verified() && !t.plan_steps.is_empty())
+        // rev: max_by returns the *last* maximal element — from the back,
+        // the most-similar candidate wins score ties.
+        .rev()
+        .max_by(|a, b| {
+            a.plan_score
+                .unwrap_or(f32::MIN)
+                .total_cmp(&b.plan_score.unwrap_or(f32::MIN))
+        })
     else {
         return String::new();
     };
@@ -701,7 +808,19 @@ pub fn proven_plan_brief(goal: &str, traces: &[MissionTrace]) -> String {
 /// One-line history brief for prompt injection: what similar missions did
 /// and how they ended. Empty when nothing similar exists.
 pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
-    let lines: Vec<String> = similar(goal, traces, limit)
+    let near = similar(goal, traces, limit);
+    // Route rollup: which execution routes actually delivered for this
+    // intent class — the planner shouldn't have to tally every line.
+    let mut route_tally: std::collections::BTreeMap<String, (u32, u32)> =
+        std::collections::BTreeMap::new();
+    for t in &near {
+        let entry = route_tally.entry(t.route.clone()).or_default();
+        entry.1 += 1;
+        if t.verified() {
+            entry.0 += 1;
+        }
+    }
+    let lines: Vec<String> = near
         .iter()
         .map(|t| {
             let step_note = t
@@ -740,8 +859,18 @@ pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> Strin
     if lines.is_empty() {
         String::new()
     } else {
+        let route_note = if route_tally.len() > 1 {
+            let rollup = route_tally
+                .iter()
+                .map(|(r, (ok, total))| format!("{r} {ok}/{total}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(" (routes verified: {rollup})")
+        } else {
+            String::new()
+        };
         format!(
-            "Prior outcomes for similar goals:\n{}\n\n",
+            "Prior outcomes for similar goals{route_note}:\n{}\n\n",
             lines.join("\n")
         )
     }
@@ -1007,6 +1136,26 @@ mod tests {
     }
 
     #[test]
+    fn brief_rolls_up_per_route_outcomes() {
+        // Two routes tried for the same intent class — the header tallies
+        // which one actually verified.
+        let mut ok = MissionTrace::new("a", "deploy api service", "COMPLETE", "swarm");
+        ok.evidence_entries = 1;
+        let bad = MissionTrace::new("b", "deploy api service", "FAILED", "cloud");
+        let brief = history_brief("deploy api service", &[ok, bad], 8);
+        assert!(
+            brief.contains("(routes verified: cloud 0/1, swarm 1/1)"),
+            "{brief}"
+        );
+
+        // A single route needs no rollup.
+        let mut solo = MissionTrace::new("c", "deploy api service", "COMPLETE", "swarm");
+        solo.evidence_entries = 1;
+        let solo_brief = history_brief("deploy api service", &[solo], 8);
+        assert!(!solo_brief.contains("routes verified"), "{solo_brief}");
+    }
+
+    #[test]
     fn proven_plan_brief_only_teaches_from_successes() {
         let ws = workspace();
         // Most similar trace FAILED — it must not become the exemplar.
@@ -1024,6 +1173,24 @@ mod tests {
         assert!(!brief.contains("guess blindly"), "{brief}");
         // Novel goal: no exemplar, no fabricated guidance.
         assert!(proven_plan_brief("unrelated never-seen task", &traces).is_empty());
+    }
+
+    #[test]
+    fn proven_plan_brief_prefers_highest_scoring_exemplar() {
+        // Two verified successes on the same goal; the higher-scored
+        // plan is the better teacher even though the other is a bit
+        // more similar textually.
+        let mut low = MissionTrace::new("lo", "deploy api service backend", "COMPLETE", "swarm");
+        low.plan_steps = vec!["lucky guess".into()];
+        low.plan_score = Some(0.3);
+        low.evidence_entries = 1;
+        let mut high = MissionTrace::new("hi", "deploy api service", "COMPLETE", "swarm");
+        high.plan_steps = vec!["read config".into(), "deploy".into()];
+        high.plan_score = Some(0.9);
+        high.evidence_entries = 1;
+        let brief = proven_plan_brief("deploy api service backend", &[low, high]);
+        assert!(brief.contains("read config"), "{brief}");
+        assert!(!brief.contains("lucky guess"), "{brief}");
     }
 
     #[test]
@@ -1199,6 +1366,89 @@ mod tests {
             "expected ~0.67, got {}",
             d2.failure_rate
         );
+    }
+
+    #[test]
+    fn governance_blocks_are_not_capability_failures() {
+        let mut blocked = MissionTrace::new("g", "wipe the disk", "FAILED", "swarm");
+        blocked.signals = vec!["GOVERNANCE_BLOCK".into()];
+        assert!(!blocked.capability_outcome());
+
+        // success_rate: a refusal plus a verified win is not "1 of 2
+        // failed" — it is a single capability outcome, which succeeded.
+        let mut ok = MissionTrace::new("o", "wipe the disk", "COMPLETE", "swarm");
+        ok.evidence_entries = 1;
+        let traces = vec![blocked.clone(), ok];
+        assert_eq!(success_rate("wipe the disk", &traces, 8), Some(1.0));
+        assert!(!unreliable_neighborhood("wipe the disk", &traces, 8));
+
+        // difficulty: the block contributes no failure evidence.
+        let d = difficulty("wipe the disk", &traces, crate::manifold::RiskProfile::Low);
+        assert_eq!(d.failure_rate, 0.0);
+
+        // promotion: a refusal alone cannot veto.
+        assert!(matches!(
+            promotion_status(&[blocked], "wipe the disk"),
+            PromotionStatus::Insufficient {
+                successes: 0,
+                failures: 0
+            }
+        ));
+    }
+
+    #[test]
+    fn novel_intent_reads_global_track_record() {
+        // No neighbors for this goal — the only prior is the system's
+        // overall recent record. Broad failure should temper optimism.
+        let failed = vec![
+            MissionTrace::new("a", "unrelated alpha task", "FAILED", "swarm"),
+            MissionTrace::new("b", "unrelated beta task", "FAILED", "swarm"),
+        ];
+        let ok = vec![
+            MissionTrace::new("a", "unrelated alpha task", "COMPLETE", "swarm"),
+            MissionTrace::new("b", "unrelated beta task", "COMPLETE", "swarm"),
+        ];
+        let d_bad = difficulty(
+            "brand new intent",
+            &failed,
+            crate::manifold::RiskProfile::Low,
+        );
+        let d_good = difficulty("brand new intent", &ok, crate::manifold::RiskProfile::Low);
+        assert!(d_bad.novel && d_good.novel);
+        assert!(
+            d_bad.score > d_good.score,
+            "failing world {} vs healthy world {}",
+            d_bad.score,
+            d_good.score
+        );
+        // Empty history keeps the pure-novelty score.
+        let d_empty = difficulty("brand new intent", &[], crate::manifold::RiskProfile::Low);
+        assert_eq!(d_empty.score, 0.35);
+    }
+
+    #[test]
+    fn slow_intent_history_raises_difficulty() {
+        // Same outcome mix, different observed cost — the chronically
+        // slow intent class should read as harder.
+        let mut fast = MissionTrace::new("f", "deploy api", "COMPLETE", "swarm");
+        fast.evidence_entries = 1;
+        fast.duration_secs = Some(30);
+        let mut slow = MissionTrace::new("s", "deploy api", "COMPLETE", "swarm");
+        slow.evidence_entries = 1;
+        slow.duration_secs = Some(700);
+        let d_fast = difficulty("deploy api", &[fast], crate::manifold::RiskProfile::Low);
+        let d_slow = difficulty("deploy api", &[slow], crate::manifold::RiskProfile::Low);
+        assert!(
+            d_slow.score > d_fast.score,
+            "{} vs {}",
+            d_slow.score,
+            d_fast.score
+        );
+        assert_eq!(d_slow.median_duration_secs, Some(700));
+        // No durations recorded → no bump, no field.
+        let bare = MissionTrace::new("b", "deploy api", "COMPLETE", "swarm");
+        let d_bare = difficulty("deploy api", &[bare], crate::manifold::RiskProfile::Low);
+        assert_eq!(d_bare.median_duration_secs, None);
     }
 
     #[test]
