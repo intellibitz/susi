@@ -4134,6 +4134,16 @@
     "label": "Duration in briefs",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-044",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 26 \u2014 failing-agent plan penalty. failing_agent_counts mirrors failing_tool_counts for the agents field: agents appearing only on failed similar missions (never a verified win) merge into HistorySignals.failed in solve_autonomous, so a plan step naming a historically-failing agent is docked like a tainted tool.",
+   "proof": "failing_agent_counts_track_missions_and_clear_on_verified_wins: dedup per mission, exonerated by verified success. susi-core 225, susi-gawd-swarm 62 pass; clippy clean.",
+   "anchor": {
+    "label": "Failing-agent signal",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

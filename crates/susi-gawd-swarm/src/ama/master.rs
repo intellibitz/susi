@@ -826,8 +826,17 @@ impl SusiMasterAgent {
             budgets.push((max_steps + 4).min(8));
         }
         budgets.dedup();
+        let mut failed_entities =
+            crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8);
+        // Agents that only ever ran on failed similar missions taint plans
+        // the same way tools do — a step naming one gets docked.
+        for (agent, count) in
+            crate::susi_core::mission_trace::failing_agent_counts(&goal, &traces, 8)
+        {
+            *failed_entities.entry(agent).or_insert(0) += count;
+        }
         let history = crate::deliberation::HistorySignals {
-            failed: crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8),
+            failed: failed_entities,
             proven: crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8),
             failed_steps: crate::susi_core::mission_trace::failed_steps(&goal, &traces, 8),
         };

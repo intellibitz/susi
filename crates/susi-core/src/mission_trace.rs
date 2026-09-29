@@ -481,6 +481,34 @@ pub fn failing_tool_counts(
     failed
 }
 
+/// Agents that appeared only on failed similar missions, counted per
+/// mission — the same provenance rule as `failing_tool_counts` applied
+/// to the agents field: an agent that also ran on a verified success is
+/// ambiguous and carries no taint.
+pub fn failing_agent_counts(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeMap<String, u32> {
+    let (mut failed, mut cleared) = (
+        std::collections::BTreeMap::<String, u32>::new(),
+        std::collections::BTreeSet::<String>::new(),
+    );
+    for t in similar(goal, traces, limit) {
+        if t.verified() {
+            cleared.extend(t.agents.iter().cloned());
+        } else if t.succeeded() {
+            continue;
+        } else {
+            for agent in t.agents.iter().collect::<std::collections::BTreeSet<_>>() {
+                *failed.entry(agent.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    failed.retain(|agent, _| !cleared.contains(agent));
+    failed
+}
+
 /// The set view of `failing_tool_counts` — every tool with ≥1 unambiguous
 /// failure on similar missions.
 pub fn failing_tools(
@@ -970,6 +998,27 @@ mod tests {
         ));
         // Novel intent — nothing to judge.
         assert!(!unreliable_neighborhood("never seen intent", &traces, 8));
+    }
+
+    #[test]
+    fn failing_agent_counts_track_missions_and_clear_on_verified_wins() {
+        let ws = workspace();
+        let mut f1 = MissionTrace::new("f1", "review the change", "FAILED", "swarm");
+        f1.agents = vec!["reviewer".into(), "reviewer".into(), "helper".into()];
+        let mut f2 = MissionTrace::new("f2", "review the change", "FAILED", "swarm");
+        f2.agents = vec!["helper".into()];
+        let mut ok = MissionTrace::new("ok", "review the change", "SUCCESS", "swarm");
+        ok.agents = vec!["reviewer".into()];
+        ok.evidence_entries = 1;
+        f1.emit(ws.path()).unwrap();
+        f2.emit(ws.path()).unwrap();
+        ok.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let counts = failing_agent_counts("review the change", &traces, 8);
+        // helper failed on two missions; reviewer is exonerated by the
+        // verified success; the duplicate in f1 counts once.
+        assert_eq!(counts.get("helper"), Some(&2));
+        assert!(!counts.contains_key("reviewer"));
     }
 
     #[test]

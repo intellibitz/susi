@@ -318,3 +318,7 @@ One line per landed step, newest last.
 31. Duration-aware briefs: trace `duration_secs` now renders as `[~Ns]`
     on each brief line — observed mission cost reaches the planner;
     every trace field is now consumed downstream.
+32. Failing-agent history: `failing_agent_counts` mirrors the tool
+    signal for the `agents` field — an agent only on failed similar
+    missions (never a verified win) merges into HistorySignals.failed,
+    so plans naming it get docked the same as tainted tools.
