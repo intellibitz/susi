@@ -4284,6 +4284,16 @@
     "label": "Exemplar quality",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "anchor": {
+    "label": "pulse::suppressed_actions",
+    "ref": "file://crates/susi-gemi/src/pulse.rs"
+   },
+   "id": "EV-CLAUDE-041",
+   "milestone": "Closes the reflex outcome loop that the lanes board asked for: a Tier-0 reflex that keeps preceding failed missions stops being served. Devin iter7 made mission traces record the served Tier-0/1 action labels (MissionTrace.reflex_served, from non-citable reflex:<action> receipts). This is the distill side. pulse::suppressed_actions walks traces newest-first and keeps, per served action, a window of the last SUPPRESS_WINDOW (5) missions that served it. An action is suppressed when at least SUPPRESS_FAILURES (3) of them failed. BLOCKED (governance) outcomes are not counted as reflex failures, and 'generative' (Tier-1 text) is ignored. workspace_suppressed caches the set per workspace keyed by the mission_traces.jsonl mtime, bounded like the reflex cache. SusiPulse::reason refuses a suppressed action both on a fresh Tier-0 prediction (turned into an error so resolution falls to Tier-1 and deeper) and on a reflex-cache hit. Suppression lifts automatically once successes push the failures out of the window. Test: reflexes_that_keep_preceding_failure_are_suppressed (status failing 3 of its last 4 is suppressed; read_file with 3 BLOCKED and 1 failure is not; generative and list_directory are not; appending 3 successful status serves recovers it). Pulse tests 7/7.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

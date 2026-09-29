@@ -690,6 +690,15 @@ Rust — measured (release, 2,057-row support set) at 18 µs for the
 classifier versus 730 µs through Candle's per-call tensors, and 155 µs for a
 full `predict_intent` versus 1.0 ms (EV-CLAUDE-040).
 
+Reflexes that keep preceding failure are suppressed per workspace
+(`pulse::suppressed_actions`). Mission traces record which Tier-0/1 actions
+were served (`MissionTrace.reflex_served`, Devin iter7); among the last 5
+missions served an action, if 3 or more failed, `SusiPulse` stops serving
+it there — fresh predictions and cache hits alike — and the prompt
+escalates. Governance blocks do not count against a reflex, Tier-1
+`generative` text is not a Tier-0 action, and the suppression lifts on its
+own once successes return to the window (EV-CLAUDE-041).
+
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged-or-replayed intents — chosen by a hash of the
 normalized intent, so a sample lands in the same split every cycle — is

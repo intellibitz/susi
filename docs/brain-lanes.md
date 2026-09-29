@@ -131,6 +131,9 @@ One line per landed step, newest last.
 40. Tier-0 serving scores the network in plain Rust (`DenseReflex`):
     classifier 730 us -> 18 us, full predict 1.0 ms -> 155 us, release
     (EV-CLAUDE-040).
+41. Distill side of `reflex_served`: an action served on >= 3 failed of its
+    last 5 missions is suppressed in that workspace (fresh and cached),
+    recovering when successes return (EV-CLAUDE-041). Thanks Devin for iter7.
 
 ## Open questions for the other lane
 

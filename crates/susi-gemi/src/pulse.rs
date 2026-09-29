@@ -54,6 +54,76 @@ fn cache_lookup(
         .then(|| value.clone())
 }
 
+/// Most recent missions per served action that the suppression rule looks
+/// at, and how many of them must have failed to suppress it.
+const SUPPRESS_WINDOW: usize = 5;
+const SUPPRESS_FAILURES: usize = 3;
+
+/// Tier-0 actions that keep preceding failure. `MissionTrace.reflex_served`
+/// (Devin iter7) records which actions a mission was served; among the last
+/// `SUPPRESS_WINDOW` missions that were served an action, if at least
+/// `SUPPRESS_FAILURES` failed, the reflex precedes failure more often than
+/// not and stops being served in this workspace — the prompt escalates to
+/// tiers that read language. Governance blocks are not failures of the
+/// reflex (policy refused the mission), and `generative` (Tier-1 text) is
+/// not a Tier-0 action. Recovers on its own: once successes return to the
+/// window the action is served again.
+fn suppressed_actions(
+    traces: &[crate::susi_core::mission_trace::MissionTrace],
+) -> std::collections::HashSet<String> {
+    let mut windows: HashMap<String, Vec<bool>> = HashMap::new();
+    for trace in traces.iter().rev() {
+        let failed = !trace.succeeded() && trace.outcome != "BLOCKED";
+        for action in &trace.reflex_served {
+            let key = action.to_lowercase();
+            if key == "generative" {
+                continue;
+            }
+            let window = windows.entry(key).or_default();
+            if window.len() < SUPPRESS_WINDOW {
+                window.push(failed);
+            }
+        }
+    }
+    windows
+        .into_iter()
+        .filter(|(_, window)| window.iter().filter(|f| **f).count() >= SUPPRESS_FAILURES)
+        .map(|(action, _)| action)
+        .collect()
+}
+
+/// `suppressed_actions` for a workspace, recomputed only when its
+/// `mission_traces.jsonl` changes (keyed by workspace + mtime).
+fn workspace_suppressed(workspace: &Path) -> std::collections::HashSet<String> {
+    type Entry = (
+        Option<std::time::SystemTime>,
+        std::collections::HashSet<String>,
+    );
+    static CACHE: Lazy<RwLock<HashMap<PathBuf, Entry>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+    let mtime = std::fs::metadata(workspace.join(".susi").join("mission_traces.jsonl"))
+        .and_then(|m| m.modified())
+        .ok();
+    if let Some((cached_at, set)) = CACHE.read().get(workspace) {
+        if *cached_at == mtime {
+            return set.clone();
+        }
+    }
+    let set = suppressed_actions(&crate::susi_core::mission_trace::read_all(workspace));
+    let mut cache = CACHE.write();
+    if cache.len() >= REFLEX_CACHE_CAP {
+        cache.clear();
+    }
+    cache.insert(workspace.to_path_buf(), (mtime, set.clone()));
+    set
+}
+
+fn action_name(action: &str) -> Option<String> {
+    action
+        .strip_prefix("ACTION: ")
+        .and_then(|rest| rest.split_whitespace().next())
+        .map(str::to_lowercase)
+}
+
 /// A cached Tier-0 action (`ACTION: name [args]`) is servable only while
 /// its action is still runnable; Tier-1 answers (free text) expire by TTL.
 fn still_servable(cached: &str) -> bool {
@@ -121,7 +191,9 @@ impl SusiPulse {
         if let Some(cached) = cache_lookup(&REFLEX_CACHE.read(), &key, std::time::Instant::now()) {
             // Tier-0 entries never expire by time, so a cached action must
             // still be runnable: its tool may have been uninstalled since.
-            if still_servable(&cached) {
+            let suppressed = action_name(&cached)
+                .is_some_and(|name| workspace_suppressed(workspace).contains(&name));
+            if still_servable(&cached) && !suppressed {
                 return Ok(cached);
             }
             REFLEX_CACHE.write().remove(&key);
@@ -129,7 +201,16 @@ impl SusiPulse {
 
         // Neural Reflex Attempt (Tier 0 Classifier)
         if let Ok(model) = SusiAlphaModel::cached(&global_dir) {
-            if let Ok(neural_action) = model.predict_intent(prompt_trimmed) {
+            if let Ok(neural_action) =
+                model
+                    .predict_intent(prompt_trimmed)
+                    .and_then(|action| match action_name(&action) {
+                        Some(name) if workspace_suppressed(workspace).contains(&name) => Err(
+                            anyhow!("{name} is suppressed: it keeps preceding failed missions"),
+                        ),
+                        _ => Ok(action),
+                    })
+            {
                 let final_action = bind_workspace(neural_action, workspace);
 
                 cache_insert(&mut REFLEX_CACHE.write(), key, (final_action.clone(), None));
@@ -203,6 +284,42 @@ mod tests {
         ] {
             assert_eq!(bind_workspace(other.into(), ws), other);
         }
+    }
+
+    #[test]
+    fn reflexes_that_keep_preceding_failure_are_suppressed() {
+        use crate::susi_core::mission_trace::MissionTrace;
+        let trace = |outcome: &str, served: &[&str]| {
+            let mut t = MissionTrace::new("m", "goal", outcome, "fast-path");
+            t.reflex_served = served.iter().map(|s| s.to_string()).collect();
+            t
+        };
+        // Oldest first, as read_all returns them.
+        let traces = vec![
+            trace("COMPLETE", &["status"]),
+            trace("FAILED", &["status"]),
+            trace("FAILED", &["status", "generative"]),
+            trace("FAILED", &["status", "read_file"]),
+            trace("BLOCKED", &["read_file"]),
+            trace("BLOCKED", &["read_file"]),
+            trace("BLOCKED", &["read_file"]),
+            trace("COMPLETE", &["list_directory"]),
+        ];
+        let suppressed = suppressed_actions(&traces);
+        assert!(suppressed.contains("status"), "3 of its last 4 failed");
+        assert!(
+            !suppressed.contains("read_file"),
+            "governance blocks are not failures"
+        );
+        assert!(!suppressed.contains("generative"));
+        assert!(!suppressed.contains("list_directory"));
+
+        // Recovery: successes push the failures out of the window.
+        let mut recovered = traces.clone();
+        for _ in 0..3 {
+            recovered.push(trace("COMPLETE", &["status"]));
+        }
+        assert!(!suppressed_actions(&recovered).contains("status"));
     }
 
     #[test]
