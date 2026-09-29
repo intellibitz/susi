@@ -447,6 +447,17 @@ pub fn failed_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<St
         .collect()
 }
 
+/// The step texts of similar missions that *verified* — the positive
+/// counterpart of `failed_steps`: a candidate echoing a proven step
+/// repeats a move that demonstrably worked.
+pub fn proven_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<String> {
+    similar(goal, traces, limit)
+        .iter()
+        .filter(|t| t.verified())
+        .flat_map(|t| t.plan_steps.iter().cloned())
+        .collect()
+}
+
 /// Tools that appeared in failed missions similar to `goal`, with the
 /// number of failed missions each appeared on — repeated failures weigh
 /// more than one-offs. Successes using the same tool don't clear it here

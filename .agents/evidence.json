@@ -4144,6 +4144,16 @@
     "label": "Failing-agent signal",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-045",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 27 \u2014 proven-step bonus, mirror of the doomed-step penalty. mission_trace::proven_steps collects step texts from verified-successful similar missions; HistorySignals.proven_steps lets deliberate award +0.05 per candidate step echoing one (cap 3). Plans now lean toward moves that demonstrably worked, not only away from moves that broke.",
+   "proof": "steps_echoing_a_proven_step_earn_a_bonus. susi-core 225, susi-gawd-swarm 63 pass; clippy clean.",
+   "anchor": {
+    "label": "Proven-step bonus",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

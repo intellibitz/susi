@@ -234,6 +234,9 @@ pub struct HistorySignals {
     /// Texts of the steps that actually aborted similar failed missions —
     /// a candidate echoing one gets docked.
     pub failed_steps: Vec<String>,
+    /// Texts of steps that ran on similar *verified-success* missions —
+    /// a candidate echoing one earns a bonus.
+    pub proven_steps: Vec<String>,
 }
 
 pub fn deliberate(
@@ -246,6 +249,11 @@ pub fn deliberate(
     let gated = consensus_required(manifold);
     let doomed: Vec<std::collections::BTreeSet<String>> = history
         .failed_steps
+        .iter()
+        .map(|s| crate::amas::tokenize_goal(s).into_iter().collect())
+        .collect();
+    let winning: Vec<std::collections::BTreeSet<String>> = history
+        .proven_steps
         .iter()
         .map(|s| crate::amas::tokenize_goal(s).into_iter().collect())
         .collect();
@@ -289,6 +297,29 @@ pub fn deliberate(
                 if echoes > 0 {
                     score = (score - 0.15 * echoes.min(2) as f32).max(0.0);
                     rationale.push_str(&format!(" doomed_step_echoes={echoes}"));
+                }
+            }
+            // Mirror of the doomed-step penalty: a step matching one that
+            // ran on a verified success repeats a move that worked before.
+            if !winning.is_empty() {
+                let proven = steps
+                    .iter()
+                    .map(|s| {
+                        crate::amas::tokenize_goal(s)
+                            .into_iter()
+                            .collect::<std::collections::BTreeSet<_>>()
+                    })
+                    .filter(|toks| {
+                        !toks.is_empty()
+                            && winning.iter().any(|w| {
+                                let inter = toks.intersection(w).count() as f32;
+                                inter / toks.union(w).count() as f32 >= 0.6
+                            })
+                    })
+                    .count();
+                if proven > 0 {
+                    score = (score + 0.05 * proven.min(3) as f32).min(1.0);
+                    rationale.push_str(&format!(" proven_step_matches={proven}"));
                 }
             }
             CandidatePlan {
@@ -543,6 +574,30 @@ mod tests {
         assert!(echoing.candidates[0]
             .rationale
             .contains("doomed_step_echoes=1"));
+    }
+
+    #[test]
+    fn steps_echoing_a_proven_step_earn_a_bonus() {
+        let m = manifold_for("read the workspace files");
+        let history = HistorySignals {
+            proven_steps: vec!["verify the config parses".into()],
+            ..Default::default()
+        };
+        let echoing = deliberate("read the workspace files", &m, &[4], &history, |_| {
+            vec!["list files".into(), "verify the config parses".into()]
+        });
+        let plain = deliberate("read the workspace files", &m, &[4], &history, |_| {
+            vec!["list files".into(), "inspect each file".into()]
+        });
+        assert!(
+            echoing.candidates[0].score > plain.candidates[0].score,
+            "echo={} plain={}",
+            echoing.candidates[0].score,
+            plain.candidates[0].score
+        );
+        assert!(echoing.candidates[0]
+            .rationale
+            .contains("proven_step_matches=1"));
     }
 
     #[test]

@@ -839,6 +839,7 @@ impl SusiMasterAgent {
             failed: failed_entities,
             proven: crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8),
             failed_steps: crate::susi_core::mission_trace::failed_steps(&goal, &traces, 8),
+            proven_steps: crate::susi_core::mission_trace::proven_steps(&goal, &traces, 8),
         };
         let mut deliberation =
             crate::deliberation::deliberate(&goal, &manifold, &budgets, &history, |budget| {

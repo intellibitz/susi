@@ -322,3 +322,7 @@ One line per landed step, newest last.
     signal for the `agents` field — an agent only on failed similar
     missions (never a verified win) merges into HistorySignals.failed,
     so plans naming it get docked the same as tainted tools.
+33. Proven-step bonus (mirror of #11): `proven_steps` collects step texts
+    from verified-success similar missions; a candidate step matching one
+    (token Jaccard>=0.6) earns +0.05 (cap 3) — plans lean toward moves
+    that demonstrably worked, not only away from moves that broke.
