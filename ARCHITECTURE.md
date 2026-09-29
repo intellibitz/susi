@@ -504,7 +504,10 @@ rationale lands in the mission record (`PLAN_SEARCH` interaction) and the
 printed omni-trace. Mutate/SelfExtend intents and High+ risk demand
 **consensus** — the top two candidates must reach a step-token Jaccard ≥
 0.35 or the mission declines multi-step autonomy in favor of the
-single-step goal. On step failure, Read-scope goals fall through to the
+single-step goal. The gate also tightens on history: `Vetoed` intents
+(anti-patterns) and `unreliable_neighborhood` goals — ≥2 similar traces
+with a success rate under half — demand consensus even on read-scope
+missions. On step failure, Read-scope goals fall through to the
 next candidate (reads mutate nothing); mutating scopes abort rather than
 re-run a guess over changed state. Retrieval also feeds scoring, not only
 the prompt: `mission_trace::failing_tools` extracts tool tokens that only

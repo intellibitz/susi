@@ -3814,6 +3814,16 @@
     "label": "Proven plan exemplar",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-032",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 14 \u2014 unreliable-neighborhood consensus. mission_trace::unreliable_neighborhood (\u22652 similar traces, <50% success rate) sets deliberation.consensus_required in solve_autonomous \u2014 a mixed track record demands plan agreement even when the intent isn't vetoed and the scope is read-only. success_rate is now consumed by routing decisions, not just exposed.",
+   "proof": "unreliable_neighborhood_needs_two_neighbors_and_below_half: 0.25 unreliable, 0.5 not, single neighbor too thin, novel intent clean. susi-core 214, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Neighborhood-risk gate",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

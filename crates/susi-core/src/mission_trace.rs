@@ -486,6 +486,15 @@ pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option
     Some(wins as f32 / neighbors.len() as f32)
 }
 
+/// True when enough similar missions exist to judge (≥2) and fewer than
+/// half succeeded — the neighborhood is unreliable: not vetoed, but
+/// plan-search should demand candidate agreement before acting. A single
+/// neighbor is too thin to condemn (one failure can be noise).
+pub fn unreliable_neighborhood(goal: &str, traces: &[MissionTrace], limit: usize) -> bool {
+    let neighbors = similar(goal, traces, limit);
+    neighbors.len() >= 2 && neighbors.iter().filter(|t| t.succeeded()).count() * 2 < neighbors.len()
+}
+
 /// Few-shot decomposition exemplar: the `plan_steps` of the most similar
 /// successful trace. Only verified wins teach plan *shape* — a failed
 /// mission's steps teach what to avoid, never what to copy. Empty when
@@ -745,6 +754,35 @@ mod tests {
         assert!(!brief.contains("guess blindly"), "{brief}");
         // Novel goal: no exemplar, no fabricated guidance.
         assert!(proven_plan_brief("unrelated never-seen task", &traces).is_empty());
+    }
+
+    #[test]
+    fn unreliable_neighborhood_needs_two_neighbors_and_below_half() {
+        let ws = workspace();
+        for (id, outcome) in [
+            ("a", "FAILED"),
+            ("b", "FAILED"),
+            ("c", "SUCCESS"),
+            ("d", "FAILED"),
+        ] {
+            MissionTrace::new(id, "deploy api service", outcome, "swarm")
+                .emit(ws.path())
+                .unwrap();
+        }
+        let traces = read_all(ws.path());
+        // 4 similar, 1 success → rate 0.25 → unreliable.
+        assert!(unreliable_neighborhood("deploy api service", &traces, 8));
+        // One success, one failure → rate 0.5, not below half.
+        let two = &traces[1..3];
+        assert!(!unreliable_neighborhood("deploy api service", two, 8));
+        // Single neighbor — too thin to condemn.
+        assert!(!unreliable_neighborhood(
+            "deploy api service",
+            &traces[..1],
+            8
+        ));
+        // Novel intent — nothing to judge.
+        assert!(!unreliable_neighborhood("never seen intent", &traces, 8));
     }
 
     #[test]

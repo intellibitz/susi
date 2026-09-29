@@ -842,6 +842,17 @@ impl SusiMasterAgent {
                 "- [Deliberation] Anti-pattern history for this intent — consensus required."
             );
         }
+        // Softer than a veto: when similar missions mostly failed without
+        // tripping the anti-pattern window, plan agreement is still
+        // warranted — one good guess isn't enough in a bad neighborhood.
+        if !deliberation.consensus_required
+            && crate::susi_core::mission_trace::unreliable_neighborhood(&goal, &traces, 8)
+        {
+            deliberation.consensus_required = true;
+            eprintln!(
+                "- [Deliberation] Low success rate among similar missions — consensus required."
+            );
+        }
         eprintln!(
             "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?}",
             deliberation.candidates.len(),

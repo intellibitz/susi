@@ -168,3 +168,7 @@ One line per landed step, newest last.
     verified wins teach plan shape; failed and step-less traces can't
     become exemplars. Retrieval now informs both what to avoid AND what
     to copy.
+20. Neighborhood-risk consensus: `unreliable_neighborhood` (>=2 similar
+    traces, <50% success) tightens the consensus gate below the veto
+    threshold — a mixed track record demands plan agreement even on
+    read-scope goals. `success_rate` is now consumed, not just defined.
