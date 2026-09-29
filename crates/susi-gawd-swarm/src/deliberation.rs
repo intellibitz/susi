@@ -204,6 +204,9 @@ pub struct HistorySignals {
     /// failures weigh more in scoring.
     pub failed: std::collections::BTreeMap<String, u32>,
     pub proven: std::collections::BTreeSet<String>,
+    /// Texts of the steps that actually aborted similar failed missions —
+    /// a candidate echoing one gets docked.
+    pub failed_steps: Vec<String>,
 }
 
 pub fn deliberate(
@@ -214,6 +217,11 @@ pub fn deliberate(
     mut generate: impl FnMut(u32) -> Vec<String>,
 ) -> Deliberation {
     let gated = consensus_required(manifold);
+    let doomed: Vec<std::collections::BTreeSet<String>> = history
+        .failed_steps
+        .iter()
+        .map(|s| crate::amas::tokenize_goal(s).into_iter().collect())
+        .collect();
     let mut candidates: Vec<CandidatePlan> = budgets
         .iter()
         .map(|&budget| {
@@ -232,6 +240,29 @@ pub fn deliberate(
             {
                 score = (score - 0.2).max(0.0);
                 rationale.push_str(" unverified_mutation_penalty=-0.20");
+            }
+            // A step that echoes the step that aborted a similar mission
+            // before is a repeating failure pattern, not a coincidence.
+            if !doomed.is_empty() {
+                let echoes = steps
+                    .iter()
+                    .map(|s| {
+                        crate::amas::tokenize_goal(s)
+                            .into_iter()
+                            .collect::<std::collections::BTreeSet<_>>()
+                    })
+                    .filter(|toks| {
+                        !toks.is_empty()
+                            && doomed.iter().any(|d| {
+                                let inter = toks.intersection(d).count() as f32;
+                                inter / toks.union(d).count() as f32 >= 0.6
+                            })
+                    })
+                    .count();
+                if echoes > 0 {
+                    score = (score - 0.15 * echoes.min(2) as f32).max(0.0);
+                    rationale.push_str(&format!(" doomed_step_echoes={echoes}"));
+                }
             }
             CandidatePlan {
                 steps,
@@ -413,6 +444,30 @@ mod tests {
         });
         assert_eq!(tied.candidates.len(), 2);
         assert_eq!(tied.candidates[0].steps.len(), 1, "{:?}", tied.candidates);
+    }
+
+    #[test]
+    fn steps_echoing_a_doomed_step_are_docked() {
+        let m = manifold_for("read the workspace files");
+        let history = HistorySignals {
+            failed_steps: vec!["blindly rewrite the config".into()],
+            ..Default::default()
+        };
+        let echoing = deliberate("read the workspace files", &m, &[4], &history, |_| {
+            vec!["list files".into(), "blindly rewrite the config".into()]
+        });
+        let clean = deliberate("read the workspace files", &m, &[4], &history, |_| {
+            vec!["list files".into(), "inspect each file".into()]
+        });
+        assert!(
+            echoing.candidates[0].score < clean.candidates[0].score,
+            "echo={} clean={}",
+            echoing.candidates[0].score,
+            clean.candidates[0].score
+        );
+        assert!(echoing.candidates[0]
+            .rationale
+            .contains("doomed_step_echoes=1"));
     }
 
     #[test]

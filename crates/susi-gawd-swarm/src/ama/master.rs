@@ -817,6 +817,7 @@ impl SusiMasterAgent {
         let history = crate::deliberation::HistorySignals {
             failed: crate::susi_core::mission_trace::failing_tool_counts(&goal, &traces, 8),
             proven: crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8),
+            failed_steps: crate::susi_core::mission_trace::failed_steps(&goal, &traces, 8),
         };
         let mut deliberation =
             crate::deliberation::deliberate(&goal, &manifold, &budgets, &history, |budget| {

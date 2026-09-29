@@ -3784,6 +3784,16 @@
     "label": "PlanRecord in trace",
     "ref": "file://crates/susi-gawd-swarm/src/ama/report.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-029",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 11 \u2014 closed the failed-step loop: mission_trace::failed_steps extracts the step text at each similar failure's failed_step index; HistorySignals carries it into deliberate, which docks a candidate -0.15 per step (cap 2) whose token Jaccard with any doomed step is \u22650.6. Plans now steer around the exact step that previously broke, not only away from tainted tools.",
+   "proof": "steps_echoing_a_doomed_step_are_docked (deliberation); failed_steps_extracts_only_doomed_step_texts (mission_trace). susi-core 211, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Doomed-step penalty",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

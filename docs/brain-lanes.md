@@ -152,3 +152,9 @@ One line per landed step, newest last.
     annotates `[failed at step N]` — retrieval now surfaces *where* plans
     broke, not just that they failed. Distill lane: plan_steps are
     bounded+redacted like tools, safe to consume for plan-shape features.
+17. Doomed-step echo penalty: `failed_steps(goal, traces)` extracts the
+    step text that aborted each similar failure; `HistorySignals` carries
+    it and deliberate docks a candidate −0.15 (cap ×2) per step whose
+    tokens Jaccard≥0.6 with a doomed step — iteration-16's write becomes
+    iteration-17's steering signal. The loop now steers around the exact
+    step that broke, not just the tools that failed.

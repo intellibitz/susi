@@ -504,7 +504,11 @@ re-run a guess over changed state. Retrieval also feeds scoring, not only
 the prompt: `mission_trace::failing_tools` extracts tool tokens that only
 ever appeared on *failed* similar traces, and `score_plan_weighted` docks
 each mention −0.10 (`failed_history_tools` in the rationale) — a plan that
-repeats a known-failing tool is outscored, not merely flagged.
+repeats a known-failing tool is outscored, not merely flagged. At finer
+grain, `mission_trace::failed_steps` extracts the step text at each similar
+failure's `failed_step` index; a candidate step whose tokens Jaccard-match
+a doomed step ≥0.6 is docked −0.15 (`doomed_step_echoes`, capped at two
+echoes), so plans steer around the step that actually broke.
 
 The `promote` stage is governed reflex synthesis
 (`susi_core::mission_trace::promotion_status` gating

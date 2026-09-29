@@ -365,6 +365,22 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
     }
 }
 
+/// The step texts that aborted similar failed missions — `failed_step` is
+/// 1-based into `plan_steps`. Deliberation docks candidate steps that
+/// echo a doomed step, so history steers plans around the step that
+/// actually broke, not just away from tainted tools.
+pub fn failed_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<String> {
+    similar(goal, traces, limit)
+        .iter()
+        .filter(|t| !t.succeeded())
+        .filter_map(|t| {
+            t.failed_step
+                .and_then(|i| t.plan_steps.get(i.saturating_sub(1) as usize))
+                .cloned()
+        })
+        .collect()
+}
+
 /// Tools that appeared in failed missions similar to `goal`, with the
 /// number of failed missions each appeared on — repeated failures weigh
 /// more than one-offs. Successes using the same tool don't clear it here
@@ -659,6 +675,26 @@ mod tests {
         assert_eq!(got.plan_steps.len(), 3);
         let brief = history_brief("deploy api service", &traces, 3);
         assert!(brief.contains("failed at step 2"), "{brief}");
+    }
+
+    #[test]
+    fn failed_steps_extracts_only_doomed_step_texts() {
+        let ws = workspace();
+        let mut failed = MissionTrace::new("f", "deploy api service", "FAILED", "swarm");
+        failed.plan_steps = vec!["read config".into(), "deploy".into(), "verify".into()];
+        failed.failed_step = Some(2);
+        let mut ok = MissionTrace::new("o", "deploy api service", "DONE", "swarm");
+        ok.plan_steps = vec!["read config".into(), "deploy".into()];
+        ok.failed_step = None;
+        // Failure with no failed_step attribution contributes nothing.
+        let mut unattributed = MissionTrace::new("u", "deploy api service", "FAILED", "swarm");
+        unattributed.plan_steps = vec!["deploy".into()];
+        failed.emit(ws.path()).unwrap();
+        ok.emit(ws.path()).unwrap();
+        unattributed.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let doomed = failed_steps("deploy api service", &traces, 8);
+        assert_eq!(doomed, vec!["deploy".to_string()]);
     }
 
     #[test]
