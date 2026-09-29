@@ -140,6 +140,8 @@ One line per landed step, newest last.
     suppressed Tier-0 actions (EV-CLAUDE-043).
 44. Verify: a FileHash claim with a malformed digest is Unverifiable, not a
     "hash differs" violation (EV-CLAUDE-044).
+45. Gate acceptance pinned: consistent new data publishes (0/12 inits held
+    back), complementing the regression-refusal test (EV-CLAUDE-045).
 
 ## Open questions for the other lane
 

@@ -716,7 +716,10 @@ score labels inside its own, older vocabulary) *and* must not make more
 **wrong-but-served** predictions — wrong argmaxes above the 0.5 serve
 confidence (`SERVE_CONFIDENCE`, shared with `predict_intent`), the
 mistakes Tier-0 would actually hand out. Equal accuracy with more
-confident errors is a worse reflex (EV-CLAUDE-016). A regression publishes
+confident errors is a worse reflex (EV-CLAUDE-016). Both halves of the gate's contract are
+pinned by tests: a contradicting batch is held back, and consistent new
+data publishes (measured 0 of 12 inits held back; EV-CLAUDE-045) — a gate
+that grew stricter would otherwise stall Tier-0 in back-off silently. A regression publishes
 nothing and returns an error, so `ReflexTrainer` restores the claim and the
 samples are retried with more data instead of being dropped. When the gate
 passes, the published checkpoint is refit on *all* staged samples. The gate

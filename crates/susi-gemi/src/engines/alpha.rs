@@ -2094,6 +2094,29 @@ mod tests {
     /// out-of-distribution prompts served; with neighbor agreement
     /// (EV-CLAUDE-023) 27/27 in 5 of 5 inits. Bounds leave room for init noise
     /// but fail on any real regression in features, loss or gating.
+    /// The other half of the gate's contract (the regression test proves
+    /// it refuses a contradicting batch): consistent new data must publish,
+    /// or a stricter gate would silently stall Tier-0 in back-off. Measured
+    /// when written: 0 of 12 inits held back.
+    #[test]
+    fn consistent_new_data_passes_the_gate() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        let half = |parity: usize| -> Vec<(&str, &str)> {
+            BENCH_TRAIN
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| i % 2 == parity)
+                .map(|(_, sample)| *sample)
+                .collect()
+        };
+        stage(&staged, &half(0));
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        stage(&staged, &half(1));
+        let report = SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        assert!(report.contains("Held-out gate passed"), "{report}");
+    }
+
     #[test]
     fn tier0_benchmark_recall_precision_and_ood_refusal() {
         let dir = tempfile::tempdir().unwrap();

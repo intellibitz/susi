@@ -4324,6 +4324,16 @@
    "milestone": "A malformed hash claim is no longer reported as a workspace violation. Contract::FileHash compared the file's SHA-256 against any claimed string, so a truncated, empty, non-hex or over-long digest (typical of garbled model output) produced Violated 'hash differs from claimed digest', blaming the workspace for an uncheckable claim. The registry's rule is that claims it cannot check are Unverifiable, never a verdict either way. Now a claimed sha256_hex that is not exactly 64 ASCII hex characters returns Unverifiable before the file is read; well-formed digests behave as before (case-insensitive match). Test: malformed_claimed_digests_are_unverifiable_not_violations ('abc123', '', 64 x 'z', 65 x 'a'). Verification tests 12/12.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "gate acceptance test",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-045",
+   "milestone": "The Tier-0 publication gate's acceptance side is now pinned. Since EV-CLAUDE-002 and EV-CLAUDE-016 the gate refuses a candidate whose held-out accuracy drops or whose wrong-but-served count rises, and regressing_checkpoint_is_held_back_and_improving_one_publishes proves it refuses a contradicting batch. The risk on the other side is a gate so strict that small held-out sets (MIN_HOLDOUT 3) hold back genuinely consistent learning, silently stalling Tier-0 in back-off (EV-CLAUDE-008/017). Measured with a scratch probe: cycle 1 trained on the even-indexed half of BENCH_TRAIN and cycle 2 on the odd half (consistent labels, new phrasings), over 12 random inits. 0 of 12 were held back; each cycle 2 passed with held-out correct 16/16 and wrong-but-served 0 against an active 16/16 and 0. New test consistent_new_data_passes_the_gate performs the same two cycles and asserts the second publishes. The alpha suite passed 3 of 3 runs.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
