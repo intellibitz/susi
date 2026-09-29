@@ -143,7 +143,14 @@ impl TruthTransformer {
             return Self::verify_mission_reality(goal, tool_name, &rendered, workspace)
                 .map(|_| rendered);
         }
-        // No absolute evidence (no citations). Instead of failing, return the raw result with a warning.
+        // No absolute evidence (no citations): the answer is still presented
+        // with a warning — but its write/delete claims and the goal's named
+        // file are checked against the workspace first. Returning the
+        // warning without this skipped every reality contract on uncited
+        // answers, so "I wrote to notes.txt" passed with no notes.txt.
+        if !result.trim().is_empty() {
+            Self::verify_mission_reality(goal, tool_name, result, workspace)?;
+        }
         let warning = "⚠️  No citations found; answer may be unverified.";
         Ok(format!("{}\n{}", warning, result))
     }
@@ -634,6 +641,38 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("not absolute evidence"));
+    }
+
+    #[test]
+    fn uncited_answers_still_face_the_workspace() {
+        let ws = TempWorkspace::new();
+        // A contradicted claim fails even without citations.
+        let err = TruthTransformer::verify_mission_with_cross_examine(
+            "take notes",
+            "SUSI_SOLVE",
+            "Done: I wrote to notes.txt.",
+            &ws.0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("notes.txt"), "{err}");
+        // A goal-named file that does not exist fails too.
+        assert!(TruthTransformer::verify_mission_with_cross_examine(
+            "Create a file named out.md",
+            "SUSI_SOLVE",
+            "All done.",
+            &ws.0,
+        )
+        .is_err());
+        // Once true, the answer is presented with the uncited warning.
+        std::fs::write(ws.0.join("notes.txt"), "n").unwrap();
+        let ok = TruthTransformer::verify_mission_with_cross_examine(
+            "take notes",
+            "SUSI_SOLVE",
+            "Done: I wrote to notes.txt.",
+            &ws.0,
+        )
+        .unwrap();
+        assert!(ok.contains("No citations found"));
     }
 
     #[test]

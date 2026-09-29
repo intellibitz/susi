@@ -488,7 +488,11 @@ needle is still found) instead of reading it whole, so a claim about a
 multi-GB artifact cannot make the verifier allocate all of it
 (EV-CLAUDE-038). A `FileHash` claim whose digest is not 64 hex characters is
 `Unverifiable` — a malformed claim, not a workspace that "differs"
-(EV-CLAUDE-044). Trace schema v2 records `tools` as the evidence
+(EV-CLAUDE-044). Uncited answers face the workspace too: the user-facing
+`verify_mission_with_cross_examine` presents an answer without citations
+with a warning, but first runs `verify_mission_reality` — before
+EV-CLAUDE-052 that path skipped every contract, so "I wrote to notes.txt"
+passed with no `notes.txt` and a goal's named file went unchecked. Trace schema v2 records `tools` as the evidence
 session's real dispatched-tool names (interaction actions — `PLAN_SEARCH`,
 `CLOUD_ATTEMPT_*`, `MISSION_FLUX` — are supervision signals kept in
 `signals`), so failure-history and briefs describe capabilities, not

@@ -4394,6 +4394,16 @@
    "milestone": "Reflex tiers now answer only direct user prompts. After EV-CLAUDE-031/050 and Devin's DAG change, seven more internal call sites still used the reflex-allowing GemiEngine::generate_reasoning with templated prompts expecting a specific output format: MissionPlanner::plan_mission (two sites, a comma-separated goal list), fleet's agent factory (a JSON AgentProfile, parsed with serde), LibraryScoutAgent's keyword extraction ('Output ONLY the keyword'; an 'ACTION: status' reply would become the crate search term) and crate recommendation, the native agents' reasoning fallback, and reflex_synth::model_reflex_source (a Rust program in a fenced block, for WASM reflex synthesis). A served Tier-0 'ACTION:' line or a Tier-1 0.5B answer is never the right output for any of them. All now call generate_reasoning_deep (allow_reflex=false). Remaining reflex-allowing entry points are the user-facing ones: GEMI_INFER_GENERATE, GEMI_INFER_STREAM without the deep flag (chat), and the standalone gemi server. Workspace clippy is clean; full gate on landing.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "uncited path runs reality contracts",
+    "ref": "file://crates/susi-core/src/truth.rs"
+   },
+   "id": "EV-CLAUDE-052",
+   "milestone": "Uncited mission answers no longer bypass reality verification. TruthTransformer::verify_mission_with_cross_examine (the user-facing final check; SusiMasterAgent uses it for the final answer) resolves citations first. When the answer had no citations and no receipts required citing (verify_answer -> None), it returned Ok('No citations found' warning + result) under the documented 'always present answers' policy, without calling verify_mission_reality. So every workspace contract from the verify stage (write claims, delete claims, the goal's named file, content literals) was skipped on the uncited path: 'Done: I wrote to notes.txt.' passed with no notes.txt, and a goal 'Create a file named out.md' passed with 'All done.'. Now the uncited branch runs verify_mission_reality for non-empty results and propagates its violation; answers with nothing checkable, or with true claims, are still presented with the warning, so the policy stands. The strict recovery variant already required citations. Test: uncited_answers_still_face_the_workspace (a false write claim fails naming notes.txt; a missing goal file fails; once the file exists the answer is presented with the warning). The existing always-present test passes; truth tests 17/17.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

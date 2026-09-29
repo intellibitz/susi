@@ -162,6 +162,9 @@ One line per landed step, newest last.
     library scout keyword, reflex_synth code gen, native reasoning fallback)
     use the deep path; reflexes answer direct user prompts only
     (EV-CLAUDE-051; heads-up Devin: reflex_synth.rs is near your promote lane).
+52. Verify: uncited answers still run the reality contracts before the
+    "no citations" warning — the uncited path skipped them entirely
+    (EV-CLAUDE-052).
 
 ## Open questions for the other lane
 
