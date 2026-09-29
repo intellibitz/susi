@@ -43,6 +43,7 @@ use super::swe_agent_cli;
 use super::tasks_cli;
 use super::telemetry_cli;
 use super::tx_cli;
+use super::workflow_cli;
 
 #[derive(Parser)]
 #[command(name = "susi")]
@@ -96,6 +97,11 @@ pub(crate) enum Commands {
     Auto {
         #[command(subcommand)]
         action: Option<auto_cli::AutoCommands>,
+    },
+    /// Check that this checkout follows the susi workflow — run this first
+    Workflow {
+        #[command(subcommand)]
+        action: workflow_cli::WorkflowCommands,
     },
     /// The shared task queue: add, claim (atomic), close (only when the check passes)
     Tasks {
@@ -532,6 +538,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Ecosystem { .. }
         | Commands::Brain { .. }
         | Commands::Tasks { .. }
+        | Commands::Workflow { .. }
         | Commands::Blackboard { .. }
         | Commands::ContextGraph { .. }
         | Commands::Broker { .. }

@@ -1,3 +1,28 @@
+**START HERE: run `susi workflow check` before you change anything.** It
+tells you whether you are in your own worktree, current with `origin/main`,
+have the hooks installed and hold a claim — and prints the command that fixes
+each ❌. (No installed susi? `cargo run -q -- workflow check`.)
+
+1. **Own worktree, never the primary checkout, never `main`:**
+   `scripts/susi-worktree.sh <name>`, then `scripts/setup-dev.sh`.
+2. **Work comes from the queue:** `susi tasks list`, then
+   `susi tasks claim <id>` before you start. Nobody starts a claimed task.
+3. **Every commit ends with a trailer** `Task: T-<AGENT>-<n>` naming that task.
+   The commit-msg hook, the pre-push hook and the CI job "Workflow Compliance"
+   reject commits without it.
+4. **Merge `origin/main` before you push** (`git fetch && git merge origin/main`)
+   and pass the gate: `cargo fmt --all --check`,
+   `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+   `cargo test --workspace --locked`. Tests are hermetic (never touch `~/.susi`
+   or an inherited `SUSI_HOME`).
+5. **Done means `susi tasks close <id>`** — its acceptance check passes. Do not
+   push to `main`, tag, or cut a release; pushed branches open and merge their
+   own PR.
+
+The full rules follow (identity.json Mandates 48–56 are the constitution).
+
+---
+
 # Agent Engineering Mandates
 
 Hard rules for any code written in this repo — human or AI-generated. These

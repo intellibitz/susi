@@ -42,6 +42,7 @@ use super::swe_agent_cli;
 use super::tasks_cli;
 use super::telemetry_cli;
 use super::tx_cli;
+use super::workflow_cli;
 
 use std::env;
 use std::path::Path;
@@ -68,6 +69,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Auto { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             auto_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Workflow { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            workflow_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Tasks { action }) = command {

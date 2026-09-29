@@ -1450,6 +1450,12 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
     for (id, phrase, artifact) in [
         (49, "scripts/susi-worktree.sh", ".githooks/workflow-guard"),
         (49, "no bypass actors", "scripts/github-enforce.sh"),
+        (
+            49,
+            "susi workflow check",
+            "crates/susi-gawd/src/admin/workflow.rs",
+        ),
+        (49, "park-primary.sh", "scripts/park-primary.sh"),
         (50, "refs/claims/", "crates/susi-gawd/src/admin/tasks.rs"),
         (
             50,
@@ -1613,4 +1619,32 @@ fn roadmap_vectors_and_tasks_stay_linked() {
         uncovered.is_empty(),
         "P0 roadmap vectors with no task: {uncovered:?} — `susi tasks add --roadmap <id> …`"
     );
+}
+
+/// Agents read the top of AGENTS.md: it must open with the START HERE block
+/// whose first act is `susi workflow check`, before any other rule.
+#[test]
+fn agents_md_opens_with_start_here_and_the_workflow_check() {
+    let text =
+        std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("AGENTS.md"))
+            .unwrap();
+    let first = text.lines().next().unwrap();
+    assert!(
+        first.starts_with("**START HERE") && first.contains("susi workflow check"),
+        "AGENTS.md line 1 must be the START HERE instruction, got: {first}"
+    );
+    let start = text.find("START HERE").unwrap();
+    let mandates = text.find("# Agent Engineering Mandates").unwrap();
+    assert!(start < mandates, "START HERE must precede the mandates");
+    for step in [
+        "susi-worktree.sh",
+        "susi tasks claim",
+        "Task: T-<AGENT>-<n>",
+        "susi tasks close",
+    ] {
+        assert!(
+            text[..mandates].contains(step),
+            "the START HERE block must mention `{step}`"
+        );
+    }
 }

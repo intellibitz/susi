@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-146",
+  "title": "susi workflow check: tell an agent up front whether it may start work",
+  "goal": "New 'susi workflow check [--json]': is this checkout the agent's own worktree (not the primary checkout, not main, not detached); is it up to date with origin/main (fetch first; behind count); are the hooks installed (core.hooksPath resolves to this worktree's .githooks and commit-msg/pre-commit/pre-push/workflow-guard exist and are executable); does the agent hold a live claim. Print a checklist with the exact fix command for each failure, exit 1 on any failure (offline fetch/claims are warnings). Pure evaluation in susi-gawd admin::workflow, real-git integration tests in tests/workflow_check.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "workflow_check"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790703134
+}

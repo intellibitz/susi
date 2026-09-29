@@ -428,6 +428,14 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
         leaves_no_files: true,
     },
     E2eCheck {
+        name: "workflow check refuses a non-worktree and prints the fixes",
+        args: &["workflow", "check"],
+        exit: 1,
+        stdout_has: &["own worktree", "scripts/setup-dev.sh", "not ready"],
+        stderr_has: &[],
+        leaves_no_files: true,
+    },
+    E2eCheck {
         name: "a flag-shaped typo is refused, not run as a mission",
         args: &["release", "--help"],
         exit: 2,
@@ -564,7 +572,7 @@ mod tests {
 
     #[test]
     fn e2e_check_list_is_wellformed() {
-        assert!(E2E_CHECKS.len() >= 6);
+        assert!(E2E_CHECKS.len() >= 7);
         let mut names = std::collections::HashSet::new();
         for c in E2E_CHECKS {
             assert!(names.insert(c.name), "duplicate check name {}", c.name);
