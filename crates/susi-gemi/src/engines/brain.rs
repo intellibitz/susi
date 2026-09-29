@@ -11,6 +11,7 @@
 //! * **Constraints stay elsewhere.** Privacy, budget and cooldowns are the
 //!   router's hard filters and run before ranking; this module only orders
 //!   what survives.
+use super::cost::{self, Budget};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -156,11 +157,13 @@ fn class_prior(provider: &str, class: TaskClass) -> f32 {
     NEUTRAL_PRIOR + bump
 }
 
-/// Rank score in `[0, 1]`-ish; higher is better.
-fn score(provider: &str, class: TaskClass, rec: Option<&Record>) -> f32 {
+/// Rank score in `[0, 1]`-ish; higher is better. Quality evidence first,
+/// then a cost penalty scaled by task class and the budget dial.
+fn score(provider: &str, class: TaskClass, rec: Option<&Record>, budget: Budget) -> f32 {
+    let cost = cost::penalty(cost::tier_of(provider), class, budget);
     let prior = class_prior(provider, class);
     let Some(rec) = rec.filter(|r| r.samples() > 0) else {
-        return prior;
+        return prior - cost;
     };
     let n = rec.samples() as f32;
     let rate = (rec.ok as f32 + 1.0) / (n + 2.0);
@@ -171,13 +174,15 @@ fn score(provider: &str, class: TaskClass, rec: Option<&Record>) -> f32 {
         // outweighs reliability.
         s -= (rec.ema_ms / 20_000.0).min(0.25) * w;
     }
-    s
+    s - cost
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Ranked {
     pub provider: String,
     pub score: f32,
+    /// Marginal-cost tier that fed the score (`free`/`low`/`mid`/`high`).
+    pub cost_tier: &'static str,
     pub samples: u32,
     pub success_rate: Option<f32>,
     pub avg_latency_ms: Option<u32>,
@@ -237,6 +242,15 @@ impl Store {
     /// Best first. Ties keep the caller's order (stable), so the router's
     /// static preference remains the tiebreaker for providers with no data.
     pub fn rank(&self, providers: &[String], class: TaskClass) -> Vec<Ranked> {
+        self.rank_with_budget(providers, class, Budget::from_env())
+    }
+
+    pub fn rank_with_budget(
+        &self,
+        providers: &[String],
+        class: TaskClass,
+        budget: Budget,
+    ) -> Vec<Ranked> {
         let mut out: Vec<Ranked> = providers
             .iter()
             .map(|p| {
@@ -244,7 +258,8 @@ impl Store {
                 let samples = rec.map_or(0, Record::samples);
                 Ranked {
                     provider: p.clone(),
-                    score: score(p, class, rec),
+                    score: score(p, class, rec, budget),
+                    cost_tier: cost::tier_of(p).label(),
                     samples,
                     success_rate: rec
                         .filter(|r| r.samples() > 0)
@@ -560,6 +575,60 @@ mod tests {
             "two failed missions count; the governance block does not"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cheaper_provider_wins_chat_when_evidence_is_equal() {
+        let s = Store::default();
+        let p = names(&["anthropic-claude-opus-4", "openai-gpt-4o-mini"]);
+        let r = s.rank_with_budget(&p, TaskClass::Chat, Budget::Balanced);
+        assert_eq!(r[0].provider, "openai-gpt-4o-mini");
+        assert_eq!((r[0].cost_tier, r[1].cost_tier), ("low", "high"));
+    }
+
+    #[test]
+    fn hard_work_still_reaches_the_expensive_model_unless_budget_is_low() {
+        let s = Store::default();
+        let p = names(&["ollama-llama", "anthropic-claude-opus-4"]);
+        let top = |b| {
+            s.rank_with_budget(&p, TaskClass::Reasoning, b)[0]
+                .provider
+                .clone()
+        };
+        assert_eq!(top(Budget::Balanced), "anthropic-claude-opus-4");
+        assert_eq!(top(Budget::Max), "anthropic-claude-opus-4");
+        // Low budget doubles the (small) reasoning penalty but the cloud
+        // prior still leads; code work is where a frugal budget flips it.
+        let code = |b| {
+            s.rank_with_budget(&p, TaskClass::Code, b)[0]
+                .provider
+                .clone()
+        };
+        assert_eq!(code(Budget::Balanced), "anthropic-claude-opus-4");
+        assert_eq!(code(Budget::Low), "ollama-llama");
+    }
+
+    #[test]
+    fn max_budget_ignores_cost_entirely() {
+        let s = Store::default();
+        let p = names(&["anthropic-claude-opus-4", "openai-gpt-4o-mini"]);
+        let r = s.rank_with_budget(&p, TaskClass::Chat, Budget::Max);
+        assert!((r[0].score - r[1].score).abs() < 1e-6);
+    }
+
+    #[test]
+    fn evidence_outweighs_cost() {
+        let mut s = Store::default();
+        for _ in 0..30 {
+            s.record("anthropic-claude-opus-4", TaskClass::Chat, true, 300);
+            s.record("openai-gpt-4o-mini", TaskClass::Chat, false, 0);
+        }
+        let p = names(&["openai-gpt-4o-mini", "anthropic-claude-opus-4"]);
+        assert_eq!(
+            s.rank_with_budget(&p, TaskClass::Chat, Budget::Low)[0].provider,
+            "anthropic-claude-opus-4",
+            "a cheap provider that keeps failing must not win on price"
+        );
     }
 
     #[test]

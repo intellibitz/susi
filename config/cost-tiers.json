@@ -1,0 +1,21 @@
+{
+  "_note": "Coarse marginal-cost tiers, not prices: free < low < mid < high. Rules are checked in order against the lowercase provider name; the first hit wins and a cloud provider with no hit is mid. Local engines are always free. Override by writing ~/.susi/cost_tiers.json in this same shape.",
+  "rules": [
+    { "contains": "free", "tier": "free" },
+    { "contains": "opus", "tier": "high" },
+    { "contains": "gpt-4-", "tier": "high" },
+    { "contains": "-pro", "tier": "high" },
+    { "contains": "mini", "tier": "low" },
+    { "contains": "flash", "tier": "low" },
+    { "contains": "haiku", "tier": "low" },
+    { "contains": "nano", "tier": "low" },
+    { "contains": "lite", "tier": "low" },
+    { "contains": "instant", "tier": "low" },
+    { "contains": "gpt-oss", "tier": "low" },
+    { "contains": "gemma", "tier": "low" },
+    { "contains": "8b", "tier": "low" },
+    { "contains": "7b", "tier": "low" },
+    { "contains": "groq", "tier": "low" },
+    { "contains": "deepseek", "tier": "low" }
+  ]
+}

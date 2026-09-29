@@ -613,12 +613,15 @@ impl InferenceRouter {
                     || name.contains("vl-")
             });
         }
+        // Cost ceilings use the same tier table the brain ranks with: a zero
+        // ceiling keeps only free routes, a near-zero one drops the premium tier.
         if max_cost == Some(0.0) {
-            clouds.retain(|name| name.to_ascii_lowercase().contains("free"));
+            clouds.retain(|name| {
+                crate::engines::cost::tier_of(name) == crate::engines::cost::CostTier::Free
+            });
         } else if max_cost.is_some_and(|cost| cost <= 0.01) {
             clouds.retain(|name| {
-                let name = name.to_ascii_lowercase();
-                !name.contains("opus") && !name.contains("gpt-4-")
+                crate::engines::cost::tier_of(name) < crate::engines::cost::CostTier::High
             });
         }
     }
