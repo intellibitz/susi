@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-150",
+  "title": "Auto-merge that cannot leave a PR stuck: race-proof merge step and a reconciler",
+  "goal": "Median open-to-merge is already ~60s; the real risks are PRs that never merge: (1) the merge job exits 0 with 'no open PR whose head is <sha>' when Test finishes before the PR is opened, (2) a refused merge comments once and stops, (3) a dropped workflow_run event has no recovery. Move the merge logic into scripts/auto-merge-pr.sh (merge, classify a refusal as conflict/other, comment once per head sha), call it from the merge job AND from the open-pr job when a green push run for the sha already exists, and add scripts/reconcile-prs.sh on a 10-minute schedule: merge PRs whose head has a green push run, comment once on red/conflicting PRs, skip wip/nopr/dependabot/draft, close PRs idle for 7 days that are not green (branch kept). Tests drive both scripts through a fake gh.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "auto_merge"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790711067
+}
