@@ -4024,6 +4024,16 @@
     "label": "Neighborhood-risk gate",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-033",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 15 \u2014 two cross-lane asks landed. (1) dag.rs node execution now calls generate_reasoning_deep: node templates are dense with capability words and cleared Tier-0's support gate (Claude measured 0.60-0.64), so a served ACTION: line would complete a node having executed nothing. (2) receipt_archive staging_eligible excludes reflex:* receipts \u2014 untrainable serves were inflating the staging threshold (Claude's lane file, their proposed fix).",
+   "proof": "reflex_receipts_never_stage_training_samples: archived but training_staged=None, no staging file. susi-core 219, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "DAG deep path + staging exclusion",
+    "ref": "file://crates/susi-gawd-swarm/src/dag.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

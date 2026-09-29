@@ -66,9 +66,15 @@ impl ReceiptArchive {
         receipt: &ToolReceipt,
     ) {
         // Determine staging eligibility before building the record.
+        // `reflex:*` receipts record which Tier-0/1 action served (for the
+        // mission trace's outcome join) — they are not capabilities, so the
+        // trainer would skip them, but they still count toward the staging
+        // threshold. Exclude them so the buffer isn't padded with samples
+        // that can never train.
         let staging_eligible = receipt.successful
             && !training_intent.trim().is_empty()
-            && !receipt.tool.trim().is_empty();
+            && !receipt.tool.trim().is_empty()
+            && !receipt.tool.starts_with("reflex:");
         let mut record = ArchivedReceipt {
             schema: ARCHIVE_SCHEMA.into(),
             kind: "tool_receipt".into(),
@@ -506,6 +512,30 @@ mod tests {
         assert!(
             !ws.0.join(".susi/distillation_staged.jsonl").exists(),
             "no staging file should exist for unsuccessful receipts"
+        );
+    }
+
+    #[test]
+    fn reflex_receipts_never_stage_training_samples() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        // A `reflex:*` receipt records which Tier-0/1 action served — not a
+        // capability. It must not pad the staging buffer's threshold count.
+        EvidenceSession::capture_call("reflex:status", &serde_json::json!({}), &ws.0, || {
+            Ok("served".to_string())
+        })
+        .unwrap();
+        let lines = ReceiptArchive::load_audit_lines(&ws.0);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].successful);
+        assert_eq!(
+            lines[0].training_staged, None,
+            "reflex receipts must not attempt staging"
+        );
+        assert!(
+            !ws.0.join(".susi/distillation_staged.jsonl").exists(),
+            "no staging file should exist for reflex receipts"
         );
     }
 
