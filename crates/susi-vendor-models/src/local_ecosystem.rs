@@ -148,6 +148,36 @@ const DEFS: &[Def] = &[
     },
 ];
 
+/// Env override for non-default ports: `SUSI_ENGINE_PORTS=jan=1400,ollama=11435`.
+pub const PORTS_ENV: &str = "SUSI_ENGINE_PORTS";
+
+/// Parse `id=port` pairs; malformed pairs, unknown ids and port 0 are dropped.
+pub fn parse_port_overrides(spec: &str) -> Vec<(String, u16)> {
+    spec.split(',')
+        .filter_map(|pair| {
+            let (id, port) = pair.split_once('=')?;
+            let id = id.trim().to_ascii_lowercase();
+            let port: u16 = port.trim().parse().ok().filter(|p| *p != 0)?;
+            DEFS.iter()
+                .any(|d| d.id == id && d.port != 0)
+                .then_some((id, port))
+        })
+        .collect()
+}
+
+fn env_overrides() -> Vec<(String, u16)> {
+    susi_config::env_or_cloud_env(PORTS_ENV)
+        .map(|v| parse_port_overrides(&v))
+        .unwrap_or_default()
+}
+
+fn port_of(d: &Def, overrides: &[(String, u16)]) -> u16 {
+    overrides
+        .iter()
+        .find(|(id, _)| id == d.id)
+        .map_or(d.port, |(_, p)| *p)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Detected {
     pub id: String,
@@ -177,6 +207,10 @@ pub struct Ecosystem {
 }
 
 pub fn scan(p: &dyn Probe) -> Ecosystem {
+    scan_with(p, &env_overrides())
+}
+
+fn scan_with(p: &dyn Probe, overrides: &[(String, u16)]) -> Ecosystem {
     let home = p.home();
     let engines = DEFS
         .iter()
@@ -192,7 +226,8 @@ pub fn scan(p: &dyn Probe) -> Ecosystem {
                         .collect()
                 })
                 .unwrap_or_default();
-            let running = d.port != 0 && p.http_ok(d.port, d.health);
+            let port = port_of(d, overrides);
+            let running = port != 0 && p.http_ok(port, d.health);
             let installed = binary.is_some() || !dirs.is_empty() || running;
             Detected {
                 id: d.id.into(),
@@ -201,7 +236,7 @@ pub fn scan(p: &dyn Probe) -> Ecosystem {
                 running,
                 version: binary.as_deref().and_then(|b| p.version(b)),
                 endpoint: (running && d.openai_compat)
-                    .then(|| format!("http://127.0.0.1:{}/v1", d.port)),
+                    .then(|| format!("http://127.0.0.1:{port}/v1")),
                 startable: d.start.is_some() && binary.is_some() && !running,
                 binary,
                 dirs,
@@ -215,12 +250,16 @@ pub fn scan(p: &dyn Probe) -> Ecosystem {
 }
 
 /// `(name, OpenAI-compatible base URL)` for every serving engine in the table,
-/// at its default port, for the HTTP provider probe to try. Bases shared by
+/// at its default (or `SUSI_ENGINE_PORTS`-overridden) port, for the HTTP provider probe to try. Bases shared by
 /// two engines (8080) appear once, under the first name.
 pub fn default_openai_endpoints() -> Vec<(String, String)> {
+    openai_endpoints_with(&env_overrides())
+}
+
+fn openai_endpoints_with(overrides: &[(String, u16)]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for d in DEFS.iter().filter(|d| d.openai_compat && d.port != 0) {
-        let base = format!("http://localhost:{}/v1", d.port);
+        let base = format!("http://localhost:{}/v1", port_of(d, overrides));
         if !out.iter().any(|(_, b)| *b == base) {
             out.push((d.name.to_string(), base));
         }
@@ -452,6 +491,40 @@ mod tests {
             "Ollama".to_string(),
             "http://localhost:11434/v1".to_string()
         )));
+    }
+
+    #[test]
+    fn port_overrides_parse_defensively() {
+        assert_eq!(
+            parse_port_overrides(
+                "jan=1400, Ollama=11435,bogus=1,jan=x,vllm=0,huggingface-cache=9,noequals"
+            ),
+            vec![("jan".to_string(), 1400), ("ollama".to_string(), 11435)]
+        );
+    }
+
+    #[test]
+    fn overridden_port_drives_detection_and_endpoints() {
+        let mut f = Fake::default();
+        f.up.insert((1400, "/v1/models"));
+        let o = [("jan".to_string(), 1400_u16)];
+        let e = scan_with(&f, &o);
+        let jan = e.engines.iter().find(|d| d.id == "jan").unwrap();
+        assert!(jan.running);
+        assert_eq!(jan.endpoint.as_deref(), Some("http://127.0.0.1:1400/v1"));
+        assert!(openai_endpoints_with(&o)
+            .contains(&("Jan".to_string(), "http://localhost:1400/v1".to_string())));
+        // Default port no longer counts once overridden.
+        f.up.clear();
+        f.up.insert((1337, "/v1/models"));
+        assert!(
+            !scan_with(&f, &o)
+                .engines
+                .iter()
+                .find(|d| d.id == "jan")
+                .unwrap()
+                .running
+        );
     }
 
     #[test]
