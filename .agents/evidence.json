@@ -4154,6 +4154,16 @@
     "label": "Proven-step bonus",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-046",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 28 \u2014 proven-agent bonus. proven_agents collects agents appearing only on verified-successful similar missions (ambiguous/unverified excluded); they merge into HistorySignals.proven in solve_autonomous so plan steps naming a trusted agent earn the proven bonus. Completes the agent-level history signal.",
+   "proof": "proven_agents_excludes_ambiguous_and_unverified: verified-only wins proven; failed-agent and bare-claim excluded. susi-core 226, susi-gawd-swarm 63 pass; clippy clean.",
+   "anchor": {
+    "label": "Proven agents",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

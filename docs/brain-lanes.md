@@ -326,3 +326,7 @@ One line per landed step, newest last.
     from verified-success similar missions; a candidate step matching one
     (token Jaccard>=0.6) earns +0.05 (cap 3) — plans lean toward moves
     that demonstrably worked, not only away from moves that broke.
+34. Proven-agent bonus: `proven_agents` mirrors `failing_agent_counts` —
+    agents only on verified-success missions merge into
+    HistorySignals.proven, so steps naming a trusted agent earn the
+    same bonus as proven tools. Agent signal symmetry complete.

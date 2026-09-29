@@ -835,9 +835,13 @@ impl SusiMasterAgent {
         {
             *failed_entities.entry(agent).or_insert(0) += count;
         }
+        let mut proven_entities = crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8);
+        proven_entities.extend(crate::susi_core::mission_trace::proven_agents(
+            &goal, &traces, 8,
+        ));
         let history = crate::deliberation::HistorySignals {
             failed: failed_entities,
-            proven: crate::susi_core::mission_trace::proven_tools(&goal, &traces, 8),
+            proven: proven_entities,
             failed_steps: crate::susi_core::mission_trace::failed_steps(&goal, &traces, 8),
             proven_steps: crate::susi_core::mission_trace::proven_steps(&goal, &traces, 8),
         };

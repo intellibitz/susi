@@ -447,6 +447,29 @@ pub fn failed_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<St
         .collect()
 }
 
+/// Agents that appear only on *verified-successful* similar missions —
+/// the agent mirror of `proven_tools`: an agent that also ran on a
+/// failure is ambiguous and earns nothing.
+pub fn proven_agents(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeSet<String> {
+    let (mut failed, mut proven) = (
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+    );
+    for t in similar(goal, traces, limit) {
+        if t.verified() {
+            proven.extend(t.agents.iter().cloned());
+        } else if !t.succeeded() {
+            failed.extend(t.agents.iter().cloned());
+        }
+    }
+    proven.retain(|a| !failed.contains(a));
+    proven
+}
+
 /// The step texts of similar missions that *verified* — the positive
 /// counterpart of `failed_steps`: a candidate echoing a proven step
 /// repeats a move that demonstrably worked.
@@ -1030,6 +1053,30 @@ mod tests {
         // verified success; the duplicate in f1 counts once.
         assert_eq!(counts.get("helper"), Some(&2));
         assert!(!counts.contains_key("reviewer"));
+    }
+
+    #[test]
+    fn proven_agents_excludes_ambiguous_and_unverified() {
+        let ws = workspace();
+        let mut ok1 = MissionTrace::new("o1", "review the change", "SUCCESS", "swarm");
+        ok1.agents = vec!["reviewer".into(), "drafter".into()];
+        ok1.evidence_entries = 1;
+        // Bare-claim success proves nothing — scout is not "proven".
+        let mut bare = MissionTrace::new("o2", "review the change", "SUCCESS", "swarm");
+        bare.agents = vec!["scout".into()];
+        let mut bad = MissionTrace::new("b", "review the change", "FAILED", "swarm");
+        bad.agents = vec!["drafter".into(), "flaky".into()];
+        ok1.emit(ws.path()).unwrap();
+        bare.emit(ws.path()).unwrap();
+        bad.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let proven = proven_agents("review the change", &traces, 8);
+        // reviewer: verified win only → proven. drafter: also failed →
+        // ambiguous. scout: unverified claim → not proven. flaky: failed.
+        assert!(proven.contains("reviewer"), "{proven:?}");
+        assert!(!proven.contains("drafter"));
+        assert!(!proven.contains("scout"));
+        assert!(!proven.contains("flaky"));
     }
 
     #[test]
