@@ -541,7 +541,15 @@ impl GemiEngine {
                 continue;
             };
             let started = std::time::Instant::now();
-            let outcome = runtime.block_on(provider.generate(prompt));
+            // Adapters flatten failures into `Ok("... Error: ...")`; counting that
+            // as an answer would teach the brain to prefer a broken provider
+            // and would hand the caller the error text as the reply.
+            let outcome = match runtime.block_on(provider.generate(prompt)) {
+                Ok(text) if Self::looks_like_error_text(&text) => {
+                    Err(crate::susi_core::susi_error::EaiError::process(text))
+                }
+                other => other,
+            };
             let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             let answered = matches!(&outcome, Ok(text) if !text.trim().is_empty());
             crate::engines::brain::record_outcome(&name, class, answered, elapsed_ms);
@@ -1182,6 +1190,30 @@ mod tests {
         let ranked = rank(&both, TaskClass::Reflex);
         assert_eq!(ranked[0].provider, "ollama-brainlearn-b");
         assert_eq!(ranked[1].success_rate, Some(0.0));
+    }
+
+    #[test]
+    fn test_try_providers_treats_flattened_error_text_as_failure() {
+        use crate::engines::brain::{rank, TaskClass};
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-flatten-a",
+            reply: "[INFERENCE_FAILED] upstream 500",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-flatten-b",
+            reply: "real answer",
+        });
+        let prompt = "flatten check";
+        let out = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        assert_eq!(out.as_deref(), Some("real answer"));
+        let names = vec!["ollama-flatten-a".to_string()];
+        let a = &rank(&names, TaskClass::classify(prompt))[0];
+        assert_eq!(
+            a.success_rate,
+            Some(0.0),
+            "error text must not count as an answer"
+        );
     }
 
     #[test]
