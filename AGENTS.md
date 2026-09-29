@@ -176,11 +176,16 @@ are three layers):
 2. The CI job **Workflow Compliance** (`test.yml`) runs the same script on every
    branch push, server-side — `--no-verify` cannot skip it. The task must be
    open under a live `refs/claims/<id>` lease, or closed by that same branch.
-3. `scripts/github-enforce.sh --apply` (repo admin) installs a ruleset on
-   `main`: PRs only, the branch-push checks required, no force-push/deletion,
-   no bypass actors. Dry-run by default; apply it only once Workflow Compliance
-   has been green on a few branches, since a required check that never reports
-   blocks every merge.
+3. `scripts/github-enforce.sh` (repo admin) installs a ruleset on `main` with
+   **no bypass actor** — every agent pushes with the admin's own key, so an
+   admin bypass would be a bypass for all of them. It is phased: `--apply`
+   (phase 1) = pull requests only, no force-push, no deletion, which blocks a
+   direct push and adds no way to get stuck; `--apply --phase 2` also requires
+   the branch-push checks (move there once Workflow Compliance has been green
+   for weeks — a renamed job or a check that never reports would block every
+   merge). The escape hatch is deliberate and audited, not a bypass:
+   `--relax` disables the ruleset (GitHub records it), `--apply` restores it,
+   `--status` shows where it stands.
 
 `tests/architecture_tests.rs::workflow_mandates_are_in_identity_and_their_enforcement_exists`
 fails if a mandate goes missing or names an enforcement file that does not exist.
