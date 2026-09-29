@@ -7,8 +7,18 @@ xn = "nextest run --workspace --locked"
 # Fast linkers for Linux (mold → lld → cc). See .cargo/fast-linker.
 # Does not change macOS/Windows linkers. Safe on hosts without mold/lld:
 # the wrapper falls back to cc.
+#
+# `-Clinker-features=-lld`: since Rust 1.90 rustc links x86_64 Linux with its
+# bundled rust-lld and passes `-fuse-ld=lld` *after* the wrapper's
+# `-fuse-ld=mold`, so every binary was linked by lld and the wrapper (and the
+# mold install.sh bootstraps) did nothing. Opting out of the self-contained
+# linker hands linking back to the wrapper. Measured on the `susi` bin after
+# touching main.rs: 2.4–2.6s with mold vs ~3.0s with rust-lld. An explicit
+# RUSTFLAGS env var replaces these flags (cargo semantics).
 [target.x86_64-unknown-linux-gnu]
 linker = ".cargo/fast-linker"
+rustflags = ["-Clinker-features=-lld"]
 
 [target.aarch64-unknown-linux-gnu]
 linker = ".cargo/fast-linker"
+rustflags = ["-Clinker-features=-lld"]

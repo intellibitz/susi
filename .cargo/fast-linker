@@ -33,6 +33,25 @@ if command -v clang >/dev/null 2>&1; then
     fi
 fi
 
+# No mold and no system lld: use the lld rustc itself ships (the linker
+# rustc would have picked by default before .cargo/config.toml opted out of
+# its self-contained linker), so linking is never slower than rustc's own
+# default. `gcc-ld/ld.lld` is rustc's driver shim for exactly this.
+bundled_lld_dir() {
+    local sysroot triple
+    sysroot=$(rustc --print sysroot 2>/dev/null) || return 1
+    triple="$(uname -m)-unknown-linux-gnu"
+    local dir="$sysroot/lib/rustlib/$triple/bin/gcc-ld"
+    [ -x "$dir/ld.lld" ] && printf '%s\n' "$dir"
+}
+if BUNDLED=$(bundled_lld_dir); then
+    for cc_bin in clang gcc cc; do
+        if command -v "$cc_bin" >/dev/null 2>&1; then
+            exec "$cc_bin" -B"$BUNDLED" -fuse-ld=lld "$@"
+        fi
+    done
+fi
+
 if command -v gcc >/dev/null 2>&1; then
     # Skip mold via gcc — see header. Prefer lld when available.
     if command -v ld.lld >/dev/null 2>&1 || command -v lld >/dev/null 2>&1; then
