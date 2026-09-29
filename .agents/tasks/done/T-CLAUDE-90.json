@@ -14,7 +14,12 @@
       "tui_top"
     ]
   },
+  "roadmap": "VC-201-099",
   "created_by": "CLAUDE",
   "created_unix": 1790698460,
-  "roadmap": "VC-201-099"
+  "closed": {
+    "at_unix": 1790725023,
+    "commit": "ccd5d2220fd545b768868477431622d0627b423f",
+    "by": "CURSOR"
+  }
 }

@@ -44,11 +44,13 @@ pub mod secret_ref;
 pub mod selfheal;
 pub mod setting_registry;
 pub mod setup_workflow;
+pub mod state_backup;
 pub mod state_migration;
 mod types;
 pub mod validate;
 pub mod versioned_store;
 pub mod zc_debt_report;
+pub mod zc_susi_fix;
 
 /// IPC client for the standalone `susi-config` service. Only the global
 /// config path is routed here; per-directory loads and `cluster_key` stay
@@ -169,6 +171,9 @@ mod selfheal_tests;
 #[cfg(test)]
 #[path = "tests/setup_workflow.rs"]
 mod setup_workflow_tests;
+#[cfg(test)]
+#[path = "tests/state_backup.rs"]
+mod state_backup_tests;
 #[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;

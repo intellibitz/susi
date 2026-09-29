@@ -25,6 +25,7 @@ pub use susi_core;
 
 pub mod ama;
 pub mod amas;
+pub mod cancel_propagate;
 pub(crate) mod cloud_recovery;
 pub mod dag;
 pub mod deliberation;
@@ -64,6 +65,9 @@ mod vc_201_022_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_023.rs"]
 mod vc_201_023_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_026.rs"]
+mod vc_201_026_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_028.rs"]
 mod vc_201_028_tests;

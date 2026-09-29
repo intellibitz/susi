@@ -83,6 +83,7 @@ pub mod reflex_synth;
 pub mod reflex_trainer;
 pub mod repo_gate;
 pub mod rsi_corpus;
+pub mod rsi_promotion;
 pub mod scorecard;
 pub mod self_validation;
 
@@ -119,6 +120,9 @@ mod vc_201_014_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_015.rs"]
 mod vc_201_015_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_018.rs"]
+mod vc_201_018_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
