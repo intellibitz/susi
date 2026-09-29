@@ -4476,6 +4476,26 @@
    "type": "MISSION"
   },
   {
+   "id": "EV-DEVIN-058",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 40 \u2014 hard-won successes weigh half. difficulty()'s failure rate treated a CLOUD_ATTEMPT_FAILED-then-recovered mission as a clean win; it now contributes 0.5\u00d7 a failure's weight \u2014 partial route failure is real difficulty evidence.",
+   "proof": "hard_won_success_counts_half: recovered mission reads failure_rate 0.5 vs 0.0 for a clean twin. susi-core 234 pass; clippy clean.",
+   "anchor": {
+    "label": "Hard-won difficulty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-059",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 41 \u2014 reflex labels out of tool provenance. reflex:* serve labels (iter 7, for distill joins) were flowing through failing_tool_counts/proven_tools as if a plan could name them; plan_tools() filters them so serve labels carry no taint and earn no bonus.",
+   "proof": "reflex_labels_stay_out_of_tool_provenance: reflex:status on failed/succeeded missions enters neither failing counts nor proven sets. susi-core 235 pass; clippy clean.",
+   "anchor": {
+    "label": "Provenance hygiene",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
    "anchor": {
     "label": "agreement at lower support",
     "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
