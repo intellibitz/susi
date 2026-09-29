@@ -286,3 +286,7 @@ One line per landed step, newest last.
     promotion, proven_tools, proven_plan_brief, and failing_tool_counts
     now treat a receipt-free "SUCCESS" as neutral: it can't teach,
     promote, condemn, or exonerate. Claims no longer equal lessons.
+24. Recency decay in retrieval: `similar` multiplies IDF similarity by
+    0.5 + 0.5*e^(-age/30d) — a fresh trace outranks an ancient near-match;
+    old lessons still count (never below half weight) but can't tie with
+    yesterday's forever. All consumers inherit the ordering.

@@ -4054,6 +4054,16 @@
     "label": "verified() success",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-036",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 18 \u2014 recency-decayed retrieval. similar() multiplies each trace's IDF similarity by 0.5 + 0.5\u00b7e^(-age/\u03c4) with \u03c4 = 30 days: a fresh less-similar trace outranks an ancient near-match, while old lessons fade toward half weight rather than dropping to zero. Briefs, difficulty, teach/exonerate paths inherit the ordering.",
+   "proof": "recency_decay_demotes_stale_near_matches: epoch-1 trace sharing two tokens loses to a fresh one sharing the rare token. susi-core 221, susi-gawd 55, susi-gawd-swarm 60 pass; clippy clean.",
+   "anchor": {
+    "label": "Recency decay",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

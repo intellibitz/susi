@@ -245,10 +245,15 @@ fn token_overlap(
 
 /// Similarity floor for a trace to count as "the same kind of mission".
 const SIMILARITY_FLOOR: f32 = 0.15;
+/// Recency decay constant for retrieval ranking — a trace this old still
+/// counts, but past it the recency weight fades toward its 0.5 floor.
+/// Old experience informs; it never outweighs fresh evidence forever.
+const RECENCY_TAU_SECS: f64 = 30.0 * 86_400.0;
 
 /// Retrieve the `limit` traces most similar to `goal` — the retrieval stage
 /// of the loop: prior outcomes for the same kind of intent. Scored with
-/// IDF-weighted token overlap computed over the corpus being searched.
+/// IDF-weighted token overlap computed over the corpus being searched,
+/// then recency-weighted so newer experience outranks stale near-misses.
 pub fn similar<'a>(goal: &str, traces: &'a [MissionTrace], limit: usize) -> Vec<&'a MissionTrace> {
     // Document frequency over the corpus: how many trace goals contain
     // each token. Corpus-rare tokens get the most weight in overlap.
@@ -258,6 +263,7 @@ pub fn similar<'a>(goal: &str, traces: &'a [MissionTrace], limit: usize) -> Vec<
             *df.entry(tok).or_insert(0) += 1;
         }
     }
+    let newest = traces.iter().map(|t| t.timestamp).max().unwrap_or(0);
     let query = goal_tokens(goal);
     let mut scored: Vec<(f32, &'a MissionTrace)> = traces
         .iter()
@@ -268,6 +274,14 @@ pub fn similar<'a>(goal: &str, traces: &'a [MissionTrace], limit: usize) -> Vec<
             )
         })
         .filter(|(s, _)| *s >= SIMILARITY_FLOOR)
+        .map(|(sim, t)| {
+            // Recency weight: 0.5 + 0.5·e^(-age/τ) — the newest trace keeps
+            // full similarity; an ancient one fades toward half, never to
+            // zero (old lessons still count, just not above fresh ones).
+            let age = newest.saturating_sub(t.timestamp) as f64;
+            let weight = 0.5 + 0.5 * (-age / RECENCY_TAU_SECS).exp();
+            (sim * weight as f32, t)
+        })
         .collect();
     scored.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
@@ -910,6 +924,29 @@ mod tests {
         assert_eq!(
             hits.len(),
             1,
+            "{:?}",
+            hits.iter().map(|t| &t.goal).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn recency_decay_demotes_stale_near_matches() {
+        let ws = workspace();
+        // Ancient trace shares two goal tokens; fresh one shares only the
+        // rarest — raw similarity favors the ancient trace, but its age
+        // halves its weight and the fresh one wins.
+        let mut old = MissionTrace::new("old", "deploy kubernetes pod status", "SUCCESS", "swarm");
+        old.timestamp = 1;
+        let mut fresh = MissionTrace::new("new", "kubernetes only", "SUCCESS", "swarm");
+        fresh.timestamp = 1_800_000_000;
+        old.emit(ws.path()).unwrap();
+        fresh.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let hits = similar("deploy kubernetes service", &traces, 8);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(
+            hits[0].mission_id,
+            "new",
             "{:?}",
             hits.iter().map(|t| &t.goal).collect::<Vec<_>>()
         );

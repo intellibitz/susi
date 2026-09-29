@@ -496,7 +496,10 @@ The `retrieve` stage consults history before planning
 (`susi_core::mission_trace::{similar, history_brief, difficulty}`): traces
 most similar to the goal (IDF-weighted token overlap ≥ 0.15 — each token
 contributes its corpus IDF over the trace set, so a shared rare token like
-"kubernetes" outranks a ubiquitous "deploy"; stopword-filtered) inject a
+"kubernetes" outranks a ubiquitous "deploy"; stopword-filtered), weighted
+by recency — `0.5 + 0.5·e^(−age/30d)`, so fresh experience outranks stale
+near-misses while old lessons fade toward half weight instead of vanishing
+— inject a
 "prior outcomes" brief into the decomposition prompt. A few-shot exemplar
 joins it: `proven_plan_brief` appends the most similar *successful*
 trace's numbered `plan_steps`, so a winning decomposition's shape is
