@@ -113,10 +113,116 @@ const HALF_WEIGHT_SAMPLES: f32 = 5.0;
 const NEUTRAL_PRIOR: f32 = 0.6;
 const LATENCY_EMA_ALPHA: f32 = 0.3;
 
+/// Why a provider call failed, as far as the error text reveals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureKind {
+    /// No credit / billing problem (HTTP 402, "insufficient balance").
+    Funds,
+    /// The key is rejected (HTTP 401/403).
+    Auth,
+    /// Throttled (HTTP 429); transient.
+    RateLimit,
+    /// The model id is retired or unknown.
+    Gone,
+    /// Network or endpoint trouble; transient.
+    Transport,
+    Other,
+}
+
+impl FailureKind {
+    /// Funds and auth problems persist until an operator acts, so retrying on
+    /// a short timer only burns failed calls.
+    pub fn needs_operator(self) -> bool {
+        matches!(self, Self::Funds | Self::Auth)
+    }
+}
+
+/// Classify a provider error string. Funds outranks auth: a 402 body often
+/// also says "unauthorized".
+pub fn classify_error(error: &str) -> FailureKind {
+    let e = error.to_ascii_lowercase();
+    let any = |pats: &[&str]| pats.iter().any(|p| e.contains(p));
+    if any(&[
+        "http 402",
+        "insufficient",
+        "credit",
+        "balance",
+        "billing",
+        "payment required",
+        "quota exceeded",
+        "exceeded your current quota",
+    ]) {
+        FailureKind::Funds
+    } else if any(&[
+        "http 401",
+        "http 403",
+        "unauthorized",
+        "forbidden",
+        "invalid api key",
+        "incorrect api key",
+        "authentication",
+    ]) {
+        FailureKind::Auth
+    } else if any(&["http 429", "rate limit", "too many requests"]) {
+        FailureKind::RateLimit
+    } else if any(&[
+        "http 404",
+        "no endpoints found",
+        "model not found",
+        "does not exist",
+        "no longer available",
+        "is not found for api version",
+    ]) {
+        FailureKind::Gone
+    } else if any(&[
+        "connection refused",
+        "tcp connect error",
+        "timed out",
+        "error sending request",
+        "unreachable",
+    ]) {
+        FailureKind::Transport
+    } else {
+        FailureKind::Other
+    }
+}
+
+/// Quarantine length after `consecutive` operator-needed failures: 10 min,
+/// 1 h, then 6 h (capped — a topped-up account must be re-probed soon).
+/// `None` for kinds that use the router's normal short cooldowns.
+pub fn quarantine_secs(kind: FailureKind, consecutive: u32) -> Option<u64> {
+    kind.needs_operator().then_some(match consecutive {
+        0 | 1 => 600,
+        2 => 3_600,
+        _ => QUARANTINE_CAP_SECS,
+    })
+}
+
+/// Longest quarantine, and how long a failure keeps a provider "recently
+/// failed" for fitness purposes.
+pub const QUARANTINE_CAP_SECS: u64 = 21_600;
+
+/// Failure streak for a provider (or `vendor:<scope>` for credential-scoped
+/// kinds).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Health {
+    pub kind: FailureKind,
+    pub consecutive: u32,
+    pub last_unix: u64,
+}
+
+/// Evidence-rate below which a recently failing provider is unfit.
+const UNFIT_RATE: f32 = 0.34;
+const UNFIT_MIN_SAMPLES: u32 = 3;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Store {
     /// Key: `<provider>|<class>`.
     records: BTreeMap<String, Record>,
+    /// Failure streaks; see [`Health`].
+    #[serde(default)]
+    health: BTreeMap<String, Health>,
     /// Mission ids whose verified outcome was already applied (bounded), so a
     /// re-read of the trace file never double-counts a mission.
     #[serde(default)]
@@ -180,6 +286,10 @@ fn score(provider: &str, class: TaskClass, rec: Option<&Record>, budget: Budget)
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Ranked {
     pub provider: String,
+    /// Failing right now with poor evidence: sorted behind every fit provider.
+    pub unfit: bool,
+    /// Kind and streak of the most recent failure inside the fitness window.
+    pub last_failure: Option<(FailureKind, u32)>,
     pub score: f32,
     /// Marginal-cost tier that fed the score (`free`/`low`/`mid`/`high`).
     pub cost_tier: &'static str,
@@ -206,6 +316,44 @@ impl Store {
             rec.ok /= 2;
             rec.fail /= 2;
         }
+    }
+
+    /// Note a failure under `key`; returns the consecutive count.
+    pub fn note_failure(&mut self, key: &str, kind: FailureKind, now: u64) -> u32 {
+        let h = self.health.entry(key.to_string()).or_insert(Health {
+            kind,
+            consecutive: 0,
+            last_unix: now,
+        });
+        h.kind = kind;
+        h.consecutive = h.consecutive.saturating_add(1);
+        h.last_unix = now;
+        h.consecutive
+    }
+
+    /// A success clears the streak (a working call proves the account/key).
+    pub fn note_success(&mut self, key: &str) -> bool {
+        self.health.remove(key).is_some()
+    }
+
+    fn recent_failure(&self, provider: &str, now: u64) -> Option<&Health> {
+        let vendor = super::routing::vendor_scope(provider).map(|s| format!("vendor:{s}"));
+        std::iter::once(provider.to_string())
+            .chain(vendor)
+            .filter_map(|k| self.health.get(&k))
+            .filter(|h| now.saturating_sub(h.last_unix) <= QUARANTINE_CAP_SECS)
+            .max_by_key(|h| h.last_unix)
+    }
+
+    /// A provider that keeps failing right now must not be the brain: with
+    /// enough samples and a poor success rate *and* a recent failure it sorts
+    /// behind every fit provider (and ahead of nothing, so a total outage
+    /// still tries it). After the window it is probed again.
+    pub fn is_unfit(&self, provider: &str, class: TaskClass, now: u64) -> bool {
+        let poor = self.records.get(&key(provider, class)).is_some_and(|r| {
+            r.samples() >= UNFIT_MIN_SAMPLES && (r.ok as f32 / r.samples() as f32) < UNFIT_RATE
+        });
+        poor && self.recent_failure(provider, now).is_some()
     }
 
     /// Fold a mission's verified outcome into the providers that answered it.
@@ -258,6 +406,10 @@ impl Store {
                 let samples = rec.map_or(0, Record::samples);
                 Ranked {
                     provider: p.clone(),
+                    unfit: self.is_unfit(p, class, unix_now()),
+                    last_failure: self
+                        .recent_failure(p, unix_now())
+                        .map(|h| (h.kind, h.consecutive)),
                     score: score(p, class, rec, budget),
                     cost_tier: cost::tier_of(p).label(),
                     samples,
@@ -276,6 +428,14 @@ impl Store {
         out
     }
 
+    /// Failure streaks (provider or `vendor:<scope>` keys), for operator views.
+    pub fn failure_streaks(&self) -> Vec<(String, Health)> {
+        self.health
+            .iter()
+            .map(|(k, h)| (k.clone(), h.clone()))
+            .collect()
+    }
+
     pub fn providers(&self) -> Vec<String> {
         let mut names: Vec<String> = self
             .records
@@ -285,6 +445,43 @@ impl Store {
         names.sort();
         names.dedup();
         names
+    }
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// True when `provider` is failing right now (see [`Store::is_unfit`]).
+pub fn is_unfit(provider: &str, class: TaskClass) -> bool {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .get_or_insert_with(load)
+        .is_unfit(provider, class, unix_now())
+}
+
+/// Record a failure streak entry and return its consecutive count.
+pub fn note_failure(key: &str, kind: FailureKind) -> u32 {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    let store = guard.get_or_insert_with(load);
+    let n = store.note_failure(key, kind, unix_now());
+    persist(store);
+    n
+}
+
+/// Clear failure streaks (success, or an operator repaired the account).
+pub fn note_success(keys: &[String]) {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    let store = guard.get_or_insert_with(load);
+    let mut changed = false;
+    for k in keys {
+        changed |= store.note_success(k);
+    }
+    if changed {
+        persist(store);
     }
 }
 
@@ -629,6 +826,81 @@ mod tests {
             "anthropic-claude-opus-4",
             "a cheap provider that keeps failing must not win on price"
         );
+    }
+
+    #[test]
+    fn errors_are_classified_with_funds_ahead_of_auth() {
+        use FailureKind::*;
+        for (e, want) in [
+            ("Provider 'x': HTTP 402: Insufficient credits", Funds),
+            ("Insufficient Balance (request_id: a)", Funds),
+            ("HTTP 402 unauthorized", Funds),
+            ("You exceeded your current quota", Funds),
+            ("HTTP 401: invalid api key", Auth),
+            ("HTTP 403 Forbidden", Auth),
+            ("HTTP 429 Too Many Requests", RateLimit),
+            ("HTTP 404 model not found", Gone),
+            ("tcp connect error: connection refused", Transport),
+            ("something odd happened", Other),
+        ] {
+            assert_eq!(classify_error(e), want, "{e}");
+        }
+    }
+
+    #[test]
+    fn only_operator_needed_failures_escalate_and_cap() {
+        assert_eq!(quarantine_secs(FailureKind::Funds, 1), Some(600));
+        assert_eq!(quarantine_secs(FailureKind::Funds, 2), Some(3_600));
+        assert_eq!(
+            quarantine_secs(FailureKind::Auth, 3),
+            Some(QUARANTINE_CAP_SECS)
+        );
+        assert_eq!(
+            quarantine_secs(FailureKind::Funds, 99),
+            Some(QUARANTINE_CAP_SECS)
+        );
+        assert_eq!(quarantine_secs(FailureKind::RateLimit, 5), None);
+        assert_eq!(quarantine_secs(FailureKind::Transport, 5), None);
+    }
+
+    #[test]
+    fn failure_streaks_count_and_a_success_clears_them() {
+        let mut s = Store::default();
+        assert_eq!(s.note_failure("vendor:acme", FailureKind::Funds, 100), 1);
+        assert_eq!(s.note_failure("vendor:acme", FailureKind::Funds, 200), 2);
+        assert!(s.note_success("vendor:acme"));
+        assert_eq!(s.note_failure("vendor:acme", FailureKind::Funds, 300), 1);
+        assert!(!s.note_success("vendor:other"));
+    }
+
+    #[test]
+    fn a_dry_provider_is_unfit_only_with_poor_evidence_and_a_recent_failure() {
+        let mut s = Store::default();
+        let p = "acme-big-model";
+        let now = unix_now();
+        // Poor evidence alone is not enough…
+        for _ in 0..4 {
+            s.record(p, TaskClass::Chat, false, 0);
+        }
+        assert!(!s.is_unfit(p, TaskClass::Chat, now));
+        // …a recent credential-scope failure makes it unfit…
+        s.note_failure("vendor:acme", FailureKind::Funds, now);
+        assert!(s.is_unfit(p, TaskClass::Chat, now + 100));
+        // …classes without evidence stay fit…
+        assert!(!s.is_unfit(p, TaskClass::Code, now + 100));
+        // …and after the window it is probed again.
+        assert!(!s.is_unfit(p, TaskClass::Chat, now + QUARANTINE_CAP_SECS + 1));
+        // A proven provider under the same vendor failure is not unfit.
+        for _ in 0..10 {
+            s.record("acme-good", TaskClass::Chat, true, 100);
+        }
+        assert!(!s.is_unfit("acme-good", TaskClass::Chat, now + 100));
+        let r = s.rank_with_budget(&names(&[p, "acme-good"]), TaskClass::Chat, Budget::Max);
+        let by = |n: &str| r.iter().find(|x| x.provider == n).unwrap();
+        assert!(by(p).unfit);
+        assert_eq!(by(p).last_failure, Some((FailureKind::Funds, 1)));
+        assert!(!by("acme-good").unfit);
+        assert_eq!(r[0].provider, "acme-good");
     }
 
     #[test]

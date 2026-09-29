@@ -509,6 +509,9 @@ impl GemiEngine {
                 .map(|r| (r.provider, (r.score * 10_000.0) as i64))
                 .collect();
         let brain_score = |n: &String| scores.get(n).copied().unwrap_or(0);
+        // A provider that keeps failing right now (no credit, rejected key)
+        // sorts behind every fit one — even the sticky preferred cloud.
+        let unfit = |n: &String| crate::engines::brain::is_unfit(n, class);
 
         if let Some(model) = requested_model {
             let model_l = model.to_ascii_lowercase();
@@ -529,6 +532,7 @@ impl GemiEngine {
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
                 (
                     !hit,
+                    unfit(n),
                     !preferred,
                     std::cmp::Reverse(brain_score(n)),
                     Self::rank_provider_name(n),
@@ -540,6 +544,7 @@ impl GemiEngine {
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
                 (
+                    unfit(n),
                     !preferred,
                     std::cmp::Reverse(brain_score(n)),
                     Self::rank_provider_name(n),
@@ -1231,6 +1236,29 @@ mod tests {
             Some(0.0),
             "error text must not count as an answer"
         );
+    }
+
+    #[test]
+    fn test_try_providers_never_lets_a_failing_provider_lead() {
+        use crate::engines::brain::{note_failure, record_outcome, FailureKind, TaskClass};
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        // Name order would try `ollama-dry-a` first.
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-dry-a",
+            reply: "dry answered",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-dry-b",
+            reply: "fit answered",
+        });
+        let prompt = "dry ping";
+        let class = TaskClass::classify(prompt);
+        for _ in 0..4 {
+            record_outcome("ollama-dry-a", class, false, 0);
+        }
+        note_failure("ollama-dry-a", FailureKind::Funds);
+        let out = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        assert_eq!(out.as_deref(), Some("fit answered"));
     }
 
     #[test]

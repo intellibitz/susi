@@ -111,7 +111,7 @@ const VENDOR_DOWN_COOLDOWN_SECS: u64 = 600;
 /// Credential scope for a provider name. `catalog-<vendor>-<model>` and
 /// `<vendor>-<model>` registrations both draw from the vendor's endpoint +
 /// key, so the scope key is the leading vendor token.
-fn vendor_scope(name: &str) -> Option<String> {
+pub(crate) fn vendor_scope(name: &str) -> Option<String> {
     let rest = name.strip_prefix("catalog-").unwrap_or(name);
     if rest.to_ascii_lowercase().starts_with("mcp-") {
         // MCP provider IDs do not encode a reliably separable server/tool
@@ -213,16 +213,26 @@ impl InferenceRouter {
     /// (transport errors) rather than model-scoped, so siblings sharing
     /// the key/engine are skipped without probing.
     pub fn record_vendor_failure(name: &str) {
+        Self::quarantine_vendor(name, VENDOR_DOWN_COOLDOWN_SECS);
+    }
+
+    /// Quarantine `name`'s whole credential scope for `secs`.
+    fn quarantine_vendor(name: &str, secs: u64) {
         if let Some(scope) = vendor_scope(name) {
             let mut map = provider_down_map()
                 .write()
                 .unwrap_or_else(|e| e.into_inner());
-            map.insert(
-                format!("vendor:{scope}"),
-                now_unix() + VENDOR_DOWN_COOLDOWN_SECS,
-            );
+            map.insert(format!("vendor:{scope}"), now_unix() + secs);
             save_cooldowns(&map);
         }
+    }
+
+    /// Failure-streak keys a provider's health is tracked under: itself and
+    /// its credential scope.
+    fn health_keys(name: &str) -> Vec<String> {
+        std::iter::once(name.to_string())
+            .chain(vendor_scope(name).map(|s| format!("vendor:{s}")))
+            .collect()
     }
 
     /// Record a failed provider attempt: per-provider cooldown always,
@@ -232,6 +242,23 @@ impl InferenceRouter {
     /// swarm recovery loop reports through.
     pub fn record_failure(name: &str, error: &str) {
         Self::record_provider_failure(name);
+        let kind = crate::engines::brain::classify_error(error);
+        // No credit / rejected key: nothing changes until an operator acts, so
+        // the credential scope is quarantined on an escalating ladder (10 min,
+        // 1 h, 6 h) instead of being re-tried on a short timer, and the brain
+        // stops treating the provider as fit. A later success or an operator
+        // reset clears the streak.
+        if kind.needs_operator() {
+            let scope_key = vendor_scope(name)
+                .map(|s| format!("vendor:{s}"))
+                .unwrap_or_else(|| name.to_string());
+            let streak = crate::engines::brain::note_failure(&scope_key, kind);
+            let secs = crate::engines::brain::quarantine_secs(kind, streak)
+                .unwrap_or(VENDOR_DOWN_COOLDOWN_SECS);
+            Self::quarantine_vendor(name, secs);
+            return;
+        }
+        crate::engines::brain::note_failure(name, kind);
         // Retired / unknown model IDs are model-scoped: cool this entry
         // longer so a stale catalog does not burn a request every mission.
         if Self::is_model_gone_error(error) {
@@ -289,6 +316,8 @@ impl InferenceRouter {
         if changed {
             save_cooldowns(&map);
         }
+        drop(map);
+        crate::engines::brain::note_success(&Self::health_keys(name));
     }
 
     /// Clear a provider and its vendor-scope quarantine after an operator
@@ -308,6 +337,8 @@ impl InferenceRouter {
         if changed {
             save_cooldowns(&map);
         }
+        drop(map);
+        crate::engines::brain::note_success(&Self::health_keys(name));
         changed
     }
 
@@ -1511,6 +1542,51 @@ mod tests {
         assert!(ours[1].until_unix > now_unix());
         InferenceRouter::record_provider_success(&earlier);
         InferenceRouter::record_provider_success(&later);
+    }
+
+    #[test]
+    fn funds_failures_escalate_the_quarantine_and_success_resets_it() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("ladder");
+        let name = format!("ladderco-model-{}", std::process::id());
+        let secs_left = |n: &str| {
+            InferenceRouter::provider_cooldown_until(n)
+                .map(|u| u.saturating_sub(now_unix()))
+                .unwrap_or(0)
+        };
+        let near = |got: u64, want: u64| got <= want && got + 5 >= want;
+        InferenceRouter::record_failure(&name, "Provider: HTTP 402: Insufficient credits");
+        assert!(near(secs_left(&name), 600), "{}", secs_left(&name));
+        InferenceRouter::record_failure(&name, "Insufficient Balance");
+        assert!(near(secs_left(&name), 3_600), "{}", secs_left(&name));
+        InferenceRouter::record_failure(&name, "HTTP 402");
+        assert!(near(secs_left(&name), 21_600), "{}", secs_left(&name));
+        InferenceRouter::record_failure(&name, "HTTP 402");
+        assert!(near(secs_left(&name), 21_600), "capped at 6h");
+        // A working call (or an operator reset) restarts the ladder.
+        InferenceRouter::record_provider_success(&name);
+        assert!(!InferenceRouter::provider_cooled(&name));
+        InferenceRouter::record_failure(&name, "HTTP 402");
+        assert!(near(secs_left(&name), 600));
+        assert!(InferenceRouter::clear_provider_cooldown(&name));
+    }
+
+    #[test]
+    fn transient_failures_do_not_escalate() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("transient");
+        let name = format!("flakyco-model-{}", std::process::id());
+        for _ in 0..3 {
+            InferenceRouter::record_failure(&name, "HTTP 429 Too Many Requests");
+        }
+        let left = InferenceRouter::provider_cooldown_until(&name)
+            .map(|u| u.saturating_sub(now_unix()))
+            .unwrap_or(0);
+        assert!(
+            left <= VENDOR_DOWN_COOLDOWN_SECS,
+            "rate limits keep the short window: {left}"
+        );
+        InferenceRouter::record_provider_success(&name);
     }
 
     #[test]

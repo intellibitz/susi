@@ -20,7 +20,10 @@ pub(crate) fn run(action: Option<KeyCommands>) {
                 },
             };
             match susi_gemi::engines::http_provider::register_api_key(&vendor, &key) {
-                Ok(msg) => println!("{}", msg),
+                Ok(msg) => {
+                    println!("{}", msg);
+                    clear_quarantine_for(&vendor);
+                }
                 Err(e) => {
                     eprintln!("Key registration failed: {}", e);
                     std::process::exit(1);
@@ -168,5 +171,22 @@ fn run_models(vendor: &str) {
             eprintln!("{e}");
             std::process::exit(1);
         }
+    }
+}
+
+/// A new key is the operator's repair for a "no credit / rejected key"
+/// quarantine: lift it so the vendor is tried again right away instead of
+/// waiting out a multi-hour backoff.
+fn clear_quarantine_for(vendor: &str) {
+    let env = susi_gemi::engines::http_provider::resolve_vendor_env_name(vendor);
+    let id = susi_gemi::engines::http_provider::known_cloud_vendors()
+        .into_iter()
+        .find(|(_, e)| Some(e) == env.as_ref())
+        .map(|(id, _)| id)
+        .unwrap_or_else(|| vendor.to_ascii_lowercase());
+    if let Ok(true) =
+        susi_gemi::susi_core::plane_bus::gemi::ModelManager::clear_provider_cooldown(&id)
+    {
+        println!("Lifted the failure quarantine on `{id}`; it will be tried again.");
     }
 }
