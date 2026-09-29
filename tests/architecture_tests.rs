@@ -1562,3 +1562,55 @@ fn brain_lanes_board_is_retired_into_data() {
         );
     }
 }
+
+/// Roadmap vectors say what and why; tasks are how it gets done. Every task
+/// link must name a real vector, and every P0 vector must have a task (so the
+/// most important work is always reachable from the queue).
+#[test]
+fn roadmap_vectors_and_tasks_stay_linked() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let roadmap: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(".agents/roadmap.json")).unwrap())
+            .unwrap();
+    let vectors: Vec<(String, String)> = roadmap["vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            (
+                v["id"].as_str().unwrap().to_string(),
+                v["priority"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    let mut linked = std::collections::HashSet::new();
+    for dir in [".agents/tasks", ".agents/tasks/done"] {
+        let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
+            continue;
+        };
+        for e in entries.filter_map(Result::ok) {
+            if e.path().extension().is_none_or(|x| x != "json") {
+                continue;
+            }
+            let t: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(e.path()).unwrap()).unwrap();
+            if let Some(v) = t["roadmap"].as_str() {
+                assert!(
+                    vectors.iter().any(|(id, _)| id == v),
+                    "{} links roadmap vector {v}, which does not exist",
+                    e.path().display()
+                );
+                linked.insert(v.to_string());
+            }
+        }
+    }
+    let uncovered: Vec<&str> = vectors
+        .iter()
+        .filter(|(id, p)| p == "P0" && !linked.contains(id))
+        .map(|(id, _)| id.as_str())
+        .collect();
+    assert!(
+        uncovered.is_empty(),
+        "P0 roadmap vectors with no task: {uncovered:?} — `susi tasks add --roadmap <id> …`"
+    );
+}

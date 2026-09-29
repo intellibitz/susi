@@ -11,6 +11,10 @@ time (`susi-gawd-agents` `build.rs` → `AlphaSelf`).
 | `evidence.json` | `susi/evidence/v1` | Append-only audit / mission ledger (`entries[]`) |
 | `schemas/*.schema.json` | JSON Schema 2020-12 | Shape contracts |
 
+## Roadmap vectors and the task queue
+
+`roadmap.json` vectors say *what and why*; `.agents/tasks/*.json` say *do this, prove it with this command* (see `AGENTS.md`, `susi tasks`). A task links to its vector with the optional `roadmap` field, `susi tasks roadmap` reports coverage, and an architecture test requires every P0 vector to have at least one linked task (or to be delivered) and every link to name a vector that exists.
+
 ## RSI swarm AI operating-layer backlog
 
 `roadmap.json` preserves the two `VC-200-*` vectors and adds exactly 100

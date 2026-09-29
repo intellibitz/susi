@@ -29,9 +29,18 @@ pub enum TaskCommands {
         /// Acceptance command, split on spaces, e.g. "cargo test -p susi-gemi brain"
         #[arg(long)]
         accept: String,
+        /// Roadmap vector this delivers (VC-<n>-<n>, from .agents/roadmap.json)
+        #[arg(long)]
+        roadmap: Option<String>,
         /// Who is adding it (default: $SUSI_AGENT or your git user)
         #[arg(long)]
         agent: Option<String>,
+    },
+    /// Roadmap coverage: which vectors have tasks, and how many are closed
+    Roadmap {
+        /// Only vectors no task is linked to
+        #[arg(long)]
+        uncovered: bool,
     },
     /// Claim a task (atomic; fails if someone else holds a live claim)
     Claim {
@@ -107,6 +116,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                         "size": t.size,
                         "deps": t.deps,
                         "accept": t.accept.cmd.join(" "),
+                        "roadmap": t.roadmap,
                         "claimed_by": claim.filter(|c| !c.expired(now)).map(|c| c.agent.clone()),
                         "lease_until_unix": claim.map(|c| c.lease_until_unix),
                     })
@@ -118,12 +128,54 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             }
             print_json(&out)?;
         }
+        TaskCommands::Roadmap { uncovered } => {
+            let vectors = tasks::roadmap_vectors(&root)?;
+            let cov = tasks::roadmap_coverage(
+                &vectors,
+                &tasks::list_open(&root),
+                &tasks::list_done(&root),
+            );
+            let count = |p: &str, f: &dyn Fn(&tasks::Coverage) -> bool| {
+                cov.iter()
+                    .filter(|c| c.vector.priority == p && f(c))
+                    .count()
+            };
+            let by_priority: serde_json::Map<String, serde_json::Value> = ["P0", "P1", "P2"]
+                .iter()
+                .map(|p| {
+                    (
+                        (*p).to_string(),
+                        serde_json::json!({
+                            "vectors": count(p, &|_| true),
+                            "uncovered": count(p, &|c| c.uncovered()),
+                            "delivered": count(p, &|c| c.delivered()),
+                        }),
+                    )
+                })
+                .collect();
+            let rows: Vec<_> = cov
+                .iter()
+                .filter(|c| !uncovered || c.uncovered())
+                .map(|c| {
+                    serde_json::json!({
+                        "id": c.vector.id,
+                        "priority": c.vector.priority,
+                        "vector": c.vector.title,
+                        "open": c.open,
+                        "closed": c.closed,
+                        "uncovered": c.uncovered(),
+                    })
+                })
+                .collect();
+            print_json(&serde_json::json!({ "by_priority": by_priority, "vectors": rows }))?;
+        }
         TaskCommands::Add {
             title,
             goal,
             size,
             deps,
             accept,
+            roadmap,
             agent,
         } => {
             let cmd: Vec<String> = accept.split_whitespace().map(str::to_string).collect();
@@ -136,6 +188,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                     size,
                     deps,
                     accept: cmd,
+                    roadmap,
                 },
             )?;
             println!(
