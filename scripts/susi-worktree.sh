@@ -9,4 +9,7 @@ git -C "$root" fetch -q origin
 dest="$(dirname "$root")/$(basename "$root")-$name"
 git -C "$root" worktree add -b "$name" "$dest" "$base"
 echo "worktree: $dest (branch $name)"
-echo "next: cd $dest && scripts/setup-dev.sh"
+# Keep the primary checkout parked at origin/main so it never drifts onto a
+# stale branch that invites work (non-fatal: it refuses if it has real work).
+"$root/scripts/park-primary.sh" || echo "note: primary checkout not parked (see above); it is still not for work" >&2
+echo "next: cd $dest && scripts/setup-dev.sh && susi workflow check"
