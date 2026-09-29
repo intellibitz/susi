@@ -39,6 +39,7 @@ pub mod discovery_pipeline;
 pub mod docs_generator;
 pub mod elastic_scheduler;
 pub mod engine_hooks;
+pub mod engine_watchdog;
 pub mod event_log;
 pub mod fork;
 pub mod gmcp_bootstrap;

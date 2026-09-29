@@ -193,6 +193,9 @@ mod vc_201_066_tests;
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;
 #[cfg(test)]
+#[path = "tests/zc_config_all_optional.rs"]
+mod zc_config_all_optional_tests;
+#[cfg(test)]
 #[path = "tests/zc_config_explain.rs"]
 mod zc_config_explain_tests;
 #[cfg(test)]
