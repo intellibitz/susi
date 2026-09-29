@@ -1424,3 +1424,61 @@ fn ci_has_no_bot_pr_triggered_noise_runs() {
         "susi-builder pull_request must only react to `labeled`"
     );
 }
+
+/// The development workflow is a constitutional mandate, not a convention:
+/// identity.json (compiled into susi and read by every agent) must carry
+/// Mandates 49–56, and each must name an enforcement artifact that exists.
+#[test]
+fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let identity: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(".agents/identity.json")).unwrap())
+            .unwrap();
+    let mandates = identity["pillars"]["dna"]["mandates"].as_array().unwrap();
+    let text_of = |id: u64| -> String {
+        let m = mandates
+            .iter()
+            .find(|m| m["id"].as_u64() == Some(id))
+            .unwrap_or_else(|| panic!("identity.json is missing Mandate {id}"));
+        assert!(
+            !m["title"].as_str().unwrap_or("").is_empty(),
+            "Mandate {id} needs a title"
+        );
+        m["imperative"].as_str().unwrap_or("").to_string()
+    };
+    // (mandate, phrase it must state, file that enforces it)
+    for (id, phrase, artifact) in [
+        (49, "scripts/susi-worktree.sh", ".githooks/workflow-guard"),
+        (50, "refs/claims/", "crates/susi-gawd/src/admin/tasks.rs"),
+        (
+            51,
+            "union the entries",
+            ".agents/schemas/evidence.schema.json",
+        ),
+        (52, "SUSI_HOME", "scripts/check-hermetic-tests.sh"),
+        (53, "E2E_CHECKS", "tests/release_e2e_checks.rs"),
+        (54, "pull_request", ".github/workflows/auto-merge.yml"),
+        (55, "did-you-mean", "src/cli/intent_guard.rs"),
+        (
+            56,
+            "failed or unfunded model can never be the brain",
+            "config/cost-tiers.json",
+        ),
+    ] {
+        assert!(
+            text_of(id).contains(phrase),
+            "Mandate {id} must state `{phrase}`"
+        );
+        assert!(
+            root.join(artifact).exists(),
+            "Mandate {id} names enforcement `{artifact}` which does not exist"
+        );
+    }
+    // Every code-writing agent receives the workflow in its task itself.
+    for needle in ["susi tasks claim", "susi-worktree.sh", "hermetic"] {
+        assert!(
+            susi_core::self_build::BRIEF.contains(needle),
+            "the self-build brief must carry `{needle}`"
+        );
+    }
+}

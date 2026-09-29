@@ -83,7 +83,7 @@ impl AlphaSelf {
         Self::RULES.iter().filter(move |r| r.kind == kind)
     }
 
-    /// Rule counts by source, e.g. "48 mandates, 7 engine protocols, 2
+    /// Rule counts by source, e.g. "56 mandates, 7 engine protocols, 2
     /// roadmap vectors, 282 ledger entries". One total would present ledger
     /// entries as rules they are not.
     pub fn genome_summary() -> String {
