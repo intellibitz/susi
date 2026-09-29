@@ -25,6 +25,7 @@
       "program": "cursor-agent",
       "args": [
         "-p",
+        "--trust",
         "{prompt}"
       ]
     }

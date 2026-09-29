@@ -354,3 +354,19 @@ fn failed_task_reports_stderr_cause_redacted() {
     assert!(err.starts_with("Workspace Trust Required"), "{err}");
     assert!(!err.contains("abcdef1234567890"), "{err}");
 }
+
+#[test]
+fn cursor_adapter_trusts_the_workspace_for_headless_runs() {
+    // cursor-agent refuses `-p` in an untrusted directory unless told to trust it.
+    match definition(CatalogKind::Execution, "cursor")
+        .unwrap()
+        .adapter
+    {
+        Adapter::Command { program, args } => {
+            assert_eq!(program, "cursor-agent");
+            assert!(args.iter().any(|a| a == "--trust"));
+            assert_eq!(args.last().map(String::as_str), Some("{prompt}"));
+        }
+        other => panic!("expected command adapter, got {other:?}"),
+    }
+}

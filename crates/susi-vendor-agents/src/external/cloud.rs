@@ -233,18 +233,22 @@ fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> R
     } else {
         cloud.call("GET", &cloud.remote_path(run)?, None)?
     };
-    let status = if cloud.manus {
-        value.pointer("/task/status")
+    run.status = if cloud.manus {
+        let status = value
+            .pointer("/task/status")
+            .and_then(Value::as_str)
+            .context("provider response missing recognized status field")?;
+        map_status(true, status)
     } else {
-        // Prefer coarse `status`; fall back to `status_detail` for finer states.
-        value
-            .get("status")
-            .or_else(|| value.get("status_detail"))
-            .or_else(|| value.get("status_enum"))
-    }
-    .and_then(Value::as_str)
-    .context("provider response missing recognized status field")?;
-    run.status = map_status(cloud.manus, status);
+        devin_status(
+            value.get("status").and_then(Value::as_str),
+            value
+                .get("status_detail")
+                .or_else(|| value.get("status_enum"))
+                .and_then(Value::as_str),
+        )
+        .context("provider response missing recognized status field")?
+    };
     let dir = manager.run_dir(&run.id)?;
     crate::susi_config::atomic_write_json_pretty(&dir.join("provider.json"), &value)?;
     // Preserve all pages of Manus outputs, including artifact URLs, as JSONL.
@@ -291,6 +295,20 @@ fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> R
         }
     }
     Ok(())
+}
+
+/// Devin v3 reports a coarse `status` and a finer `status_detail`. A session
+/// that finished its turn stays `status: running` with `status_detail:
+/// waiting_for_user`, so a waiting/blocked detail must win over the coarse
+/// value or a completed task looks busy forever.
+fn devin_status(coarse: Option<&str>, detail: Option<&str>) -> Option<RunStatus> {
+    if let Some(waiting) = detail
+        .map(|d| map_status(false, d))
+        .filter(|s| *s == RunStatus::Waiting)
+    {
+        return Some(waiting);
+    }
+    coarse.or(detail).map(|s| map_status(false, s))
 }
 
 fn map_status(manus: bool, status: &str) -> RunStatus {
@@ -375,6 +393,27 @@ mod tests {
         assert_eq!(map_status(false, "waiting_for_user"), RunStatus::Waiting);
         assert_eq!(map_status(false, "running"), RunStatus::Running);
         assert_eq!(map_status(false, "invented"), RunStatus::Unknown);
+    }
+    #[test]
+    fn devin_waiting_detail_overrides_running_status() {
+        assert_eq!(
+            devin_status(Some("running"), Some("waiting_for_user")),
+            Some(RunStatus::Waiting)
+        );
+        assert_eq!(
+            devin_status(Some("running"), Some("working")),
+            Some(RunStatus::Running)
+        );
+        assert_eq!(
+            devin_status(Some("running"), None),
+            Some(RunStatus::Running)
+        );
+        assert_eq!(devin_status(Some("exit"), None), Some(RunStatus::Succeeded));
+        assert_eq!(
+            devin_status(None, Some("finished")),
+            Some(RunStatus::Succeeded)
+        );
+        assert_eq!(devin_status(None, None), None);
     }
     #[test]
     fn response_rejects_http_and_application_errors() {
