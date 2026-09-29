@@ -49,6 +49,7 @@ pub mod hf_discovery;
 pub mod local_ecosystem;
 pub mod open_weight;
 pub mod openrouter;
+pub mod port_conflicts;
 pub mod price_catalog;
 pub mod resource_inventory;
 pub mod signed_catalog;
