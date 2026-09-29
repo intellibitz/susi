@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CLAUDE",
-  "created_unix": 1790702413
+  "created_unix": 1790702413,
+  "closed": {
+    "at_unix": 1790702701,
+    "commit": "6a83f4c8641f95e3de9ccc26b2795762dea6fb94",
+    "by": "CLAUDE"
+  }
 }
