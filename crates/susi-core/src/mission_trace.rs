@@ -301,6 +301,9 @@ pub struct Difficulty {
     pub failure_rate: f32,
     /// Manifold risk contribution already applied.
     pub risk: crate::manifold::RiskProfile,
+    /// Median observed duration of similar missions — the empirical
+    /// cost signal folded into the score.
+    pub median_duration_secs: Option<u64>,
 }
 
 impl Difficulty {
@@ -340,6 +343,17 @@ pub fn difficulty(
         }
     }
     let failure_rate = if wsum == 0.0 { 0.0 } else { wfail / wsum };
+    // Empirical cost: an intent class whose missions historically take
+    // ten minutes is harder than one that finishes in seconds. Median
+    // duration over similar traces maps 0..600s onto a 0..0.15 bump.
+    let mut durations: Vec<u64> = neighbors.iter().filter_map(|t| t.duration_secs).collect();
+    let median_duration = if durations.is_empty() {
+        None
+    } else {
+        durations.sort_unstable();
+        Some(durations[durations.len() / 2])
+    };
+    let duration_weight = median_duration.map_or(0.0, |d| (d as f32 / 600.0).min(1.0) * 0.15);
     let risk_weight = match risk {
         crate::manifold::RiskProfile::Low => 0.0,
         crate::manifold::RiskProfile::Medium => 0.15,
@@ -347,12 +361,14 @@ pub fn difficulty(
         crate::manifold::RiskProfile::Critical => 0.4,
     };
     let novelty_weight = if novel { 0.35 } else { 0.0 };
-    let score = (novelty_weight + 0.4 * failure_rate + risk_weight).clamp(0.0, 1.0);
+    let score =
+        (novelty_weight + 0.4 * failure_rate + risk_weight + duration_weight).clamp(0.0, 1.0);
     Difficulty {
         score,
         novel,
         failure_rate,
         risk,
+        median_duration_secs: median_duration,
     }
 }
 
@@ -1241,6 +1257,31 @@ mod tests {
             "expected ~0.67, got {}",
             d2.failure_rate
         );
+    }
+
+    #[test]
+    fn slow_intent_history_raises_difficulty() {
+        // Same outcome mix, different observed cost — the chronically
+        // slow intent class should read as harder.
+        let mut fast = MissionTrace::new("f", "deploy api", "COMPLETE", "swarm");
+        fast.evidence_entries = 1;
+        fast.duration_secs = Some(30);
+        let mut slow = MissionTrace::new("s", "deploy api", "COMPLETE", "swarm");
+        slow.evidence_entries = 1;
+        slow.duration_secs = Some(700);
+        let d_fast = difficulty("deploy api", &[fast], crate::manifold::RiskProfile::Low);
+        let d_slow = difficulty("deploy api", &[slow], crate::manifold::RiskProfile::Low);
+        assert!(
+            d_slow.score > d_fast.score,
+            "{} vs {}",
+            d_slow.score,
+            d_fast.score
+        );
+        assert_eq!(d_slow.median_duration_secs, Some(700));
+        // No durations recorded → no bump, no field.
+        let bare = MissionTrace::new("b", "deploy api", "COMPLETE", "swarm");
+        let d_bare = difficulty("deploy api", &[bare], crate::manifold::RiskProfile::Low);
+        assert_eq!(d_bare.median_duration_secs, None);
     }
 
     #[test]

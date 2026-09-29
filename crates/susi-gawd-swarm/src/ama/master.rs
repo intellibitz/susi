@@ -807,12 +807,16 @@ impl SusiMasterAgent {
             crate::susi_core::mission_trace::proven_plan_brief(&goal, &traces)
         );
         eprintln!(
-            "[RETRIEVAL] {} similar missions | difficulty={:.2} (novel={} failure_rate={:.0}% risk={:?}){}",
+            "[RETRIEVAL] {} similar missions | difficulty={:.2} (novel={} failure_rate={:.0}% risk={:?}){}{}",
             crate::susi_core::mission_trace::similar(&goal, &traces, 8).len(),
             difficulty.score,
             difficulty.novel,
             difficulty.failure_rate * 100.0,
             difficulty.risk,
+            difficulty
+                .median_duration_secs
+                .map(|d| format!(" ~{d}s"))
+                .unwrap_or_default(),
             // Scorer honesty, when enough scored missions exist to judge:
             // does a higher plan_score actually predict success?
             crate::susi_core::mission_trace::plan_score_correlation(&traces)

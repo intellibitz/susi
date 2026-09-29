@@ -356,3 +356,7 @@ One line per landed step, newest last.
     than one route, the header now tallies verified/total per route —
     the planner sees which execution route actually delivered instead
     of tallying lines itself.
+41. Duration-aware difficulty: median observed duration of similar
+    missions now feeds the score (0..600s -> +0..0.15) and is stored
+    as `median_duration_secs` — an intent class that historically
+    takes ten minutes is empirically harder than a ten-second one.

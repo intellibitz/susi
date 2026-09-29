@@ -4224,6 +4224,16 @@
     "label": "Route rollup",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-053",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 35 \u2014 duration-aware difficulty. difficulty() ignored the recorded duration_secs; median duration of similar missions now adds a bounded bump (0\u2013600s \u2192 +0\u20130.15) to the score and is exposed as median_duration_secs on Difficulty and in the [RETRIEVAL] line.",
+   "proof": "slow_intent_history_raises_difficulty: 700s-history intent scores harder than a 30s-history twin; missing durations \u2192 no bump. susi-core 230 pass; clippy clean.",
+   "anchor": {
+    "label": "Duration-aware difficulty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
