@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-189",
+  "title": "Detect an expired or revoked key and guide the replacement",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. A 401 after a working history means rotation: say so, offer 'susi keys add' with the vendor pre-filled, and keep everything else untouched. Tests zc_rotation_prompt_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "zc_rotation_prompt"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

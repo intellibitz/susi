@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-183",
+  "title": "Use existing gcloud/az/aws logins for Vertex, Azure and Bedrock",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Mint provider credentials from an existing CLI login (with consent) instead of asking for keys. Tests zc_cloud_cli_auth_* with fake CLIs.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "zc_cloud_cli_auth"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

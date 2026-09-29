@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-250",
+  "title": "One end-to-end ecosystem setup command",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. 'susi setup' detects hardware, engines, keys and agents, proposes one plan with consents batched, applies it, and prints a summary; safe to rerun. Integration test zc_setup_workflow.rs.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "zc_setup_workflow"
+    ]
+  },
+  "roadmap": "VC-201-069",
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979
+}

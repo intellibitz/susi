@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-249",
+  "title": "Local-only progress history of config debt",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Keep a small local log of the debt score over releases (no telemetry) so progress is visible. Tests zc_local_progress_*.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-152"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "zc_local_progress"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979
+}

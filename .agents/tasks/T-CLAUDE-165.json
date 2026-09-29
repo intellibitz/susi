@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-165",
+  "title": "Daemon starts on first use and restarts on binary change by itself",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Any command that needs the daemon starts it (non-blocking, Mandate 32) and a changed binary restarts it; no 'susi start' step. Tests zc_daemon_lifecycle_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "zc_daemon_lifecycle"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

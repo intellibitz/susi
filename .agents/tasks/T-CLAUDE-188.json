@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-188",
+  "title": "Scoped key references instead of pasted secrets everywhere",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Configs and agent adapters refer to keys by name/scope; the secret is resolved at use and never written into another file. Tests zc_key_scope_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "zc_key_scope"
+    ]
+  },
+  "roadmap": "VC-201-066",
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

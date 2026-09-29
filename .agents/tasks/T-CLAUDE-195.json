@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-195",
+  "title": "Egress allowlist derived from the vendors you configured",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Allow exactly the endpoints of registered vendors and discovered local engines, nothing else, with no list to maintain. Tests zc_egress_allowlist_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "zc_egress_allowlist"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

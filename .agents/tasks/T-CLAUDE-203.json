@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-203",
+  "title": "Known agents resolve to their A2A endpoint without an override file",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. A registry of well-known agents and endpoints replaces hand-written adapter JSON for the common cases. Tests zc_a2a_registry_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "zc_a2a_registry"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

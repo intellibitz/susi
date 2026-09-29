@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-251",
+  "title": "Zero-config qualification gate for the release",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. A release is qualified only if the fresh-HOME journey passes with nothing but the install command and an optional key, the debt score did not rise, and the remaining limits (secrets, consent, missing hardware) are stated in the release notes. Integration test zc_qualification.rs.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-154",
+    "T-CLAUDE-155",
+    "T-CLAUDE-242"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "zc_qualification"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979
+}

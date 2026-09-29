@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-247",
+  "title": "'susi fix' applies every safe auto-fix the doctor found",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. One command runs the doctor and applies safe fixes (ports, hooks, missing dirs, stale locks, key registration prompts), reporting each. Integration test zc_susi_fix.rs.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-152"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "zc_susi_fix"
+    ]
+  },
+  "roadmap": "VC-201-099",
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979
+}

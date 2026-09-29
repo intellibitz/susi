@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-173",
+  "title": "Auto-update on by default with health-gated rollback",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Release sync is enabled at install, checks hourly, and rolls back on a failed health check; opt out with one command. Tests zc_updates_default_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "zc_updates_default"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

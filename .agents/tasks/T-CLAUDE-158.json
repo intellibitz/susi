@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-158",
+  "title": "susi config explain <key>: value and where it came from",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Print the effective value of any key with its provenance (default derivation, override file, env). Tests zc_config_explain_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "zc_config_explain"
+    ]
+  },
+  "roadmap": "VC-201-062",
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}

@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-174",
+  "title": "'susi keys add <key>' infers the vendor from the key",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Recognise sk-ant-, sk-or-, gsk_, xai-, fw_, cog_ and the other vendor prefixes and register the right env name and endpoint; ambiguous keys are verified with a read-only /models call. Tests zc_key_autodetect_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "zc_key_autodetect"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978
+}
