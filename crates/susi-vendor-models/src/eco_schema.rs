@@ -134,7 +134,8 @@ pub enum Transport {
     InProcess,
 }
 
-/// Coarse family a capability belongs to.
+/// Coarse family a capability belongs to — the canonical vocabulary lives in
+/// `crate::eco_taxonomy`, keyed by these classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CapabilityClass {
@@ -146,6 +147,11 @@ pub enum CapabilityClass {
     Vision,
     Audio,
     Reasoning,
+    Batch,
+    Realtime,
+    PromptCaching,
+    Files,
+    Moderation,
     AgentDelegation,
     ResourceAccess,
     Discovery,
