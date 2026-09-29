@@ -375,3 +375,7 @@ One line per landed step, newest last.
     the verified trace with the highest plan_score (best teacher, not
     first match); unreliable_neighborhood sizes the >=2 bar on
     capability outcomes, so refusals don't pad the neighborhood.
+46. Hard-won successes weigh half: a mission that recovered only after
+    a CLOUD_ATTEMPT_FAILED signal now counts as 0.5 a failure in
+    difficulty's rate — the route actually died once, a clean win
+    shouldn't paper over it.

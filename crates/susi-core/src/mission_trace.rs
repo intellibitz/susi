@@ -353,6 +353,10 @@ pub fn difficulty(
         wsum += w;
         if !t.succeeded() {
             wfail += w;
+        } else if t.signals.iter().any(|s| s == "CLOUD_ATTEMPT_FAILED") {
+            // Hard-won: the mission recovered only after a route died —
+            // half a failure's worth of difficulty evidence.
+            wfail += 0.5 * w;
         }
     }
     let failure_rate = if wsum == 0.0 { 0.0 } else { wfail / wsum };
@@ -1366,6 +1370,33 @@ mod tests {
             "expected ~0.67, got {}",
             d2.failure_rate
         );
+    }
+
+    #[test]
+    fn hard_won_success_counts_half() {
+        // Succeeded, but only after a cloud attempt died — partial
+        // failure evidence, not a clean win.
+        let mut won = MissionTrace::new("w", "provision cluster", "COMPLETE", "swarm");
+        won.evidence_entries = 1;
+        won.signals = vec!["CLOUD_ATTEMPT_FAILED".into()];
+        let mut clean = MissionTrace::new("c", "provision cluster", "COMPLETE", "swarm");
+        clean.evidence_entries = 1;
+        let d_won = difficulty(
+            "provision cluster",
+            &[won],
+            crate::manifold::RiskProfile::Low,
+        );
+        let d_clean = difficulty(
+            "provision cluster",
+            &[clean],
+            crate::manifold::RiskProfile::Low,
+        );
+        assert!(
+            (d_won.failure_rate - 0.5).abs() < 0.01,
+            "{}",
+            d_won.failure_rate
+        );
+        assert_eq!(d_clean.failure_rate, 0.0);
     }
 
     #[test]

@@ -4274,6 +4274,16 @@
     "label": "Exemplar quality",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-058",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 40 \u2014 hard-won successes weigh half. difficulty()'s failure rate treated a CLOUD_ATTEMPT_FAILED-then-recovered mission as a clean win; it now contributes 0.5\u00d7 a failure's weight \u2014 partial route failure is real difficulty evidence.",
+   "proof": "hard_won_success_counts_half: recovered mission reads failure_rate 0.5 vs 0.0 for a clean twin. susi-core 234 pass; clippy clean.",
+   "anchor": {
+    "label": "Hard-won difficulty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
