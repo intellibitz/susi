@@ -47,13 +47,16 @@ pub mod context_graph;
 pub mod evidence;
 pub use susi_adapters_llm::inference_wire;
 pub mod intent_bus;
+pub mod jit_credentials;
 pub mod mac_policy;
 pub mod manifold;
 pub mod mcp_client;
 pub mod mission_trace;
 pub mod net_guard;
+pub mod otel_export;
 pub mod plane_bus;
 pub mod plane_bus_ipc;
+pub mod prompt_secret_scan;
 pub mod provider;
 pub mod queue;
 pub mod receipt_archive;
@@ -77,6 +80,16 @@ pub mod telemetry;
 mod telemetry_tests;
 pub mod truth;
 pub mod verification;
+
+#[cfg(test)]
+#[path = "tests/jit_credentials.rs"]
+mod jit_credentials_tests;
+#[cfg(test)]
+#[path = "tests/otel_export.rs"]
+mod otel_export_tests;
+#[cfg(test)]
+#[path = "tests/prompt_secret_scan.rs"]
+mod prompt_secret_scan_tests;
 
 // Top-level exports for the fundamental susi-core types
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
