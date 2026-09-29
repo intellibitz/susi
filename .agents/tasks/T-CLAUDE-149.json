@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-149",
+  "title": "Phased main ruleset with an audited relax switch",
+  "goal": "scripts/github-enforce.sh becomes phased and reversible: phase 1 = pull requests required + no force-push + no deletion (blocks the direct-push failure, adds no way to get stuck); phase 2 adds the required checks (Workflow Compliance, Format Check, cargo deny, Compile Check). '--apply [--phase N]' creates/updates the ruleset, '--relax' sets it to disabled (a deliberate, GitHub-audited settings change instead of a bypass actor, since every agent pushes with the admin's own key), '--status' prints enforcement and rules. Tests drive the script through a fake gh.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "github_enforce"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790710685
+}
