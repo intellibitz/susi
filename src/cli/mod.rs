@@ -5,6 +5,7 @@ pub mod aider_cli;
 pub mod ambient_cli;
 pub mod auto_cli;
 pub mod blackboard_cli;
+pub mod brain_cli;
 pub mod broker_cli;
 pub mod browser_use_cli;
 pub mod catalog_plane_cli;

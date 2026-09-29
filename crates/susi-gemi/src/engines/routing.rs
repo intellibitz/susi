@@ -550,12 +550,24 @@ impl InferenceRouter {
         }
         let mut providers = Self::list_cloud_providers_from_registry(registry);
         providers.retain(|name| !Self::provider_cooled(name));
+        // Recovery has no prompt to classify: order by how each provider has
+        // performed on ordinary chat, with the static rank as the tiebreaker.
+        let scores: std::collections::HashMap<String, i64> =
+            crate::engines::brain::rank(&providers, crate::engines::brain::TaskClass::Chat)
+                .into_iter()
+                .map(|r| (r.provider, (r.score * 10_000.0) as i64))
+                .collect();
         providers.sort_by_key(|name| {
             let preferred = pref.preferred_cloud.as_ref().is_some_and(|preferred| {
                 name.to_ascii_lowercase()
                     .contains(&preferred.to_ascii_lowercase())
             });
-            (!preferred, Self::cloud_rank(name), name.clone())
+            (
+                !preferred,
+                std::cmp::Reverse(scores.get(name).copied().unwrap_or(0)),
+                Self::cloud_rank(name),
+                name.clone(),
+            )
         });
         providers
     }

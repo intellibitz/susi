@@ -8,6 +8,7 @@ use super::aider_cli;
 use super::ambient_cli;
 use super::auto_cli;
 use super::blackboard_cli;
+use super::brain_cli;
 use super::broker_cli;
 use super::browser_use_cli;
 use super::commits_cli;
@@ -67,6 +68,9 @@ pub(crate) fn dispatch(
         return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             auto_cli::execute(action, cwd)
         }));
+    }
+    if let Some(Commands::Brain { action }) = command {
+        return Ok(run_plane(PlanePrep::None, || brain_cli::execute(action)));
     }
     if let Some(Commands::Ecosystem { action }) = command {
         return Ok(run_plane(PlanePrep::None, || {

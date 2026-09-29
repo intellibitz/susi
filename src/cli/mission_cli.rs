@@ -41,6 +41,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         | Commands::Extensions { .. }
         | Commands::Auto { .. }
         | Commands::Ecosystem { .. }
+        | Commands::Brain { .. }
         | Commands::Blackboard { .. }
         | Commands::ContextGraph { .. }
         | Commands::Broker { .. }

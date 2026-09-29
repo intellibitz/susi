@@ -11,6 +11,7 @@ use super::aider_cli;
 use super::ambient_cli;
 use super::auto_cli;
 use super::blackboard_cli;
+use super::brain_cli;
 use super::broker_cli;
 use super::browser_use_cli;
 use super::commits_cli;
@@ -94,6 +95,11 @@ pub(crate) enum Commands {
     Auto {
         #[command(subcommand)]
         action: Option<auto_cli::AutoCommands>,
+    },
+    /// The brain: which model susi trusts for which kind of work (evidence-ranked)
+    Brain {
+        #[command(subcommand)]
+        action: Option<brain_cli::BrainCommands>,
     },
     /// Local AI ecosystem: installed engines/runtimes, GPU backends, explicit start
     #[command(name = "ecosystem", visible_alias = "eco")]
@@ -517,6 +523,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         Commands::Extensions { .. } => false,
         Commands::Auto { .. }
         | Commands::Ecosystem { .. }
+        | Commands::Brain { .. }
         | Commands::Blackboard { .. }
         | Commands::ContextGraph { .. }
         | Commands::Broker { .. }

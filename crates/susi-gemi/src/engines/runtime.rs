@@ -483,6 +483,16 @@ impl GemiEngine {
             return None;
         }
 
+        // Evidence-driven ordering: how each provider has actually performed
+        // on this kind of prompt; the static rank stays the tiebreaker.
+        let class = crate::engines::brain::TaskClass::classify(prompt);
+        let scores: std::collections::HashMap<String, i64> =
+            crate::engines::brain::rank(&names, class)
+                .into_iter()
+                .map(|r| (r.provider, (r.score * 10_000.0) as i64))
+                .collect();
+        let brain_score = |n: &String| scores.get(n).copied().unwrap_or(0);
+
         if let Some(model) = requested_model {
             let model_l = model.to_ascii_lowercase();
             // Strict honoring: a requested name that matches no registered
@@ -500,13 +510,24 @@ impl GemiEngine {
                 let hit = n.to_ascii_lowercase().contains(&model_l);
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
-                (!hit, !preferred, Self::rank_provider_name(n), n.clone())
+                (
+                    !hit,
+                    !preferred,
+                    std::cmp::Reverse(brain_score(n)),
+                    Self::rank_provider_name(n),
+                    n.clone(),
+                )
             });
         } else {
             names.sort_by_key(|n| {
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
-                (!preferred, Self::rank_provider_name(n), n.clone())
+                (
+                    !preferred,
+                    std::cmp::Reverse(brain_score(n)),
+                    Self::rank_provider_name(n),
+                    n.clone(),
+                )
             });
         }
 
@@ -519,7 +540,12 @@ impl GemiEngine {
             let Some(provider) = registry.get_provider(&name) else {
                 continue;
             };
-            match runtime.block_on(provider.generate(prompt)) {
+            let started = std::time::Instant::now();
+            let outcome = runtime.block_on(provider.generate(prompt));
+            let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let answered = matches!(&outcome, Ok(text) if !text.trim().is_empty());
+            crate::engines::brain::record_outcome(&name, class, answered, elapsed_ms);
+            match outcome {
                 Ok(text) if !text.trim().is_empty() => {
                     crate::engines::routing::InferenceRouter::record_provider_success(&name);
                     if !errors.is_empty() {
@@ -1130,6 +1156,32 @@ mod tests {
 
         let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("recovered"));
+    }
+
+    #[test]
+    fn test_try_providers_records_outcomes_that_reorder_the_brain() {
+        use crate::engines::brain::{rank, TaskClass};
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        // Same static rank; name order would try `brainlearn-a` first.
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-brainlearn-a",
+            reply: "ERR:boom",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-brainlearn-b",
+            reply: "fine",
+        });
+        let prompt = "brainlearn ping";
+        assert_eq!(TaskClass::classify(prompt), TaskClass::Reflex);
+        let out = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        assert_eq!(out.as_deref(), Some("fine"));
+        let both = vec![
+            "ollama-brainlearn-a".to_string(),
+            "ollama-brainlearn-b".to_string(),
+        ];
+        let ranked = rank(&both, TaskClass::Reflex);
+        assert_eq!(ranked[0].provider, "ollama-brainlearn-b");
+        assert_eq!(ranked[1].success_rate, Some(0.0));
     }
 
     #[test]
