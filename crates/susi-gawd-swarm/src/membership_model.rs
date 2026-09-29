@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TermState {
     pub term: u64,
     pub leader: String,
@@ -28,15 +28,6 @@ pub struct NodeModel {
     pub id: String,
     pub durable: TermState,
     pub partitioned: bool,
-}
-
-impl Default for TermState {
-    fn default() -> Self {
-        Self {
-            term: 0,
-            leader: String::new(),
-        }
-    }
 }
 
 impl NodeModel {

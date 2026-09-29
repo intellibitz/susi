@@ -1,0 +1,19 @@
+{
+  "id": "T-CURSOR-1",
+  "title": "Fix clippy derivable_impls on membership TermState",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_031"
+    ]
+  },
+  "roadmap": "VC-201-031",
+  "created_by": "CURSOR",
+  "created_unix": 1790722235
+}
