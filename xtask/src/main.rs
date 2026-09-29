@@ -80,6 +80,24 @@ fn detect_gpu_features() -> (Vec<String>, Option<String>) {
     (args, cudarc_ver)
 }
 
+/// Best-effort: enable the repo's git hooks and ledger merge driver once per
+/// clone (config is shared by every worktree) so parallel agents and users
+/// get the same pre-commit/pre-push gate without remembering to opt in.
+fn ensure_dev_setup() {
+    let configured = Command::new("git")
+        .args(["config", "--get", "core.hooksPath"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == ".githooks")
+        .unwrap_or(false);
+    if configured || !Path::new("scripts/setup-dev.sh").is_file() {
+        return;
+    }
+    match Command::new("bash").arg("scripts/setup-dev.sh").status() {
+        Ok(s) if s.success() => println!("xtask: enabled git hooks + ledger merge driver."),
+        Ok(_) | Err(_) => eprintln!("xtask: could not run scripts/setup-dev.sh (skipping)."),
+    }
+}
+
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     args.remove(0);
@@ -88,6 +106,7 @@ fn main() {
 
     let mut cmd = Command::new("cargo");
     if is_build {
+        ensure_dev_setup();
         println!("xtask: cargo build running GPU detection...");
         let (gpu_args, cudarc_ver) = detect_gpu_features();
         if gpu_args.is_empty() {
