@@ -21,6 +21,7 @@ pub use susi_core;
 pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
 
+pub mod accel_reserve;
 pub mod cloud;
 pub mod cloud_manage;
 pub mod eco_anthropic_messages;
@@ -51,6 +52,9 @@ pub mod signed_catalog;
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]
 mod resource_inventory_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_043.rs"]
+mod vc_201_043_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries

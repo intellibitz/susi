@@ -68,6 +68,7 @@ pub mod admin;
 pub mod baseline_capture;
 pub mod bloat_audit;
 pub mod eval_receipt;
+pub mod eval_separation;
 pub mod evolution;
 pub mod formal_invariants;
 pub mod genome_distiller;
@@ -77,6 +78,7 @@ pub mod reason_trainer;
 pub mod reflex_synth;
 pub mod reflex_trainer;
 pub mod rsi_corpus;
+pub mod scorecard;
 pub mod self_validation;
 
 #[cfg(test)]
@@ -89,8 +91,14 @@ mod rsi_corpus_tests;
 #[path = "tests/vc_201_002.rs"]
 mod vc_201_002_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_003.rs"]
+mod vc_201_003_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_004.rs"]
 mod vc_201_004_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_005.rs"]
+mod vc_201_005_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};

@@ -6368,6 +6368,7 @@ dependencies = [
  "susi-sandbox-client",
  "susi-vendor-axum",
  "susi-vendor-ra2a",
+ "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-tokio",
  "susi-vendor-tokio-rustls",
