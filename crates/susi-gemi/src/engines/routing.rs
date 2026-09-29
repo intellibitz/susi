@@ -311,6 +311,26 @@ impl InferenceRouter {
         changed
     }
 
+    /// Unexpired cooldown entries currently skipping providers (and any
+    /// `vendor:` scope keys), sorted by provider name. Operator-facing
+    /// view of the same map the router consults when ranking clouds.
+    pub fn cooled_providers() -> Vec<ProviderCooldown> {
+        let map = provider_down_map()
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let now = now_unix();
+        let mut out: Vec<ProviderCooldown> = map
+            .iter()
+            .filter(|(_, until)| **until > now)
+            .map(|(provider, until_unix)| ProviderCooldown {
+                provider: provider.clone(),
+                until_unix: *until_unix,
+            })
+            .collect();
+        out.sort_by(|a, b| a.provider.cmp(&b.provider));
+        out
+    }
+
     fn preference_path() -> PathBuf {
         susi_paths::SusiDirs::config_dir().join("routing_preference.json")
     }
@@ -1457,6 +1477,37 @@ mod tests {
         assert!(InferenceRouter::provider_cooldown_until(&name).is_some());
         InferenceRouter::record_provider_success(&name);
         assert!(!InferenceRouter::provider_cooled(&name));
+    }
+
+    #[test]
+    fn cooled_providers_lists_unexpired_sorted_by_name() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("list");
+        let tag = std::process::id();
+        let later = format!("zzz-cd-list-{tag}");
+        let earlier = format!("aaa-cd-list-{tag}");
+        let expired = format!("mid-cd-list-expired-{tag}");
+        InferenceRouter::record_provider_failure(&later);
+        InferenceRouter::record_provider_failure(&earlier);
+        {
+            let mut map = provider_down_map()
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            map.insert(expired.clone(), now_unix().saturating_sub(1));
+        }
+        let cooled = InferenceRouter::cooled_providers();
+        assert!(cooled.windows(2).all(|w| w[0].provider <= w[1].provider));
+        let ours: Vec<&ProviderCooldown> = cooled
+            .iter()
+            .filter(|c| c.provider == earlier || c.provider == later || c.provider == expired)
+            .collect();
+        assert_eq!(ours.len(), 2);
+        assert_eq!(ours[0].provider, earlier);
+        assert_eq!(ours[1].provider, later);
+        assert!(ours[0].until_unix > now_unix());
+        assert!(ours[1].until_unix > now_unix());
+        InferenceRouter::record_provider_success(&earlier);
+        InferenceRouter::record_provider_success(&later);
     }
 
     #[test]

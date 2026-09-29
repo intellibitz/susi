@@ -33,10 +33,15 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
                     )
                 })
                 .collect();
+            let pref = susi_gemi::engines::routing::InferenceRouter::load_preference();
+            let cooled_providers = susi_gemi::engines::routing::InferenceRouter::cooled_providers();
             print_json(&serde_json::json!({
                 "principle": "local is the floor, cloud is the ceiling; evidence beats priors",
                 "providers_with_evidence": providers,
                 "ranking_by_task_class": classes,
+                "preferred_cloud": pref.preferred_cloud,
+                "policy_override": pref.policy_override,
+                "cooled_providers": cooled_providers,
             }))?;
         }
         BrainCommands::Classify { prompt } => {
