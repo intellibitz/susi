@@ -292,8 +292,19 @@ impl PlaneHandler for GemiPlaneHandler {
                         bus.stream_emit(stream_id, json!({ "susi_meta": { "provider": name } }));
                     }
                 };
-                let text =
-                    GemiEngine::generate_reasoning_stream_meta(prompt, &ws, &emit, model, &meta);
+                // `deep` (absent = false): synthesis callers opt out of the
+                // reflex tiers.
+                let deep = payload
+                    .get("deep")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let text = if deep {
+                    GemiEngine::generate_reasoning_stream_deep_meta(
+                        prompt, &ws, &emit, model, &meta,
+                    )
+                } else {
+                    GemiEngine::generate_reasoning_stream_meta(prompt, &ws, &emit, model, &meta)
+                };
                 Ok(json!({ "text": text }))
             }
             topics::GEMI_INFER_EMBED => {

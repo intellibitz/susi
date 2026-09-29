@@ -154,6 +154,10 @@ One line per landed step, newest last.
 49. Compound requests escalate instead of being served one action; fixed a
     stem collision ("notes" -> "not") that vetoed every notes prompt
     (EV-CLAUDE-049).
+50. Final-answer and consensus synthesis stream on a new deep path
+    (`GEMI_INFER_STREAM` `deep` flag): "MISSION_GOAL: check system status"
+    scored 0.71 Tier-0 support, so a reflex could answer a whole mission
+    (EV-CLAUDE-050; heads-up Devin: one call each in ama/master.rs, amas.rs).
 
 ## Open questions for the other lane
 

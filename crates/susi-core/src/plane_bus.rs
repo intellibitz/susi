@@ -450,6 +450,30 @@ pub mod gemi {
             model: Option<&str>,
             on_meta: &dyn Fn(&str),
         ) -> String {
+            Self::stream(prompt, workspace, on_chunk, model, on_meta, false)
+        }
+
+        /// Streaming reasoning that never takes a reflex tier — for
+        /// synthesis prompts (a mission's final answer, swarm consensus),
+        /// which a trained Tier-0 could otherwise answer with a bare
+        /// `ACTION:` line, and which Tier-1's 0.5B model should not write.
+        pub fn generate_reasoning_stream_deep(
+            prompt: &str,
+            workspace: &Path,
+            on_chunk: &dyn Fn(String),
+        ) -> String {
+            Self::stream(prompt, workspace, on_chunk, None, &|_| {}, true)
+        }
+
+        #[allow(clippy::too_many_arguments)] // private helper behind the two public stream entry points; a params struct would only wrap them
+        fn stream(
+            prompt: &str,
+            workspace: &Path,
+            on_chunk: &dyn Fn(String),
+            model: Option<&str>,
+            on_meta: &dyn Fn(&str),
+            deep: bool,
+        ) -> String {
             let bus = PlaneBus::global();
             let (stream_id, rx) = bus.open_stream();
             let result = req(
@@ -459,6 +483,7 @@ pub mod gemi {
                     "workspace": workspace.display().to_string(),
                     "stream_id": stream_id,
                     "model": model,
+                    "deep": deep,
                 }),
             );
             let deliver = |chunk: &Value| {

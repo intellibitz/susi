@@ -521,7 +521,13 @@ Planning prompts go to the deep inference path
 (`generate_reasoning_deep`), never a reflex tier: with reflexes allowed, the
 decomposition template around a familiar goal cleared Tier-0's support gate
 (cosine 0.72 measured) and could be answered with a bare `ACTION:` line
-that the step parser drops (EV-CLAUDE-031).
+that the step parser drops (EV-CLAUDE-031). The same holds for synthesis:
+a mission's final answer (`ama::master`) and swarm consensus (`amas`)
+stream through `generate_reasoning_stream_deep` (the `GEMI_INFER_STREAM`
+payload's `deep` flag, absent = reflexes allowed) — the "MISSION_GOAL:
+check system status …" synthesis prompt measured 0.71 Tier-0 support, so
+a trained reflex could have answered a whole mission `ACTION: status`
+(EV-CLAUDE-050).
 
 The `deliberate` stage is plan search (`susi_gawd_swarm::deliberation`):
 `solve_autonomous` no longer commits to the first decomposition. Candidates

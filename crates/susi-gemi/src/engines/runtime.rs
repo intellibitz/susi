@@ -134,6 +134,17 @@ impl GemiEngine {
         Self::reason_internal(prompt, workspace, true, callback, None, model, meta)
     }
 
+    /// `generate_reasoning_stream_meta` without the reflex tiers.
+    pub fn generate_reasoning_stream_deep_meta(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        model: Option<&str>,
+        meta: &dyn Fn(&str),
+    ) -> String {
+        Self::reason_internal(prompt, workspace, false, callback, None, model, meta)
+    }
+
     /// Ultra-Latency Competitive Inference Racing
     #[allow(clippy::too_many_arguments)]
     fn reason_internal(

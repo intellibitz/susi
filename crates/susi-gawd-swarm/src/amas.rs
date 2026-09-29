@@ -1312,14 +1312,16 @@ impl SusiSupervisor {
                     valid_outputs.len()
                 );
                 let _ = std::io::stdout().flush();
-                let out = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
-                    &consensus_prompt,
-                    workspace,
-                    &|token| {
-                        print!("{}", token);
-                        let _ = std::io::stdout().flush();
-                    },
-                );
+                // Deep: consensus synthesis is deliberation, never a reflex.
+                let out =
+                    crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream_deep(
+                        &consensus_prompt,
+                        workspace,
+                        &|token| {
+                            print!("{}", token);
+                            let _ = std::io::stdout().flush();
+                        },
+                    );
                 (out, "STATE_CONVERGENCE")
             };
 

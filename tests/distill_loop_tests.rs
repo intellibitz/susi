@@ -107,6 +107,17 @@ fn staged_successes_train_publish_and_serve_a_tier0_reflex() {
         served.starts_with("ACTION: list_directory"),
         "familiar prompt not served by Tier-0: {served}"
     );
+
+    // Through the plane bus, the ordinary stream serves the reflex — which is
+    // why synthesis callers use `generate_reasoning_stream_deep`. (Asserting
+    // the deep side end to end costs ~60s of provider discovery under mock
+    // inference, so it is not exercised here.)
+    let reflexed = susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
+        "list files in src",
+        &workspace,
+        &|_| {},
+    );
+    assert!(reflexed.starts_with("ACTION: list_directory"), "{reflexed}");
 }
 
 #[test]

@@ -660,7 +660,11 @@ impl SusiMasterAgent {
             eprintln!("{}", swarm_context);
             swarm_context
         } else {
-            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
+            // Deep: the final answer is synthesis, never a reflex. With
+            // reflexes allowed, the "MISSION_GOAL: check system status ..."
+            // prompt measured 0.71 Tier-0 support (over the 0.6 gate), so a
+            // trained reflex could answer the whole mission `ACTION: status`.
+            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream_deep(
                 &reasoning_prompt,
                 workspace,
                 _callback,
