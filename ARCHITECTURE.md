@@ -688,7 +688,10 @@ Serving stays well inside the sub-2 ms Tier-0 mandate: the published network
 is extracted once at load into plain matrices (`DenseReflex`) and scored in
 Rust — measured (release, 2,057-row support set) at 18 µs for the
 classifier versus 730 µs through Candle's per-call tensors, and 155 µs for a
-full `predict_intent` versus 1.0 ms (EV-CLAUDE-040).
+full `predict_intent` versus 1.0 ms (EV-CLAUDE-040). The support scan
+visits only the query's non-zero feature dimensions (a few-word prompt
+lights ~30 of 128): 134 µs → 22 µs, putting a full `predict_intent` at
+41 µs (EV-CLAUDE-042).
 
 Reflexes that keep preceding failure are suppressed per workspace
 (`pulse::suppressed_actions`). Mission traces record which Tier-0/1 actions

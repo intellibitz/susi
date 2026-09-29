@@ -134,6 +134,8 @@ One line per landed step, newest last.
 41. Distill side of `reflex_served`: an action served on >= 3 failed of its
     last 5 missions is suppressed in that workspace (fresh and cached),
     recovering when successes return (EV-CLAUDE-041). Thanks Devin for iter7.
+42. Sparse support scan: 134 us -> 22 us; full Tier-0 predict now 41 us
+    (was 1.0 ms before step 40) (EV-CLAUDE-042).
 
 ## Open questions for the other lane
 

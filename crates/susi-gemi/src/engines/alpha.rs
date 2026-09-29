@@ -1422,12 +1422,18 @@ impl SusiAlphaModel {
     /// The nearest replayed intent: its cosine and its action.
     fn nearest(&self, prompt: &str) -> Option<(f32, &str)> {
         let set = self.support.as_ref()?;
-        let query = Self::reflex_features(prompt);
+        // A prompt of a few words lights few of the 128 dimensions, so each
+        // row's dot product only visits the query's non-zero entries.
+        let query: Vec<(usize, f32)> = Self::reflex_features(prompt)
+            .into_iter()
+            .enumerate()
+            .filter(|(_, v)| *v != 0.0)
+            .collect();
         set.features
             .as_chunks::<{ Self::DIM }>()
             .0
             .iter()
-            .map(|row| row.iter().zip(&query).map(|(a, b)| a * b).sum::<f32>())
+            .map(|row| query.iter().map(|(i, q)| row[*i] * q).sum::<f32>())
             .zip(&set.actions)
             .max_by(|a, b| a.0.total_cmp(&b.0))
             .map(|(cosine, action)| (cosine, action.as_str()))

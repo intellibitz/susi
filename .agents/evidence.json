@@ -4294,6 +4294,16 @@
    "milestone": "Closes the reflex outcome loop that the lanes board asked for: a Tier-0 reflex that keeps preceding failed missions stops being served. Devin iter7 made mission traces record the served Tier-0/1 action labels (MissionTrace.reflex_served, from non-citable reflex:<action> receipts). This is the distill side. pulse::suppressed_actions walks traces newest-first and keeps, per served action, a window of the last SUPPRESS_WINDOW (5) missions that served it. An action is suppressed when at least SUPPRESS_FAILURES (3) of them failed. BLOCKED (governance) outcomes are not counted as reflex failures, and 'generative' (Tier-1 text) is ignored. workspace_suppressed caches the set per workspace keyed by the mission_traces.jsonl mtime, bounded like the reflex cache. SusiPulse::reason refuses a suppressed action both on a fresh Tier-0 prediction (turned into an error so resolution falls to Tier-1 and deeper) and on a reflex-cache hit. Suppression lifts automatically once successes push the failures out of the window. Test: reflexes_that_keep_preceding_failure_are_suppressed (status failing 3 of its last 4 is suppressed; read_file with 3 BLOCKED and 1 failure is not; generative and list_directory are not; appending 3 successful status serves recovers it). Pulse tests 7/7.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "sparse support scan",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-042",
+   "milestone": "Tier-0 support scan made sparse. After EV-CLAUDE-040 the remaining serving hotspot was SusiAlphaModel::nearest: a dense 128-wide dot product against every support row (2,057 rows in the measurement setup), 134us per prompt in a release build. reflex_features of a few-word prompt is sparse: each word lights a 10-dim category band or two hashed buckets, so a prompt lights about 30 of 128 dimensions or fewer. nearest now collects the query's non-zero (index, value) pairs once and computes each row's dot product over those only. Results are identical (support, neighbor agreement and the benchmark behave as before; alpha suite 37/37). Measured with the same probe as EV-CLAUDE-040 (release, 2,100 staged samples, 400 calls): support 134us -> 21.8us; full predict_intent 155us -> 41.3us, down from 1.0ms before EV-CLAUDE-040.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
