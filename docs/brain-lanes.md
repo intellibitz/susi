@@ -184,6 +184,8 @@ One line per landed step, newest last.
     makes a tool-heavy install testable; new 30-tool benchmark baseline:
     tool recall 43/60, 1-3 wrong, foundational 26-27/27, 0/12 OOD
     (EV-CLAUDE-059).
+60. "dump" dropped from the read synonyms: "dump the db to a file" was
+    served read_file; tool benchmark wrong serves 1-3 -> 1 (EV-CLAUDE-060).
 
 ## Open questions for the other lane
 

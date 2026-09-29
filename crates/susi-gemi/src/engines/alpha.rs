@@ -2002,7 +2002,9 @@ fn stem_category(stemmed: &str) -> Option<usize> {
 
 /// Everyday verbs that mean an anchor category but are not in the anchor
 /// list, which fleet recruitment shares and is left unchanged. Reflex
-/// features only. Measured before: 6 of 18 synonym paraphrases of trained
+/// features only ("dump" was dropped after the tool-heavy benchmark: it
+/// usually means *write out* — "dump the db to a file" was served
+/// `read_file`). Measured before: 6 of 18 synonym paraphrases of trained
 /// intents ("display the readme", "which release is this", "correct the
 /// build") were served. The support gate still guards out-of-distribution
 /// text: a shared verb alone is far below `SUPPORT_MIN`.
@@ -2019,7 +2021,6 @@ const SYNONYMS: &[(&str, usize)] = &[
     ("view", 3),
     ("print", 3),
     ("open", 3),
-    ("dump", 3),
     ("peek", 3),
     ("enumerate", 4),
     ("inside", 4),
@@ -3210,7 +3211,8 @@ mod tests {
     /// vocabulary, 4 training phrasings each, next to the foundational
     /// corpus), scored on 2 unseen phrasings per tool. Baseline when
     /// written (3 inits): tool recall 43/60, 1-3 wrong serves, foundational
-    /// 26-27/27, 0/12 out-of-distribution served.
+    /// 26-27/27, 0/12 out-of-distribution served; after dropping the "dump"
+    /// read synonym (EV-CLAUDE-060), 1 wrong serve in each of 3 inits.
     #[test]
     fn tier0_tool_heavy_benchmark() {
         let caps = tool_capabilities();
@@ -3244,7 +3246,7 @@ mod tests {
             .filter(|p| model.predict_intent(p).is_ok())
             .collect();
         assert!(correct >= 38, "tool recall {correct}/60");
-        assert!(served - correct <= 4, "wrong serves {}", served - correct);
+        assert!(served - correct <= 3, "wrong serves {}", served - correct);
         assert!(foundational >= 24, "foundational recall {foundational}/27");
         assert!(ood.len() <= 1, "out-of-distribution served: {ood:?}");
     }

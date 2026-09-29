@@ -4464,6 +4464,16 @@
    "milestone": "Tier-0 is now measured on a tool-heavy install, not only the 9 foundational intents. The vocabulary seed, slot admission and serve-time availability all read the global agent and tool registries, which tests cannot populate without mutating shared state. So every earlier benchmark exercised foundational intents only, while real installs carry dozens of MCP tools with overlapping vocabulary. New Capabilities { names, descriptions, pinned } context: Capabilities::live() for production (registries; availability on the 30s snapshot, unchanged), and a pinned set for tests. train_with/load_with take it; vocabulary_for(names) replaces the registry read inside list_dynamic_intents; a loaded model's pinned availability is names plus foundational. New benchmark tier0_tool_heavy_benchmark: 30 tools (git_commit/status/log, docker_ps/logs, k8s_pods, sql_query, db_backup, web_search, weather, calendar_add, email_send, slack_post, jira_create, pdf_extract, image_resize, translate_text, summarize_doc, cargo_build, npm_install, pytest_run, lint_code, disk_usage, process_list, port_scan, cert_check, env_show, http_get, zip_archive, timezone_convert), each with a description, 4 training phrasings and 2 unseen test phrasings, trained next to BENCH_TRAIN. Measured over 3 inits: tool recall 43/60 each run; wrong serves 3, 1, 2 (e.g. 'dump the db to a file' -> read_file via the 'dump' synonym, 'search online for serde' -> scout via the search category, 'what were the latest commits' -> git_commit via the shared stem); foundational 27, 26, 26/27; TOOL_OOD (12 prompts no tool covers) 0 served. The foundational OOD list's translate/summarize prompts were served correctly here because tools for them exist, hence the separate list. Misses are mostly safe refusals below the support gate. Assertions: tool recall >= 38, wrong <= 4, foundational >= 24, OOD <= 1. Alpha suite 45/45.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "drop dump synonym",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-060",
+   "milestone": "First fix driven by the tool-heavy benchmark (EV-CLAUDE-059). The EV-CLAUDE-047 reflex synonym table mapped 'dump' to the read band, but 'dump' usually means write out (db dump, core dump), and the benchmark served 'dump the db to a file' as read_file instead of db_backup. 'dump' is removed from SYNONYMS; the rationale is kept in the synonym table's doc comment. Measured over 3 inits, tool-heavy benchmark: tool recall 44, 43, 43/60 (was 43/60), wrong serves 1, 1, 1 (was 3, 1, 2), foundational 26/27, 0/12 OOD. The synonym-paraphrase test (which never used 'dump') still passes. The benchmark's wrong-serve bound is tightened from 4 to 3. Alpha suite passes.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
