@@ -49,7 +49,10 @@ pub mod state_migration;
 mod types;
 pub mod validate;
 pub mod versioned_store;
+pub mod zc_config_overrides;
 pub mod zc_debt_report;
+pub mod zc_env_classify;
+pub mod zc_path;
 pub mod zc_susi_fix;
 
 /// IPC client for the standalone `susi-config` service. Only the global
