@@ -24,6 +24,7 @@ pub use susi_sandbox_client as susi_sandbox;
 pub mod cloud;
 pub mod frontier;
 pub mod hf_discovery;
+pub mod local_ecosystem;
 pub mod open_weight;
 pub mod openrouter;
 

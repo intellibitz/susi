@@ -14,6 +14,7 @@ pub mod control_plane_cli;
 pub mod crown_cli;
 pub mod deerflow_cli;
 pub mod defs;
+pub mod ecosystem_cli;
 pub mod execution_agent_cli;
 pub mod extensions_cli;
 pub mod framework_cli;

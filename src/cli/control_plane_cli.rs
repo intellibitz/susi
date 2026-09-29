@@ -15,6 +15,7 @@ use super::context_graph_cli;
 use super::crown_cli;
 use super::deerflow_cli;
 use super::defs::Commands;
+use super::ecosystem_cli;
 use super::extensions_cli;
 use super::framework_cli;
 use super::frontier_cli;
@@ -65,6 +66,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Auto { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             auto_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Ecosystem { action }) = command {
+        return Ok(run_plane(PlanePrep::None, || {
+            ecosystem_cli::execute(action)
         }));
     }
     if let Some(Commands::Blackboard { action }) = command {

@@ -52,6 +52,9 @@ pub async fn bootstrap_zero_config_substrate() {
     // Ollama/vLLM does not keep winning routing. Candle is permanent fallback.
     prune_unhealthy_providers(registry).await;
 
+    // 0d. Hardware + installed local-AI ecosystem inventory (read-only scan).
+    let _ = tokio::task::spawn_blocking(local_ecosystem_report).await;
+
     // 1. Probe for Local Model Inference Engines (Ollama, vLLM, llama.cpp, etc.)
     //    plus any configured OpenAI-compat inference_endpoints bases (open admission).
     susi_gemi::engines::http_provider::auto_discover_local_engines(registry).await;
@@ -84,6 +87,39 @@ pub async fn bootstrap_zero_config_substrate() {
         eprintln!(" - Providers: {:?}", registry.list_providers());
         eprintln!(" - Tools: {:?}", registry.list_tools());
     }
+}
+
+/// Hardware profile plus every installed local-AI engine, runtime and model
+/// store, with the GPU backends they could use. Persisted to
+/// `~/.susi/local_ecosystem.json` so `susi ecosystem` and the UI see what the
+/// last startup found. Detection only: nothing is started or configured.
+pub fn local_ecosystem_report() -> serde_json::Value {
+    let eco =
+        susi_gemi::models::local_ecosystem::scan(&susi_gemi::models::local_ecosystem::HostProbe);
+    let report = serde_json::json!({
+        "kind": "local_ecosystem",
+        "hardware": susi_gemi::models::hardware::HardwareProfiler::get_profile(),
+        "engines": eco.engines,
+        "accelerators": eco.accelerators,
+    });
+    let path = susi_paths::SusiDirs::config_dir().join("local_ecosystem.json");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into()),
+    );
+    if std::env::var("SUSI_VERBOSE").is_ok() {
+        let found: Vec<_> = eco
+            .engines
+            .iter()
+            .filter(|e| e.installed)
+            .map(|e| e.id.as_str())
+            .collect();
+        eprintln!("[BOOTSTRAP] Local AI ecosystem: {found:?}");
+    }
+    report
 }
 
 /// Auto-admit host-ready ecosystem components (MCP, coding models, peers).
