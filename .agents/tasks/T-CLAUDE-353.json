@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-353",
+  "title": "Keep the primary checkout's main current automatically (sync-only, never switches branches)",
+  "goal": "The primary checkout sits on main but only moves when park-primary.sh runs (worktree creation), so it drifts behind origin/main (4 commits behind an hour after parking). Add 'park-primary.sh --sync-only': fast-forward the primary checkout's main to origin/main only when it is already on main, clean and has no local commits; otherwise do nothing and say nothing. Never switch a branch, never touch a dirty tree. Call it from 'susi workflow check' and the session-start hook so it stays current with no one thinking about it. Tests sync_only_* against real temp repos, plus one through the susi binary.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "park_primary",
+      "sync_only"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790720471
+}
