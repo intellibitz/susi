@@ -153,6 +153,14 @@ impl SusiAdmin {
         }
         let _ = std::fs::remove_dir_all(&smoke_workspace);
 
+        eprintln!("[Release Gatekeeper] 5b. Running the built binary on its own new behaviour (e2e checks)...");
+        let e2e_scratch = workspace.join("target").join("release-e2e-scratch");
+        let e2e = Self::run_e2e_checks(&susi_bin, &e2e_scratch);
+        let _ = std::fs::remove_dir_all(&e2e_scratch);
+        for line in e2e? {
+            eprintln!("[Release Gatekeeper]    ok: {line}");
+        }
+
         let new_version = match cut {
             Some(level) => {
                 // Check for clean working tree before starting version cut
@@ -361,6 +369,141 @@ impl SusiAdmin {
     }
 }
 
+/// One end-to-end expectation on the freshly built binary. Deterministic and
+/// offline by construction: a scratch HOME (no keys, no daemon, no real state)
+/// and only commands that answer locally. Add a check when a release ships
+/// behaviour the smoke missions cannot see.
+pub struct E2eCheck {
+    pub name: &'static str,
+    pub args: &'static [&'static str],
+    pub exit: i32,
+    /// Every needle must appear in stdout.
+    pub stdout_has: &'static [&'static str],
+    /// Every needle must appear in stderr.
+    pub stderr_has: &'static [&'static str],
+    /// The command must leave the working directory empty (a refused command
+    /// must not have started a mission or written evidence).
+    pub leaves_no_files: bool,
+}
+
+/// What the built binary must do on its own newest behaviour.
+pub const E2E_CHECKS: &[E2eCheck] = &[
+    E2eCheck {
+        name: "brain classifies a coding prompt",
+        args: &[
+            "brain", "classify", "fix", "this", "bug", "in", "my", "parser",
+        ],
+        exit: 0,
+        stdout_has: &["\"task_class\": \"code\""],
+        stderr_has: &[],
+        leaves_no_files: true,
+    },
+    E2eCheck {
+        name: "brain status reports ranking, budget and routing state",
+        args: &["brain"],
+        exit: 0,
+        stdout_has: &[
+            "ranking_by_task_class",
+            "\"budget\"",
+            "cooled_providers",
+            "failure_streaks",
+        ],
+        stderr_has: &[],
+        leaves_no_files: true,
+    },
+    E2eCheck {
+        name: "ecosystem scan reports engines and accelerators",
+        args: &["ecosystem", "scan"],
+        exit: 0,
+        stdout_has: &["\"engines\"", "\"accelerators\"", "\"hardware\""],
+        stderr_has: &[],
+        leaves_no_files: true,
+    },
+    E2eCheck {
+        name: "a flag-shaped typo is refused, not run as a mission",
+        args: &["release", "--help"],
+        exit: 2,
+        stdout_has: &[],
+        stderr_has: &["looks like a command", "susi admin release"],
+        leaves_no_files: true,
+    },
+    E2eCheck {
+        name: "a nested command word is refused with a path hint",
+        args: &["scan"],
+        exit: 2,
+        stdout_has: &[],
+        stderr_has: &["susi ecosystem scan"],
+        leaves_no_files: true,
+    },
+];
+
+/// Compare one command's outcome with its expectation.
+fn e2e_verdict(
+    check: &E2eCheck,
+    exit: Option<i32>,
+    stdout: &str,
+    stderr: &str,
+    files: &[String],
+) -> Result<(), String> {
+    if exit != Some(check.exit) {
+        return Err(format!("exit {exit:?}, expected {}", check.exit));
+    }
+    if let Some(missing) = check.stdout_has.iter().find(|n| !stdout.contains(*n)) {
+        return Err(format!("stdout lacks `{missing}`"));
+    }
+    if let Some(missing) = check.stderr_has.iter().find(|n| !stderr.contains(*n)) {
+        return Err(format!("stderr lacks `{missing}`"));
+    }
+    if check.leaves_no_files && !files.is_empty() {
+        return Err(format!("left files behind: {files:?}"));
+    }
+    Ok(())
+}
+
+impl SusiAdmin {
+    /// Run [`E2E_CHECKS`] against `susi_bin` in a scratch HOME under
+    /// `scratch`. Returns one line per passing check, or the first failure.
+    pub fn run_e2e_checks(susi_bin: &Path, scratch: &Path) -> EaiResult<Vec<String>> {
+        let mut passed = Vec::new();
+        for (i, check) in E2E_CHECKS.iter().enumerate() {
+            let root = scratch.join(format!("check-{i}"));
+            let home = root.join("home");
+            let cwd = root.join("cwd");
+            std::fs::create_dir_all(&home)?;
+            std::fs::create_dir_all(&cwd)?;
+            let mut cmd = Command::new(susi_bin);
+            cmd.args(check.args)
+                .current_dir(&cwd)
+                .env("HOME", &home)
+                .env("USERPROFILE", &home)
+                .env("XDG_CONFIG_HOME", home.join("xdg"))
+                .env_remove("SUSI_PORT_OFFSET");
+            scrub_instance_env(&mut cmd);
+            let out = cmd.output()?;
+            let files: Vec<String> = std::fs::read_dir(&cwd)?
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            e2e_verdict(
+                check,
+                out.status.code(),
+                &String::from_utf8_lossy(&out.stdout),
+                &String::from_utf8_lossy(&out.stderr),
+                &files,
+            )
+            .map_err(|why| {
+                EaiError::process(format!(
+                    "Release aborted: e2e check `{}` (susi {}) failed: {why}",
+                    check.name,
+                    check.args.join(" ")
+                ))
+            })?;
+            passed.push(check.name.to_string());
+        }
+        Ok(passed)
+    }
+}
+
 /// The gate's tests must run against their own hermetic HOME, not whichever
 /// susi instance launched the release. A dev build isolates itself by setting
 /// `SUSI_HOME=~/.susi-dev` (+ `SUSI_PORT_OFFSET`), and an inherited value
@@ -373,6 +516,52 @@ fn scrub_instance_env(cmd: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample() -> E2eCheck {
+        E2eCheck {
+            name: "t",
+            args: &[],
+            exit: 0,
+            stdout_has: &["ok"],
+            stderr_has: &["warn"],
+            leaves_no_files: true,
+        }
+    }
+
+    #[test]
+    fn e2e_verdict_checks_exit_streams_and_side_effects() {
+        let c = sample();
+        assert!(e2e_verdict(&c, Some(0), "all ok", "a warn", &[]).is_ok());
+        assert!(e2e_verdict(&c, Some(1), "all ok", "a warn", &[])
+            .unwrap_err()
+            .contains("exit"));
+        assert!(e2e_verdict(&c, None, "all ok", "a warn", &[]).is_err());
+        assert!(e2e_verdict(&c, Some(0), "nope", "a warn", &[])
+            .unwrap_err()
+            .contains("stdout"));
+        assert!(e2e_verdict(&c, Some(0), "ok", "quiet", &[])
+            .unwrap_err()
+            .contains("stderr"));
+        let files = ["evidence.json".to_string()];
+        assert!(e2e_verdict(&c, Some(0), "ok", "warn", &files)
+            .unwrap_err()
+            .contains("files"));
+    }
+
+    #[test]
+    fn e2e_check_list_is_wellformed() {
+        assert!(E2E_CHECKS.len() >= 5);
+        let mut names = std::collections::HashSet::new();
+        for c in E2E_CHECKS {
+            assert!(names.insert(c.name), "duplicate check name {}", c.name);
+            assert!(!c.args.is_empty(), "{} must run something", c.name);
+            assert!(
+                !c.stdout_has.is_empty() || !c.stderr_has.is_empty(),
+                "{} must assert on output, not only the exit code",
+                c.name
+            );
+        }
+    }
 
     #[test]
     fn gate_tests_do_not_inherit_the_launching_instance() {
