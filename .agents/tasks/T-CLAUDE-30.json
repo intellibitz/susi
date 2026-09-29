@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-30",
+  "title": "Azure OpenAI provider with deployments",
+  "goal": "Azure uses per-deployment URLs and api-version query params and api-key headers. Add endpoint config, discovery of deployments and health checks. Tests azure_openai_provider_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "azure_openai_provider"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

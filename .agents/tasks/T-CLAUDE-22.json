@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-22",
+  "title": "Detect NPUs and Apple/Intel/Qualcomm accelerators",
+  "goal": "Extend accelerators() beyond cuda/rocm/metal/vulkan/oneapi with Apple ANE, Intel NPU and Qualcomm/AMD NPUs where the host exposes evidence; report which engines can use them. Tests npu_detection_* with the fake Probe.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "npu_detection"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

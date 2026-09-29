@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-41",
+  "title": "JSON-schema structured output across vendors",
+  "goal": "Support schema-constrained output natively where a vendor offers it and by validate-and-repair elsewhere, returning a typed error when it cannot be satisfied. Tests structured_output_*.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-40"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "structured_output"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

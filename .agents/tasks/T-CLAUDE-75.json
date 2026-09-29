@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-75",
+  "title": "Harden the delegations ingress directory",
+  "goal": "Validate, size-limit and authenticate task files dropped in ~/.susi/delegations, process them exactly once, and quarantine malformed ones. Tests delegation_ingress_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "delegation_ingress"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-9",
+  "title": "Manage Ollama models from susi: list, pull, show, remove",
+  "goal": "Add `susi ecosystem models <engine>` for Ollama through its HTTP API (/api/tags, /api/pull with progress, /api/show, /api/delete) behind the local_ecosystem Probe so it is testable offline. Refuse pulls that exceed the disk budget. Tests named ollama_models_* with a fake HTTP server.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "ollama_models"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

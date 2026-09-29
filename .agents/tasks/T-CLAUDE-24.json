@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-24",
+  "title": "Pick the best local engine for a model's format",
+  "goal": "Map model formats (GGUF, safetensors, MLX, AWQ/GPTQ) to the engines that can serve them and choose among installed/running ones, preferring the one with the best benchmark. Tests engine_format_match_*.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-17"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "engine_format_match"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

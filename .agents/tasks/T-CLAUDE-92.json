@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-92",
+  "title": "OpenTelemetry trace export for missions",
+  "goal": "Emit spans for missions, routing decisions and provider calls to an OTLP endpoint when configured, respecting the egress policy. Tests otel_export_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "otel_export"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

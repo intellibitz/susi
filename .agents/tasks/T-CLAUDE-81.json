@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-81",
+  "title": "Node enrollment with join tokens and mTLS",
+  "goal": "Add a node to a cluster with a one-time join token that provisions mutual-TLS credentials and the cluster key epoch. Tests node_enrollment_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "node_enrollment"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

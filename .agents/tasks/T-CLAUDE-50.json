@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-50",
+  "title": "Bounded exploration of untried providers",
+  "goal": "Occasionally try an untried or long-idle provider for low-stakes classes so evidence does not ossify, with a hard cap on spend and never for privacy-restricted work. Tests brain_exploration_* with a seeded RNG.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "brain_exploration"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

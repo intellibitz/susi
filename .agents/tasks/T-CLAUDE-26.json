@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-26",
+  "title": "Resumable, checksummed model downloads",
+  "goal": "Model downloads resume via HTTP Range, verify sha256 against the hub/catalog, and quarantine corrupt files. Tests resumable_downloads_* against a local server that cuts connections.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "resumable_downloads"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

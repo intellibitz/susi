@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-76",
+  "title": "Per-mission sandbox with CPU, memory and time limits",
+  "goal": "Run each delegated agent/tool in a resource-limited sandbox (cgroups/rlimits where available) and kill on breach, recording it as a failure. Tests mission_sandbox_limits_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-sandbox-client",
+      "mission_sandbox_limits"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

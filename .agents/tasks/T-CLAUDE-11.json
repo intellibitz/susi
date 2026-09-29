@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-11",
+  "title": "Launch llama-server with model + GPU-layer plan from the hardware profile",
+  "goal": "susi ecosystem start llama-cpp currently refuses because it needs a model. Add a launcher that takes a GGUF path, reads its metadata (layers, ctx), computes -ngl/-c/-t from HardwareProfile (VRAM, RAM, cores) and starts llama-server on the configured port, then waits for /health. Tests llamacpp_launcher_* for the planning maths and argv, no real server.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "llamacpp_launcher"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

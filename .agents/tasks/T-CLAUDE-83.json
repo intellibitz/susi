@@ -1,0 +1,14 @@
+{
+  "id": "T-CLAUDE-83",
+  "title": "Docker compose profiles: susi + ollama + vllm",
+  "goal": "Provide compose files with profiles for cpu, nvidia and rocm stacks and a check script validating them with docker compose config.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-compose.sh"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460
+}

@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-49",
+  "title": "Export and import brain evidence between hosts",
+  "goal": "`susi brain export/import` with merge semantics (sum counters, keep latest health) so a fleet shares what it learned; reject files from a different schema version. Tests brain_export_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "brain_export"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}

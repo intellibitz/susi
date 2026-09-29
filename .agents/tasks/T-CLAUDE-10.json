@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-10",
+  "title": "Manage LM Studio models: load, unload, list via lms",
+  "goal": "Drive the `lms` CLI (ls, load, unload, server start/stop) through the Probe abstraction: list downloaded and loaded models and load one sized to the hardware profile. Tests lmstudio_models_* using a scripted fake binary.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "lmstudio_models"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459
+}
