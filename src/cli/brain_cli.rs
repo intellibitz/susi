@@ -52,6 +52,7 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
                 "ranking_by_task_class": classes,
                 "preferred_cloud": pref.preferred_cloud,
                 "policy_override": pref.policy_override,
+                "auto_switched_from": pref.auto_switched_from,
                 "cooled_providers": cooled_providers,
             }))?;
         }

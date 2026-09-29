@@ -512,6 +512,9 @@ impl GemiEngine {
         // A provider that keeps failing right now (no credit, rejected key)
         // sorts behind every fit one — even the sticky preferred cloud.
         let unfit = |n: &String| crate::engines::brain::is_unfit(n, class);
+        // One trial call for a vendor susi moved the preference away from once
+        // its quarantine has lapsed, so a top-up is noticed without any action.
+        let probe = |n: &String| crate::engines::routing::InferenceRouter::is_recovery_probe(n);
 
         if let Some(model) = requested_model {
             let model_l = model.to_ascii_lowercase();
@@ -532,6 +535,7 @@ impl GemiEngine {
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
                 (
                     !hit,
+                    !probe(n),
                     unfit(n),
                     !preferred,
                     std::cmp::Reverse(brain_score(n)),
@@ -544,6 +548,7 @@ impl GemiEngine {
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
                 (
+                    !probe(n),
                     unfit(n),
                     !preferred,
                     std::cmp::Reverse(brain_score(n)),

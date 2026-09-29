@@ -428,6 +428,22 @@ impl Store {
         out
     }
 
+    /// The best provider that is neither quarantined nor failing right now,
+    /// or `None` when everything is (the caller then leaves routing alone and
+    /// the local model stays the floor).
+    pub fn best_healthy(
+        &self,
+        providers: &[String],
+        class: TaskClass,
+        now: u64,
+        is_cooled: &dyn Fn(&str) -> bool,
+    ) -> Option<String> {
+        self.rank(providers, class)
+            .into_iter()
+            .find(|r| !is_cooled(&r.provider) && !self.is_unfit(&r.provider, class, now))
+            .map(|r| r.provider)
+    }
+
     /// Failure streaks (provider or `vendor:<scope>` keys), for operator views.
     pub fn failure_streaks(&self) -> Vec<(String, Health)> {
         self.health
@@ -461,6 +477,18 @@ pub fn is_unfit(provider: &str, class: TaskClass) -> bool {
     guard
         .get_or_insert_with(load)
         .is_unfit(provider, class, unix_now())
+}
+
+/// [`Store::best_healthy`] over the persisted evidence.
+pub fn best_healthy(
+    providers: &[String],
+    class: TaskClass,
+    is_cooled: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .get_or_insert_with(load)
+        .best_healthy(providers, class, unix_now(), is_cooled)
 }
 
 /// Record a failure streak entry and return its consecutive count.

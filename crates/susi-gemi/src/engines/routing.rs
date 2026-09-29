@@ -18,6 +18,10 @@ pub struct RoutingPreference {
     pub preferred_cloud: Option<String>,
     /// When set in the future, force local until then (escape hatch).
     pub force_local_until_unix: Option<u64>,
+    /// The user's own preferred cloud, while susi has moved `preferred_cloud`
+    /// off it because that vendor is failing (no credit / rejected key). The
+    /// key is untouched; the preference returns as soon as the vendor works.
+    pub auto_switched_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -138,6 +142,12 @@ fn cooldowns_path() -> PathBuf {
     if let Some(p) = std::env::var_os("SUSI_COOLDOWNS_FILE").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
+    // Unit tests drive record_failure/heal without a guard; without this every
+    // test run leaked its providers into the developer's real cooldown file.
+    if cfg!(test) {
+        return std::env::temp_dir()
+            .join(format!("susi-test-cooldowns-{}.json", std::process::id()));
+    }
     susi_paths::SusiDirs::config_dir().join("provider_cooldowns.json")
 }
 
@@ -256,6 +266,7 @@ impl InferenceRouter {
             let secs = crate::engines::brain::quarantine_secs(kind, streak)
                 .unwrap_or(VENDOR_DOWN_COOLDOWN_SECS);
             Self::quarantine_vendor(name, secs);
+            Self::heal_preferred_cloud(name);
             return;
         }
         crate::engines::brain::note_failure(name, kind);
@@ -318,6 +329,7 @@ impl InferenceRouter {
         }
         drop(map);
         crate::engines::brain::note_success(&Self::health_keys(name));
+        Self::restore_preferred_cloud(name);
     }
 
     /// Clear a provider and its vendor-scope quarantine after an operator
@@ -363,6 +375,14 @@ impl InferenceRouter {
     }
 
     fn preference_path() -> PathBuf {
+        // Same reason as `cooldowns_path`: tests must never rewrite the
+        // developer's real routing preference.
+        if cfg!(test) {
+            return std::env::temp_dir().join(format!(
+                "susi-test-routing-pref-{}.json",
+                std::process::id()
+            ));
+        }
         susi_paths::SusiDirs::config_dir().join("routing_preference.json")
     }
 
@@ -408,6 +428,8 @@ impl InferenceRouter {
         let normalized = vendor.to_ascii_lowercase().replace(' ', "-");
         let mut pref = Self::load_preference();
         pref.preferred_cloud = Some(normalized.clone());
+        // An explicit choice by the user wins over any automatic switch.
+        pref.auto_switched_from = None;
         // Preferring a cloud implies we're willing to use cloud when needed.
         if pref.policy_override.as_deref() == Some("local_only") {
             pref.policy_override = Some("auto".to_string());
@@ -425,6 +447,7 @@ impl InferenceRouter {
     pub fn clear_preferred_cloud() -> Result<String, String> {
         let mut pref = Self::load_preference();
         pref.preferred_cloud = None;
+        pref.auto_switched_from = None;
         Self::save_preference(&pref);
         Ok(format!(
             "Cleared preferred cloud ({})",
@@ -449,6 +472,86 @@ impl InferenceRouter {
             preferred,
             Self::preference_path().display()
         )
+    }
+
+    /// The sticky preferred cloud is out of credit or rejecting its key: move
+    /// the preference to the best healthy cloud so the brain is always
+    /// something that works. Keys are never touched, and the user's original
+    /// choice is remembered in `auto_switched_from` so it returns on recovery.
+    /// Nothing changes when the failing vendor is not the preferred one or no
+    /// healthy cloud exists (local stays the floor).
+    fn heal_preferred_cloud(failed: &str) {
+        Self::heal_preferred_cloud_in(
+            crate::susi_core::registry::CapabilityRegistry::global(),
+            failed,
+        );
+    }
+
+    fn heal_preferred_cloud_in(
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+        failed: &str,
+    ) {
+        let mut pref = Self::load_preference();
+        let Some(current) = pref.preferred_cloud.clone() else {
+            return;
+        };
+        let failed_l = failed.to_ascii_lowercase();
+        let current_l = current.to_ascii_lowercase();
+        if !(failed_l.contains(&current_l) || current_l.contains(&failed_l)) {
+            return;
+        }
+        let clouds = Self::list_cloud_providers_from_registry(registry);
+        let Some(best) = crate::engines::brain::best_healthy(
+            &clouds,
+            crate::engines::brain::TaskClass::Chat,
+            &Self::provider_cooled,
+        ) else {
+            return;
+        };
+        let Some(vendor) = vendor_scope(&best) else {
+            return;
+        };
+        if vendor.eq_ignore_ascii_case(&current) {
+            return;
+        }
+        pref.auto_switched_from.get_or_insert(current.clone());
+        pref.preferred_cloud = Some(vendor.clone());
+        Self::save_preference(&pref);
+        eprintln!(
+            "[SUSI ROUTING] Preferred cloud `{current}` is unavailable (no credit or rejected key); \
+             switched to healthy `{vendor}`. Your key is untouched; `{current}` returns as soon as it works."
+        );
+    }
+
+    /// `name` just answered: when it belongs to the vendor susi moved the
+    /// preference away from, put the user's preference back.
+    fn restore_preferred_cloud(name: &str) {
+        let mut pref = Self::load_preference();
+        let Some(original) = pref.auto_switched_from.clone() else {
+            return;
+        };
+        let name_l = name.to_ascii_lowercase();
+        let original_l = original.to_ascii_lowercase();
+        if !(name_l.contains(&original_l) || original_l.contains(&name_l)) {
+            return;
+        }
+        pref.preferred_cloud = Some(original.clone());
+        pref.auto_switched_from = None;
+        Self::save_preference(&pref);
+        eprintln!("[SUSI ROUTING] `{original}` works again; restored as the preferred cloud.");
+    }
+
+    /// True for a provider of the vendor susi moved the preference away from
+    /// once its quarantine has lapsed: it gets one trial call first (a topped-up
+    /// account is noticed), and a failure re-quarantines it on the next rung.
+    pub fn is_recovery_probe(name: &str) -> bool {
+        let Some(original) = Self::load_preference().auto_switched_from else {
+            return false;
+        };
+        let name_l = name.to_ascii_lowercase();
+        let original_l = original.to_ascii_lowercase();
+        (name_l.contains(&original_l) || original_l.contains(&name_l))
+            && !Self::provider_cooled(name)
     }
 
     /// Whether `name` matches the sticky preferred cloud (substring either way).
@@ -1569,6 +1672,144 @@ mod tests {
         InferenceRouter::record_failure(&name, "HTTP 402");
         assert!(near(secs_left(&name), 600));
         assert!(InferenceRouter::clear_provider_cooldown(&name));
+    }
+
+    /// Isolated HOME/XDG + cooldown file for preference-writing tests.
+    struct PrefSandbox {
+        _cd: CooldownFileGuard,
+        prev: [(&'static str, Option<std::ffi::OsString>); 3],
+        tmp: PathBuf,
+    }
+    impl PrefSandbox {
+        fn new(tag: &str) -> Self {
+            let tmp = std::env::temp_dir().join(format!(
+                "susi_pref_{tag}_{}_{}",
+                std::process::id(),
+                now_unix()
+            ));
+            let _ = std::fs::create_dir_all(tmp.join("config"));
+            let _ = std::fs::create_dir_all(tmp.join(".susi"));
+            let keys = ["HOME", "XDG_CONFIG_HOME", "SUSI_XDG"];
+            let prev = keys.map(|k| (k, std::env::var_os(k)));
+            // SAFETY: test-only env override, serialized by env_test_lock and
+            // restored in Drop.
+            unsafe {
+                std::env::set_var("HOME", &tmp);
+                std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
+                std::env::set_var("SUSI_XDG", "0");
+            }
+            Self {
+                _cd: CooldownFileGuard::new(tag),
+                prev,
+                tmp,
+            }
+        }
+    }
+    impl Drop for PrefSandbox {
+        fn drop(&mut self) {
+            // SAFETY: restores the values captured in `new`, under the same lock.
+            unsafe {
+                for (k, v) in &self.prev {
+                    match v {
+                        Some(v) => std::env::set_var(k, v),
+                        None => std::env::remove_var(k),
+                    }
+                }
+            }
+            let _ = std::fs::remove_dir_all(&self.tmp);
+        }
+    }
+
+    fn http_cloud(name: &str) -> crate::engines::http_provider::HttpProvider {
+        crate::engines::http_provider::HttpProvider {
+            name: name.into(),
+            api_base: "https://api.example.com/v1".into(),
+            model: "m".into(),
+            protocol: crate::engines::http_provider::InferenceProtocol::OpenAiChat,
+            api_key: String::new(),
+        }
+    }
+
+    #[test]
+    fn an_unfunded_preferred_cloud_hands_over_to_a_healthy_one_and_returns_on_recovery() {
+        let _env = crate::engines::env_test_lock();
+        let _sb = PrefSandbox::new("heal");
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(http_cloud("dryheal-big-model"));
+        registry.register_provider(http_cloud("okheal-small-model"));
+        InferenceRouter::save_preference(&RoutingPreference {
+            preferred_cloud: Some("dryheal".into()),
+            ..Default::default()
+        });
+
+        // The preferred vendor runs out of credit: its scope is quarantined and
+        // the preference moves to the healthy cloud, remembering the original.
+        InferenceRouter::record_provider_failure("dryheal-big-model");
+        InferenceRouter::quarantine_vendor("dryheal-big-model", 600);
+        InferenceRouter::heal_preferred_cloud_in(&registry, "dryheal-big-model");
+        let pref = InferenceRouter::load_preference();
+        assert_eq!(pref.preferred_cloud.as_deref(), Some("okheal"));
+        assert_eq!(pref.auto_switched_from.as_deref(), Some("dryheal"));
+        assert!(!InferenceRouter::matches_preferred_cloud(
+            "dryheal-big-model"
+        ));
+
+        // While quarantined it is not probed; once the quarantine lapses it is
+        // (a top-up is noticed with no operator action).
+        assert!(!InferenceRouter::is_recovery_probe("dryheal-big-model"));
+        assert!(InferenceRouter::clear_provider_cooldown(
+            "dryheal-big-model"
+        ));
+        assert!(InferenceRouter::is_recovery_probe("dryheal-big-model"));
+        assert!(!InferenceRouter::is_recovery_probe("okheal-small-model"));
+
+        // It answers again: the user's preference is restored.
+        InferenceRouter::record_provider_success("dryheal-big-model");
+        let pref = InferenceRouter::load_preference();
+        assert_eq!(pref.preferred_cloud.as_deref(), Some("dryheal"));
+        assert_eq!(pref.auto_switched_from, None);
+    }
+
+    #[test]
+    fn healing_leaves_routing_alone_when_nothing_is_healthy_or_vendor_differs() {
+        let _env = crate::engines::env_test_lock();
+        let _sb = PrefSandbox::new("noheal");
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(http_cloud("solocloud-only-model"));
+        InferenceRouter::save_preference(&RoutingPreference {
+            preferred_cloud: Some("solocloud".into()),
+            ..Default::default()
+        });
+        // Only cloud available is the failing one: nothing healthy to move to.
+        InferenceRouter::quarantine_vendor("solocloud-only-model", 600);
+        InferenceRouter::heal_preferred_cloud_in(&registry, "solocloud-only-model");
+        let pref = InferenceRouter::load_preference();
+        assert_eq!(pref.preferred_cloud.as_deref(), Some("solocloud"));
+        assert_eq!(pref.auto_switched_from, None);
+        // A different vendor failing does not touch the preference.
+        registry.register_provider(http_cloud("other-model"));
+        InferenceRouter::heal_preferred_cloud_in(&registry, "other-model");
+        assert_eq!(
+            InferenceRouter::load_preference()
+                .preferred_cloud
+                .as_deref(),
+            Some("solocloud")
+        );
+    }
+
+    #[test]
+    fn an_explicit_user_choice_overrides_an_automatic_switch() {
+        let _env = crate::engines::env_test_lock();
+        let _sb = PrefSandbox::new("explicit");
+        InferenceRouter::save_preference(&RoutingPreference {
+            preferred_cloud: Some("okheal".into()),
+            auto_switched_from: Some("dryheal".into()),
+            ..Default::default()
+        });
+        InferenceRouter::set_preferred_cloud("groq").unwrap();
+        let pref = InferenceRouter::load_preference();
+        assert_eq!(pref.preferred_cloud.as_deref(), Some("groq"));
+        assert_eq!(pref.auto_switched_from, None);
     }
 
     #[test]
