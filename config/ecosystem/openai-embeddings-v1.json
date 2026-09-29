@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "openai-embeddings-v1",
+    "name": "OpenAI Embeddings API v1",
+    "version": "v1",
+    "released": null,
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference/embeddings",
+      "spec_version": "2024-06",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "openai-embeddings-v1",
+      "to": "openai-embeddings",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

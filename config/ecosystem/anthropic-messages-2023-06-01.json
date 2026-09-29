@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "anthropic-messages-2023-06-01",
+    "name": "Messages 2023-06-01",
+    "version": "2023-06-01",
+    "released": "2023-06-01",
+    "provenance": {
+      "source": "https://docs.anthropic.com/en/api/messages",
+      "spec_version": "2023-06-01",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "anthropic-messages-2023-06-01",
+      "to": "anthropic-messages",
+      "provenance": {
+        "source": "https://docs.anthropic.com/en/api/messages",
+        "spec_version": "2023-06-01",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

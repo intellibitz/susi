@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "openai-responses-2025-03",
+    "name": "Responses 2025-03",
+    "version": "2025-03",
+    "released": "2025-03-11",
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference/responses",
+      "spec_version": "2025-03",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "openai-responses-2025-03",
+      "to": "openai-responses",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/responses",
+        "spec_version": "2025-03",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

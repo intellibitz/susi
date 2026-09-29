@@ -24,13 +24,21 @@ pub use susi_sandbox_client as susi_sandbox;
 pub mod accel_reserve;
 pub mod cloud;
 pub mod cloud_manage;
+pub mod eco_anthropic_messages;
 pub mod eco_conflicts;
 pub mod eco_consistency;
 pub mod eco_coverage;
 pub mod eco_matrix;
+pub mod eco_openai_batch_files;
+pub mod eco_openai_chat;
+pub mod eco_openai_embed_media;
+pub mod eco_openai_realtime;
+pub mod eco_openai_responses;
+pub mod eco_profile;
 pub mod eco_provenance;
 pub mod eco_relations;
 pub mod eco_schema;
+pub mod eco_signed_kb;
 pub mod eco_store;
 pub mod eco_taxonomy;
 pub mod frontier;
@@ -39,6 +47,7 @@ pub mod local_ecosystem;
 pub mod open_weight;
 pub mod openrouter;
 pub mod resource_inventory;
+pub mod signed_catalog;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]

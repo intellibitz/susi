@@ -1,0 +1,242 @@
+{
+  "version": "eco-profile/v1",
+  "id": "openai-batch-files",
+  "name": "OpenAI Batch and Files APIs",
+  "subject": "openai-batch",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/files",
+      "description": "Upload a file (multipart); purpose=batch|user_data|fine-tune|evals.",
+      "request": "file-upload",
+      "response": "file-object"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/files",
+      "description": "List uploaded files.",
+      "response": "file-list"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/files/{file_id}",
+      "description": "File metadata.",
+      "response": "file-object"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/files/{file_id}/content",
+      "description": "Download file content.",
+      "response": "file-content"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/files/{file_id}",
+      "description": "Delete a file."
+    },
+    {
+      "method": "POST",
+      "path": "/v1/batches",
+      "description": "Create a batch over an input file of JSONL requests.",
+      "request": "batch-request",
+      "response": "batch-object"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/batches/{batch_id}",
+      "description": "Batch status.",
+      "response": "batch-object"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/batches/{batch_id}/cancel",
+      "description": "Cancel a running batch.",
+      "response": "batch-object"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/batches",
+      "description": "List batches."
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "OPENAI_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "2024-04",
+      "released": "2024-04-15",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "file-upload",
+      "format": "json",
+      "fields": [
+        "file (multipart)",
+        "purpose"
+      ],
+      "notes": "purpose=batch for batch inputs; batches take JSONL where each line is {custom_id, method, url, body}."
+    },
+    {
+      "name": "batch-input-line",
+      "format": "jsonl",
+      "fields": [
+        "custom_id",
+        "method",
+        "url",
+        "body"
+      ],
+      "notes": "url is the endpoint path the request would take synchronously (/v1/chat/completions, /v1/responses, /v1/embeddings)."
+    },
+    {
+      "name": "batch-request",
+      "format": "json",
+      "fields": [
+        "input_file_id",
+        "endpoint",
+        "completion_window",
+        "metadata"
+      ],
+      "notes": "completion_window is currently only `24h`; batch pricing is ~50% of the synchronous endpoint."
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "batch-object",
+      "format": "json",
+      "fields": [
+        "id",
+        "object",
+        "endpoint",
+        "status",
+        "input_file_id",
+        "output_file_id",
+        "error_file_id",
+        "request_counts",
+        "expires_at",
+        "created_at",
+        "completed_at",
+        "failed_at",
+        "expired_at",
+        "cancelling_at",
+        "cancelled_at"
+      ],
+      "notes": "status walks validating\u2192in_progress\u2192finalizing\u2192completed; failure paths: failed, expired, cancelled."
+    },
+    {
+      "name": "file-object",
+      "format": "json",
+      "fields": [
+        "id",
+        "object",
+        "bytes",
+        "created_at",
+        "filename",
+        "purpose",
+        "status"
+      ]
+    },
+    {
+      "name": "file-list",
+      "format": "json",
+      "fields": [
+        "object",
+        "data[]"
+      ]
+    },
+    {
+      "name": "file-content",
+      "format": "jsonl",
+      "fields": [
+        "custom_id",
+        "response",
+        "error"
+      ],
+      "notes": "Batch output file: one result line per input line, keyed by custom_id."
+    },
+    {
+      "name": "error-body",
+      "format": "json",
+      "fields": [
+        "error.message",
+        "error.type",
+        "error.param",
+        "error.code"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "invalid_request_error",
+      "retriable": false
+    },
+    {
+      "status": "401",
+      "code": "authentication_error",
+      "retriable": false
+    },
+    {
+      "status": "404",
+      "code": "not_found_error",
+      "retriable": false
+    },
+    {
+      "status": "413",
+      "code": "file_too_large",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limit_exceeded",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal_server_error",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "submission rate limit"
+    },
+    {
+      "signal": "batch-queue",
+      "meaning": "batches queue behind the 24h window; expiry is a lifecycle state, not an error"
+    }
+  ],
+  "streaming": null,
+  "capabilities": [
+    "cap-batch",
+    "cap-files"
+  ],
+  "deviations": [
+    {
+      "host": "azure-openai",
+      "field": "path",
+      "behavior": "Batches run under the deployment/resource path; global-batch vs data-zone endpoints differ by residency."
+    },
+    {
+      "host": "openai-chat-completions",
+      "field": "cost",
+      "behavior": "Batch results are billed at roughly half the synchronous price; there is no streaming \u2014 output lands in output_file_id."
+    }
+  ],
+  "provenance": {
+    "source": "https://platform.openai.com/docs/api-reference/batch",
+    "spec_version": "2024-04",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

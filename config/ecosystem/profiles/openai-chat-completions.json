@@ -1,0 +1,143 @@
+{
+  "version": "eco-profile/v1",
+  "id": "openai-chat-completions",
+  "name": "OpenAI Chat Completions",
+  "subject": "openai-chat-completions",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "Create a chat completion; stream=true switches to SSE.",
+      "request": "chat-request",
+      "response": "chat-response",
+      "streaming": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "Streamed variant: stream=true returns SSE chunk events.",
+      "request": "chat-request",
+      "response": "chat-chunk",
+      "streaming": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "List models the key can see; every compatible host implements this.",
+      "response": "model-list"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": ["OPENAI_API_KEY"]
+    }
+  ],
+  "versions": [
+    {"id": "2024-06", "released": "2024-06-06", "status": "current"},
+    {"id": "v1", "status": "current"}
+  ],
+  "request_shapes": [
+    {
+      "name": "chat-request",
+      "format": "json",
+      "fields": ["model", "messages", "tools", "tool_choice", "response_format", "temperature", "stream", "stream_options", "max_tokens", "max_completion_tokens", "stop", "seed"],
+      "notes": "messages[] carry role + content (string or typed parts); tools[] are function specs; response_format is text | json_object | json_schema."
+    },
+    {
+      "name": "batch-request-line",
+      "format": "jsonl",
+      "fields": ["custom_id", "method", "url", "body"],
+      "notes": "One chat request per JSONL line for the Batch API."
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "chat-response",
+      "format": "json",
+      "fields": ["id", "object", "created", "model", "choices", "usage", "system_fingerprint"],
+      "notes": "choices[].message holds role, content and tool_calls; usage carries prompt_tokens, completion_tokens, total_tokens."
+    },
+    {
+      "name": "chat-chunk",
+      "format": "sse",
+      "fields": ["id", "object", "choices[].delta", "choices[].finish_reason", "usage"],
+      "notes": "Stream of chat.completion.chunk events; usage appears on the final chunk only when stream_options.include_usage is set."
+    },
+    {
+      "name": "model-list",
+      "format": "json",
+      "fields": ["object", "data[].id", "data[].created", "data[].owned_by"]
+    },
+    {
+      "name": "error-body",
+      "format": "json",
+      "fields": ["error.message", "error.type", "error.param", "error.code"]
+    }
+  ],
+  "errors": [
+    {"status": "400", "code": "invalid_request_error", "retriable": false},
+    {"status": "401", "code": "authentication_error", "retriable": false},
+    {"status": "403", "code": "permission_error", "retriable": false},
+    {"status": "404", "code": "not_found_error", "retriable": false},
+    {"status": "408", "code": "request_timeout", "retriable": true},
+    {"status": "409", "code": "conflict_error", "retriable": false},
+    {"status": "422", "code": "unprocessable_entity_error", "retriable": false},
+    {"status": "429", "code": "rate_limit_exceeded", "retriable": true},
+    {"status": "500", "code": "internal_server_error", "retriable": true},
+    {"status": "503", "code": "service_unavailable", "retriable": true}
+  ],
+  "rate_limits": [
+    {"signal": "x-ratelimit-limit-requests", "meaning": "request budget per window"},
+    {"signal": "x-ratelimit-remaining-requests", "meaning": "requests left in window"},
+    {"signal": "x-ratelimit-limit-tokens", "meaning": "token budget per window"},
+    {"signal": "x-ratelimit-remaining-tokens", "meaning": "tokens left in window"},
+    {"signal": "x-ratelimit-reset-requests", "meaning": "when the request window resets"},
+    {"signal": "x-ratelimit-reset-tokens", "meaning": "when the token window resets"},
+    {"signal": "retry-after", "meaning": "seconds to wait before retrying a 429"},
+    {"signal": "http-429", "meaning": "hard rate-limit rejection"}
+  ],
+  "streaming": {
+    "format": "sse",
+    "events": ["chat.completion.chunk", "data: [DONE]"],
+    "notes": "Server-sent events; the stream ends with the literal line `data: [DONE]`. Mid-stream errors arrive as SSE error events, not HTTP status changes."
+  },
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-vision",
+    "cap-prompt-caching"
+  ],
+  "deviations": [
+    {
+      "host": "openrouter",
+      "field": "usage",
+      "behavior": "usage may be absent or partial unless usage accounting is requested; adds its own generation stats under `usage`."
+    },
+    {
+      "host": "azure-openai",
+      "field": "path",
+      "behavior": "Deploys under /openai/deployments/{deployment}/chat/completions with api-version query; auth is api-key header or Entra bearer."
+    },
+    {
+      "host": "ollama",
+      "field": "path",
+      "behavior": "Compatible surface mounted at /v1/chat/completions on the local port; model must name an installed tag; usage may be null."
+    },
+    {
+      "host": "local-engines",
+      "field": "response_format.json_schema",
+      "behavior": "Many OpenAI-compatible local engines accept the field but ignore or partially enforce json_schema constraints."
+    }
+  ],
+  "provenance": {
+    "source": "https://platform.openai.com/docs/api-reference/chat",
+    "spec_version": "2024-06",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

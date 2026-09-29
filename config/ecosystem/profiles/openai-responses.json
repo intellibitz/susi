@@ -1,0 +1,132 @@
+{
+  "version": "eco-profile/v1",
+  "id": "openai-responses",
+  "name": "OpenAI Responses API",
+  "subject": "openai-responses",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "description": "Create a response; stream=true switches to SSE events.",
+      "request": "responses-request",
+      "response": "response-object",
+      "streaming": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "description": "Streamed variant emitting semantic events (response.output_text.delta, …).",
+      "request": "responses-request",
+      "response": "response-events",
+      "streaming": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/responses/{response_id}",
+      "description": "Retrieve a stored response (requires store=true at creation)."
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/responses/{response_id}",
+      "description": "Delete a stored response."
+    },
+    {
+      "method": "GET",
+      "path": "/v1/responses/{response_id}/input_items",
+      "description": "List the input items of a stored response."
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": ["OPENAI_API_KEY"]
+    }
+  ],
+  "versions": [
+    {"id": "2025-03", "released": "2025-03-11", "status": "current"}
+  ],
+  "request_shapes": [
+    {
+      "name": "responses-request",
+      "format": "json",
+      "fields": ["model", "input", "instructions", "tools", "tool_choice", "previous_response_id", "store", "reasoning", "text.format", "stream", "max_output_tokens"],
+      "notes": "input is a string or a typed item list (message/reasoning/function_call items); built-in tools include web_search, file_search, computer_use_preview."
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "response-object",
+      "format": "json",
+      "fields": ["id", "object", "status", "output[]", "usage", "error", "incomplete_details"],
+      "notes": "output[] is a typed item list; status is queued|in_progress|completed|failed|incomplete|cancelled."
+    },
+    {
+      "name": "response-events",
+      "format": "sse",
+      "fields": ["response.created", "response.in_progress", "response.output_item.added", "response.output_text.delta", "response.completed", "response.failed"],
+      "notes": "Semantic events, not raw deltas — each event carries a typed payload and sequence_number."
+    },
+    {
+      "name": "error-body",
+      "format": "json",
+      "fields": ["error.message", "error.type", "error.param", "error.code"]
+    }
+  ],
+  "errors": [
+    {"status": "400", "code": "invalid_request_error", "retriable": false},
+    {"status": "401", "code": "authentication_error", "retriable": false},
+    {"status": "404", "code": "not_found_error", "retriable": false},
+    {"status": "429", "code": "rate_limit_exceeded", "retriable": true},
+    {"status": "500", "code": "internal_server_error", "retriable": true},
+    {"status": "503", "code": "service_unavailable", "retriable": true}
+  ],
+  "rate_limits": [
+    {"signal": "x-ratelimit-remaining-requests", "meaning": "requests left in window"},
+    {"signal": "x-ratelimit-remaining-tokens", "meaning": "tokens left in window"},
+    {"signal": "retry-after", "meaning": "seconds to wait before retrying a 429"},
+    {"signal": "http-429", "meaning": "hard rate-limit rejection"}
+  ],
+  "streaming": {
+    "format": "sse",
+    "events": ["response.created", "response.output_text.delta", "response.completed", "response.failed", "error"],
+    "notes": "Typed semantic events over SSE; no [DONE] sentinel — the stream ends with response.completed or response.failed."
+  },
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-vision",
+    "cap-reasoning"
+  ],
+  "deviations": [
+    {
+      "host": "openai-chat-completions",
+      "field": "state",
+      "behavior": "Chat Completions is stateless (the caller resends the whole message list); Responses keeps conversation state server-side via previous_response_id and store=true."
+    },
+    {
+      "host": "openai-chat-completions",
+      "field": "items",
+      "behavior": "Chat carries flat messages[]; Responses carries typed input/output items (message, reasoning, function_call, function_call_output, file_search_call, web_search_call, computer_call)."
+    },
+    {
+      "host": "openai-chat-completions",
+      "field": "streaming",
+      "behavior": "Chat emits raw chat.completion.chunk deltas; Responses emits semantic events (response.output_text.delta, response.output_item.done, …)."
+    },
+    {
+      "host": "openai-chat-completions",
+      "field": "tools",
+      "behavior": "Chat tools are caller-executed functions only; Responses adds server-side built-in tools (web_search, file_search, computer_use_preview, image_generation)."
+    }
+  ],
+  "provenance": {
+    "source": "https://platform.openai.com/docs/api-reference/responses",
+    "spec_version": "2025-03",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

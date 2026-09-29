@@ -118,7 +118,7 @@
           "type": "array",
           "minItems": 1,
           "items": {
-            "enum": ["http", "http-sse", "websocket", "grpc", "stdio", "in-process"]
+            "enum": ["http", "http-sse", "websocket", "webrtc", "grpc", "stdio", "in-process"]
           }
         },
         "provenance": { "$ref": "#/$defs/provenance" }

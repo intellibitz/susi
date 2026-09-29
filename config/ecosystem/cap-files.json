@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "capability",
+    "id": "cap-files",
+    "name": "Files",
+    "class": "files",
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference/responses",
+      "spec_version": "2025-03",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

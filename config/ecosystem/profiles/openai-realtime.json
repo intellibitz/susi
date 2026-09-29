@@ -1,0 +1,203 @@
+{
+  "version": "eco-profile/v1",
+  "id": "openai-realtime",
+  "name": "OpenAI Realtime API",
+  "subject": "openai-realtime",
+  "endpoints": [
+    {
+      "method": "WSS",
+      "path": "/v1/realtime",
+      "description": "WebSocket session; ?model= selects the realtime model.",
+      "request": "client-events",
+      "response": "server-events",
+      "streaming": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/realtime",
+      "description": "WebRTC signaling: SDP offer in, SDP answer out; media flows over WebRTC.",
+      "request": "sdp-offer",
+      "response": "sdp-answer"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/realtime/sessions",
+      "description": "Mint an ephemeral client_secret for browser-side WebRTC/WSS auth.",
+      "request": "session-config",
+      "response": "session-mint"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "OPENAI_API_KEY"
+      ]
+    },
+    {
+      "scheme": "session-token",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": []
+    }
+  ],
+  "versions": [
+    {
+      "id": "2025-08",
+      "released": "2025-08-28",
+      "status": "current"
+    },
+    {
+      "id": "2024-10",
+      "released": "2024-10-01",
+      "status": "deprecated"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "client-events",
+      "format": "websocket-json",
+      "fields": [
+        "session.update",
+        "input_audio_buffer.append",
+        "input_audio_buffer.commit",
+        "conversation.item.create",
+        "response.create",
+        "response.cancel"
+      ],
+      "notes": "Every event has type + event_id; session.update carries modalities, voice, instructions, audio formats, turn_detection."
+    },
+    {
+      "name": "session-config",
+      "format": "json",
+      "fields": [
+        "model",
+        "modalities",
+        "voice",
+        "input_audio_format",
+        "output_audio_format",
+        "turn_detection",
+        "tools",
+        "instructions"
+      ]
+    },
+    {
+      "name": "sdp-offer",
+      "format": "text",
+      "fields": [
+        "application/sdp body"
+      ],
+      "notes": "Raw SDP offer posted with the ephemeral key."
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "server-events",
+      "format": "websocket-json",
+      "fields": [
+        "session.created",
+        "session.updated",
+        "conversation.item.created",
+        "input_audio_buffer.speech_started",
+        "input_audio_buffer.speech_stopped",
+        "response.audio.delta",
+        "response.audio_transcript.delta",
+        "response.function_call_arguments.done",
+        "response.done",
+        "error"
+      ],
+      "notes": "speech_started on the client side is how interruptions surface \u2014 the client must truncate playback and can send response.cancel."
+    },
+    {
+      "name": "session-mint",
+      "format": "json",
+      "fields": [
+        "client_secret.value",
+        "client_secret.expires_at",
+        "session"
+      ],
+      "notes": "Ephemeral ek_* token; short-lived; the only credential a browser should see."
+    },
+    {
+      "name": "sdp-answer",
+      "format": "text",
+      "fields": [
+        "application/sdp body"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "invalid_api_key",
+      "retriable": false
+    },
+    {
+      "status": "403",
+      "code": "unsupported",
+      "retriable": false
+    },
+    {
+      "status": "400",
+      "code": "invalid_request_error",
+      "retriable": false
+    },
+    {
+      "status": "event:error",
+      "code": "error",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limit_exceeded",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "session/token mint rate limit"
+    },
+    {
+      "signal": "error.rate_limit",
+      "meaning": "in-session limit surfaced as an error event"
+    }
+  ],
+  "streaming": {
+    "format": "websocket",
+    "events": [
+      "response.audio.delta",
+      "response.audio_transcript.delta",
+      "input_audio_buffer.speech_started",
+      "response.done",
+      "error"
+    ],
+    "notes": "WebRTC carries audio over SRTP with a data channel for events; WSS carries audio as base64 JSON events. Interruption semantics: input_audio_buffer.speech_started truncates the in-flight response; client sends response.cancel."
+  },
+  "capabilities": [
+    "cap-realtime",
+    "cap-audio",
+    "cap-tool-calling",
+    "cap-streaming"
+  ],
+  "deviations": [
+    {
+      "host": "azure-openai",
+      "field": "path",
+      "behavior": "Realtime mounts under the deployment path with api-version; ephemeral tokens come from the Azure realtime endpoint."
+    },
+    {
+      "host": "generic-wss",
+      "field": "audio-format",
+      "behavior": "Compatible hosts commonly support pcm16 only; g711_ulaw/g711_alaw support is uneven."
+    }
+  ],
+  "provenance": {
+    "source": "https://platform.openai.com/docs/guides/realtime",
+    "spec_version": "2025-08",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

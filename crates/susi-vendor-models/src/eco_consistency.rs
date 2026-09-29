@@ -5,7 +5,7 @@
 //! about completeness: every standard/protocol has a spec link (an inbound
 //! `version-of`), and no entity is an orphan (untouched by any relation —
 //! a fact about nothing relates to nothing).
-use crate::eco_schema::{validate, EntityKind, Issue, KnowledgeBase, RelationKind};
+use crate::eco_schema::{validate, Entity, EntityKind, Issue, KnowledgeBase, RelationKind};
 use std::collections::{HashMap, HashSet};
 
 /// Full consistency pass: schema validation plus completeness rules.
@@ -43,10 +43,24 @@ pub fn check(kb: &KnowledgeBase) -> Vec<Issue> {
                     });
                 }
             }
-            EntityKind::Component
-            | EntityKind::Vendor
-            | EntityKind::SpecVersion
-            | EntityKind::Capability => {}
+            EntityKind::Capability => {
+                if let Entity::Capability(c) = e {
+                    if let Some(expected) = crate::eco_taxonomy::class_of(&c.id) {
+                        if c.class != expected {
+                            issues.push(Issue {
+                                stage: crate::eco_schema::Stage::Model,
+                                path: format!("/entities/{}/class", e.id()),
+                                message: format!(
+                                    "capability {:?} has class {:?} but the taxonomy declares it for a different class",
+                                    e.id(),
+                                    c.class
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+            EntityKind::Component | EntityKind::Vendor | EntityKind::SpecVersion => {}
         }
         if touched == 0 {
             issues.push(Issue {

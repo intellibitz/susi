@@ -1,0 +1,116 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "openai",
+    "name": "OpenAI",
+    "home": "https://openai.com",
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference",
+      "spec_version": "2024-06",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "openai",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "openai",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "openai",
+      "to": "openai-responses",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/responses",
+        "spec_version": "2025-03",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "openai",
+      "to": "openai-realtime",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/realtime",
+        "spec_version": "2025-08",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "openai",
+      "to": "openai-batch",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/batch",
+        "spec_version": "2024-04",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "openai",
+      "to": "openai-embeddings",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "openai",
+      "to": "openai-moderation",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "openai",
+      "to": "openai-images",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "openai",
+      "to": "openai-audio",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference/embeddings",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
