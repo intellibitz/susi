@@ -672,7 +672,10 @@ every mission while the buffer grew — a retrain livelock (EV-CLAUDE-017).
 The automatic audit runs after every supervised mission, so its "nothing
 due" path is kept cheap (`due_claim`): it no longer appends the staging
 health line, which parses every receipt-archive generation (up to 8 × 16
-MB) for a string the caller discards (EV-CLAUDE-025).
+MB) for a string the caller discards (EV-CLAUDE-025), and it decides the
+common below-threshold case with one `stat`: a staging file smaller than
+`threshold × 40` bytes (the minimal record size) cannot hold `threshold`
+samples, so the buffer is not read at all (EV-CLAUDE-037).
 Training holds two long locks — the workspace cycle lock and GEMI's global
 `reflex_training` lock — for seconds to about a minute (a gated
 non-converging cycle at 2048 samples measured ~53s of fitting), while

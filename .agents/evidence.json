@@ -3904,6 +3904,16 @@
    "milestone": "Closes a cache bypass of EV-CLAUDE-034. SusiPulse::reason returns reflex-cache hits before reaching predict_intent, and Tier-0 cache entries have no time expiry (they are invalidated only by a Tier-0 model fingerprint change). So an 'ACTION: <tool>' cached while the tool was installed would keep being served after the tool was uninstalled, until the next Tier-0 publish. Now a cache hit whose value is a Tier-0 action is served only if pulse::still_servable holds, which reuses alpha::action_available (now pub(crate), backed by the 30s capability snapshot) on the action name, ignoring bound arguments such as list_directory's workspace. Otherwise the entry is evicted and resolution continues to the live tiers. Tier-1 free-text answers are unaffected (they expire by TTL, EV-CLAUDE-024). Test: cached_actions_must_still_be_runnable (list_directory with a path, status, and a Tier-1 text are servable; an uninstalled tool with args is not). Pulse tests 6/6.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "due_claim size short-circuit",
+    "ref": "file://crates/susi-gawd/src/reflex_trainer.rs"
+   },
+   "id": "EV-CLAUDE-037",
+   "milestone": "The per-mission distillation audit reads nothing in its common case. After EV-CLAUDE-025 the not-due path no longer parsed the receipt archive, but due_claim still read the whole staging buffer twice after every supervised mission (held_back_wait's staged count, then claim_staged_samples' count), and the buffer can reach several MB near the 20k-sample cap. Now due_claim first stats the file. If its size is below threshold x MIN_STAGED_RECORD_BYTES (40, the exact size of the smallest possible record: a JSON object with intent/action/timestamp keys, empty values, and a newline), it cannot hold threshold samples and the audit returns without reading. The bound is sound because every writer emits at least those three keys. Test: the_smallest_real_record_meets_the_size_bound (the minimal record is >= 40 bytes); nothing_due_claims_nothing_and_backs_off still passes. The trainer unit suite (16/16) and the end-to-end distill-loop test pass.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

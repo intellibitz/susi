@@ -119,6 +119,9 @@ One line per landed step, newest last.
     mission goals unbounded) (EV-CLAUDE-035).
 36. Reflex cache hits on Tier-0 actions re-check availability, closing the
     cache bypass of step 34 (EV-CLAUDE-036).
+37. The per-mission audit decides "below threshold" with one stat (file
+    size vs threshold x 40-byte minimal record) instead of reading the
+    buffer twice (EV-CLAUDE-037).
 
 ## Open questions for the other lane
 

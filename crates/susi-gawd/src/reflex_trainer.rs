@@ -50,11 +50,24 @@ impl ReflexTrainer {
 /// appends `staging_health_line`, which parses every receipt-archive
 /// generation — up to 8 × 16 MB — only for the string to be dropped.
 fn due_claim(workspace: &Path, threshold: usize) -> EaiResult<Option<TrainingClaim>> {
+    // One stat decides the common case: fewer bytes than `threshold` minimal
+    // records cannot hold `threshold` samples, so skip reading the buffer
+    // (twice — back-off check and claim) after every mission.
+    let staged = workspace.join(".susi").join("distillation_staged.jsonl");
+    let size = std::fs::metadata(&staged).map(|m| m.len()).unwrap_or(0);
+    if size < (threshold as u64).saturating_mul(MIN_STAGED_RECORD_BYTES) {
+        return Ok(None);
+    }
     if held_back_wait(workspace, threshold)?.is_some() {
         return Ok(None);
     }
     claim_staged_samples(workspace, threshold)
 }
+
+/// A lower bound on one staged record's size: every writer emits a JSON
+/// object with `"intent"`, `"action"` and `"timestamp"` keys plus a newline,
+/// which with empty values is exactly this many bytes.
+const MIN_STAGED_RECORD_BYTES: u64 = 40;
 
 /// Train one claim, retire or restore it, and log the cycle. Callers run it
 /// under `hold_while` on the cycle lock: training can outlast the lock's
@@ -446,6 +459,16 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "{\"n\":7}\n{\"n\":8}\n{\"n\":9}\n"
+        );
+    }
+
+    #[test]
+    fn the_smallest_real_record_meets_the_size_bound() {
+        let minimal = "{\"intent\":\"\",\"action\":\"\",\"timestamp\":0}\n";
+        assert!(
+            minimal.len() as u64 >= super::MIN_STAGED_RECORD_BYTES,
+            "{}",
+            minimal.len()
         );
     }
 
