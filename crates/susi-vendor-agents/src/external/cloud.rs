@@ -171,6 +171,12 @@ fn remote_id(run: &RunRecord) -> Result<&str> {
 }
 
 pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
+    if matches!(run.adapter, Adapter::A2a { .. }) {
+        return super::a2a::execute(manager, run);
+    }
+    if matches!(run.adapter, Adapter::OpenHandsServer { .. }) {
+        return super::openhands_server::execute(manager, run);
+    }
     let cloud = Cloud::new(&run.adapter)?;
     let created = if cloud.manus {
         cloud.post("/task.create", json!({"message": {"content": run.prompt}}))?
@@ -211,6 +217,12 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
 }
 
 pub(super) fn refresh(manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
+    if matches!(run.adapter, Adapter::A2a { .. }) {
+        return super::a2a::refresh(manager, run);
+    }
+    if matches!(run.adapter, Adapter::OpenHandsServer { .. }) {
+        return super::openhands_server::refresh(manager, run);
+    }
     refresh_with(&Cloud::new(&run.adapter)?, manager, run)
 }
 
@@ -306,6 +318,12 @@ fn map_status(manus: bool, status: &str) -> RunStatus {
 }
 
 pub(super) fn cancel(run: &RunRecord) -> Result<()> {
+    if matches!(run.adapter, Adapter::A2a { .. }) {
+        return super::a2a::cancel(run);
+    }
+    if matches!(run.adapter, Adapter::OpenHandsServer { .. }) {
+        return super::openhands_server::cancel(run);
+    }
     let cloud = Cloud::new(&run.adapter)?;
     if cloud.manus {
         cloud.post("/task.stop", json!({"task_id": remote_id(run)?}))?;
@@ -323,6 +341,12 @@ pub(super) fn cancel(run: &RunRecord) -> Result<()> {
 }
 
 pub(super) fn send(run: &RunRecord, message: &str) -> Result<()> {
+    if matches!(run.adapter, Adapter::A2a { .. }) {
+        return super::a2a::send(run, message);
+    }
+    if matches!(run.adapter, Adapter::OpenHandsServer { .. }) {
+        return super::openhands_server::send(run, message);
+    }
     let cloud = Cloud::new(&run.adapter)?;
     if cloud.manus {
         cloud.post(

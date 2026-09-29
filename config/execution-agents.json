@@ -288,5 +288,43 @@
         "{prompt}"
       ]
     }
+  },
+  {
+    "id": "gemini-acp",
+    "name": "Gemini CLI (ACP)",
+    "peer_name": "GeminiAcpAgent",
+    "rank": 19,
+    "documentation": "https://agentclientprotocol.com",
+    "adapter": {
+      "kind": "acp",
+      "program": "gemini",
+      "args": [
+        "--experimental-acp"
+      ]
+    }
+  },
+  {
+    "id": "a2a",
+    "name": "Remote A2A agent",
+    "peer_name": "A2aRemoteAgent",
+    "rank": 20,
+    "documentation": "https://a2a-protocol.org",
+    "adapter": {
+      "kind": "a2a",
+      "url": "http://127.0.0.1:8080",
+      "token_env": null
+    }
+  },
+  {
+    "id": "openhands-server",
+    "name": "OpenHands (server / Cloud API)",
+    "peer_name": "OpenHandsServerAgent",
+    "rank": 21,
+    "documentation": "https://docs.openhands.dev/openhands/usage/api/v1",
+    "adapter": {
+      "kind": "open_hands_server",
+      "base_url": "https://app.all-hands.dev",
+      "api_key_env": "OPENHANDS_API_KEY"
+    }
   }
 ]

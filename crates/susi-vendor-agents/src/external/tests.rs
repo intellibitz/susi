@@ -33,7 +33,7 @@ impl Drop for Fixture {
 #[test]
 fn curated_execution_agents_with_native_adapters() {
     let catalog = catalog(CatalogKind::Execution).unwrap();
-    assert_eq!(catalog.len(), 18);
+    assert_eq!(catalog.len(), 21);
     let mut ids = std::collections::HashSet::new();
     for (index, agent) in catalog.iter().enumerate() {
         assert!(ids.insert(&agent.id));

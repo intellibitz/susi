@@ -1,8 +1,11 @@
 //! Durable management of external task executors. Provider output is evidence of
 //! execution, never proof that the requested code change is correct.
+mod a2a;
+mod acp;
 mod aider;
 mod autogen;
 mod browser_use;
+mod byok;
 mod catalog;
 mod cloud;
 mod crewai;
@@ -17,6 +20,7 @@ mod n8n;
 mod openai_agents;
 mod openclaw;
 mod openhands;
+mod openhands_server;
 mod openviking;
 mod process;
 mod python_bridge;
@@ -25,6 +29,9 @@ mod smolagents;
 mod swe_agent;
 mod temporal;
 
+pub use acp::{
+    drive as acp_drive, Outcome as AcpOutcome, Permission as AcpPermission, Task as AcpTask,
+};
 pub use aider::{
     doctor as aider_doctor, setup as aider_setup, status as aider_status,
     AGENT_ID as AIDER_AGENT_ID,
@@ -266,6 +273,8 @@ impl AgentManager {
         self.save(&run)?;
         let result = if run.adapter.is_cloud() {
             cloud::execute(self, &mut run)
+        } else if matches!(run.adapter, Adapter::Acp { .. }) {
+            acp::execute(self, &mut run)
         } else {
             process::execute(self, &mut run)
         };
