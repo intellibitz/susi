@@ -495,6 +495,39 @@ pub fn unreliable_neighborhood(goal: &str, traces: &[MissionTrace], limit: usize
     neighbors.len() >= 2 && neighbors.iter().filter(|t| t.succeeded()).count() * 2 < neighbors.len()
 }
 
+/// Whether plan scores predict outcomes: Pearson correlation of
+/// `plan_score` with 0/1 success across traced plan-search missions.
+/// `None` when too few scored missions exist to judge. The scorer is a
+/// model like any other — if its ranking anti-correlates with verified
+/// outcomes, it is steering plans wrong and should surface as a
+/// negative number, not hide inside a plausible score.
+pub fn plan_score_correlation(traces: &[MissionTrace]) -> Option<f32> {
+    let scored: Vec<(f32, f32)> = traces
+        .iter()
+        .filter_map(|t| {
+            t.plan_score
+                .map(|s| (s, if t.succeeded() { 1.0 } else { 0.0 }))
+        })
+        .collect();
+    if scored.len() < 4 {
+        return None;
+    }
+    let n = scored.len() as f32;
+    let mx = scored.iter().map(|(s, _)| s).sum::<f32>() / n;
+    let my = scored.iter().map(|(_, o)| o).sum::<f32>() / n;
+    let (mut cov, mut vx, mut vy) = (0.0f32, 0.0f32, 0.0f32);
+    for (s, o) in &scored {
+        let (dx, dy) = (s - mx, o - my);
+        cov += dx * dy;
+        vx += dx * dx;
+        vy += dy * dy;
+    }
+    if vx == 0.0 || vy == 0.0 {
+        return None;
+    }
+    Some(cov / (vx.sqrt() * vy.sqrt()))
+}
+
 /// Few-shot decomposition exemplar: the `plan_steps` of the most similar
 /// successful trace. Only verified wins teach plan *shape* — a failed
 /// mission's steps teach what to avoid, never what to copy. Empty when
@@ -754,6 +787,32 @@ mod tests {
         assert!(!brief.contains("guess blindly"), "{brief}");
         // Novel goal: no exemplar, no fabricated guidance.
         assert!(proven_plan_brief("unrelated never-seen task", &traces).is_empty());
+    }
+
+    #[test]
+    fn plan_score_correlation_flags_a_scorer_that_predicts_backwards() {
+        let ws = workspace();
+        // A broken scorer: every plan that scored high failed, every plan
+        // that scored low succeeded → strong negative correlation.
+        for (id, score, outcome) in [
+            ("a", 0.9, "FAILED"),
+            ("b", 0.8, "FAILED"),
+            ("c", 0.3, "SUCCESS"),
+            ("d", 0.2, "SUCCESS"),
+            ("e", 0.1, "SUCCESS"),
+        ] {
+            let mut t = MissionTrace::new(id, "x", outcome, "swarm");
+            t.plan_score = Some(score);
+            t.emit(ws.path()).unwrap();
+        }
+        let traces = read_all(ws.path());
+        let r = plan_score_correlation(&traces).unwrap();
+        assert!(r < -0.5, "expected strong negative, got {r}");
+        // Too few scored missions → no verdict.
+        assert_eq!(plan_score_correlation(&traces[..3]), None);
+        // No scored missions at all → no verdict.
+        let bare = MissionTrace::new("n", "x", "SUCCESS", "swarm");
+        assert_eq!(plan_score_correlation(&[bare]), None);
     }
 
     #[test]

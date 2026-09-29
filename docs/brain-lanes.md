@@ -278,3 +278,7 @@ One line per landed step, newest last.
     `reflex:*` receipts are excluded from `staging_eligible` in
     receipt_archive (cross-lane touch, Claude's own proposal — reflex
     serves are untrainable but were inflating the staging threshold).
+22. Scorer calibration: `plan_score_correlation` computes the Pearson r
+    between plan_score and 0/1 success across scored traces (needs >=4)
+    and the [RETRIEVAL] line prints it — a scorer that ranks doomed
+    plans higher surfaces as a negative number instead of hiding.

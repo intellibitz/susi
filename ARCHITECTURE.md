@@ -454,7 +454,10 @@ A mission that ran plan search additionally carries a `PlanRecord`
 report records which candidate won and, on abort, the 1-based step that
 failed. The fields flow into `MissionTrace`, and `history_brief` annotates
 similar failures with `[failed at step N]` — retrieval surfaces *where*
-plans broke, not just that they failed.
+plans broke, not just that they failed. And the scorer is itself
+measured: `plan_score_correlation` reports the Pearson r between recorded
+`plan_score` and verified outcome — an anti-correlated scorer surfaces as
+a negative number in the `[RETRIEVAL]` line instead of hiding.
 
 The `verify` stage runs through the **contract registry**
 (`susi_core::verification`): `Contract::{FileExists, FileAbsent,

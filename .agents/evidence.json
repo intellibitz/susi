@@ -4034,6 +4034,16 @@
     "label": "DAG deep path + staging exclusion",
     "ref": "file://crates/susi-gawd-swarm/src/dag.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-034",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 16 \u2014 scorer self-measurement. plan_score_correlation computes Pearson r between recorded plan_score and verified outcome across scored traces (>=4 required); solve_autonomous prints score/outcome r in the [RETRIEVAL] line. The scorer is a model like any other \u2014 anti-correlated ranking now surfaces as a negative number rather than hiding inside plausible scores.",
+   "proof": "plan_score_correlation_flags_a_scorer_that_predicts_backwards: r < -0.5 on an inverted scorer; None under 4 scored missions and with no scores. susi-core 220, susi-gawd-swarm 60 pass; clippy clean.",
+   "anchor": {
+    "label": "Scorer calibration",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
