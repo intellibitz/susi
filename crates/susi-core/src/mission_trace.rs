@@ -592,6 +592,16 @@ pub fn proven_plan_length(goal: &str, traces: &[MissionTrace], limit: usize) -> 
     Some(lengths[lengths.len() / 2] as u32)
 }
 
+/// Plan-nameable tools on a trace: `reflex:*` receipts are serve labels
+/// recorded for trace joins — a plan can't name them, so provenance
+/// must not taint or reward them.
+fn plan_tools(t: &MissionTrace) -> impl Iterator<Item = String> + '_ {
+    t.tools
+        .iter()
+        .filter(|x| !x.starts_with("reflex:"))
+        .cloned()
+}
+
 /// Tools that appeared in failed missions similar to `goal`, with the
 /// number of failed missions each appeared on — repeated failures weigh
 /// more than one-offs. Successes using the same tool don't clear it here
@@ -607,7 +617,7 @@ pub fn failing_tool_counts(
     );
     for t in similar(goal, traces, limit) {
         if t.verified() {
-            succeeded.extend(t.tools.iter().cloned());
+            succeeded.extend(plan_tools(t));
         } else if t.succeeded() {
             // A bare success claim is neutral — it neither taints a tool
             // nor clears its failure record.
@@ -615,7 +625,7 @@ pub fn failing_tool_counts(
         } else {
             // Count failed *missions*, not mentions — a tool invoked five
             // times in one failure is one data point, not five.
-            for tool in t.tools.iter().collect::<std::collections::BTreeSet<_>>() {
+            for tool in plan_tools(t).collect::<std::collections::BTreeSet<_>>() {
                 *failed.entry(tool.clone()).or_insert(0) += 1;
             }
         }
@@ -688,7 +698,8 @@ pub fn proven_tools(
         } else {
             &mut failed
         };
-        target.extend(t.tools.iter().cloned());
+        // `reflex:*` receipts are serve labels, not plan-nameable tools.
+        target.extend(plan_tools(t));
     }
     succeeded.difference(&failed).cloned().collect()
 }
@@ -1370,6 +1381,24 @@ mod tests {
             "expected ~0.67, got {}",
             d2.failure_rate
         );
+    }
+
+    #[test]
+    fn reflex_labels_stay_out_of_tool_provenance() {
+        let mut failed = MissionTrace::new("f", "check the service status", "FAILED", "swarm");
+        failed.tools = vec!["exec_command".into(), "reflex:status".into()];
+        let mut won = MissionTrace::new("w", "check the service status", "COMPLETE", "swarm");
+        won.tools = vec!["exec_command".into(), "reflex:status".into()];
+        won.evidence_entries = 1;
+        // reflex:status appeared on a failed mission — but it is a serve
+        // label, not a plan-nameable tool, so it must carry no taint and
+        // earn no bonus.
+        let counts = failing_tool_counts("check the service status", &[failed.clone()], 8);
+        assert!(counts.contains_key("exec_command"));
+        assert!(!counts.contains_key("reflex:status"));
+        let proven = proven_tools("check the service status", &[won], 8);
+        assert!(proven.contains("exec_command"));
+        assert!(!proven.contains("reflex:status"));
     }
 
     #[test]

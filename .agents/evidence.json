@@ -4284,6 +4284,16 @@
     "label": "Hard-won difficulty",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-059",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 41 \u2014 reflex labels out of tool provenance. reflex:* serve labels (iter 7, for distill joins) were flowing through failing_tool_counts/proven_tools as if a plan could name them; plan_tools() filters them so serve labels carry no taint and earn no bonus.",
+   "proof": "reflex_labels_stay_out_of_tool_provenance: reflex:status on failed/succeeded missions enters neither failing counts nor proven sets. susi-core 235 pass; clippy clean.",
+   "anchor": {
+    "label": "Provenance hygiene",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

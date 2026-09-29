@@ -379,3 +379,7 @@ One line per landed step, newest last.
     a CLOUD_ATTEMPT_FAILED signal now counts as 0.5 a failure in
     difficulty's rate — the route actually died once, a clean win
     shouldn't paper over it.
+47. Reflex labels out of provenance: `reflex:*` receipts land in
+    trace.tools for distill joins, but a serve label isn't a
+    plan-nameable tool — plan_tools() now filters them from
+    failing_tool_counts and proven_tools.
