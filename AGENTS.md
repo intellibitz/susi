@@ -123,6 +123,14 @@ convergent:
 - **On evidence/identity/README merge conflicts, union entries — never
   delete or renumber another agent's entries.** Resolve JSON conflicts by
   keeping both sides' entries, then validate with `jq empty`.
+- **One worktree per agent; never share a working directory.** If agents
+  must share one, commit path-limited (`git commit -- <file>`) — a plain
+  `git commit` sweeps up files another agent staged — and retry on
+  `index.lock`. Verified: 8 clones, 6 worktrees of one clone, and 4 agents in
+  one directory pushed 5 commits each concurrently with nothing lost.
+- **`.agents/evidence.json` appends merge automatically** via the `ledger`
+  merge driver (`scripts/setup-dev.sh`, run by `cargo xb build`). Any other
+  same-line edit conflicts; resolve by hand, never by force-push.
 - **Always `git fetch` + merge `origin/main` before pushing.** Pushes to
   `main` must be fast-forward; compile (`cargo check --workspace`) before
   pushing a merge so fixup commits never ship an uncompiled merge.
