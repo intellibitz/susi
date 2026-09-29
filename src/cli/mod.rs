@@ -44,5 +44,6 @@ pub mod services_cli;
 pub mod shell_cli;
 pub mod substrate_cli;
 pub mod swe_agent_cli;
+pub mod tasks_cli;
 pub mod telemetry_cli;
 pub mod tx_cli;

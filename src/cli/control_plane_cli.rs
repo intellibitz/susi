@@ -39,6 +39,7 @@ use super::python_engine_cli;
 use super::services_cli;
 use super::substrate_cli;
 use super::swe_agent_cli;
+use super::tasks_cli;
 use super::telemetry_cli;
 use super::tx_cli;
 
@@ -67,6 +68,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Auto { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             auto_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Tasks { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            tasks_cli::execute(action.map(|a| *a), cwd)
         }));
     }
     if let Some(Commands::Brain { action }) = command {

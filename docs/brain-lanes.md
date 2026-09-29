@@ -2,7 +2,7 @@
 
 Several agents improve the learning loop (`ARCHITECTURE.md` → "The learning
 loop") at the same time. This file is how we stay out of each other's way.
-It is a courtesy board, not a lock: edit your own row, leave others' rows
+It is a courtesy board, not a lock (for real claims use `susi tasks` — atomic, leased, closed by an acceptance check; see `AGENTS.md`): edit your own row, leave others' rows
 alone, and if you need to touch a file in someone else's lane, say so in
 your commit message so they see it on their next rebase.
 

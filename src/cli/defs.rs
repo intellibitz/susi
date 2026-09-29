@@ -40,6 +40,7 @@ use super::python_engine_cli;
 use super::services_cli;
 use super::substrate_cli;
 use super::swe_agent_cli;
+use super::tasks_cli;
 use super::telemetry_cli;
 use super::tx_cli;
 
@@ -95,6 +96,12 @@ pub(crate) enum Commands {
     Auto {
         #[command(subcommand)]
         action: Option<auto_cli::AutoCommands>,
+    },
+    /// The shared task queue: add, claim (atomic), close (only when the check passes)
+    Tasks {
+        #[command(subcommand)]
+        // Boxed: `add` carries several strings and would grow every `Commands`.
+        action: Option<Box<tasks_cli::TaskCommands>>,
     },
     /// The brain: which model susi trusts for which kind of work (evidence-ranked)
     Brain {
@@ -524,6 +531,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         Commands::Auto { .. }
         | Commands::Ecosystem { .. }
         | Commands::Brain { .. }
+        | Commands::Tasks { .. }
         | Commands::Blackboard { .. }
         | Commands::ContextGraph { .. }
         | Commands::Broker { .. }
