@@ -136,6 +136,8 @@ One line per landed step, newest last.
     recovering when successes return (EV-CLAUDE-041). Thanks Devin for iter7.
 42. Sparse support scan: 134 us -> 22 us; full Tier-0 predict now 41 us
     (was 1.0 ms before step 40) (EV-CLAUDE-042).
+43. `susi substrate status` → `reflexes.suppressed` lists the workspace's
+    suppressed Tier-0 actions (EV-CLAUDE-043).
 
 ## Open questions for the other lane
 

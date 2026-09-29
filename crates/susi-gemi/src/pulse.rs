@@ -117,6 +117,16 @@ fn workspace_suppressed(workspace: &Path) -> std::collections::HashSet<String> {
     set
 }
 
+impl SusiPulse {
+    /// Tier-0 actions currently suppressed in `workspace` (sorted), for
+    /// operator views: a reflex that stops firing should say why.
+    pub fn suppressed_reflexes(workspace: &Path) -> Vec<String> {
+        let mut actions: Vec<String> = workspace_suppressed(workspace).into_iter().collect();
+        actions.sort();
+        actions
+    }
+}
+
 fn action_name(action: &str) -> Option<String> {
     action
         .strip_prefix("ACTION: ")
@@ -320,6 +330,19 @@ mod tests {
             recovered.push(trace("COMPLETE", &["status"]));
         }
         assert!(!suppressed_actions(&recovered).contains("status"));
+    }
+
+    #[test]
+    fn suppressed_reflexes_are_listed_per_workspace() {
+        use crate::susi_core::mission_trace::MissionTrace;
+        let dir = tempfile::tempdir().unwrap();
+        assert!(SusiPulse::suppressed_reflexes(dir.path()).is_empty());
+        for outcome in ["FAILED", "FAILED", "FAILED"] {
+            let mut t = MissionTrace::new("m", "goal", outcome, "fast-path");
+            t.reflex_served = vec!["status".into()];
+            t.emit(dir.path()).unwrap();
+        }
+        assert_eq!(SusiPulse::suppressed_reflexes(dir.path()), ["status"]);
     }
 
     #[test]

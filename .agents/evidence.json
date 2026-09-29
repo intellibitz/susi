@@ -4304,6 +4304,16 @@
    "milestone": "Tier-0 support scan made sparse. After EV-CLAUDE-040 the remaining serving hotspot was SusiAlphaModel::nearest: a dense 128-wide dot product against every support row (2,057 rows in the measurement setup), 134us per prompt in a release build. reflex_features of a few-word prompt is sparse: each word lights a 10-dim category band or two hashed buckets, so a prompt lights about 30 of 128 dimensions or fewer. nearest now collects the query's non-zero (index, value) pairs once and computes each row's dot product over those only. Results are identical (support, neighbor agreement and the benchmark behave as before; alpha suite 37/37). Measured with the same probe as EV-CLAUDE-040 (release, 2,100 staged samples, 400 calls): support 134us -> 21.8us; full predict_intent 155us -> 41.3us, down from 1.0ms before EV-CLAUDE-040.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "SusiPulse::suppressed_reflexes",
+    "ref": "file://crates/susi-gemi/src/pulse.rs"
+   },
+   "id": "EV-CLAUDE-043",
+   "milestone": "Operators can see which Tier-0 reflexes are suppressed and why they stopped firing. EV-CLAUDE-041 suppresses per workspace any action served on >= 3 failed of its last 5 missions, and that was otherwise silent. SusiPulse::suppressed_reflexes(workspace) returns the sorted suppressed set (the same mtime-cached computation that serving uses), and susi substrate status shows it as reflexes.suppressed. Verified on a dev build (target/debug/susi, isolated HOME/XDG): a scratch workspace with three schema-v2 FAILED traces that served read_file printed [\"read_file\"]. A first attempt with hand-written schema-v1-shaped lines printed [] because read_all skips lines that don't match the schema, which is the intended tolerance. Test: suppressed_reflexes_are_listed_per_workspace (empty for a fresh workspace; three emitted FAILED traces serving status -> [\"status\"]). Pulse tests 8/8.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

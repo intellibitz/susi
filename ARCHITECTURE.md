@@ -700,7 +700,9 @@ missions served an action, if 3 or more failed, `SusiPulse` stops serving
 it there — fresh predictions and cache hits alike — and the prompt
 escalates. Governance blocks do not count against a reflex, Tier-1
 `generative` text is not a Tier-0 action, and the suppression lifts on its
-own once successes return to the window (EV-CLAUDE-041).
+own once successes return to the window (EV-CLAUDE-041). `susi substrate status`
+lists the workspace's suppressed actions under `reflexes.suppressed`, so a
+reflex that stops firing says why (EV-CLAUDE-043).
 
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged-or-replayed intents — chosen by a hash of the
