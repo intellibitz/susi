@@ -1,0 +1,18 @@
+{
+  "id": "T-CURSOR-3",
+  "title": "Commit Cargo.lock for a2a serde facade",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-a2a",
+      "eco_a2a_versions"
+    ]
+  },
+  "created_by": "CURSOR",
+  "created_unix": 1790723240
+}
