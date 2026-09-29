@@ -1,0 +1,167 @@
+{
+  "version": "eco-profile/v1",
+  "id": "anthropic-features",
+  "name": "Anthropic feature surface: tools, computer use, thinking, caching, batches",
+  "subject": "anthropic-messages",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "description": "Messages API with beta-gated features via anthropic-beta.",
+      "request": "feature-request",
+      "response": "message-object"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/messages/batches",
+      "description": "Message Batches: async batch over JSONL-ish request list.",
+      "request": "batch-request",
+      "response": "batch-object"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/messages/batches/{id}",
+      "description": "Batch status.",
+      "response": "batch-object"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "api-key-header",
+      "header": "x-api-key",
+      "prefix": "",
+      "env": [
+        "ANTHROPIC_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "2023-06-01",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "feature-request",
+      "format": "json",
+      "fields": [
+        "tools",
+        "thinking",
+        "cache_control",
+        "betas (anthropic-beta header)"
+      ],
+      "notes": "tool_use/tool_result blocks drive function calling; computer-use arrives as the computer_* tool family behind anthropic-beta=computer-use-*; thinking={type:enabled,budget_tokens} enables extended thinking; ephemeral cache_control breakpoints sit on system/messages/tools."
+    },
+    {
+      "name": "batch-request",
+      "format": "json",
+      "fields": [
+        "requests[].custom_id",
+        "requests[].params"
+      ],
+      "notes": "params is a full Messages request; batches run asynchronously and are ~50% priced."
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "message-object",
+      "format": "json",
+      "fields": [
+        "content[]",
+        "stop_reason",
+        "usage.cache_creation_input_tokens",
+        "usage.cache_read_input_tokens"
+      ],
+      "notes": "tool_use blocks carry id/name/input; thinking blocks carry signed thinking + signature."
+    },
+    {
+      "name": "batch-object",
+      "format": "json",
+      "fields": [
+        "id",
+        "processing_status",
+        "request_counts",
+        "results_url"
+      ],
+      "notes": "processing_status: in_progress|canceling|ended."
+    },
+    {
+      "name": "error-body",
+      "format": "json",
+      "fields": [
+        "type",
+        "error.type",
+        "error.message"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "invalid_request_error",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limit_error",
+      "retriable": true
+    },
+    {
+      "status": "529",
+      "code": "overloaded_error",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "anthropic-ratelimit-requests-remaining",
+      "meaning": "requests left"
+    },
+    {
+      "signal": "http-429",
+      "meaning": "rate limit"
+    },
+    {
+      "signal": "http-529",
+      "meaning": "overloaded \u2014 retry with backoff"
+    }
+  ],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "message_start",
+      "content_block_delta",
+      "message_delta",
+      "message_stop"
+    ],
+    "notes": "thinking_delta and signature_delta events carry extended-thinking blocks."
+  },
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-reasoning",
+    "cap-prompt-caching",
+    "cap-batch",
+    "cap-agent-delegation"
+  ],
+  "deviations": [
+    {
+      "host": "computer-use",
+      "field": "tools",
+      "behavior": "computer_* tools are beta-gated (anthropic-beta header) and drive screenshots/actions rather than text \u2014 tool use returning image content."
+    },
+    {
+      "host": "aws-bedrock",
+      "field": "anthropic-beta",
+      "behavior": "Bedrock exposes features via model ids and its own beta flags, not the anthropic-beta header."
+    }
+  ],
+  "provenance": {
+    "source": "https://docs.anthropic.com/en/api/messages",
+    "spec_version": "2023-06-01",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

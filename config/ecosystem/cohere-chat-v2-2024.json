@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "cohere-chat-v2-2024",
+    "name": "Cohere Chat v2",
+    "version": "v2",
+    "released": "2024-09-18",
+    "provenance": {
+      "source": "https://docs.cohere.com/reference/chat",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "cohere-chat-v2-2024",
+      "to": "cohere-chat-v2",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

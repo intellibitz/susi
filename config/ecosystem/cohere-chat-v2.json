@@ -1,0 +1,19 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "protocol",
+    "id": "cohere-chat-v2",
+    "name": "Cohere Chat v2 API",
+    "transports": [
+      "http",
+      "http-sse"
+    ],
+    "provenance": {
+      "source": "https://docs.cohere.com/reference/chat",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

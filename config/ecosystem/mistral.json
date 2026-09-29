@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "mistral",
+    "name": "Mistral AI",
+    "home": "https://mistral.ai",
+    "provenance": {
+      "source": "https://docs.mistral.ai/api",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "mistral",
+      "to": "mistral-api",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "mistral",
+      "to": "mistral-api-protocol",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

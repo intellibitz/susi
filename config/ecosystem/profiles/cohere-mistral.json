@@ -1,0 +1,257 @@
+{
+  "version": "eco-profile/v1",
+  "id": "cohere-mistral",
+  "name": "Cohere v2 and Mistral APIs",
+  "subject": "cohere-chat-v2",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v2/chat",
+      "description": "Cohere Chat v2: message list + tools; stream=true for SSE.",
+      "request": "cohere-chat",
+      "response": "cohere-response",
+      "streaming": false
+    },
+    {
+      "method": "POST",
+      "path": "/v2/embed",
+      "description": "Cohere embeddings with input_type (search_document/search_query/\u2026).",
+      "request": "cohere-embed",
+      "response": "cohere-embed-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "Mistral chat completions \u2014 OpenAI-shaped.",
+      "request": "mistral-chat",
+      "response": "chat-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/embeddings",
+      "description": "Mistral embeddings (mistral-embed).",
+      "request": "embed-request",
+      "response": "embed-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/moderations",
+      "description": "Mistral moderation endpoint.",
+      "response": "moderation-response"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "COHERE_API_KEY",
+        "CO_API_KEY"
+      ]
+    },
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "MISTRAL_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v2",
+      "released": "2024-09-18",
+      "status": "current"
+    },
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "cohere-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages",
+        "tools",
+        "documents",
+        "response_format",
+        "safety_mode",
+        "max_tokens",
+        "stream"
+      ],
+      "notes": "v2 uses an OpenAI-like message list (system|user|assistant|tool roles); documents[] feed grounded/RAG generation; response_format json_object|json_schema."
+    },
+    {
+      "name": "cohere-embed",
+      "format": "json",
+      "fields": [
+        "model",
+        "texts|images",
+        "input_type",
+        "embedding_types",
+        "truncate"
+      ]
+    },
+    {
+      "name": "mistral-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages",
+        "tools",
+        "tool_choice",
+        "response_format",
+        "safe_prompt",
+        "prefix"
+      ],
+      "notes": "OpenAI-compatible shape; safe_prompt adds the safety layer; prefix=true lets the assistant message be continued."
+    },
+    {
+      "name": "embed-request",
+      "format": "json",
+      "fields": [
+        "model",
+        "input",
+        "encoding_format"
+      ]
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "cohere-response",
+      "format": "json",
+      "fields": [
+        "id",
+        "message",
+        "finish_reason",
+        "usage.tokens",
+        "citations"
+      ],
+      "notes": "finish_reason: COMPLETE|STOP_SEQUENCE|MAX_TOKENS|TOOL_CALL|ERROR; citations[] ground answers against documents."
+    },
+    {
+      "name": "cohere-embed-response",
+      "format": "json",
+      "fields": [
+        "id",
+        "embeddings",
+        "texts",
+        "meta"
+      ]
+    },
+    {
+      "name": "chat-response",
+      "format": "json",
+      "fields": [
+        "id",
+        "choices[]",
+        "usage"
+      ],
+      "notes": "Mistral returns the OpenAI chat-completion shape."
+    },
+    {
+      "name": "embed-response",
+      "format": "json",
+      "fields": [
+        "data[].embedding",
+        "usage"
+      ]
+    },
+    {
+      "name": "moderation-response",
+      "format": "json",
+      "fields": [
+        "results[]"
+      ]
+    },
+    {
+      "name": "error-body",
+      "format": "json",
+      "fields": [
+        "message",
+        "error"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "invalid_request_error",
+      "retriable": false
+    },
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limit_exceeded",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal_server_error",
+      "retriable": true
+    },
+    {
+      "status": "503",
+      "code": "service_unavailable",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "rate limit / trial-key throttle"
+    },
+    {
+      "signal": "x-trial-endpoint-call-limit",
+      "meaning": "Cohere trial-key endpoint caps"
+    }
+  ],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "message-start",
+      "content-delta",
+      "tool-plan-delta",
+      "message-end",
+      "data: [DONE]"
+    ],
+    "notes": "Cohere v2 streams typed events ending in message-end; Mistral streams OpenAI-style chat.completion.chunk with [DONE]."
+  },
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-embeddings",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-batch",
+    "cap-moderation"
+  ],
+  "deviations": [
+    {
+      "host": "cohere",
+      "field": "v1->v2",
+      "behavior": "v1 chat had a flat `message` string + chat_history; v2 is a message list with typed content \u2014 the shapes are not interchangeable."
+    },
+    {
+      "host": "mistral",
+      "field": "protocol",
+      "behavior": "Mistral is deliberately OpenAI-shaped: same paths (/v1/chat/completions, /v1/embeddings), bearer auth, chunk stream."
+    }
+  ],
+  "provenance": {
+    "source": "https://docs.cohere.com + https://docs.mistral.ai",
+    "spec_version": "v2/v1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}
