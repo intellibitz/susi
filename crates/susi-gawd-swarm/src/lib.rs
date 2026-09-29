@@ -29,7 +29,10 @@ pub(crate) mod cloud_recovery;
 pub mod dag;
 pub mod deliberation;
 pub mod host_hooks;
+pub mod membership_model;
+pub mod mission_persist;
 pub mod peer_registry;
+pub mod swarm_chaos;
 
 pub use susi_gawd_agents::{
     accountability, admin_hooks, agents, axiom, brain, dag_hooks, external_peers, goal_shape, pkb,
@@ -43,6 +46,16 @@ pub use self_core::AlphaSelf;
 
 pub use ama::SusiMasterAgent;
 pub use dag::{MissionDag, SwarmDag};
+
+#[cfg(test)]
+#[path = "tests/swarm_chaos.rs"]
+mod swarm_chaos_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_021.rs"]
+mod vc_201_021_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_031.rs"]
+mod vc_201_031_tests;
 
 /// Wire the MissionDag post-swarm hook into the agents leaf.
 ///

@@ -37,6 +37,7 @@ use super::plane_cli::{apply_plane_prep, plane_exit, run_plane, run_plane_cwd, P
 use super::privacy_cli;
 use super::python_engine_cli;
 use super::services_cli;
+use super::setup_cli;
 use super::substrate_cli;
 use super::swe_agent_cli;
 use super::tasks_cli;
@@ -70,6 +71,9 @@ pub(crate) fn dispatch(
         return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             auto_cli::execute(action, cwd)
         }));
+    }
+    if let Some(Commands::Setup { action }) = command {
+        return Ok(run_plane(PlanePrep::None, || setup_cli::execute(action)));
     }
     if let Some(Commands::Workflow { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {

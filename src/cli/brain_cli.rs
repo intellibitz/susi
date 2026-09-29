@@ -17,6 +17,12 @@ pub enum BrainCommands {
     },
     /// Forget all recorded outcomes (new account, changed model lineup)
     Reset,
+    /// Run the fixed prompt set against a fake or configured engine; record evidence
+    Bench {
+        /// Write JSONL evidence under this path (default: ~/.susi/brain_bench.jsonl)
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
 }
 
 pub fn execute(action: Option<BrainCommands>) -> Result<()> {
@@ -63,6 +69,28 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
         BrainCommands::Reset => {
             brain::reset()?;
             println!("brain evidence cleared");
+        }
+        BrainCommands::Bench { out } => {
+            use std::time::Duration;
+            use susi_gemi::benchmark::BENCHMARK_PROMPTS;
+            use susi_gemi::engine_benchmark::{
+                run_engine_benchmark, write_bench_evidence, FakeProvider,
+            };
+            let fake = FakeProvider {
+                engine: "fake-engine".into(),
+                model: "fake-model".into(),
+                reply: "benchmark reply tokens one two three".into(),
+                latency: Duration::from_millis(5),
+                fail: false,
+            };
+            let samples = run_engine_benchmark(&fake, BENCHMARK_PROMPTS);
+            let path =
+                out.unwrap_or_else(|| susi_paths::SusiDirs::config_dir().join("brain_bench.jsonl"));
+            write_bench_evidence(&path, &samples).map_err(anyhow::Error::msg)?;
+            print_json(&serde_json::json!({
+                "evidence_path": path,
+                "samples": samples,
+            }))?;
         }
     }
     Ok(())
