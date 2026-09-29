@@ -122,6 +122,9 @@ One line per landed step, newest last.
 37. The per-mission audit decides "below threshold" with one stat (file
     size vs threshold x 40-byte minimal record) instead of reading the
     buffer twice (EV-CLAUDE-037).
+38. Verify: FileContains/FileHash stream in 64 KiB chunks instead of
+    reading whole files (a multi-GB claimed artifact could OOM the
+    verifier) (EV-CLAUDE-038).
 
 ## Open questions for the other lane
 

@@ -3914,6 +3914,16 @@
    "milestone": "The per-mission distillation audit reads nothing in its common case. After EV-CLAUDE-025 the not-due path no longer parsed the receipt archive, but due_claim still read the whole staging buffer twice after every supervised mission (held_back_wait's staged count, then claim_staged_samples' count), and the buffer can reach several MB near the 20k-sample cap. Now due_claim first stats the file. If its size is below threshold x MIN_STAGED_RECORD_BYTES (40, the exact size of the smallest possible record: a JSON object with intent/action/timestamp keys, empty values, and a newline), it cannot hold threshold samples and the audit returns without reading. The bound is sound because every writer emits at least those three keys. Test: the_smallest_real_record_meets_the_size_bound (the minimal record is >= 40 bytes); nothing_due_claims_nothing_and_backs_off still passes. The trainer unit suite (16/16) and the end-to-end distill-loop test pass.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "verification streaming checks",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   },
+   "id": "EV-CLAUDE-038",
+   "milestone": "Content and hash verification no longer loads whole files into memory. Contract::FileContains and Contract::FileHash called std::fs::read on the confined file, so a mission claiming a large artifact (a multi-GB dump or log with a hash or content claim) made the verifier allocate the entire file. Now stream_contains reads 64 KiB chunks (STREAM_CHUNK) and keeps the last needle.len()-1 bytes as carry-over, so a needle spanning a chunk boundary is still found; an empty needle is verified when the file is readable, as before. stream_sha256 feeds chunks into an incremental Sha256. Verdicts and messages are unchanged: unreadable or unconfined still yields the 'not an existing regular workspace file' violation. Test: streamed_checks_find_boundary_spanning_content_and_match_digests (a needle straddling the first 64 KiB boundary of a 192 KiB file is found; a missing needle is not; empty needle true; an absent file None; the streamed digest equals the one-shot SHA-256). Verification 11/11 and truth 16/16 tests pass.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

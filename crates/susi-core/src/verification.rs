@@ -192,16 +192,13 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
             }
         }
         Contract::FileContains { path, needle } => {
-            match confined_file(workspace, path).and_then(|p| std::fs::read(&p).ok()) {
-                Some(bytes)
-                    if needle.is_empty()
-                        || bytes.windows(needle.len()).any(|w| w == needle.as_bytes()) =>
-                {
-                    ContractVerdict::Verified {
-                        evidence: format!("{} contains claimed content", path.display()),
-                    }
-                }
-                Some(_) => ContractVerdict::Violated {
+            match confined_file(workspace, path)
+                .and_then(|p| stream_contains(&p, needle.as_bytes()))
+            {
+                Some(true) => ContractVerdict::Verified {
+                    evidence: format!("{} contains claimed content", path.display()),
+                },
+                Some(false) => ContractVerdict::Violated {
                     reason: format!(
                         "Reality Mismatch: '{}' exists but does not contain the claimed content",
                         path.display()
@@ -218,10 +215,8 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
             }
         }
         Contract::FileHash { path, sha256_hex } => {
-            match confined_file(workspace, path).and_then(|p| std::fs::read(&p).ok()) {
-                Some(bytes) => {
-                    use sha2::{Digest, Sha256};
-                    let actual = hex::encode(Sha256::digest(&bytes));
+            match confined_file(workspace, path).and_then(|p| stream_sha256(&p)) {
+                Some(actual) => {
                     if actual.eq_ignore_ascii_case(sha256_hex) {
                         ContractVerdict::Verified {
                             evidence: format!("sha256 {actual}"),
@@ -248,6 +243,54 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
         Contract::CommandExit { argv, timeout_secs } => {
             verify_command_exit(argv, *timeout_secs, workspace)
         }
+    }
+}
+
+/// Chunk size for streamed content checks. `FileContains` / `FileHash`
+/// used to `std::fs::read` the whole file, so a claim about a multi-GB
+/// artifact made the verifier allocate all of it.
+const STREAM_CHUNK: usize = 64 * 1024;
+
+/// Whether the file contains `needle`, reading it in chunks and carrying the
+/// last `needle.len() - 1` bytes over so matches spanning a chunk boundary
+/// are found. `None` if the file cannot be read.
+fn stream_contains(path: &Path, needle: &[u8]) -> Option<bool> {
+    use std::io::Read;
+    if needle.is_empty() {
+        return std::fs::metadata(path).ok().map(|_| true);
+    }
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut window: Vec<u8> = Vec::with_capacity(STREAM_CHUNK + needle.len());
+    let mut chunk = vec![0u8; STREAM_CHUNK];
+    loop {
+        let read = file.read(&mut chunk).ok()?;
+        if read == 0 {
+            return Some(false);
+        }
+        window.extend_from_slice(&chunk[..read]);
+        if window.windows(needle.len()).any(|w| w == needle) {
+            return Some(true);
+        }
+        let keep = needle.len() - 1;
+        if window.len() > keep {
+            window.drain(..window.len() - keep);
+        }
+    }
+}
+
+/// Lowercase hex SHA-256 of the file, streamed. `None` if unreadable.
+fn stream_sha256(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut chunk = vec![0u8; STREAM_CHUNK];
+    loop {
+        let read = file.read(&mut chunk).ok()?;
+        if read == 0 {
+            return Some(hex::encode(hasher.finalize()));
+        }
+        hasher.update(&chunk[..read]);
     }
 }
 
@@ -619,6 +662,27 @@ mod tests {
         assert_eq!(
             contracts_from_text("wrote to `a b.txt`."),
             [exists("a b.txt")]
+        );
+    }
+
+    #[test]
+    fn streamed_checks_find_boundary_spanning_content_and_match_digests() {
+        let dir = ws();
+        let path = dir.path().join("big.bin");
+        // Needle straddles the first chunk boundary.
+        let mut body = vec![b'a'; STREAM_CHUNK - 3];
+        body.extend_from_slice(b"NEEDLE");
+        body.extend(vec![b'b'; STREAM_CHUNK * 2]);
+        std::fs::write(&path, &body).unwrap();
+        assert_eq!(stream_contains(&path, b"NEEDLE"), Some(true));
+        assert_eq!(stream_contains(&path, b"MISSING"), Some(false));
+        assert_eq!(stream_contains(&path, b""), Some(true));
+        assert_eq!(stream_contains(&dir.path().join("absent"), b"x"), None);
+
+        use sha2::{Digest, Sha256};
+        assert_eq!(
+            stream_sha256(&path).unwrap(),
+            hex::encode(Sha256::digest(&body))
         );
     }
 
