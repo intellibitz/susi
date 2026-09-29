@@ -38,6 +38,16 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
             print_json(&serde_json::json!({
                 "principle": "local is the floor, cloud is the ceiling; evidence beats priors",
                 "budget": susi_gemi::engines::cost::Budget::from_env().label(),
+                "failure_streaks": store
+                    .failure_streaks()
+                    .into_iter()
+                    .map(|(key, h)| serde_json::json!({
+                        "key": key,
+                        "kind": h.kind,
+                        "consecutive": h.consecutive,
+                        "last_unix": h.last_unix,
+                    }))
+                    .collect::<Vec<_>>(),
                 "providers_with_evidence": providers,
                 "ranking_by_task_class": classes,
                 "preferred_cloud": pref.preferred_cloud,
