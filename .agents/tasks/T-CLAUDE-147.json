@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-147",
+  "title": "Keep the primary checkout parked at origin/main so nobody works in it",
+  "goal": "The primary checkout sat on a stale branch and an agent (codex/worktree-branch) committed in it, bypassing the worktree workflow. Add scripts/park-primary.sh: fetch, and if the primary checkout is clean and everything on its branch is in origin/main, detach it at origin/main (main itself is checked out in the integration worktree, so it cannot sit on main); refuse and explain when it has uncommitted or unmerged work. scripts/susi-worktree.sh runs it. workflow-guard and 'susi workflow check' already refuse commits there. Tests in tests/park_primary.rs against real temp repos.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "park_primary"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790703134
+}
