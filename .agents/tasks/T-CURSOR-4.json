@@ -1,0 +1,18 @@
+{
+  "id": "T-CURSOR-4",
+  "title": "Clippy: use contains for MCP transport method asserts",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "eco_mcp_transports"
+    ]
+  },
+  "created_by": "CURSOR",
+  "created_unix": 1790723848
+}

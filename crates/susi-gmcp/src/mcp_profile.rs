@@ -100,9 +100,9 @@ mod eco_mcp_transports_tests {
             .iter()
             .map(|e| e["method"].as_str().unwrap())
             .collect();
-        assert!(methods.iter().any(|m| *m == "STDIO"));
-        assert!(methods.iter().any(|m| *m == "POST"));
-        assert!(methods.iter().any(|m| *m == "GET+SSE"));
+        assert!(methods.contains(&"STDIO"));
+        assert!(methods.contains(&"POST"));
+        assert!(methods.contains(&"GET+SSE"));
         assert!(p["capabilities"]
             .as_array()
             .unwrap()
