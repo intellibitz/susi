@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Host directory contract, resolved via the `susi-paths` service with a
@@ -206,14 +206,31 @@ impl LocalDirs {
         if Self::instance_root().is_some() {
             return false;
         }
-        let legacy = Self::legacy_base();
-        if legacy.is_dir() {
+        if Self::legacy_present(&Self::legacy_base()) {
             std::env::var("SUSI_XDG")
                 .map(|v| v == "1" || v == "true")
                 .unwrap_or(false)
         } else {
             true
         }
+    }
+
+    /// Whether the legacy `~/.susi` root existed the first time this process
+    /// resolved it. Pinned per path: workspace-scoped state (`<ws>/.susi`)
+    /// creates `~/.susi` whenever the workspace is `$HOME`, and re-checking
+    /// on every call would then flip an XDG install to the legacy layout
+    /// mid-process, so state written before the flip is read from a
+    /// different file after it. Keyed by path (not one global answer) so a
+    /// repointed `HOME` is decided afresh; `SUSI_XDG` stays live.
+    fn legacy_present(legacy: &Path) -> bool {
+        static SEEN: OnceLock<Mutex<HashMap<PathBuf, bool>>> = OnceLock::new();
+        let mut seen = SEEN
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *seen
+            .entry(legacy.to_path_buf())
+            .or_insert_with(|| legacy.is_dir())
     }
 
     #[must_use]
