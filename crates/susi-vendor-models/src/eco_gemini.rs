@@ -29,7 +29,7 @@ mod tests {
     }
 
     #[test]
-    fn eco_gemini_profile_is_valid() {
+    fn eco_gemini_generate_content_profile_is_valid() {
         profile().expect("profile validates");
     }
 
