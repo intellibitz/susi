@@ -202,6 +202,8 @@ One line per landed step, newest last.
     not only existence (EV-CLAUDE-066).
 67. Verify: bare deletion targets must be path-like; echoed cargo/git/npm
     output mints no contracts (corpus test) (EV-CLAUDE-067).
+68. ARCHITECTURE.md "Verify at a glance": every mined contract (source
+    text, contract, precision rule, EV id) in one table.
 
 ## Open questions for the other lane
 

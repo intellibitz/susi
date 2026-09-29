@@ -459,6 +459,33 @@ measured: `plan_score_correlation` reports the Pearson r between recorded
 `plan_score` and verified outcome — an anti-correlated scorer surfaces as
 a negative number in the `[RETRIEVAL]` line instead of hiding.
 
+### Verify at a glance
+
+`SusiTruthAgent::verify_mission_reality` mines contracts from the goal and
+the result, then checks each against the workspace
+(`susi_core::verification`). Uncited answers run it too (052). Paths are
+workspace-relative; absolute or `..` targets are `Unverifiable` (020).
+"Path-like" = quoted, or containing `/` or a `.` followed by an
+alphanumeric — never a sentence-final period (057).
+
+| Source text | Contract | Precision rule | EV-CLAUDE |
+|-------------|----------|----------------|-----------|
+| goal: create/write/save … file [named] X | `FileExists` | — | (Devin step 2) |
+| goal: … `containing: T` / `containing "T"` | `FileContains` | colon or quoted literal only | 028 |
+| goal: write/save/export … to\|into X | `FileExists` | path-like X | 057 |
+| goal: delete/remove [the] [file] X | `FileAbsent` | path-like X | 056, 057 |
+| goal/result: create(d)/make/mkdir directory\|folder X | `DirExists` | — | 063 |
+| result: wrote to / saved to X | `FileExists` | trailing prose punctuation trimmed; a pathless write claim is a violation by design | 030 |
+| result: created/added/generated/wrote/updated X | `FileExists` | quoted, or bare with `/` **and** an extension | 064 |
+| result: wrote/saved/put/added … `"T"` to X | `FileContains` | quoted literal | 066 |
+| result: moved/renamed X to Y · copied X to Y | `FileAbsent(X)` + `FileExists(Y)` · `FileExists(Y)` | path-like X, Y | 065 |
+| result: deleted/removed X | `FileAbsent` | path-like bare X | 067 |
+| (programmatic) `FileHash` | `FileHash` | 64-hex digest else `Unverifiable` | 044 |
+| (programmatic) `CommandExit` | `CommandExit` | per-program argv policy, no shells | 019 |
+
+Content and hash checks stream the file (038). Echoed tool output (cargo,
+git, npm, pip) mints nothing — pinned by a corpus test (067).
+
 The `verify` stage runs through the **contract registry**
 (`susi_core::verification`): `Contract::{FileExists, FileAbsent,
 FileContains, FileHash, CommandExit}` evaluate against physical workspace
