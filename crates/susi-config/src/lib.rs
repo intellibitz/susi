@@ -171,6 +171,9 @@ mod state_migration_tests;
 #[path = "tests/vc_201_063.rs"]
 mod vc_201_063_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_065.rs"]
+mod vc_201_065_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_066.rs"]
 mod vc_201_066_tests;
 #[cfg(test)]

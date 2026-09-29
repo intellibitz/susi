@@ -75,6 +75,7 @@ pub mod formal_invariants;
 pub mod genome_distiller;
 pub mod kernel_loader;
 pub mod patch_cycle;
+pub mod patch_fence;
 pub mod reason_trainer;
 pub mod reflex_intent;
 pub mod reflex_synth;
@@ -107,6 +108,9 @@ mod vc_201_007_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_011.rs"]
 mod vc_201_011_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_013.rs"]
+mod vc_201_013_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
