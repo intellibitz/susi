@@ -611,6 +611,13 @@ reflex samples: receipts stage the whole mission goal unbounded, and a
 multi-paragraph goal would bloat the replay set and dilute each action's
 veto-word vocabulary (EV-CLAUDE-035).
 
+Capabilities are primed by their registry description as well as their
+name (`capability_descriptions`: agents' profiles, tools'
+`Tool::description`), and the description joins the support set: a fresh
+tool named `sql_query` is reachable as "run a SQL query against the
+database" before anyone has used it, not only by its identifier
+(EV-CLAUDE-053).
+
 Labels must agree. Receipts stage `mission goal → tool` once per tool call,
 so a multi-tool mission stages one goal under several labels.
 `resolve_label_conflicts` keeps an intent's samples only for the label

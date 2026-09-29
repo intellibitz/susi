@@ -165,6 +165,9 @@ One line per landed step, newest last.
 52. Verify: uncited answers still run the reality contracts before the
     "no citations" warning — the uncited path skipped them entirely
     (EV-CLAUDE-052).
+53. Capabilities are primed and supported by their registry description,
+    not only their name — reachable before first use by how a person asks
+    (EV-CLAUDE-053).
 
 ## Open questions for the other lane
 

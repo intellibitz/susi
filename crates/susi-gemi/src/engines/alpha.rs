@@ -706,6 +706,18 @@ struct Evaluation {
 /// held-out gate counts errors above it as served mistakes.
 const SERVE_CONFIDENCE: f32 = 0.5;
 
+/// Capability descriptions by lowercased action name.
+pub type Descriptions = std::collections::HashMap<String, String>;
+
+/// Description rows usable as intent text: non-empty and within the reflex
+/// intent bound.
+fn description_for<'a>(descriptions: &'a Descriptions, action: &str) -> Option<&'a str> {
+    descriptions
+        .get(&action.to_lowercase())
+        .map(|d| d.trim())
+        .filter(|d| !d.is_empty() && d.chars().count() <= MAX_REFLEX_INTENT_CHARS)
+}
+
 /// A staged or primed training sample: intent text and its action label.
 type Labeled<'a> = (&'a str, u32);
 
@@ -1014,7 +1026,11 @@ const SUPPORT_MIN: f32 = 0.6;
 /// is no replay set *or it cannot be read*: the support set is a serving
 /// refinement, and an unreadable file must degrade Tier-0, never disable
 /// it — as an error here would fail the whole checkpoint load.
-fn support_matrix(weights_path: &Path, vocabulary: &[String]) -> Option<SupportSet> {
+fn support_matrix(
+    weights_path: &Path,
+    vocabulary: &[String],
+    descriptions: &Descriptions,
+) -> Option<SupportSet> {
     let replay = match load_replay(weights_path) {
         Ok(replay) => replay,
         Err(error) => {
@@ -1037,6 +1053,9 @@ fn support_matrix(weights_path: &Path, vocabulary: &[String]) -> Option<SupportS
                     .iter()
                     .map(|action| (action.as_str(), action.as_str())),
             )
+            .chain(vocabulary.iter().filter_map(|action| {
+                description_for(descriptions, action).map(|d| (d, action.as_str()))
+            }))
             .collect();
         let mut action_words: std::collections::HashMap<String, std::collections::HashSet<String>> =
             std::collections::HashMap::new();
@@ -1096,8 +1115,14 @@ impl SusiAlphaModel {
         Ok(model)
     }
 
-    #[allow(unsafe_code)]
     pub fn load(global_dir: &Path) -> Result<Self> {
+        Self::load_with(global_dir, &Self::capability_descriptions())
+    }
+
+    /// `load` with explicit capability descriptions (tests inject them
+    /// without touching the global registries).
+    #[allow(unsafe_code)]
+    pub fn load_with(global_dir: &Path, descriptions: &Descriptions) -> Result<Self> {
         let alpha_filename =
             crate::susi_sandbox::manager::SusiConfig::load(global_dir)?.alpha_weights_filename();
         let weights_path = global_dir.join("models").join(&alpha_filename);
@@ -1118,7 +1143,7 @@ impl SusiAlphaModel {
                         .map_err(crate::engines::candle_err::from_candle)?;
                     let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
                         .map_err(crate::engines::candle_err::from_candle)?;
-                    let support = support_matrix(&weights_path, &intents);
+                    let support = support_matrix(&weights_path, &intents, descriptions);
                     Ok(Self {
                         dense: DenseReflex::from_linears(&fc1, &fc2)?,
                         intents,
@@ -1167,6 +1192,25 @@ impl SusiAlphaModel {
         intents
     }
 
+    /// Registered agents' and installed tools' descriptions, keyed by the
+    /// lowercased name. A capability is reachable before first use only
+    /// through its training prime; a bare name like `sql_query` says little,
+    /// while its description ("Run a SQL query against the database") is
+    /// how a person would ask for it.
+    pub fn capability_descriptions() -> Descriptions {
+        let registry = crate::susi_core::registry::CapabilityRegistry::global();
+        crate::susi_core::AgentMetaRegistry::global()
+            .list_agents()
+            .into_iter()
+            .map(|agent| (agent.name.to_lowercase(), agent.description))
+            .chain(registry.list_tools().into_iter().filter_map(|name| {
+                let description = registry.get_tool(&name)?.description().to_string();
+                Some((name.to_lowercase(), description))
+            }))
+            .filter(|(_, d)| !d.trim().is_empty())
+            .collect()
+    }
+
     /// Every registered agent and installed tool name (sorted, deduplicated,
     /// foundational intents excluded) — untruncated, unlike the vocabulary.
     pub fn capability_names() -> Vec<String> {
@@ -1194,10 +1238,28 @@ impl SusiAlphaModel {
         // at 2048 samples without convergence, close to the lock's 60s
         // wedged-holder age. Keep it fresh so a concurrent trainer cannot
         // break it and publish over this cycle.
-        training_lock.hold_while(|| Self::train_locked(global_dir, staged_file))
+        let descriptions = Self::capability_descriptions();
+        training_lock.hold_while(|| Self::train_locked(global_dir, staged_file, &descriptions))
     }
 
-    fn train_locked(global_dir: &Path, staged_file: &Path) -> Result<String> {
+    /// `train_on_staged_file` with explicit capability descriptions.
+    #[cfg(test)]
+    fn train_with(
+        global_dir: &Path,
+        staged_file: &Path,
+        descriptions: &Descriptions,
+    ) -> Result<String> {
+        let training_lock =
+            crate::susi_config::file_lock::FileLock::acquire(global_dir, "reflex_training")
+                .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
+        training_lock.hold_while(|| Self::train_locked(global_dir, staged_file, descriptions))
+    }
+
+    fn train_locked(
+        global_dir: &Path,
+        staged_file: &Path,
+        descriptions: &Descriptions,
+    ) -> Result<String> {
         if !staged_file.exists() {
             return Err(anyhow!(
                 "No staged distillation data found at {}.",
@@ -1265,10 +1327,15 @@ impl SusiAlphaModel {
             .count();
         // Synthetic priming: every vocabulary action gets at least one sample,
         // so a newly installed tool is reachable before anyone has used it.
-        let mut primes = Vec::with_capacity(dynamic_intents.len());
+        // A capability's description primes it too, so it is reachable by
+        // how a person would ask for it, not only by its identifier.
+        let mut primes = Vec::with_capacity(dynamic_intents.len() * 2);
         for (index, intent) in dynamic_intents.iter().enumerate() {
             let label = u32::try_from(index).map_err(|_| anyhow!("intent label exceeds u32"))?;
             primes.push((intent.as_str(), label));
+            if let Some(description) = description_for(descriptions, intent) {
+                primes.push((description, label));
+            }
         }
 
         let active = active_checkpoint
@@ -2389,6 +2456,38 @@ mod tests {
                 .fold(0.0f32, f32::max);
             assert!(worst < 1e-5, "{prompt:?}: max |diff| {worst}");
         }
+    }
+
+    #[test]
+    fn capability_descriptions_prime_and_support_unused_actions() {
+        // EVERYDAY never stages `reason`; only its name and (here) its
+        // description can teach it.
+        let descriptions: Descriptions = [(
+            "reason".to_string(),
+            "Deliberate over a hard problem and explain the answer".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        // Asked the way the description phrases it (a near-duplicate, so
+        // the serve decision does not hinge on init noise near 0.5).
+        let prompt = "deliberate over a hard problem and explain the answer";
+
+        let without = tempfile::tempdir().unwrap();
+        let staged = without.path().join("staged.jsonl");
+        stage(&staged, EVERYDAY);
+        SusiAlphaModel::train_with(without.path(), &staged, &Descriptions::new()).unwrap();
+        let bare = SusiAlphaModel::load_with(without.path(), &Descriptions::new()).unwrap();
+        assert!(
+            bare.predict_intent(prompt).is_err(),
+            "unreachable without a description"
+        );
+
+        let with = tempfile::tempdir().unwrap();
+        let staged = with.path().join("staged.jsonl");
+        stage(&staged, EVERYDAY);
+        SusiAlphaModel::train_with(with.path(), &staged, &descriptions).unwrap();
+        let described = SusiAlphaModel::load_with(with.path(), &descriptions).unwrap();
+        assert_eq!(described.predict_intent(prompt).unwrap(), "ACTION: reason");
     }
 
     #[test]
