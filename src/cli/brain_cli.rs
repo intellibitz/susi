@@ -35,6 +35,7 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
                 .collect();
             print_json(&serde_json::json!({
                 "principle": "local is the floor, cloud is the ceiling; evidence beats priors",
+                "budget": susi_gemi::engines::cost::Budget::from_env().label(),
                 "providers_with_evidence": providers,
                 "ranking_by_task_class": classes,
             }))?;
