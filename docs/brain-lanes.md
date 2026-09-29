@@ -145,6 +145,9 @@ One line per landed step, newest last.
 46. Suffix stemming in reflex features and veto matching: inflected
     paraphrases served 4/18 -> 18/18; precision, OOD refusal and
     inflected vetoes unchanged (EV-CLAUDE-046).
+47. Reflex synonym table (display/view -> read, enumerate -> list, ...):
+    synonym paraphrases served 6/18 -> 17/18, precision/OOD unchanged
+    (EV-CLAUDE-047).
 
 ## Open questions for the other lane
 

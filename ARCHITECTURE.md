@@ -637,6 +637,13 @@ lookup, and the veto guard compares stems: whole-word features made
 paraphrases of trained intents were served — 18 of 18 with stemming, while
 the benchmark's precision and out-of-distribution refusal held and
 inflected vetoes ("deleting the config files") still fire (EV-CLAUDE-046).
+A reflex-only synonym table (`synonym_category`) maps everyday verbs onto
+the anchor bands — display/view/print/open → read, enumerate → list,
+store/record → write, inspect/diagnose → status, release → version,
+correct/patch → fix, … — leaving fleet's anchor list untouched: synonym
+paraphrases served 6/18 → 17/18, with benchmark precision and OOD refusal
+unchanged (the support gate still refuses a lone shared verb)
+(EV-CLAUDE-047).
 
 Fits run to convergence, not a fixed step count: full-batch AdamW until
 mean loss ≤ 0.15 (correct class ≈ 0.86 probability) or 600 epochs, and the

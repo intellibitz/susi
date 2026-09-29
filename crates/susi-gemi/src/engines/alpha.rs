@@ -1541,7 +1541,10 @@ impl SusiAlphaModel {
             .filter(|w| !w.is_empty() && !REFLEX_STOPWORDS.contains(w))
         {
             let stem = stem(word);
-            if let Some(category) = anchor_category(word).or_else(|| stem_category(&stem)) {
+            if let Some(category) = anchor_category(word)
+                .or_else(|| stem_category(&stem))
+                .or_else(|| synonym_category(&stem))
+            {
                 let weight = 1.0 / (10f32).sqrt();
                 for val in vec.iter_mut().skip(category * 10).take(10) {
                     *val += weight;
@@ -1661,6 +1664,50 @@ fn stem_category(stemmed: &str) -> Option<usize> {
                 .filter_map(|w| anchor_category(w).map(|c| (stem(w), c)))
                 .collect()
         });
+    STEMS.get(stemmed).copied()
+}
+
+/// Everyday verbs that mean an anchor category but are not in the anchor
+/// list, which fleet recruitment shares and is left unchanged. Reflex
+/// features only. Measured before: 6 of 18 synonym paraphrases of trained
+/// intents ("display the readme", "which release is this", "correct the
+/// build") were served. The support gate still guards out-of-distribution
+/// text: a shared verb alone is far below `SUPPORT_MIN`.
+fn synonym_category(stemmed: &str) -> Option<usize> {
+    const SYNONYMS: &[(&str, usize)] = &[
+        ("inspect", 0),
+        ("diagnose", 0),
+        ("uptime", 0),
+        ("release", 1),
+        ("store", 2),
+        ("record", 2),
+        ("persist", 2),
+        ("append", 2),
+        ("display", 3),
+        ("view", 3),
+        ("print", 3),
+        ("open", 3),
+        ("dump", 3),
+        ("peek", 3),
+        ("enumerate", 4),
+        ("inside", 4),
+        ("explore", 5),
+        ("hunt", 5),
+        ("browse", 5),
+        ("locate", 5),
+        ("ponder", 6),
+        ("figure", 6),
+        ("analyze", 6),
+        ("deduce", 6),
+        ("compute", 6),
+        ("estimate", 6),
+        ("correct", 7),
+        ("patch", 7),
+        ("mend", 7),
+        ("debug", 7),
+    ];
+    static STEMS: std::sync::LazyLock<std::collections::HashMap<String, usize>> =
+        std::sync::LazyLock::new(|| SYNONYMS.iter().map(|(w, c)| (stem(w), *c)).collect());
     STEMS.get(stemmed).copied()
 }
 
@@ -2276,6 +2323,47 @@ mod tests {
         assert_eq!(stem("directories"), "directory");
         assert_eq!(stem("saving"), stem("save"));
         assert_eq!(stem("status"), "status");
+    }
+
+    /// Synonym paraphrases of the benchmark intents. Before the reflex
+    /// synonym table, 6 of these 18 were served; with it, 17 of 18.
+    const BENCH_SYNONYMS: &[(&str, &str)] = &[
+        ("display the readme", "read_file"),
+        ("view main.rs", "read_file"),
+        ("print the log", "read_file"),
+        ("open notes.txt", "read_file"),
+        ("enumerate the folder", "list_directory"),
+        ("what's inside src", "list_directory"),
+        ("execute the test suite", "run_test_harness"),
+        ("launch unit tests", "run_test_harness"),
+        ("inspect system health", "status"),
+        ("diagnose the daemon", "status"),
+        ("store this in notes.md", "write_file"),
+        ("record the summary to a file", "write_file"),
+        ("explore mcp registries", "scout"),
+        ("hunt for new tools", "scout"),
+        ("ponder the design", "reason"),
+        ("figure out the cost", "reason"),
+        ("which release is this", "version"),
+        ("correct the build", "self_heal_build"),
+    ];
+
+    #[test]
+    fn synonyms_reach_their_reflex() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, BENCH_TRAIN);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let model = SusiAlphaModel::load(dir.path()).unwrap();
+        let served = BENCH_SYNONYMS
+            .iter()
+            .filter(|(p, a)| model.predict_intent(p).ok() == Some(format!("ACTION: {a}")))
+            .count();
+        assert!(
+            served >= 14,
+            "synonym recall {served}/{}",
+            BENCH_SYNONYMS.len()
+        );
     }
 
     #[test]

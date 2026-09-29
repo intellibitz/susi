@@ -4344,6 +4344,16 @@
    "milestone": "Tier-0 understands inflections. reflex_features matched whole words, so 'running'/'run', 'listed'/'list', 'fixing'/'fix', 'directories'/'directory' and 'saving'/'save' were unrelated features. Measured on a model trained on BENCH_TRAIN: 4 of 18 inflected paraphrases of trained intents were served ('checking the system health', 'running the tests', 'listed directories', 'fixing the builds', ...); the 14 misses were refused as unfamiliar or low-confidence. Now alpha::stem, a light suffix stemmer for words longer than 3 ASCII letters (-ies -> -y; -ing/-ed with undoubling of a final doubled consonant; plural -es after s/x/z/ch/sh; plural -s except -ss/-us/-is; then a trailing -e), is applied before FNV hashing. Category lookup tries the raw word, then the stem via stem_category (stems of the anchor words). The veto guard now compares stems on both sides, so 'deleting' is caught by 'delete'. Fleet recruitment's semantic_centroid_projection is unchanged. Measured after: 18 of 18 served. New test inflections_reach_their_reflex_and_vetoes_still_hold asserts >= 15/18 (margin for init noise), that 'deleting the config files', 'removing all files' and 'stopped the builds' are refused, and stem spot checks. The Tier-0 benchmark (precision, <= 1 OOD served) and all other alpha tests passed 4 of 4 runs; the distill-loop integration test passes. The veto test now expects the stemmed word. Checkpoint migration goes through the held-out gate as with earlier feature changes.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "synonym_category",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-047",
+   "milestone": "Tier-0 understands common synonyms. Category bands knew only the fixed anchor list (shared with fleet recruitment), so everyday verbs such as display, view, print, open, enumerate, store, record, inspect, diagnose, release, correct, patch, explore, hunt, ponder and figure were opaque hashes. Measured on a model trained on BENCH_TRAIN: 6 of 18 synonym paraphrases of trained intents were served. Now synonym_category, a reflex-only table keyed by stem, maps 30 such verbs onto the existing 8 category bands and is consulted after the anchor and stem lookups. Fleet's anchor_category and semantic_centroid_projection are unchanged. Measured after: 17 of 18 served. The out-of-distribution guard is unaffected because a lone shared verb band is far below SUPPORT_MIN against any trained intent; the Tier-0 benchmark (precision, <= 1 OOD served) and all alpha tests passed 3 of 3 runs. New test synonyms_reach_their_reflex asserts >= 14/18 on BENCH_SYNONYMS.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
