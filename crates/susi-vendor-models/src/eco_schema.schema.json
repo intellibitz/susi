@@ -162,6 +162,11 @@
             "vision",
             "audio",
             "reasoning",
+            "batch",
+            "realtime",
+            "prompt-caching",
+            "files",
+            "moderation",
             "agent-delegation",
             "resource-access",
             "discovery"
