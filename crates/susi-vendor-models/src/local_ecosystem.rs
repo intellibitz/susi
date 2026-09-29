@@ -214,6 +214,20 @@ pub fn scan(p: &dyn Probe) -> Ecosystem {
     }
 }
 
+/// `(name, OpenAI-compatible base URL)` for every serving engine in the table,
+/// at its default port, for the HTTP provider probe to try. Bases shared by
+/// two engines (8080) appear once, under the first name.
+pub fn default_openai_endpoints() -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for d in DEFS.iter().filter(|d| d.openai_compat && d.port != 0) {
+        let base = format!("http://localhost:{}/v1", d.port);
+        if !out.iter().any(|(_, b)| *b == base) {
+            out.push((d.name.to_string(), base));
+        }
+    }
+    out
+}
+
 /// GPU/NPU compute backends evidenced on this host (driver tools or device nodes).
 pub fn accelerators(p: &dyn Probe) -> Vec<Accelerator> {
     let mut out = Vec::new();
@@ -426,6 +440,18 @@ mod tests {
             .unwrap_err()
             .contains("needs a model"));
         assert!(start("nope", &f).is_err());
+    }
+
+    #[test]
+    fn default_endpoints_are_unique_and_include_newer_engines() {
+        let eps = default_openai_endpoints();
+        let bases: HashSet<_> = eps.iter().map(|(_, b)| b.clone()).collect();
+        assert_eq!(bases.len(), eps.len());
+        assert!(eps.contains(&("Jan".to_string(), "http://localhost:1337/v1".to_string())));
+        assert!(eps.contains(&(
+            "Ollama".to_string(),
+            "http://localhost:11434/v1".to_string()
+        )));
     }
 
     #[test]
