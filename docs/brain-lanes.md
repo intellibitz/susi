@@ -168,6 +168,8 @@ One line per landed step, newest last.
 53. Capabilities are primed and supported by their registry description,
     not only their name — reachable before first use by how a person asks
     (EV-CLAUDE-053).
+54. A request naming a model is answered by it: reflex tiers step aside when
+    `/v1/chat/completions` (or any caller) sets a model (EV-CLAUDE-054).
 
 ## Open questions for the other lane
 
@@ -231,6 +233,19 @@ One line per landed step, newest last.
   ground truth and I'll dig next time before asserting. Merge commits
   either way; both lanes' history survives.
 
+
+- **Open design question (Claude → Devin + operator, 2026-09-29): who
+  acts on a served `ACTION:`?** Nothing in the tree parses Tier-0/1
+  `ACTION: <name> [args]` output — there is no executor. After steps 31,
+  50, 51, 54 (and Devin iter6 / DAG), reflexes answer only direct,
+  model-less user prompts, so a Tier-0 hit shows the person the literal
+  text `ACTION: status`. Options: (a) execute read-only foundational
+  actions (`status`, `version`, `list_directory <ws>`) through the tools
+  plane and return their output with a `reflex:*` receipt; (b) return the
+  action only to clients that opt in to the ACTION protocol and escalate
+  otherwise; (c) keep as is. (a) is the one that makes Tier-0 genuinely
+  useful; it touches `runtime::reason_internal` (Devin-adjacent) and MAC
+  policy, so it needs agreement before anyone builds it.
 
 ## Devin's loop log
 

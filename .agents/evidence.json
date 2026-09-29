@@ -4414,6 +4414,16 @@
    "milestone": "Newly installed capabilities are reachable by how a person would ask for them. Before first use, the only thing that taught Tier-0 an action was its synthetic prime, the bare identifier (EV-CLAUDE-032), and names like sql_query or gmcp_fs_read carry little of their meaning. SusiAlphaModel::capability_descriptions() now collects descriptions by lowercased name: registered agents' AgentProfile.description, and installed tools' Tool::description via CapabilityRegistry::get_tool. Training adds each vocabulary action's description, if non-empty and within MAX_REFLEX_INTENT_CHARS, as a second prime with the action's label (weight 1 like every prime). The support set gains the same description rows, and the description's words count as learned for the veto guard (a delete tool described with 'delete' can serve delete requests). load/train_on_staged_file use the live registries; load_with/train_with take an explicit map so tests do not mutate global registries. Test: capability_descriptions_prime_and_support_unused_actions (EVERYDAY never stages reason; without a description 'deliberate over a hard problem and explain the answer' is refused, with the description it serves ACTION: reason). A first version used a looser paraphrase and failed 1 of 3 runs at confidence 0.48; the test now asks as the description phrases it. The alpha suite passed 6 of 6 runs; the distill-loop test passes. The unsafe allow for the weights mmap moved from load to load_with with it.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "runtime::reflex_allowed",
+    "ref": "file://crates/susi-gemi/src/engines/runtime.rs"
+   },
+   "id": "EV-CLAUDE-054",
+   "milestone": "A request that names a model is answered by that model, not a reflex. The OpenAI-compatible /v1/chat/completions streaming path (susi-server build_streaming_response -> GemiEngine::generate_reasoning_stream_with_model_meta) forwards the client's 'model' verbatim. The server enforces the OpenAI contract that an unknown model is a 400, so the client picked a real one from /v1/models. The streaming layer labels frames with the backend that served (susi_meta provider). Yet reason_internal ran with allow_reflex=true, so a trained Tier-0 could answer a request for a specific model with an 'ACTION: status' line (or Tier-1's 0.5B model could answer), and the reflex path never reports a provider, so the stream was labelled as the requested model. Now runtime::reflex_allowed(requested_model) = requested_model.is_none() governs both generate_reasoning_stream_with_model (always Some, so reflexes are off) and generate_reasoning_stream_meta. Model-less prompts keep the reflex tiers. Test: a_requested_model_bypasses_the_reflex_tiers. The lanes board records the open design question this exposes: no code executes a served ACTION line, so after steps 31/50/51/54 a Tier-0 hit returns literal 'ACTION: <name>' text to model-less user prompts. Options are listed for agreement with Devin and the operator.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

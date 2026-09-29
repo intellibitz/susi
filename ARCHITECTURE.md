@@ -536,7 +536,12 @@ specific format — the mission planner's goal list, the fleet's JSON agent
 profile, the library scout's one-word keyword, reflex synthesis's Rust
 program, native agents' reasoning fallback — uses the deep path too;
 reflex tiers answer only direct user prompts (chat, the generic generate
-topic) (EV-CLAUDE-051).
+topic) (EV-CLAUDE-051). And a request that names a model is answered by that model:
+`/v1/chat/completions` forwards the client's `model` (a name from
+`/v1/models`; unknown names are a 400), and reflex tiers now step aside
+whenever one is set (`runtime::reflex_allowed`) — a Tier-0 `ACTION:` line
+or a Tier-1 answer used to be returned in that model's name, mislabeling
+the stream (EV-CLAUDE-054).
 
 The `deliberate` stage is plan search (`susi_gawd_swarm::deliberation`):
 `solve_autonomous` no longer commits to the first decomposition. Candidates

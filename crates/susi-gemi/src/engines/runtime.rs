@@ -21,6 +21,15 @@ use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::sync::OnceLock;
 
+/// Reflex tiers answer only when no specific model was requested. An
+/// OpenAI-style client names a model it picked from `/v1/models` (unknown
+/// names are a 400), and the streaming layer labels frames with the
+/// backend that served; a Tier-0 classifier's `ACTION:` line — or Tier-1's
+/// 0.5B model — answering in that model's name broke both.
+fn reflex_allowed(requested_model: Option<&str>) -> bool {
+    requested_model.is_none()
+}
+
 /// The action name a served reflex answered with, bounded for receipt
 /// tooling. `ACTION: <name> <args>` reduces to `<name>`; a bare action id
 /// (`status`) keeps its name; a free-text generative answer is
@@ -112,7 +121,7 @@ impl GemiEngine {
         Self::reason_internal(
             prompt,
             workspace,
-            true,
+            reflex_allowed(Some(model)),
             callback,
             None,
             Some(model),
@@ -131,7 +140,15 @@ impl GemiEngine {
         model: Option<&str>,
         meta: &dyn Fn(&str),
     ) -> String {
-        Self::reason_internal(prompt, workspace, true, callback, None, model, meta)
+        Self::reason_internal(
+            prompt,
+            workspace,
+            reflex_allowed(model),
+            callback,
+            None,
+            model,
+            meta,
+        )
     }
 
     /// `generate_reasoning_stream_meta` without the reflex tiers.
@@ -1245,5 +1262,14 @@ mod tests {
             logits_v[prompt_tokens[0] as usize], 10.0,
             "a prompt-only token must not be penalized just because it appears in the prompt"
         );
+    }
+}
+
+#[cfg(test)]
+mod reflex_allowed_tests {
+    #[test]
+    fn a_requested_model_bypasses_the_reflex_tiers() {
+        assert!(super::reflex_allowed(None));
+        assert!(!super::reflex_allowed(Some("qwen2.5-7b-instruct")));
     }
 }
