@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Mandate 49 (Worktree Workflow) enforcement. Called by pre-commit,
+# Mandates 49/50 (Worktree Workflow, Task Queue) enforcement. Called by pre-commit,
 # pre-merge-commit and pre-push:  workflow-guard <commit|merge|push>
 #
 #   commit  — refuse in the primary checkout, and refuse plain commits on main
 #   merge   — refuse in the primary checkout (merging into main is allowed)
-#   push    — refuse deleting, force-pushing or non-fast-forwarding main
+#   push    — refuse deleting, force-pushing or non-fast-forwarding main, and
+#             refuse a branch whose commits are not tied to claimed/closed tasks
 #
 # Escape hatches (deliberate, visible, never the default):
 #   SUSI_ALLOW_PRIMARY=1  commit in the primary checkout
@@ -41,8 +42,22 @@ MSG
     ;;
 push)
     zero=0000000000000000000000000000000000000000
+    root=$(git rev-parse --show-toplevel)
     while read -r _lref lsha rref rsha; do
-        [ "$rref" = refs/heads/main ] || continue
+        # Mandates 50/51: every commit on a pushed branch belongs to a claimed
+        # or closed task (the same script CI runs server-side).
+        case "$rref" in
+        refs/heads/main) ;;
+        refs/heads/*)
+            if [ "$lsha" != "$zero" ] && [ -x "$root/scripts/check-workflow-compliance.sh" ]; then
+                base=origin/main
+                git rev-parse --verify --quiet "$base" >/dev/null || base=$(git rev-list --max-parents=0 "$lsha" | tail -1)
+                "$root/scripts/check-workflow-compliance.sh" "$base" "$lsha" || exit 1
+            fi
+            continue
+            ;;
+        *) continue ;;
+        esac
         if [ "$lsha" = "$zero" ]; then
             echo "❌ Mandate 49: deleting main is forbidden." >&2
             exit 1

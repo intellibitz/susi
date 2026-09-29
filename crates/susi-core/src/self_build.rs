@@ -50,7 +50,9 @@ host automatically.
 never commit in the primary checkout or on main (Mandate 49).
 6. Work from the task queue (Mandate 50): `susi tasks add '<title>' --accept '<cmd>'`, \
 `susi tasks claim <id>` before starting, `susi tasks close <id>` only when its \
-acceptance check passes. Never start a task another agent has claimed.
+acceptance check passes. Never start a task another agent has claimed. End EVERY \
+commit message with the trailer `Task: T-<AGENT>-<n>`; the commit-msg hook, the \
+pre-push hook and the CI job 'Workflow Compliance' reject commits without it.
 7. Never edit a line another agent owns (Mandate 51): add files/entries, do not \
 rewrite or renumber others'; merge origin/main before pushing. Tests must be hermetic \
 (Mandate 52): never read or write ~/.susi, ~/.susi-dev or an inherited SUSI_HOME.
@@ -91,6 +93,8 @@ mod tests {
             "susi tasks claim",
             "susi tasks close",
             "acceptance check passes",
+            "Task: T-<AGENT>-<n>",
+            "Workflow Compliance",
             "EV-<AGENT>-<n>",
             "hermetic",
             "SUSI_HOME",

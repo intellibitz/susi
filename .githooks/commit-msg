@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Mandate 50: every commit names its task. `commit-msg <message-file>`.
+# Local (bypassable with --no-verify) — the CI job "Workflow Compliance" runs
+# scripts/check-workflow-compliance.sh server-side, where it cannot be skipped.
+msg_file=$1
+subject=$(sed -n '1p' "$msg_file")
+
+# Exempt: merges, releases, and commits that only add/close task files.
+[ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ] && exit 0
+case "$subject" in "Merge "* | "chore: release v"* | "Revert "*) exit 0 ;; esac
+staged=$(git diff --cached --name-only)
+if [ -n "$staged" ] && [ -z "$(echo "$staged" | grep -v '^\.agents/tasks/')" ]; then
+    exit 0
+fi
+
+task=$(sed -n 's/^Task: \(T-[A-Z0-9][A-Z0-9]*-[0-9][0-9]*\)[[:space:]]*$/\1/p' "$msg_file" | head -1)
+if [ -z "$task" ]; then
+    cat >&2 <<MSG
+❌ Mandate 50: this commit has no task.
+   Work comes from the queue:   susi tasks add '<title>' --accept '<cmd>'
+                                susi tasks claim <id>
+   then end the commit message with a trailer:
+                                Task: T-<AGENT>-<n>
+MSG
+    exit 1
+fi
+root=$(git rev-parse --show-toplevel)
+if [ ! -f "$root/.agents/tasks/$task.json" ] && [ ! -f "$root/.agents/tasks/done/$task.json" ]; then
+    echo "❌ Mandate 50: $task is not a task in this checkout (merge origin/main or commit the task file first)." >&2
+    exit 1
+fi
+exit 0

@@ -1449,7 +1449,14 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
     // (mandate, phrase it must state, file that enforces it)
     for (id, phrase, artifact) in [
         (49, "scripts/susi-worktree.sh", ".githooks/workflow-guard"),
+        (49, "no bypass actors", "scripts/github-enforce.sh"),
         (50, "refs/claims/", "crates/susi-gawd/src/admin/tasks.rs"),
+        (
+            50,
+            "Task: T-<AGENT>-<n>",
+            "scripts/check-workflow-compliance.sh",
+        ),
+        (50, "commit-msg", ".githooks/commit-msg"),
         (
             51,
             "union the entries",
@@ -1481,4 +1488,27 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
             "the self-build brief must carry `{needle}`"
         );
     }
+}
+
+/// The ruleset script may only require checks that a workflow really
+/// produces: a required check that never reports blocks every merge.
+#[test]
+fn github_ruleset_requires_only_checks_the_workflows_produce() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let script = std::fs::read_to_string(root.join("scripts/github-enforce.sh")).unwrap();
+    let test_yml = std::fs::read_to_string(root.join(".github/workflows/test.yml")).unwrap();
+    let required: Vec<&str> = script
+        .lines()
+        .filter_map(|l| l.split("\"context\": \"").nth(1))
+        .filter_map(|r| r.split('"').next())
+        .collect();
+    assert!(required.contains(&"Workflow Compliance"), "{required:?}");
+    for ctx in &required {
+        assert!(
+            test_yml.contains(&format!("name: {ctx}")),
+            "required check `{ctx}` is not a job name in test.yml"
+        );
+    }
+    // The compliance job must run on the pushes the ruleset gates.
+    assert!(test_yml.contains("scripts/check-workflow-compliance.sh origin/main"));
 }

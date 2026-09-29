@@ -129,6 +129,24 @@ read by every agent; delegated agents also receive it in their task via
 - **56 Evidence-Ranked Brain** — providers ranked per task class by recorded
   outcomes; a failed or unfunded model never leads; keys are never removed.
 
+**How git enforces it** (hooks alone are skippable with `--no-verify`, so there
+are three layers):
+
+1. `.githooks/commit-msg` refuses a commit with no `Task: T-<AGENT>-<n>` trailer;
+   `.githooks/pre-push` (via `workflow-guard`) runs
+   `scripts/check-workflow-compliance.sh origin/main <pushed sha>` on every
+   pushed branch. Exempt: merges, `chore: release vX.Y.Z`, github-actions[bot],
+   and commits touching only `.agents/tasks/`. The rule binds commits made after
+   the script was introduced; earlier history is not judged.
+2. The CI job **Workflow Compliance** (`test.yml`) runs the same script on every
+   branch push, server-side — `--no-verify` cannot skip it. A task must be
+   closed (`.agents/tasks/done/`) or open under a live `refs/claims/<id>` lease.
+3. `scripts/github-enforce.sh --apply` (repo admin) installs a ruleset on
+   `main`: PRs only, the branch-push checks required, no force-push/deletion,
+   no bypass actors. Dry-run by default; apply it only once Workflow Compliance
+   has been green on a few branches, since a required check that never reports
+   blocks every merge.
+
 `tests/architecture_tests.rs::workflow_mandates_are_in_identity_and_their_enforcement_exists`
 fails if a mandate goes missing or names an enforcement file that does not exist.
 
