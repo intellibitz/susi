@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "gemini-live-2025",
+    "name": "Live API 2025",
+    "version": "2025",
+    "released": null,
+    "provenance": {
+      "source": "https://ai.google.dev/api",
+      "spec_version": "v1beta",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "gemini-live-2025",
+      "to": "gemini-live",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

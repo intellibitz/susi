@@ -1,0 +1,61 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "google",
+    "name": "Google",
+    "home": "https://ai.google.dev",
+    "provenance": {
+      "source": "https://ai.google.dev/api",
+      "spec_version": "v1beta",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "google",
+      "to": "google-ai-api",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "google",
+      "to": "gemini-generatecontent",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "google",
+      "to": "gemini-live",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "google",
+      "to": "gemini-caching",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

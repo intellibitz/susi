@@ -1,0 +1,233 @@
+{
+  "version": "eco-profile/v1",
+  "id": "gemini-generatecontent",
+  "name": "Gemini generateContent, Live and caching",
+  "subject": "gemini-generatecontent",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1beta/models/{model}:generateContent",
+      "description": "Unary generation; :streamGenerateContent is the SSE variant.",
+      "request": "generate-content",
+      "response": "generate-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1beta/models/{model}:streamGenerateContent",
+      "description": "SSE streaming generation.",
+      "request": "generate-content",
+      "response": "generate-response",
+      "streaming": true
+    },
+    {
+      "method": "WSS",
+      "path": "/v1beta/ws/...:BidiGenerateContent",
+      "description": "Live API: bidirectional WebSocket for realtime audio/video.",
+      "response": "live-events",
+      "streaming": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1beta/cachedContents",
+      "description": "Create a cached context (explicit prompt caching).",
+      "request": "cached-content",
+      "response": "cached-content-obj"
+    },
+    {
+      "method": "GET",
+      "path": "/v1beta/models",
+      "description": "List models."
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "api-key-header",
+      "header": "x-goog-api-key",
+      "prefix": "",
+      "env": [
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY"
+      ]
+    },
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": []
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1beta",
+      "status": "current"
+    },
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "generate-content",
+      "format": "json",
+      "fields": [
+        "contents[]",
+        "systemInstruction",
+        "tools[]",
+        "toolConfig",
+        "generationConfig",
+        "safetySettings",
+        "cachedContent"
+      ],
+      "notes": "contents[] carry role+parts[]; parts are text|inlineData|fileData|functionCall|functionResponse; generationConfig.responseMimeType=application/json + responseSchema gives structured output."
+    },
+    {
+      "name": "cached-content",
+      "format": "json",
+      "fields": [
+        "model",
+        "contents",
+        "systemInstruction",
+        "tools",
+        "ttl",
+        "expireTime"
+      ]
+    },
+    {
+      "name": "live-setup",
+      "format": "websocket-json",
+      "fields": [
+        "setup",
+        "realtimeInput",
+        "clientContent",
+        "toolResponse"
+      ]
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "generate-response",
+      "format": "json",
+      "fields": [
+        "candidates[].content.parts[]",
+        "candidates[].finishReason",
+        "usageMetadata",
+        "promptFeedback"
+      ],
+      "notes": "finishReason: STOP|MAX_TOKENS|SAFETY|RECITATION|\u2026; usageMetadata carries promptTokenCount/candidatesTokenCount/cachedContentTokenCount."
+    },
+    {
+      "name": "live-events",
+      "format": "websocket-json",
+      "fields": [
+        "setupComplete",
+        "serverContent",
+        "toolCall",
+        "toolCallCancellation",
+        "goAway",
+        "sessionResumptionUpdate"
+      ]
+    },
+    {
+      "name": "cached-content-obj",
+      "format": "json",
+      "fields": [
+        "name",
+        "model",
+        "createTime",
+        "updateTime",
+        "expireTime",
+        "usageMetadata"
+      ]
+    },
+    {
+      "name": "error-body",
+      "format": "json",
+      "fields": [
+        "error.code",
+        "error.message",
+        "error.status",
+        "error.details"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "INVALID_ARGUMENT",
+      "retriable": false
+    },
+    {
+      "status": "401",
+      "code": "UNAUTHENTICATED",
+      "retriable": false
+    },
+    {
+      "status": "403",
+      "code": "PERMISSION_DENIED",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "RESOURCE_EXHAUSTED",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "INTERNAL",
+      "retriable": true
+    },
+    {
+      "status": "503",
+      "code": "UNAVAILABLE",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "RESOURCE_EXHAUSTED \u2014 quota bucket empty"
+    },
+    {
+      "signal": "error.status",
+      "meaning": "gRPC-style status name in the error body"
+    }
+  ],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "data: {...GenerateContentResponse}"
+    ],
+    "notes": "streamGenerateContent emits full response objects per chunk; Live is a WebSocket, not SSE."
+  },
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-vision",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-realtime",
+    "cap-prompt-caching",
+    "cap-audio",
+    "cap-embeddings"
+  ],
+  "deviations": [
+    {
+      "host": "gcp-vertex",
+      "field": "auth",
+      "behavior": "Vertex runs generateContent under /v1/projects/{p}/locations/{r}/publishers/google/models/{m}:generateContent with Google OAuth, not x-goog-api-key."
+    },
+    {
+      "host": "openai-compatible",
+      "field": "path",
+      "behavior": "Google also exposes an OpenAI-compatible /v1beta/openai/chat/completions surface for the same models."
+    }
+  ],
+  "provenance": {
+    "source": "https://ai.google.dev/api",
+    "spec_version": "v1beta",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

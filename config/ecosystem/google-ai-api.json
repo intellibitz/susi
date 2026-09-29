@@ -1,0 +1,149 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "google-ai-api",
+    "name": "Google AI (Gemini) API",
+    "category": "service",
+    "provenance": {
+      "source": "https://ai.google.dev/api",
+      "spec_version": "v1beta",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements-version",
+      "from": "google-ai-api",
+      "to": "gemini-generatecontent-v1beta",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "google-ai-api",
+      "to": "gemini-live-2025",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "google-ai-api",
+      "to": "gemini-caching-v1beta",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-realtime",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-prompt-caching",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-audio",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-ai-api",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
