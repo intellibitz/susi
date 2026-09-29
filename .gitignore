@@ -57,3 +57,6 @@ Thumbs.db
 .artifacts/
 .aider*
 .plans
+
+# Agent worktrees live here; never track them.
+.claude/worktrees/

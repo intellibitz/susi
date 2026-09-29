@@ -1456,6 +1456,8 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
             "crates/susi-gawd/src/admin/workflow.rs",
         ),
         (49, "park-primary.sh", "scripts/park-primary.sh"),
+        (49, "SessionStart hook", ".claude/settings.json"),
+        (49, "CLAUDE.md", "CLAUDE.md"),
         (50, "refs/claims/", "crates/susi-gawd/src/admin/tasks.rs"),
         (
             50,

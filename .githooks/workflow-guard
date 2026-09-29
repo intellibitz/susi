@@ -26,7 +26,7 @@ commit | merge)
         cat >&2 <<MSG
 ❌ Mandate 49: do not commit in the primary checkout.
    Every agent/user works in its own worktree on its own branch:
-       scripts/susi-worktree.sh <name>      # creates ../<repo>-<name> on branch <name>
+       scripts/susi-worktree.sh             # no name needed; prints `cd <path>` — or: susi workflow start
    (override, knowingly: SUSI_ALLOW_PRIMARY=1 git commit ...)
 MSG
         exit 1

@@ -4,7 +4,9 @@ have the hooks installed and hold a claim — and prints the command that fixes
 each ❌. (No installed susi? `cargo run -q -- workflow check`.)
 
 1. **Own worktree, never the primary checkout, never `main`:**
-   `scripts/susi-worktree.sh <name>`, then `scripts/setup-dev.sh`.
+   `scripts/susi-worktree.sh` — no name needed (or `susi workflow start`). It
+   creates your branch off the latest `origin/main`, installs the hooks, parks
+   the primary checkout and prints `cd <path>`; continue there.
 2. **Work comes from the queue:** `susi tasks list`, then
    `susi tasks claim <id>` before you start. Nobody starts a claimed task.
 3. **Every commit ends with a trailer** `Task: T-<AGENT>-<n>` naming that task.
@@ -18,6 +20,12 @@ each ❌. (No installed susi? `cargo run -q -- workflow check`.)
 5. **Done means `susi tasks close <id>`** — its acceptance check passes. Do not
    push to `main`, tag, or cut a release; pushed branches open and merge their
    own PR.
+
+This block is loaded for you: `CLAUDE.md`, `GEMINI.md`,
+`.github/copilot-instructions.md` and `.cursor/rules/susi-workflow.mdc` each
+point every agent tool here, and a Claude Code SessionStart hook
+(`.claude/settings.json` → `scripts/workflow-session-start.sh`) runs the check
+for you. Keep those pointers identical; this file is the single source.
 
 The full rules follow (identity.json Mandates 48–56 are the constitution).
 
