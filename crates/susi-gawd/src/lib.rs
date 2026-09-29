@@ -70,11 +70,13 @@ pub mod bloat_audit;
 pub mod eval_receipt;
 pub mod eval_separation;
 pub mod evolution;
+pub mod experiment_lifecycle;
 pub mod formal_invariants;
 pub mod genome_distiller;
 pub mod kernel_loader;
 pub mod patch_cycle;
 pub mod reason_trainer;
+pub mod reflex_intent;
 pub mod reflex_synth;
 pub mod reflex_trainer;
 pub mod rsi_corpus;
@@ -99,6 +101,12 @@ mod vc_201_004_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_005.rs"]
 mod vc_201_005_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_007.rs"]
+mod vc_201_007_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_011.rs"]
+mod vc_201_011_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};

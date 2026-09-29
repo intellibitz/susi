@@ -1,0 +1,108 @@
+{
+  "version": "eco-profile/v1",
+  "id": "mcp-features",
+  "name": "MCP server and client features",
+  "subject": "mcp",
+  "endpoints": [
+    {
+      "method": "tools/list",
+      "path": "tools/list",
+      "description": "List tools",
+      "response": "json-rpc-result"
+    },
+    {
+      "method": "tools/call",
+      "path": "tools/call",
+      "description": "Invoke a tool",
+      "request": "json-rpc",
+      "response": "json-rpc-result"
+    },
+    {
+      "method": "resources/list",
+      "path": "resources/list",
+      "description": "List resources",
+      "response": "json-rpc-result"
+    },
+    {
+      "method": "prompts/list",
+      "path": "prompts/list",
+      "description": "List prompts",
+      "response": "json-rpc-result"
+    },
+    {
+      "method": "sampling/createMessage",
+      "path": "sampling/createMessage",
+      "description": "Client sampling",
+      "request": "json-rpc",
+      "response": "json-rpc-result"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none"
+    }
+  ],
+  "versions": [
+    {
+      "id": "2024-11-05",
+      "released": "2024-11-05",
+      "status": "deprecated"
+    },
+    {
+      "id": "2025-03-26",
+      "released": "2025-03-26",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "json-rpc",
+      "format": "json",
+      "fields": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ]
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "json-rpc-result",
+      "format": "json",
+      "fields": [
+        "jsonrpc",
+        "id",
+        "result"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "parse-error",
+      "code": "-32700",
+      "retriable": false
+    },
+    {
+      "status": "method-not-found",
+      "code": "-32601",
+      "retriable": false
+    }
+  ],
+  "rate_limits": [],
+  "capabilities": [
+    "tools",
+    "resources",
+    "prompts",
+    "sampling",
+    "roots",
+    "elicitation"
+  ],
+  "deviations": [],
+  "provenance": {
+    "source": "https://modelcontextprotocol.io/specification/2025-03-26",
+    "spec_version": "2025-03-26",
+    "retrieved": "2026-09-30",
+    "confidence": "verified"
+  }
+}

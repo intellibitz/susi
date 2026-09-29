@@ -71,3 +71,34 @@ mod eco_a2a_versions_tests {
             .any(|r| r["kind"] == "supersedes" || r["kind"] == "version-of"));
     }
 }
+
+#[cfg(test)]
+mod eco_a2a_security_tests {
+    fn load(name: &str) -> serde_json::Value {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../config/ecosystem/profiles")
+            .join(name);
+        serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn eco_a2a_security_documents_schemes_and_extensions() {
+        let p = load("a2a-security.json");
+        assert!(p["auth"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["scheme"] == "bearer"));
+        assert!(p["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c == "extensions"));
+        assert!(p["response_shapes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["name"] == "agent-card"));
+        assert_eq!(p["provenance"]["confidence"], "verified");
+    }
+}

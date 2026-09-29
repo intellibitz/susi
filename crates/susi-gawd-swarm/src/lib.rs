@@ -30,6 +30,7 @@ pub mod dag;
 pub mod deliberation;
 pub mod host_hooks;
 pub mod identity_revoke;
+pub mod independent_verify;
 pub mod joint_consensus;
 pub mod membership_model;
 pub mod mission_persist;
@@ -63,6 +64,9 @@ mod vc_201_022_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_023.rs"]
 mod vc_201_023_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_028.rs"]
+mod vc_201_028_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_031.rs"]
 mod vc_201_031_tests;

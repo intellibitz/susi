@@ -1,0 +1,112 @@
+{
+  "version": "eco-profile/v1",
+  "id": "mcp-transports",
+  "name": "MCP transports",
+  "subject": "mcp",
+  "endpoints": [
+    {
+      "method": "STDIO",
+      "path": "stdio",
+      "description": "Newline-framed JSON-RPC over stdin/stdout",
+      "request": "json-rpc",
+      "response": "json-rpc-result"
+    },
+    {
+      "method": "POST",
+      "path": "/mcp",
+      "description": "Streamable HTTP POST",
+      "request": "json-rpc",
+      "response": "json-rpc-result",
+      "streaming": true
+    },
+    {
+      "method": "GET+SSE",
+      "path": "/sse",
+      "description": "Legacy SSE transport",
+      "request": "json-rpc",
+      "response": "json-rpc-result",
+      "streaming": true
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none"
+    }
+  ],
+  "versions": [
+    {
+      "id": "2024-11-05",
+      "released": "2024-11-05",
+      "status": "deprecated"
+    },
+    {
+      "id": "2025-03-26",
+      "released": "2025-03-26",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "json-rpc",
+      "format": "json",
+      "fields": [
+        "jsonrpc",
+        "id",
+        "method",
+        "params"
+      ]
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "json-rpc-result",
+      "format": "json",
+      "fields": [
+        "jsonrpc",
+        "id",
+        "result"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "status": "parse-error",
+      "code": "-32700",
+      "retriable": false
+    },
+    {
+      "status": "method-not-found",
+      "code": "-32601",
+      "retriable": false
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "HTTP transport may rate-limit; stdio does not"
+    }
+  ],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "message",
+      "endpoint"
+    ],
+    "terminator": ""
+  },
+  "capabilities": [
+    "stdio",
+    "streamable-http",
+    "legacy-sse",
+    "session-resume"
+  ],
+  "deviations": [
+    "Legacy SSE requires a separate endpoint event before messages"
+  ],
+  "provenance": {
+    "source": "https://modelcontextprotocol.io/specification/2025-03-26",
+    "spec_version": "2025-03-26",
+    "retrieved": "2026-09-30",
+    "confidence": "verified"
+  }
+}
