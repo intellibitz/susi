@@ -131,6 +131,17 @@ fn main() -> std::process::ExitCode {
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
     if cli.command.is_none() {
+        if let Some(hints) = cli::intent_guard::refuse(&Cli::command(), &cli.intent) {
+            eprintln!(
+                "`{}` looks like a command, not a goal — refusing to run it as a mission.",
+                cli.intent.join(" ")
+            );
+            if !hints.is_empty() {
+                eprintln!("did you mean: {}", hints.join(", "));
+            }
+            eprintln!("to run it as a goal, quote it as a sentence: susi \"<what you want done>\"");
+            return std::process::ExitCode::from(2);
+        }
         let near_misses = command_near_miss(&cli.intent);
         if !near_misses.is_empty() {
             eprintln!(

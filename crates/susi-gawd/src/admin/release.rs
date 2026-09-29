@@ -66,9 +66,10 @@ impl SusiAdmin {
         let _ = Self::audit_compliance(workspace, Some("release"))?;
 
         eprintln!("[Release Gatekeeper] 3. Executing Native Test Harness...");
-        let mut test = Command::new("cargo")
-            .arg("test")
-            .current_dir(workspace)
+        let mut test_cmd = Command::new("cargo");
+        test_cmd.arg("test").current_dir(workspace);
+        scrub_instance_env(&mut test_cmd);
+        let mut test = test_cmd
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
             .spawn()?;
@@ -357,5 +358,32 @@ impl SusiAdmin {
              scripts/susi-release-sync.sh (once) or --install-timer (always)."
                 .to_string()
         }
+    }
+}
+
+/// The gate's tests must run against their own hermetic HOME, not whichever
+/// susi instance launched the release. A dev build isolates itself by setting
+/// `SUSI_HOME=~/.susi-dev` (+ `SUSI_PORT_OFFSET`), and an inherited value
+/// overrides the tests' HOME/XDG swap — `cluster_rekey` then rotated a key
+/// under the wrong directory and blocked the cut.
+fn scrub_instance_env(cmd: &mut Command) {
+    cmd.env_remove("SUSI_HOME").env_remove("SUSI_PORT_OFFSET");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gate_tests_do_not_inherit_the_launching_instance() {
+        let mut cmd = Command::new("cargo");
+        scrub_instance_env(&mut cmd);
+        let removed: Vec<_> = cmd
+            .get_envs()
+            .filter(|(_, v)| v.is_none())
+            .map(|(k, _)| k.to_string_lossy().into_owned())
+            .collect();
+        assert!(removed.contains(&"SUSI_HOME".to_string()));
+        assert!(removed.contains(&"SUSI_PORT_OFFSET".to_string()));
     }
 }
