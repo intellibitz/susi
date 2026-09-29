@@ -146,3 +146,9 @@ One line per landed step, newest last.
 15. Trace log bounded at 8 MiB: emit rotates oldest half under the lock at
     a line boundary; retrieval reads the whole file per mission so growth
     was compounding cost.
+16. Plan metadata joins the trace: `PlanRecord {steps, score, consensus,
+    failed_step}` on the mission report; `MissionTrace` carries
+    plan_steps/plan_score/plan_consensus/failed_step and history_brief
+    annotates `[failed at step N]` — retrieval now surfaces *where* plans
+    broke, not just that they failed. Distill lane: plan_steps are
+    bounded+redacted like tools, safe to consume for plan-shape features.

@@ -941,6 +941,7 @@ mod tests {
             status: "FAILED".into(),
             agents: vec![],
             interactions: vec![],
+            plan: None,
             final_answer: "Original provider unavailable".into(),
         }
     }

@@ -3774,6 +3774,16 @@
     "label": "Bounded trace log",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-028",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 10 \u2014 plan metadata joins the mission trace. SusiMissionReport carries PlanRecord {steps, score, consensus, failed_step}: the abort path records the 1-based failing step; the synthesis-path final report gets the chosen candidate's record attached. MissionTrace gains plan_steps/plan_score/plan_consensus/failed_step (schema v2 defaults keep v1 lines readable) and history_brief annotates similar traces with '[failed at step N]' so planning-time retrieval surfaces where plans broke, not just that they failed.",
+   "proof": "plan_fields_flow_into_brief_with_step_attribution; susi-core 210 pass, susi-gawd-swarm 59 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "PlanRecord in trace",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/report.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

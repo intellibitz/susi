@@ -63,6 +63,19 @@ pub struct MissionTrace {
     /// not celebrated.
     #[serde(default)]
     pub reflex_served: Vec<String>,
+    /// The executed plan's steps, when the mission ran plan search.
+    /// Lets retrieval learn plan *shape*, not just goal text.
+    #[serde(default)]
+    pub plan_steps: Vec<String>,
+    /// Chosen candidate's deliberation score.
+    #[serde(default)]
+    pub plan_score: Option<f32>,
+    /// Top-two consensus when the gate measured it.
+    #[serde(default)]
+    pub plan_consensus: Option<f32>,
+    /// 1-based index of the step that aborted the plan.
+    #[serde(default)]
+    pub failed_step: Option<u32>,
     /// Recruited agent names.
     pub agents: Vec<String>,
     /// Count of interaction/evidence entries the report carried.
@@ -83,6 +96,10 @@ impl MissionTrace {
             tools: Vec::new(),
             signals: Vec::new(),
             reflex_served: Vec::new(),
+            plan_steps: Vec::new(),
+            plan_score: None,
+            plan_consensus: None,
+            failed_step: None,
             agents: Vec::new(),
             evidence_entries: 0,
             duration_secs: None,
@@ -429,12 +446,17 @@ pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> Strin
     let lines: Vec<String> = similar(goal, traces, limit)
         .iter()
         .map(|t| {
+            let step_note = t
+                .failed_step
+                .map(|s| format!(" [failed at step {s}]"))
+                .unwrap_or_default();
             format!(
-                "- \"{}\" -> {} via {} (tools: {})",
+                "- \"{}\" -> {} via {} (tools: {}){}",
                 t.goal,
                 t.outcome,
                 t.route,
-                t.tools.join(",")
+                t.tools.join(","),
+                step_note
             )
         })
         .collect();
@@ -619,6 +641,24 @@ mod tests {
         let counts = failing_tool_counts("deploy api service", &traces, 8);
         assert_eq!(counts.get("broken_tool"), Some(&2));
         assert!(!counts.contains_key("exec_command"));
+    }
+
+    #[test]
+    fn plan_fields_flow_into_brief_with_step_attribution() {
+        let ws = workspace();
+        let mut t = MissionTrace::new("m", "deploy api service", "FAILED", "swarm");
+        t.tools = vec!["exec_command".into()];
+        t.plan_steps = vec!["read config".into(), "deploy".into(), "verify".into()];
+        t.plan_score = Some(0.72);
+        t.plan_consensus = Some(0.9);
+        t.failed_step = Some(2);
+        t.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let got = &traces[0];
+        assert_eq!(got.failed_step, Some(2));
+        assert_eq!(got.plan_steps.len(), 3);
+        let brief = history_brief("deploy api service", &traces, 3);
+        assert!(brief.contains("failed at step 2"), "{brief}");
     }
 
     #[test]

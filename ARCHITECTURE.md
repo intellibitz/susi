@@ -449,6 +449,13 @@ sinks:
 `mission_trace::read_all` tolerates older-schema and partial lines, so trace
 consumers never break on a rolled-forward file.
 
+A mission that ran plan search additionally carries a `PlanRecord`
+(`plan_steps`, `plan_score`, `plan_consensus`, `failed_step`): the mission
+report records which candidate won and, on abort, the 1-based step that
+failed. The fields flow into `MissionTrace`, and `history_brief` annotates
+similar failures with `[failed at step N]` — retrieval surfaces *where*
+plans broke, not just that they failed.
+
 The `verify` stage runs through the **contract registry**
 (`susi_core::verification`): `Contract::{FileExists, FileAbsent,
 FileContains, FileHash, CommandExit}` evaluate against physical workspace

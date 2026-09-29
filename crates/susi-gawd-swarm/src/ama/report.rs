@@ -5,6 +5,21 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use susi_gawd_agents::agents::GawdAgentInfo;
 
+/// What plan search actually committed to — recorded on the report so the
+/// mission trace can join plan shape to outcome, not just goal to outcome.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlanRecord {
+    /// The executed candidate's steps.
+    pub steps: Vec<String>,
+    /// Chosen candidate's deliberation score.
+    pub score: f32,
+    /// Top-two consensus when the gate measured it.
+    pub consensus: Option<f32>,
+    /// 1-based index of the step that aborted the plan, when it failed
+    /// partway — failure attribution retrieval can use later.
+    pub failed_step: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SusiMissionReport {
     pub goal: String,
@@ -12,6 +27,9 @@ pub struct SusiMissionReport {
     pub agents: Vec<GawdAgentInfo>,
     pub interactions: Vec<A2AMessage>,
     pub final_answer: String,
+    /// Deliberation outcome for autonomous missions; `None` on paths that
+    /// never ran plan search (solve, governance blocks, recovery).
+    pub plan: Option<PlanRecord>,
 }
 
 pub type SusiSwarmReport = SusiMissionReport;
@@ -179,6 +197,13 @@ impl SusiMissionReport {
         trace.agents = crate::susi_core::mission_trace::bounded_list(
             self.agents.iter().map(|a| a.name.clone()),
         );
+        if let Some(plan) = &self.plan {
+            trace.plan_steps =
+                crate::susi_core::mission_trace::bounded_list(plan.steps.iter().cloned());
+            trace.plan_score = Some(plan.score);
+            trace.plan_consensus = plan.consensus;
+            trace.failed_step = plan.failed_step;
+        }
         trace.evidence_entries = session
             .as_ref()
             .map(|s| s.receipts().len())
@@ -250,6 +275,7 @@ mod report_tests {
                 status: status.into(),
                 agents: vec![],
                 interactions: vec![],
+                plan: None,
                 final_answer: "Mission complete. Everything worked.".into(),
             };
             assert!(!report.is_success());
@@ -275,6 +301,7 @@ mod report_tests {
                 status: status.into(),
                 agents: vec![],
                 interactions: vec![],
+                plan: None,
                 final_answer: "Observed the requested file.".into(),
             };
             assert!(report.is_success());
@@ -293,6 +320,7 @@ mod report_tests {
                 status: status.into(),
                 agents: vec![],
                 interactions: vec![],
+                plan: None,
                 final_answer: String::new(),
             };
             let value: serde_json::Value =
