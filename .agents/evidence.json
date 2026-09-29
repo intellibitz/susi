@@ -4264,6 +4264,16 @@
     "label": "Capability-outcome filter",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-057",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 39 \u2014 exemplar quality + capability sizing. proven_plan_brief picked the first similar verified trace; it now prefers the highest plan_score so the exemplar teaches the best-scoring proven shape (unrecorded scores sort last, similarity breaks ties). unreliable_neighborhood's \u22652 evidence bar counts capability outcomes only.",
+   "proof": "proven_plan_brief_prefers_highest_scoring_exemplar. susi-core 233 pass; clippy clean.",
+   "anchor": {
+    "label": "Exemplar quality",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

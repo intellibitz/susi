@@ -371,3 +371,7 @@ One line per landed step, newest last.
     trace no longer counts as a failure in success_rate, difficulty
     failure-rate, promotion veto, or failed-step/plan provenance — a
     refused intent is a policy outcome, not "we tried and lost".
+45. Exemplar quality + capability sizing: proven_plan_brief now picks
+    the verified trace with the highest plan_score (best teacher, not
+    first match); unreliable_neighborhood sizes the >=2 bar on
+    capability outcomes, so refusals don't pad the neighborhood.

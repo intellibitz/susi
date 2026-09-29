@@ -725,7 +725,16 @@ pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option
 /// neighbor is too thin to condemn (one failure can be noise).
 pub fn unreliable_neighborhood(goal: &str, traces: &[MissionTrace], limit: usize) -> bool {
     match success_rate(goal, traces, limit) {
-        Some(rate) => similar(goal, traces, limit).len() >= 2 && rate < 0.5,
+        // Size the neighborhood on capability outcomes too — a refusal
+        // shouldn't count toward the ≥2 evidence bar.
+        Some(rate) => {
+            similar(goal, traces, limit)
+                .iter()
+                .filter(|t| t.capability_outcome())
+                .count()
+                >= 2
+                && rate < 0.5
+        }
         None => false,
     }
 }
@@ -768,9 +777,21 @@ pub fn plan_score_correlation(traces: &[MissionTrace]) -> Option<f32> {
 /// mission's steps teach what to avoid, never what to copy. Empty when
 /// nothing similar succeeded, so novel intents get no fabricated guidance.
 pub fn proven_plan_brief(goal: &str, traces: &[MissionTrace]) -> String {
+    // The exemplar should teach the *best* proven shape: among verified
+    // candidates prefer the one whose plan scored highest at
+    // deliberation (a lucky low-scored pass is a worse teacher);
+    // unrecorded scores sort last, similarity order breaking ties.
     let Some(t) = similar(goal, traces, 8)
         .into_iter()
-        .find(|t| t.verified() && !t.plan_steps.is_empty())
+        .filter(|t| t.verified() && !t.plan_steps.is_empty())
+        // rev: max_by returns the *last* maximal element — from the back,
+        // the most-similar candidate wins score ties.
+        .rev()
+        .max_by(|a, b| {
+            a.plan_score
+                .unwrap_or(f32::MIN)
+                .total_cmp(&b.plan_score.unwrap_or(f32::MIN))
+        })
     else {
         return String::new();
     };
@@ -1152,6 +1173,24 @@ mod tests {
         assert!(!brief.contains("guess blindly"), "{brief}");
         // Novel goal: no exemplar, no fabricated guidance.
         assert!(proven_plan_brief("unrelated never-seen task", &traces).is_empty());
+    }
+
+    #[test]
+    fn proven_plan_brief_prefers_highest_scoring_exemplar() {
+        // Two verified successes on the same goal; the higher-scored
+        // plan is the better teacher even though the other is a bit
+        // more similar textually.
+        let mut low = MissionTrace::new("lo", "deploy api service backend", "COMPLETE", "swarm");
+        low.plan_steps = vec!["lucky guess".into()];
+        low.plan_score = Some(0.3);
+        low.evidence_entries = 1;
+        let mut high = MissionTrace::new("hi", "deploy api service", "COMPLETE", "swarm");
+        high.plan_steps = vec!["read config".into(), "deploy".into()];
+        high.plan_score = Some(0.9);
+        high.evidence_entries = 1;
+        let brief = proven_plan_brief("deploy api service backend", &[low, high]);
+        assert!(brief.contains("read config"), "{brief}");
+        assert!(!brief.contains("lucky guess"), "{brief}");
     }
 
     #[test]
