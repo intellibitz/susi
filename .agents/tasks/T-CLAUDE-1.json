@@ -1,0 +1,14 @@
+{
+  "id": "T-CLAUDE-1",
+  "title": "Make every test hermetic against an inherited SUSI_HOME",
+  "goal": "A dev susi exports SUSI_HOME=~/.susi-dev and SusiDirs resolves it ahead of HOME/XDG, so tests that swap only HOME still use the launching instance: susi-config extensions load_unload_round_trip_custom_pack, susi-daemon capability_gap_e2e, susi-gemi http_provider upsert_and_register_roundtrip_in_temp_cloud_env fail and write into it (tests/common HomeGuard is already fixed). Give each isolation helper (IsolatedCloudHome etc.) the same SUSI_HOME removal + restore, keeping the env locks. Running scripts/check-hermetic-tests.sh (the acceptance check) also shows susi-config cluster_key_tests (signed_ping_pong_roundtrip_verifies, legacy_six_field_ping_verifies_with_empty_node_id, v3_pong_carries_subject_attested_binding, ...) failing under an inherited SUSI_HOME; the check also fails if anything is written into that SUSI_HOME.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-hermetic-tests.sh"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790696302
+}
