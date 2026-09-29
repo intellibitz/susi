@@ -3804,6 +3804,16 @@
     "label": "IDF retrieval",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-031",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 13 \u2014 few-shot plan exemplars. proven_plan_brief picks the most similar SUCCESSFUL trace with recorded plan_steps and injects its numbered decomposition into the plan_steps prompt. Failed traces and traces without plan metadata can never become exemplars; novel goals get none. Retrieval now informs the planner of what to copy, not only what to avoid.",
+   "proof": "proven_plan_brief_only_teaches_from_successes: exemplar carries the winning plan's numbered steps, failed-trace steps excluded, novel goal yields empty brief. susi-core 213, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Proven plan exemplar",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

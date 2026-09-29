@@ -483,7 +483,11 @@ The `retrieve` stage consults history before planning
 most similar to the goal (IDF-weighted token overlap ≥ 0.15 — each token
 contributes its corpus IDF over the trace set, so a shared rare token like
 "kubernetes" outranks a ubiquitous "deploy"; stopword-filtered) inject a
-"prior outcomes" brief into the decomposition prompt, and a `Difficulty`
+"prior outcomes" brief into the decomposition prompt. A few-shot exemplar
+joins it: `proven_plan_brief` appends the most similar *successful*
+trace's numbered `plan_steps`, so a winning decomposition's shape is
+visible to the planner — failed traces and step-less traces can never
+become exemplars. A `Difficulty`
 estimate — novelty, similar-mission failure rate, manifold risk — decides
 routing: `demands_deliberation()` widens the candidate search *and* raises
 the model floor — `solve_internal`'s first inference attempt gets a

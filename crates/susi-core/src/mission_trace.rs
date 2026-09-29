@@ -486,6 +486,27 @@ pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option
     Some(wins as f32 / neighbors.len() as f32)
 }
 
+/// Few-shot decomposition exemplar: the `plan_steps` of the most similar
+/// successful trace. Only verified wins teach plan *shape* — a failed
+/// mission's steps teach what to avoid, never what to copy. Empty when
+/// nothing similar succeeded, so novel intents get no fabricated guidance.
+pub fn proven_plan_brief(goal: &str, traces: &[MissionTrace]) -> String {
+    let Some(t) = similar(goal, traces, 8)
+        .into_iter()
+        .find(|t| t.succeeded() && !t.plan_steps.is_empty())
+    else {
+        return String::new();
+    };
+    let steps = t
+        .plan_steps
+        .iter()
+        .enumerate()
+        .map(|(i, s)| format!("{}. {}", i + 1, s))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("A similar goal succeeded with this plan:\n{steps}\n\n")
+}
+
 /// One-line history brief for prompt injection: what similar missions did
 /// and how they ended. Empty when nothing similar exists.
 pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
@@ -708,6 +729,25 @@ mod tests {
     }
 
     #[test]
+    fn proven_plan_brief_only_teaches_from_successes() {
+        let ws = workspace();
+        // Most similar trace FAILED — it must not become the exemplar.
+        let mut bad = MissionTrace::new("bad", "deploy api service", "FAILED", "swarm");
+        bad.plan_steps = vec!["guess blindly".into()];
+        let mut good = MissionTrace::new("good", "deploy api service", "SUCCESS", "swarm");
+        good.plan_steps = vec!["read config".into(), "deploy".into(), "verify".into()];
+        bad.emit(ws.path()).unwrap();
+        good.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let brief = proven_plan_brief("deploy api service", &traces);
+        assert!(brief.contains("1. read config"), "{brief}");
+        assert!(brief.contains("3. verify"), "{brief}");
+        assert!(!brief.contains("guess blindly"), "{brief}");
+        // Novel goal: no exemplar, no fabricated guidance.
+        assert!(proven_plan_brief("unrelated never-seen task", &traces).is_empty());
+    }
+
+    #[test]
     fn idf_ranks_rare_shared_tokens_over_common_ones() {
         let ws = workspace();
         for (id, goal) in [
@@ -741,7 +781,7 @@ mod tests {
         let mut failed = MissionTrace::new("f", "deploy api service", "FAILED", "swarm");
         failed.plan_steps = vec!["read config".into(), "deploy".into(), "verify".into()];
         failed.failed_step = Some(2);
-        let mut ok = MissionTrace::new("o", "deploy api service", "DONE", "swarm");
+        let mut ok = MissionTrace::new("o", "deploy api service", "SUCCESS", "swarm");
         ok.plan_steps = vec!["read config".into(), "deploy".into()];
         ok.failed_step = None;
         // Failure with no failed_step attribution contributes nothing.

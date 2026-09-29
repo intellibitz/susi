@@ -798,7 +798,14 @@ impl SusiMasterAgent {
         let traces = crate::susi_core::mission_trace::read_all(workspace);
         let difficulty =
             crate::susi_core::mission_trace::difficulty(&goal, &traces, manifold.risk_profile);
-        let brief = crate::susi_core::mission_trace::history_brief(&goal, &traces, 5);
+        let brief = format!(
+            "{}{}",
+            crate::susi_core::mission_trace::history_brief(&goal, &traces, 5),
+            // A worked exemplar: how a similar mission's plan actually
+            // decomposed when it succeeded — few-shot plan shape, not
+            // just outcome text.
+            crate::susi_core::mission_trace::proven_plan_brief(&goal, &traces)
+        );
         eprintln!(
             "[RETRIEVAL] {} similar missions | difficulty={:.2} (novel={} failure_rate={:.0}% risk={:?})",
             crate::susi_core::mission_trace::similar(&goal, &traces, 8).len(),

@@ -163,3 +163,8 @@ One line per landed step, newest last.
     rare token ("kubernetes") now outranks a shared ubiquitous one
     ("deploy"); plain Jaccard couldn't separate them and common-token
     matches could even crowd rare ones below the similarity floor.
+19. Proven-plan exemplars: `proven_plan_brief` injects the most similar
+    *successful* trace's plan_steps into the decomposition prompt — only
+    verified wins teach plan shape; failed and step-less traces can't
+    become exemplars. Retrieval now informs both what to avoid AND what
+    to copy.
