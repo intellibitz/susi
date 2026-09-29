@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-266",
+  "title": "Profile: OpenAI Batch and Files APIs",
+  "goal": "Batch job lifecycle, JSONL formats, file purposes, limits and cost semantics. Author the machine-readable profile (endpoints, auth, versions, request/response shapes, errors, rate-limit signals, streaming, capability tags) in config/ecosystem/ and test it offline against recorded fixtures. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_openai_batch_files"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551
+}

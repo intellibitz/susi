@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-253",
+  "title": "Provenance and freshness on every fact",
+  "goal": "Each fact records source URL, spec version, retrieved date and confidence; a freshness policy flags stale facts and the validator rejects facts without a source. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_provenance"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551
+}

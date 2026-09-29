@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-313",
+  "title": "Profile: Ollama native and OpenAI-compatible APIs",
+  "goal": "/api/* routes, model management, keep_alive and the compatibility layer's gaps. Author the machine-readable profile (endpoints, auth, versions, request/response shapes, errors, rate-limit signals, streaming, capability tags) in config/ecosystem/ and test it offline against recorded fixtures. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_ollama_api"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713552
+}

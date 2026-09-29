@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-270",
+  "title": "Profile: Gemini generateContent, live and caching",
+  "goal": "Parts model, safety settings, function calling, grounding, context caching, files and the Live API. Author the machine-readable profile (endpoints, auth, versions, request/response shapes, errors, rate-limit signals, streaming, capability tags) in config/ecosystem/ and test it offline against recorded fixtures. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_gemini_generate"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551
+}

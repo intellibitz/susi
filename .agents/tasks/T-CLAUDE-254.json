@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-254",
+  "title": "Git-friendly store: one file per entity, mergeable",
+  "goal": "Store the knowledge base under config/ecosystem/ with one file per entity so parallel agents never conflict (Mandate 51); loader merges bundled and user layers.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_store"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDE-337",
+  "title": "Deprecation and Sunset headers (RFC 8594) tracking",
+  "goal": "Record Deprecation/Sunset headers and deprecation notices seen in real responses as lifecycle facts with dates.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-308"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_sunset_headers"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553
+}

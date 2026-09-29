@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-298",
+  "title": "Profile: Kubernetes model serving (KServe, KubeAI, Ray Serve, vLLM stack)",
+  "goal": "CRDs, autoscaling signals, GPU scheduling and the inference protocols each exposes. Author the machine-readable profile (endpoints, auth, versions, request/response shapes, errors, rate-limit signals, streaming, capability tags) in config/ecosystem/ and test it offline against recorded fixtures. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_k8s_serving"
+    ]
+  },
+  "roadmap": "VC-201-060",
+  "created_by": "CLAUDE",
+  "created_unix": 1790713552
+}

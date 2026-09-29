@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-349",
+  "title": "Answer ecosystem questions with citations and freshness",
+  "goal": "'Does vendor X support Y?' answered from the knowledge base with sources, dates and confidence, and an explicit 'unknown' when it is not known or stale, never an invented answer.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-260",
+    "T-CLAUDE-258"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "eco_qa_cited"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553
+}

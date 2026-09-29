@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-336",
+  "title": "Capability probes: learn what an endpoint really supports",
+  "goal": "Read-only, budgeted probes per vendor (models list, capability flags, error shapes) that update evidence for the compatibility matrix and never send user data.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-258",
+    "T-CLAUDE-134"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_live_probe"
+    ]
+  },
+  "roadmap": "VC-201-051",
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553
+}

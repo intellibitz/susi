@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-347",
+  "title": "Capability constraints from the knowledge base feed routing",
+  "goal": "Replace name-based heuristics (vision, tools, structured output, context window) in routing with capability facts and their freshness.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-256",
+    "T-CLAUDE-258"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "eco_capability_routing"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553
+}
