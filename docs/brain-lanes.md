@@ -299,3 +299,7 @@ One line per landed step, newest last.
     budgets get minimal-viable-sequence, loose budgets get
     verify-after-each-mutation. Plan search now explores different
     approaches, not just different lengths (max_steps=4 → 3 styles).
+27. Signal-aware briefs: `history_brief` annotates traces carrying
+    GOVERNANCE_BLOCK or CLOUD_ATTEMPT_FAILED — a refused goal class and
+    a failed cloud path are now visible to the planner instead of
+    sitting unqueried in the `signals` field.

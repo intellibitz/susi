@@ -504,7 +504,10 @@ near-misses while old lessons fade toward half weight instead of vanishing
 joins it: `proven_plan_brief` appends the most similar *successful*
 trace's numbered `plan_steps`, so a winning decomposition's shape is
 visible to the planner — failed traces and step-less traces can never
-become exemplars. A `Difficulty`
+become exemplars. Brief lines also flag lifecycle signals that matter to
+the planner — `[governance-blocked]` and `[cloud-attempt-failed]` — so a
+refused goal class or a failed cloud path is visible before re-planning.
+A `Difficulty`
 estimate — novelty, similar-mission failure rate, manifold risk — decides
 routing: `demands_deliberation()` widens the candidate search *and* raises
 the model floor — `solve_internal`'s first inference attempt gets a

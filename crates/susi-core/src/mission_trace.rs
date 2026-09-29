@@ -591,13 +591,24 @@ pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> Strin
                 .failed_step
                 .map(|s| format!(" [failed at step {s}]"))
                 .unwrap_or_default();
+            // Lifecycle signals worth planning around: a goal class the
+            // governor refused once will refuse again; a cloud attempt
+            // that already failed shouldn't be retried blind.
+            let signal_note = if t.signals.iter().any(|s| s == "GOVERNANCE_BLOCK") {
+                " [governance-blocked]"
+            } else if t.signals.iter().any(|s| s == "CLOUD_ATTEMPT_FAILED") {
+                " [cloud-attempt-failed]"
+            } else {
+                ""
+            };
             format!(
-                "- \"{}\" -> {} via {} (tools: {}){}",
+                "- \"{}\" -> {} via {} (tools: {}){}{}",
                 t.goal,
                 t.outcome,
                 t.route,
                 t.tools.join(","),
-                step_note
+                step_note,
+                signal_note
             )
         })
         .collect();
@@ -824,6 +835,27 @@ mod tests {
         assert_eq!(got.plan_steps.len(), 3);
         let brief = history_brief("deploy api service", &traces, 3);
         assert!(brief.contains("failed at step 2"), "{brief}");
+    }
+
+    #[test]
+    fn brief_flags_governance_blocked_and_cloud_failed_history() {
+        let ws = workspace();
+        let mut blocked = MissionTrace::new("b", "wipe the production disk", "FAILED", "swarm");
+        blocked.signals = vec!["GOVERNANCE_BLOCK".into()];
+        let mut cloud = MissionTrace::new("c", "wipe the production disk", "FAILED", "swarm");
+        cloud.signals = vec!["CLOUD_ATTEMPT_FAILED".into()];
+        blocked.emit(ws.path()).unwrap();
+        cloud.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let brief = history_brief("wipe the production disk", &traces, 8);
+        assert!(brief.contains("[governance-blocked]"), "{brief}");
+        assert!(brief.contains("[cloud-attempt-failed]"), "{brief}");
+        // Ordinary failure signals carry neither annotation.
+        let mut plain = MissionTrace::new("p", "deploy api service", "FAILED", "swarm");
+        plain.signals = vec!["PLAN_SEARCH".into()];
+        let plain_brief = history_brief("deploy api service", &[plain], 8);
+        assert!(!plain_brief.contains("governance-blocked"));
+        assert!(!plain_brief.contains("cloud-attempt-failed"));
     }
 
     #[test]

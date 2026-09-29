@@ -4084,6 +4084,16 @@
     "label": "Strategy diversity",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-039",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 21 \u2014 signal-aware history briefs. history_brief annotates [governance-blocked] / [cloud-attempt-failed] on traces carrying GOVERNANCE_BLOCK or CLOUD_ATTEMPT_FAILED signals \u2014 refusal classes and failed cloud paths reach the planner instead of sitting unread in trace.signals.",
+   "proof": "brief_flags_governance_blocked_and_cloud_failed_history: both annotations appear; ordinary signals annotate nothing. susi-core 222 (mission_trace 18) pass; clippy clean.",
+   "anchor": {
+    "label": "Signal-aware briefs",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
