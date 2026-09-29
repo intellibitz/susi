@@ -102,7 +102,8 @@ this for the panic-path lints.
   pushed branch gets a PR opened, and it merges itself when the Test gate
   passes, after which the full suite is dispatched on `main`. Branches
   prefixed `wip/` or `nopr/` opt out. Repo settings it needs are applied
-  idempotently by `scripts/github-setup.sh`.
+  idempotently by `scripts/github-setup.sh`. Finished workflow runs are
+  pruned daily by `.github/workflows/cleanup-runs.yml`.
 
 ## Test policy
 
