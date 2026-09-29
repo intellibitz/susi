@@ -6843,6 +6843,7 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-jsonschema",
  "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",

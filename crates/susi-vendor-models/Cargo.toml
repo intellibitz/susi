@@ -12,6 +12,7 @@ susi-config = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-http-transport = { workspace = true }
+jsonschema = { package = "susi-vendor-jsonschema", path = "../susi-vendor-jsonschema" }
 rayon = { package = "susi-vendor-rayon", path = "../susi-vendor-rayon" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
