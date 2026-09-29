@@ -17,6 +17,7 @@ use super::commits_cli;
 use super::context_graph_cli;
 use super::crown_cli;
 use super::deerflow_cli;
+use super::ecosystem_cli;
 use super::extensions_cli;
 use super::framework_cli;
 use super::frontier_cli;
@@ -93,6 +94,12 @@ pub(crate) enum Commands {
     Auto {
         #[command(subcommand)]
         action: Option<auto_cli::AutoCommands>,
+    },
+    /// Local AI ecosystem: installed engines/runtimes, GPU backends, explicit start
+    #[command(name = "ecosystem", visible_alias = "eco")]
+    Ecosystem {
+        #[command(subcommand)]
+        action: Option<ecosystem_cli::EcosystemCommands>,
     },
     /// Inspect the last mission blackboard (swarm shared state)
     #[command(name = "blackboard", visible_alias = "bb")]
@@ -499,6 +506,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         }
         Commands::Extensions { .. } => false,
         Commands::Auto { .. }
+        | Commands::Ecosystem { .. }
         | Commands::Blackboard { .. }
         | Commands::ContextGraph { .. }
         | Commands::Broker { .. }

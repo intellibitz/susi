@@ -696,6 +696,17 @@ pub async fn auto_discover_local_engines(
         ),
     ];
 
+    // Every other serving engine the local-ecosystem table knows (Jan, GPT4All,
+    // LocalAI, text-generation-webui, …) is probed at its default port too.
+    for (name, base) in susi_gemi_models::local_ecosystem::default_openai_endpoints() {
+        if !endpoints
+            .iter()
+            .any(|(_, b, _)| b.trim_end_matches('/') == base.trim_end_matches('/'))
+        {
+            endpoints.push((name, base, String::new()));
+        }
+    }
+
     // Open admission: any user/bundled inference_endpoints base joins discovery.
     for ep in effective_inference_endpoints() {
         let api_base = ep.api_base.trim().to_string();
