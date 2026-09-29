@@ -3934,6 +3934,96 @@
    "milestone": "Failed missions stop teaching Tier-0 through their tool receipts. EV-CLAUDE-003 filtered mission-trace samples by outcome, but receipt samples (ReceiptArchive: goal -> tool for each successful tool call) are staged at tool-call time, before the mission's outcome exists. A mission that ultimately failed still taught goal -> tool for every tool call that individually succeeded. Now ReflexTrainer::train_claim first runs drop_failed_mission_receipts. It reads the workspace's mission traces (mission_trace::read_all; the latest trace per mission_id wins) and removes claimed samples whose performance_metadata.source is tool_receipt and whose receipt_id session matches a trace recorded as not succeeded. The receipt id is '<session>:<index>' or '<session>:r-<nanos>' (capture.rs), and report.rs writes the trace's mission_id from the same EvidenceSession id. Receipts with no trace yet (outcome unknown) and non-receipt samples are kept; if nothing is left, the claim is retired as untrainable (EV-CLAUDE-017). Test: receipts_from_failed_missions_are_dropped_before_training (traces ok-session COMPLETE and bad-session FAILED; of 5 lines, both bad-session receipts, local and remote id forms, are dropped; ok, unknown and trace samples are kept). Trainer suite 17/17.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "id": "EV-DEVIN-024",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 6 \u2014 planning can never be served by a reflex (cross-lane ask from Claude). ama::master::plan_steps used GemiEngine::generate_reasoning, which permits Tier-0 reflex serving; a trained reflex whose prompt embedding sits near the wrapped goal (measured cosine 0.72 vs SUPPORT_MIN 0.6) could answer the decomposition request with a bare 'ACTION: status' line, the numbered-step parser drops it, and the mission silently degrades to a single-step plan. Now uses generate_reasoning_deep \u2014 planning is deliberation, never a cached answer.",
+   "proof": "cargo check -p susi-gawd-swarm --all-targets clean; prior suite 59 pass unchanged (one-call-site behavior change).",
+   "anchor": {
+    "label": "plan_steps bypasses Tier-0",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-025",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 7 \u2014 reflex_served joins served Tier-0/1 actions to mission outcomes (Claude's distill ask). When ReflexEngine serves, reason_internal now records a non-citable 'reflex:<action>' receipt on the active EvidenceSession via capture_call (workspace-bound, works from rayon workers). emit_mission_trace lifts reflex:* tool names into MissionTrace.reflex_served \u2014 the trace says which reflex answered, so distill can suppress a served action that repeatedly precedes failures. is_citable_for_mission exempts reflex:* (same class as 'status'): a cached answer must neither certify the mission nor compel citations.",
+   "proof": "cargo check susi-gemi/susi-core/susi-gawd-swarm clean; mission_trace 9 pass; reflex receipts flow: capture_call -> receipts -> trace.tools + trace.reflex_served.",
+   "anchor": {
+    "label": "reflex_served trace field",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-026",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 8 \u2014 success_rate(goal, traces) API: Option<f32> fraction of similar missions that succeeded; None for novel intents so callers never misread absence as 0. One number for routing/promotion instead of each consumer recounting similar() results.",
+   "proof": "success_rate asserted inside retrieval test (1/3 and None arms). mission_trace 9 pass; clippy clean.",
+   "anchor": {
+    "label": "success_rate retrieval API",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-027",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 9 \u2014 mission_traces.jsonl is now bounded (8 MiB, ~16k records). emit() rotates under the existing FileLock: past the cap the oldest half is dropped starting at a line boundary so readers never see a partial first record. Mirrors Claude's 20k cap on the staging buffer \u2014 retrieval reads the whole file per mission, so unbounded growth was a compounding latency cost.",
+   "proof": "oversized_log_rotates_to_newest_parseable_half: over-cap file shrinks below cap, newest record intact. mission_trace 10 pass.",
+   "anchor": {
+    "label": "Bounded trace log",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-028",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 10 \u2014 plan metadata joins the mission trace. SusiMissionReport carries PlanRecord {steps, score, consensus, failed_step}: the abort path records the 1-based failing step; the synthesis-path final report gets the chosen candidate's record attached. MissionTrace gains plan_steps/plan_score/plan_consensus/failed_step (schema v2 defaults keep v1 lines readable) and history_brief annotates similar traces with '[failed at step N]' so planning-time retrieval surfaces where plans broke, not just that they failed.",
+   "proof": "plan_fields_flow_into_brief_with_step_attribution; susi-core 210 pass, susi-gawd-swarm 59 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "PlanRecord in trace",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/report.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-029",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 11 \u2014 closed the failed-step loop: mission_trace::failed_steps extracts the step text at each similar failure's failed_step index; HistorySignals carries it into deliberate, which docks a candidate -0.15 per step (cap 2) whose token Jaccard with any doomed step is \u22650.6. Plans now steer around the exact step that previously broke, not only away from tainted tools.",
+   "proof": "steps_echoing_a_doomed_step_are_docked (deliberation); failed_steps_extracts_only_doomed_step_texts (mission_trace). susi-core 211, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Doomed-step penalty",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-030",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 12 \u2014 IDF-weighted mission retrieval. `similar` now scores weighted token overlap: document frequency is computed over the trace corpus and each shared token contributes ln((N+1)/(df+1))+1. A shared rare token outranks a shared ubiquitous token; under plain Jaccard 'deploy kubernetes' tied with 'deploy database'. All downstream consumers (brief, difficulty, failing/proven tools, failed steps, success_rate) inherit the better ranking.",
+   "proof": "idf_ranks_rare_shared_tokens_over_common_ones: rare-token match ranks first while the common-token match drops below the similarity floor. susi-core 212 pass; susi-gawd-swarm 60, susi-gawd green; clippy -D warnings clean.",
+   "anchor": {
+    "label": "IDF retrieval",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-031",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 13 \u2014 few-shot plan exemplars. proven_plan_brief picks the most similar SUCCESSFUL trace with recorded plan_steps and injects its numbered decomposition into the plan_steps prompt. Failed traces and traces without plan metadata can never become exemplars; novel goals get none. Retrieval now informs the planner of what to copy, not only what to avoid.",
+   "proof": "proven_plan_brief_only_teaches_from_successes: exemplar carries the winning plan's numbered steps, failed-trace steps excluded, novel goal yields empty brief. susi-core 213, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Proven plan exemplar",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-032",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 14 \u2014 unreliable-neighborhood consensus. mission_trace::unreliable_neighborhood (\u22652 similar traces, <50% success rate) sets deliberation.consensus_required in solve_autonomous \u2014 a mixed track record demands plan agreement even when the intent isn't vetoed and the scope is read-only. success_rate is now consumed by routing decisions, not just exposed.",
+   "proof": "unreliable_neighborhood_needs_two_neighbors_and_below_half: 0.25 unreliable, 0.5 not, single neighbor too thin, novel intent clean. susi-core 214, susi-gawd-swarm 60 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Neighborhood-risk gate",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

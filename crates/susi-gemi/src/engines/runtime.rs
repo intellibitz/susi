@@ -21,6 +21,22 @@ use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::sync::OnceLock;
 
+/// The action name a served reflex answered with, bounded for receipt
+/// tooling. `ACTION: <name> <args>` reduces to `<name>`; a bare action id
+/// (`status`) keeps its name; a free-text generative answer is
+/// `generative` — the trace needs the join key, not the payload.
+fn reflex_serve_label(action: &str) -> String {
+    let trimmed = action.trim();
+    let raw = if let Some(rest) = trimmed.strip_prefix("ACTION:") {
+        rest.split_whitespace().next().unwrap_or("unknown")
+    } else if trimmed.chars().all(|c| c.is_alphanumeric() || c == '_') && !trimmed.is_empty() {
+        trimmed
+    } else {
+        "generative"
+    };
+    raw.chars().take(48).collect()
+}
+
 #[cfg(test)]
 use runtime_substrate::PromptFormat;
 #[cfg(test)]
@@ -132,6 +148,18 @@ impl GemiEngine {
         if allow_reflex {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
             if let super::reflex::ReflexDecision::Solved(action) = reflex_decision {
+                // Record the serve on the mission's evidence session so the
+                // trace — and therefore distill — can join *which* Tier-0/1
+                // action answered to the mission's outcome. The `reflex:*`
+                // prefix keeps it out of the citable-evidence set (a cached
+                // answer must not certify the mission).
+                let label = reflex_serve_label(&action);
+                let _ = crate::susi_core::capture::EvidenceSession::capture_call(
+                    &format!("reflex:{label}"),
+                    &serde_json::json!({}),
+                    workspace,
+                    || Ok(action.clone()),
+                );
                 callback(action.clone());
                 return action;
             }

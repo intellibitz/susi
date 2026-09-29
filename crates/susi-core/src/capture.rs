@@ -109,8 +109,12 @@ impl ToolReceipt {
     /// health, not the user's requested outcome. Letting them participate in
     /// the crown gate allows an unrelated `status` receipt to certify any
     /// mission merely because it happened during the same swarm run.
+    /// `reflex:*` receipts are the same class: they record *that* a Tier-0/1
+    /// reflex answered (so the mission trace and distill can join served
+    /// actions to outcomes); a cached answer is not mission evidence and
+    /// must not certify, nor compel citations for, the mission's answer.
     fn is_citable_for_mission(&self) -> bool {
-        self.tool != "status"
+        self.tool != "status" && !self.tool.starts_with("reflex:")
     }
 }
 

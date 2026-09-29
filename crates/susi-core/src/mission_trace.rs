@@ -29,6 +29,9 @@ pub const SCHEMA_VERSION: u32 = 2;
 const MAX_GOAL_CHARS: usize = 240;
 const MAX_FIELD_CHARS: usize = 120;
 const MAX_LISTED: usize = 64;
+/// Retrieval reads the whole file on every mission — keep it bounded.
+/// ~8 MiB ≈ 16k typical records; past it the oldest half is dropped.
+const MAX_TRACE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// One mission's outcome record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +57,25 @@ pub struct MissionTrace {
     /// briefs describe real capabilities only.
     #[serde(default)]
     pub signals: Vec<String>,
+    /// Tier-0/1 action labels served during the mission (`reflex:*`
+    /// receipts, non-citable). Lets the distill stage join served reflexes
+    /// to outcomes — a reflex repeatedly on failed missions gets suppressed,
+    /// not celebrated.
+    #[serde(default)]
+    pub reflex_served: Vec<String>,
+    /// The executed plan's steps, when the mission ran plan search.
+    /// Lets retrieval learn plan *shape*, not just goal text.
+    #[serde(default)]
+    pub plan_steps: Vec<String>,
+    /// Chosen candidate's deliberation score.
+    #[serde(default)]
+    pub plan_score: Option<f32>,
+    /// Top-two consensus when the gate measured it.
+    #[serde(default)]
+    pub plan_consensus: Option<f32>,
+    /// 1-based index of the step that aborted the plan.
+    #[serde(default)]
+    pub failed_step: Option<u32>,
     /// Recruited agent names.
     pub agents: Vec<String>,
     /// Count of interaction/evidence entries the report carried.
@@ -73,6 +95,11 @@ impl MissionTrace {
             route: bound_chars(route, MAX_FIELD_CHARS),
             tools: Vec::new(),
             signals: Vec::new(),
+            reflex_served: Vec::new(),
+            plan_steps: Vec::new(),
+            plan_score: None,
+            plan_consensus: None,
+            failed_step: None,
             agents: Vec::new(),
             evidence_entries: 0,
             duration_secs: None,
@@ -120,10 +147,29 @@ impl MissionTrace {
         line.push(b'\n');
         let _lock = crate::commit_log::FileLock::acquire(&susi_dir, "mission_traces")
             .ok_or_else(|| anyhow!("mission trace lock acquisition failed"))?;
+        let path = susi_dir.join("mission_traces.jsonl");
+        // Bounded append: a long-lived workspace must not grow this file
+        // forever — every retrieval reads it whole. Past MAX_TRACE_BYTES,
+        // keep the newest half (oldest lines dropped, still-parseable file).
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.len() > MAX_TRACE_BYTES {
+                if let Ok(body) = std::fs::read(&path) {
+                    let keep_from = body.len().saturating_sub((MAX_TRACE_BYTES / 2) as usize);
+                    // Start at a line boundary so readers never see a
+                    // partial first record.
+                    let start = body[keep_from..]
+                        .iter()
+                        .position(|&b| b == b'\n')
+                        .map(|i| keep_from + i + 1)
+                        .unwrap_or(keep_from);
+                    let _ = std::fs::write(&path, &body[start.min(body.len())..]);
+                }
+            }
+        }
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(susi_dir.join("mission_traces.jsonl"))
+            .open(&path)
             .map_err(|e| anyhow!("mission trace file open failed: {e}"))?;
         file.write_all(&line)
             .map_err(|e| anyhow!("mission trace write failed: {e}"))
@@ -151,38 +197,68 @@ pub fn bounded_list(items: impl IntoIterator<Item = String>) -> Vec<String> {
     items.into_iter().take(MAX_LISTED).collect()
 }
 
-/// Whitespace-token overlap between a query goal and a recorded trace.
-fn token_overlap(goal: &str, trace_goal: &str) -> f32 {
+/// Content tokens of a goal — stopword- and punctuation-filtered.
+fn goal_tokens(s: &str) -> std::collections::BTreeSet<String> {
     // Stopwords carry no intent signal — "the" alone must never make two
     // missions look similar.
     const STOPWORDS: &[&str] = &["the", "and", "for", "with", "this", "that", "from"];
-    let tokens = |s: &str| {
-        s.split_whitespace()
-            .map(|t| {
-                t.to_lowercase()
-                    .trim_matches(|c: char| !c.is_alphanumeric())
-                    .to_string()
-            })
-            .filter(|t| t.len() > 2 && !STOPWORDS.contains(&t.as_str()))
-            .collect::<std::collections::BTreeSet<_>>()
+    s.split_whitespace()
+        .map(|t| {
+            t.to_lowercase()
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
+        .filter(|t| t.len() > 2 && !STOPWORDS.contains(&t.as_str()))
+        .collect()
+}
+
+/// Weighted token overlap: each token contributes its IDF against the
+/// trace corpus, so a shared rare token ("kubernetes") outweighs a shared
+/// ubiquitous one ("deploy"). Plain Jaccard cannot tell "deploy api" from
+/// "deploy database" when the corpus is full of "deploy".
+fn token_overlap(
+    a: &std::collections::BTreeSet<String>,
+    b: &std::collections::BTreeSet<String>,
+    df: &std::collections::BTreeMap<String, u32>,
+    corpus: usize,
+) -> f32 {
+    let weight = |t: &String| {
+        let d = df.get(t).copied().unwrap_or(0) as f32;
+        ((corpus as f32 + 1.0) / (d + 1.0)).ln() + 1.0
     };
-    let (a, b) = (tokens(goal), tokens(trace_goal));
-    let union = a.union(&b).count();
-    if union == 0 {
-        return 0.0;
+    let inter: f32 = a.intersection(b).map(weight).sum();
+    let union: f32 = a.union(b).map(weight).sum();
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
     }
-    a.intersection(&b).count() as f32 / union as f32
 }
 
 /// Similarity floor for a trace to count as "the same kind of mission".
 const SIMILARITY_FLOOR: f32 = 0.15;
 
 /// Retrieve the `limit` traces most similar to `goal` — the retrieval stage
-/// of the loop: prior outcomes for the same kind of intent.
+/// of the loop: prior outcomes for the same kind of intent. Scored with
+/// IDF-weighted token overlap computed over the corpus being searched.
 pub fn similar<'a>(goal: &str, traces: &'a [MissionTrace], limit: usize) -> Vec<&'a MissionTrace> {
+    // Document frequency over the corpus: how many trace goals contain
+    // each token. Corpus-rare tokens get the most weight in overlap.
+    let mut df: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for t in traces {
+        for tok in goal_tokens(&t.goal) {
+            *df.entry(tok).or_insert(0) += 1;
+        }
+    }
+    let query = goal_tokens(goal);
     let mut scored: Vec<(f32, &'a MissionTrace)> = traces
         .iter()
-        .map(|t| (token_overlap(goal, &t.goal), t))
+        .map(|t| {
+            (
+                token_overlap(&query, &goal_tokens(&t.goal), &df, traces.len()),
+                t,
+            )
+        })
         .filter(|(s, _)| *s >= SIMILARITY_FLOOR)
         .collect();
     scored.sort_by(|a, b| {
@@ -319,6 +395,22 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
     }
 }
 
+/// The step texts that aborted similar failed missions — `failed_step` is
+/// 1-based into `plan_steps`. Deliberation docks candidate steps that
+/// echo a doomed step, so history steers plans around the step that
+/// actually broke, not just away from tainted tools.
+pub fn failed_steps(goal: &str, traces: &[MissionTrace], limit: usize) -> Vec<String> {
+    similar(goal, traces, limit)
+        .iter()
+        .filter(|t| !t.succeeded())
+        .filter_map(|t| {
+            t.failed_step
+                .and_then(|i| t.plan_steps.get(i.saturating_sub(1) as usize))
+                .cloned()
+        })
+        .collect()
+}
+
 /// Tools that appeared in failed missions similar to `goal`, with the
 /// number of failed missions each appeared on — repeated failures weigh
 /// more than one-offs. Successes using the same tool don't clear it here
@@ -382,18 +474,65 @@ pub fn proven_tools(
     succeeded.difference(&failed).cloned().collect()
 }
 
+/// Fraction of similar missions that succeeded: `None` when nothing
+/// similar exists (novel intent — callers should not treat absence as 0).
+/// The single number routing and promotion want instead of recounting.
+pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option<f32> {
+    let neighbors = similar(goal, traces, limit);
+    if neighbors.is_empty() {
+        return None;
+    }
+    let wins = neighbors.iter().filter(|t| t.succeeded()).count();
+    Some(wins as f32 / neighbors.len() as f32)
+}
+
+/// True when enough similar missions exist to judge (≥2) and fewer than
+/// half succeeded — the neighborhood is unreliable: not vetoed, but
+/// plan-search should demand candidate agreement before acting. A single
+/// neighbor is too thin to condemn (one failure can be noise).
+pub fn unreliable_neighborhood(goal: &str, traces: &[MissionTrace], limit: usize) -> bool {
+    let neighbors = similar(goal, traces, limit);
+    neighbors.len() >= 2 && neighbors.iter().filter(|t| t.succeeded()).count() * 2 < neighbors.len()
+}
+
+/// Few-shot decomposition exemplar: the `plan_steps` of the most similar
+/// successful trace. Only verified wins teach plan *shape* — a failed
+/// mission's steps teach what to avoid, never what to copy. Empty when
+/// nothing similar succeeded, so novel intents get no fabricated guidance.
+pub fn proven_plan_brief(goal: &str, traces: &[MissionTrace]) -> String {
+    let Some(t) = similar(goal, traces, 8)
+        .into_iter()
+        .find(|t| t.succeeded() && !t.plan_steps.is_empty())
+    else {
+        return String::new();
+    };
+    let steps = t
+        .plan_steps
+        .iter()
+        .enumerate()
+        .map(|(i, s)| format!("{}. {}", i + 1, s))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("A similar goal succeeded with this plan:\n{steps}\n\n")
+}
+
 /// One-line history brief for prompt injection: what similar missions did
 /// and how they ended. Empty when nothing similar exists.
 pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
     let lines: Vec<String> = similar(goal, traces, limit)
         .iter()
         .map(|t| {
+            let step_note = t
+                .failed_step
+                .map(|s| format!(" [failed at step {s}]"))
+                .unwrap_or_default();
             format!(
-                "- \"{}\" -> {} via {} (tools: {})",
+                "- \"{}\" -> {} via {} (tools: {}){}",
                 t.goal,
                 t.outcome,
                 t.route,
-                t.tools.join(",")
+                t.tools.join(","),
+                step_note
             )
         })
         .collect();
@@ -494,6 +633,8 @@ mod tests {
         assert!(!d.novel);
         assert!((d.failure_rate - 2.0 / 3.0).abs() < 0.01);
         assert!(d.score > 0.2);
+        assert!((success_rate("deploy api service", &traces, 5).unwrap() - 1.0 / 3.0).abs() < 0.01);
+        assert!(success_rate("unrelated xyz", &traces, 5).is_none());
 
         // A novel intent reads as novel and difficult enough to widen search.
         let novel = difficulty(
@@ -576,6 +717,141 @@ mod tests {
         let counts = failing_tool_counts("deploy api service", &traces, 8);
         assert_eq!(counts.get("broken_tool"), Some(&2));
         assert!(!counts.contains_key("exec_command"));
+    }
+
+    #[test]
+    fn plan_fields_flow_into_brief_with_step_attribution() {
+        let ws = workspace();
+        let mut t = MissionTrace::new("m", "deploy api service", "FAILED", "swarm");
+        t.tools = vec!["exec_command".into()];
+        t.plan_steps = vec!["read config".into(), "deploy".into(), "verify".into()];
+        t.plan_score = Some(0.72);
+        t.plan_consensus = Some(0.9);
+        t.failed_step = Some(2);
+        t.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let got = &traces[0];
+        assert_eq!(got.failed_step, Some(2));
+        assert_eq!(got.plan_steps.len(), 3);
+        let brief = history_brief("deploy api service", &traces, 3);
+        assert!(brief.contains("failed at step 2"), "{brief}");
+    }
+
+    #[test]
+    fn proven_plan_brief_only_teaches_from_successes() {
+        let ws = workspace();
+        // Most similar trace FAILED — it must not become the exemplar.
+        let mut bad = MissionTrace::new("bad", "deploy api service", "FAILED", "swarm");
+        bad.plan_steps = vec!["guess blindly".into()];
+        let mut good = MissionTrace::new("good", "deploy api service", "SUCCESS", "swarm");
+        good.plan_steps = vec!["read config".into(), "deploy".into(), "verify".into()];
+        bad.emit(ws.path()).unwrap();
+        good.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let brief = proven_plan_brief("deploy api service", &traces);
+        assert!(brief.contains("1. read config"), "{brief}");
+        assert!(brief.contains("3. verify"), "{brief}");
+        assert!(!brief.contains("guess blindly"), "{brief}");
+        // Novel goal: no exemplar, no fabricated guidance.
+        assert!(proven_plan_brief("unrelated never-seen task", &traces).is_empty());
+    }
+
+    #[test]
+    fn unreliable_neighborhood_needs_two_neighbors_and_below_half() {
+        let ws = workspace();
+        for (id, outcome) in [
+            ("a", "FAILED"),
+            ("b", "FAILED"),
+            ("c", "SUCCESS"),
+            ("d", "FAILED"),
+        ] {
+            MissionTrace::new(id, "deploy api service", outcome, "swarm")
+                .emit(ws.path())
+                .unwrap();
+        }
+        let traces = read_all(ws.path());
+        // 4 similar, 1 success → rate 0.25 → unreliable.
+        assert!(unreliable_neighborhood("deploy api service", &traces, 8));
+        // One success, one failure → rate 0.5, not below half.
+        let two = &traces[1..3];
+        assert!(!unreliable_neighborhood("deploy api service", two, 8));
+        // Single neighbor — too thin to condemn.
+        assert!(!unreliable_neighborhood(
+            "deploy api service",
+            &traces[..1],
+            8
+        ));
+        // Novel intent — nothing to judge.
+        assert!(!unreliable_neighborhood("never seen intent", &traces, 8));
+    }
+
+    #[test]
+    fn idf_ranks_rare_shared_tokens_over_common_ones() {
+        let ws = workspace();
+        for (id, goal) in [
+            ("a", "deploy database backup"),
+            ("b", "deploy cache layer"),
+            ("c", "kubernetes pod status"),
+            ("d", "deploy network rules"),
+        ] {
+            MissionTrace::new(id, goal, "DONE", "swarm")
+                .emit(ws.path())
+                .unwrap();
+        }
+        let traces = read_all(ws.path());
+        // Plain Jaccard ties "deploy database backup" and "kubernetes pod
+        // status" at one shared token each. IDF sees "deploy" is corpus-
+        // ubiquitous and "kubernetes" rare — the rare match wins and the
+        // common-token match falls below the floor.
+        let hits = similar("deploy kubernetes service", &traces, 8);
+        assert_eq!(hits[0].goal, "kubernetes pod status");
+        assert_eq!(
+            hits.len(),
+            1,
+            "{:?}",
+            hits.iter().map(|t| &t.goal).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn failed_steps_extracts_only_doomed_step_texts() {
+        let ws = workspace();
+        let mut failed = MissionTrace::new("f", "deploy api service", "FAILED", "swarm");
+        failed.plan_steps = vec!["read config".into(), "deploy".into(), "verify".into()];
+        failed.failed_step = Some(2);
+        let mut ok = MissionTrace::new("o", "deploy api service", "SUCCESS", "swarm");
+        ok.plan_steps = vec!["read config".into(), "deploy".into()];
+        ok.failed_step = None;
+        // Failure with no failed_step attribution contributes nothing.
+        let mut unattributed = MissionTrace::new("u", "deploy api service", "FAILED", "swarm");
+        unattributed.plan_steps = vec!["deploy".into()];
+        failed.emit(ws.path()).unwrap();
+        ok.emit(ws.path()).unwrap();
+        unattributed.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let doomed = failed_steps("deploy api service", &traces, 8);
+        assert_eq!(doomed, vec!["deploy".to_string()]);
+    }
+
+    #[test]
+    fn oversized_log_rotates_to_newest_parseable_half() {
+        let ws = workspace();
+        let susi = ws.path().join(".susi");
+        std::fs::create_dir_all(&susi).unwrap();
+        // Pre-seed a file just over the cap; the next emit must rotate it.
+        let mut big = vec![b'x'; (MAX_TRACE_BYTES + 64) as usize];
+        big.push(b'\n');
+        std::fs::write(susi.join("mission_traces.jsonl"), &big).unwrap();
+        MissionTrace::new("m-new", "goal", "COMPLETE", "swarm")
+            .emit(ws.path())
+            .unwrap();
+        let parsed = read_all(ws.path());
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].mission_id, "m-new");
+        let size = std::fs::metadata(susi.join("mission_traces.jsonl"))
+            .unwrap()
+            .len();
+        assert!(size < MAX_TRACE_BYTES, "{size}");
     }
 
     #[test]

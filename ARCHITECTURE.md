@@ -449,6 +449,13 @@ sinks:
 `mission_trace::read_all` tolerates older-schema and partial lines, so trace
 consumers never break on a rolled-forward file.
 
+A mission that ran plan search additionally carries a `PlanRecord`
+(`plan_steps`, `plan_score`, `plan_consensus`, `failed_step`): the mission
+report records which candidate won and, on abort, the 1-based step that
+failed. The fields flow into `MissionTrace`, and `history_brief` annotates
+similar failures with `[failed at step N]` — retrieval surfaces *where*
+plans broke, not just that they failed.
+
 The `verify` stage runs through the **contract registry**
 (`susi_core::verification`): `Contract::{FileExists, FileAbsent,
 FileContains, FileHash, CommandExit}` evaluate against physical workspace
@@ -484,8 +491,14 @@ control flow.
 
 The `retrieve` stage consults history before planning
 (`susi_core::mission_trace::{similar, history_brief, difficulty}`): traces
-most similar to the goal (token-Jaccard ≥ 0.15, stopword-filtered) inject a
-"prior outcomes" brief into the decomposition prompt, and a `Difficulty`
+most similar to the goal (IDF-weighted token overlap ≥ 0.15 — each token
+contributes its corpus IDF over the trace set, so a shared rare token like
+"kubernetes" outranks a ubiquitous "deploy"; stopword-filtered) inject a
+"prior outcomes" brief into the decomposition prompt. A few-shot exemplar
+joins it: `proven_plan_brief` appends the most similar *successful*
+trace's numbered `plan_steps`, so a winning decomposition's shape is
+visible to the planner — failed traces and step-less traces can never
+become exemplars. A `Difficulty`
 estimate — novelty, similar-mission failure rate, manifold risk — decides
 routing: `demands_deliberation()` widens the candidate search *and* raises
 the model floor — `solve_internal`'s first inference attempt gets a
@@ -508,13 +521,20 @@ rationale lands in the mission record (`PLAN_SEARCH` interaction) and the
 printed omni-trace. Mutate/SelfExtend intents and High+ risk demand
 **consensus** — the top two candidates must reach a step-token Jaccard ≥
 0.35 or the mission declines multi-step autonomy in favor of the
-single-step goal. On step failure, Read-scope goals fall through to the
+single-step goal. The gate also tightens on history: `Vetoed` intents
+(anti-patterns) and `unreliable_neighborhood` goals — ≥2 similar traces
+with a success rate under half — demand consensus even on read-scope
+missions. On step failure, Read-scope goals fall through to the
 next candidate (reads mutate nothing); mutating scopes abort rather than
 re-run a guess over changed state. Retrieval also feeds scoring, not only
 the prompt: `mission_trace::failing_tools` extracts tool tokens that only
 ever appeared on *failed* similar traces, and `score_plan_weighted` docks
 each mention −0.10 (`failed_history_tools` in the rationale) — a plan that
-repeats a known-failing tool is outscored, not merely flagged.
+repeats a known-failing tool is outscored, not merely flagged. At finer
+grain, `mission_trace::failed_steps` extracts the step text at each similar
+failure's `failed_step` index; a candidate step whose tokens Jaccard-match
+a doomed step ≥0.6 is docked −0.15 (`doomed_step_echoes`, capped at two
+echoes), so plans steer around the step that actually broke.
 
 The `promote` stage is governed reflex synthesis
 (`susi_core::mission_trace::promotion_status` gating
