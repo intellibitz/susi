@@ -71,6 +71,18 @@ impl World {
                 std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
             }
         }
+        std::fs::create_dir_all(primary.join("scripts")).unwrap();
+        let park = primary.join("scripts/park-primary.sh");
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/park-primary.sh"),
+            &park,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&park, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         git(&primary, &["add", "-A"]);
         git(&primary, &["commit", "--quiet", "-m", "init"]);
         git(&primary, &["push", "--quiet", "origin", "HEAD:main"]);
@@ -217,5 +229,46 @@ fn hooks_missing_from_the_branch_are_named() {
     assert!(
         out.contains("missing or not executable: commit-msg"),
         "{out}"
+    );
+}
+
+fn git_out(dir: &Path, args: &[&str]) -> String {
+    let (code, out, err) = run(dir, "git", args, &[]);
+    assert_eq!(code, 0, "git {args:?}: {err}");
+    out.trim().to_string()
+}
+
+#[test]
+fn workflow_check_keeps_the_primary_checkouts_main_current() {
+    let w = World::new("sync");
+    w.claim_a_task();
+    // origin/main moves on; the primary checkout (on main) is now behind.
+    let other = w.root.join("other");
+    git(
+        &w.root,
+        &[
+            "clone",
+            "--quiet",
+            w.root.join("server.git").to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    git(
+        &other,
+        &["commit", "--allow-empty", "--quiet", "-m", "newer"],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+    let before = git_out(&w.primary, &["rev-parse", "HEAD"]);
+    // Running the check from a worktree advances the primary checkout.
+    let (_, out) = w.check(&w.wt);
+    let after = git_out(&w.primary, &["rev-parse", "HEAD"]);
+    assert_ne!(
+        before, after,
+        "primary main should have been fast-forwarded:\n{out}"
+    );
+    assert_eq!(after, git_out(&w.primary, &["rev-parse", "origin/main"]));
+    assert_eq!(
+        git_out(&w.primary, &["symbolic-ref", "--short", "HEAD"]),
+        "main"
     );
 }

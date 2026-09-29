@@ -40,6 +40,9 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         .chars()
         .filter(char::is_ascii_alphanumeric)
         .collect::<String>();
+    // Keep the primary checkout's main current (silent unless it advanced;
+    // never switches a branch or touches a dirty tree).
+    sync_primary(&root);
     let facts = workflow::gather(&root, &agent);
     let checks = workflow::evaluate(&facts);
     let ok = workflow::ok(&checks);
@@ -97,4 +100,23 @@ fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> 
         bail!("worktree setup failed");
     }
     Ok(())
+}
+
+/// Best-effort `park-primary.sh --sync-only`; reports only when main advanced.
+fn sync_primary(root: &Path) {
+    let script = root.join("scripts").join("park-primary.sh");
+    if !script.is_file() {
+        return;
+    }
+    if let Ok(out) = std::process::Command::new(&script)
+        .arg("--sync-only")
+        .current_dir(root)
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        let said = String::from_utf8_lossy(&out.stdout);
+        if !said.trim().is_empty() {
+            eprintln!("ℹ️  {}", said.trim());
+        }
+    }
 }
