@@ -38,6 +38,7 @@ use super::plan_cli;
 use super::privacy_cli;
 use super::python_engine_cli;
 use super::services_cli;
+use super::setup_cli;
 use super::substrate_cli;
 use super::swe_agent_cli;
 use super::tasks_cli;
@@ -97,6 +98,11 @@ pub(crate) enum Commands {
     Auto {
         #[command(subcommand)]
         action: Option<auto_cli::AutoCommands>,
+    },
+    /// One end-to-end ecosystem setup: detect, consent, apply (safe to rerun)
+    Setup {
+        #[command(subcommand)]
+        action: Option<setup_cli::SetupCommands>,
     },
     /// Check that this checkout follows the susi workflow — run this first
     Workflow {
@@ -535,6 +541,7 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         }
         Commands::Extensions { .. } => false,
         Commands::Auto { .. }
+        | Commands::Setup { .. }
         | Commands::Ecosystem { .. }
         | Commands::Brain { .. }
         | Commands::Tasks { .. }

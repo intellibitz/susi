@@ -67,6 +67,7 @@ pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 pub mod admin;
 pub mod bloat_audit;
 pub mod evolution;
+pub mod formal_invariants;
 pub mod genome_distiller;
 pub mod kernel_loader;
 pub mod patch_cycle;
@@ -76,6 +77,9 @@ pub mod reflex_trainer;
 pub mod rsi_corpus;
 pub mod self_validation;
 
+#[cfg(test)]
+#[path = "tests/formal_invariants.rs"]
+mod formal_invariants_tests;
 #[cfg(test)]
 #[path = "tests/rsi_corpus.rs"]
 mod rsi_corpus_tests;
