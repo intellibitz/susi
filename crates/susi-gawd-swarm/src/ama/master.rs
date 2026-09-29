@@ -939,6 +939,18 @@ impl SusiMasterAgent {
         } else {
             vec![plan.clone()]
         };
+        // Honest attribution: the score of the plan that actually ran —
+        // a fallback single-step or a later candidate is not
+        // candidates[0], and the trace must not claim it is.
+        let executed_score = |executed: &[String]| {
+            deliberation
+                .candidates
+                .iter()
+                .find(|c| c.steps == executed)
+                .map(|c| c.score)
+                .unwrap_or_else(|| crate::deliberation::score_plan(&goal, executed, max_steps).0)
+        };
+        let mut succeeded_plan: Option<&Vec<String>> = None;
         'attempts: for (attempt, attempt_plan) in plans_to_try.iter().enumerate() {
             if attempt > 0 {
                 eprintln!(
@@ -997,7 +1009,7 @@ impl SusiMasterAgent {
                         interactions: report.interactions,
                         plan: Some(super::report::PlanRecord {
                             steps: attempt_plan.clone(),
-                            score: deliberation.candidates[0].score,
+                            score: executed_score(attempt_plan),
                             consensus: deliberation.consensus,
                             failed_step: Some((i + 1) as u32),
                         }),
@@ -1013,6 +1025,7 @@ impl SusiMasterAgent {
                     return Ok(final_report);
                 }
             }
+            succeeded_plan = Some(attempt_plan);
             break;
         }
 
@@ -1030,9 +1043,12 @@ impl SusiMasterAgent {
         crate::cloud_recovery::recover(&mut final_report, workspace, None, false, session.clone());
         // The synthesis path's own report never saw plan search — attach the
         // deliberation record so the mission trace joins plan to outcome.
+        // The recorded steps/score are the candidate that actually
+        // succeeded — not always candidates[0] after a replan.
+        let winning_plan = succeeded_plan.unwrap_or(&plan);
         final_report.plan = Some(super::report::PlanRecord {
-            steps: plan.clone(),
-            score: deliberation.candidates[0].score,
+            steps: winning_plan.clone(),
+            score: executed_score(winning_plan),
             consensus: deliberation.consensus,
             failed_step: None,
         });

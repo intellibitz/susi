@@ -330,3 +330,8 @@ One line per landed step, newest last.
     agents only on verified-success missions merge into
     HistorySignals.proven, so steps naming a trusted agent earn the
     same bonus as proven tools. Agent signal symmetry complete.
+35. PlanRecord attribution fix (iter-10 bug): abort and success paths
+    recorded `candidates[0]`'s score and `plan`'s steps regardless of
+    which candidate actually ran. Now tracks the executed candidate;
+    score comes from the matching candidate or a fresh score_plan for
+    the fallback — traces join the RIGHT plan to the outcome.

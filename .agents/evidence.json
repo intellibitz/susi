@@ -4164,6 +4164,16 @@
     "label": "Proven agents",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-047",
+   "type": "BUGFIX",
+   "milestone": "Iteration 29 \u2014 PlanRecord attribution. Iter-10 recorded candidates[0].score and the initial plan's steps unconditionally: after a read-scope replan (candidate 2 succeeding) or the unapproved single-step fallback, the trace joined the wrong plan to the outcome. Now tracks the executed candidate across the attempts loop and looks its score up (or scores the fallback directly).",
+   "proof": "susi-gawd-swarm 63 pass; clippy clean.",
+   "anchor": {
+    "label": "Executed-plan attribution",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
