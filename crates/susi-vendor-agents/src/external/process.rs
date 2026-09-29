@@ -188,7 +188,7 @@ fn failure_summary(stderr_log: &std::path::Path) -> Option<String> {
         .ok()?;
     let mut lines = head.lines().map(str::trim).filter(|l| !l.is_empty());
     let first = lines.next()?;
-    let summary = match lines.last() {
+    let summary = match lines.next_back() {
         Some(last) if last != first => format!("{first} | {last}"),
         _ => first.to_string(),
     };
