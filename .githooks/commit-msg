@@ -25,8 +25,12 @@ MSG
     exit 1
 fi
 root=$(git rev-parse --show-toplevel)
-if [ ! -f "$root/.agents/tasks/$task.json" ] && [ ! -f "$root/.agents/tasks/done/$task.json" ]; then
-    echo "❌ Mandate 50: $task is not a task in this checkout (merge origin/main or commit the task file first)." >&2
+if [ -f "$root/.agents/tasks/done/$task.json" ]; then
+    echo "❌ Mandate 50: $task is already closed; add a new task (susi tasks add) for new work." >&2
+    exit 1
+fi
+if [ ! -f "$root/.agents/tasks/$task.json" ]; then
+    echo "❌ Mandate 50: $task is not an open task in this checkout (merge origin/main or commit the task file first)." >&2
     exit 1
 fi
 exit 0

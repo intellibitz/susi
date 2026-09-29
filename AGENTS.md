@@ -137,10 +137,12 @@ are three layers):
    `scripts/check-workflow-compliance.sh origin/main <pushed sha>` on every
    pushed branch. Exempt: merges, `chore: release vX.Y.Z`, github-actions[bot],
    and commits touching only `.agents/tasks/`. The rule binds commits made after
-   the script was introduced; earlier history is not judged.
+   the script was introduced; earlier history is not judged. A commit's task
+   must have been open in that commit's own tree; citing an already-closed task
+   is refused.
 2. The CI job **Workflow Compliance** (`test.yml`) runs the same script on every
-   branch push, server-side — `--no-verify` cannot skip it. A task must be
-   closed (`.agents/tasks/done/`) or open under a live `refs/claims/<id>` lease.
+   branch push, server-side — `--no-verify` cannot skip it. The task must be
+   open under a live `refs/claims/<id>` lease, or closed by that same branch.
 3. `scripts/github-enforce.sh --apply` (repo admin) installs a ruleset on
    `main`: PRs only, the branch-push checks required, no force-push/deletion,
    no bypass actors. Dry-run by default; apply it only once Workflow Compliance

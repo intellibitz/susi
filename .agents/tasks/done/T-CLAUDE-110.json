@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-110",
+  "title": "Compliance: a commit may cite only an open, claimed task (not a closed one)",
+  "goal": "check-workflow-compliance.sh currently accepts a commit whose Task trailer names any task closed at the branch head, so unrelated work can ride on a closed task. Evaluate each commit against its own tree: the task must be open there; then it passes if a live claim exists, or if the branch went on to close it. A commit that cites a task already closed at that commit fails. Update the commit-msg hook, Mandate 50 text and AGENTS.md to match.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "workflow_compliance",
+      "cannot_be_cited"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790699318,
+  "closed": {
+    "at_unix": 1790699475,
+    "commit": "8b17dc3a20efee6da47483cde4b509be962326e4",
+    "by": "CLAUDE"
+  }
+}
