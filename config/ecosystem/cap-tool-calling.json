@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "capability",
+    "id": "cap-tool-calling",
+    "name": "Tool calling",
+    "class": "tool-calling",
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference",
+      "spec_version": "2024-06",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

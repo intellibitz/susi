@@ -403,8 +403,10 @@ impl Default for KnowledgeBase {
 }
 
 /// Slug rules mirrored by the JSON Schema `id` pattern: lowercase ASCII,
-/// starts alphanumeric, at most 128 chars.
-fn valid_id(id: &str) -> bool {
+/// starts alphanumeric, at most 128 chars. Public so sibling `eco_*`
+/// validators (profiles, consistency) share the one rule.
+#[must_use]
+pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && id

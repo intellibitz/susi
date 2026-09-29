@@ -1,0 +1,94 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "openai-api",
+    "name": "OpenAI API",
+    "category": "service",
+    "provenance": {
+      "source": "https://platform.openai.com/docs/api-reference",
+      "spec_version": "2024-06",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements-version",
+      "from": "openai-api",
+      "to": "openai-chat-completions-2024-06",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-api",
+      "to": "cap-prompt-caching",
+      "provenance": {
+        "source": "https://platform.openai.com/docs/api-reference",
+        "spec_version": "2024-06",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

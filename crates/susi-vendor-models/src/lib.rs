@@ -27,6 +27,8 @@ pub mod eco_conflicts;
 pub mod eco_consistency;
 pub mod eco_coverage;
 pub mod eco_matrix;
+pub mod eco_openai_chat;
+pub mod eco_profile;
 pub mod eco_provenance;
 pub mod eco_relations;
 pub mod eco_schema;
