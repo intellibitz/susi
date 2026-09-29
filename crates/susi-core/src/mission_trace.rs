@@ -116,6 +116,14 @@ impl MissionTrace {
         matches!(self.outcome.as_str(), "SUCCESS" | "COMPLETE")
     }
 
+    /// A success claim *backed by evidence*: the mission left at least one
+    /// evidence receipt, so the verdict isn't bare prose. Teaching paths —
+    /// reflex promotion, proven tools, plan exemplars — trust only
+    /// verified wins; a receipt-free "SUCCESS" is a claim, not a lesson.
+    pub fn verified(&self) -> bool {
+        self.succeeded() && self.evidence_entries > 0
+    }
+
     /// Emit the record to its sinks. Best-effort at each sink — a full disk
     /// or an unwired graph must not fail a mission that already finished —
     /// but errors surface as `Err` so callers can observe a total failure.
@@ -370,8 +378,10 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
         .iter()
         .filter(|t| token_signature(&t.goal) == signature)
         .collect();
-    let successes = matching.iter().filter(|t| t.succeeded()).count();
-    let failures = matching.len() - successes;
+    // Only evidence-backed wins count toward promotion — a bare "SUCCESS"
+    // verdict with zero receipts is a claim, not proof a reflex helped.
+    let successes = matching.iter().filter(|t| t.verified()).count();
+    let failures = matching.len() - matching.iter().filter(|t| t.succeeded()).count();
     if let Some(failed) = matching
         .iter()
         .rev()
@@ -425,8 +435,12 @@ pub fn failing_tool_counts(
         std::collections::BTreeSet::<String>::new(),
     );
     for t in similar(goal, traces, limit) {
-        if t.succeeded() {
+        if t.verified() {
             succeeded.extend(t.tools.iter().cloned());
+        } else if t.succeeded() {
+            // A bare success claim is neutral — it neither taints a tool
+            // nor clears its failure record.
+            continue;
         } else {
             for tool in &t.tools {
                 *failed.entry(tool.clone()).or_insert(0) += 1;
@@ -464,8 +478,12 @@ pub fn proven_tools(
         std::collections::BTreeSet::new(),
     );
     for t in similar(goal, traces, limit) {
-        let target = if t.succeeded() {
+        // An unverified "success" is neutral: it can't prove a tool, but
+        // its absence shouldn't taint one either.
+        let target = if t.verified() {
             &mut succeeded
+        } else if t.succeeded() {
+            continue;
         } else {
             &mut failed
         };
@@ -535,7 +553,7 @@ pub fn plan_score_correlation(traces: &[MissionTrace]) -> Option<f32> {
 pub fn proven_plan_brief(goal: &str, traces: &[MissionTrace]) -> String {
     let Some(t) = similar(goal, traces, 8)
         .into_iter()
-        .find(|t| t.succeeded() && !t.plan_steps.is_empty())
+        .find(|t| t.verified() && !t.plan_steps.is_empty())
     else {
         return String::new();
     };
@@ -686,7 +704,13 @@ mod tests {
 
     #[test]
     fn promotion_requires_verified_success_and_clean_window() {
-        let t = |outcome: &str| MissionTrace::new("m", "deploy the api", outcome, "swarm");
+        let t = |outcome: &str| {
+            let mut t = MissionTrace::new("m", "deploy the api", outcome, "swarm");
+            if t.succeeded() {
+                t.evidence_entries = 1;
+            }
+            t
+        };
 
         // No traces → insufficient, never promotable.
         assert!(matches!(
@@ -712,6 +736,21 @@ mod tests {
             promotion_status(&[t("COMPLETE"), t("SUCCESS")], "deploy the api"),
             PromotionStatus::Promotable { successes: 2 }
         );
+
+        // A success verdict with zero evidence entries is a claim, not a
+        // win — it neither promotes nor counts as a failure.
+        let unverified = {
+            let mut t = MissionTrace::new("m", "deploy the api", "COMPLETE", "swarm");
+            t.evidence_entries = 0;
+            vec![t]
+        };
+        assert!(matches!(
+            promotion_status(&unverified, "deploy the api"),
+            PromotionStatus::Insufficient {
+                successes: 0,
+                failures: 0
+            }
+        ));
 
         // A failure inside the recent window vetoes even with history.
         let seq = vec![t("COMPLETE"), t("COMPLETE"), t("FAILED")];
@@ -740,6 +779,9 @@ mod tests {
         ] {
             let mut t = MissionTrace::new("m", "deploy api service", outcome, "swarm");
             t.tools = tools.into_iter().map(String::from).collect();
+            if t.succeeded() {
+                t.evidence_entries = 1;
+            }
             t.emit(ws.path()).unwrap();
         }
         let traces = read_all(ws.path());
@@ -778,6 +820,7 @@ mod tests {
         bad.plan_steps = vec!["guess blindly".into()];
         let mut good = MissionTrace::new("good", "deploy api service", "SUCCESS", "swarm");
         good.plan_steps = vec!["read config".into(), "deploy".into(), "verify".into()];
+        good.evidence_entries = 1;
         bad.emit(ws.path()).unwrap();
         good.emit(ws.path()).unwrap();
         let traces = read_all(ws.path());
@@ -923,6 +966,9 @@ mod tests {
         ] {
             let mut t = MissionTrace::new("m", "build rust crate", outcome, "swarm");
             t.tools = tools.into_iter().map(String::from).collect();
+            if t.succeeded() {
+                t.evidence_entries = 1;
+            }
             t.emit(ws.path()).unwrap();
         }
         let traces = read_all(ws.path());

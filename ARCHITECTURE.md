@@ -537,7 +537,10 @@ repeats a known-failing tool is outscored, not merely flagged. At finer
 grain, `mission_trace::failed_steps` extracts the step text at each similar
 failure's `failed_step` index; a candidate step whose tokens Jaccard-match
 a doomed step ≥0.6 is docked −0.15 (`doomed_step_echoes`, capped at two
-echoes), so plans steer around the step that actually broke.
+echoes), so plans steer around the step that actually broke. Teaching
+keys on *evidence-backed* success (`verified()` = success verdict +
+≥1 evidence entry): a receipt-free "SUCCESS" is neutral everywhere —
+it can neither promote, prove, nor exonerate.
 
 The `promote` stage is governed reflex synthesis
 (`susi_core::mission_trace::promotion_status` gating

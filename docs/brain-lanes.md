@@ -282,3 +282,7 @@ One line per landed step, newest last.
     between plan_score and 0/1 success across scored traces (needs >=4)
     and the [RETRIEVAL] line prints it — a scorer that ranks doomed
     plans higher surfaces as a negative number instead of hiding.
+23. Evidence-backed success: `verified()` = succeeded() && evidence>0 —
+    promotion, proven_tools, proven_plan_brief, and failing_tool_counts
+    now treat a receipt-free "SUCCESS" as neutral: it can't teach,
+    promote, condemn, or exonerate. Claims no longer equal lessons.

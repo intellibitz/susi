@@ -4044,6 +4044,16 @@
     "label": "Scorer calibration",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-035",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 17 \u2014 evidence-backed success. MissionTrace::verified() requires succeeded() && evidence_entries > 0. promotion_status, proven_tools, proven_plan_brief and failing_tool_counts treat a receipt-free SUCCESS as neutral: it can no longer promote a reflex, teach tools/plans, condemn tools, or exonerate failing ones.",
+   "proof": "promotion test asserts unverified SUCCESS \u2192 Insufficient{0,0}; teach-path tests updated to verified traces. susi-core 220, susi-gawd 55, susi-gawd-swarm 60 pass; clippy clean.",
+   "anchor": {
+    "label": "verified() success",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
