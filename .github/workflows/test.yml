@@ -39,6 +39,22 @@ jobs:
       - name: cargo fmt --all --check
         run: cargo fmt --all --check
 
+  # Mandates 49-51, server side: every commit on a pushed branch names a
+  # claimed or closed task (`Task: T-<AGENT>-<n>` trailer). The local hooks can
+  # be skipped with --no-verify; this job cannot.
+  workflow:
+    name: Workflow Compliance
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # base..head needs history and origin/main
+
+      - name: Every commit belongs to a claimed or closed task
+        run: scripts/check-workflow-compliance.sh origin/main "$GITHUB_SHA"
+
   deny:
     name: cargo deny (licenses + advisories)
     runs-on: ubuntu-latest
