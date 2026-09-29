@@ -88,6 +88,12 @@ impl World {
             && git(&self.primary, &["rev-parse", "HEAD"])
                 == git(&self.primary, &["rev-parse", "origin/main"])
     }
+
+    fn on_main_at_origin_main(&self) -> bool {
+        git(&self.primary, &["symbolic-ref", "--short", "HEAD"]) == "main"
+            && git(&self.primary, &["rev-parse", "HEAD"])
+                == git(&self.primary, &["rev-parse", "origin/main"])
+    }
 }
 
 impl Drop for World {
@@ -97,16 +103,21 @@ impl Drop for World {
 }
 
 #[test]
-fn a_clean_stale_primary_is_detached_at_origin_main() {
+fn main_is_where_a_clean_stale_primary_is_parked() {
     let w = World::new("clean");
     let (code, out, err) = w.park(&w.primary);
     assert_eq!(code, 0, "{err}");
-    assert!(out.contains("moved from stale-branch"), "{out}");
-    assert!(w.head_is_detached_at_origin_main());
-    // Idempotent.
+    assert!(
+        out.contains("moved from stale-branch to main at origin/main"),
+        "{out}"
+    );
+    // On the main branch, fast-forwarded (local main was one commit behind).
+    assert!(w.on_main_at_origin_main());
+    // Idempotent: a human's `git switch main` is never undone.
     let (code, out, _) = w.park(&w.primary);
     assert_eq!(code, 0);
-    assert!(out.contains("already parked"), "{out}");
+    assert!(out.contains("already on main at origin/main"), "{out}");
+    assert!(w.on_main_at_origin_main());
 }
 
 #[test]
@@ -127,7 +138,57 @@ fn it_can_be_run_from_a_linked_worktree() {
     );
     let (code, _, err) = w.park(&wt);
     assert_eq!(code, 0, "{err}");
+    assert!(w.on_main_at_origin_main());
+}
+
+#[test]
+fn main_held_by_another_worktree_makes_the_primary_detach_instead() {
+    let w = World::new("held");
+    let holder = w.root.join("holder");
+    git(
+        &w.primary,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            holder.to_str().unwrap(),
+            "main",
+        ],
+    );
+    let (code, out, err) = w.park(&w.primary);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.contains("detached") && out.contains("holds main"),
+        "{out}"
+    );
     assert!(w.head_is_detached_at_origin_main());
+    // The other worktree keeps main.
+    assert_eq!(git(&holder, &["symbolic-ref", "--short", "HEAD"]), "main");
+}
+
+#[test]
+fn main_with_local_commits_is_never_moved() {
+    let w = World::new("localmain");
+    git(&w.primary, &["switch", "--quiet", "main"]);
+    git(
+        &w.primary,
+        &[
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "local only on main",
+        ],
+    );
+    let before = git(&w.primary, &["rev-parse", "HEAD"]);
+    let (code, _, err) = w.park(&w.primary);
+    assert_eq!(code, 1);
+    assert!(err.contains("not in origin/main"), "{err}");
+    assert_eq!(
+        git(&w.primary, &["rev-parse", "HEAD"]),
+        before,
+        "work must not move"
+    );
 }
 
 #[test]

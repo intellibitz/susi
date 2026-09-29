@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Keep the primary checkout parked at origin/main so nobody works in it
-# (Mandate 49). It sits on a *detached* HEAD: `main` itself is checked out in
-# the integration worktree, and git allows a branch in only one worktree.
-# workflow-guard and `susi workflow check` already refuse commits here; this
-# removes the stale branch that invited them.
+# (Mandate 49): on `main`, fast-forwarded to origin/main. Only if another
+# worktree already holds `main` (git allows a branch in one worktree) does it
+# fall back to a detached HEAD at origin/main. workflow-guard and
+# `susi workflow check` already refuse commits here; this removes the stale
+# branch that invited them, and it never undoes a human's own `git switch main`.
 #
 #   scripts/park-primary.sh            park (run from any worktree of the repo)
 #
@@ -37,10 +38,33 @@ if [ "$unmerged" != 0 ]; then
     echo "  push and merge them (or move them to a worktree branch) first." >&2
     exit 1
 fi
-if [ "$(git rev-parse HEAD)" = "$target" ] && ! git symbolic-ref -q HEAD >/dev/null; then
-    echo "park-primary: already parked at origin/main (${target:0:8})"
+# Does another worktree hold `main`?
+main_elsewhere=$(git worktree list --porcelain | awk -v p="$primary" '
+    /^worktree /{wt=substr($0,10)} /^branch refs\/heads\/main$/{ if (wt!=p) print wt }' | head -1)
+branch=$(git symbolic-ref -q --short HEAD || true)
+
+if [ -z "$main_elsewhere" ]; then
+    # `main` is free: park ON it. Local main commits would be lost work.
+    if git rev-parse --verify -q main >/dev/null && [ "$(git rev-list --count "$target..main")" != 0 ]; then
+        echo "park-primary: refusing — local main has commits that are not in origin/main." >&2
+        exit 1
+    fi
+    if [ "$branch" = main ] && [ "$(git rev-parse HEAD)" = "$target" ]; then
+        echo "park-primary: already on main at origin/main (${target:0:8})"
+        exit 0
+    fi
+    was=${branch:-$(git rev-parse --short HEAD)}
+    git switch --quiet main 2>/dev/null || git switch --quiet -c main --track origin/main
+    git merge --quiet --ff-only "$target"
+    echo "park-primary: $primary moved from $was to main at origin/main (${target:0:8})"
     exit 0
 fi
-was=$(git symbolic-ref -q --short HEAD || git rev-parse --short HEAD)
+
+# Another worktree holds main: detach at origin/main instead.
+if [ -z "$branch" ] && [ "$(git rev-parse HEAD)" = "$target" ]; then
+    echo "park-primary: already parked at origin/main (${target:0:8}), detached ($main_elsewhere holds main)"
+    exit 0
+fi
+was=${branch:-$(git rev-parse --short HEAD)}
 git checkout --quiet --detach "$target"
-echo "park-primary: $primary moved from $was to origin/main (${target:0:8}), detached"
+echo "park-primary: $primary moved from $was to origin/main (${target:0:8}), detached ($main_elsewhere holds main)"
