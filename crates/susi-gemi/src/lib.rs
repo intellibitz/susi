@@ -46,6 +46,15 @@ pub mod benchmark;
 pub mod coding_models_ext;
 pub mod eval;
 pub mod frontier_ext;
+pub mod model_preload;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
 pub mod pulse;
+pub mod rate_limit_scheduler;
+
+#[cfg(test)]
+#[path = "tests/model_preload.rs"]
+mod model_preload_tests;
+#[cfg(test)]
+#[path = "tests/rate_limit_scheduler.rs"]
+mod rate_limit_scheduler_tests;
