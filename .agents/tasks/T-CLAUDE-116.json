@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-116",
+  "title": "Bind evaluation receipts to candidate artifacts",
+  "goal": "Each evaluation receipt identifies source revision, binary or Wasm digest, suite revision, environment, and actual exit status; a changed artifact or missing receipt invalidates the comparison. Delivers roadmap vector VC-201-004. Tests must be named vc_201_004_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-113"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_004"
+    ]
+  },
+  "roadmap": "VC-201-004",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}

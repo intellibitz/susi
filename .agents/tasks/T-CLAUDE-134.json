@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-134",
+  "title": "Probe cloud provider contracts reproducibly",
+  "goal": "Execute opt-in credentialed and fixture-backed checks for authentication, streaming, tool calls, embeddings, usage, and errors; capability claims include provider/model/version, observation time, and unsupported cases. Delivers roadmap vector VC-201-051. Tests must be named vc_201_051_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "vc_201_051"
+    ]
+  },
+  "roadmap": "VC-201-051",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702518
+}

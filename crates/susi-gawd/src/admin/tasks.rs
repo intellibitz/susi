@@ -47,6 +47,10 @@ pub struct Task {
     #[serde(default)]
     pub deps: Vec<String>,
     pub accept: Accept,
+    /// The roadmap vector (`VC-<n>-<n>` in `.agents/roadmap.json`) this task
+    /// delivers, so a vector's progress comes from its tasks closing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roadmap: Option<String>,
     pub created_by: String,
     pub created_unix: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -195,6 +199,8 @@ pub struct NewTask {
     pub deps: Vec<String>,
     /// Acceptance argv; see [`accept_allowed`].
     pub accept: Vec<String>,
+    /// Roadmap vector this delivers; must exist in `.agents/roadmap.json`.
+    pub roadmap: Option<String>,
 }
 
 pub fn add(ws: &Path, agent: &str, new: NewTask) -> EaiResult<Task> {
@@ -204,7 +210,11 @@ pub fn add(ws: &Path, agent: &str, new: NewTask) -> EaiResult<Task> {
         size,
         deps,
         accept: accept_cmd,
+        roadmap,
     } = new;
+    if let Some(vector) = &roadmap {
+        validate_roadmap_link(ws, vector)?;
+    }
     let (title, goal, size, deps) = (
         title.as_str(),
         goal.as_str(),
@@ -238,6 +248,7 @@ pub fn add(ws: &Path, agent: &str, new: NewTask) -> EaiResult<Task> {
         size: size.to_string(),
         deps: deps.to_vec(),
         accept: Accept { cmd: accept_cmd },
+        roadmap,
         created_by: agent_token(agent)?,
         created_unix: now_unix(),
         closed: None,
@@ -248,6 +259,101 @@ pub fn add(ws: &Path, agent: &str, new: NewTask) -> EaiResult<Task> {
         serde_json::to_vec_pretty(&task)?,
     )?;
     Ok(task)
+}
+
+/// `VC-<digits>-<digits>`.
+pub fn valid_vector_id(id: &str) -> bool {
+    let mut p = id.splitn(3, '-');
+    matches!(
+        (p.next(), p.next(), p.next()),
+        (Some("VC"), Some(a), Some(b))
+            if !a.is_empty() && a.bytes().all(|c| c.is_ascii_digit())
+                && !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit())
+    )
+}
+
+/// A roadmap vector as the coverage report needs it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Vector {
+    pub id: String,
+    pub priority: String,
+    pub title: String,
+}
+
+/// Vectors from `.agents/roadmap.json` (`/vectors`), in file order.
+pub fn roadmap_vectors(ws: &Path) -> EaiResult<Vec<Vector>> {
+    let text = std::fs::read_to_string(ws.join(".agents").join("roadmap.json"))
+        .map_err(|_| EaiError::config("no .agents/roadmap.json in this workspace"))?;
+    let v: serde_json::Value = serde_json::from_str(&text)?;
+    Ok(v["vectors"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| {
+                    Some(Vector {
+                        id: x["id"].as_str()?.to_string(),
+                        priority: x["priority"].as_str().unwrap_or("-").to_string(),
+                        title: x["vector"]
+                            .as_str()
+                            .or_else(|| x["mastery_target"].as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn validate_roadmap_link(ws: &Path, vector: &str) -> EaiResult<()> {
+    if !valid_vector_id(vector) {
+        return Err(EaiError::config(format!(
+            "invalid roadmap vector `{vector}` (want VC-<n>-<n>)"
+        )));
+    }
+    if !roadmap_vectors(ws)?.iter().any(|v| v.id == vector) {
+        return Err(EaiError::config(format!(
+            "roadmap vector {vector} does not exist in .agents/roadmap.json"
+        )));
+    }
+    Ok(())
+}
+
+/// One vector's coverage by tasks.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Coverage {
+    pub vector: Vector,
+    pub open: Vec<String>,
+    pub closed: Vec<String>,
+}
+
+impl Coverage {
+    pub fn uncovered(&self) -> bool {
+        self.open.is_empty() && self.closed.is_empty()
+    }
+    /// Every linked task is closed (and there is at least one).
+    pub fn delivered(&self) -> bool {
+        self.open.is_empty() && !self.closed.is_empty()
+    }
+}
+
+/// Join vectors with the tasks that name them.
+pub fn roadmap_coverage(vectors: &[Vector], open: &[Task], done: &[Task]) -> Vec<Coverage> {
+    let ids = |tasks: &[Task], v: &Vector| -> Vec<String> {
+        tasks
+            .iter()
+            .filter(|t| t.roadmap.as_deref() == Some(v.id.as_str()))
+            .map(|t| t.id.clone())
+            .collect()
+    };
+    vectors
+        .iter()
+        .map(|v| Coverage {
+            vector: v.clone(),
+            open: ids(open, v),
+            closed: ids(done, v),
+        })
+        .collect()
 }
 
 fn git(ws: &Path, args: &[&str]) -> EaiResult<String> {
@@ -556,6 +662,7 @@ mod tests {
                     size: $size.to_string(),
                     deps: $deps.to_vec(),
                     accept: $accept,
+                    roadmap: None,
                 },
             )
         };
@@ -563,6 +670,103 @@ mod tests {
 
     fn true_cmd() -> Vec<String> {
         vec!["cargo".into(), "--version".into()]
+    }
+
+    fn write_roadmap(ws: &Path, ids: &[(&str, &str)]) {
+        std::fs::create_dir_all(ws.join(".agents")).unwrap();
+        let vectors: Vec<serde_json::Value> = ids
+            .iter()
+            .map(
+                |(id, p)| serde_json::json!({"id": id, "priority": p, "vector": format!("v {id}")}),
+            )
+            .collect();
+        std::fs::write(
+            ws.join(".agents/roadmap.json"),
+            serde_json::json!({"vectors": vectors}).to_string(),
+        )
+        .unwrap();
+    }
+
+    fn linked(ws: &Path, vector: &str) -> EaiResult<Task> {
+        add(
+            ws,
+            "claude",
+            NewTask {
+                title: "t".into(),
+                goal: String::new(),
+                size: "s".into(),
+                deps: vec![],
+                accept: true_cmd(),
+                roadmap: Some(vector.to_string()),
+            },
+        )
+    }
+
+    #[test]
+    fn roadmap_link_is_validated_against_roadmap_json() {
+        let (r, a, _) = Repos::new("rmlink");
+        assert!(linked(&a, "VC-201-001").is_err(), "no roadmap.json yet");
+        write_roadmap(&a, &[("VC-201-001", "P0")]);
+        let t = linked(&a, "VC-201-001").unwrap();
+        assert_eq!(t.roadmap.as_deref(), Some("VC-201-001"));
+        assert!(linked(&a, "VC-201-999")
+            .unwrap_err()
+            .to_string()
+            .contains("does not exist"));
+        assert!(linked(&a, "vc-1")
+            .unwrap_err()
+            .to_string()
+            .contains("invalid roadmap vector"));
+        assert!(
+            valid_vector_id("VC-200-001")
+                && !valid_vector_id("VC--1")
+                && !valid_vector_id("VC-1-x")
+        );
+        drop(r);
+    }
+
+    #[test]
+    fn roadmap_link_coverage_joins_open_and_closed_tasks() {
+        let (r, a, _) = Repos::new("rmcov");
+        write_roadmap(
+            &a,
+            &[
+                ("VC-201-001", "P0"),
+                ("VC-201-002", "P1"),
+                ("VC-201-003", "P1"),
+            ],
+        );
+        let t1 = linked(&a, "VC-201-001").unwrap();
+        let t2 = linked(&a, "VC-201-001").unwrap();
+        let t3 = linked(&a, "VC-201-002").unwrap();
+        claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();
+        close(&a, &t2.id, "claude").unwrap();
+        let cov = roadmap_coverage(
+            &roadmap_vectors(&a).unwrap(),
+            &list_open(&a),
+            &list_done(&a),
+        );
+        assert_eq!(cov.len(), 3);
+        assert_eq!(
+            (cov[0].open.clone(), cov[0].closed.clone()),
+            (vec![t1.id.clone()], vec![t2.id.clone()])
+        );
+        assert!(!cov[0].uncovered() && !cov[0].delivered());
+        assert_eq!(cov[1].open, vec![t3.id.clone()]);
+        assert!(
+            cov[2].uncovered(),
+            "a vector nobody linked a task to is uncovered"
+        );
+        // Delivered once every linked task is closed.
+        claim(&a, &t1.id, "claude", 1, now_unix()).unwrap();
+        close(&a, &t1.id, "claude").unwrap();
+        let cov = roadmap_coverage(
+            &roadmap_vectors(&a).unwrap(),
+            &list_open(&a),
+            &list_done(&a),
+        );
+        assert!(cov[0].delivered());
+        drop(r);
     }
 
     #[test]

@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDE-114",
+  "title": "Capture a reproducible released baseline",
+  "goal": "Benchmark the installed release as an unchanged reference and candidates on the isolated dev instance; record commit, hardware, runtime, dataset, success rate, latency, tokens, and cost with reproducible commands. Delivers roadmap vector VC-201-002. Tests must be named vc_201_002_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-113"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_002"
+    ]
+  },
+  "roadmap": "VC-201-002",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}

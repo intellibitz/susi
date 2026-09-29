@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-113",
+  "title": "Version the RSI evaluation corpus",
+  "goal": "Create versioned coding, repair, orchestration, and local/cloud operations fixtures with input hashes and held-out splits; replay the same revision with recorded seeds and no evaluator-data exposure to the candidate. Delivers roadmap vector VC-201-001. Tests must be named vc_201_001_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_001"
+    ]
+  },
+  "roadmap": "VC-201-001",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517
+}
