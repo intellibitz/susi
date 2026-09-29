@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-20",
+  "title": "GPU telemetry sampler feeding the hardware profile",
+  "goal": "Sample utilisation, VRAM, temperature and power from nvidia-smi/rocm-smi (and Apple/Intel equivalents) on an interval into a bounded time series; expose in `susi ecosystem scan`. Tests gpu_telemetry_* parsing recorded tool output.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi-models",
+      "gpu_telemetry"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459,
+  "closed": {
+    "at_unix": 1790724508,
+    "commit": "e39f240436fe0b43a38f3ca5efdd517e55a71978",
+    "by": "CURSOR"
+  }
+}

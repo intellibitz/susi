@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-35",
+  "title": "Versioned price catalog for cloud models",
+  "goal": "Replace coarse cost tiers with an optional price catalog (input/output USD per 1M tokens, versioned, signed like the model catalog) that the cost module prefers when it has an entry. Tests price_catalog_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "price_catalog"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459,
+  "closed": {
+    "at_unix": 1790724539,
+    "commit": "e39f240436fe0b43a38f3ca5efdd517e55a71978",
+    "by": "CURSOR"
+  }
+}
