@@ -5,11 +5,15 @@ name: Test
 # never blocks on either. The local pre-push hook only checks version
 # compliance; it does not run tests, by design.
 
+# No `pull_request` trigger: every PR here is opened by auto-merge.yml as
+# github-actions[bot], and GitHub holds a bot-opened PR's workflow runs for
+# approval (`action_required`). The PR then merges seconds later on the strength
+# of the branch-push run below, and the held run dies as a jobs-less "failure"
+# — noise on every merge (and a red X on the Actions page). The push run is the
+# gate: checks attach to the commit, so the PR sees them all the same.
 on:
   push:
     branches: ['**']
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -47,7 +51,8 @@ jobs:
 
   # Non-main branch pushes get a fast affected-crates compile gate only.
   # Several agents push every macro-step on parallel branches; the full
-  # suite is the integration gate on main, PRs, and manual dispatch.
+  # suite is the integration gate on main and manual dispatch (auto-merge
+  # dispatches it on main right after each merge).
   # scripts/ci-changed-crates.sh maps the diff to packages, so a leaf-crate
   # push checks in seconds on a warm cache instead of the whole workspace.
   check:

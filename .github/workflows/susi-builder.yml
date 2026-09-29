@@ -6,7 +6,10 @@ on:
   issue_comment:
     types: [created]
   pull_request:
-    types: [opened, synchronize, labeled]
+    # `labeled` only: PRs here are opened by auto-merge.yml as a bot, whose
+    # opened/synchronize runs are held for approval and die jobs-less when the
+    # PR merges seconds later. A maintainer adding `susi-build` is the trigger.
+    types: [labeled]
   workflow_dispatch:
     inputs:
       goal:

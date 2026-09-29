@@ -156,10 +156,13 @@ convergent:
 - **CI is branch-scoped and affected-crate-scoped.** Feature-branch pushes
   run fmt + cargo deny + `cargo check` on just the crates the diff touches
   (`scripts/ci-changed-crates.sh`; workspace-wide inputs and root-package
-  changes fall back to a full check). On `main`, PRs, and manual dispatch
-  the suite runs as six parallel nextest shards (foundation, daemon, gawd,
+  changes fall back to a full check). On `main` and manual dispatch the
+  suite runs as six parallel nextest shards (foundation, daemon, gawd,
   gemi, vendor-cells, root-cli) plus a lint job and the live susi-native
   e2e job — the gate is the slowest shard, not one serial workspace build.
+  Auto-merge dispatches it on `main` right after each merge; PRs are gated by
+  the branch-push run (there is deliberately no `pull_request` trigger:
+  bot-opened PRs' runs are held for approval and die jobs-less on merge).
   The rolling dev release builds only on `workflow_dispatch` or a
   head-commit subject that starts with `[dev-release]`.
 
