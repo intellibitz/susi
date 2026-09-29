@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "cohere",
+    "name": "Cohere",
+    "home": "https://cohere.com",
+    "provenance": {
+      "source": "https://docs.cohere.com/reference/chat",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "cohere",
+      "to": "cohere-api",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "cohere",
+      "to": "cohere-chat-v2",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

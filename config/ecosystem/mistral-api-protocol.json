@@ -1,0 +1,19 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "protocol",
+    "id": "mistral-api-protocol",
+    "name": "Mistral API (OpenAI-compatible)",
+    "transports": [
+      "http",
+      "http-sse"
+    ],
+    "provenance": {
+      "source": "https://docs.mistral.ai/api",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

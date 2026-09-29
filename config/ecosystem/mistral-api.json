@@ -1,0 +1,116 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "mistral-api",
+    "name": "Mistral La Plateforme API",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.mistral.ai/api",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements-version",
+      "from": "mistral-api",
+      "to": "mistral-api-v1",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "mistral-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "mistral-api",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "mistral-api",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "mistral-api",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "mistral-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "mistral-api",
+      "to": "cap-batch",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "mistral-api",
+      "to": "cap-moderation",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "mistral-api",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
