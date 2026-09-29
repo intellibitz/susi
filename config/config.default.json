@@ -389,6 +389,27 @@
         "protocol_type": "chat",
         "model": "glm-4.6",
         "api_key_env": "ZHIPU_API_KEY"
+      },
+      {
+        "name": "Together",
+        "api_base": "https://api.together.xyz/v1",
+        "protocol_type": "chat",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "api_key_env": "TOGETHER_API_KEY"
+      },
+      {
+        "name": "xAI",
+        "api_base": "https://api.x.ai/v1",
+        "protocol_type": "chat",
+        "model": "grok-4",
+        "api_key_env": "XAI_API_KEY"
+      },
+      {
+        "name": "DeepInfra",
+        "api_base": "https://api.deepinfra.com/v1/openai",
+        "protocol_type": "chat",
+        "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "api_key_env": "DEEPINFRA_API_KEY"
       }
     ],
     "llama_api_base": "http://localhost:8080/v1",

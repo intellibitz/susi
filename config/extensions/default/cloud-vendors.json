@@ -67,5 +67,15 @@
     "id": "fireworks",
     "aliases": ["fireworks"],
     "api_key_env": "FIREWORKS_API_KEY"
+  },
+  {
+    "id": "xai",
+    "aliases": ["xai", "grok", "x.ai"],
+    "api_key_env": "XAI_API_KEY"
+  },
+  {
+    "id": "deepinfra",
+    "aliases": ["deepinfra"],
+    "api_key_env": "DEEPINFRA_API_KEY"
   }
 ]
