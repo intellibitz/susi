@@ -933,10 +933,12 @@ pub(crate) fn action_available(action: &str) -> bool {
     set.contains(&name)
 }
 
+/// Lowercased stems of `text`'s words (veto matching compares stems, so
+/// "deleting" is caught by "delete").
 fn words(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
-        .map(str::to_lowercase)
+        .map(stem)
 }
 
 /// Below `SERVE_CONFIDENCE`, a prediction is still served when the prompt is
@@ -1414,9 +1416,10 @@ impl SusiAlphaModel {
             .unwrap_or(action)
             .to_lowercase();
         let learned = set.action_words.get(&predicted);
-        words(prompt).find(|w| {
-            VETO_WORDS.contains(&w.as_str()) && !learned.is_some_and(|known| known.contains(w))
-        })
+        static VETO_STEMS: std::sync::LazyLock<std::collections::HashSet<String>> =
+            std::sync::LazyLock::new(|| VETO_WORDS.iter().map(|w| stem(w)).collect());
+        words(prompt)
+            .find(|w| VETO_STEMS.contains(w) && !learned.is_some_and(|known| known.contains(w)))
     }
 
     /// The nearest replayed intent: its cosine and its action.
@@ -1537,15 +1540,16 @@ impl SusiAlphaModel {
             .split(|c: char| !c.is_alphanumeric())
             .filter(|w| !w.is_empty() && !REFLEX_STOPWORDS.contains(w))
         {
-            if let Some(category) = anchor_category(word) {
+            let stem = stem(word);
+            if let Some(category) = anchor_category(word).or_else(|| stem_category(&stem)) {
                 let weight = 1.0 / (10f32).sqrt();
                 for val in vec.iter_mut().skip(category * 10).take(10) {
                     *val += weight;
                 }
             } else {
                 let weight = std::f32::consts::FRAC_1_SQRT_2;
-                vec[(fnv1a(word, 0) as usize) % Self::DIM] += weight;
-                vec[(fnv1a(word, 1) as usize) % Self::DIM] += weight;
+                vec[(fnv1a(&stem, 0) as usize) % Self::DIM] += weight;
+                vec[(fnv1a(&stem, 1) as usize) % Self::DIM] += weight;
             }
         }
         let norm = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -1554,6 +1558,110 @@ impl SusiAlphaModel {
         }
         vec
     }
+}
+
+/// A light suffix stemmer for reflex features (not linguistics: it only has
+/// to map inflections of one word to one key). Measured before it: 4 of 18
+/// inflected paraphrases of trained intents ("running the tests", "listed
+/// directories", "fixing the builds") were served — whole-word features made
+/// "running" and "run" different words. Rules, first match wins, only on
+/// words longer than 3 letters: `-ies`→`-y`, `-ing`/`-ed` (then undouble a
+/// final doubled consonant), plural `-es` after s/x/z/ch/sh, plural `-s`
+/// (not `-ss`/`-us`/`-is`); then a trailing `-e` is dropped so "save" and
+/// "saving" meet at "sav".
+fn stem(word: &str) -> String {
+    let mut w = word.to_lowercase();
+    if w.len() <= 3 || !w.is_ascii() {
+        return w;
+    }
+    let undouble = |w: &mut String| {
+        let bytes = w.as_bytes();
+        let n = bytes.len();
+        if n >= 2 && bytes[n - 1] == bytes[n - 2] && !b"aeioulsz".contains(&bytes[n - 1]) {
+            w.pop();
+        }
+    };
+    if let Some(root) = w.strip_suffix("ies") {
+        w = format!("{root}y");
+    } else if w.len() > 5 && w.ends_with("ing") {
+        w.truncate(w.len() - 3);
+        undouble(&mut w);
+    } else if w.len() > 4 && w.ends_with("ed") {
+        w.truncate(w.len() - 2);
+        undouble(&mut w);
+    } else if ["ses", "xes", "zes", "ches", "shes"]
+        .iter()
+        .any(|s| w.ends_with(s))
+    {
+        w.truncate(w.len() - 2);
+    } else if w.ends_with('s') && !w.ends_with("ss") && !w.ends_with("us") && !w.ends_with("is") {
+        w.pop();
+    }
+    if w.len() > 3 && w.ends_with('e') {
+        w.pop();
+    }
+    w
+}
+
+/// Category of a stemmed word, via the stems of the anchor words ("files" →
+/// "fil" ← "file"), so inflections reach their category band.
+fn stem_category(stemmed: &str) -> Option<usize> {
+    const ANCHOR_WORDS: &[&str] = &[
+        "status",
+        "health",
+        "state",
+        "check",
+        "hardware",
+        "system",
+        "report",
+        "version",
+        "ver",
+        "build",
+        "engine",
+        "revision",
+        "write",
+        "save",
+        "create",
+        "file",
+        "update",
+        "put",
+        "read",
+        "get",
+        "fetch",
+        "cat",
+        "show",
+        "content",
+        "list",
+        "ls",
+        "dir",
+        "directory",
+        "folder",
+        "files",
+        "scout",
+        "search",
+        "find",
+        "look",
+        "discover",
+        "mcp",
+        "reason",
+        "think",
+        "solve",
+        "complex",
+        "calculate",
+        "fix",
+        "heal",
+        "repair",
+        "audit",
+        "compliance",
+    ];
+    static STEMS: std::sync::LazyLock<std::collections::HashMap<String, usize>> =
+        std::sync::LazyLock::new(|| {
+            ANCHOR_WORDS
+                .iter()
+                .filter_map(|w| anchor_category(w).map(|c| (stem(w), c)))
+                .collect()
+        });
+    STEMS.get(stemmed).copied()
 }
 
 /// Function words that carry no intent; dropped from reflex features so a
@@ -2024,7 +2132,7 @@ mod tests {
         );
         assert_eq!(
             model.vetoed_word("delete the config file", "ACTION: write_file"),
-            Some("delete".to_string())
+            Some(stem("delete"))
         );
     }
 
@@ -2115,6 +2223,59 @@ mod tests {
         stage(&staged, &half(1));
         let report = SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
         assert!(report.contains("Held-out gate passed"), "{report}");
+    }
+
+    /// Inflected paraphrases of the benchmark intents. Before `stem`, 4 of
+    /// these 18 were served; with it, 18 of 18.
+    const BENCH_INFLECTED: &[(&str, &str)] = &[
+        ("checking the system health", "status"),
+        ("status checks", "status"),
+        ("listing the files", "list_directory"),
+        ("listed directories", "list_directory"),
+        ("reading the configs", "read_file"),
+        ("reads notes.txt", "read_file"),
+        ("running the tests", "run_test_harness"),
+        ("tested everything", "run_test_harness"),
+        ("fixing the builds", "self_heal_build"),
+        ("repaired compile errors", "self_heal_build"),
+        ("writing notes to todo.md", "write_file"),
+        ("saving the drafts", "write_file"),
+        ("searching for tools", "scout"),
+        ("discovering servers", "scout"),
+        ("thinking it through", "reason"),
+        ("solving puzzles", "reason"),
+        ("showing the versions", "version"),
+        ("revisions deployed", "version"),
+    ];
+
+    #[test]
+    fn inflections_reach_their_reflex_and_vetoes_still_hold() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, BENCH_TRAIN);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let model = SusiAlphaModel::load(dir.path()).unwrap();
+        let served = BENCH_INFLECTED
+            .iter()
+            .filter(|(p, a)| model.predict_intent(p).ok() == Some(format!("ACTION: {a}")))
+            .count();
+        assert!(
+            served >= 15,
+            "inflected recall {served}/{}",
+            BENCH_INFLECTED.len()
+        );
+        // Inflected negations and destructive verbs are still vetoed.
+        for prompt in [
+            "deleting the config files",
+            "removing all files",
+            "stopped the builds",
+        ] {
+            assert!(model.predict_intent(prompt).is_err(), "{prompt} was served");
+        }
+        assert_eq!(stem("running"), "run");
+        assert_eq!(stem("directories"), "directory");
+        assert_eq!(stem("saving"), stem("save"));
+        assert_eq!(stem("status"), "status");
     }
 
     #[test]

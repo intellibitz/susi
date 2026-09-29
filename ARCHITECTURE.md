@@ -629,7 +629,14 @@ notes to todo.md" and was served `write_file` at 0.84 confidence
 the hash was a byte *sum* that made every anagram one feature. Feature
 changes need no checkpoint migration: the held-out gate below scores the
 active and candidate weights under the *current* features, so stale
-weights are judged honestly and replaced on the next cycle.
+weights are judged honestly and replaced on the next cycle. Words are
+reduced by a light suffix stemmer (`stem`: `-ies`→`-y`, `-ing`/`-ed` with
+undoubling, plural `-es`/`-s`, trailing `-e`) before hashing and category
+lookup, and the veto guard compares stems: whole-word features made
+"running the tests" and "run all tests" disjoint, and 4 of 18 inflected
+paraphrases of trained intents were served — 18 of 18 with stemming, while
+the benchmark's precision and out-of-distribution refusal held and
+inflected vetoes ("deleting the config files") still fire (EV-CLAUDE-046).
 
 Fits run to convergence, not a fixed step count: full-batch AdamW until
 mean loss ≤ 0.15 (correct class ≈ 0.86 probability) or 600 epochs, and the

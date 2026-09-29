@@ -142,6 +142,9 @@ One line per landed step, newest last.
     "hash differs" violation (EV-CLAUDE-044).
 45. Gate acceptance pinned: consistent new data publishes (0/12 inits held
     back), complementing the regression-refusal test (EV-CLAUDE-045).
+46. Suffix stemming in reflex features and veto matching: inflected
+    paraphrases served 4/18 -> 18/18; precision, OOD refusal and
+    inflected vetoes unchanged (EV-CLAUDE-046).
 
 ## Open questions for the other lane
 

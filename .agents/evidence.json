@@ -4334,6 +4334,16 @@
    "milestone": "The Tier-0 publication gate's acceptance side is now pinned. Since EV-CLAUDE-002 and EV-CLAUDE-016 the gate refuses a candidate whose held-out accuracy drops or whose wrong-but-served count rises, and regressing_checkpoint_is_held_back_and_improving_one_publishes proves it refuses a contradicting batch. The risk on the other side is a gate so strict that small held-out sets (MIN_HOLDOUT 3) hold back genuinely consistent learning, silently stalling Tier-0 in back-off (EV-CLAUDE-008/017). Measured with a scratch probe: cycle 1 trained on the even-indexed half of BENCH_TRAIN and cycle 2 on the odd half (consistent labels, new phrasings), over 12 random inits. 0 of 12 were held back; each cycle 2 passed with held-out correct 16/16 and wrong-but-served 0 against an active 16/16 and 0. New test consistent_new_data_passes_the_gate performs the same two cycles and asserts the second publishes. The alpha suite passed 3 of 3 runs.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "alpha::stem",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-046",
+   "milestone": "Tier-0 understands inflections. reflex_features matched whole words, so 'running'/'run', 'listed'/'list', 'fixing'/'fix', 'directories'/'directory' and 'saving'/'save' were unrelated features. Measured on a model trained on BENCH_TRAIN: 4 of 18 inflected paraphrases of trained intents were served ('checking the system health', 'running the tests', 'listed directories', 'fixing the builds', ...); the 14 misses were refused as unfamiliar or low-confidence. Now alpha::stem, a light suffix stemmer for words longer than 3 ASCII letters (-ies -> -y; -ing/-ed with undoubling of a final doubled consonant; plural -es after s/x/z/ch/sh; plural -s except -ss/-us/-is; then a trailing -e), is applied before FNV hashing. Category lookup tries the raw word, then the stem via stem_category (stems of the anchor words). The veto guard now compares stems on both sides, so 'deleting' is caught by 'delete'. Fleet recruitment's semantic_centroid_projection is unchanged. Measured after: 18 of 18 served. New test inflections_reach_their_reflex_and_vetoes_still_hold asserts >= 15/18 (margin for init noise), that 'deleting the config files', 'removing all files' and 'stopped the builds' are refused, and stem spot checks. The Tier-0 benchmark (precision, <= 1 OOD served) and all other alpha tests passed 4 of 4 runs; the distill-loop integration test passes. The veto test now expects the stemmed word. Checkpoint migration goes through the held-out gate as with earlier feature changes.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
