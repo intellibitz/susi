@@ -21,6 +21,8 @@ tokio-stream = { package = "susi-vendor-tokio-stream", path = "../susi-vendor-to
 bytes = { package = "susi-vendor-bytes", path = "../susi-vendor-bytes" }
 tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
 tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 
 [lints]
 workspace = true

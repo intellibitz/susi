@@ -39,6 +39,7 @@ mod json_util;
 pub mod key_scope;
 pub mod rekey_schedule;
 pub mod selfheal;
+pub mod setting_registry;
 pub mod state_migration;
 mod types;
 pub mod validate;
@@ -166,6 +167,9 @@ mod versioned_store_tests;
 #[cfg(test)]
 #[path = "tests/zc_config_explain.rs"]
 mod zc_config_explain_tests;
+#[cfg(test)]
+#[path = "tests/zc_setting_registry.rs"]
+mod zc_setting_registry_tests;
 
 /// Serializes tests that mutate or read process-global environment-derived
 /// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock
