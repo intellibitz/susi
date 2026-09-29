@@ -4474,6 +4474,26 @@
    "milestone": "First fix driven by the tool-heavy benchmark (EV-CLAUDE-059). The EV-CLAUDE-047 reflex synonym table mapped 'dump' to the read band, but 'dump' usually means write out (db dump, core dump), and the benchmark served 'dump the db to a file' as read_file instead of db_backup. 'dump' is removed from SYNONYMS; the rationale is kept in the synonym table's doc comment. Measured over 3 inits, tool-heavy benchmark: tool recall 44, 43, 43/60 (was 43/60), wrong serves 1, 1, 1 (was 3, 1, 2), foundational 26/27, 0/12 OOD. The synonym-paraphrase test (which never used 'dump') still passes. The benchmark's wrong-serve bound is tightened from 4 to 3. Alpha suite passes.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "id": "EV-DEVIN-058",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 40 \u2014 hard-won successes weigh half. difficulty()'s failure rate treated a CLOUD_ATTEMPT_FAILED-then-recovered mission as a clean win; it now contributes 0.5\u00d7 a failure's weight \u2014 partial route failure is real difficulty evidence.",
+   "proof": "hard_won_success_counts_half: recovered mission reads failure_rate 0.5 vs 0.0 for a clean twin. susi-core 234 pass; clippy clean.",
+   "anchor": {
+    "label": "Hard-won difficulty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-059",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 41 \u2014 reflex labels out of tool provenance. reflex:* serve labels (iter 7, for distill joins) were flowing through failing_tool_counts/proven_tools as if a plan could name them; plan_tools() filters them so serve labels carry no taint and earn no bonus.",
+   "proof": "reflex_labels_stay_out_of_tool_provenance: reflex:status on failed/succeeded missions enters neither failing counts nor proven sets. susi-core 235 pass; clippy clean.",
+   "anchor": {
+    "label": "Provenance hygiene",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
