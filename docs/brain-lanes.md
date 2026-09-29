@@ -307,3 +307,7 @@ One line per landed step, newest last.
     — a tool invoked 5x in one failed mission counted as 5 failures,
     inflating the repetition-scaled penalty. Now dedups per mission, as
     the contract documents.
+29. Recency-weighted failure rate: `difficulty`'s failure_rate now uses
+    the same 0.5+0.5*e^(-age/30d) weight as retrieval ordering (shared
+    `recency_weight` fn) — a failure yesterday outweighs one last year;
+    recovered intents stop paying for ancient failures.

@@ -4104,6 +4104,16 @@
     "label": "Per-mission failure counts",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-041",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 23 \u2014 recency-weighted difficulty. difficulty()'s failure_rate is now weighted by the same 0.5 + 0.5\u00b7e^(-age/30d) function used in retrieval ordering (extracted as shared recency_weight). A failure yesterday outweighs one a year old; intents that recovered stop paying full price for ancient failures.",
+   "proof": "difficulty_weights_recent_failures_heavier: ~0.33 with stale failure + fresh success, ~0.67 flipped. susi-core 223 pass; clippy clean.",
+   "anchor": {
+    "label": "Weighted failure rate",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

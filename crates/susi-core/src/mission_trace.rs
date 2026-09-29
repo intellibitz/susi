@@ -278,9 +278,7 @@ pub fn similar<'a>(goal: &str, traces: &'a [MissionTrace], limit: usize) -> Vec<
             // Recency weight: 0.5 + 0.5·e^(-age/τ) — the newest trace keeps
             // full similarity; an ancient one fades toward half, never to
             // zero (old lessons still count, just not above fresh ones).
-            let age = newest.saturating_sub(t.timestamp) as f64;
-            let weight = 0.5 + 0.5 * (-age / RECENCY_TAU_SECS).exp();
-            (sim * weight as f32, t)
+            (sim * recency_weight(t.timestamp, newest), t)
         })
         .collect();
     scored.sort_by(|a, b| {
@@ -313,9 +311,18 @@ impl Difficulty {
     }
 }
 
+/// Recency weight shared by retrieval ordering and difficulty math —
+/// 0.5 + 0.5·e^(−age/τ): old experience informs at up to half weight,
+/// never drops to zero.
+fn recency_weight(ts: u64, newest: u64) -> f32 {
+    let age = newest.saturating_sub(ts) as f64;
+    (0.5 + 0.5 * (-age / RECENCY_TAU_SECS).exp()) as f32
+}
+
 /// Estimate difficulty for `goal` from retrieval history and manifold risk.
 /// Novel intents and intents whose predecessors often failed route harder;
-/// familiar, reliably-solved intents stay cheap.
+/// familiar, reliably-solved intents stay cheap. The failure rate is
+/// recency-weighted — a failure yesterday outweighs one last year.
 pub fn difficulty(
     goal: &str,
     traces: &[MissionTrace],
@@ -323,11 +330,16 @@ pub fn difficulty(
 ) -> Difficulty {
     let neighbors = similar(goal, traces, 8);
     let novel = neighbors.is_empty();
-    let failure_rate = if neighbors.is_empty() {
-        0.0
-    } else {
-        neighbors.iter().filter(|t| !t.succeeded()).count() as f32 / neighbors.len() as f32
-    };
+    let newest = traces.iter().map(|t| t.timestamp).max().unwrap_or(0);
+    let (mut wsum, mut wfail) = (0.0f32, 0.0f32);
+    for t in &neighbors {
+        let w = recency_weight(t.timestamp, newest);
+        wsum += w;
+        if !t.succeeded() {
+            wfail += w;
+        }
+    }
+    let failure_rate = if wsum == 0.0 { 0.0 } else { wfail / wsum };
     let risk_weight = match risk {
         crate::manifold::RiskProfile::Low => 0.0,
         crate::manifold::RiskProfile::Medium => 0.15,
@@ -960,6 +972,36 @@ mod tests {
             1,
             "{:?}",
             hits.iter().map(|t| &t.goal).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn difficulty_weights_recent_failures_heavier() {
+        let ws = workspace();
+        // Same intent failed long ago and succeeded yesterday: unweighted
+        // rate is 0.5; recency-weighted, the ancient failure fades.
+        let mut old = MissionTrace::new("old", "deploy api", "FAILED", "swarm");
+        old.timestamp = 1;
+        let mut fresh = MissionTrace::new("new", "deploy api", "SUCCESS", "swarm");
+        fresh.timestamp = 1_800_000_000;
+        old.emit(ws.path()).unwrap();
+        fresh.emit(ws.path()).unwrap();
+        let traces = read_all(ws.path());
+        let d = difficulty("deploy api", &traces, crate::manifold::RiskProfile::Low);
+        assert!(
+            (d.failure_rate - 1.0 / 3.0).abs() < 0.03,
+            "expected ~0.33, got {}",
+            d.failure_rate
+        );
+        // Flip: fresh failure outweighs the ancient success.
+        old.outcome = "SUCCESS".into();
+        fresh.outcome = "FAILED".into();
+        let traces2 = vec![old, fresh];
+        let d2 = difficulty("deploy api", &traces2, crate::manifold::RiskProfile::Low);
+        assert!(
+            (d2.failure_rate - 2.0 / 3.0).abs() < 0.03,
+            "expected ~0.67, got {}",
+            d2.failure_rate
         );
     }
 
