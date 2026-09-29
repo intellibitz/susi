@@ -51,7 +51,13 @@ pub fn resolve_vendor_env_name(vendor: &str) -> Option<String> {
         return None;
     }
     let upper = trimmed.to_ascii_uppercase().replace('-', "_");
-    if upper.ends_with("_API_KEY") || upper.ends_with("_KEY") {
+    // Raw env names pass through untouched: keys, plus the companion values
+    // agents need beside them (`DEVIN_ORG_ID`, `*_TOKEN`) that must not get
+    // `_API_KEY` appended.
+    if ["_API_KEY", "_KEY", "_ID", "_TOKEN"]
+        .iter()
+        .any(|suffix| upper.ends_with(suffix))
+    {
         return Some(upper);
     }
     if let Some(entry) = find_vendor_entry(trimmed) {
@@ -299,6 +305,24 @@ pub fn is_remote_cloud(api_base: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_env_names_are_not_suffixed() {
+        for name in [
+            "DEVIN_ORG_ID",
+            "devin-org-id",
+            "GITHUB_TOKEN",
+            "OPENAI_API_KEY",
+            "foo_key",
+        ] {
+            let got = resolve_vendor_env_name(name).unwrap();
+            assert_eq!(got, name.to_ascii_uppercase().replace('-', "_"), "{name}");
+        }
+        assert_eq!(
+            resolve_vendor_env_name("devin").as_deref(),
+            Some("DEVIN_API_KEY")
+        );
+    }
 
     #[test]
     fn api_keys_with_newlines_are_rejected_before_any_write() {
