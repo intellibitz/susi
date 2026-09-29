@@ -42,6 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `dsh` boots a profile and needs `--profile`; the headless profile answers
+/// one task (the trailing argument), prints the result, and exits.
+fn dsh_args(prompt: &str) -> [&str; 3] {
+    ["--profile", "headless", prompt]
+}
+
 async fn handle_dsh(req: SyscallRequest) -> SyscallResponse {
     let prompt = req
         .payload
@@ -52,8 +58,7 @@ async fn handle_dsh(req: SyscallRequest) -> SyscallResponse {
     // Execute the DeepSeek Harness CLI
     let started = std::time::Instant::now();
     let output = tokio::process::Command::new("dsh")
-        .arg("--prompt")
-        .arg(prompt)
+        .args(dsh_args(prompt))
         .output()
         .await;
 
@@ -98,6 +103,14 @@ mod tests {
     use susi_abi::syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
     use susi_abi::wire::{FrameStream, MessageType, WireFrame};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn dsh_args_select_headless_profile_with_prompt_last() {
+        assert_eq!(
+            super::dsh_args("run the tests"),
+            ["--profile", "headless", "run the tests"]
+        );
+    }
 
     async fn round_trip(stream: &mut tokio::net::TcpStream, frame: WireFrame) -> WireFrame {
         stream.write_all(&frame.encode().unwrap()).await.unwrap();
