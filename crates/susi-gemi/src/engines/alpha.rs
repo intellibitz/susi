@@ -1057,6 +1057,13 @@ fn serves(action: &str, confidence: f32, nearest: Option<(f32, &str)>) -> bool {
 /// out-of-distribution prompts measured ≤ 0.52 against everyday training
 /// data; a paraphrase sharing two of three content words is ~0.67.
 const SUPPORT_MIN: f32 = 0.6;
+/// The support floor when the nearest example agrees with a strongly
+/// confident prediction (see `predict_intent`). Swept on the tool-heavy
+/// benchmark: 0.4 / 0.7 lifted recall most (43 → 46–47/60) but served
+/// "write a poem about the ocean" in 1 of 3 inits; 0.45 / 0.8 gave 44–46/60
+/// with 0 out-of-distribution serves in 6 inits.
+const LOW_SUPPORT_MIN: f32 = 0.45;
+const STRONG_CONFIDENCE: f32 = 0.8;
 
 /// The replay set's features, or `None` (confidence-only gate) when there
 /// is no replay set *or it cannot be read*: the support set is a serving
@@ -1569,14 +1576,24 @@ impl SusiAlphaModel {
         let corrected = self.correct_typos(raw);
         let prompt = corrected.as_str();
         let nearest = self.nearest(prompt);
-        if let Some((support, _)) = nearest {
-            if support < SUPPORT_MIN {
+        let (action, confidence) = self.predict_intent_with_confidence(prompt)?;
+        if let Some((support, neighbor)) = nearest {
+            // Below SUPPORT_MIN a prompt is still familiar enough when the
+            // nearest trained example carries the very action the classifier
+            // predicts with strong confidence: a new phrasing of a known
+            // request ("email this to carol" vs "email the report to alice",
+            // cosine ~0.41), not an unfamiliar one.
+            let agreeing = support >= LOW_SUPPORT_MIN
+                && confidence > STRONG_CONFIDENCE
+                && action
+                    .strip_prefix("ACTION: ")
+                    .is_some_and(|predicted| predicted.eq_ignore_ascii_case(neighbor));
+            if support < SUPPORT_MIN && !agreeing {
                 return Err(anyhow!(
                     "Unfamiliar prompt: nearest trained intent at cosine {support:.2} (< {SUPPORT_MIN})."
                 ));
             }
         }
-        let (action, confidence) = self.predict_intent_with_confidence(prompt)?;
         let runnable = match &self.available {
             Some(pinned) => pinned.contains(
                 &action
