@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-6",
+  "title": "Enforce the susi workflow by git: Task trailers, server-side compliance check, ruleset script",
+  "goal": "Mandates 49-56 are text; git must make them binding. (1) scripts/check-workflow-compliance.sh <base> <head>: every non-merge commit needs a 'Task: T-<AGENT>-<n>' trailer naming a task that is closed (in done/) or open with a live claim ref; exempt: merge commits, 'chore: release vX.Y.Z', github-actions[bot], commits touching only .agents/tasks/. (2) .githooks/commit-msg blocks locally; pre-push runs the script on the outgoing range. (3) CI job 'Workflow Compliance' in test.yml runs it server-side on branch pushes (the part --no-verify cannot bypass). (4) scripts/github-enforce.sh prints/applies a main ruleset: PRs required, required checks incl. Workflow Compliance, no force-push/deletion, no bypass. Tests in tests/workflow_compliance.rs drive the script against real temp repos.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "workflow_compliance"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790697092
+}
