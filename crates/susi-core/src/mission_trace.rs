@@ -456,7 +456,9 @@ pub fn failing_tool_counts(
             // nor clears its failure record.
             continue;
         } else {
-            for tool in &t.tools {
+            // Count failed *missions*, not mentions — a tool invoked five
+            // times in one failure is one data point, not five.
+            for tool in t.tools.iter().collect::<std::collections::BTreeSet<_>>() {
                 *failed.entry(tool.clone()).or_insert(0) += 1;
             }
         }
@@ -1031,7 +1033,7 @@ mod tests {
         for (outcome, tools) in [
             ("COMPLETE", vec!["exec_command", "cargo_build"]),
             ("COMPLETE", vec!["cargo_build"]),
-            ("FAILED", vec!["exec_command", "flaky_tool"]),
+            ("FAILED", vec!["exec_command", "flaky_tool", "flaky_tool"]),
         ] {
             let mut t = MissionTrace::new("m", "build rust crate", outcome, "swarm");
             t.tools = tools.into_iter().map(String::from).collect();
@@ -1041,6 +1043,10 @@ mod tests {
             t.emit(ws.path()).unwrap();
         }
         let traces = read_all(ws.path());
+        // Repeated invocations in one mission count as one failed mission —
+        // the count tracks missions the tool appeared on, not mentions.
+        let counts = failing_tool_counts("build rust crate", &traces, 8);
+        assert_eq!(counts.get("flaky_tool"), Some(&1));
         let proven = proven_tools("build rust crate", &traces, 8);
         // cargo_build only ever succeeded; exec_command also failed once.
         assert!(proven.contains("cargo_build"), "{proven:?}");

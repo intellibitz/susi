@@ -4094,6 +4094,16 @@
     "label": "Signal-aware briefs",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-040",
+   "type": "BUGFIX",
+   "milestone": "Iteration 22 \u2014 failing_tool_counts counted mentions, not missions: a tool invoked 5\u00d7 in one failed mission counted 5 failures, inflating the repetition-scaled deliberation penalty up to its cap on a single bad run. Now dedups per mission, matching the documented contract.",
+   "proof": "flaky_tool listed twice in one FAILED trace counts 1. susi-core 222 pass; clippy clean.",
+   "anchor": {
+    "label": "Per-mission failure counts",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

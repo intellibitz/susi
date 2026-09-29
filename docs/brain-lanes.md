@@ -303,3 +303,7 @@ One line per landed step, newest last.
     GOVERNANCE_BLOCK or CLOUD_ATTEMPT_FAILED — a refused goal class and
     a failed cloud path are now visible to the planner instead of
     sitting unqueried in the `signals` field.
+28. Fixed a counting bug: `failing_tool_counts` incremented per *mention*
+    — a tool invoked 5x in one failed mission counted as 5 failures,
+    inflating the repetition-scaled penalty. Now dedups per mission, as
+    the contract documents.
