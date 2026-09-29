@@ -19,7 +19,9 @@ use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult, ResultExt as Context};
 
 const DOMAIN: &[u8] = b"signed-catalog-v1";
-const CATALOG_FILE: &str = "catalog.json";
+/// File the installed payload lands in (channels that re-explode the
+/// payload — like `eco_signed_kb` — read it back from here).
+pub const CATALOG_FILE: &str = "catalog.json";
 const CATALOG_PREV: &str = "catalog.prev.json";
 const MANIFEST: &str = "catalog.manifest.json";
 const MANIFEST_PREV: &str = "catalog.manifest.prev.json";
