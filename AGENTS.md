@@ -105,6 +105,33 @@ this for the panic-path lints.
   idempotently by `scripts/github-setup.sh`. Finished workflow runs are
   pruned daily by `.github/workflows/cleanup-runs.yml`.
 
+## Workflow mandates (identity.json 49–56 — the constitution, binding on every agent)
+
+The authoritative text is in `.agents/identity.json` (compiled into susi and
+read by every agent; delegated agents also receive it in their task via
+`susi_core::self_build::BRIEF`). In short:
+
+- **49 Worktree Workflow** — own worktree + branch; never commit on the
+  primary checkout or `main`.
+- **50 Task Queue** — work is recorded and executed from `susi tasks`; claims
+  are atomic git refs with leases; a task closes only when its acceptance
+  check passes.
+- **51 Non-Conflicting Shared State** — one file per record, namespaced ids,
+  union (never delete/renumber) on conflict, merge `origin/main` before push.
+- **52 Hermetic Tests** — no test touches `~/.susi`, `~/.susi-dev` or an
+  inherited `SUSI_HOME`; `scripts/check-hermetic-tests.sh` is the check.
+- **53 Verified Release Gate** — releases only via `susi admin release --cut`;
+  the built binary runs `E2E_CHECKS`; fix forward with a new tag.
+- **54 Branch-Push Gate** — the branch-push `Test` run gates merges; no
+  `pull_request` triggers; a red run is a defect.
+- **55 Commands Are Not Missions** — command-shaped input is refused, never
+  run as a mission.
+- **56 Evidence-Ranked Brain** — providers ranked per task class by recorded
+  outcomes; a failed or unfunded model never leads; keys are never removed.
+
+`tests/architecture_tests.rs::workflow_mandates_are_in_identity_and_their_enforcement_exists`
+fails if a mandate goes missing or names an enforcement file that does not exist.
+
 ## Test policy
 
 - Property-based testing with `proptest` for state machines and pure

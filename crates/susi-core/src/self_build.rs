@@ -30,7 +30,7 @@ pub const VERIFY_COMMAND: &str = "cargo fmt --all --check \
 
 /// The contract, prepended to every task an agent receives in a SUSI tree.
 pub const BRIEF: &str = "\
-[SUSI SELF-BUILD CONTRACT — identity.json Mandate 48; full rules in AGENTS.md]
+[SUSI SELF-BUILD CONTRACT — identity.json Mandates 48-56; full rules in AGENTS.md]
 You are changing SUSI's own source. The installed ~/.susi/bin/susi is the release \
 toolchain running this work; do not break it.
 1. Build dev only into target/ (cargo build, cargo xb, ./build-gpu.sh). Never copy, \
@@ -43,9 +43,17 @@ ports 9090-9094.
 --all-targets --locked -- -D warnings && cargo test --workspace --locked. \
 Report the real result.
 4. Commit on a branch with a conventional-commit message; add an .agents/evidence.json \
-entry for behavior changes. Do not push to main, create tags, or cut a release — \
-releases are cut by the operator (susi admin release) and promoted to this host \
-automatically.
+entry for behavior changes (id EV-<AGENT>-<n>). Do not push to main, create tags, or cut \
+a release — releases are cut by the operator (susi admin release) and promoted to this \
+host automatically.
+5. Work in your own git worktree on your own branch (scripts/susi-worktree.sh <name>); \
+never commit in the primary checkout or on main (Mandate 49).
+6. Work from the task queue (Mandate 50): `susi tasks add '<title>' --accept '<cmd>'`, \
+`susi tasks claim <id>` before starting, `susi tasks close <id>` only when its \
+acceptance check passes. Never start a task another agent has claimed.
+7. Never edit a line another agent owns (Mandate 51): add files/entries, do not \
+rewrite or renumber others'; merge origin/main before pushing. Tests must be hermetic \
+(Mandate 52): never read or write ~/.susi, ~/.susi-dev or an inherited SUSI_HOME.
 [END CONTRACT]
 
 ";
@@ -73,6 +81,22 @@ mod tests {
             std::fs::write(dir.path().join(".agents/identity.json"), "{}").unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn the_contract_carries_the_workflow_mandates_agents_must_follow() {
+        for needle in [
+            "Mandates 48-56",
+            "scripts/susi-worktree.sh",
+            "susi tasks claim",
+            "susi tasks close",
+            "acceptance check passes",
+            "EV-<AGENT>-<n>",
+            "hermetic",
+            "SUSI_HOME",
+        ] {
+            assert!(BRIEF.contains(needle), "BRIEF must mention `{needle}`");
+        }
     }
 
     #[test]
