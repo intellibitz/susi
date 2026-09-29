@@ -429,6 +429,17 @@ susi mcp
 
 ---
 
+## Bring-your-own-key agents and open agent standards
+
+susi drives external autonomous agents with the keys you registered (`susi keys set <vendor>`); nothing is provisioned for you. Execution-catalog entries (`config/execution-agents.json`), run through the managed-agent manager:
+
+| Entry | Transport | Notes |
+|---|---|---|
+| `openhands` | headless CLI | registered provider key is mapped to `LLM_API_KEY` / `LLM_BASE_URL`; an explicit `LLM_API_KEY` always wins and no model is chosen for you |
+| `openhands-server` | OpenHands app-server / Cloud REST (`/api/v1/app-conversations`) | `OPENHANDS_API_KEY`; cancel pauses the sandbox; follow-up messages are refused because the API documents none |
+| `gemini-acp` | Agent Client Protocol over stdio | any ACP agent by overriding program/args; tool permission requests are denied unless `SUSI_ACP_AUTO_APPROVE=1` |
+| `a2a` | outbound A2A JSON-RPC | override `url` (and `token_env`) to point at any A2A agent; card discovery, 0.3 and 1.x wire dialects |
+
 ## Extension packs
 
 Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opinions — cloud env aliases, curated catalog pointers, ranks — live in **extension packs**. Zero-config lifecycle:

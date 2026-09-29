@@ -314,5 +314,17 @@
       "url": "http://127.0.0.1:8080",
       "token_env": null
     }
+  },
+  {
+    "id": "openhands-server",
+    "name": "OpenHands (server / Cloud API)",
+    "peer_name": "OpenHandsServerAgent",
+    "rank": 21,
+    "documentation": "https://docs.openhands.dev/openhands/usage/api/v1",
+    "adapter": {
+      "kind": "open_hands_server",
+      "base_url": "https://app.all-hands.dev",
+      "api_key_env": "OPENHANDS_API_KEY"
+    }
   }
 ]

@@ -81,6 +81,13 @@ pub enum Adapter {
         #[serde(default)]
         token_env: Option<String>,
     },
+    /// OpenHands app-server or Cloud REST API (`/api/v1/app-conversations`).
+    OpenHandsServer {
+        base_url: String,
+        /// Env var holding the OpenHands API key (bearer), if the server needs one.
+        #[serde(default)]
+        api_key_env: Option<String>,
+    },
     /// Agent Client Protocol agent spoken to over stdio (JSON-RPC).
     Acp {
         program: String,
@@ -215,6 +222,23 @@ impl Adapter {
                     bail!("token_env must name an environment variable, not contain a credential");
                 }
             }
+            Self::OpenHandsServer {
+                base_url,
+                api_key_env,
+            } => {
+                if !(base_url.starts_with("https://") || base_url.starts_with("http://"))
+                    || base_url.contains('\0')
+                {
+                    bail!("OpenHands base_url must be an http(s) URL");
+                }
+                if api_key_env.as_deref().is_some_and(|e| {
+                    e.is_empty() || !e.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                }) {
+                    bail!(
+                        "api_key_env must name an environment variable, not contain a credential"
+                    );
+                }
+            }
             Self::Acp { program, args } => {
                 if program.trim().is_empty()
                     || program.contains('\0')
@@ -249,6 +273,23 @@ impl Adapter {
                 }
                 Ok(format!(
                     "A2A endpoint {url}; agent card is fetched at execution"
+                ))
+            }
+            Self::OpenHandsServer {
+                base_url,
+                api_key_env,
+            } => {
+                if let Some(env) = api_key_env {
+                    if crate::susi_config::env_or_cloud_env(env)
+                        .unwrap_or_default()
+                        .trim()
+                        .is_empty()
+                    {
+                        bail!("set {env} for the OpenHands API");
+                    }
+                }
+                Ok(format!(
+                    "OpenHands endpoint {base_url}; API access checked at execution"
                 ))
             }
             Self::Acp { program, .. } => {
@@ -333,7 +374,10 @@ impl Adapter {
     pub fn is_cloud(&self) -> bool {
         matches!(
             self,
-            Self::Devin { .. } | Self::Manus { .. } | Self::A2a { .. }
+            Self::Devin { .. }
+                | Self::Manus { .. }
+                | Self::A2a { .. }
+                | Self::OpenHandsServer { .. }
         )
     }
 }

@@ -20,6 +20,7 @@ mod n8n;
 mod openai_agents;
 mod openclaw;
 mod openhands;
+mod openhands_server;
 mod openviking;
 mod process;
 mod python_bridge;
