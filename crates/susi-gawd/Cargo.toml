@@ -20,6 +20,8 @@ tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 rayon = { package = "susi-vendor-rayon", path = "../susi-vendor-rayon" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 
 [dev-dependencies]
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }

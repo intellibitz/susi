@@ -18,6 +18,9 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub use susi_core;
 
+/// Gateway API keys with per-key quotas (VC-201-072).
+pub mod gateway_keys;
+
 // GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface
 // 100% Rust implementation serving Tier 1 & Tier 2 Intelligence Swarms
 //

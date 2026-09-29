@@ -73,7 +73,12 @@ pub mod patch_cycle;
 pub mod reason_trainer;
 pub mod reflex_synth;
 pub mod reflex_trainer;
+pub mod rsi_corpus;
 pub mod self_validation;
+
+#[cfg(test)]
+#[path = "tests/rsi_corpus.rs"]
+mod rsi_corpus_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
