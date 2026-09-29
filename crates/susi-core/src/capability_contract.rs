@@ -30,9 +30,7 @@ pub struct LayerDecision {
 #[must_use]
 pub fn evaluate(entry: EntryPoint, layers: &[LayerDecision]) -> LayerVerdict {
     let _ = entry;
-    if layers.iter().any(|l| l.verdict == LayerVerdict::Deny) {
-        LayerVerdict::Deny
-    } else if layers.is_empty() {
+    if layers.is_empty() || layers.iter().any(|l| l.verdict == LayerVerdict::Deny) {
         LayerVerdict::Deny
     } else {
         LayerVerdict::Allow
