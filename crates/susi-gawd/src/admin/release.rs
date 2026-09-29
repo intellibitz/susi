@@ -472,6 +472,11 @@ impl SusiAdmin {
     /// Run [`E2E_CHECKS`] against `susi_bin` in a scratch HOME under
     /// `scratch`. Returns one line per passing check, or the first failure.
     pub fn run_e2e_checks(susi_bin: &Path, scratch: &Path) -> EaiResult<Vec<String>> {
+        std::fs::create_dir_all(scratch)?;
+        // The gate's scratch lives under target/ inside the repo being
+        // released: without a ceiling, git in a check walks up, finds that repo
+        // and `susi tasks` lists its real queue instead of an empty one.
+        let ceiling = scratch.canonicalize()?;
         let mut passed = Vec::new();
         for (i, check) in E2E_CHECKS.iter().enumerate() {
             let root = scratch.join(format!("check-{i}"));
@@ -485,6 +490,7 @@ impl SusiAdmin {
                 .env("HOME", &home)
                 .env("USERPROFILE", &home)
                 .env("XDG_CONFIG_HOME", home.join("xdg"))
+                .env("GIT_CEILING_DIRECTORIES", &ceiling)
                 .env_remove("SUSI_PORT_OFFSET");
             scrub_instance_env(&mut cmd);
             let out = cmd.output()?;
