@@ -4124,6 +4124,16 @@
     "label": "Weighted success rate",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-043",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 25 \u2014 duration-aware briefs. duration_secs renders as [~Ns] in history_brief lines, so observed mission cost reaches the planner. Every MissionTrace field is now consumed by a downstream decision or prompt.",
+   "proof": "brief test asserts [~90s] annotation. susi-core 224 pass; clippy clean.",
+   "anchor": {
+    "label": "Duration in briefs",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

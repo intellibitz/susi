@@ -630,12 +630,20 @@ pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> Strin
             } else {
                 ""
             };
+            // Observed cost: how long this kind of mission actually took —
+            // the planner can weigh a 4-minute precedent against its own
+            // latency expectations.
+            let duration_note = t
+                .duration_secs
+                .map(|d| format!(" [~{d}s]"))
+                .unwrap_or_default();
             format!(
-                "- \"{}\" -> {} via {} (tools: {}){}{}",
+                "- \"{}\" -> {} via {} (tools: {}){}{}{}",
                 t.goal,
                 t.outcome,
                 t.route,
                 t.tools.join(","),
+                duration_note,
                 step_note,
                 signal_note
             )
@@ -857,6 +865,7 @@ mod tests {
         t.plan_score = Some(0.72);
         t.plan_consensus = Some(0.9);
         t.failed_step = Some(2);
+        t.duration_secs = Some(90);
         t.emit(ws.path()).unwrap();
         let traces = read_all(ws.path());
         let got = &traces[0];
@@ -864,6 +873,7 @@ mod tests {
         assert_eq!(got.plan_steps.len(), 3);
         let brief = history_brief("deploy api service", &traces, 3);
         assert!(brief.contains("failed at step 2"), "{brief}");
+        assert!(brief.contains("[~90s]"), "{brief}");
     }
 
     #[test]

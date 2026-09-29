@@ -315,3 +315,6 @@ One line per landed step, newest last.
     `unreliable_neighborhood`) weight outcomes by the same decay — a
     stale success no longer papers over a fresh failure at half the
     naive rate (0.33 vs 0.5 in the stale-win/fresh-loss case).
+31. Duration-aware briefs: trace `duration_secs` now renders as `[~Ns]`
+    on each brief line — observed mission cost reaches the planner;
+    every trace field is now consumed downstream.
