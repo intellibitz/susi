@@ -756,17 +756,22 @@ mod tests {
         let handle = manager.register_task("lifecycle_test", "test");
         let id = handle.task_id.clone();
         drop(handle);
-        let record = manager.tasks.get(&id).unwrap();
-        assert_eq!(
-            record.status.load(Ordering::Acquire),
-            TaskStatus::Failed as u8
-        );
-        assert!(record
-            .result
-            .read()
-            .as_deref()
-            .unwrap()
-            .contains("ABANDONED"));
+        {
+            // Scoped: a DashMap read guard kept alive (shadowing does not
+            // drop it) deadlocks the next register_task whenever the new id
+            // hashes to the same shard — an intermittent gate hang.
+            let record = manager.tasks.get(&id).unwrap();
+            assert_eq!(
+                record.status.load(Ordering::Acquire),
+                TaskStatus::Failed as u8
+            );
+            assert!(record
+                .result
+                .read()
+                .as_deref()
+                .unwrap()
+                .contains("ABANDONED"));
+        }
 
         let handle = manager.register_task("lifecycle_test", "test");
         let id = handle.task_id.clone();
