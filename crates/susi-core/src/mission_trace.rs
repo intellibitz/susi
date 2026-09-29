@@ -29,6 +29,9 @@ pub const SCHEMA_VERSION: u32 = 2;
 const MAX_GOAL_CHARS: usize = 240;
 const MAX_FIELD_CHARS: usize = 120;
 const MAX_LISTED: usize = 64;
+/// Retrieval reads the whole file on every mission — keep it bounded.
+/// ~8 MiB ≈ 16k typical records; past it the oldest half is dropped.
+const MAX_TRACE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// One mission's outcome record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,10 +130,29 @@ impl MissionTrace {
         line.push(b'\n');
         let _lock = crate::commit_log::FileLock::acquire(&susi_dir, "mission_traces")
             .ok_or_else(|| anyhow!("mission trace lock acquisition failed"))?;
+        let path = susi_dir.join("mission_traces.jsonl");
+        // Bounded append: a long-lived workspace must not grow this file
+        // forever — every retrieval reads it whole. Past MAX_TRACE_BYTES,
+        // keep the newest half (oldest lines dropped, still-parseable file).
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.len() > MAX_TRACE_BYTES {
+                if let Ok(body) = std::fs::read(&path) {
+                    let keep_from = body.len().saturating_sub((MAX_TRACE_BYTES / 2) as usize);
+                    // Start at a line boundary so readers never see a
+                    // partial first record.
+                    let start = body[keep_from..]
+                        .iter()
+                        .position(|&b| b == b'\n')
+                        .map(|i| keep_from + i + 1)
+                        .unwrap_or(keep_from);
+                    let _ = std::fs::write(&path, &body[start.min(body.len())..]);
+                }
+            }
+        }
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(susi_dir.join("mission_traces.jsonl"))
+            .open(&path)
             .map_err(|e| anyhow!("mission trace file open failed: {e}"))?;
         file.write_all(&line)
             .map_err(|e| anyhow!("mission trace write failed: {e}"))
@@ -597,6 +619,27 @@ mod tests {
         let counts = failing_tool_counts("deploy api service", &traces, 8);
         assert_eq!(counts.get("broken_tool"), Some(&2));
         assert!(!counts.contains_key("exec_command"));
+    }
+
+    #[test]
+    fn oversized_log_rotates_to_newest_parseable_half() {
+        let ws = workspace();
+        let susi = ws.path().join(".susi");
+        std::fs::create_dir_all(&susi).unwrap();
+        // Pre-seed a file just over the cap; the next emit must rotate it.
+        let mut big = vec![b'x'; (MAX_TRACE_BYTES + 64) as usize];
+        big.push(b'\n');
+        std::fs::write(susi.join("mission_traces.jsonl"), &big).unwrap();
+        MissionTrace::new("m-new", "goal", "COMPLETE", "swarm")
+            .emit(ws.path())
+            .unwrap();
+        let parsed = read_all(ws.path());
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].mission_id, "m-new");
+        let size = std::fs::metadata(susi.join("mission_traces.jsonl"))
+            .unwrap()
+            .len();
+        assert!(size < MAX_TRACE_BYTES, "{size}");
     }
 
     #[test]

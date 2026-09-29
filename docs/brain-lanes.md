@@ -141,3 +141,8 @@ One line per landed step, newest last.
     like `status`, so they can't certify or compel citations. Trace now
     carries which served action joined which outcome; distill's side is
     free to suppress/unlearn on failures.
+14. `success_rate(goal, traces) -> Option<f32>` — single-call outcome
+    fraction for similar missions; None on novel intents.
+15. Trace log bounded at 8 MiB: emit rotates oldest half under the lock at
+    a line boundary; retrieval reads the whole file per mission so growth
+    was compounding cost.

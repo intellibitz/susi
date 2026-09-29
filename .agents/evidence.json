@@ -3754,6 +3754,26 @@
     "label": "reflex_served trace field",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-026",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 8 \u2014 success_rate(goal, traces) API: Option<f32> fraction of similar missions that succeeded; None for novel intents so callers never misread absence as 0. One number for routing/promotion instead of each consumer recounting similar() results.",
+   "proof": "success_rate asserted inside retrieval test (1/3 and None arms). mission_trace 9 pass; clippy clean.",
+   "anchor": {
+    "label": "success_rate retrieval API",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-027",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 9 \u2014 mission_traces.jsonl is now bounded (8 MiB, ~16k records). emit() rotates under the existing FileLock: past the cap the oldest half is dropped starting at a line boundary so readers never see a partial first record. Mirrors Claude's 20k cap on the staging buffer \u2014 retrieval reads the whole file per mission, so unbounded growth was a compounding latency cost.",
+   "proof": "oversized_log_rotates_to_newest_parseable_half: over-cap file shrinks below cap, newest record intact. mission_trace 10 pass.",
+   "anchor": {
+    "label": "Bounded trace log",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
