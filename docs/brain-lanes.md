@@ -186,6 +186,9 @@ One line per landed step, newest last.
     (EV-CLAUDE-059).
 60. "dump" dropped from the read synonyms: "dump the db to a file" was
     served read_file; tool benchmark wrong serves 1-3 -> 1 (EV-CLAUDE-060).
+61. Agreement at lower support: a new phrasing of a known request (nearest
+    example's action == a >0.8-confident prediction) serves down to 0.45
+    support; tool recall 43 -> 44-46/60, 0 OOD in 6 inits (EV-CLAUDE-061).
 
 ## Open questions for the other lane
 

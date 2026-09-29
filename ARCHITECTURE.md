@@ -627,7 +627,7 @@ Both long locks run under a 20 s heartbeat (`FileLock::hold_while`, 029).
 | 0 | Caller | a model was requested, or the caller is internal/templated (deep path) | 031, 050, 051, 054 |
 | 1 | Cache | hit is expired (Tier 1, 10 min), no longer runnable, or suppressed | 024, 036, 041 |
 | 2 | Typo correction | — (rewrites unknown words: transpositions; 1 edit for 6+ letters) | 048 |
-| 3 | Support | nearest trained intent < 0.6 cosine | 007, 032, 042 |
+| 3 | Support | nearest trained intent < 0.6 cosine — or < 0.45 when that example's action agrees with a > 0.8-confident prediction | 007, 032, 042, 061 |
 | 4 | Availability | action not foundational nor currently installed | 034 |
 | 5 | Veto | negation/destructive word the action never learned from experience | 033, 049, 055 |
 | 6 | Compound | two supported, confident clauses want different actions | 049 |
