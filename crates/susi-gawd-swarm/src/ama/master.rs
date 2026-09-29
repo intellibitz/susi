@@ -873,10 +873,11 @@ impl SusiMasterAgent {
             );
         }
         eprintln!(
-            "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?}",
+            "\n[PLAN DELIBERATION] {} candidates | consensus_required={} consensus={:?} threshold={:.2}",
             deliberation.candidates.len(),
             deliberation.consensus_required,
-            deliberation.consensus
+            deliberation.consensus,
+            deliberation.consensus_threshold
         );
         for (i, c) in deliberation.candidates.iter().enumerate() {
             eprintln!(

@@ -343,3 +343,8 @@ One line per landed step, newest last.
     signatures OR Jaccard>=0.6 paraphrases — an intent that failed
     under slightly different phrasing can no longer escape the veto
     window (or inflate a different intent's record).
+38. Risk-scaled consensus bar: the top-two similarity threshold now
+    scales with the manifold — 0.55 for High/Critical risk, 0.45 for
+    Mutate/SelfExtend scope, 0.35 read-only — and is recorded on the
+    Deliberation (and printed in the mission log) so a missed gate
+    stays auditable.

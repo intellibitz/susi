@@ -33,10 +33,30 @@ pub struct Deliberation {
     /// `Some(similarity)` when the two best candidates agree; `None` when no
     /// pair reached the threshold.
     pub consensus: Option<f32>,
+    /// The agreement bar actually applied — scales with the manifold's
+    /// risk/scope so High/Critical intents demand closer agreement.
+    /// Kept on the record so a missed consensus stays auditable.
+    pub consensus_threshold: f32,
 }
 
 /// Two candidates agree when their step-token Jaccard clears this bar.
 const CONSENSUS_THRESHOLD: f32 = 0.35;
+
+/// Consensus bar scales with risk: a High/Critical intent needs the top
+/// candidates to agree more closely before a multi-step plan may run.
+/// A mutating scope sits in between; read-only missions keep the base bar.
+fn consensus_threshold(manifold: &IntentManifold) -> f32 {
+    if manifold.risk_profile >= RiskProfile::High {
+        0.55
+    } else if matches!(
+        manifold.scope_of_impact,
+        ScopeOfImpact::Mutate | ScopeOfImpact::SelfExtend
+    ) {
+        0.45
+    } else {
+        CONSENSUS_THRESHOLD
+    }
+}
 
 /// Tokens that mark a step as carrying real-world risk.
 const RISK_TOKENS: &[&str] = &[
@@ -361,9 +381,10 @@ pub fn deliberate(
     // Consensus is measured before dedup: two budgets producing the
     // identical decomposition is the *strongest* agreement signal, and
     // collapsing them first would hide it.
+    let threshold = consensus_threshold(manifold);
     let consensus = if candidates.len() >= 2 {
         let sim = plan_similarity(&candidates[0].steps, &candidates[1].steps);
-        (sim >= CONSENSUS_THRESHOLD).then_some(sim)
+        (sim >= threshold).then_some(sim)
     } else {
         None
     };
@@ -386,6 +407,7 @@ pub fn deliberate(
         candidates,
         consensus_required: consensus_required(manifold),
         consensus,
+        consensus_threshold: threshold,
     }
 }
 
@@ -676,6 +698,47 @@ mod tests {
         // Identical plans from two budgets is maximal agreement.
         assert_eq!(agreeing.consensus, Some(1.0));
         assert!(approved(&agreeing));
+    }
+
+    #[test]
+    fn consensus_threshold_scales_with_risk() {
+        // Top-two similarity lands at 0.5 — above the Mutate bar (0.45)
+        // but below the High-risk bar (0.55).
+        let gen = |budget: u32| {
+            if budget == 4 {
+                vec!["download the package".into(), "verify the install".into()]
+            } else {
+                vec!["fetch the package".into(), "install the package".into()]
+            }
+        };
+
+        let high = manifold_for("exec command to install pkg");
+        let d_high = deliberate(
+            "exec command to install pkg",
+            &high,
+            &[4, 2],
+            &Default::default(),
+            gen,
+        );
+        assert_eq!(d_high.consensus_threshold, 0.55);
+        assert!(d_high.consensus.is_none());
+        assert!(!approved(&d_high));
+
+        let medium = manifold_for("audit the substrate state");
+        let d_med = deliberate(
+            "audit the substrate state",
+            &medium,
+            &[4, 2],
+            &Default::default(),
+            gen,
+        );
+        assert_eq!(d_med.consensus_threshold, 0.45);
+        assert_eq!(d_med.consensus, Some(0.5));
+        assert!(approved(&d_med));
+
+        let read = manifold_for("read Cargo.toml");
+        let d_read = deliberate("read Cargo.toml", &read, &[4, 2], &Default::default(), gen);
+        assert_eq!(d_read.consensus_threshold, 0.35);
     }
 
     #[test]

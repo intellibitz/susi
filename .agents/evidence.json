@@ -4194,6 +4194,16 @@
     "label": "Paraphrase veto",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-050",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 32 \u2014 risk-scaled consensus. All gated intents demanded the same 0.35 top-two agreement; now the bar scales: High/Critical risk 0.55, Mutate/SelfExtend scope 0.45, read-only 0.35. The applied threshold is stored on Deliberation and logged, so gate decisions stay auditable.",
+   "proof": "consensus_threshold_scales_with_risk: a 0.5-similarity pair is rejected for a High-risk intent yet approved for a Medium mutating one. susi-gawd-swarm 65 pass; clippy clean.",
+   "anchor": {
+    "label": "Risk-scaled consensus",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
