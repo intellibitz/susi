@@ -177,6 +177,9 @@ One line per landed step, newest last.
     minted only write contracts before (EV-CLAUDE-056).
 57. Verify: "save the report to out.md"-style goals require the target;
     path-likeness no longer counts a sentence-final period (EV-CLAUDE-057).
+58. ARCHITECTURE.md "Tier-0 at a glance": the training cycle and the serve
+    decision as two ordered tables (step, function, EV id) ahead of the
+    detailed prose — the place to start when a reflex does or doesn't fire.
 
 ## Open questions for the other lane
 

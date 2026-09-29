@@ -597,6 +597,48 @@ the 24h synthesis budget and are audit-logged (`EVOLUTION_REFLEX_VETO` /
 `_DEFER`); promoted reflexes still compile-and-run in the WASI sandbox
 before publishing.
 
+### Tier-0 at a glance
+
+The paragraphs after these tables give each rule's reason and measurements;
+the tables give the order. Code: `susi_gawd::reflex_trainer` (cycle),
+`susi_gemi::engines::alpha` (model), `susi_gemi::pulse` (serving).
+
+**Training cycle** (after every supervised mission; `ReflexTrainer::audit_distillation_state`)
+
+| # | Step | Where | EV-CLAUDE |
+|---|------|-------|-----------|
+| 1 | Not due? One `stat` (size < threshold × 40 B) or back-off after a held-back/failed cycle → return | `due_claim`, `held_back_wait` | 025, 037, 008, 017 |
+| 2 | Claim the buffer under the staging lock; drop torn lines; keep newest 20k | `claim_staged_samples` | 001, 018 |
+| 3 | Drop receipt samples whose mission failed (session ↔ trace join) | `drop_failed_mission_receipts` | 039 |
+| 4 | Skip untrainable records: blank, > 240 chars, failed outcome, non-capability label, no majority label | `parse_training_entries`, `resolve_label_conflicts` | 003, 010, 035 |
+| 5 | Give used capabilities a vocabulary slot (reclaim unsupported ones when full) | `admit_staged_actions` | 012 |
+| 6 | Merge with the replay set (2048 newest distinct intents) | `merge_replay` | 005 |
+| 7 | Prime every action with its name and registry description | `train_locked`, `capability_descriptions` | 032, 053 |
+| 8 | Held-out gate: candidate must not lose accuracy or add wrong-but-served | `holdout_gate` | 002, 016, 045 |
+| 9 | Refit on everything: class-balanced loss, to convergence (loss ≤ 0.15 / 600 epochs) | `ReflexNet::fit` | 011, 015 |
+| 10 | Write replay set, publish checkpoint, log the cycle; untrainable claims retire, others restore | `train_claim`, `log_cycle` | 008, 017 |
+
+Both long locks run under a 20 s heartbeat (`FileLock::hold_while`, 029).
+
+**Serve decision** (`SusiPulse::reason` → `SusiAlphaModel::predict_intent`; first refusal escalates to Tier 1, then deeper)
+
+| # | Check | Refuses when | EV-CLAUDE |
+|---|-------|--------------|-----------|
+| 0 | Caller | a model was requested, or the caller is internal/templated (deep path) | 031, 050, 051, 054 |
+| 1 | Cache | hit is expired (Tier 1, 10 min), no longer runnable, or suppressed | 024, 036, 041 |
+| 2 | Typo correction | — (rewrites unknown words: transpositions; 1 edit for 6+ letters) | 048 |
+| 3 | Support | nearest trained intent < 0.6 cosine | 007, 032, 042 |
+| 4 | Availability | action not foundational nor currently installed | 034 |
+| 5 | Veto | negation/destructive word the action never learned from experience | 033, 049, 055 |
+| 6 | Compound | two supported, confident clauses want different actions | 049 |
+| 7 | Confidence | ≤ 0.5, unless a ≥ 0.9 near-duplicate agrees and > 0.35 | 023 |
+| 8 | Suppression | action preceded ≥ 3 failures in its last 5 missions here | 041 |
+
+Features are stemmed, synonym-aware bags of words (`reflex_features`,
+046–047, 006, 004); the network is scored in plain Rust (040). Quality is
+pinned by the benchmark tests (022, 045–049): recall, precision,
+out-of-distribution refusal, inflections, synonyms, typos, compounds.
+
 The `distill` stage turns staged pairs into Tier-0 weights
 (`susi_gawd::reflex_trainer` → `SusiAlphaModel::train_on_staged_file`).
 Every writer of `distillation_staged.jsonl` — mission traces via
