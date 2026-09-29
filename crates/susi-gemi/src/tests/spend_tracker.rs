@@ -10,6 +10,8 @@ fn spend_tracker_enforces_daily_hard_cap() {
     assert!(t.under_cap("2026-09-29", "openai"));
     let err = t.reserve("2026-09-29", "openai", 5.0).unwrap_err();
     assert!(err.contains("hard cap"));
+    // Failed reserve does not debit; fill to the hard cap next.
+    t.reserve("2026-09-29", "openai", 4.0).unwrap();
     assert!(!t.under_cap("2026-09-29", "openai"));
     assert_eq!(
         t.route_away_vendors("2026-09-29"),
