@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "bedrock-runtime-2023",
+    "name": "Bedrock Runtime API",
+    "version": "2023-09-30",
+    "provenance": {
+      "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+      "spec_version": "2023-09-30",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "bedrock-runtime-2023",
+      "to": "bedrock-runtime",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
