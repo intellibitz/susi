@@ -12,6 +12,10 @@ cd "$(git rev-parse --show-toplevel)"
 home=$(mktemp -d)
 testhome=$(mktemp -d)
 trap 'rm -rf "$home" "$testhome"' EXIT
+# Keep the Rust toolchain resolvable under the throwaway HOME — without
+# these the rustup shim reads the fake $HOME/.rustup and finds nothing.
+export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
 export HOME="$testhome"
 export USERPROFILE="$testhome"
 export XDG_CONFIG_HOME="$testhome/xdg-config"

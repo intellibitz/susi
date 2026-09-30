@@ -649,17 +649,48 @@ impl SusiDaemon {
         crate::privacy::wire_mac_policy(&workspace);
         crate::composition::wire_daemon_os_planes(&workspace);
         crate::ambient::start_ambient_indexer(&workspace);
+        // Startup autofixes: correct rather than fail — missing substrate
+        // dirs are created and a stale lock (> 1h, dead process) removed.
+        let mut issues = Vec::new();
+        for sub in ["missions", "logs", "context"] {
+            if !workspace.join(sub).is_dir() {
+                issues
+                    .push(crate::zc_startup_autofix::StartupIssue::MissingDir { path: sub.into() });
+            }
+        }
+        let autofix = crate::zc_startup_autofix::apply_startup_autofix(&workspace, &issues);
+        for action in &autofix.actions {
+            info!("[SusiDaemon] startup autofix: {action}");
+        }
+
         // Zero-config cloud keys for always-on / systemd spawns (no shell env).
         let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)
+        let mut stale_lock = Vec::new();
         if let Ok(metadata) = std::fs::metadata(&lock_file_path)
             && let Ok(modified) = metadata.modified()
             && let Ok(age) = modified.elapsed()
             && age.as_secs() > 3600
             && !Self::is_process_alive(&lock_file_path)
         {
-            let _ = std::fs::remove_file(&lock_file_path);
+            if let Some(rel) = lock_file_path
+                .strip_prefix(&global_dir)
+                .ok()
+                .and_then(|p| p.to_str())
+            {
+                stale_lock.push(crate::zc_startup_autofix::StartupIssue::StaleLock {
+                    path: rel.to_string(),
+                });
+            } else {
+                let _ = std::fs::remove_file(&lock_file_path);
+            }
+        }
+        if !stale_lock.is_empty() {
+            let fix = crate::zc_startup_autofix::apply_startup_autofix(&global_dir, &stale_lock);
+            for action in &fix.actions {
+                info!("[SusiDaemon] startup autofix: {action}");
+            }
         }
 
         let mut lock = match DaemonLock::acquire(&lock_file_path) {
@@ -676,6 +707,33 @@ impl SusiDaemon {
         if let Err(e) = lock.write_pid(&workspace) {
             eprintln!("[SusiDaemon] Failed to write PID to lock file: {}", e);
             return;
+        }
+
+        // Lifecycle record: warn when the running binary is newer than
+        // the one the previous start recorded — a long-running daemon on
+        // a stale binary serves old behaviour until restarted.
+        let bin_mtime = std::env::current_exe()
+            .ok()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let lifecycle_path = global_dir.join("daemon-lifecycle.json");
+        let prev: crate::zc_daemon_lifecycle::DaemonLifecycle =
+            std::fs::read_to_string(&lifecycle_path)
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or(crate::zc_daemon_lifecycle::DaemonLifecycle {
+                    running: false,
+                    binary_mtime: 0,
+                });
+        if prev.needs_restart(bin_mtime) {
+            warn!("[SusiDaemon] binary is newer than the recorded start — a restart picks it up");
+        }
+        let lifecycle = prev.ensure_started(bin_mtime);
+        if let Ok(text) = serde_json::to_string(&lifecycle) {
+            let _ = std::fs::write(&lifecycle_path, text);
         }
 
         let ctx = DaemonContext::new(lock);
@@ -701,6 +759,97 @@ impl SusiDaemon {
         Self::force_canonical_ports(&mut cfg);
         if let Err(error) = cfg.save(&global_dir) {
             warn!("[SusiDaemon] Failed to persist canonical host ports: {error}");
+        }
+
+        // Port advisory: when a canonical port is held by a foreign
+        // listener, surface the alternate the contract would pick so the
+        // conflict shows up in the log instead of a bare bind failure.
+        let canonical = [
+            ("gmcp", cfg.gmcp_port()),
+            ("gemi", cfg.gemi_port()),
+            ("udp-discovery", cfg.udp_discovery_port()),
+            ("gmcp-http", cfg.gmcp_http_port()),
+            ("a2a-http", cfg.a2a_http_port()),
+        ];
+        let mut occupied = std::collections::BTreeSet::new();
+        for (_, port) in &canonical {
+            if TcpStream::connect(("127.0.0.1", *port)).is_ok() {
+                occupied.insert(*port);
+            }
+        }
+        if !occupied.is_empty() {
+            let services: Vec<(String, u16)> = canonical
+                .iter()
+                .map(|(name, port)| (name.to_string(), *port))
+                .collect();
+            let picks = crate::zc_port_autoselect::autoselect_ports(&services, &occupied);
+            for pick in &picks {
+                warn!(
+                    "[SusiDaemon] canonical port busy: {} would autoselect {} -> {}",
+                    pick.service,
+                    canonical
+                        .iter()
+                        .find(|(n, _)| n == &pick.service.as_str())
+                        .map(|(_, p)| *p)
+                        .unwrap_or_default(),
+                    pick.port
+                );
+            }
+        }
+
+        // Boot key health + zero-config scorecard — what still needs
+        // attention is reported, not silently skipped.
+        let env_text = std::fs::read_to_string(crate::susi_config::cloud_env::cloud_env_path())
+            .unwrap_or_default();
+        let ages_path =
+            crate::susi_config::key_rotation::KeyAges::path_in(&susi_paths::SusiDirs::config_dir());
+        let ages = crate::susi_config::key_rotation::KeyAges::load(&ages_path).unwrap_or_default();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let key_statuses: Vec<crate::zc_keys_health_boot::KeyStatus> =
+            crate::susi_config::key_rotation::key_statuses(
+                &env_text,
+                &ages,
+                now,
+                crate::susi_config::key_rotation::DEFAULT_MAX_AGE_DAYS,
+            )
+            .into_iter()
+            .map(|s| crate::zc_keys_health_boot::KeyStatus {
+                vendor: s.key,
+                health: if s.needs_rotation {
+                    crate::zc_keys_health_boot::KeyHealth::Expired
+                } else {
+                    crate::zc_keys_health_boot::KeyHealth::Ok
+                },
+            })
+            .collect();
+        for line in crate::zc_keys_health_boot::boot_key_report(&key_statuses) {
+            warn!("[SusiDaemon] key health: {line}");
+        }
+
+        // Zero-config score: the debt the release still asks the user for.
+        let steps: Vec<crate::zc_scorecard::ManualStep> =
+            crate::susi_config::zc_debt_report::scan_debt(&[])
+                .into_iter()
+                .map(|d| crate::zc_scorecard::ManualStep {
+                    description: d.description,
+                    closing_task: d.removes_via,
+                })
+                .collect();
+        let score_path = global_dir.join("zc-score.json");
+        let prior: f64 = std::fs::read_to_string(&score_path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(100.0);
+        let card = crate::zc_scorecard::scorecard(steps, prior);
+        info!(
+            "[SusiDaemon] zero-config score {:.0} (debt {}, delta {:+.1})",
+            card.score, card.debt, card.delta_since_release
+        );
+        if let Ok(text) = serde_json::to_string(&card.score) {
+            let _ = std::fs::write(&score_path, text);
         }
 
         let bind_address = crate::susi_sandbox::manager::SusiConfig::load_global()

@@ -207,14 +207,19 @@ fn a_stale_worktree_is_told_to_merge_origin_main() {
 }
 
 #[test]
-fn missing_hooks_and_missing_claim_are_reported() {
+fn missing_hooks_are_healed_and_missing_claim_is_reported() {
     let w = World::new("hooks");
-    // No claim yet, and this worktree's hooks are not configured.
+    // No claim yet, and this worktree's hooks are not configured — check
+    // heals hooksPath itself (hooks-on-clone), so the only ❌ left is
+    // the missing claim.
     git(&w.wt, &["config", "--unset", "core.hooksPath"]);
     let (code, out) = w.check(&w.wt);
     assert_ne!(code, 0);
-    assert!(out.contains("❌ hooks installed"), "{out}");
-    assert!(out.contains("scripts/setup-dev.sh"), "{out}");
+    assert!(out.contains("✅ hooks installed"), "{out}");
+    assert_eq!(
+        git_out(&w.wt, &["config", "--get", "core.hooksPath"]),
+        ".githooks"
+    );
     assert!(out.contains("❌ holds a claim"), "{out}");
     assert!(out.contains("susi tasks claim"), "{out}");
 }

@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use susi_core::telemetry::TelemetrySnapshot;
-use tracing::info;
+use tracing::{info, warn};
 
 const CPU_LOAD_THRESHOLD: f32 = 8.0;
 const THERMAL_THRESHOLD_C: f32 = 85.0;
@@ -31,6 +31,7 @@ impl SusiRuntimeAdmin {
         let home = substrate_home.to_path_buf();
         std::thread::spawn(move || {
             let elastic_scheduler = ElasticScheduler::default();
+            let mut maintenance = Maintenance::new(&home);
 
             // Mandate: Perform immediate Readiness Pulse on substrate boot
             let _ = Self::perform_substrate_audit(&home);
@@ -43,6 +44,11 @@ impl SusiRuntimeAdmin {
                 Self::perform_hardware_watchdog_audit(&home, &blackboard, &elastic_scheduler);
                 // 1b. SLA-driven auto-tune over the live task table.
                 Self::perform_auto_tune(&blackboard, &elastic_scheduler, &mut tuned_at_completed);
+
+                // 1c. Periodic maintenance on its own adaptive cadence.
+                if std::time::Instant::now() >= maintenance.next_due {
+                    maintenance.tick();
+                }
 
                 // 2. Periodic host readiness (hourly) — not project work.
                 // Each pulse runs a full 23-agent security-sweep mission;
@@ -302,6 +308,269 @@ impl SusiRuntimeAdmin {
         let _ = susi_gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
 
         Ok(())
+    }
+}
+
+/// Periodic daemon maintenance: scheduled missions, engine watchdog,
+/// config hot-reload and the adaptive ecosystem probe. Every heavy step
+/// is gated by [`crate::resource_governor`] so background work defers
+/// while the host is under pressure.
+struct Maintenance {
+    watchdog: crate::engine_watchdog::EngineWatchdog,
+    probes: crate::eco_probe_scheduler::ProbeScheduler,
+    missions_path: std::path::PathBuf,
+    dispatch_dir: std::path::PathBuf,
+    drift_log: std::path::PathBuf,
+    config_path: std::path::PathBuf,
+    cfg_shadow: std::collections::BTreeMap<String, String>,
+    cfg_mtime: Option<std::time::SystemTime>,
+    stable_windows: u32,
+    changes_last: u32,
+    interval_secs: u64,
+    next_due: std::time::Instant,
+    last_report: Option<String>,
+}
+
+impl Maintenance {
+    fn new(home: &Path) -> Self {
+        let config_path = home.join("config.json");
+        let cfg_shadow = Self::flat_config(&config_path);
+        let cfg_mtime = std::fs::metadata(&config_path)
+            .and_then(|m| m.modified())
+            .ok();
+        Self {
+            watchdog: crate::engine_watchdog::EngineWatchdog::new(3, 500, 60_000),
+            probes: crate::eco_probe_scheduler::ProbeScheduler::default(),
+            missions_path: crate::scheduled_missions::ScheduleStore::path_in(home),
+            dispatch_dir: home.join("missions"),
+            drift_log: home.join("drift-alerts.jsonl"),
+            config_path,
+            cfg_shadow,
+            cfg_mtime,
+            stable_windows: 0,
+            changes_last: 1, // first probe always runs — the catalog starts unprobed
+            interval_secs: 30,
+            next_due: std::time::Instant::now(),
+            last_report: None,
+        }
+    }
+
+    /// Top-level scalar config fields as a flat map — the shadow a
+    /// hot-reload diff is computed against.
+    fn flat_config(path: &Path) -> std::collections::BTreeMap<String, String> {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(k, v)| {
+                v.as_str()
+                    .map(str::to_string)
+                    .or_else(|| v.as_i64().map(|n| n.to_string()))
+                    .or_else(|| v.as_bool().map(|b| b.to_string()))
+                    .or_else(|| v.as_f64().map(|f| f.to_string()))
+                    .map(|s| (k, s))
+            })
+            .collect()
+    }
+
+    fn cpu_pct() -> f64 {
+        let cores = std::fs::read_to_string("/proc/cpuinfo")
+            .map(|t| t.lines().filter(|l| l.starts_with("processor")).count())
+            .unwrap_or(1)
+            .max(1);
+        let load = std::fs::read_to_string("/proc/loadavg")
+            .ok()
+            .and_then(|t| t.split_whitespace().next().map(str::to_string))
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        (load / cores as f64 * 100.0).clamp(0.0, 100.0)
+    }
+
+    fn mem_pct() -> f64 {
+        let Ok(text) = std::fs::read_to_string("/proc/meminfo") else {
+            return 0.0;
+        };
+        let kb = |key: &str| -> f64 {
+            text.lines()
+                .find(|l| l.starts_with(key))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0)
+        };
+        let total = kb("MemTotal");
+        let avail = kb("MemAvailable");
+        if total <= 0.0 {
+            0.0
+        } else {
+            ((total - avail) / total * 100.0).clamp(0.0, 100.0)
+        }
+    }
+
+    /// One maintenance pass: governor gate → config hot-reload → due
+    /// missions → ecosystem probe (watchdog + drift) → adaptive cadence.
+    fn tick(&mut self) {
+        // Resource governor: background work defers under host pressure.
+        let decision = crate::resource_governor::govern(Self::cpu_pct(), Self::mem_pct(), false);
+        if !decision.allow {
+            self.next_due = std::time::Instant::now() + Duration::from_secs(self.interval_secs);
+            return;
+        }
+        let now = now_secs();
+
+        // Config hot-reload: file edits apply in-process, no restart.
+        let mtime = std::fs::metadata(&self.config_path)
+            .and_then(|m| m.modified())
+            .ok();
+        if mtime.is_some() && mtime != self.cfg_mtime {
+            let fresh = Self::flat_config(&self.config_path);
+            let delta: std::collections::BTreeMap<String, String> = fresh
+                .into_iter()
+                .filter(|(k, v)| self.cfg_shadow.get(k) != Some(v))
+                .collect();
+            let events = crate::hot_reload_coverage::apply_hot_reload(&mut self.cfg_shadow, delta);
+            for e in events.iter().filter(|e| e.applied) {
+                info!("[runtime-admin] hot-reloaded config key {}", e.key);
+            }
+            self.cfg_mtime = mtime;
+        }
+
+        // Scheduled missions: due prompts dispatch to the missions
+        // ingress dir and record their run (evidence + backoff).
+        let mut store =
+            crate::scheduled_missions::ScheduleStore::load(&self.missions_path).unwrap_or_default();
+        let due: Vec<String> = store.due(now).iter().map(|m| m.id.clone()).collect();
+        for id in due {
+            let Some(mission) = store.missions.iter().find(|m| m.id == id).cloned() else {
+                continue;
+            };
+            let _ = std::fs::create_dir_all(&self.dispatch_dir);
+            let request = self.dispatch_dir.join(format!("{}-{now}.json", mission.id));
+            let dispatched = serde_json::json!({
+                "id": mission.id,
+                "prompt": mission.prompt,
+                "dispatched_unix": now,
+            });
+            let ok = std::fs::write(
+                &request,
+                serde_json::to_vec_pretty(&dispatched).unwrap_or_default(),
+            )
+            .is_ok();
+            let finished = now_secs();
+            if let Some(m) = store.missions.iter_mut().find(|m| m.id == id) {
+                m.record_run(crate::scheduled_missions::RunRecord {
+                    started_unix: now,
+                    finished_unix: finished,
+                    success: ok,
+                    summary: if ok {
+                        format!("dispatched to {}", request.display())
+                    } else {
+                        "dispatch failed".to_string()
+                    },
+                });
+            }
+            if !ok {
+                warn!("[runtime-admin] scheduled mission {id} dispatch failed");
+            }
+        }
+        if let Err(e) = store.save(&self.missions_path) {
+            warn!("[runtime-admin] scheduled-missions save failed: {e}");
+        }
+
+        // Ecosystem probe on the adaptive rediscovery cadence: decide,
+        // run, feed the engine watchdog and the drift detector.
+        let subject = crate::eco_probe_scheduler::Subject {
+            id: "local_ecosystem".to_string(),
+            interval_secs: self.interval_secs,
+            budget: 4,
+            needs_consent: false, // local probe sends nothing off-host
+        };
+        let cond = crate::eco_probe_scheduler::Conditions {
+            offline: std::env::var_os("SUSI_OFFLINE").is_some(),
+            consented: true,
+        };
+        if let crate::eco_probe_scheduler::Decision::Run { .. } =
+            self.probes.decide(&subject, now, cond)
+        {
+            let report = crate::discovery_pipeline::local_ecosystem_report();
+            self.probes.record_run(&subject, now, 1);
+
+            // Engine watchdog: crashed engines earn capped-backoff restarts.
+            if let Some(engines) = report.get("engines").and_then(|e| e.as_array()) {
+                for engine in engines {
+                    let handle = crate::engine_watchdog::EngineHandle {
+                        id: engine
+                            .get("id")
+                            .and_then(|i| i.as_str())
+                            .unwrap_or("unknown")
+                            .to_string(),
+                        healthy: engine
+                            .get("running")
+                            .and_then(|r| r.as_bool())
+                            .unwrap_or(false),
+                    };
+                    match self.watchdog.on_health_check(&handle) {
+                        crate::engine_watchdog::WatchdogAction::Restart { backoff_ms } => {
+                            info!(
+                                "[runtime-admin] engine {} unhealthy — restart in {}ms",
+                                handle.id, backoff_ms
+                            );
+                        }
+                        crate::engine_watchdog::WatchdogAction::MarkUnfit => {
+                            warn!("[runtime-admin] engine {} marked unfit", handle.id);
+                        }
+                        crate::engine_watchdog::WatchdogAction::None => {}
+                    }
+                }
+            }
+
+            // Drift detector: the report's declared top-level fields vs
+            // what actually came back — alerts become reviewable tasks.
+            let declared: Vec<String> = ["kind", "hardware", "engines", "accelerators"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            if let Some(alert) = crate::eco_drift_alerts::detect_drift(
+                "local_ecosystem",
+                &declared,
+                &report,
+                &now.to_string(),
+            ) {
+                let task = crate::eco_drift_alerts::to_task(&alert);
+                if let Ok(line) = serde_json::to_string(&task) {
+                    use std::io::Write as _;
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&self.drift_log)
+                    {
+                        let _ = writeln!(f, "{line}");
+                    }
+                }
+                self.changes_last = self.changes_last.saturating_add(alert.items.len() as u32);
+            }
+            let text = report.to_string();
+            if self.last_report.as_deref() != Some(text.as_str()) {
+                self.changes_last = self.changes_last.saturating_add(1);
+                self.last_report = Some(text);
+            }
+        }
+
+        // Adaptive rediscovery: busy while the catalog changes, rare
+        // once stable — drives both the tick cadence and probe interval.
+        if self.changes_last == 0 {
+            self.stable_windows = self.stable_windows.saturating_add(1);
+        } else {
+            self.stable_windows = 0;
+        }
+        let interval = crate::zc_rediscovery_adaptive::rediscovery_secs(
+            self.changes_last,
+            self.stable_windows,
+        );
+        self.interval_secs = interval.secs;
+        self.changes_last = 0;
+        self.next_due = std::time::Instant::now() + Duration::from_secs(self.interval_secs);
     }
 }
 
