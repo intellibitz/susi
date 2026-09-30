@@ -201,6 +201,7 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
         "GEMINI.md",
         ".github/copilot-instructions.md",
         ".cursor/rules/susi-workflow.mdc",
+        ".devin/rules/susi-workflow.md",
     ] {
         let text =
             std::fs::read_to_string(root.join(file)).unwrap_or_else(|_| panic!("{file} missing"));
@@ -218,11 +219,25 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
         cursor.contains("alwaysApply: true"),
         "Cursor must always apply the rule"
     );
-    // Claude Code runs the check itself at session start.
-    let settings: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join(".claude/settings.json")).unwrap())
+    let devin = std::fs::read_to_string(root.join(".devin/rules/susi-workflow.md")).unwrap();
+    assert!(
+        devin.contains("trigger: always_on"),
+        "Devin must always apply the rule"
+    );
+    // Claude Code and Codex run the check at session start via a "hooks" key.
+    for hook_file in [".claude/settings.json", ".codex/hooks.json"] {
+        let settings: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join(hook_file)).unwrap()).unwrap();
+        let cmd = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
             .unwrap();
-    let cmd = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        assert!(cmd.contains("scripts/workflow-session-start.sh"), "{cmd}");
+    }
+    // Devin CLI: in hooks.v1.json the hooks object is the whole file.
+    let devin_hooks: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join(".devin/hooks.v1.json")).unwrap())
+            .unwrap();
+    let cmd = devin_hooks["SessionStart"][0]["hooks"][0]["command"]
         .as_str()
         .unwrap();
     assert!(cmd.contains("scripts/workflow-session-start.sh"), "{cmd}");
