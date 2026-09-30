@@ -79,6 +79,9 @@ pub use dag::{MissionDag, SwarmDag};
 #[path = "tests/mission_dag_persist_wiring.rs"]
 mod mission_dag_persist_wiring_tests;
 #[cfg(test)]
+#[path = "tests/side_effects_dispatch_wiring.rs"]
+mod side_effects_dispatch_wiring_tests;
+#[cfg(test)]
 #[path = "tests/swarm_chaos.rs"]
 mod swarm_chaos_tests;
 #[cfg(test)]
