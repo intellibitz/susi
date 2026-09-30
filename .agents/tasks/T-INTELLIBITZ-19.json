@@ -1,0 +1,19 @@
+{
+  "id": "T-INTELLIBITZ-19",
+  "title": "Atomic worktree task loop: sync→claim→work→commit→sync→push→sync",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "workflow_mandates_are_in_identity_and_their_enforcement_exists",
+      "--locked"
+    ]
+  },
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790779515
+}

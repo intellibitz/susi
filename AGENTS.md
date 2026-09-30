@@ -3,23 +3,27 @@ tells you whether you are in your own worktree, current with `origin/main`,
 have the hooks installed and hold a claim — and prints the command that fixes
 each ❌. (No installed susi? `cargo run -q -- workflow check`.)
 
+The agent loop is **atomic per task** (own worktree, always synced with
+`origin/main` so parallel agents stay current):
+
 1. **Own worktree, never the primary checkout, never `main`:**
    `scripts/susi-worktree.sh` — no name needed (or `susi workflow start`). It
    creates your branch off the latest `origin/main`, installs the hooks, parks
    the primary checkout and prints `cd <path>`; continue there.
-2. **Work comes from the queue:** `susi tasks list`, then
-   `susi tasks claim <id>` before you start. Nobody starts a claimed task.
-3. **Every commit ends with a trailer** `Task: T-<AGENT>-<n>` naming that task.
-   The commit-msg hook, the pre-push hook and the CI job "Workflow Compliance"
+2. **Sync, then claim one task:** if behind, `git fetch && git merge
+   origin/main`; then `susi tasks list` and `susi tasks claim <id>`. One live
+   claim at a time. Nobody starts a claimed task.
+3. **Do the work; every commit ends with** `Task: T-<AGENT>-<n>`. The
+   commit-msg hook, the pre-push hook and the CI job "Workflow Compliance"
    reject commits without it.
-4. **Merge `origin/main` before you push** (`git fetch && git merge origin/main`)
-   and pass the gate: `cargo fmt --all --check`,
+4. **Sync again, then push:** `git fetch && git merge origin/main`, pass the
+   gate (`cargo fmt --all --check`,
    `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-   `cargo test --workspace --locked`. Tests are hermetic (never touch `~/.susi`
-   or an inherited `SUSI_HOME`).
-5. **Done means `susi tasks close <id>`** — its acceptance check passes. Do not
-   push to `main`, tag, or cut a release; pushed branches open and merge their
-   own PR.
+   `cargo test --workspace --locked`), then push the branch. Tests are
+   hermetic (never touch `~/.susi` or an inherited `SUSI_HOME`).
+5. **Close when acceptance passes** (`susi tasks close <id>`), sync again,
+   and take the next claim. Do not push to `main`, tag, or cut a release;
+   pushed branches open and merge their own PR.
 
 This block is loaded for you: `CLAUDE.md`, `GEMINI.md`,
 `.github/copilot-instructions.md`, `.cursor/rules/susi-workflow.mdc` and
@@ -124,7 +128,9 @@ this for the panic-path lints.
   git worktree on its own branch (`scripts/susi-worktree.sh <name>`); the
   primary checkout is never committed to, `main` never receives plain commits
   (only merges of `origin/main`-current branches), and `main` is only ever
-  fast-forwarded — never force-pushed or deleted. Enforced by
+  fast-forwarded — never force-pushed or deleted. The agent loop is **atomic
+  per task**: sync → claim/complete one task → commit → sync → push → sync
+  again, so parallel agents always build on latest `origin/main`. Enforced by
   `.githooks/workflow-guard` (called from `pre-commit`, `pre-merge-commit`,
   `pre-push`), enabled by `scripts/setup-dev.sh` (run automatically by
   `cargo xb build`). Overrides (`SUSI_ALLOW_PRIMARY`, `SUSI_ALLOW_MAIN`,
@@ -146,10 +152,12 @@ read by every agent; delegated agents also receive it in their task via
 `susi_core::self_build::BRIEF`). In short:
 
 - **49 Worktree Workflow** — own worktree + branch; never commit on the
-  primary checkout or `main`.
-- **50 Task Queue** — work is recorded and executed from `susi tasks`; claims
-  are atomic git refs with leases; a task closes only when its acceptance
-  check passes.
+  primary checkout or `main`; atomic per-task loop keeps each agent synced
+  with `origin/main`.
+- **50 Task Queue** — work is recorded and executed from `susi tasks`; one
+  live claim at a time; sync-before-claim and sync-before-push; claims are
+  atomic git refs with leases; a task closes only when its acceptance check
+  passes.
 - **51 Non-Conflicting Shared State** — one file per record, namespaced ids,
   union (never delete/renumber) on conflict, merge `origin/main` before push.
 - **52 Hermetic Tests** — no test touches `~/.susi`, `~/.susi-dev` or an
@@ -167,7 +175,8 @@ read by every agent; delegated agents also receive it in their task via
 are three layers):
 
 1. `.githooks/commit-msg` refuses a commit with no `Task: T-<AGENT>-<n>` trailer;
-   `.githooks/pre-push` (via `workflow-guard`) runs
+   `.githooks/pre-push` (via `workflow-guard`) refuses a feature branch that is
+   behind `origin/main` (sync-before-push) and runs
    `scripts/check-workflow-compliance.sh origin/main <pushed sha>` on every
    pushed branch. Exempt: merges, `chore: release vX.Y.Z`, github-actions[bot],
    and commits touching only `.agents/tasks/`. The rule binds commits made after

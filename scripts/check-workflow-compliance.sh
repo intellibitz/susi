@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Mandates 49-51: every commit belongs to a task from the shared queue.
+# Mandates 49-51: every commit belongs to a task from the shared queue, and a
+# feature-branch push must already contain origin/main (sync-before-push is
+# enforced by .githooks/workflow-guard before this script runs).
 #
 #   check-workflow-compliance.sh <base> <head> [remote]
 #

@@ -47,12 +47,15 @@ entry for behavior changes (id EV-<AGENT>-<n>). Do not push to main, create tags
 a release — releases are cut by the operator (susi admin release) and promoted to this \
 host automatically.
 5. Work in your own git worktree on your own branch (scripts/susi-worktree.sh <name>); \
-never commit in the primary checkout or on main (Mandate 49).
+never commit in the primary checkout or on main (Mandate 49). The loop is atomic per \
+task: sync origin/main → claim one → work → commit → sync → push → sync again.
 6. Work from the task queue (Mandate 50): `susi tasks add '<title>' --accept '<cmd>'`, \
-`susi tasks claim <id>` before starting, `susi tasks close <id>` only when its \
-acceptance check passes. Never start a task another agent has claimed. End EVERY \
-commit message with the trailer `Task: T-<AGENT>-<n>`; the commit-msg hook, the \
-pre-push hook and the CI job 'Workflow Compliance' reject commits without it.
+`susi tasks claim <id>` before starting (one live claim at a time; claim refuses if \
+behind origin/main), `susi tasks close <id>` only when its acceptance check passes. \
+Never start a task another agent has claimed. End EVERY commit message with the \
+trailer `Task: T-<AGENT>-<n>`; the commit-msg hook, the pre-push hook and the CI \
+job 'Workflow Compliance' reject commits without it. Sync-before-claim and \
+sync-before-push are part of the atomic unit.
 7. Never edit a line another agent owns (Mandate 51): add files/entries, do not \
 rewrite or renumber others'; merge origin/main before pushing. Tests must be hermetic \
 (Mandate 52): never read or write ~/.susi, ~/.susi-dev or an inherited SUSI_HOME.
@@ -99,6 +102,9 @@ mod tests {
             "EV-<AGENT>-<n>",
             "hermetic",
             "SUSI_HOME",
+            "atomic per",
+            "sync-before-push",
+            "one live claim",
         ] {
             assert!(BRIEF.contains(needle), "BRIEF must mention `{needle}`");
         }
