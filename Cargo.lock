@@ -6430,6 +6430,7 @@ dependencies = [
  "susi-vendor-flume",
  "susi-vendor-hex",
  "susi-vendor-indicatif",
+ "susi-vendor-jsonschema",
  "susi-vendor-parking-lot",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
