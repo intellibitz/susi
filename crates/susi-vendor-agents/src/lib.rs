@@ -25,6 +25,7 @@ pub use susi_sandbox_client as susi_sandbox;
 pub mod a2a_card_cache;
 pub mod a2a_streaming_client;
 pub mod acp_discovery;
+pub mod agent_scoreboard;
 pub mod agent_trace_import;
 pub mod cloud_agent_cost_guard;
 pub mod cursor_json_results;
