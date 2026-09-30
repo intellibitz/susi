@@ -1,0 +1,214 @@
+{
+  "version": "eco-profile/v1",
+  "id": "aws-bedrock",
+  "name": "AWS Bedrock (Converse, InvokeModel, agents, guardrails)",
+  "subject": "bedrock-runtime",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/model/{modelId}/converse",
+      "description": "Converse \u2014 unified message API across providers",
+      "streaming": false,
+      "request": "converse-request",
+      "response": "converse-response"
+    },
+    {
+      "method": "POST",
+      "path": "/model/{modelId}/converse-stream",
+      "description": "Streaming converse",
+      "streaming": true,
+      "request": "converse-request",
+      "response": "converse-stream"
+    },
+    {
+      "method": "POST",
+      "path": "/model/{modelId}/invoke",
+      "description": "InvokeModel \u2014 native per-model request bodies",
+      "streaming": false,
+      "request": "native-body",
+      "response": "native-body"
+    },
+    {
+      "method": "POST",
+      "path": "/model/{modelId}/invoke-with-response-stream",
+      "description": "Streaming invoke",
+      "streaming": true,
+      "request": "native-body",
+      "response": "native-stream"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "request-signature",
+      "header": "authorization",
+      "prefix": "AWS4-HMAC-SHA256 ",
+      "env": [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "2023-09-30",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "converse-request",
+      "format": "json",
+      "fields": [
+        "modelId in path",
+        "messages[] with content blocks",
+        "system[] separate",
+        "toolConfig{tools,toolChoice}",
+        "guardrailConfig",
+        "inferenceConfig"
+      ],
+      "notes": "converse normalises Anthropic/Meta/Mistral/Cohere/Amazon models"
+    },
+    {
+      "name": "native-body",
+      "format": "json",
+      "fields": [
+        "provider-specific body (anthropic_version, inputText, prompt...)",
+        "contentType/accept headers"
+      ],
+      "notes": "InvokeModel passes the vendor's own schema"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "converse-response",
+      "format": "json",
+      "fields": [
+        "output.message.content[]",
+        "stopReason",
+        "usage{inputTokens,outputTokens}",
+        "trace for guardrails"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "native-body",
+      "format": "json",
+      "fields": [
+        "provider-specific result"
+      ],
+      "notes": "InvokeModel returns the vendor's own schema"
+    },
+    {
+      "name": "converse-stream",
+      "format": "aws-eventstream",
+      "fields": [
+        "messageStart",
+        "contentBlockDelta",
+        "messageStop",
+        "metadata"
+      ],
+      "notes": "AWS event-stream framing, not SSE"
+    },
+    {
+      "name": "native-stream",
+      "format": "aws-eventstream",
+      "fields": [
+        "chunk.bytes base64"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "ValidationException",
+      "retriable": false
+    },
+    {
+      "status": "403",
+      "code": "AccessDeniedException",
+      "retriable": false
+    },
+    {
+      "status": "408",
+      "code": "ModelTimeoutException",
+      "retriable": true
+    },
+    {
+      "status": "424",
+      "code": "ModelErrorException",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "ThrottlingException",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "InternalServerException",
+      "retriable": true
+    },
+    {
+      "status": "503",
+      "code": "ServiceUnavailableException",
+      "retriable": true
+    },
+    {
+      "status": "429",
+      "code": "ModelNotReadyException",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "ThrottlingException",
+      "meaning": "account or model quota exceeded"
+    },
+    {
+      "signal": "x-amzn-errortype header",
+      "meaning": "error code also carried on the header"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-embeddings",
+    "cap-moderation",
+    "cap-agent-delegation"
+  ],
+  "deviations": [
+    {
+      "host": "aws-bedrock",
+      "field": "streaming",
+      "behavior": "event-stream binary frames, not SSE text events"
+    },
+    {
+      "host": "aws-bedrock",
+      "field": "system",
+      "behavior": "system is a top-level array, Anthropic-style"
+    }
+  ],
+  "streaming": {
+    "format": "aws-eventstream",
+    "events": [
+      "messageStart",
+      "contentBlockStart",
+      "contentBlockDelta",
+      "contentBlockStop",
+      "messageStop",
+      "metadata"
+    ],
+    "notes": "binary event stream, CRC per message"
+  },
+  "provenance": {
+    "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+    "spec_version": "2023-09-30",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

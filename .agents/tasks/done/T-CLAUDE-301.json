@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-301",
+  "title": "Standard: model cards and Hugging Face card metadata",
+  "goal": "Card front-matter schema (tags, licence, base_model, pipeline) parsed into knowledge-base facts. Author the machine-readable profile (endpoints, auth, versions, request/response shapes, errors, rate-limit signals, streaming, capability tags) in config/ecosystem/ and test it offline against recorded fixtures. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_model_cards"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713552,
+  "closed": {
+    "at_unix": 1790726991,
+    "commit": "1d4f7e0e0acd018395edb41ef557c05f4efd7cb0",
+    "by": "INTELLIBITZ"
+  }
+}

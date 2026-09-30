@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "zed-editor",
+    "name": "Zed editor",
+    "category": "service",
+    "provenance": {
+      "source": "https://agentclientprotocol.com",
+      "spec_version": "0.1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "zed-editor",
+      "to": "acp",
+      "provenance": {
+        "source": "https://agentclientprotocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "zed-editor",
+      "to": "acp-0.1",
+      "provenance": {
+        "source": "https://agentclientprotocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "ngc-catalog",
+    "name": "NGC model catalog",
+    "category": "model-registry",
+    "provenance": {
+      "source": "https://docs.api.nvidia.com/nim/reference",
+      "spec_version": "2024",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "ngc-catalog",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

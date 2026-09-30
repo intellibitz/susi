@@ -95,6 +95,15 @@ pub mod truth;
 pub mod verification;
 
 #[cfg(test)]
+#[path = "tests/eco_nist_rmf.rs"]
+mod eco_nist_rmf_tests;
+#[cfg(test)]
+#[path = "tests/eco_owasp_llm.rs"]
+mod eco_owasp_llm_tests;
+#[cfg(test)]
+#[path = "tests/eco_risk_answers.rs"]
+mod eco_risk_answers_tests;
+#[cfg(test)]
 #[path = "tests/jit_credentials.rs"]
 mod jit_credentials_tests;
 #[cfg(test)]

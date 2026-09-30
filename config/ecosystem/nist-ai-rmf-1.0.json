@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "nist-ai-rmf-1.0",
+    "name": "NIST AI RMF 1.0",
+    "version": "1.0",
+    "released": "2023-01-26",
+    "provenance": {
+      "source": "https://www.nist.gov/itl/ai-risk-management-framework",
+      "spec_version": "NIST AI 100-1",
+      "retrieved": "2026-09-01",
+      "confidence": "verified"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "nist-ai-rmf-1.0",
+      "to": "nist-ai-rmf",
+      "provenance": {
+        "source": "https://www.nist.gov/itl/ai-risk-management-framework",
+        "spec_version": "NIST AI 100-1",
+        "retrieved": "2026-09-01",
+        "confidence": "verified"
+      }
+    }
+  ]
+}

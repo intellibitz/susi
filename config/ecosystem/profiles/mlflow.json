@@ -1,0 +1,50 @@
+{
+  "version": "eco-profile/v1",
+  "id": "mlflow",
+  "name": "MLflow model format and registry",
+  "subject": "mlflow-model-format",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "2.x",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "mlmodel-file",
+      "format": "yaml",
+      "fields": [
+        "flavors{python_function,pytorch,sklearn,transformers,...}",
+        "signature{inputs,outputs} json-schema-ish",
+        "model_uuid",
+        "run_id",
+        "saved_input_example_info"
+      ],
+      "notes": "MLmodel at artifact root"
+    },
+    {
+      "name": "registry-rest",
+      "format": "http",
+      "fields": [
+        "POST /api/2.0/mlflow/registered-models/create",
+        "POST /api/2.0/mlflow/model-versions/create",
+        "GET /api/2.0/mlflow/registered-models/get?name="
+      ],
+      "notes": "registry API for stage/version lifecycle"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://mlflow.org/docs/latest/ml/model/",
+    "spec_version": "2.x",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

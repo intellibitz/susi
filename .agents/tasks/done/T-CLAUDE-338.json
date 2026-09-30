@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-338",
+  "title": "Vendor changelog feeds become knowledge-base proposals",
+  "goal": "Parse RSS/Atom changelogs where vendors publish them, classify entries (new model, deprecation, breaking change) and raise proposals with the source link.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-253"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_changelog_feeds"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553,
+  "closed": {
+    "at_unix": 1790728612,
+    "commit": "89f60d8cc571e59e054c6f9a19557c7a56171e97",
+    "by": "INTELLIBITZ"
+  }
+}

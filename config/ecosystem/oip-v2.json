@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "oip-v2",
+    "name": "Open Inference Protocol v2",
+    "version": "v2",
+    "provenance": {
+      "source": "https://kserve.github.io/website/latest/",
+      "spec_version": "v1beta1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "oip-v2",
+      "to": "open-inference-protocol",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

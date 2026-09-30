@@ -22,6 +22,16 @@ pub use susi_core;
 pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
 
+#[cfg(test)]
+mod eco_acp_ibm;
+#[cfg(test)]
+mod eco_acp_zed;
+#[cfg(test)]
+mod eco_agent_frameworks;
+#[cfg(test)]
+mod eco_anp_agui;
+#[cfg(test)]
+mod eco_computer_use_tools;
 pub mod external;
 pub mod zc_a2a_registry;
 pub mod zc_agent_approvals;

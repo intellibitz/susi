@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "hf-router-2025",
+    "name": "Inference Providers router",
+    "version": "2025",
+    "provenance": {
+      "source": "https://huggingface.co/docs/api-inference/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "hf-router-2025",
+      "to": "hf-inference-api",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

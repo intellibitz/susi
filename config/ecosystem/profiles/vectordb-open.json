@@ -1,0 +1,204 @@
+{
+  "version": "eco-profile/v1",
+  "id": "vectordb-open",
+  "name": "Qdrant, pgvector and Chroma",
+  "subject": "qdrant-rest",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/collections/{name}/points/query",
+      "description": "Qdrant query (unified)",
+      "streaming": false,
+      "request": "qd-query",
+      "response": "qd-result"
+    },
+    {
+      "method": "PUT",
+      "path": "/collections/{name}/points",
+      "description": "Qdrant upsert",
+      "streaming": false,
+      "request": "qd-upsert",
+      "response": "qd-ack"
+    },
+    {
+      "method": "GET",
+      "path": "/collections/{name}",
+      "description": "Collection info",
+      "streaming": false,
+      "response": "qd-info"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/tenants/{t}/databases/{d}/collections/{c}/query",
+      "description": "Chroma query",
+      "streaming": false,
+      "request": "ch-query",
+      "response": "ch-result"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/tenants/{t}/databases/{d}/collections/{c}/add",
+      "description": "Chroma add",
+      "streaming": false,
+      "request": "ch-add",
+      "response": "ch-ack"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "api-key-header",
+      "header": "api-key",
+      "prefix": "",
+      "env": [
+        "QDRANT_API_KEY",
+        "CHROMA_API_KEY"
+      ]
+    },
+    {
+      "scheme": "none",
+      "header": "none",
+      "prefix": "",
+      "env": []
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    },
+    {
+      "id": "v2",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "qd-query",
+      "format": "json",
+      "fields": [
+        "query vector|nearest",
+        "filter{must,should}",
+        "limit",
+        "with_payload",
+        "score_threshold"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "qd-upsert",
+      "format": "json",
+      "fields": [
+        "points[]{id,vector|vectors named,payload}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ch-query",
+      "format": "json",
+      "fields": [
+        "query_embeddings|query_texts",
+        "n_results",
+        "where{}/where_document{}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ch-add",
+      "format": "json",
+      "fields": [
+        "ids[]",
+        "embeddings|documents",
+        "metadatas[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "qd-result",
+      "format": "json",
+      "fields": [
+        "points[]{id,score,payload,vector}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "qd-ack",
+      "format": "json",
+      "fields": [
+        "result{operation_id,status}",
+        "time"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "qd-info",
+      "format": "json",
+      "fields": [
+        "result{config,vectors_count,segments_count}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ch-result",
+      "format": "json",
+      "fields": [
+        "ids[][]",
+        "distances[][]",
+        "documents[][]",
+        "metadatas[][]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ch-ack",
+      "format": "json",
+      "fields": [
+        "{}"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "bad_request",
+      "retriable": false
+    },
+    {
+      "status": "404",
+      "code": "collection_not_found",
+      "retriable": false
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "none",
+      "meaning": "self-hosted; limits are resource-bound"
+    }
+  ],
+  "capabilities": [
+    "cap-embeddings",
+    "cap-discovery"
+  ],
+  "deviations": [
+    {
+      "host": "pgvector",
+      "field": "surface",
+      "behavior": "SQL extension: vector type + <->|<#>|<=>|<<+>> distance operators, ivfflat/hnsw indexes"
+    },
+    {
+      "host": "chroma",
+      "field": "api",
+      "behavior": "v2 API adds tenant/database path segments"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://api.qdrant.tech/api-reference",
+    "spec_version": "v1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

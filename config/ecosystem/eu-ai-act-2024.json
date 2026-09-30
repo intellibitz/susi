@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "eu-ai-act-2024",
+    "name": "AI Act 2024/1689",
+    "version": "2024/1689",
+    "provenance": {
+      "source": "https://artificialintelligenceact.eu/",
+      "spec_version": "2024/1689",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2024-07-12"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "eu-ai-act-2024",
+      "to": "eu-ai-act",
+      "provenance": {
+        "source": "https://artificialintelligenceact.eu/",
+        "spec_version": "2024/1689",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

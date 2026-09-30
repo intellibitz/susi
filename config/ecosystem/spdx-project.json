@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "spdx-project",
+    "name": "SPDX Project (Linux Foundation)",
+    "home": "https://spdx.dev",
+    "provenance": {
+      "source": "https://spdx.org/licenses/",
+      "spec_version": "3.26",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "spdx-project",
+      "to": "spdx-license-list",
+      "provenance": {
+        "source": "https://spdx.org/licenses/",
+        "spec_version": "3.26",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "spdx-project",
+      "to": "spdx-3",
+      "provenance": {
+        "source": "https://cyclonedx.org/capabilities/mlbom/",
+        "spec_version": "1.6",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

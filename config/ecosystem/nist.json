@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "nist",
+    "name": "National Institute of Standards and Technology",
+    "home": "https://www.nist.gov",
+    "provenance": {
+      "source": "https://www.nist.gov/itl/ai-risk-management-framework",
+      "spec_version": "NIST AI 100-1",
+      "retrieved": "2026-09-01",
+      "confidence": "verified"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "nist",
+      "to": "nist-ai-rmf",
+      "provenance": {
+        "source": "https://www.nist.gov/itl/ai-risk-management-framework",
+        "spec_version": "NIST AI 100-1",
+        "retrieved": "2026-09-01",
+        "confidence": "verified"
+      }
+    }
+  ]
+}

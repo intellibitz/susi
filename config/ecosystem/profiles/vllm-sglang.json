@@ -1,0 +1,285 @@
+{
+  "version": "eco-profile/v1",
+  "id": "vllm-sglang",
+  "name": "vLLM and SGLang server APIs",
+  "subject": "vllm",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "OpenAI chat on both engines",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/completions",
+      "description": "Completions",
+      "streaming": false,
+      "request": "openai-completion",
+      "response": "openai-completion"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/embeddings",
+      "description": "Embeddings (vllm pooling models)",
+      "streaming": false,
+      "request": "openai-embeddings",
+      "response": "openai-embeddings"
+    },
+    {
+      "method": "POST",
+      "path": "/tokenize",
+      "description": "Detokenise/tokenise helpers",
+      "streaming": false,
+      "request": "tok",
+      "response": "tok"
+    },
+    {
+      "method": "POST",
+      "path": "/pooling",
+      "description": "Pooling/scoring endpoint",
+      "streaming": false,
+      "request": "pool",
+      "response": "pool"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "Served models",
+      "streaming": false,
+      "response": "list"
+    },
+    {
+      "method": "POST",
+      "path": "/generate",
+      "description": "SGLang native generate",
+      "streaming": false,
+      "request": "sgl-gen",
+      "response": "sgl-gen"
+    },
+    {
+      "method": "GET",
+      "path": "/get_server_info",
+      "description": "SGLang server info",
+      "streaming": false,
+      "response": "info"
+    },
+    {
+      "method": "POST",
+      "path": "/flush_cache",
+      "description": "SGLang radix-cache flush",
+      "streaming": false,
+      "response": "empty"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none",
+      "header": "none",
+      "prefix": "",
+      "env": []
+    },
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "VLLM_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages[]",
+        "tools",
+        "response_format",
+        "guided_json/regex/choice (vllm extras)"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-completion",
+      "format": "json",
+      "fields": [
+        "prompt"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "input"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "tok",
+      "format": "json",
+      "fields": [
+        "model",
+        "prompt|messages"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "pool",
+      "format": "json",
+      "fields": [
+        "model",
+        "input"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "sgl-gen",
+      "format": "json",
+      "fields": [
+        "text|input_ids",
+        "sampling_params{temperature,max_new_tokens}"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-completion",
+      "format": "json",
+      "fields": [
+        "choices[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "tok",
+      "format": "json",
+      "fields": [
+        "tokens[]",
+        "count"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "pool",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "list",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "sgl-gen",
+      "format": "json",
+      "fields": [
+        "text",
+        "meta_info{finish_reason,e2e_latency}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "info",
+      "format": "json",
+      "fields": [
+        "model_path",
+        "max_total_num_tokens",
+        "version"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "empty",
+      "format": "json",
+      "fields": [
+        "{}"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-embeddings"
+  ],
+  "deviations": [
+    {
+      "host": "sglang",
+      "field": "extras",
+      "behavior": "router adds /generate, /get_server_info, /flush_cache"
+    },
+    {
+      "host": "vllm",
+      "field": "extras",
+      "behavior": "/tokenize, /detokenize, /pooling, /score, /rerank served alongside /v1"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+    "spec_version": "0.x",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

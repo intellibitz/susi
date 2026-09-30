@@ -1,0 +1,105 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "gcp-vertex-ai",
+    "name": "Vertex AI",
+    "category": "service",
+    "provenance": {
+      "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "gcp-vertex-ai",
+      "to": "vertex-predict",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "gcp-vertex-ai",
+      "to": "vertex-ai-v1",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "gcp-vertex-ai",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "gcp-vertex-ai",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "gcp-vertex-ai",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "gcp-vertex-ai",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "gcp-vertex-ai",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "gcp-vertex-ai",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

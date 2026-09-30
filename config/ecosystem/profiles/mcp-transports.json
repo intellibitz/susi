@@ -6,7 +6,7 @@
   "endpoints": [
     {
       "method": "STDIO",
-      "path": "stdio",
+      "path": "/stdio",
       "description": "Newline-framed JSON-RPC over stdin/stdout",
       "request": "json-rpc",
       "response": "json-rpc-result"
@@ -30,7 +30,8 @@
   ],
   "auth": [
     {
-      "scheme": "none"
+      "scheme": "none",
+      "header": "none"
     }
   ],
   "versions": [
@@ -94,19 +95,25 @@
     ],
     "terminator": ""
   },
-  "capabilities": [
-    "stdio",
-    "streamable-http",
-    "legacy-sse",
-    "session-resume"
-  ],
+  "capabilities": [],
   "deviations": [
-    "Legacy SSE requires a separate endpoint event before messages"
+    {
+      "host": "mcp",
+      "field": "legacy-sse",
+      "behavior": "Legacy SSE requires a separate endpoint event before messages"
+    }
   ],
   "provenance": {
     "source": "https://modelcontextprotocol.io/specification/2025-03-26",
     "spec_version": "2025-03-26",
     "retrieved": "2026-09-30",
     "confidence": "verified"
-  }
+  },
+  "kind": "format",
+  "features": [
+    "stdio",
+    "streamable-http",
+    "legacy-sse",
+    "session-resume"
+  ]
 }

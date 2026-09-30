@@ -1,0 +1,40 @@
+{
+  "version": "eco-profile/v1",
+  "id": "agent-frameworks",
+  "name": "Agent frameworks integration surfaces",
+  "subject": "langgraph",
+  "kind": "framework",
+  "versions": [
+    {
+      "id": "2025",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "integration-surface",
+      "format": "text",
+      "fields": [
+        "tool abstraction (decorator/schema)",
+        "model-provider plugins",
+        "protocol bridges (MCP client, A2A)",
+        "checkpointer/state store",
+        "sub-agent handoff"
+      ],
+      "notes": "each framework exposes the same five surfaces differently"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+    "spec_version": "0.x",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

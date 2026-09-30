@@ -6,32 +6,32 @@
   "endpoints": [
     {
       "method": "tools/list",
-      "path": "tools/list",
+      "path": "/tools/list",
       "description": "List tools",
       "response": "json-rpc-result"
     },
     {
       "method": "tools/call",
-      "path": "tools/call",
+      "path": "/tools/call",
       "description": "Invoke a tool",
       "request": "json-rpc",
       "response": "json-rpc-result"
     },
     {
       "method": "resources/list",
-      "path": "resources/list",
+      "path": "/resources/list",
       "description": "List resources",
       "response": "json-rpc-result"
     },
     {
       "method": "prompts/list",
-      "path": "prompts/list",
+      "path": "/prompts/list",
       "description": "List prompts",
       "response": "json-rpc-result"
     },
     {
       "method": "sampling/createMessage",
-      "path": "sampling/createMessage",
+      "path": "/sampling/createMessage",
       "description": "Client sampling",
       "request": "json-rpc",
       "response": "json-rpc-result"
@@ -39,10 +39,16 @@
   ],
   "auth": [
     {
-      "scheme": "none"
+      "scheme": "none",
+      "header": "none"
     }
   ],
   "versions": [
+    {
+      "id": "2025-06-18",
+      "status": "current",
+      "released": "2025-06-18"
+    },
     {
       "id": "2024-11-05",
       "released": "2024-11-05",
@@ -64,6 +70,32 @@
         "method",
         "params"
       ]
+    },
+    {
+      "name": "server-features",
+      "format": "json-rpc",
+      "fields": [
+        "tools/list",
+        "tools/call",
+        "resources/list",
+        "resources/read",
+        "resources/subscribe",
+        "prompts/list",
+        "prompts/get",
+        "logging/setLevel",
+        "completion/complete"
+      ],
+      "notes": "server-advertised capabilities negotiated at initialize"
+    },
+    {
+      "name": "client-features",
+      "format": "json-rpc",
+      "fields": [
+        "sampling/createMessage",
+        "roots/list",
+        "elicitation/create"
+      ],
+      "notes": "client-advertised capabilities the server may call back"
     }
   ],
   "response_shapes": [
@@ -75,6 +107,16 @@
         "id",
         "result"
       ]
+    },
+    {
+      "name": "negotiation",
+      "format": "json-rpc",
+      "fields": [
+        "initialize",
+        "capabilities{tools,resources,prompts,sampling,roots,elicitation}",
+        "protocolVersion"
+      ],
+      "notes": "version negotiation happens in initialize/result"
     }
   ],
   "errors": [
@@ -90,7 +132,15 @@
     }
   ],
   "rate_limits": [],
-  "capabilities": [
+  "deviations": [],
+  "provenance": {
+    "source": "https://modelcontextprotocol.io/specification/2025-03-26",
+    "spec_version": "2025-03-26",
+    "retrieved": "2026-09-30",
+    "confidence": "verified"
+  },
+  "kind": "format",
+  "features": [
     "tools",
     "resources",
     "prompts",
@@ -98,11 +148,5 @@
     "roots",
     "elicitation"
   ],
-  "deviations": [],
-  "provenance": {
-    "source": "https://modelcontextprotocol.io/specification/2025-03-26",
-    "spec_version": "2025-03-26",
-    "retrieved": "2026-09-30",
-    "confidence": "verified"
-  }
+  "capabilities": []
 }

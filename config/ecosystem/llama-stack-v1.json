@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "llama-stack-v1",
+    "name": "Llama Stack API v1",
+    "version": "v1",
+    "provenance": {
+      "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "llama-stack-v1",
+      "to": "llama-stack-api",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

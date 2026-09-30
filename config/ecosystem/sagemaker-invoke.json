@@ -1,0 +1,18 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "protocol",
+    "id": "sagemaker-invoke",
+    "name": "SageMaker Runtime invocations",
+    "transports": [
+      "http"
+    ],
+    "provenance": {
+      "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+      "spec_version": "2017-05-13",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

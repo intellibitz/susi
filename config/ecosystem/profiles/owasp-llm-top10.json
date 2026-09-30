@@ -1,0 +1,175 @@
+{
+  "version": "eco-profile/v1",
+  "id": "owasp-llm-top10",
+  "name": "OWASP Top 10 for LLM Applications (2025) \u2014 susi mapping",
+  "subject": "owasp-llm-top10",
+  "kind": "framework",
+  "versions": [
+    {
+      "id": "2025",
+      "released": "2024-11-18",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "llm01-prompt-injection",
+      "format": "risk",
+      "fields": [
+        "direct",
+        "indirect"
+      ],
+      "notes": "mapped to susi prompt-shield checks"
+    },
+    {
+      "name": "llm02-sensitive-info-disclosure",
+      "format": "risk",
+      "fields": [
+        "data-leak",
+        "pii"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llm03-supply-chain",
+      "format": "risk",
+      "fields": [
+        "models",
+        "datasets",
+        "plugins"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llm04-data-model-poisoning",
+      "format": "risk",
+      "fields": [
+        "training-data",
+        "fine-tune"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llm05-improper-output-handling",
+      "format": "risk",
+      "fields": [
+        "xss",
+        "ssrf",
+        "code-exec"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llm06-excessive-agency",
+      "format": "risk",
+      "fields": [
+        "permissions",
+        "autonomy"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llm07-system-prompt-leakage",
+      "format": "risk",
+      "fields": [
+        "prompt-extraction"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llm08-vector-embedding-weaknesses",
+      "format": "risk",
+      "fields": [
+        "rag-poisoning",
+        "inversion"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llm09-misinformation",
+      "format": "risk",
+      "fields": [
+        "hallucination",
+        "overreliance"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llm10-unbounded-consumption",
+      "format": "risk",
+      "fields": [
+        "quota",
+        "cost",
+        "dos"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "susi-test-mapping",
+      "format": "mapping",
+      "fields": [
+        "risk-id",
+        "susi-test",
+        "coverage"
+      ],
+      "notes": "OWASP risk -> susi test/control rows"
+    }
+  ],
+  "mappings": [
+    {
+      "risk": "LLM01",
+      "susi_test": "prompt-injection-shield",
+      "coverage": "indirect-injection guards on tool output"
+    },
+    {
+      "risk": "LLM02",
+      "susi_test": "redact",
+      "coverage": "susi-error redact props on secrets/PII"
+    },
+    {
+      "risk": "LLM03",
+      "susi_test": "signed-catalog",
+      "coverage": "ed25519-signed model catalog + KB delivery"
+    },
+    {
+      "risk": "LLM05",
+      "susi_test": "output-sanitizer",
+      "coverage": "bounded http_call reads + sandboxed tool exec"
+    },
+    {
+      "risk": "LLM06",
+      "susi_test": "policy-gates",
+      "coverage": "task claims, workflow guards, destructive-op consent"
+    },
+    {
+      "risk": "LLM08",
+      "susi_test": "vectordb-isolation",
+      "coverage": "per-namespace vector indexes"
+    },
+    {
+      "risk": "LLM10",
+      "susi_test": "probe-budget",
+      "coverage": "budgeted capability probes + rate-limit records"
+    }
+  ],
+  "deviations": [
+    {
+      "host": "susi",
+      "field": "scope",
+      "behavior": "mapping only \u2014 coverage notes are honest about unmapped risks (LLM04, LLM07, LLM09)"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "provenance": {
+    "source": "https://genai.owasp.org/llm-top-10/",
+    "spec_version": "OWASP Top 10 for LLM Applications 2025",
+    "retrieved": "2026-09-01",
+    "confidence": "verified"
+  }
+}

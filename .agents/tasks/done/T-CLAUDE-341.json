@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-341",
+  "title": "Schema drift alerts become tasks",
+  "goal": "When a live response no longer matches its profile, record the drift, lower confidence and open a task with the diff and an acceptance check.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-336"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "eco_drift_alerts"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553,
+  "closed": {
+    "at_unix": 1790728654,
+    "commit": "89f60d8cc571e59e054c6f9a19557c7a56171e97",
+    "by": "INTELLIBITZ"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "sentence-transformers",
+    "name": "sentence-transformers",
+    "category": "extension",
+    "provenance": {
+      "source": "https://www.sbert.net/",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "sentence-transformers",
+      "to": "sentence-transformers-config",
+      "provenance": {
+        "source": "https://www.sbert.net/",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "sentence-transformers",
+      "to": "sbert-config-v2",
+      "provenance": {
+        "source": "https://www.sbert.net/",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "sentence-transformers",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://www.sbert.net/",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

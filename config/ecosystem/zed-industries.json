@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "zed-industries",
+    "name": "Zed Industries",
+    "home": "https://zed.dev",
+    "provenance": {
+      "source": "https://agentclientprotocol.com",
+      "spec_version": "0.1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "zed-industries",
+      "to": "zed-editor",
+      "provenance": {
+        "source": "https://agentclientprotocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "zed-industries",
+      "to": "acp",
+      "provenance": {
+        "source": "https://agentclientprotocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "version": "eco-profile/v1",
+  "id": "embedding-specs",
+  "name": "Embedding model specifications",
+  "subject": "sentence-transformers-config",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "v2",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "sbert-layout",
+      "format": "json",
+      "fields": [
+        "modules.json ordered module list",
+        "config_sentence_transformers.json",
+        "1_Pooling/config.json{pooling_mode_mean_tokens,cls_token}",
+        "2_Normalize/",
+        "similarity_fn_name cos_sim|dot"
+      ],
+      "notes": "pipeline modules compose the embedding fn"
+    },
+    {
+      "name": "embedding-metadata",
+      "format": "json",
+      "fields": [
+        "sentence_embedding_dimension",
+        "max_seq_length",
+        "matryoshka dims (nested truncation)",
+        "mteb metadata in card"
+      ],
+      "notes": "engines read dims + truncation support from config"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://www.sbert.net/",
+    "spec_version": "v2",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

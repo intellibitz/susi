@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "sambanova",
+    "name": "SambaNova",
+    "home": "https://sambanova.ai",
+    "provenance": {
+      "source": "https://console.groq.com/docs/quickstart",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "sambanova",
+      "to": "sambanova-api",
+      "provenance": {
+        "source": "https://console.groq.com/docs/quickstart",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

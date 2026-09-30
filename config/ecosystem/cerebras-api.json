@@ -1,0 +1,83 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "cerebras-api",
+    "name": "Cerebras Inference",
+    "category": "service",
+    "provenance": {
+      "source": "https://console.groq.com/docs/quickstart",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "cerebras-api",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://console.groq.com/docs/quickstart",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "cerebras-api",
+      "to": "openai-chat-completions-2024-06",
+      "provenance": {
+        "source": "https://console.groq.com/docs/quickstart",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "cerebras-api",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://console.groq.com/docs/quickstart",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cerebras-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://console.groq.com/docs/quickstart",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cerebras-api",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://console.groq.com/docs/quickstart",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cerebras-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://console.groq.com/docs/quickstart",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

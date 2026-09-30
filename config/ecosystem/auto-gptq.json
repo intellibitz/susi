@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "auto-gptq",
+    "name": "AutoGPTQ",
+    "category": "extension",
+    "provenance": {
+      "source": "https://huggingface.co/docs/peft/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "auto-gptq",
+      "to": "gptq-format",
+      "provenance": {
+        "source": "https://huggingface.co/docs/peft/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

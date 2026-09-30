@@ -1,0 +1,116 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "llama-cpp-server",
+    "name": "llama.cpp server",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+      "spec_version": "bXXXX",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "llama-cpp-server",
+      "to": "llamacpp-http",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "llama-cpp-server",
+      "to": "llamacpp-server-b",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "llama-cpp-server",
+      "to": "gguf",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "llama-cpp-server",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "llama-cpp-server",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-cpp-server",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-cpp-server",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-cpp-server",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-cpp-server",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

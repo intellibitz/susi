@@ -1,0 +1,105 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "aws-sagemaker-runtime",
+    "name": "SageMaker Runtime",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+      "spec_version": "2017-05-13",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "aws-sagemaker-runtime",
+      "to": "sagemaker-invoke",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+        "spec_version": "2017-05-13",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "aws-sagemaker-runtime",
+      "to": "sagemaker-runtime-api-2017",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+        "spec_version": "2017-05-13",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-sagemaker-runtime",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+        "spec_version": "2017-05-13",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-sagemaker-runtime",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+        "spec_version": "2017-05-13",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-sagemaker-runtime",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+        "spec_version": "2017-05-13",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-sagemaker-runtime",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+        "spec_version": "2017-05-13",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "aws-sagemaker-runtime",
+      "to": "aws-sigv4",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc9421/",
+        "spec_version": "rfc9421",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "aws-sagemaker-runtime",
+      "to": "sigv4",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc9421/",
+        "spec_version": "rfc9421",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

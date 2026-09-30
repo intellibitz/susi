@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "mistral-api-v1",
+    "name": "Mistral API v1",
+    "version": "v1",
+    "released": null,
+    "provenance": {
+      "source": "https://docs.mistral.ai/api",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "mistral-api-v1",
+      "to": "mistral-api-protocol",
+      "provenance": {
+        "source": "https://docs.mistral.ai/api",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

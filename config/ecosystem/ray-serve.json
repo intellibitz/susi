@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "ray-serve",
+    "name": "Ray Serve",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://kserve.github.io/website/latest/",
+      "spec_version": "v1beta1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "ray-serve",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ray-serve",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

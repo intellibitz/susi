@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "cyclonedx-1.6",
+    "name": "CycloneDX 1.6",
+    "version": "1.6",
+    "provenance": {
+      "source": "https://cyclonedx.org/capabilities/mlbom/",
+      "spec_version": "1.6",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "cyclonedx-1.6",
+      "to": "cyclonedx",
+      "provenance": {
+        "source": "https://cyclonedx.org/capabilities/mlbom/",
+        "spec_version": "1.6",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "mem0",
+    "name": "Mem0",
+    "home": "https://mem0.ai",
+    "provenance": {
+      "source": "https://docs.mem0.ai/",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "mem0",
+      "to": "mem0-cloud",
+      "provenance": {
+        "source": "https://docs.mem0.ai/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

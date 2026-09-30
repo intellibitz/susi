@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "guardrails-ai-lib",
+    "name": "Guardrails AI",
+    "category": "cli-tool",
+    "provenance": {
+      "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "guardrails-ai-lib",
+      "to": "cap-moderation",
+      "provenance": {
+        "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "version": "eco-profile/v1",
+  "id": "ml-bom",
+  "name": "CycloneDX ML-BOM and SPDX 3 AI",
+  "subject": "cyclonedx",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "1.6",
+      "status": "current"
+    },
+    {
+      "id": "3.0.1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "cyclonedx-model",
+      "format": "json",
+      "fields": [
+        "bomFormat CycloneDX",
+        "components[]{type machine-learning-model",
+        "modelCard{modelParameters,datasets,quantitativeAnalysis}",
+        "externalReferences distribution"
+      ],
+      "notes": "ML-BOM attaches model cards"
+    },
+    {
+      "name": "spdx-ai",
+      "format": "json-ld",
+      "fields": [
+        "AIPackage element",
+        "relationship describesPackage|trainedOn|testedOn",
+        "energyConsumption, standardsCompliance fields"
+      ],
+      "notes": "SPDX 3.0 adds the AI profile classes"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://cyclonedx.org/capabilities/mlbom/",
+    "spec_version": "1.6",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

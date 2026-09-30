@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "trace-context-1",
+    "name": "Trace Context level 1",
+    "version": "1.0",
+    "provenance": {
+      "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+      "spec_version": "1.38",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "trace-context-1",
+      "to": "w3c-trace-context",
+      "provenance": {
+        "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+        "spec_version": "1.38",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "browser-use",
+    "name": "Browser Use",
+    "home": "https://browser-use.com",
+    "provenance": {
+      "source": "https://github.com/microsoft/playwright-mcp",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "browser-use",
+      "to": "browser-use-agent",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

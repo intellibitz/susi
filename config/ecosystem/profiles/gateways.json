@@ -1,0 +1,174 @@
+{
+  "version": "eco-profile/v1",
+  "id": "gateways",
+  "name": "OpenRouter and LiteLLM gateways",
+  "subject": "openrouter-gateway",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/completions",
+      "description": "OpenRouter chat",
+      "streaming": false,
+      "request": "or-chat",
+      "response": "or-chat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/models",
+      "description": "Model catalog with pricing",
+      "streaming": false,
+      "response": "models"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/generation",
+      "description": "Generation stats by id",
+      "streaming": false,
+      "response": "generation"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "LiteLLM proxy chat",
+      "streaming": false,
+      "request": "or-chat",
+      "response": "or-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/key/generate",
+      "description": "LiteLLM virtual-key minting",
+      "streaming": false,
+      "request": "key",
+      "response": "key"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "OPENROUTER_API_KEY",
+        "LITELLM_MASTER_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "or-chat",
+      "format": "json",
+      "fields": [
+        "model or models[] fallback list",
+        "provider{order,allow_fallbacks}",
+        "transforms",
+        "route hint"
+      ],
+      "notes": "OpenAI shape plus routing fields"
+    },
+    {
+      "name": "key",
+      "format": "json",
+      "fields": [
+        "models[]",
+        "max_budget",
+        "duration"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "or-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage incl. cost",
+        "provider used"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "models",
+      "format": "json",
+      "fields": [
+        "data[]{id,pricing{prompt,completion},context_length,top_provider}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "generation",
+      "format": "json",
+      "fields": [
+        "data{tokens_cost,latency}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "key",
+      "format": "json",
+      "fields": [
+        "key",
+        "expires"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-discovery",
+    "cap-embeddings"
+  ],
+  "deviations": [
+    {
+      "host": "openrouter-gateway",
+      "field": "routing",
+      "behavior": "provider preferences + per-request fallbacks; provider name returned"
+    },
+    {
+      "host": "litellm-proxy",
+      "field": "control-plane",
+      "behavior": "virtual keys, budgets, spend tracking under /v1/key/* and /spend/*"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://openrouter.ai/docs/api-reference/overview",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

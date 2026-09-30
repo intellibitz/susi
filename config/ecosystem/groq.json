@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "groq",
+    "name": "Groq",
+    "home": "https://groq.com",
+    "provenance": {
+      "source": "https://console.groq.com/docs/quickstart",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "groq",
+      "to": "groq-api",
+      "provenance": {
+        "source": "https://console.groq.com/docs/quickstart",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

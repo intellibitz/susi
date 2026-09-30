@@ -1,0 +1,70 @@
+{
+  "version": "eco-profile/v1",
+  "id": "gguf",
+  "name": "GGUF format and metadata keys",
+  "subject": "gguf",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "3",
+      "status": "current"
+    },
+    {
+      "id": "2",
+      "status": "deprecated"
+    },
+    {
+      "id": "1",
+      "status": "deprecated"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "header",
+      "format": "binary",
+      "fields": [
+        "magic 'GGUF' u32le",
+        "version u32",
+        "tensor_count u64",
+        "metadata_kv_count u64"
+      ],
+      "notes": "little-endian throughout"
+    },
+    {
+      "name": "metadata",
+      "format": "binary",
+      "fields": [
+        "general.architecture",
+        "general.name",
+        "general.file_type",
+        "tokenizer.ggml.model|tokens|scores|merges|pre",
+        "{arch}.context_length|embedding_length|block_count|attention.*",
+        "alignment (default 32)"
+      ],
+      "notes": "typed values: string/uint/int/float/bool/array"
+    },
+    {
+      "name": "tensor-data",
+      "format": "binary",
+      "fields": [
+        "tensor infos {name,n_dims,dims,type,offset}",
+        "quant types: F16/BF16/Q4_0/Q4_K_M/IQ2_XXS/...",
+        "pad to general.alignment"
+      ],
+      "notes": "mmap-aligned so engines map weights without copying"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://github.com/ggml-org/ggml/blob/master/docs/gguf.md",
+    "spec_version": "3",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

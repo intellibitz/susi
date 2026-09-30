@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "cyclonedx",
+    "name": "CycloneDX (ML-BOM)",
+    "body": "OWASP",
+    "provenance": {
+      "source": "https://cyclonedx.org/capabilities/mlbom/",
+      "spec_version": "1.6",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

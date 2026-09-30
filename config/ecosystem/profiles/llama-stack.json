@@ -1,0 +1,318 @@
+{
+  "version": "eco-profile/v1",
+  "id": "llama-stack",
+  "name": "Llama Stack API",
+  "subject": "llama-stack-api",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/inference/chat-completion",
+      "description": "Chat completion",
+      "streaming": false,
+      "request": "ls-chat",
+      "response": "ls-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/inference/completion",
+      "description": "Completion",
+      "streaming": false,
+      "request": "ls-gen",
+      "response": "ls-gen"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/inference/embeddings",
+      "description": "Embeddings",
+      "streaming": false,
+      "request": "ls-emb",
+      "response": "ls-emb"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agents",
+      "description": "Create agent",
+      "streaming": false,
+      "request": "ls-agent",
+      "response": "ls-agent"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/agents/{agent_id}/session/{session_id}/turn",
+      "description": "Agent turn",
+      "streaming": true,
+      "request": "ls-turn",
+      "response": "ls-turn"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/tool-runtime/invoke",
+      "description": "Invoke a tool group",
+      "streaming": false,
+      "request": "ls-tool",
+      "response": "ls-tool"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/vector-io/query",
+      "description": "Vector DB query",
+      "streaming": false,
+      "request": "ls-vec",
+      "response": "ls-vec"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/safety/run-shield",
+      "description": "Run a safety shield",
+      "streaming": false,
+      "request": "ls-shield",
+      "response": "ls-shield"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "Registered models",
+      "streaming": false,
+      "response": "ls-models"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/providers",
+      "description": "Provider registry",
+      "streaming": false,
+      "response": "ls-providers"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none",
+      "header": "none",
+      "prefix": "",
+      "env": []
+    },
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "LLAMA_STACK_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "ls-chat",
+      "format": "json",
+      "fields": [
+        "model_id",
+        "messages[]",
+        "tools[]",
+        "response_format",
+        "tool_config"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-gen",
+      "format": "json",
+      "fields": [
+        "model_id",
+        "content"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-emb",
+      "format": "json",
+      "fields": [
+        "model_id",
+        "contents[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-agent",
+      "format": "json",
+      "fields": [
+        "agent_config{model,instructions,tools,enable_session_persistence}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-turn",
+      "format": "json",
+      "fields": [
+        "messages[]",
+        "stream",
+        "documents[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-tool",
+      "format": "json",
+      "fields": [
+        "tool_name",
+        "kwargs"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-vec",
+      "format": "json",
+      "fields": [
+        "vector_db_id",
+        "query",
+        "params{max_chunks}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-shield",
+      "format": "json",
+      "fields": [
+        "shield_id",
+        "messages[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "ls-chat",
+      "format": "json",
+      "fields": [
+        "completion_message{role,content,tool_calls}",
+        "logprobs?"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-gen",
+      "format": "json",
+      "fields": [
+        "content"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-emb",
+      "format": "json",
+      "fields": [
+        "embeddings[][]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-agent",
+      "format": "json",
+      "fields": [
+        "agent_id"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-turn",
+      "format": "json",
+      "fields": [
+        "turn events stream: turn_start|step_*|turn_complete"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-tool",
+      "format": "json",
+      "fields": [
+        "content",
+        "error?"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-vec",
+      "format": "json",
+      "fields": [
+        "chunks[]",
+        "scores[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-shield",
+      "format": "json",
+      "fields": [
+        "violation{violation_level,metadata}?"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-models",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-providers",
+      "format": "json",
+      "fields": [
+        "data[]{provider_id,provider_type,api}"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-agent-delegation",
+    "cap-resource-access",
+    "cap-moderation",
+    "cap-embeddings",
+    "cap-streaming"
+  ],
+  "deviations": [],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "agent turn steps stream as event payloads"
+    ],
+    "notes": "turn/step granularity, not raw tokens only"
+  },
+  "provenance": {
+    "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+    "spec_version": "v1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

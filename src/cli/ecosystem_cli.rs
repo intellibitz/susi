@@ -26,6 +26,15 @@ pub enum EcosystemCommands {
         #[command(subcommand)]
         action: Option<Box<KbCommands>>,
     },
+    /// Explain a component, standard or protocol from the knowledge base:
+    /// what it is, its versions, who implements it, how susi uses it
+    Explain {
+        /// Entity id (e.g. `openai-chat-completions`, `mcp`, `a2a`)
+        id: String,
+        /// Read a single store dir instead of the layered bundled+user store
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -203,6 +212,76 @@ fn kb_execute(action: KbCommands) -> Result<()> {
     Ok(())
 }
 
+/// `susi ecosystem explain <id>`: one entity explained end to end — what it
+/// is, every recorded version, who publishes/implements it, its
+/// capabilities, the profile susi uses for it and the provenance cited.
+fn explain(id: &str, dir: Option<PathBuf>) -> Result<()> {
+    let kb = load_kb(dir)?;
+    let Some(e) = kb.entity(id) else {
+        bail!("no ecosystem entity {id:?} — try `susi ecosystem kb search`");
+    };
+    let g = eco_relations::Graph::new(&kb);
+    let versions: Vec<String> = kb
+        .relations
+        .iter()
+        .filter(|r| r.to == id && r.kind == susi_gemi::models::eco_schema::RelationKind::VersionOf)
+        .map(|r| r.from.clone())
+        .collect();
+    // implementers hit the entity directly (`implements`) or through one of
+    // its versions (`implements-version` a spec-version that is version-of it)
+    let mut implementers: Vec<String> = kb
+        .relations
+        .iter()
+        .filter(|r| r.to == id && r.kind == susi_gemi::models::eco_schema::RelationKind::Implements)
+        .map(|r| r.from.clone())
+        .collect();
+    for v in &versions {
+        implementers.extend(
+            kb.relations
+                .iter()
+                .filter(|r| {
+                    r.to == *v
+                        && r.kind == susi_gemi::models::eco_schema::RelationKind::ImplementsVersion
+                })
+                .map(|r| r.from.clone()),
+        );
+    }
+    implementers.sort();
+    implementers.dedup();
+    let providers: Vec<String> = g.providers(id).iter().map(|p| p.id().to_string()).collect();
+    let capabilities: Vec<String> = g
+        .capabilities_of(id)
+        .iter()
+        .map(|c| c.id().to_string())
+        .collect();
+    // How susi uses it: the bundled profile that details this subject.
+    let profiles_dir = eco_store::bundled_source_dir().join("profiles");
+    let profile = std::fs::read_dir(&profiles_dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let text = std::fs::read_to_string(e.path()).ok()?;
+            let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
+            if doc["subject"] == id {
+                doc["id"].as_str().map(str::to_string)
+            } else {
+                None
+            }
+        })
+        .next();
+    print_json(&serde_json::json!({
+        "entity": e,
+        "versions": versions,
+        "implemented_by": implementers,
+        "provided_by": providers,
+        "capabilities": capabilities,
+        "susi_profile": profile,
+    }))?;
+    Ok(())
+}
+
 pub fn execute(action: Option<EcosystemCommands>) -> Result<()> {
     match action.unwrap_or(EcosystemCommands::Scan) {
         EcosystemCommands::Scan => {
@@ -230,6 +309,7 @@ pub fn execute(action: Option<EcosystemCommands>) -> Result<()> {
                 dir: None,
             }))?
         }
+        EcosystemCommands::Explain { id, dir } => explain(&id, dir)?,
     }
     Ok(())
 }

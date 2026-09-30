@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "ragas",
+    "name": "Ragas",
+    "home": "https://www.ragas.io",
+    "provenance": {
+      "source": "https://github.com/EleutherAI/lm-evaluation-harness",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "ragas",
+      "to": "ragas-lib",
+      "provenance": {
+        "source": "https://github.com/EleutherAI/lm-evaluation-harness",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

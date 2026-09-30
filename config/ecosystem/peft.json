@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "peft",
+    "name": "HF PEFT",
+    "category": "extension",
+    "provenance": {
+      "source": "https://huggingface.co/docs/peft/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "peft",
+      "to": "peft-adapter-format",
+      "provenance": {
+        "source": "https://huggingface.co/docs/peft/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "peft",
+      "to": "peft-format-v1",
+      "provenance": {
+        "source": "https://huggingface.co/docs/peft/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

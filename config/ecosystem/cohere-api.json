@@ -1,0 +1,83 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "cohere-api",
+    "name": "Cohere API",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.cohere.com/reference/chat",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements-version",
+      "from": "cohere-api",
+      "to": "cohere-chat-v2-2024",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cohere-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cohere-api",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cohere-api",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cohere-api",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cohere-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://docs.cohere.com/reference/chat",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

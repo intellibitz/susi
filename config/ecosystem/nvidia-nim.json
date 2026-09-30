@@ -1,0 +1,94 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "nvidia-nim",
+    "name": "NVIDIA NIM",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://docs.api.nvidia.com/nim/reference",
+      "spec_version": "2024",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "nvidia-nim",
+      "to": "nim-api",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "nvidia-nim",
+      "to": "nim-api-2024",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "nvidia-nim",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "nvidia-nim",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "nvidia-nim",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "nvidia-nim",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "nvidia-nim",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

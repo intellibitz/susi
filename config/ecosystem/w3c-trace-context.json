@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "w3c-trace-context",
+    "name": "W3C Trace Context",
+    "body": "W3C",
+    "provenance": {
+      "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+      "spec_version": "1.38",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

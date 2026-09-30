@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "hf-model-card",
+    "name": "Hugging Face model card",
+    "body": "Hugging Face",
+    "provenance": {
+      "source": "https://huggingface.co/docs/hub/model-cards",
+      "spec_version": "cards-v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

@@ -1,0 +1,40 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "openapi-3.1.0",
+    "name": "OpenAPI 3.1.0",
+    "version": "3.1.0",
+    "provenance": {
+      "source": "https://spec.openapis.org/oas/v3.1.0",
+      "spec_version": "3.1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2021-02-15"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "openapi-3.1.0",
+      "to": "openapi",
+      "provenance": {
+        "source": "https://spec.openapis.org/oas/v3.1.0",
+        "spec_version": "3.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "supersedes",
+      "from": "openapi-3.1.0",
+      "to": "openapi-3.0.3",
+      "provenance": {
+        "source": "https://spec.openapis.org/oas/v3.1.0",
+        "spec_version": "3.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

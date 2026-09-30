@@ -55,6 +55,25 @@
         "method",
         "params"
       ]
+    },
+    {
+      "name": "agent-card-security",
+      "format": "json",
+      "fields": [
+        "securitySchemes{apiKey,http,oauth2,openIdConnect,mutualTls}",
+        "security[] requirement objects",
+        "supportsAuthenticatedExtendedCard"
+      ],
+      "notes": "schemes follow OpenAPI 3 security scheme objects"
+    },
+    {
+      "name": "extensions",
+      "format": "json",
+      "fields": [
+        "capabilities.extensions[]:{uri,required,params}",
+        "A2A-Extensions request header"
+      ],
+      "notes": "clients declare required extensions per-request"
     }
   ],
   "response_shapes": [
@@ -77,6 +96,15 @@
         "securitySchemes",
         "security"
       ]
+    },
+    {
+      "name": "auth-failures",
+      "format": "json-rpc",
+      "fields": [
+        "-32001 unauthenticated",
+        "401/403 transport rejection"
+      ],
+      "notes": "missing credentials fail at transport before task creation"
     }
   ],
   "errors": [
@@ -92,19 +120,25 @@
       "meaning": "Caller exceeded agent rate limit"
     }
   ],
-  "capabilities": [
-    "oauth2",
-    "apiKey",
-    "mutualTls",
-    "extensions"
-  ],
   "deviations": [
-    "Extension declarations in agent card are advisory until negotiated"
+    {
+      "host": "a2a",
+      "field": "note",
+      "behavior": "Extension declarations in agent card are advisory until negotiated"
+    }
   ],
   "provenance": {
     "source": "https://a2a-protocol.org/latest/specification",
     "spec_version": "0.3",
     "retrieved": "2026-09-30",
     "confidence": "verified"
-  }
+  },
+  "kind": "format",
+  "features": [
+    "oauth2",
+    "apiKey",
+    "mutualTls",
+    "extensions"
+  ],
+  "capabilities": []
 }

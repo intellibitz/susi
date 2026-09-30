@@ -1,0 +1,53 @@
+{
+  "version": "eco-profile/v1",
+  "id": "http-signatures",
+  "name": "Request signing (SigV4, RFC 9421)",
+  "subject": "http-message-signatures",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "rfc9421",
+      "status": "current"
+    },
+    {
+      "id": "sigv4",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "rfc9421",
+      "format": "http",
+      "fields": [
+        "Signature-Input: sig1=(\"@method\" \"@authority\" \"@path\" \"content-digest\");...",
+        "Signature: sig1=:base64:",
+        "content-digest: sha-256=..."
+      ],
+      "notes": "covered component identifiers + signature params (keyid,alg,created)"
+    },
+    {
+      "name": "sigv4",
+      "format": "http",
+      "fields": [
+        "canonical request (method\\nuri\\nquery\\nheaders\\nsigned-headers\\npayload-hash)",
+        "string-to-sign AWS4-HMAC-SHA256 scope date/region/service",
+        "Authorization: AWS4-HMAC-SHA256 Credential=...,SignedHeaders=...,Signature=...",
+        "x-amz-date, x-amz-content-sha256, x-amz-security-token"
+      ],
+      "notes": "service term for Bedrock is 'bedrock'"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://datatracker.ietf.org/doc/rfc9421/",
+    "spec_version": "rfc9421",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

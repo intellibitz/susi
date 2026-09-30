@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "databricks",
+    "name": "Databricks",
+    "home": "https://www.databricks.com",
+    "provenance": {
+      "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+      "spec_version": "2.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "databricks",
+      "to": "databricks-serving",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "databricks",
+      "to": "mlflow-model-format",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "databricks",
+      "to": "mlflow",
+      "provenance": {
+        "source": "https://mlflow.org/docs/latest/ml/model/",
+        "spec_version": "2.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

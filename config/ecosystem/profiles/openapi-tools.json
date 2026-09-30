@@ -1,0 +1,65 @@
+{
+  "version": "eco-profile/v1",
+  "id": "openapi-tools",
+  "name": "OpenAPI and JSON Schema as tool descriptions",
+  "subject": "openapi",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "3.1.0",
+      "status": "current"
+    },
+    {
+      "id": "3.0.3",
+      "status": "deprecated"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "tool-parameters",
+      "format": "json-schema",
+      "fields": [
+        "type:object",
+        "properties{}",
+        "required[]",
+        "$defs/$ref (limited per vendor)"
+      ],
+      "notes": "every vendor's tool parameters object is a JSON Schema"
+    },
+    {
+      "name": "openapi-operation",
+      "format": "yaml",
+      "fields": [
+        "operationId -> tool name",
+        "parameters[] -> arguments",
+        "requestBody -> arguments",
+        "servers[] -> base url"
+      ],
+      "notes": "tool generation reads one operation per tool"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "vendor-subsets",
+      "format": "json-schema",
+      "fields": [
+        "openai strict:true \u2014 closed subset (no $ref, additionalProperties:false)",
+        "gemini responseSchema \u2014 OpenAPI 3.0 subset",
+        "anthropic input_schema \u2014 near-full JSON Schema"
+      ],
+      "notes": "compatibility matrix lives in deviations"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://spec.openapis.org/oas/v3.1.0",
+    "spec_version": "3.1.0",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

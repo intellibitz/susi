@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "vendor-prompt-formats",
+    "name": "Vendor prompt/message format conventions",
+    "body": "de-facto vendor API conventions",
+    "provenance": {
+      "source": "https://github.com/susi-ecosystem/prompt-formats",
+      "spec_version": "1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

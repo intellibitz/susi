@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "ibm",
+    "name": "IBM",
+    "home": "https://www.ibm.com",
+    "provenance": {
+      "source": "https://agentcommunicationprotocol.dev",
+      "spec_version": "0.2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "ibm",
+      "to": "beeai-platform",
+      "provenance": {
+        "source": "https://agentcommunicationprotocol.dev",
+        "spec_version": "0.2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "ibm",
+      "to": "acp-ibm",
+      "provenance": {
+        "source": "https://agentcommunicationprotocol.dev",
+        "spec_version": "0.2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "ibm",
+      "to": "ibm-watsonx",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

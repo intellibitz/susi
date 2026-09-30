@@ -1,0 +1,162 @@
+{
+  "version": "eco-profile/v1",
+  "id": "nvidia-nim",
+  "name": "NVIDIA NIM and NGC",
+  "subject": "nim-api",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "OpenAI-compatible chat (hosted + self-hosted)",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/embeddings",
+      "description": "Embeddings",
+      "streaming": false,
+      "request": "openai-embeddings",
+      "response": "openai-embeddings"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/ranking",
+      "description": "Rerank models",
+      "streaming": false,
+      "request": "ranking",
+      "response": "ranking"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "Model list",
+      "streaming": false,
+      "response": "list"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "NVIDIA_API_KEY",
+        "NGC_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "2024",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages[]",
+        "extra body params passthrough"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "input",
+        "model",
+        "input_type query|passage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ranking",
+      "format": "json",
+      "fields": [
+        "model",
+        "query{text}",
+        "passages[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ranking",
+      "format": "json",
+      "fields": [
+        "rankings[]{index,logit}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "list",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-embeddings",
+    "cap-vision",
+    "cap-streaming",
+    "cap-discovery"
+  ],
+  "deviations": [],
+  "streaming": null,
+  "provenance": {
+    "source": "https://docs.api.nvidia.com/nim/reference",
+    "spec_version": "2024",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

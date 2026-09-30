@@ -1,0 +1,48 @@
+{
+  "version": "eco-profile/v1",
+  "id": "workload-identity",
+  "name": "Workload identity (mTLS, SPIFFE, cloud IAM roles)",
+  "subject": "spiffe",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "1.x",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "svid",
+      "format": "text",
+      "fields": [
+        "spiffe://trust-domain/ns/sa SPIFFE ID",
+        "X.509-SVID and JWT-SVID forms",
+        "trust bundles for federation"
+      ],
+      "notes": "identity is the URI-SAN, not a secret"
+    },
+    {
+      "name": "cloud-iam",
+      "format": "text",
+      "fields": [
+        "aws: IRSA web-identity token -> assume-role",
+        "gcp: workload-identity federation pool -> SA impersonation",
+        "azure: managed identity token endpoint IMDS"
+      ],
+      "notes": "pods exchange projected tokens for cloud creds \u2014 no static keys"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+    "spec_version": "1.x",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "rfc6749",
+    "name": "RFC 6749",
+    "version": "rfc6749",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/rfc6749/",
+      "spec_version": "rfc6749",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2012-10-01"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "rfc6749",
+      "to": "oauth-2",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc6749/",
+        "spec_version": "rfc6749",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

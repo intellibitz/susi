@@ -1,0 +1,49 @@
+{
+  "version": "eco-profile/v1",
+  "id": "ai-disclosures",
+  "name": "Provider transparency and regulatory disclosures",
+  "subject": "eu-ai-act",
+  "kind": "catalog",
+  "versions": [
+    {
+      "id": "2024/1689",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "disclosure-types",
+      "format": "text",
+      "fields": [
+        "system card (openai, anthropic frontier releases)",
+        "model card (hf metadata + google model cards)",
+        "safety/security eval publications",
+        "usage policies + acceptable use",
+        "EU AI Act: GPAI technical documentation, training-data summary, copyright policy"
+      ],
+      "notes": "disclosure class decides which primary source to cite"
+    },
+    {
+      "name": "ai-act-duties",
+      "format": "text",
+      "fields": [
+        "GPAI providers: tech doc, downstream info, copyright policy, public training-data summary",
+        "GPAI w/ systemic risk: evals, incident reporting, security"
+      ],
+      "notes": "duties phased in from Aug 2025"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://artificialintelligenceact.eu/",
+    "spec_version": "2024/1689",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

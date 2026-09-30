@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "chat-template-v1",
+    "name": "chat template",
+    "version": "jinja2",
+    "provenance": {
+      "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "chat-template-v1",
+      "to": "hf-chat-template",
+      "provenance": {
+        "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

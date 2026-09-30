@@ -1,0 +1,105 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "databricks-serving",
+    "name": "Mosaic AI Model Serving",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+      "spec_version": "2.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "databricks-serving",
+      "to": "databricks-serving-api",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "databricks-serving",
+      "to": "databricks-api-2.0",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "databricks-serving",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "databricks-serving",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "databricks-serving",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "databricks-serving",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "databricks-serving",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "databricks-serving",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

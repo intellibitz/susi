@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "vendor-prompt-formats-2025",
+    "name": "Prompt format conventions 2025",
+    "version": "2025",
+    "provenance": {
+      "source": "https://github.com/susi-ecosystem/prompt-formats",
+      "spec_version": "1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "vendor-prompt-formats-2025",
+      "to": "vendor-prompt-formats",
+      "provenance": {
+        "source": "https://github.com/susi-ecosystem/prompt-formats",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

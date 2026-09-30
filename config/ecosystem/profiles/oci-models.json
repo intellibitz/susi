@@ -1,0 +1,42 @@
+{
+  "version": "eco-profile/v1",
+  "id": "oci-models",
+  "name": "OCI artifacts for models",
+  "subject": "oci-image-spec",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "1.1.0",
+      "status": "current"
+    },
+    {
+      "id": "1.0.2",
+      "status": "deprecated"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "model-manifest",
+      "format": "json",
+      "fields": [
+        "artifactType e.g. application/vnd.cncf.model.config.v1+json",
+        "config + layers[] mediaTypes per part (weights, tokenizer, docs)",
+        "subject link -> parent manifest (referrers)"
+      ],
+      "notes": "1.1 added artifactType + referrers so models need no fake image config"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+    "spec_version": "1.1.0",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

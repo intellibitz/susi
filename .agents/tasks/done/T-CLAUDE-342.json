@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-342",
+  "title": "Recorded response corpus per vendor version for regression",
+  "goal": "A redacted corpus of real responses (per vendor and API version) replayed in tests so parsers and profiles are checked against reality, not memory.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_replay_corpus"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553,
+  "closed": {
+    "at_unix": 1790728665,
+    "commit": "89f60d8cc571e59e054c6f9a19557c7a56171e97",
+    "by": "INTELLIBITZ"
+  }
+}

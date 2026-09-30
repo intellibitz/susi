@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "model-card-v1",
+    "name": "Model card schema",
+    "version": "cards-v1",
+    "provenance": {
+      "source": "https://huggingface.co/docs/hub/model-cards",
+      "spec_version": "cards-v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "model-card-v1",
+      "to": "hf-model-card",
+      "provenance": {
+        "source": "https://huggingface.co/docs/hub/model-cards",
+        "spec_version": "cards-v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

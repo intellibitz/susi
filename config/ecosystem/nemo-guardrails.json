@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "nemo-guardrails",
+    "name": "NeMo Guardrails",
+    "category": "agent-framework",
+    "provenance": {
+      "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "nemo-guardrails",
+      "to": "cap-moderation",
+      "provenance": {
+        "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "nemo-guardrails",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "onnxruntime",
+    "name": "ONNX Runtime",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://huggingface.co/docs/safetensors/index",
+      "spec_version": "1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "onnxruntime",
+      "to": "onnx",
+      "provenance": {
+        "source": "https://huggingface.co/docs/safetensors/index",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "onnxruntime",
+      "to": "onnx-1.17",
+      "provenance": {
+        "source": "https://huggingface.co/docs/safetensors/index",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

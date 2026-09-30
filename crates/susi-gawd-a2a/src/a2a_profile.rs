@@ -89,7 +89,7 @@ mod eco_a2a_security_tests {
             .unwrap()
             .iter()
             .any(|a| a["scheme"] == "bearer"));
-        assert!(p["capabilities"]
+        assert!(p["features"]
             .as_array()
             .unwrap()
             .iter()

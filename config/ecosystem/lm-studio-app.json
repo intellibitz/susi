@@ -1,0 +1,116 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "lm-studio-app",
+    "name": "LM Studio",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://lmstudio.ai/docs/app/api",
+      "spec_version": "0.3",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "lm-studio-app",
+      "to": "lmstudio-rest",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "lm-studio-app",
+      "to": "lmstudio-0.3",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "lm-studio-app",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "lm-studio-app",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "lm-studio-app",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "lm-studio-app",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "lm-studio-app",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "lm-studio-app",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "lm-studio-app",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

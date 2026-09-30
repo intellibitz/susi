@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "spiffe-1.x",
+    "name": "SPIFFE spec",
+    "version": "1.x",
+    "provenance": {
+      "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+      "spec_version": "1.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "spiffe-1.x",
+      "to": "spiffe",
+      "provenance": {
+        "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+        "spec_version": "1.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -103,7 +103,7 @@ mod eco_mcp_transports_tests {
         assert!(methods.contains(&"STDIO"));
         assert!(methods.contains(&"POST"));
         assert!(methods.contains(&"GET+SSE"));
-        assert!(p["capabilities"]
+        assert!(p["features"]
             .as_array()
             .unwrap()
             .iter()
@@ -124,7 +124,7 @@ mod eco_mcp_features_tests {
     #[test]
     fn eco_mcp_features_lists_server_and_client_capabilities() {
         let p = load("mcp-features.json");
-        let caps: Vec<_> = p["capabilities"]
+        let caps: Vec<_> = p["features"]
             .as_array()
             .unwrap()
             .iter()

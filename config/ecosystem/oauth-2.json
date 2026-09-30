@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "oauth-2",
+    "name": "OAuth 2.0 Authorization Framework",
+    "body": "IETF",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/rfc6749/",
+      "spec_version": "rfc6749",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

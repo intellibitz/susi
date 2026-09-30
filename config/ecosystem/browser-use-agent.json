@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "browser-use-agent",
+    "name": "browser-use",
+    "category": "agent-framework",
+    "provenance": {
+      "source": "https://github.com/microsoft/playwright-mcp",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "browser-use-agent",
+      "to": "cap-resource-access",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "browser-use-agent",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

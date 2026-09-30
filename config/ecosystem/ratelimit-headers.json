@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "ratelimit-headers",
+    "name": "RateLimit header fields (HTTPAPI)",
+    "body": "IETF HTTPAPI WG",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/",
+      "spec_version": "draft-10",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

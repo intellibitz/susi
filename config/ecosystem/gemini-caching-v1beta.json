@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "gemini-caching-v1beta",
+    "name": "Caching v1beta",
+    "version": "v1beta",
+    "released": null,
+    "provenance": {
+      "source": "https://ai.google.dev/api",
+      "spec_version": "v1beta",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "gemini-caching-v1beta",
+      "to": "gemini-caching",
+      "provenance": {
+        "source": "https://ai.google.dev/api",
+        "spec_version": "v1beta",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

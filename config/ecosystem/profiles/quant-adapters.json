@@ -1,0 +1,51 @@
+{
+  "version": "eco-profile/v1",
+  "id": "quant-adapters",
+  "name": "Quantisation and adapter formats",
+  "subject": "peft-adapter-format",
+  "kind": "catalog",
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "adapter-files",
+      "format": "json",
+      "fields": [
+        "adapter_config.json{peft_type,r,lora_alpha,target_modules,base_model_name_or_path}",
+        "adapter_model.safetensors",
+        "optional adapter_model.bin"
+      ],
+      "notes": "small delta on top of a base model repo"
+    },
+    {
+      "name": "quant-descriptor",
+      "format": "json",
+      "fields": [
+        "quant_method: gptq|awq|bitsandbytes|gguf",
+        "bits: 2|3|4|8",
+        "group_size",
+        "zero_point",
+        "desc_act",
+        "quantization_config in config.json"
+      ],
+      "notes": "config.json carries the quant recipe engines read"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://huggingface.co/docs/peft/index",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

@@ -1,0 +1,175 @@
+{
+  "version": "eco-profile/v1",
+  "id": "observability",
+  "name": "LLM observability platforms",
+  "subject": "langfuse-platform",
+  "kind": "platform",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/public/ingestion",
+      "description": "Langfuse batch event ingestion",
+      "streaming": false,
+      "request": "lf-batch",
+      "response": "lf-ack"
+    },
+    {
+      "method": "POST",
+      "path": "/api/public/traces",
+      "description": "Langfuse trace",
+      "streaming": false,
+      "request": "lf-trace",
+      "response": "lf-ack"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/traces",
+      "description": "OTLP/HTTP trace export",
+      "streaming": false,
+      "request": "otlp",
+      "response": "otlp-ack"
+    },
+    {
+      "method": "POST",
+      "path": "/runs",
+      "description": "LangSmith run ingestion",
+      "streaming": false,
+      "request": "ls-run",
+      "response": "ls-ack"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "LANGFUSE_PUBLIC_KEY:LANGFUSE_SECRET_KEY",
+        "LANGSMITH_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "2025",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "lf-batch",
+      "format": "json",
+      "fields": [
+        "batch[]{type trace|generation|span|event,body}",
+        "idempotency per event"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "lf-trace",
+      "format": "json",
+      "fields": [
+        "id",
+        "name",
+        "input/output",
+        "metadata",
+        "userId"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "otlp",
+      "format": "protobuf",
+      "fields": [
+        "ExportTraceServiceRequest resource_spans",
+        "gen_ai.* attrs on llm spans"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-run",
+      "format": "json",
+      "fields": [
+        "name",
+        "run_type llm|chain|tool",
+        "inputs/outputs",
+        "trace_id",
+        "dotted_order"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "lf-ack",
+      "format": "json",
+      "fields": [
+        "successes[]",
+        "errors[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "otlp-ack",
+      "format": "protobuf",
+      "fields": [
+        "partial_success"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ls-ack",
+      "format": "json",
+      "fields": [
+        "id"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-discovery",
+    "cap-streaming"
+  ],
+  "deviations": [
+    {
+      "host": "helicone-gateway",
+      "field": "surface",
+      "behavior": "proxy gateway: forward requests gain observability automatically"
+    },
+    {
+      "host": "arize-phoenix",
+      "field": "ingest",
+      "behavior": "OTLP-first; also OpenInference trace format"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://langfuse.com/docs",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "eu-ai-act",
+    "name": "EU AI Act (Regulation 2024/1689)",
+    "body": "European Union",
+    "provenance": {
+      "source": "https://artificialintelligenceact.eu/",
+      "spec_version": "2024/1689",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

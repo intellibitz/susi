@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "meta-llama-guard",
+    "name": "Llama Guard",
+    "category": "model",
+    "provenance": {
+      "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "meta-llama-guard",
+      "to": "cap-moderation",
+      "provenance": {
+        "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
