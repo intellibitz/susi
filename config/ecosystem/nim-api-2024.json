@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "nim-api-2024",
+    "name": "NIM API",
+    "version": "2024",
+    "provenance": {
+      "source": "https://docs.api.nvidia.com/nim/reference",
+      "spec_version": "2024",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "nim-api-2024",
+      "to": "nim-api",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
