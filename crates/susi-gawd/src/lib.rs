@@ -71,6 +71,7 @@ pub mod baseline_capture;
 pub mod bloat_audit;
 pub mod capacity_limits;
 pub mod changelog_from_tasks;
+pub mod cloud_brain_wiring;
 pub mod cloud_rsi;
 pub mod cloud_rsi_delivery;
 pub mod cloud_rsi_lifecycle;
