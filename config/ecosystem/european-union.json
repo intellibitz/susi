@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "european-union",
+    "name": "European Union",
+    "home": "https://europa.eu",
+    "provenance": {
+      "source": "https://artificialintelligenceact.eu/",
+      "spec_version": "2024/1689",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "european-union",
+      "to": "eu-ai-act",
+      "provenance": {
+        "source": "https://artificialintelligenceact.eu/",
+        "spec_version": "2024/1689",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
