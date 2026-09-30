@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "home": "https://www.deepseek.com",
+    "provenance": {
+      "source": "https://api-docs.deepseek.com/",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "deepseek",
+      "to": "deepseek-api",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

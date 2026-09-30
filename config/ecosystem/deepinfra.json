@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "deepinfra",
+    "name": "DeepInfra",
+    "home": "https://deepinfra.com",
+    "provenance": {
+      "source": "https://api-docs.deepseek.com/",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "deepinfra",
+      "to": "deepinfra-api",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

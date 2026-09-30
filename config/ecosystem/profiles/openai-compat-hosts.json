@@ -1,0 +1,185 @@
+{
+  "version": "eco-profile/v1",
+  "id": "openai-compat-hosts",
+  "name": "Together, Fireworks, DeepInfra and DeepSeek hosts",
+  "subject": "openai-api",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "Shared OpenAI shape on all four hosts",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "Model catalog",
+      "streaming": false,
+      "response": "list"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/embeddings",
+      "description": "Embeddings (together, deepinfra)",
+      "streaming": false,
+      "request": "openai-embeddings",
+      "response": "openai-embeddings"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/completions",
+      "description": "FIM/legacy completions (fireworks, deepinfra)",
+      "streaming": false,
+      "request": "openai-completion",
+      "response": "openai-completion"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "TOGETHER_API_KEY",
+        "FIREWORKS_API_KEY",
+        "DEEPINFRA_TOKEN",
+        "DEEPSEEK_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages[]",
+        "tools",
+        "response_format"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "model",
+        "input"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-completion",
+      "format": "json",
+      "fields": [
+        "model",
+        "prompt",
+        "suffix (FIM)"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "list",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-completion",
+      "format": "json",
+      "fields": [
+        "choices[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-embeddings",
+    "cap-image-generation",
+    "cap-reasoning"
+  ],
+  "deviations": [
+    {
+      "host": "deepseek-api",
+      "field": "reasoning",
+      "behavior": "deepseek-reasoner returns reasoning_content plus content; api.deepseek.com"
+    },
+    {
+      "host": "deepinfra-api",
+      "field": "path",
+      "behavior": "also exposes /v1/inference/{model} and /models/list for open models"
+    },
+    {
+      "host": "together-api",
+      "field": "models",
+      "behavior": "open-weight catalog; model ids are full repo paths (meta-llama/...)"
+    },
+    {
+      "host": "fireworks-api",
+      "field": "extras",
+      "behavior": "FireAttention quant variants; fim completion endpoint"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://api-docs.deepseek.com/",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

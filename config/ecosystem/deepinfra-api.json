@@ -1,0 +1,72 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "deepinfra-api",
+    "name": "DeepInfra API",
+    "category": "service",
+    "provenance": {
+      "source": "https://api-docs.deepseek.com/",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "deepinfra-api",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "deepinfra-api",
+      "to": "openai-chat-completions-2024-06",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "deepinfra-api",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "deepinfra-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "deepinfra-api",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

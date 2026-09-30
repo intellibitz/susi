@@ -1,0 +1,83 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "deepseek-api",
+    "name": "DeepSeek API",
+    "category": "service",
+    "provenance": {
+      "source": "https://api-docs.deepseek.com/",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "deepseek-api",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "deepseek-api",
+      "to": "openai-chat-completions-2024-06",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "deepseek-api",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "deepseek-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "deepseek-api",
+      "to": "cap-reasoning",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "deepseek-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

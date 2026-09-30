@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "fireworks",
+    "name": "Fireworks AI",
+    "home": "https://fireworks.ai",
+    "provenance": {
+      "source": "https://api-docs.deepseek.com/",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "fireworks",
+      "to": "fireworks-api",
+      "provenance": {
+        "source": "https://api-docs.deepseek.com/",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
