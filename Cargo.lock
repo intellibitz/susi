@@ -6859,10 +6859,12 @@ dependencies = [
  "susi-vendor-ed25519-dalek",
  "susi-vendor-hex",
  "susi-vendor-jsonschema",
+ "susi-vendor-proptest",
  "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
+ "susi-vendor-tempfile",
 ]
 
 [[package]]

@@ -99,74 +99,6 @@ fn healthy_blocking(
     }
 }
 
-fn generate_blocking(
-    api_base: &str,
-    model: &str,
-    api_key: &str,
-    protocol: InferenceProtocol,
-    prompt: &str,
-) -> Result<String, String> {
-    match protocol {
-        InferenceProtocol::OpenAiChat => {
-            let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-            let body = wire::openai_chat_body(model, prompt, 2048);
-            let owned = openai_headers(api_key, api_base);
-            let refs = header_refs(&owned);
-            wire::openai_chat_text(&wire::post_json_timeout(&url, &refs, &body, 120)?)
-        }
-        InferenceProtocol::OpenAiCompletions => {
-            let url = format!("{}/completions", api_base.trim_end_matches('/'));
-            let body = wire::openai_completions_body(model, prompt, 2048);
-            let owned = openai_headers(api_key, api_base);
-            let refs = header_refs(&owned);
-            wire::openai_completions_text(&wire::post_json_timeout(&url, &refs, &body, 120)?)
-        }
-        InferenceProtocol::Anthropic => {
-            if api_key.is_empty() {
-                return Err("ANTHROPIC_API_KEY (or api_key_env) not set".into());
-            }
-            let url = format!("{}/messages", api_base);
-            let body = serde_json::json!({
-                "model": model,
-                "max_tokens": 2048,
-                "messages": [{"role": "user", "content": prompt}]
-            });
-            let json = wire::post_json_timeout(
-                &url,
-                &[
-                    ("x-api-key", api_key),
-                    ("anthropic-version", "2023-06-01"),
-                    ("content-type", "application/json"),
-                ],
-                &body,
-                120,
-            )?;
-            wire::anthropic_text(&json)
-        }
-        InferenceProtocol::Gemini => {
-            if api_key.is_empty() {
-                return Err("GEMINI_API_KEY / GOOGLE_API_KEY (or api_key_env) not set".into());
-            }
-            let url = format!(
-                "{}/models/{}:generateContent",
-                api_base,
-                wire::gemini_model_path(model)
-            );
-            let body = serde_json::json!({
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }]
-            });
-            let json = wire::post_json_timeout(&url, &[("x-goog-api-key", api_key)], &body, 120)?;
-            wire::gemini_text(&json)
-        }
-        InferenceProtocol::Triton => {
-            let body = wire::triton_body(prompt, 512);
-            wire::triton_text(&wire::post_json_timeout(api_base, &[], &body, 120)?)
-        }
-    }
-}
-
 impl Provider for HttpProvider {
     fn name(&self) -> &str {
         &self.name
@@ -202,7 +134,9 @@ impl Provider for HttpProvider {
         Box::pin(async move {
             refuse_off_host_under_local_only(&api_base)?;
             tokio::task::spawn_blocking(move || {
-                generate_blocking(&api_base, &model, &api_key, protocol, &prompt)
+                susi_gemi_models::cloud_inference::generate(
+                    &api_base, &model, &api_key, protocol, &prompt,
+                )
             })
             .await
             .map_err(|e| {
