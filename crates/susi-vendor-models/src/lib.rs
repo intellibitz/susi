@@ -45,6 +45,7 @@ pub mod eco_signed_kb;
 pub mod eco_store;
 pub mod eco_taxonomy;
 pub mod frontier;
+pub mod gguf_inspector;
 pub mod hf_discovery;
 pub mod lmstudio_models;
 pub mod local_ecosystem;
