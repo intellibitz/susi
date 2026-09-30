@@ -11,13 +11,13 @@ pub struct CloudAgentToggle {
 #[must_use]
 pub fn autoenable_cloud_agents(keys: &[&str]) -> Vec<CloudAgentToggle> {
     let mut out = Vec::new();
-    if keys.iter().any(|k| *k == "openai") {
+    if keys.contains(&"openai") {
         out.push(CloudAgentToggle {
             name: "openai-agent".into(),
             enabled: true,
         });
     }
-    if keys.iter().any(|k| *k == "anthropic") {
+    if keys.contains(&"anthropic") {
         out.push(CloudAgentToggle {
             name: "anthropic-agent".into(),
             enabled: true,

@@ -1,0 +1,18 @@
+{
+  "id": "T-CURSOR-6",
+  "title": "Clippy fix cloud agent autoenable contains",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "zc_cloud_agent_autoenable"
+    ]
+  },
+  "created_by": "CURSOR",
+  "created_unix": 1790728393
+}
