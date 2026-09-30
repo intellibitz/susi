@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-56",
+  "title": "Context-window aware routing",
+  "goal": "Track each model's context window and skip candidates that cannot hold the prompt plus output budget, truncating or chunking only as a last resort. Tests context_length_routing_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "context_length_routing"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790730479,
+    "commit": "905bab8845d447e4ff7e8d826b96302cd59ba140",
+    "by": "CURSOR"
+  }
+}

@@ -31,6 +31,7 @@ pub mod embed_provider {
     /// than fabricating vectors.
     pub fn register_local_embed_provider() {}
 }
+pub mod mcp_call_budgets;
 pub mod mcp_profile;
 pub mod mcp_wrapper;
 pub mod protocol;

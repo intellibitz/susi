@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-69",
+  "title": "Discover installed ACP agents in the ecosystem scan",
+  "goal": "Detect installed ACP-speaking agents (gemini --experimental-acp, codex-acp adapters, opencode acp) and register them as execution-catalog entries automatically. Tests acp_discovery_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "acp_discovery"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790730545,
+    "commit": "905bab8845d447e4ff7e8d826b96302cd59ba140",
+    "by": "CURSOR"
+  }
+}

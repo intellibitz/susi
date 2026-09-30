@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-59",
+  "title": "Explain any routing decision",
+  "goal": "`susi brain explain <prompt>` prints the class, candidates, filters applied (privacy, budget, cooldown), scores with each term and the final order — the audit trail for a decision. Tests brain_explain_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "brain_explain"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790730496,
+    "commit": "905bab8845d447e4ff7e8d826b96302cd59ba140",
+    "by": "CURSOR"
+  }
+}

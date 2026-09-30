@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-240",
+  "title": "'susi tasks add' infers the acceptance test skeleton",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. From a task title and crate, propose the acceptance command and a named test stub location so agents do not hand-write conventions. Tests zc_task_scaffold_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "zc_task_scaffold"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979,
+  "closed": {
+    "at_unix": 1790731352,
+    "commit": "06e826657ab431e5ba3bdc28c708b0eed5cf3d4d",
+    "by": "CURSOR"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-228",
+  "title": "Risk and secret patterns update themselves, signed",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. axiomatic_risk_patterns and secret patterns refresh from a signed feed with rollback. Tests zc_risk_patterns_update_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "zc_risk_patterns_update"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979,
+  "closed": {
+    "at_unix": 1790731000,
+    "commit": "a4385a92b2ecf97eebff32bd8de675396e5c2aec",
+    "by": "CURSOR"
+  }
+}

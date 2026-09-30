@@ -20,7 +20,9 @@ pub use susi_core;
 
 /// Gateway API keys with per-key quotas (VC-201-072).
 pub mod gateway_keys;
+pub mod prometheus_metrics;
 pub mod zc_bind_auto;
+pub mod zc_client_connect;
 pub mod zc_tls_auto;
 
 // GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface

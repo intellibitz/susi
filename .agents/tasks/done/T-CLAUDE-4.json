@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-4",
+  "title": "Settle the DeepSeek default model and add a no-credit key state",
+  "goal": "config/config.default.json defaults DeepSeek to deepseek-chat but the live /models list shows deepseek-flash and deepseek-v4-pro; a chat probe was blocked by insufficient balance. Once the account has credit, confirm with one 1-token request per model, fix the bundled default (and the retired-model remap in susi-vendor-models cloud.rs), and make keys check distinguish 'valid but out of credit'. Add tests named deepseek_default_is_served_* (offline: assert the default is in the remap's served set).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "deepseek_default_is_served"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790696302,
+  "closed": {
+    "at_unix": 1790730430,
+    "commit": "905bab8845d447e4ff7e8d826b96302cd59ba140",
+    "by": "CURSOR"
+  }
+}

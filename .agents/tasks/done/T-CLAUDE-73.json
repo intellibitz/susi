@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-73",
+  "title": "Cost guard for cloud agents (Devin, Manus)",
+  "goal": "Cap concurrent and daily cloud agent sessions, require explicit confirmation above a threshold and refuse when a session is already running for the same task. Tests cloud_agent_cost_guard_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "cloud_agent_cost_guard"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790730560,
+    "commit": "905bab8845d447e4ff7e8d826b96302cd59ba140",
+    "by": "CURSOR"
+  }
+}

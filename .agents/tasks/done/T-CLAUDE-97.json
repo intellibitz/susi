@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-97",
+  "title": "Resource governor for background provisioning",
+  "goal": "Cap CPU, RAM, VRAM and network used by downloads, benchmarks and preloads while a foreground mission runs. Tests resource_governor_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "resource_governor"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790730946,
+    "commit": "a4385a92b2ecf97eebff32bd8de675396e5c2aec",
+    "by": "CURSOR"
+  }
+}

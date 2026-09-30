@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-44",
+  "title": "Use vendor prompt caching to cut cost",
+  "goal": "Mark stable prefixes (system prompt, brief, evidence) with Anthropic cache_control / OpenAI automatic caching and record cache-hit tokens. Tests prompt_caching_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "prompt_caching"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459,
+  "closed": {
+    "at_unix": 1790731449,
+    "commit": "06e826657ab431e5ba3bdc28c708b0eed5cf3d4d",
+    "by": "CURSOR"
+  }
+}

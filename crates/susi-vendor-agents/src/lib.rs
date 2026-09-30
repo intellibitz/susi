@@ -22,6 +22,9 @@ pub use susi_core;
 pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
 
+pub mod acp_discovery;
+pub mod cloud_agent_cost_guard;
+pub mod cursor_json_results;
 #[cfg(test)]
 mod eco_acp_ibm;
 #[cfg(test)]

@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-42",
+  "title": "Route image inputs to vision-capable models",
+  "goal": "Detect image parts, restrict candidates to vision-capable providers (replacing the name-substring heuristic in apply_cloud_constraints with a capability table) and fail clearly when none exist. Tests vision_routing_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "vision_routing"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698459,
+  "closed": {
+    "at_unix": 1790731417,
+    "commit": "06e826657ab431e5ba3bdc28c708b0eed5cf3d4d",
+    "by": "CURSOR"
+  }
+}

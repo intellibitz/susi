@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-68",
+  "title": "Time and size budgets for MCP tool calls",
+  "goal": "Enforce per-call timeout, result-size cap and per-mission call budget for MCP tools, returning typed errors and recording them as failures. Tests mcp_call_budgets_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "mcp_call_budgets"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790730529,
+    "commit": "905bab8845d447e4ff7e8d826b96302cd59ba140",
+    "by": "CURSOR"
+  }
+}

@@ -28,6 +28,7 @@ pub mod cloud;
 pub mod cloud_cli_auth;
 pub mod cloud_manage;
 pub mod default_models;
+pub mod deepseek_default;
 pub mod disk_budget;
 pub mod eco_anthropic_features;
 pub mod eco_anthropic_messages;
