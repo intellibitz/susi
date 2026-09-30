@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "helicone-gateway",
+    "name": "Helicone",
+    "category": "serving-gateway",
+    "provenance": {
+      "source": "https://langfuse.com/docs",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "compatible-with",
+      "from": "helicone-gateway",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://langfuse.com/docs",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "helicone-gateway",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://langfuse.com/docs",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

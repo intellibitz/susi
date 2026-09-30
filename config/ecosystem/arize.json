@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "arize",
+    "name": "Arize AI",
+    "home": "https://arize.com",
+    "provenance": {
+      "source": "https://langfuse.com/docs",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "arize",
+      "to": "arize-phoenix",
+      "provenance": {
+        "source": "https://langfuse.com/docs",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

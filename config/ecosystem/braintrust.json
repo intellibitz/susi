@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "braintrust",
+    "name": "Braintrust",
+    "home": "https://www.braintrust.dev",
+    "provenance": {
+      "source": "https://langfuse.com/docs",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "braintrust",
+      "to": "braintrust-platform",
+      "provenance": {
+        "source": "https://langfuse.com/docs",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

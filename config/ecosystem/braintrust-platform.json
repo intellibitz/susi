@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "braintrust-platform",
+    "name": "Braintrust",
+    "category": "service",
+    "provenance": {
+      "source": "https://langfuse.com/docs",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "braintrust-platform",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://langfuse.com/docs",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
