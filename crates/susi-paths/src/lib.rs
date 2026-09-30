@@ -289,6 +289,7 @@ impl LocalDirs {
 
 pub mod loopback;
 pub mod ports;
+pub mod stdio;
 #[doc(hidden)]
 pub mod test_env;
 mod xdg;
