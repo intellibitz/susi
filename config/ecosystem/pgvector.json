@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "pgvector",
+    "name": "pgvector",
+    "category": "extension",
+    "provenance": {
+      "source": "https://api.qdrant.tech/api-reference",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "pgvector",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://api.qdrant.tech/api-reference",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

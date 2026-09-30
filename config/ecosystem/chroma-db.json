@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "chroma-db",
+    "name": "Chroma",
+    "category": "service",
+    "provenance": {
+      "source": "https://api.qdrant.tech/api-reference",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "chroma-db",
+      "to": "chroma-rest",
+      "provenance": {
+        "source": "https://api.qdrant.tech/api-reference",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "chroma-db",
+      "to": "chroma-api-v2",
+      "provenance": {
+        "source": "https://api.qdrant.tech/api-reference",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "chroma-db",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://api.qdrant.tech/api-reference",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

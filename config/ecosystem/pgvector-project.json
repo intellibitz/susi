@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "pgvector-project",
+    "name": "pgvector project",
+    "home": "https://github.com/pgvector/pgvector",
+    "provenance": {
+      "source": "https://api.qdrant.tech/api-reference",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "pgvector-project",
+      "to": "pgvector",
+      "provenance": {
+        "source": "https://api.qdrant.tech/api-reference",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
