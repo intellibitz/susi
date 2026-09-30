@@ -32,6 +32,9 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
         std::env::set_var("HOME", &tmp);
         std::env::set_var("USERPROFILE", &tmp);
         std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
+        // Mandate 52: an inherited SUSI_HOME must not override the HOME swap.
+        std::env::remove_var("SUSI_HOME");
+        std::env::remove_var("SUSI_HERMETIC_FORBIDDEN");
     }
     if let Some(token) = host_token {
         let path = susi_paths::SusiDirs::config_dir().join("api_token");
@@ -80,9 +83,12 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
     // A 401 means *someone else's* susi-native holds the fixed port — a
     // dev instance whose bearer token this isolated run cannot (and must
     // not) read. That is the same absent prerequisite as "unreachable".
-    if second.contains("susi-native service unreachable") || second.contains("HTTP 401") {
+    if second.contains("susi-native service unreachable")
+        || second.contains("HTTP 401")
+        || second.contains("bearer token rejected")
+    {
         eprintln!(
-            "[SKIP] no usable susi-native on 127.0.0.1:18084, \
+            "[SKIP] susi-native service not reachable with an isolatable host token, \
              reflex-execution leg not exercised: {second}"
         );
         return;
