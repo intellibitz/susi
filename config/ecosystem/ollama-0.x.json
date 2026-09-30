@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "ollama-0.x",
+    "name": "Ollama 0.x API",
+    "version": "0.x",
+    "provenance": {
+      "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "ollama-0.x",
+      "to": "ollama-native",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

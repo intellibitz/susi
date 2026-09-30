@@ -1,0 +1,149 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "ollama-engine",
+    "name": "Ollama",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "ollama-engine",
+      "to": "ollama-native",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "ollama-engine",
+      "to": "ollama-0.x",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "ollama-engine",
+      "to": "gguf",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "ollama-engine",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "ollama-engine",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ollama-engine",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ollama-engine",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ollama-engine",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ollama-engine",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ollama-engine",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ollama-engine",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ollama-engine",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
