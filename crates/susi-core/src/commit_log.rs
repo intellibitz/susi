@@ -1408,11 +1408,14 @@ fn append_checked(
                 record.coordinator
             )));
         }
-        // Joint-consensus gate: a privileged roster/config delta sealed
-        // after a quorum of its electorate had bound keys must carry
-        // that bound majority's endorsements — one leader's signature
-        // alone no longer rewrites membership (see MemberEndorsement).
-        if !endorsements_satisfied_at(record, dir) {
+        // Joint-consensus gate: a privileged roster/config delta is
+        // accepted only when a bound majority of the electorate — read
+        // off the committed ledger's roster, not the record's own
+        // `committed_at` — endorsed it (see MemberEndorsement). The
+        // tip-referenced check closes the backdating window: a rogue
+        // leader cannot shrink the required set by claiming the record
+        // predates the electorate's bindings.
+        if !endorsements_satisfied_at_tip(record, dir) {
             return Err(EaiError::protocol(format!(
                 "refusing {} record: electorate endorsements below bound quorum",
                 record.kind
@@ -1741,6 +1744,61 @@ pub fn endorsements_satisfied_at(record: &CommitRecord, dir: &Path) -> bool {
     let mut supporters: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     // The coordinator's member_sig is its own endorsement — it signed
     // `signature`, the very payload an endorsement covers.
+    if let Some((_, pk)) = bound.iter().find(|(m, _)| m == &record.coordinator) {
+        if crate::susi_config::cluster_key::member_verify(pk, &record.signature, &record.member_sig)
+        {
+            supporters.insert(record.coordinator.as_str());
+        }
+    }
+    let payload = endorsement_payload(&record.signature);
+    for e in &record.endorsements {
+        let Some((_, pk)) = bound.iter().find(|(m, _)| m == &e.node) else {
+            continue;
+        };
+        if crate::susi_config::cluster_key::member_verify(pk, &payload, &e.sig) {
+            supporters.insert(e.node.as_str());
+        }
+    }
+    supporters.len() >= required
+}
+
+/// The intake half of the joint-consensus gate: the bound electorate is
+/// read off the *committed ledger's applied roster* (this node's
+/// `peers.json` at append time), never off the record's proposer-
+/// attested `committed_at`. VC-200-001's residual closed here: a leader
+/// can no longer backdate `committed_at` into the pre-binding window —
+/// where `endorsements_satisfied_at` sees zero bound members and the
+/// requirement collapses — and slip a roster/key binding through on its
+/// own signature. Once any electorate member is bound in committed
+/// state, a binding (or any privileged delta) is accepted only when a
+/// majority of the *currently bound* electorate endorsed it, so
+/// overlapping config changes serialize through the same quorum.
+///
+/// `endorsements_satisfied_at` stays the audit/history view: for a
+/// record already committed, "was it valid then" is correctly measured
+/// against its own time — an old record isn't an anomaly because later
+/// bindings raised today's requirement.
+pub fn endorsements_satisfied_at_tip(record: &CommitRecord, dir: &Path) -> bool {
+    if !privileged_kind_name(&record.kind) {
+        return true;
+    }
+    // Bound in committed state: the roster row carries a pubkey because
+    // a committed member_add applied it (or the handshake bound it) —
+    // either way the receiver holds proof on record, and `committed_at`
+    // is never consulted.
+    let bound: Vec<(String, String)> = record
+        .electorate
+        .iter()
+        .filter_map(|m| {
+            let (pk, _, _) = bound_pubkey_at(m, dir)?;
+            Some((m.clone(), pk))
+        })
+        .collect();
+    if bound.is_empty() {
+        return true;
+    }
+    let required = bound.len() / 2 + 1;
+    let mut supporters: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     if let Some((_, pk)) = bound.iter().find(|(m, _)| m == &record.coordinator) {
         if crate::susi_config::cluster_key::member_verify(pk, &record.signature, &record.member_sig)
         {
