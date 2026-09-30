@@ -25,6 +25,7 @@ use susi_vendor_models::cloud_quota::QuotaInventory;
 
 use crate::cloud_failover::{AttemptOutcome, AttemptRecord, FailoverStop, Runner};
 use crate::cloud_lockout::{LockoutTracker, Permit};
+use crate::parallel_admission::{AdmissionController, AdmitRequest, Backpressure, ScopeRequest};
 
 /// One unit of dispatched work.
 #[derive(Debug, Clone)]
@@ -67,6 +68,9 @@ pub struct Shared<'a> {
     pub ledger: &'a BudgetLedger,
     /// Pools currently serving a job — workers prefer fresh pools.
     active_pools: Mutex<BTreeMap<String, usize>>,
+    /// Atomic admission controller — when present, every job holds a
+    /// mission/local ticket and every attempt holds scope tickets.
+    pub admission: Option<&'a AdmissionController>,
 }
 
 impl<'a> Shared<'a> {
@@ -83,7 +87,15 @@ impl<'a> Shared<'a> {
             lockouts,
             ledger,
             active_pools: Mutex::new(BTreeMap::new()),
+            admission: None,
         }
+    }
+
+    /// Attach an admission controller; every job/attempt is then gated.
+    #[must_use]
+    pub fn with_admission(mut self, adm: &'a AdmissionController) -> Self {
+        self.admission = Some(adm);
+        self
     }
 
     fn eligibility(&self) -> MutexGuard<'_, EligibilityStore> {
@@ -98,12 +110,22 @@ impl<'a> Shared<'a> {
 }
 
 /// Scheduler bounds.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DispatchPlan {
     /// Maximum simultaneous workers.
     pub max_workers: usize,
+    /// Mission id — jobs under one mission share its concurrency cap.
+    pub mission: String,
     /// Per-job attempt/deadline/spend bounds.
     pub per_job: crate::cloud_failover::FailoverBudget,
+    /// Local footprint each job reserves while running.
+    pub job_cpu_millis: u32,
+    /// RAM MiB each job reserves.
+    pub job_ram_mb: u32,
+    /// VRAM MiB each job reserves.
+    pub job_vram_mb: u32,
+    /// Subprocess slots each job reserves.
+    pub job_subprocesses: u32,
 }
 
 /// The quota pool key: provider + account. Distinct model ids on one
@@ -165,7 +187,7 @@ where
                 let i = next.fetch_add(1, Ordering::SeqCst);
                 let Some(job) = jobs.get(i) else { break };
                 let mut runner = make_runner(job);
-                let out = run_job(job, candidates, shared, plan.per_job, &mut runner);
+                let out = run_job(job, candidates, shared, &plan, &mut runner);
                 outcomes.lock().unwrap_or_else(|e| e.into_inner()).push(out);
             });
         }
@@ -189,9 +211,42 @@ fn run_job<R: Runner>(
     job: &Job,
     candidates: &[Candidate],
     shared: &Shared<'_>,
-    budget: crate::cloud_failover::FailoverBudget,
+    plan: &DispatchPlan,
     runner: &mut R,
 ) -> JobOutcome {
+    let budget = plan.per_job;
+    // Job-level admission: mission/global concurrency + local footprint.
+    // Bounded queue wait — a job that can never get in stops typed, never
+    // silently spins.
+    let _job_ticket = match shared.admission {
+        Some(adm) => match admit_bounded(
+            adm,
+            &AdmitRequest {
+                mission: &plan.mission,
+                job: &job.id,
+                scopes: Vec::new(),
+                cpu_millis: plan.job_cpu_millis,
+                ram_mb: plan.job_ram_mb,
+                vram_mb: plan.job_vram_mb,
+                subprocesses: plan.job_subprocesses,
+                holds_job_slot: true,
+            },
+        ) {
+            Ok(t) => Some(t),
+            Err(why) => {
+                return JobOutcome {
+                    job_id: job.id.clone(),
+                    output: None,
+                    winner: None,
+                    winner_pool: None,
+                    attempts: Vec::new(),
+                    stop: Some(FailoverStop::Admission(format!("{why:?}"))),
+                    prior_ambiguous: false,
+                };
+            }
+        },
+        None => None,
+    };
     let mut out = JobOutcome {
         job_id: job.id.clone(),
         output: None,
@@ -260,6 +315,46 @@ fn run_job<R: Runner>(
                 }
             }
         }
+        // Scope admission: this attempt occupies pool+model+cred slots.
+        let scope_ticket = match shared.admission {
+            Some(adm) => {
+                let fp8 = credential_fingerprint(&c.api_key);
+                let cred_key = format!("cred:{fp8}");
+                match adm.admit(&AdmitRequest {
+                    mission: &plan.mission,
+                    job: &format!("{}:{}", job.id, scope),
+                    scopes: vec![
+                        ScopeRequest {
+                            key: &pool,
+                            requests: 1,
+                            tokens: budget.attempt_estimate_micros / 1_000,
+                        },
+                        ScopeRequest {
+                            key: &scope,
+                            requests: 1,
+                            tokens: 0,
+                        },
+                        ScopeRequest {
+                            key: &cred_key,
+                            requests: 1,
+                            tokens: 0,
+                        },
+                    ],
+                    cpu_millis: 0,
+                    ram_mb: 0,
+                    vram_mb: 0,
+                    subprocesses: 0,
+                    holds_job_slot: false,
+                }) {
+                    Ok(t) => Some(t),
+                    Err(_) => {
+                        attempted.push(ranked.index);
+                        continue;
+                    }
+                }
+            }
+            None => None,
+        };
         // Spend gate — the ledger is interior-synchronized.
         let reservation: Reservation =
             match shared
@@ -317,6 +412,7 @@ fn run_job<R: Runner>(
                     candidate: ranked.candidate.clone(),
                     outcome: "success",
                 });
+                drop(scope_ticket);
                 return out;
             }
             AttemptOutcome::PreDispatch(res) => {
@@ -364,7 +460,33 @@ fn run_job<R: Runner>(
                 });
             }
         }
+        drop(scope_ticket);
         now_ms = now_ms.saturating_add(1);
+    }
+}
+
+/// Bounded queue wait for admission — retries while `Queued`, gives up
+/// after `MAX_ADMIT_SPINS` yields so a saturated pool can't stall a job.
+fn admit_bounded<'a>(
+    adm: &'a AdmissionController,
+    req: &AdmitRequest<'_>,
+) -> Result<crate::parallel_admission::Ticket<'a>, Backpressure> {
+    const MAX_ADMIT_SPINS: u32 = 4096;
+    let mut spins = 0;
+    loop {
+        match adm.admit(req) {
+            // Capacity denials clear when siblings release — wait for them.
+            Err(
+                Backpressure::Queued { .. }
+                | Backpressure::GlobalFull
+                | Backpressure::MissionFull
+                | Backpressure::LocalExhausted,
+            ) if spins < MAX_ADMIT_SPINS => {
+                spins += 1;
+                std::thread::yield_now();
+            }
+            r => return r,
+        }
     }
 }
 
@@ -421,6 +543,11 @@ mod tests {
     fn plan(workers: usize) -> DispatchPlan {
         DispatchPlan {
             max_workers: workers,
+            mission: "test-mission".into(),
+            job_cpu_millis: 0,
+            job_ram_mb: 0,
+            job_vram_mb: 0,
+            job_subprocesses: 0,
             per_job: crate::cloud_failover::FailoverBudget {
                 max_attempts: 8,
                 deadline_ms: Some(T0_MS + 300_000),

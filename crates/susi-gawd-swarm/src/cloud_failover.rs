@@ -69,6 +69,8 @@ pub enum FailoverStop {
     BudgetExhausted,
     /// Candidates remain but all are locked out / cooling down.
     AllLockedOut,
+    /// Admission control refused the job (bounded queue / caps).
+    Admission(String),
 }
 
 /// The result of a failover run.
