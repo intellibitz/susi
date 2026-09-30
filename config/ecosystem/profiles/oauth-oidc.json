@@ -1,0 +1,63 @@
+{
+  "version": "eco-profile/v1",
+  "id": "oauth-oidc",
+  "name": "OAuth 2.x, OIDC and JWT/JWKS usage",
+  "subject": "oauth-2",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "rfc6749",
+      "status": "current"
+    },
+    {
+      "id": "2.1-draft",
+      "status": "beta"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "bearer-usage",
+      "format": "http",
+      "fields": [
+        "Authorization: Bearer <at>",
+        "WWW-Authenticate challenge on 401",
+        "scope parameters",
+        "expires_in handling"
+      ],
+      "notes": "cloud AI APIs use bearer for workforce/Entra/IAM tokens"
+    },
+    {
+      "name": "discovery",
+      "format": "http",
+      "fields": [
+        "GET /.well-known/openid-configuration",
+        "jwks_uri -> signing keys",
+        "issuer validation"
+      ],
+      "notes": "OIDC discovery resolves token validation inputs"
+    },
+    {
+      "name": "jwt",
+      "format": "text",
+      "fields": [
+        "header.payload.signature",
+        "claims iss|aud|exp|sub|scope|roles",
+        "JWKS rotation via kid"
+      ],
+      "notes": "JWT is the token format, not the grant"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://datatracker.ietf.org/doc/rfc6749/",
+    "spec_version": "rfc6749",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

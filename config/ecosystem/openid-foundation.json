@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "openid-foundation",
+    "name": "OpenID Foundation",
+    "home": "https://openid.net",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/rfc6749/",
+      "spec_version": "rfc6749",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "openid-foundation",
+      "to": "oidc-core",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc6749/",
+        "spec_version": "rfc6749",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
