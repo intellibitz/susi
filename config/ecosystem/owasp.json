@@ -23,6 +23,17 @@
         "retrieved": "2026-09-01",
         "confidence": "reported"
       }
+    },
+    {
+      "kind": "publishes",
+      "from": "owasp",
+      "to": "owasp-llm-top10",
+      "provenance": {
+        "source": "https://genai.owasp.org/llm-top-10/",
+        "spec_version": "OWASP Top 10 for LLM Applications 2025",
+        "retrieved": "2026-09-01",
+        "confidence": "verified"
+      }
     }
   ]
 }
