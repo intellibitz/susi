@@ -44,6 +44,7 @@ pub fn generate(
     )
 }
 
+#[derive(Clone, Copy)]
 struct Request<'a> {
     api_base: &'a str,
     model: &'a str,
@@ -61,20 +62,34 @@ fn generate_observed(
         api_base,
         model,
         api_key,
-        protocol,
-        prompt,
+        ..
     } = request;
-    let result = generate_wire(api_base, model, api_key, protocol, prompt);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let target = Target::new(api_base, api_key, model, None, "");
+    let target = if track {
+        crate::cloud_eligibility::Eligibility::load(path)?.resolve_account(target, now)
+    } else {
+        target
+    };
+    let mut quota = crate::cloud_quota::Quota::default();
+    let result = generate_wire(&request, &mut quota);
     if track {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let observation = inference_observation(
-            Target::new(api_base, api_key, model, None, ""),
+        let mut observation = inference_observation(
+            target,
             result.as_ref().map(|_| ()).map_err(String::as_str),
             now,
         );
+        if let Some(until) = quota.blocked_until(now) {
+            observation.expires_at = observation.expires_at.max(until);
+        }
+        observation.quota = Some(quota);
         record(path, observation)?;
     }
     result.map_err(|_| {
@@ -83,26 +98,33 @@ fn generate_observed(
 }
 
 fn generate_wire(
-    api_base: &str,
-    model: &str,
-    api_key: &str,
-    protocol: InferenceProtocol,
-    prompt: &str,
+    request: &Request<'_>,
+    quota: &mut crate::cloud_quota::Quota,
 ) -> Result<String, String> {
+    let Request {
+        api_base,
+        model,
+        api_key,
+        protocol,
+        prompt,
+    } = *request;
+    let mut post = |url: &str, headers: &[(&str, &str)], body: &serde_json::Value, timeout: u64| {
+        post_json(url, headers, body, timeout, quota)
+    };
     match protocol {
         InferenceProtocol::OpenAiChat => {
             let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
             let body = wire::openai_chat_body(model, prompt, 2048);
             let owned = openai_headers(api_key, api_base);
             let refs = header_refs(&owned);
-            wire::openai_chat_text(&wire::post_json_timeout(&url, &refs, &body, 120)?)
+            wire::openai_chat_text(&post(&url, &refs, &body, 120)?)
         }
         InferenceProtocol::OpenAiCompletions => {
             let url = format!("{}/completions", api_base.trim_end_matches('/'));
             let body = wire::openai_completions_body(model, prompt, 2048);
             let owned = openai_headers(api_key, api_base);
             let refs = header_refs(&owned);
-            wire::openai_completions_text(&wire::post_json_timeout(&url, &refs, &body, 120)?)
+            wire::openai_completions_text(&post(&url, &refs, &body, 120)?)
         }
         InferenceProtocol::Anthropic => {
             if api_key.is_empty() {
@@ -114,7 +136,7 @@ fn generate_wire(
                 "max_tokens": 2048,
                 "messages": [{"role": "user", "content": prompt}]
             });
-            let json = wire::post_json_timeout(
+            let json = post(
                 &url,
                 &[
                     ("x-api-key", api_key),
@@ -140,14 +162,61 @@ fn generate_wire(
                     "parts": [{"text": prompt}]
                 }]
             });
-            let json = wire::post_json_timeout(&url, &[("x-goog-api-key", api_key)], &body, 120)?;
+            let json = post(&url, &[("x-goog-api-key", api_key)], &body, 120)?;
             wire::gemini_text(&json)
         }
         InferenceProtocol::Triton => {
             let body = wire::triton_body(prompt, 512);
-            wire::triton_text(&wire::post_json_timeout(api_base, &[], &body, 120)?)
+            wire::triton_text(&post(api_base, &[], &body, 120)?)
         }
     }
+}
+
+fn post_json(
+    url: &str,
+    headers: &[(&str, &str)],
+    body: &serde_json::Value,
+    timeout: u64,
+    quota: &mut crate::cloud_quota::Quota,
+) -> Result<serde_json::Value, String> {
+    let send = |value: &serde_json::Value, quota: &mut crate::cloud_quota::Quota| {
+        let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+        let call = susi_http_transport::http_call_with_body(
+            "POST",
+            url,
+            headers,
+            Some(&bytes),
+            timeout,
+            0,
+        )?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        *quota =
+            crate::cloud_quota::from_headers(|name| call.header(name).map(str::to_string), now);
+        let status = call.status;
+        let bytes = call
+            .into_bytes(16 * 1024 * 1024)
+            .map_err(|e| e.to_string())?;
+        Ok::<_, String>((status, bytes))
+    };
+    let (mut status, mut bytes) = send(body, quota)?;
+    if status == 400 {
+        if let Some(retry) = wire::token_param_retry(body, &String::from_utf8_lossy(&bytes)) {
+            (status, bytes) = send(&retry, quota)?;
+        }
+    }
+    if !(200..300).contains(&status) {
+        return Err(format!(
+            "HTTP {status}: {}",
+            String::from_utf8_lossy(&bytes)
+                .chars()
+                .take(200)
+                .collect::<String>()
+        ));
+    }
+    serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -255,5 +324,66 @@ mod tests {
             .unwrap()
             .contains("secret-canary"));
         worker.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod quota_tests {
+    use super::*;
+    use crate::cloud_eligibility::{Availability, Eligibility, TEST_ENV_LOCK};
+    use std::io::{Read, Write};
+
+    #[test]
+    fn cloud_quota_inventory_production_headers_block_next_inference() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", root.path())
+            .set("XDG_DATA_HOME", root.path().join("data"))
+            .set("XDG_CONFIG_HOME", root.path().join("config"));
+        let path = root.path().join("availability.json");
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = [0u8; 8192];
+            let count = stream.read(&mut request).unwrap();
+            assert!(count > 0);
+            let body = r#"{"choices":[{"message":{"content":"completed"}}]}"#;
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nx-ratelimit-remaining-requests: 0\r\nx-ratelimit-reset-requests: 2m\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+        });
+        assert_eq!(
+            generate_observed(
+                Request {
+                    api_base: &base,
+                    model: "m",
+                    api_key: "test-key",
+                    protocol: InferenceProtocol::OpenAiChat,
+                    prompt: "test"
+                },
+                &path,
+                true
+            )
+            .unwrap(),
+            "completed"
+        );
+        worker.join().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let state = Eligibility::load(&path).unwrap();
+        assert_eq!(
+            state.state(&Target::new(&base, "test-key", "m", None, ""), now),
+            Availability::RateLimited
+        );
+        let state = Eligibility::load(&path).unwrap();
+        assert_eq!(
+            state.state(&Target::new(&base, "test-key", "m", None, ""), now + 301),
+            Availability::Unknown
+        );
     }
 }

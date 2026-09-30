@@ -97,11 +97,14 @@ pub struct Observation {
     pub expires_at: u64,
     /// Fixed provenance, rather than provider-controlled messages or secrets.
     pub source: EvidenceSource,
+    #[serde(default)]
+    pub quota: Option<crate::cloud_quota::Quota>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum EvidenceSource {
     InferenceResponse,
+    KeyMetadata,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -132,6 +135,17 @@ impl Eligibility {
 
     /// Expired evidence and observations from a future clock are unknown.
     /// Broad current blocks override a model's older success observation.
+    pub fn resolve_account(&self, mut target: Target, now: u64) -> Target {
+        if let Some(observation) = self.records.iter().rev().find(|r| {
+            r.observed_at <= now
+                && now < r.expires_at
+                && r.target.matches(&target, Scope::Credential)
+        }) {
+            target.account = observation.target.account.clone();
+        }
+        target
+    }
+
     pub fn state(&self, target: &Target, now: u64) -> Availability {
         let applicable: Vec<_> = self
             .records
@@ -140,10 +154,18 @@ impl Eligibility {
                 r.observed_at <= now && now < r.expires_at && r.target.matches(target, r.scope)
             })
             .collect();
+        if applicable.iter().any(|r| {
+            r.quota
+                .as_ref()
+                .and_then(|q| q.blocked_until(now))
+                .is_some()
+        }) {
+            return Availability::RateLimited;
+        }
         if let Some(block) = applicable
             .iter()
             .rev()
-            .find(|r| r.state != Availability::Working)
+            .find(|r| r.state != Availability::Working && r.state != Availability::Unknown)
         {
             return block.state;
         }
@@ -255,6 +277,7 @@ pub fn inference_observation(target: Target, outcome: Result<(), &str>, now: u64
         observed_at: now,
         expires_at: now.saturating_add(ttl),
         source: EvidenceSource::InferenceResponse,
+        quota: None,
     }
 }
 

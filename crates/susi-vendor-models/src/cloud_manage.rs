@@ -36,6 +36,7 @@ pub struct KeyCheck {
     pub model_count: usize,
     /// Live model ids, capped for display.
     pub models: Vec<String>,
+    pub quota: Option<crate::cloud_quota::Quota>,
 }
 
 const MODEL_CAP: usize = 50;
@@ -96,6 +97,7 @@ fn check_endpoint(name: &str, api_base: &str, protocol: &str, model: &str, key: 
         default_model_served: None,
         model_count: 0,
         models: Vec::new(),
+        quota: None,
     };
     if key.is_empty() {
         return out;
@@ -128,6 +130,65 @@ fn check_endpoint(name: &str, api_base: &str, protocol: &str, model: &str, key: 
         });
         out.model_count = ids.len();
         out.models = ids.into_iter().take(MODEL_CAP).collect();
+    }
+    if crate::openrouter::is_openrouter_base(api_base) {
+        let url = format!("{}/key", api_base.trim_end_matches('/'));
+        if let Ok(call) = susi_http_transport::http_call("GET", &url, &refs, 10, 0) {
+            if (200..300).contains(&call.status) {
+                if let Some(value) = call
+                    .into_bytes(64 * 1024)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                {
+                    let mut quota = crate::cloud_quota::openrouter_metadata(&value);
+                    if value["data"]["is_management_key"].as_bool() == Some(true) {
+                        let credits_url = format!("{}/credits", api_base.trim_end_matches('/'));
+                        if let Ok(credits) =
+                            susi_http_transport::http_call("GET", &credits_url, &refs, 10, 0)
+                        {
+                            if (200..300).contains(&credits.status) {
+                                if let Some(value) = credits
+                                    .into_bytes(64 * 1024)
+                                    .ok()
+                                    .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                                {
+                                    quota.credit_microusd =
+                                        crate::cloud_quota::openrouter_credits(&value);
+                                }
+                            }
+                        }
+                    }
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let mut observation = crate::cloud_eligibility::inference_observation(
+                        crate::cloud_eligibility::Target::new(
+                            api_base,
+                            key,
+                            model,
+                            value["data"]["creator_user_id"].as_str(),
+                            "",
+                        ),
+                        Ok(()),
+                        now,
+                    );
+                    observation.state = crate::cloud_eligibility::Availability::Unknown;
+                    observation.scope = crate::cloud_eligibility::Scope::Credential;
+                    observation.source = crate::cloud_eligibility::EvidenceSource::KeyMetadata;
+                    observation.quota = Some(quota.clone());
+                    // A diagnostic metadata write failure must not become fabricated working inference.
+                    if crate::cloud_eligibility::record(
+                        &crate::cloud_eligibility::state_path(),
+                        observation,
+                    )
+                    .is_ok()
+                    {
+                        out.quota = Some(quota);
+                    }
+                }
+            }
+        }
     }
     out
 }
