@@ -1,0 +1,14 @@
+{
+  "id": "T-INTELLIBITZ-3",
+  "title": "Track .codex/hooks.json so Codex worktrees run the workflow check",
+  "goal": "Commit .codex/hooks.json (SessionStart -> scripts/workflow-session-start.sh) and mention it in AGENTS.md",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-agent-hooks.sh"
+    ]
+  },
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790766453
+}
