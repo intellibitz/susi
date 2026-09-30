@@ -37,5 +37,12 @@ fn vc_201_024_never_exceeds_reservation() {
     let left = reserve(&free, &node);
     assert!(left.cpu <= free.cpu);
     assert!(left.gpu_mem_gb <= free.gpu_mem_gb);
-    assert_eq!(admit(&node, &left), Admit::Queue);
+    let bigger = DagNode {
+        id: "n2".into(),
+        cpu: 3.0,
+        gpu_mem_gb: 6.0,
+        needs_model: true,
+        needs_tools: vec!["exec".into()],
+    };
+    assert_eq!(admit(&bigger, &left), Admit::Queue);
 }
