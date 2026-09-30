@@ -254,6 +254,17 @@
         "retrieved": "2026-09-01",
         "confidence": "reported"
       }
+    },
+    {
+      "kind": "implements",
+      "from": "openai-api",
+      "to": "json-schema",
+      "provenance": {
+        "source": "https://spec.openapis.org/oas/v3.1.0",
+        "spec_version": "3.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
     }
   ]
 }

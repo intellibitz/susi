@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "json-schema-2020-12",
+    "name": "JSON Schema 2020-12",
+    "version": "2020-12",
+    "provenance": {
+      "source": "https://spec.openapis.org/oas/v3.1.0",
+      "spec_version": "3.1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "json-schema-2020-12",
+      "to": "json-schema",
+      "provenance": {
+        "source": "https://spec.openapis.org/oas/v3.1.0",
+        "spec_version": "3.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
