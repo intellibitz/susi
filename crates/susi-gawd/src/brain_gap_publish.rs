@@ -194,17 +194,26 @@ pub struct QueueKnowledge<'a> {
     pub known_vectors: &'a BTreeSet<String>,
 }
 
+/// Provenance + timing for one publication.
+pub struct PubMeta {
+    /// Opaque discovery-brain id (`provider/model/fp8`).
+    pub brain_opaque: Option<String>,
+    /// Priority rationale (ranking drivers).
+    pub rationale: Vec<String>,
+    /// Unix time.
+    pub at_unix: u64,
+}
+
 /// Validate + record: the full Draft→RecordedLocal hop. A failed
 /// validation or write leaves nothing behind — the caller may retry.
 pub fn record_draft(
     log: &PublicationLog,
     draft: &TaskDraft,
     gap: &Gap,
-    brain_opaque: Option<&str>,
-    rationale: Vec<String>,
-    now: u64,
+    meta: &PubMeta,
     queue: &QueueKnowledge<'_>,
 ) -> Result<GapTaskRecord, DraftReject> {
+    let now = meta.at_unix;
     validate_draft(
         draft,
         queue.known_ids,
@@ -212,7 +221,13 @@ pub fn record_draft(
         queue.known_vectors,
         &BTreeSet::new(),
     )?;
-    let mut r = lineage(draft, gap, brain_opaque, rationale, now);
+    let mut r = lineage(
+        draft,
+        gap,
+        meta.brain_opaque.as_deref(),
+        meta.rationale.clone(),
+        now,
+    );
     if !log
         .record(&r)
         .map_err(|e| DraftReject::Malformed(format!("publication log: {e}")))?
@@ -330,9 +345,11 @@ mod tests {
             &log,
             &d,
             &gap(),
-            Some("acme/m-brain/deadbeef"),
-            vec!["impact:High".into(), "verified".into()],
-            T0,
+            &PubMeta {
+                brain_opaque: Some("acme/m-brain/deadbeef".to_string()),
+                rationale: vec!["impact:High".into(), "verified".into()],
+                at_unix: T0,
+            },
             &queue(&k),
         )
         .unwrap();
@@ -390,9 +407,11 @@ mod tests {
             &log,
             &draft(72),
             &gap(),
-            Some("a/m/11111111"),
-            vec![],
-            T0,
+            &PubMeta {
+                brain_opaque: Some("a/m/11111111".to_string()),
+                rationale: vec![],
+                at_unix: T0,
+            },
             &queue(&k),
         )
         .unwrap();
@@ -401,9 +420,11 @@ mod tests {
             &log,
             &draft(72),
             &gap(),
-            Some("b/m/22222222"),
-            vec![],
-            T0,
+            &PubMeta {
+                brain_opaque: Some("b/m/22222222".to_string()),
+                rationale: vec![],
+                at_unix: T0,
+            },
             &queue(&k),
         );
         assert!(matches!(res, Err(DraftReject::DuplicateId(_))));
@@ -425,11 +446,32 @@ mod tests {
         fs::write(dir.join("nonexistent-parent"), "file").unwrap();
         let bad_log = PublicationLog::load(blocked);
         let k = known();
-        let res = record_draft(&bad_log, &draft(73), &gap(), None, vec![], T0, &queue(&k));
+        let res = record_draft(
+            &bad_log,
+            &draft(73),
+            &gap(),
+            &PubMeta {
+                brain_opaque: None,
+                rationale: vec![],
+                at_unix: T0,
+            },
+            &queue(&k),
+        );
         assert!(res.is_err());
         // Retry on a healthy dir works and records cleanly.
         let good = PublicationLog::load(dir.join("log"));
-        let r = record_draft(&good, &draft(73), &gap(), None, vec![], T0, &queue(&k)).unwrap();
+        let r = record_draft(
+            &good,
+            &draft(73),
+            &gap(),
+            &PubMeta {
+                brain_opaque: None,
+                rationale: vec![],
+                at_unix: T0,
+            },
+            &queue(&k),
+        )
+        .unwrap();
         assert_eq!(r.state, PublishState::RecordedLocal);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -444,7 +486,17 @@ mod tests {
         let k = known();
         let mut d = draft(74);
         d.deps = vec!["T-GHOST-9".into()];
-        let res = record_draft(&log, &d, &gap(), None, vec![], T0, &queue(&k));
+        let res = record_draft(
+            &log,
+            &d,
+            &gap(),
+            &PubMeta {
+                brain_opaque: None,
+                rationale: vec![],
+                at_unix: T0,
+            },
+            &queue(&k),
+        );
         assert!(matches!(res, Err(DraftReject::UnresolvedDep(_))));
         assert!(log.get("T-DEVIN-74").is_none());
         let _ = fs::remove_dir_all(&dir);
@@ -458,7 +510,18 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let log = PublicationLog::load(dir.clone());
         let k = known();
-        let r = record_draft(&log, &draft(75), &gap(), None, vec![], T0, &queue(&k)).unwrap();
+        let r = record_draft(
+            &log,
+            &draft(75),
+            &gap(),
+            &PubMeta {
+                brain_opaque: None,
+                rationale: vec![],
+                at_unix: T0,
+            },
+            &queue(&k),
+        )
+        .unwrap();
         let task_json = serde_json::to_string(&draft(75)).unwrap();
         assert!(!task_json.contains("\"closed\""));
         assert_ne!(r.state, PublishState::Delivered);
