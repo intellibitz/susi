@@ -1,0 +1,18 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "protocol",
+    "id": "acp",
+    "name": "Agent Client Protocol (Zed)",
+    "transports": [
+      "stdio"
+    ],
+    "provenance": {
+      "source": "https://agentclientprotocol.com",
+      "spec_version": "0.1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}
