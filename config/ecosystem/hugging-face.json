@@ -1,0 +1,105 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "hugging-face",
+    "name": "Hugging Face",
+    "home": "https://huggingface.co",
+    "provenance": {
+      "source": "https://huggingface.co/docs/api-inference/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "hugging-face",
+      "to": "hf-inference-providers",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "hugging-face",
+      "to": "hf-inference-endpoints",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "hugging-face",
+      "to": "hf-hub",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "hugging-face",
+      "to": "candle",
+      "provenance": {
+        "source": "https://huggingface.co/docs/safetensors/index",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "hugging-face",
+      "to": "hf-tokenizers",
+      "provenance": {
+        "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "hugging-face",
+      "to": "peft",
+      "provenance": {
+        "source": "https://huggingface.co/docs/peft/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "hugging-face",
+      "to": "sentence-transformers",
+      "provenance": {
+        "source": "https://www.sbert.net/",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "hugging-face",
+      "to": "text-generation-inference",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
