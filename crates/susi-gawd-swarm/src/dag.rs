@@ -5,14 +5,16 @@ use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
 use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
+use crate::role_select::{select_roles, AgentEvidence, RoleAssignment, SelectError};
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
 use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
 use crate::task_lease::{CompleteVerdict, LeaseTable, TaskLease};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use susi_gawd_agents::agents::MissionBlackboard;
+use susi_gawd_agents::agents::{instantiate_native_agent, MissionBlackboard};
 
 #[derive(Debug, Clone)]
 pub struct TaskNode {
@@ -239,6 +241,57 @@ impl MissionDag {
     /// Release a finished mission and promote the next fair waiter.
     pub fn fair_complete(&mut self, mission_id: &str, now: u64) -> Option<QueuedMission> {
         self.fair_queue.complete(mission_id, now)
+    }
+
+    /// Select implementer/verifier (and optional specialist) from the native
+    /// fleet only — DynamicAgent phantoms without a native factory are dropped
+    /// before [`select_roles`] runs (VC-201-027).
+    pub fn assign_native_roles(
+        &mut self,
+        fleet: &[AgentEvidence],
+        required_caps: &BTreeSet<String>,
+        solo_cost: f64,
+    ) -> Result<RoleAssignment, SelectError> {
+        let native: Vec<AgentEvidence> = fleet
+            .iter()
+            .filter(|a| instantiate_native_agent(&a.id).is_some())
+            .cloned()
+            .collect();
+        let assignment = select_roles(&native, required_caps, solo_cost)?;
+
+        if let Some(root) = self.nodes.first_mut() {
+            root.assigned_agent = Some(assignment.implementer.clone());
+        }
+
+        let verify_idx = self
+            .nodes
+            .iter()
+            .position(|n| n.title == "Independent Verify")
+            .unwrap_or_else(|| {
+                self.push_node(
+                    "Independent Verify",
+                    "independently verify implementer output",
+                    vec![0],
+                )
+            });
+        if let Some(node) = self.nodes.get_mut(verify_idx) {
+            node.assigned_agent = Some(assignment.verifier.clone());
+        }
+
+        if let Some(specialist) = assignment.specialist.as_ref() {
+            let spec_idx = self
+                .nodes
+                .iter()
+                .position(|n| n.title == "Specialist")
+                .unwrap_or_else(|| {
+                    self.push_node("Specialist", "cover remaining capability gap", vec![0])
+                });
+            if let Some(node) = self.nodes.get_mut(spec_idx) {
+                node.assigned_agent = Some(specialist.clone());
+            }
+        }
+
+        Ok(assignment)
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).

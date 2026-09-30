@@ -93,6 +93,9 @@ mod fair_queue_dispatch_wiring_tests;
 #[path = "tests/mission_dag_persist_wiring.rs"]
 mod mission_dag_persist_wiring_tests;
 #[cfg(test)]
+#[path = "tests/native_role_select_wiring.rs"]
+mod native_role_select_wiring_tests;
+#[cfg(test)]
 #[path = "tests/resource_schedule_dispatch_wiring.rs"]
 mod resource_schedule_dispatch_wiring_tests;
 #[cfg(test)]
