@@ -55,6 +55,12 @@ pub mod pulse;
 pub mod rate_limit_scheduler;
 pub mod region_eligibility;
 
+pub mod eco_capability_routing;
+pub mod eco_compat_gate;
+pub mod eco_limits_lookup;
+pub mod eco_migration_planner;
+pub mod eco_protocol_negotiation;
+pub mod eco_qa_cited;
 #[cfg(test)]
 #[path = "tests/engine_benchmark.rs"]
 mod engine_benchmark_tests;
