@@ -35,6 +35,10 @@ fn wire_test_substrate() {
         // otherwise, leaking host credentials and receipts into tests.
         let tmp = test_home();
         let _ = std::fs::create_dir_all(&tmp);
+        // Instance knobs outrank HOME/XDG: a dev-instance launch must not
+        // redirect this process-lifetime substrate (or its ports).
+        std::env::remove_var("SUSI_HOME");
+        std::env::remove_var("SUSI_PORT_OFFSET");
         unsafe {
             std::env::set_var("HOME", &tmp);
             std::env::set_var("USERPROFILE", &tmp);

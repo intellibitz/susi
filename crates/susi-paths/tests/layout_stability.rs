@@ -13,6 +13,7 @@
 //! else may resolve paths concurrently.
 
 use std::path::PathBuf;
+use susi_paths::test_env::EnvGuard;
 use susi_paths::SusiDirs;
 
 fn scratch(tag: &str) -> PathBuf {
@@ -31,16 +32,18 @@ fn scratch(tag: &str) -> PathBuf {
 
 #[test]
 fn creating_legacy_dir_mid_process_keeps_the_xdg_layout() {
-    for var in ["SUSI_HOME", "SUSI_XDG", "XDG_DATA_HOME", "XDG_CACHE_HOME"] {
-        std::env::remove_var(var);
+    // Scrubs SUSI_HOME/SUSI_PORT_OFFSET; everything touched is restored on drop.
+    let mut env = EnvGuard::isolated();
+    for var in ["SUSI_XDG", "XDG_DATA_HOME", "XDG_CACHE_HOME"] {
+        env.remove(var);
     }
 
     // XDG install: no `$HOME/.susi` at first resolution. XDG_CONFIG_HOME
     // also forces the local resolver (no service lookup).
     let home = scratch("xdg");
     let xdg_config = home.join("xdg-config");
-    std::env::set_var("HOME", &home);
-    std::env::set_var("XDG_CONFIG_HOME", &xdg_config);
+    env.set("HOME", &home);
+    env.set("XDG_CONFIG_HOME", &xdg_config);
     let config_before = SusiDirs::config_dir();
     let data_before = SusiDirs::data_dir();
     assert_ne!(config_before, home.join(".susi"));

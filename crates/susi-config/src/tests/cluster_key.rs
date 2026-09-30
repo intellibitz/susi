@@ -16,23 +16,26 @@ fn set_key_env() -> TempHomeGuard<'static> {
     ));
     // Pre-create `.susi` so SusiDirs picks the deterministic legacy path.
     let _ = std::fs::create_dir_all(tmp.join(".susi"));
-    unsafe {
-        std::env::set_var("HOME", &tmp);
-        std::env::set_var("USERPROFILE", &tmp);
-        std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
+    let mut env = susi_paths::test_env::EnvGuard::isolated();
+    env.set("HOME", &tmp);
+    env.set("USERPROFILE", &tmp);
+    env.set("XDG_CONFIG_HOME", tmp.join("xdg"));
+    TempHomeGuard {
+        env: Some(env),
+        _guard: guard,
+        tmp,
     }
-    TempHomeGuard { _guard: guard, tmp }
 }
 
 struct TempHomeGuard<'a> {
+    // Declared before `_guard` so the env is restored while the lock is held.
+    env: Option<susi_paths::test_env::EnvGuard>,
     _guard: std::sync::MutexGuard<'a, ()>,
     tmp: PathBuf,
 }
 impl Drop for TempHomeGuard<'_> {
     fn drop(&mut self) {
-        unsafe {
-            std::env::remove_var("XDG_CONFIG_HOME");
-        }
+        self.env = None;
         let _ = std::fs::remove_dir_all(&self.tmp);
     }
 }

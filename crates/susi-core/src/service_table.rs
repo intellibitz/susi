@@ -650,7 +650,12 @@ mod tests {
         assert_eq!(LEAF_SERVICES[4].name, "susi-native");
         assert!(leaf_service("susi-config").is_some());
         assert!(leaf_service("nope").is_none());
-        assert_eq!(leaf_service("susi-native").map(|s| s.port()), Some(18084));
+        // 18084 shifted by the instance offset (`SUSI_PORT_OFFSET`, set on a
+        // dev/second instance and inherited by `cargo test`).
+        assert_eq!(
+            leaf_service("susi-native").map(|s| s.port()),
+            Some(susi_paths::ports::effective(18084))
+        );
     }
 
     #[test]

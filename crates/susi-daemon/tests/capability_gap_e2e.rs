@@ -28,14 +28,19 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
     // the client reads from the (soon isolated) config dir. Carry it over so
     // the reflex leg authenticates; a bare CI service has no token and is open.
     let host_token = susi_paths::host_token();
-    unsafe {
-        std::env::set_var("HOME", &tmp);
-        std::env::set_var("USERPROFILE", &tmp);
-        std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
-        // Mandate 52: an inherited SUSI_HOME must not override the HOME swap.
-        std::env::remove_var("SUSI_HOME");
-        std::env::remove_var("SUSI_HERMETIC_FORBIDDEN");
+    // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET so a dev-instance launch cannot
+    // redirect the substrate; restored when the test returns.
+    let offset = std::env::var_os("SUSI_PORT_OFFSET");
+    let mut _env = susi_paths::test_env::EnvGuard::isolated();
+    // Keep the launching instance's port offset: the token above belongs to
+    // the susi-native service on those ports, so the client must reach it.
+    if let Some(offset) = offset {
+        _env.set("SUSI_PORT_OFFSET", offset);
     }
+    _env.set("HOME", &tmp);
+    _env.set("USERPROFILE", &tmp);
+    _env.set("XDG_CONFIG_HOME", tmp.join("xdg"));
+    _env.remove("SUSI_HERMETIC_FORBIDDEN");
     if let Some(token) = host_token {
         let path = susi_paths::SusiDirs::config_dir().join("api_token");
         std::fs::write(&path, token).unwrap();

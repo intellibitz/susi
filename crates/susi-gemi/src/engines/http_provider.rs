@@ -947,11 +947,10 @@ mod tests {
     }
 
     /// Redirect HOME + XDG_* so cloud.env never reads the developer machine.
+    /// Also scrubs `SUSI_HOME`/`SUSI_PORT_OFFSET`, which outrank HOME/XDG.
     struct IsolatedCloudHome {
         dir: std::path::PathBuf,
-        prev_home: Option<std::ffi::OsString>,
-        prev_xdg_config: Option<std::ffi::OsString>,
-        prev_xdg_data: Option<std::ffi::OsString>,
+        env: Option<susi_paths::test_env::EnvGuard>,
     }
 
     impl IsolatedCloudHome {
@@ -963,40 +962,21 @@ mod tests {
             let xdg_data = dir.join("data");
             std::fs::create_dir_all(&xdg_config).unwrap();
             std::fs::create_dir_all(&xdg_data).unwrap();
-            let prev_home = std::env::var_os("HOME");
-            let prev_xdg_config = std::env::var_os("XDG_CONFIG_HOME");
-            let prev_xdg_data = std::env::var_os("XDG_DATA_HOME");
-            unsafe {
-                std::env::set_var("HOME", &dir);
-                std::env::set_var("XDG_CONFIG_HOME", &xdg_config);
-                std::env::set_var("XDG_DATA_HOME", &xdg_data);
-            }
+            let mut env = susi_paths::test_env::EnvGuard::isolated();
+            env.set("HOME", &dir);
+            env.set("XDG_CONFIG_HOME", &xdg_config);
+            env.set("XDG_DATA_HOME", &xdg_data);
             Self {
                 dir,
-                prev_home,
-                prev_xdg_config,
-                prev_xdg_data,
+                env: Some(env),
             }
         }
     }
 
     impl Drop for IsolatedCloudHome {
         fn drop(&mut self) {
-            unsafe {
-                match &self.prev_home {
-                    Some(h) => std::env::set_var("HOME", h),
-                    None => std::env::remove_var("HOME"),
-                }
-                match &self.prev_xdg_config {
-                    Some(h) => std::env::set_var("XDG_CONFIG_HOME", h),
-                    None => std::env::remove_var("XDG_CONFIG_HOME"),
-                }
-                match &self.prev_xdg_data {
-                    Some(h) => std::env::set_var("XDG_DATA_HOME", h),
-                    None => std::env::remove_var("XDG_DATA_HOME"),
-                }
-                std::env::remove_var("DEEPSEEK_API_KEY");
-            }
+            self.env = None;
+            std::env::remove_var("DEEPSEEK_API_KEY");
             let _ = std::fs::remove_dir_all(&self.dir);
         }
     }
