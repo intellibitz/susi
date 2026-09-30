@@ -65,6 +65,7 @@ pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
 pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
 pub mod admin;
+pub mod audit_evidence;
 pub mod autonomous_builder;
 pub mod baseline_capture;
 pub mod bloat_audit;
@@ -102,6 +103,7 @@ pub mod self_validation;
 pub mod task_edit_guard;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
+pub mod tenant_isolation;
 pub mod update_health;
 pub mod zc_agent_files_gen;
 pub mod zc_agent_identity;
@@ -175,6 +177,12 @@ mod vc_201_019_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_020.rs"]
 mod vc_201_020_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_078.rs"]
+mod vc_201_078_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_079.rs"]
+mod vc_201_079_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
