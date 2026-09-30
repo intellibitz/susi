@@ -1,0 +1,28 @@
+# Fresh-environment matrix: run the clean-HOME zero-config journey on
+# container profiles defined in .github/zc-matrix/matrix.json.
+name: Zero-Config Matrix
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [cpu-only, emulated-gpu, low-memory]
+    container:
+      image: rust:bookworm
+      options: ${{ matrix.profile == 'low-memory' && '--memory 1536m' || '--memory 8g' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate matrix definition
+        run: scripts/check-zc-matrix.sh
+      - name: Fresh-HOME journey (${{ matrix.profile }})
+        env:
+          SUSI_PROFILE: ${{ matrix.profile }}
+        run: |
+          cargo test --test zc_time_to_answer --test zc_fresh_home --test zc_hooks_on_clone --locked

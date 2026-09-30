@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "susi.fullname" . }}
+  labels:
+    {{- include "susi.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "susi.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "susi.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- if .Values.gpu.enabled }}
+      nodeSelector:
+        {{ .Values.gpu.nodeSelectorKey }}: {{ .Values.gpu.nodeSelectorValue }}
+      {{- end }}
+      containers:
+        - name: susi-daemon
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+          env:
+            - name: SUSI_HOME
+              value: /susi
+            {{- if .Values.secrets.existing }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.existing }}
+            {{- else if .Values.secrets.inline }}
+          envFrom:
+            - secretRef:
+                name: {{ include "susi.fullname" . }}-keys
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+            {{- if .Values.gpu.enabled }}
+            limits:
+              {{ .Values.gpu.resourceName }}: {{ .Values.gpu.count }}
+            {{- end }}
+          volumeMounts:
+            - name: model-store
+              mountPath: /susi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        {{- if .Values.engines.ollama.enabled }}
+        - name: ollama
+          image: {{ .Values.engines.ollama.image }}
+          ports:
+            - containerPort: {{ .Values.engines.ollama.port }}
+          volumeMounts:
+            - name: model-store
+              mountPath: /models
+        {{- end }}
+        {{- if .Values.engines.vllm.enabled }}
+        - name: vllm
+          image: {{ .Values.engines.vllm.image }}
+          ports:
+            - containerPort: {{ .Values.engines.vllm.port }}
+          {{- if or .Values.engines.vllm.requiresGpu .Values.gpu.enabled }}
+          resources:
+            limits:
+              {{ .Values.gpu.resourceName }}: {{ .Values.gpu.count }}
+          {{- end }}
+          volumeMounts:
+            - name: model-store
+              mountPath: /models
+        {{- end }}
+      volumes:
+        - name: model-store
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "susi.fullname" . }}-models
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

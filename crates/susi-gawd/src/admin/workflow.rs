@@ -215,6 +215,60 @@ fn executable(p: &Path) -> bool {
     p.is_file()
 }
 
+/// Idempotently install the repo's git infrastructure on a checkout that
+/// carries `.githooks/`: `core.hooksPath`, the ledger merge driver, and
+/// executable bits on the required hooks. Called by the susi binary so a
+/// fresh clone converges without anyone running `setup-dev.sh` — any susi
+/// invocation inside the repo is the install mechanism.
+pub fn ensure_infrastructure(root: &Path) {
+    let hooks_dir = root.join(".githooks");
+    if !hooks_dir.is_dir() {
+        return;
+    }
+    if git(root, &["config", "--get", "core.hooksPath"]).as_deref() != Some(".githooks") {
+        // --worktree keeps linked-worktree config local; fall back to the
+        // repo config when worktreeConfig isn't enabled (e.g. primary).
+        if git(
+            root,
+            &["config", "--worktree", "core.hooksPath", ".githooks"],
+        )
+        .is_none()
+        {
+            git(root, &["config", "core.hooksPath", ".githooks"]);
+        }
+    }
+    if git(root, &["config", "--get", "merge.ledger.driver"]).is_none() {
+        git(
+            root,
+            &[
+                "config",
+                "merge.ledger.name",
+                "union of appended .agents/evidence.json entries",
+            ],
+        );
+        git(
+            root,
+            &[
+                "config",
+                "merge.ledger.driver",
+                "python3 scripts/merge-ledger.py %O %A %B",
+            ],
+        );
+    }
+    #[cfg(unix)]
+    for h in HOOKS_REQUIRED {
+        let p = hooks_dir.join(h);
+        if p.is_file() && !executable(&p) {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(m) = p.metadata() {
+                let mut perms = m.permissions();
+                perms.set_mode(perms.mode() | 0o111);
+                std::fs::set_permissions(&p, perms).ok();
+            }
+        }
+    }
+}
+
 /// Gather the facts from `dir` (any path inside the checkout).
 pub fn gather(dir: &Path, agent: &str) -> Facts {
     let root = git(dir, &["rev-parse", "--show-toplevel"])

@@ -97,6 +97,8 @@ pub(crate) fn who(agent: Option<String>, root: &Path) -> String {
 
 pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
     let root = repo_root(cwd);
+    // Task work needs the repo hooks; install them if this clone lacks them.
+    susi_gawd::admin::workflow::ensure_infrastructure(&root);
     match action.unwrap_or(TaskCommands::List { done: false }) {
         TaskCommands::List { done } => {
             // Claims live on the remote; an unreachable remote must not hide the

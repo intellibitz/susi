@@ -1,0 +1,60 @@
+# susi daemon + engine stack.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/intellibitz/susi
+  tag: ""           # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 9090        # susi daemon REST
+  metricsPort: 9091
+
+# Inference engines run alongside the daemon (separate containers in the
+# same pod so the daemon talks loopback, matching its LAN-local design).
+engines:
+  ollama:
+    enabled: false
+    image: ollama/ollama:latest
+    port: 11434
+  vllm:
+    enabled: false
+    image: vllm/vllm-openai:latest
+    port: 8000
+    # vLLM needs a GPU; schedule onto gpu nodes only.
+    requiresGpu: true
+
+# GPU node placement: picks nodes labelled accelerator=nvidia (or your
+# pool's label) and reserves the device.
+gpu:
+  enabled: false
+  count: 1
+  nodeSelectorKey: accelerator
+  nodeSelectorValue: nvidia
+  resourceName: nvidia.com/gpu
+
+# Secrets come from Kubernetes, never values.yaml: name an existing
+# Secret holding provider keys (cloud.env keys like OPENAI_API_KEY).
+secrets:
+  existing: ""      # name of a Secret with key=value env entries
+  # or let the chart create one from literal key/value pairs (git-safe:
+  # keep this empty in committed values and pass at install time)
+  inline: {}
+
+persistence:
+  enabled: true
+  size: 50Gi        # model store
+  storageClass: ""
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    memory: 8Gi
+
+# The operator reconciles a SusiStack CR; disabled = plain chart only.
+operator:
+  enabled: false
+  image: ghcr.io/intellibitz/susi-operator:latest
