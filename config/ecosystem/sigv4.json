@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "sigv4",
+    "name": "SigV4",
+    "version": "sigv4",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/rfc9421/",
+      "spec_version": "rfc9421",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "sigv4",
+      "to": "aws-sigv4",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc9421/",
+        "spec_version": "rfc9421",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
