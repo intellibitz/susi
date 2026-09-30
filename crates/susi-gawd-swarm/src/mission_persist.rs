@@ -30,6 +30,10 @@ pub struct PersistedNode {
 pub struct PersistedMission {
     pub mission_id: String,
     pub nodes: BTreeMap<String, PersistedNode>,
+    /// Durable lease/fence state (T-DEVIN-9): survives restart so stale
+    /// workers can't collide with freshly issued fences.
+    #[serde(default)]
+    pub leases: crate::task_lease::LeaseTable,
 }
 
 impl PersistedMission {
@@ -38,6 +42,7 @@ impl PersistedMission {
         Self {
             mission_id: mission_id.into(),
             nodes: BTreeMap::new(),
+            leases: crate::task_lease::LeaseTable::new(),
         }
     }
 

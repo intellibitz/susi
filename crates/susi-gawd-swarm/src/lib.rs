@@ -94,6 +94,9 @@ mod cancel_propagate_dispatch_wiring_tests;
 #[path = "tests/cancel_terminates.rs"]
 mod cancel_terminates_tests;
 #[cfg(test)]
+#[path = "tests/durable_fence.rs"]
+mod durable_fence_tests;
+#[cfg(test)]
 #[path = "tests/fair_queue_dispatch_wiring.rs"]
 mod fair_queue_dispatch_wiring_tests;
 #[cfg(test)]

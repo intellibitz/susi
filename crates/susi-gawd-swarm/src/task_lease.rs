@@ -10,9 +10,14 @@ pub struct TaskLease {
     pub lease_until_unix: u64,
 }
 
-#[derive(Debug, Default)]
+/// Lease state is serialized into mission state (T-DEVIN-9): a restarted
+/// run keeps the monotonic `next_fence` so a stale worker's token can never
+/// collide with a freshly issued lease, and live leases survive crashes.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaseTable {
+    #[serde(default)]
     leases: std::collections::BTreeMap<String, TaskLease>,
+    #[serde(default)]
     next_fence: u64,
 }
 
@@ -43,14 +48,12 @@ impl LeaseTable {
         lease
     }
 
-    /// Authoritative completion: requires matching live owner + fence.
-    pub fn complete(
-        &mut self,
-        task_id: &str,
-        owner: &str,
-        fence: u64,
-        now: u64,
-    ) -> CompleteVerdict {
+    /// Non-destructive fence check (T-DEVIN-9): the verdict a write or
+    /// completion would get, without consuming the lease. A worker must
+    /// pass this *before* its first mutating operation — rejecting only at
+    /// completion cannot undo the writes already made.
+    #[must_use]
+    pub fn check_fence(&self, task_id: &str, owner: &str, fence: u64, now: u64) -> CompleteVerdict {
         let Some(lease) = self.leases.get(task_id) else {
             return CompleteVerdict::UnknownTask;
         };
@@ -65,7 +68,38 @@ impl LeaseTable {
         if lease.owner != owner {
             return CompleteVerdict::NotOwner;
         }
-        self.leases.remove(task_id);
         CompleteVerdict::Accepted
+    }
+
+    /// Authoritative completion: requires matching live owner + fence.
+    pub fn complete(
+        &mut self,
+        task_id: &str,
+        owner: &str,
+        fence: u64,
+        now: u64,
+    ) -> CompleteVerdict {
+        let verdict = self.check_fence(task_id, owner, fence, now);
+        if verdict == CompleteVerdict::Accepted {
+            self.leases.remove(task_id);
+        }
+        verdict
+    }
+
+    /// Snapshot of live leases (for durable mission state).
+    #[must_use]
+    pub fn leases(&self) -> &std::collections::BTreeMap<String, TaskLease> {
+        &self.leases
+    }
+
+    /// Restore persisted lease state: adopt live leases and keep the fence
+    /// counter monotonic across restarts (`max` — never rewind a fence).
+    pub fn adopt(&mut self, persisted: &LeaseTable) {
+        self.next_fence = self.next_fence.max(persisted.next_fence);
+        for (id, lease) in &persisted.leases {
+            self.leases
+                .entry(id.clone())
+                .or_insert_with(|| lease.clone());
+        }
     }
 }
