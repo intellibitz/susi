@@ -3,6 +3,7 @@
 
 use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
 use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
+use crate::independent_verify::{verification_satisfied, ReviewConclusion};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
 use crate::role_select::{select_roles, AgentEvidence, RoleAssignment, SelectError};
@@ -292,6 +293,38 @@ impl MissionDag {
         }
 
         Ok(assignment)
+    }
+
+    /// Accept a swarm verify-path conclusion only when independent evidence
+    /// satisfies VC-201-028: reviewer ≠ implementer, pass, unique receipts.
+    /// On success marks the Independent Verify node complete.
+    pub fn accept_independent_verify(&mut self, conclusion: &ReviewConclusion) -> bool {
+        let implementer = self
+            .nodes
+            .first()
+            .and_then(|n| n.assigned_agent.as_deref())
+            .unwrap_or(conclusion.implementer.as_str());
+        if !verification_satisfied(conclusion, implementer) {
+            return false;
+        }
+        let verify_idx = self
+            .nodes
+            .iter()
+            .position(|n| n.title == "Independent Verify");
+        if let Some(idx) = verify_idx {
+            if let Some(node) = self.nodes.get_mut(idx) {
+                if node
+                    .assigned_agent
+                    .as_deref()
+                    .is_some_and(|a| a != conclusion.reviewer)
+                {
+                    // Assigned verifier must match the conclusion reviewer.
+                    return false;
+                }
+                node.completed = true;
+            }
+        }
+        true
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).

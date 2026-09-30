@@ -82,6 +82,9 @@ mod cancel_propagate_dispatch_wiring_tests;
 #[path = "tests/fair_queue_dispatch_wiring.rs"]
 mod fair_queue_dispatch_wiring_tests;
 #[cfg(test)]
+#[path = "tests/independent_verify_dispatch_wiring.rs"]
+mod independent_verify_dispatch_wiring_tests;
+#[cfg(test)]
 #[path = "tests/mission_dag_persist_wiring.rs"]
 mod mission_dag_persist_wiring_tests;
 #[cfg(test)]
