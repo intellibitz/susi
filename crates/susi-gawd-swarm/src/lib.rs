@@ -52,6 +52,7 @@ pub mod parallel_admission;
 pub mod parallel_dispatch;
 pub mod peer_registry;
 pub mod resource_schedule;
+pub mod roadmap_agents;
 pub mod role_select;
 pub mod side_effects;
 pub mod snapshot_bootstrap;
