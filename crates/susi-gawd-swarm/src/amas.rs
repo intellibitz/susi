@@ -1254,49 +1254,71 @@ impl SusiSupervisor {
                 // cluster key, persist locally, and push it to every peer
                 // that voted — a coordinator crash no longer loses the
                 // committed value, and each voter holds an auditable copy.
-                if let Some(record) = Self::elect_leader(&cluster_nodes).and_then(|leader| {
-                    // Term semantics (VC-200-001): claim leadership before
-                    // sealing — a leader transition bumps the persisted
-                    // cluster term, and the record stamps the current term
-                    // so receivers can reject stale-term coordinators. A
-                    // node with no verified electorate (elect_leader →
-                    // None) seals nothing: a commit record with a vacant
-                    // leader field is not a quorum decision.
-                    crate::susi_core::commit_log::claim_leadership(&leader);
-                    let our_id = crate::susi_config::cluster_key::wire_node_id();
-                    crate::susi_core::commit_log::CommitRecord::seal(
-                        crate::susi_core::commit_log::CommitInput {
-                            coordinator: &our_id,
-                            leader: &leader,
-                            electorate: electorate.iter().cloned().collect(),
-                            tally,
-                            quorum_threshold: electorate.len() / 2 + 1,
-                            value: &quorum_output,
-                        },
-                    )
-                }) {
-                    if let Err(e) = crate::susi_core::commit_log::append(&record) {
-                        eprintln!("- [Consensus Master] commit ledger append failed: {e}");
+                //
+                // T-DEVIN-11: QUORUM_COMMIT is only reported when the
+                // ledger append durably succeeds; an append/leader failure
+                // is surfaced, not swallowed.
+                let voter_addrs: Vec<String> = dispatched_peers
+                    .iter()
+                    .map(|node| node.address.clone())
+                    .collect();
+                let durability = crate::quorum_durable::durable_commit(
+                    || {
+                        Self::elect_leader(&cluster_nodes).and_then(|leader| {
+                            // Term semantics (VC-200-001): claim leadership
+                            // before sealing — a leader transition bumps the
+                            // persisted cluster term, and the record stamps
+                            // the current term so receivers can reject
+                            // stale-term coordinators. A node with no
+                            // verified electorate seals nothing.
+                            crate::susi_core::commit_log::claim_leadership(&leader);
+                            let our_id = crate::susi_config::cluster_key::wire_node_id();
+                            crate::susi_core::commit_log::CommitRecord::seal(
+                                crate::susi_core::commit_log::CommitInput {
+                                    coordinator: &our_id,
+                                    leader: &leader,
+                                    electorate: electorate.iter().cloned().collect(),
+                                    tally,
+                                    quorum_threshold: electorate.len() / 2 + 1,
+                                    value: &quorum_output,
+                                },
+                            )
+                        })
+                    },
+                    crate::susi_core::commit_log::append,
+                    &voter_addrs,
+                    |addr, record| {
+                        let body = serde_json::to_string(record).unwrap_or_default();
+                        // Best-effort replication: an unreachable voter just
+                        // misses this entry — the ledger is a recovery aid,
+                        // not the commit itself. A tool-level refusal (stale
+                        // term, chain divergence) is consensus-relevant
+                        // though — log it, never swallow it.
+                        let res = Self::dispatch_peer_task(addr, "commit_record", &body);
+                        let acked = !(res.starts_with("[A2A Error") || res.contains("unreachable"));
+                        if !acked {
+                            eprintln!("- [Consensus Master] commit push to {addr} failed: {res}");
+                        }
+                        acked
+                    },
+                );
+                match durability {
+                    crate::quorum_durable::CommitDurability::Durable { acked, voters, .. } => {
+                        eprintln!(
+                            "- [Consensus Master] quorum commit durable; replicated to {acked}/{voters} voters."
+                        );
+                        (quorum_output, "QUORUM_COMMIT")
                     }
-                    for node in &dispatched_peers {
-                        let addr = node.address.clone();
-                        let body = serde_json::to_string(&record).unwrap_or_default();
-                        rayon::spawn(move || {
-                            // Best-effort: an unreachable voter just misses
-                            // this entry — the ledger is a recovery aid, not
-                            // the commit itself. A tool-level refusal
-                            // (stale term, chain divergence) is consensus-
-                            // relevant though — log it, never swallow it.
-                            let res = Self::dispatch_peer_task(&addr, "commit_record", &body);
-                            if res.starts_with("[A2A Error") || res.contains("unreachable") {
-                                eprintln!(
-                                    "- [Consensus Master] commit push to {addr} failed: {res}"
-                                );
-                            }
-                        });
+                    crate::quorum_durable::CommitDurability::Undurable(detail) => {
+                        eprintln!(
+                            "- [Consensus Master] quorum agreed but commit is NOT durable: {detail}"
+                        );
+                        (
+                            format!("{quorum_output}\n\n[QUORUM_UNDURABLE: {detail}]"),
+                            "QUORUM_AGREED_UNDURABLE",
+                        )
                     }
                 }
-                (quorum_output, "QUORUM_COMMIT")
             } else if let Some(leader_output) =
                 Self::dominant_rank_leader(&valid_outputs, &fleet_info)
             {
