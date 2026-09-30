@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "rfc8707",
+    "name": "RFC 8707",
+    "version": "rfc8707",
+    "provenance": {
+      "source": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization",
+      "spec_version": "2025-06-18",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2020-02-25"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "rfc8707",
+      "to": "oauth-resource-indicators",
+      "provenance": {
+        "source": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization",
+        "spec_version": "2025-06-18",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
