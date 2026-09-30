@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-susi
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: susi
+  template:
+    metadata:
+      labels:
+        app: susi
+    spec:
+      containers:
+        - name: susi
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          args: ["daemon"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
