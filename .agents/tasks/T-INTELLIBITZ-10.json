@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ-10",
+  "title": "Select implementer/verifier from native fleet via role_select",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "native_role_select_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-027",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774661
+}

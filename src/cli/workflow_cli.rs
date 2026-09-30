@@ -70,7 +70,7 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         println!(
             "{}",
             if ok {
-                "ready: work from your claimed task and end every commit with `Task: <id>`"
+                "ready: atomic loop — work the claimed task; every commit ends with `Task: <id>`; then merge origin/main → push → sync before the next claim"
             } else {
                 "not ready: fix the ❌ items above before changing anything"
             }

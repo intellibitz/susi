@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ-17",
+  "title": "Remove or restore excluded susi-gawd-a2a handler module",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-a2a",
+      "a2a_handler_module_policy",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-073",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774661
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ-11",
+  "title": "Require independent verifier evidence in swarm verify path",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "independent_verify_dispatch_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-028",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774661
+}
