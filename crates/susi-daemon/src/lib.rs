@@ -79,6 +79,7 @@ pub mod workflows;
 pub mod zc_daemon_lifecycle;
 pub mod zc_keys_health_boot;
 pub mod zc_port_autoselect;
+pub mod zc_rediscovery_adaptive;
 pub mod zc_startup_autofix;
 
 pub use composition::{swarm_host_snapshot, wire_cli_substrate, wire_engine_hooks};

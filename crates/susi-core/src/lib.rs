@@ -54,6 +54,7 @@ pub mod wasm_grants;
 pub mod zc_consent_jit;
 pub mod zc_consent_renewal;
 pub mod zc_egress_allowlist;
+pub mod zc_log_retention;
 pub mod zc_privacy_default;
 pub mod zc_privacy_suggest;
 pub mod zc_redaction_default;

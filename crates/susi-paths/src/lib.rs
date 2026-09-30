@@ -276,6 +276,7 @@ impl LocalDirs {
 pub mod loopback;
 pub mod ports;
 mod xdg;
+pub mod zc_ports_file;
 
 /// Percent-encode a string for a query component (RFC 3986 unreserved
 /// plus the extra bytes in `keep`). Used by live search and sandbox IPC

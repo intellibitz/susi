@@ -55,6 +55,7 @@ pub mod price_catalog;
 pub mod resource_inventory;
 pub mod signed_catalog;
 pub mod zc_default_models;
+pub mod zc_disk_default;
 pub mod zc_engine_autopull;
 pub mod zc_hf_token_jit;
 pub mod zc_key_aliases;
