@@ -1,0 +1,23 @@
+{
+  "id": "T-INTELLIBITZ-16",
+  "title": "Assert every is_core agents.default entry has a native factory",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "core_agents_have_native_factories",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-200-001",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774661,
+  "closed_by": "INTELLIBITZ",
+  "closed_unix": 1790784519,
+  "commit": "942b6289"
+}
