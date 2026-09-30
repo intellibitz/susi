@@ -76,6 +76,9 @@ pub use ama::SusiMasterAgent;
 pub use dag::{MissionDag, SwarmDag};
 
 #[cfg(test)]
+#[path = "tests/mission_dag_persist_wiring.rs"]
+mod mission_dag_persist_wiring_tests;
+#[cfg(test)]
 #[path = "tests/swarm_chaos.rs"]
 mod swarm_chaos_tests;
 #[cfg(test)]
