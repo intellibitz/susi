@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-365",
+  "title": "Select complementary swarm roles from evidence",
+  "goal": "Choose implementer, verifier, and specialist roles using measured task suitability and granted capabilities; controlled benchmarks report when extra agents improve outcomes and when single-agent execution is cheaper. Deps (vectors): VC-201-021, VC-201-024. Acceptance is tests named vc_201_027_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_027"
+    ]
+  },
+  "roadmap": "VC-201-027",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

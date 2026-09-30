@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-362",
+  "title": "Validate multiple generations of recursive improvement",
+  "goal": "Run at least three successive candidate generations on a fixed held-out suite with unchanged gates; publish each generation's deltas, budget, and rejection history and stop on non-improvement or regression. Deps (vectors): VC-201-010, VC-201-014, VC-201-018, VC-201-019. Acceptance is tests named vc_201_020_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_020"
+    ]
+  },
+  "roadmap": "VC-201-020",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

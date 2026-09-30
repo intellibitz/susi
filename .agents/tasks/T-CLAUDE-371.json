@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-371",
+  "title": "Bound anti-entropy catch-up under sustained load",
+  "goal": "Add bounded batches, rate limits, and resumable cursors to existing ledger repair; a lagging peer converges after interruption without unbounded memory or starving foreground missions. Deps (vectors): VC-201-031, VC-201-036. Acceptance is tests named vc_201_037_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_037"
+    ]
+  },
+  "roadmap": "VC-201-037",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

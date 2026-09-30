@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-378",
+  "title": "Drain local AI workloads for suspend and maintenance",
+  "goal": "Quiesce supported jobs, checkpoint resumable work, and re-probe runtimes after resume or driver reset; interrupted requests report their actual outcome and stale GPU readiness is discarded. Deps (vectors): VC-201-030, VC-201-041, VC-201-042. Acceptance is tests named vc_201_049_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "vc_201_049"
+    ]
+  },
+  "roadmap": "VC-201-049",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

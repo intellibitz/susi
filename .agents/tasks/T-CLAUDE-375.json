@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-375",
+  "title": "Conform local runtimes to one lifecycle contract",
+  "goal": "Exercise discover, load, ready, infer, cancel, unload, and health behavior for supported native and HTTP-managed runtimes; unsupported operations return typed errors and process presence alone cannot establish readiness. Deps (vectors): VC-201-041. Acceptance is tests named vc_201_042_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "vc_201_042"
+    ]
+  },
+  "roadmap": "VC-201-042",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

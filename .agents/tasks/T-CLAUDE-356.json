@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-356",
+  "title": "Detect evaluation contamination",
+  "goal": "Track evaluation-data access and overlaps between training, memory, and held-out fixtures; a contaminated run is excluded from improvement evidence with an inspectable reason. Deps (vectors): VC-201-001, VC-201-005. Acceptance is tests named vc_201_009_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_009"
+    ]
+  },
+  "roadmap": "VC-201-009",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740142
+}

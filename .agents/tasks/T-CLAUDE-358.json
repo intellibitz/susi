@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-358",
+  "title": "Prioritize capability gaps by observed impact",
+  "goal": "Turn recurring typed failures into deduplicated proposals ranked by measured frequency, user impact, and expected evaluation cost; one failure pattern produces one active proposal with receipt links. Deps (vectors): VC-201-003, VC-201-011. Acceptance is tests named vc_201_012_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_012"
+    ]
+  },
+  "roadmap": "VC-201-012",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740142
+}

@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-381",
+  "title": "Validate policy-preserving local/cloud failover",
+  "goal": "Extend routing tests across local OOM, provider outages, authentication failure, and exhausted quotas; fallback preserves capability, privacy, deadline, and budget constraints or returns an explicit failure. Deps (vectors): VC-201-051, VC-201-052, VC-201-053, VC-201-054. Acceptance is tests named vc_201_058_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-cloud",
+      "vc_201_058"
+    ]
+  },
+  "roadmap": "VC-201-058",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

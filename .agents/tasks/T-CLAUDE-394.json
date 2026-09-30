@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-394",
+  "title": "Exercise disaster recovery from authoritative backups",
+  "goal": "Restore configuration, workflow state, keys under explicit policy, and required ledger history to isolated nodes; verify audit continuity and report measured recovery time and data loss against declared targets. Deps (vectors): VC-201-040, VC-201-049, VC-201-055, VC-201-070, VC-201-091. Acceptance is tests named vc_201_093_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_093"
+    ]
+  },
+  "roadmap": "VC-201-093",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

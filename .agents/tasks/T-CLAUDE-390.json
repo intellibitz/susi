@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-390",
+  "title": "Share verified skills as versioned artifacts",
+  "goal": "Package approved reflexes, prompts, fixtures, and capability requirements with immutable versions and signatures; importing a skill verifies provenance and tests before granting it executable status. Deps (vectors): VC-201-016, VC-201-076, VC-201-081. Acceptance is tests named vc_201_085_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_085"
+    ]
+  },
+  "roadmap": "VC-201-085",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

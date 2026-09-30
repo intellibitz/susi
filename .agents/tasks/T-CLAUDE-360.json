@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-360",
+  "title": "Run candidate canaries on the dev instance",
+  "goal": "Compare a candidate on ~/.susi-dev and ports 9190-9194 using an isolated evaluation workload; crossing a declared regression limit stops the trial without replacing the installed release. Deps (vectors): VC-201-006, VC-201-014, VC-201-015. Acceptance is tests named vc_201_017_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_017"
+    ]
+  },
+  "roadmap": "VC-201-017",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

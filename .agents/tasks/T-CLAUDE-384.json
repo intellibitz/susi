@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-384",
+  "title": "Separate workspace and environment configuration profiles",
+  "goal": "Support explicit development, staging, and production profiles with inspectable inheritance; a dev mission cannot accidentally resolve production endpoints or credentials from ambient configuration. Deps (vectors): VC-201-061, VC-201-062, VC-201-063. Acceptance is tests named vc_201_067_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_067"
+    ]
+  },
+  "roadmap": "VC-201-067",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

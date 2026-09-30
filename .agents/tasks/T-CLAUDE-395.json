@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-395",
+  "title": "Benchmark and enforce control-plane capacity limits",
+  "goal": "Load-test simultaneous missions, streaming calls, peer repair, and model churn with recorded hardware; report saturation points and verify overload rejection preserves health and cancellation responsiveness. Deps (vectors): VC-201-025, VC-201-043, VC-201-053, VC-201-091, VC-201-092. Acceptance is tests named vc_201_094_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_094"
+    ]
+  },
+  "roadmap": "VC-201-094",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

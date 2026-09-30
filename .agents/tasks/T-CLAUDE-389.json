@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-389",
+  "title": "Replicate only policy-eligible swarm memory",
+  "goal": "Synchronize scoped records with provenance, conflict handling, and deletion semantics over authenticated peers; disconnected replicas converge without exporting local-only memory or reviving tombstoned records. Deps (vectors): VC-201-033, VC-201-073, VC-201-081, VC-201-083. Acceptance is tests named vc_201_084_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_084"
+    ]
+  },
+  "roadmap": "VC-201-084",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

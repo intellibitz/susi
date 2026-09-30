@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-396",
+  "title": "Ratchet dependency unsafe exposure and provenance",
+  "goal": "Run cargo-geiger and software-bill-of-materials generation for pinned feature sets, recording first-party exceptions and transitive changes; CI flags new exposure with an auditable review path. Deps (vectors): VC-201-015, VC-201-076. Acceptance is tests named vc_201_097_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_097"
+    ]
+  },
+  "roadmap": "VC-201-097",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740144
+}

@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-383",
+  "title": "Detect and reconcile managed configuration drift",
+  "goal": "Compare desired and observed state while distinguishing SUSI-owned resources from external resources; operator-selected repair changes only owned fields and reports conflicts without overwriting foreign state. Deps (vectors): VC-201-061, VC-201-063. Acceptance is tests named vc_201_064_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_064"
+    ]
+  },
+  "roadmap": "VC-201-064",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-372",
+  "title": "Admit explicitly configured WAN peers",
+  "goal": "Support pinned remote endpoints and authenticated relay or direct transport through the existing peer contract; reconnect tests preserve identity, confidentiality, replay checks, and operator egress policy. Deps (vectors): VC-201-033, VC-201-034. Acceptance is tests named vc_201_038_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_038"
+    ]
+  },
+  "roadmap": "VC-201-038",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

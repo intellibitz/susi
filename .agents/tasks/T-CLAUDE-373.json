@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-373",
+  "title": "Place federated tasks by data locality",
+  "goal": "Score eligible peers using dataset location, verified capabilities, available resources, and residency constraints; a local-only dataset cannot be moved or routed off its permitted hosts. Deps (vectors): VC-201-024, VC-201-034, VC-201-038. Acceptance is tests named vc_201_039_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_039"
+    ]
+  },
+  "roadmap": "VC-201-039",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

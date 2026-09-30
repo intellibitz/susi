@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-364",
+  "title": "Add bounded fair queues for concurrent missions",
+  "goal": "Apply configurable per-workspace concurrency and queue limits with aging or weighted fairness; sustained load from one mission cannot indefinitely starve another admitted mission. Deps (vectors): VC-201-021, VC-201-024. Acceptance is tests named vc_201_025_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_025"
+    ]
+  },
+  "roadmap": "VC-201-025",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

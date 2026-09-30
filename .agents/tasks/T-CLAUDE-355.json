@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-355",
+  "title": "Generate property and metamorphic intent checks",
+  "goal": "Attach independently reviewed invariants to eligible pure reflexes and state machines using proptest; minimized counterexamples reproduce against the exact failing artifact. Deps (vectors): VC-201-001, VC-201-004. Acceptance is tests named vc_201_008_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_008"
+    ]
+  },
+  "roadmap": "VC-201-008",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740142
+}
