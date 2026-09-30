@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXSWARMGAPS-4",
+  "title": "Make swarm cancellation stop running processes and propagate deadlines",
+  "goal": "P1: CancelBus::propagate merely inserts descendant IDs into terminated; worker registration has only test callers and DAG cancellation is checked between parallel batches. Wire cancellation registration and a shared deadline through native workers, process groups, model calls, peer dispatch and external agents. Retain handles, implement termination/abort, bound waiting and verify exit before reporting terminated. Report irreversible or uncancellable remote work truthfully and suppress late results and subsequent writes. Add nonzero hermetic production-entry tests named swarm_gap_real_cancellation_* cancelling a live shell process, hung model request and peer dispatch mid-batch; assert bounded return, subprocess descendants exited, no post-cancel mutations and accurate unresolved remote status. Do not replace real cancellation with bookkeeping assertions. Preserve existing tests and acceptance records; add regression tests that fail before the repair and execute at least one test. Do not close this task merely because a helper exists or a test filter runs zero tests.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_real_cancellation",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-026",
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798617
+}

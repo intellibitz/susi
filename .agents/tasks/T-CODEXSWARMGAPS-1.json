@@ -1,0 +1,14 @@
+{
+  "id": "T-CODEXSWARMGAPS-1",
+  "title": "Publish actionable swarm gap tasks and roadmap status",
+  "goal": "Record the eight source-reviewed swarm gaps as open roadmap-linked tasks with nonzero integration acceptance filters and dependency ordering; preserve existing roadmap history and validate task links, IDs and dependency acyclicity.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-swarm-gap-roadmap.py"
+    ]
+  },
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798556
+}

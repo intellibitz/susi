@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXSWARMGAPS-7",
+  "title": "Reconcile uncertain swarm side effects instead of blindly replaying shell commands",
+  "goal": "P1: classify_tool_action calls arbitrary exec_command and apply_patch idempotent by name; DAG records side effects after execution and may_retry_node has no production resume caller found. Build on durable ownership fencing. Default arbitrary shell/external mutation to nonretryable unless the operation provides verifiable idempotency; persist intent before dispatch and durable receipt afterward, retain uncertain outcomes across restart and require operation-specific reconciliation or idempotency keys before replay. Wire the policy into real resume/redispatch, not only helper APIs. Add nonzero hermetic production-entry tests named swarm_gap_safe_replay_* injecting crashes before dispatch, after external effect and before receipt, and after receipt; exercise append/create/deploy-like effects and patch retries. Assert each uncertain nonidempotent effect occurs once or remains blocked for reconciliation, never silently duplicated. Preserve existing tests and acceptance records; add regression tests that fail before the repair and execute at least one test. Do not close this task merely because a helper exists or a test filter runs zero tests.",
+  "size": "l",
+  "deps": [
+    "T-CODEXSWARMGAPS-3"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_safe_replay",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-023",
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798617
+}
