@@ -69,24 +69,33 @@ pub mod autonomous_builder;
 pub mod baseline_capture;
 pub mod bloat_audit;
 pub mod changelog_from_tasks;
+pub mod dev_canary;
+pub mod eval_contamination;
 pub mod eval_receipt;
 pub mod eval_separation;
 pub mod evolution;
 pub mod experiment_budget;
 pub mod experiment_lifecycle;
+pub mod experiment_memory;
 pub mod formal_invariants;
+pub mod gap_priority;
 pub mod genome_distiller;
+pub mod intent_invariants;
 pub mod kernel_loader;
 pub mod lane_overlap_warning;
+pub mod paired_regression;
 pub mod patch_cycle;
 pub mod patch_fence;
 pub mod perf_regression_gate;
 pub mod reason_trainer;
 pub mod reflex_intent;
+pub mod reflex_revisions;
 pub mod reflex_synth;
 pub mod reflex_trainer;
 pub mod repo_gate;
+pub mod rsi_comparisons;
 pub mod rsi_corpus;
+pub mod rsi_generations;
 pub mod rsi_promotion;
 pub mod scorecard;
 pub mod self_validation;
@@ -122,11 +131,26 @@ mod vc_201_004_tests;
 #[path = "tests/vc_201_005.rs"]
 mod vc_201_005_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_006.rs"]
+mod vc_201_006_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_007.rs"]
 mod vc_201_007_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_008.rs"]
+mod vc_201_008_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_009.rs"]
+mod vc_201_009_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_010.rs"]
+mod vc_201_010_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_011.rs"]
 mod vc_201_011_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_012.rs"]
+mod vc_201_012_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_013.rs"]
 mod vc_201_013_tests;
@@ -137,8 +161,20 @@ mod vc_201_014_tests;
 #[path = "tests/vc_201_015.rs"]
 mod vc_201_015_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_016.rs"]
+mod vc_201_016_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_017.rs"]
+mod vc_201_017_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_018.rs"]
 mod vc_201_018_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_019.rs"]
+mod vc_201_019_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_020.rs"]
+mod vc_201_020_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
