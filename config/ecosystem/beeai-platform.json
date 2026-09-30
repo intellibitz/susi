@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "beeai-platform",
+    "name": "BeeAI platform",
+    "category": "agent-runtime",
+    "provenance": {
+      "source": "https://agentcommunicationprotocol.dev",
+      "spec_version": "0.2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "beeai-platform",
+      "to": "acp-ibm",
+      "provenance": {
+        "source": "https://agentcommunicationprotocol.dev",
+        "spec_version": "0.2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "beeai-platform",
+      "to": "acp-ibm-0.2",
+      "provenance": {
+        "source": "https://agentcommunicationprotocol.dev",
+        "spec_version": "0.2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "beeai-platform",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://agentcommunicationprotocol.dev",
+        "spec_version": "0.2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
