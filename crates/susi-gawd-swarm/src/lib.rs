@@ -42,6 +42,7 @@ pub mod federation_compat;
 pub mod host_hooks;
 pub mod identity_revoke;
 pub mod independent_verify;
+pub mod jobs_status;
 pub mod joint_consensus;
 pub mod locality_placement;
 pub mod membership_model;

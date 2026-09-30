@@ -310,6 +310,12 @@ impl JobLedger {
             .collect()
     }
 
+    /// Every assignment, terminal or not.
+    #[must_use]
+    pub fn all(&self) -> Vec<Assignment> {
+        self.lock().values().cloned().collect()
+    }
+
     /// All live (non-terminal) jobs.
     #[must_use]
     pub fn live(&self) -> Vec<Assignment> {

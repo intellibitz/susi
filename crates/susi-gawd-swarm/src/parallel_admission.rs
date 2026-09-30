@@ -428,6 +428,53 @@ impl AdmissionController {
     pub fn inflight(&self) -> usize {
         self.lock().held.len()
     }
+    /// Side-effect-free `admit`: reports what a request would get without
+    /// granting, queueing, or persisting. For status surfaces.
+    pub fn probe(&self, req: &AdmitRequest<'_>) -> Result<(), Backpressure> {
+        let now = (self.clock)();
+        let mut st = self.lock();
+        self.purge_expired(&mut st, now);
+        if req.holds_job_slot && !st.queue.is_empty() {
+            let pos = st.queue.len() + 1;
+            return Err(Backpressure::Queued { position: pos });
+        }
+        if req.holds_job_slot && st.global_jobs >= self.limits.global_jobs {
+            return Err(Backpressure::GlobalFull);
+        }
+        if req.holds_job_slot
+            && st.missions.get(req.mission).copied().unwrap_or(0) >= self.limits.mission_jobs
+        {
+            return Err(Backpressure::MissionFull);
+        }
+        let after = LocalCapacity {
+            cpu_millis: st.local.cpu_millis.saturating_add(req.cpu_millis),
+            ram_mb: st.local.ram_mb.saturating_add(req.ram_mb),
+            vram_mb: st.local.vram_mb.saturating_add(req.vram_mb),
+            subprocesses: st.local.subprocesses.saturating_add(req.subprocesses),
+        };
+        if after.cpu_millis > self.limits.local.cpu_millis
+            || after.ram_mb > self.limits.local.ram_mb
+            || after.vram_mb > self.limits.local.vram_mb
+            || after.subprocesses > self.limits.local.subprocesses
+        {
+            return Err(Backpressure::LocalExhausted);
+        }
+        for s in &req.scopes {
+            let lim = self.scope_limits(s.key);
+            let u = st.scopes.get(s.key);
+            let (inf, rq, tk) = u.map_or((0, 0, 0), |u| (u.inflight, u.requests, u.tokens));
+            if inf >= lim.max_inflight
+                || rq.saturating_add(s.requests) > lim.max_requests
+                || tk.saturating_add(s.tokens) > lim.max_tokens
+            {
+                return Err(Backpressure::ScopeFull {
+                    scope: s.key.to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Whether a scope currently has headroom.
     #[must_use]
     pub fn scope_free(&self, key: &str) -> bool {
