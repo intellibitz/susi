@@ -9,6 +9,7 @@ fn resource_schedule_dispatch_wiring() {
     let free = Resources {
         cpu: 2.0,
         gpu_mem_gb: 4.0,
+        mem_gb: 8.0,
         model_ready: true,
         tool_grants: vec!["exec_command".into()],
     };
@@ -19,6 +20,7 @@ fn resource_schedule_dispatch_wiring() {
             id: "n0".into(),
             cpu: 1.0,
             gpu_mem_gb: 1.0,
+            mem_gb: 0.0,
             needs_model: true,
             needs_tools: vec!["exec_command".into()],
         },
@@ -29,6 +31,7 @@ fn resource_schedule_dispatch_wiring() {
             id: "n1".into(),
             cpu: 2.0,
             gpu_mem_gb: 4.0,
+            mem_gb: 0.0,
             needs_model: true,
             needs_tools: vec!["exec_command".into()],
         },
@@ -39,6 +42,7 @@ fn resource_schedule_dispatch_wiring() {
             id: "n2".into(),
             cpu: 1.0,
             gpu_mem_gb: 1.0,
+            mem_gb: 0.0,
             needs_model: false,
             needs_tools: vec!["missing_tool".into()],
         },
