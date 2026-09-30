@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ-5",
+  "title": "Wire PersistedMission into MissionDag dispatch/resume",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "mission_dag_persist_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-021",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774660
+}
