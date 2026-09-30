@@ -49,6 +49,9 @@ pub struct MissionDag {
     pub roster: Electorate,
     /// In-flight membership transition awaiting joint quorum.
     pub pending_membership: Option<MembershipTransition>,
+    /// Admission capacity override (T-DEVIN-12). `None` measures the host
+    /// each scheduling round; tests pin a fixed snapshot for determinism.
+    pub capacity: Option<Resources>,
 }
 
 pub type SwarmDag = MissionDag;
@@ -106,6 +109,7 @@ impl MissionDag {
             fair_queue: FairQueue::new(QueueLimits::default()),
             roster: Electorate(BTreeSet::new()),
             pending_membership: None,
+            capacity: None,
         }
     }
 
@@ -208,6 +212,7 @@ impl MissionDag {
             fair_queue: FairQueue::new(QueueLimits::default()),
             roster: Electorate(BTreeSet::new()),
             pending_membership: None,
+            capacity: None,
         };
         // Durable state survives the crash (T-DEVIN-9/10): fences stay
         // monotonic so stale tokens can't collide, and intents recorded
@@ -539,6 +544,7 @@ impl MissionDag {
             id: Self::persist_id(idx),
             cpu: 1.0,
             gpu_mem_gb: 0.0,
+            mem_gb: 0.0,
             needs_model: true,
             needs_tools: vec!["exec_command".into()],
         }
@@ -695,15 +701,22 @@ impl MissionDag {
                 ));
             }
 
-            // Admit by live resources so oversubscribed fixtures queue (VC-201-024).
-            let free = Resources {
-                cpu: 8.0,
-                gpu_mem_gb: 16.0,
-                model_ready: true,
-                tool_grants: vec!["exec_command".into()],
-            };
-            let (ready_indices, _remaining) =
-                Self::schedule_ready(&ready_indices, &free, &std::collections::BTreeMap::new());
+            // Admit against measured host capacity, re-measured each round
+            // so deferred nodes drain under fresh headroom (T-DEVIN-12).
+            // A `capacity` override pins the snapshot for tests.
+            let host_probe = crate::capacity_admission::HostProbe;
+            let fixed = self
+                .capacity
+                .clone()
+                .map(crate::capacity_admission::FixedProbe);
+            let probe: &dyn crate::capacity_admission::CapacityProbe =
+                fixed.as_ref().map_or(&host_probe, |f| f);
+            let (ready_indices, _deferred, _remaining) = crate::capacity_admission::admit_round(
+                probe,
+                &ready_indices,
+                &std::collections::BTreeMap::new(),
+                Self::default_resource_node,
+            );
             if ready_indices.is_empty() {
                 return Err(EaiError::governance(
                     "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints",

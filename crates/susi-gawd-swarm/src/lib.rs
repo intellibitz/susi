@@ -32,6 +32,7 @@ pub mod brain_coordination;
 pub mod brain_supervisor;
 pub mod cancel_propagate;
 pub mod capability_market;
+pub mod capacity_admission;
 pub mod cloud_e2e;
 pub mod cloud_failover;
 pub mod cloud_lockout;
