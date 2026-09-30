@@ -42,6 +42,7 @@ pub mod swarm_chaos;
 pub mod task_lease;
 pub mod zc_agent_pick;
 pub mod zc_nat_auto;
+pub mod zc_threshold_tuning;
 pub mod zc_trust_store;
 
 pub use susi_gawd_agents::{
