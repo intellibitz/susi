@@ -69,6 +69,7 @@ pub mod audit_evidence;
 pub mod autonomous_builder;
 pub mod baseline_capture;
 pub mod bloat_audit;
+pub mod brain_gap_audit;
 pub mod brain_status;
 pub mod capacity_limits;
 pub mod changelog_from_tasks;
