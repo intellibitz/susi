@@ -43,12 +43,19 @@ pub fn after_crash_retry(prior: &ActionOutcome) -> ActionOutcome {
 }
 
 /// Classify a swarm tool invocation for crash-retry policy (dispatch wiring).
+///
+/// Honesty fix (T-DEVIN-10): `exec_command`, `apply_patch`, and `write_file`
+/// are NOT idempotent — an arbitrary shell command or a crash-torn write
+/// cannot be replayed blindly. They are `Reconcilable`: replay is allowed
+/// only after the uncertain intent is reconciled against external state.
+/// `Idempotent` remains for calls explicitly proven replay-safe.
 #[must_use]
 pub fn classify_tool_action(tool: &str) -> ActionClass {
     match tool {
         "read_file" | "list_dir" | "search" | "grep" => ActionClass::ReadOnly,
-        "exec_command" | "write_file" | "apply_patch" => ActionClass::Idempotent,
-        "http_call" | "peer_dispatch" => ActionClass::Reconcilable,
+        "exec_command" | "write_file" | "apply_patch" | "http_call" | "peer_dispatch" => {
+            ActionClass::Reconcilable
+        }
         _ => ActionClass::NonRetryable,
     }
 }

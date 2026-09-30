@@ -60,6 +60,7 @@ pub mod production_lifecycle;
 pub mod resource_schedule;
 pub mod roadmap_agents;
 pub mod role_select;
+pub mod side_effect_journal;
 pub mod side_effects;
 pub mod snapshot_bootstrap;
 pub mod swarm_chaos;
@@ -120,6 +121,9 @@ mod parallel_roadmap_e2e_tests;
 #[cfg(test)]
 #[path = "tests/resource_schedule_dispatch_wiring.rs"]
 mod resource_schedule_dispatch_wiring_tests;
+#[cfg(test)]
+#[path = "tests/side_effect_journal.rs"]
+mod side_effect_journal_tests;
 #[cfg(test)]
 #[path = "tests/side_effects_dispatch_wiring.rs"]
 mod side_effects_dispatch_wiring_tests;
