@@ -57,6 +57,7 @@ pub mod gguf_inspector;
 pub mod hf_discovery;
 pub mod hf_gated_models;
 pub mod hf_token_gate;
+pub mod infer_batch;
 pub mod key_detect;
 pub mod key_rotation;
 pub mod llamacpp_launcher;
@@ -75,9 +76,12 @@ pub mod price_catalog;
 pub mod quant_recommender;
 pub mod resource_inventory;
 pub mod resumable_downloads;
+pub mod runtime_lifecycle;
 pub mod signed_catalog;
+pub mod transactional_download;
 pub mod vertex_provider;
 pub mod vllm_launcher;
+pub mod workload_drain;
 pub mod zc_cloud_cli_auth;
 pub mod zc_default_models;
 pub mod zc_disk_default;
@@ -93,8 +97,20 @@ pub mod zc_scan_paths;
 #[path = "tests/resource_inventory.rs"]
 mod resource_inventory_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_042.rs"]
+mod vc_201_042_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_043.rs"]
 mod vc_201_043_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_044.rs"]
+mod vc_201_044_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_046.rs"]
+mod vc_201_046_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_049.rs"]
+mod vc_201_049_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries
