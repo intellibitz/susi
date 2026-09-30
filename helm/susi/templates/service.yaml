@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "susi.fullname" . }}
+  labels:
+    {{- include "susi.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: {{ include "susi.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
