@@ -79,6 +79,7 @@ pub mod kernel_loader;
 pub mod lane_overlap_warning;
 pub mod patch_cycle;
 pub mod patch_fence;
+pub mod perf_regression_gate;
 pub mod reason_trainer;
 pub mod reflex_intent;
 pub mod reflex_synth;
@@ -90,6 +91,7 @@ pub mod scorecard;
 pub mod self_validation;
 pub mod task_edit_guard;
 pub mod tasks_from_brain;
+pub mod tasks_from_ci;
 
 #[cfg(test)]
 #[path = "tests/formal_invariants.rs"]
