@@ -8,7 +8,6 @@
 //! pauses the conversation's sandbox, which is the documented control.
 use super::{Adapter, AgentManager, RunRecord, RunStatus};
 use serde_json::{json, Value};
-use std::time::Duration;
 use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 const MAX_BODY: u64 = 8 * 1024 * 1024;
@@ -173,9 +172,11 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
             run.status = RunStatus::Cancelled;
             return Ok(());
         }
-        std::thread::sleep(Duration::from_secs(3));
         refresh_with(&server, manager, run)?;
         manager.save(run)?;
+        if run.status == RunStatus::Running {
+            std::thread::sleep(manager.poll_interval());
+        }
     }
     Ok(())
 }
@@ -216,6 +217,7 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::time::Duration;
 
     #[test]
     fn execution_status_mapping_never_fakes_success() {
@@ -284,12 +286,15 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("susi-oh-{}", super::super::unique_id().unwrap()));
         std::fs::create_dir_all(&root).unwrap();
+        // 1ms poll: the fake server answers synchronously, so the loop
+        // needs no real-time budget and cannot flake under suite load.
         let manager = AgentManager::with_config(
             &root,
             super::super::CatalogKind::Execution,
             root.join("cfg"),
         )
-        .unwrap();
+        .unwrap()
+        .with_poll_interval(Duration::from_millis(1));
         let adapter = Adapter::OpenHandsServer {
             base_url: fake_server(),
             api_key_env: Some("SUSI_TEST_OH_KEY".into()),

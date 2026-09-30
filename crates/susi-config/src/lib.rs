@@ -32,13 +32,16 @@ pub mod cloud_env;
 pub mod cluster_key;
 mod config;
 pub mod desired_state;
+pub mod env_profiles;
 pub mod explain;
 pub mod extensions;
 pub mod file_lock;
+pub mod fleet_rollout;
 mod json_util;
 pub mod key_rotation;
 pub mod key_scope;
 pub mod keyring_storage;
+pub mod managed_drift;
 pub mod plan_apply;
 pub mod rekey_schedule;
 pub mod secret_ref;
@@ -196,11 +199,20 @@ mod state_migration_tests;
 #[path = "tests/vc_201_063.rs"]
 mod vc_201_063_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_064.rs"]
+mod vc_201_064_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_065.rs"]
 mod vc_201_065_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_066.rs"]
 mod vc_201_066_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_067.rs"]
+mod vc_201_067_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_068.rs"]
+mod vc_201_068_tests;
 #[cfg(test)]
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;
