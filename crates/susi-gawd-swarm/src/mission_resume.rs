@@ -92,3 +92,32 @@ impl MissionView {
         self.summary() == MissionSummary::FullyComplete
     }
 }
+
+/// One-line CLI status for durable mission resume. Partial/resumable missions
+/// never claim full success (VC-201-030).
+#[must_use]
+pub fn cli_status_line(view: &MissionView) -> String {
+    let targets: Vec<&str> = view
+        .resume_targets()
+        .iter()
+        .map(|n| n.id.as_str())
+        .collect();
+    match view.summary() {
+        MissionSummary::FullyComplete => {
+            format!("mission {} fully complete", view.mission_id)
+        }
+        MissionSummary::Resumable => format!(
+            "mission {} resumable (partial); resume nodes: {}",
+            view.mission_id,
+            if targets.is_empty() {
+                "(none)".to_string()
+            } else {
+                targets.join(", ")
+            }
+        ),
+        MissionSummary::Partial => format!(
+            "mission {} partial (not fully complete); no resumable nodes",
+            view.mission_id
+        ),
+    }
+}

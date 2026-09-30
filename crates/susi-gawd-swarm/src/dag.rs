@@ -3,7 +3,10 @@
 
 use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
 use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
+use crate::independent_verify::{verification_satisfied, ReviewConclusion};
+use crate::joint_consensus::{overlapping_disjoint_blocked, Electorate, MembershipTransition};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
+use crate::mission_resume::{DagNodeView, MissionView, NodeView};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
 use crate::role_select::{select_roles, AgentEvidence, RoleAssignment, SelectError};
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
@@ -37,6 +40,10 @@ pub struct MissionDag {
     pub cancel: CancelBus,
     /// Fair multi-mission admit queue (VC-201-025).
     pub fair_queue: FairQueue,
+    /// Active swarm roster; changes commit only under joint consensus (VC-201-032).
+    pub roster: Electorate,
+    /// In-flight membership transition awaiting joint quorum.
+    pub pending_membership: Option<MembershipTransition>,
 }
 
 pub type SwarmDag = MissionDag;
@@ -72,6 +79,8 @@ impl MissionDag {
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
             fair_queue: FairQueue::new(QueueLimits::default()),
+            roster: Electorate(BTreeSet::new()),
+            pending_membership: None,
         }
     }
 
@@ -164,6 +173,8 @@ impl MissionDag {
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
             fair_queue: FairQueue::new(QueueLimits::default()),
+            roster: Electorate(BTreeSet::new()),
+            pending_membership: None,
         }
     }
 
@@ -292,6 +303,124 @@ impl MissionDag {
         }
 
         Ok(assignment)
+    }
+
+    /// Accept a swarm verify-path conclusion only when independent evidence
+    /// satisfies VC-201-028: reviewer ≠ implementer, pass, unique receipts.
+    /// On success marks the Independent Verify node complete.
+    pub fn accept_independent_verify(&mut self, conclusion: &ReviewConclusion) -> bool {
+        let implementer = self
+            .nodes
+            .first()
+            .and_then(|n| n.assigned_agent.as_deref())
+            .unwrap_or(conclusion.implementer.as_str());
+        if !verification_satisfied(conclusion, implementer) {
+            return false;
+        }
+        let verify_idx = self
+            .nodes
+            .iter()
+            .position(|n| n.title == "Independent Verify");
+        if let Some(idx) = verify_idx {
+            if let Some(node) = self.nodes.get_mut(idx) {
+                if node
+                    .assigned_agent
+                    .as_deref()
+                    .is_some_and(|a| a != conclusion.reviewer)
+                {
+                    // Assigned verifier must match the conclusion reviewer.
+                    return false;
+                }
+                node.completed = true;
+            }
+        }
+        true
+    }
+
+    /// Build a durable resume CLI view from live DAG + optional side-effect
+    /// uncertainty (VC-201-030). Partial outcomes never report full success.
+    #[must_use]
+    pub fn resume_cli_view(&self, mission_id: &str) -> MissionView {
+        let mut view = MissionView::new(mission_id);
+        for (idx, node) in self.nodes.iter().enumerate() {
+            let id = Self::persist_id(idx);
+            let uncertain = self
+                .side_effects
+                .get(&id)
+                .is_some_and(|o| o.uncertain_external);
+            let cancelled = self.cancel.descendants.contains_key(&id)
+                && self.cancel.token.as_ref().is_some_and(|t| t.cancelled);
+            let (node_view, resumable) = if node.completed {
+                (NodeView::Completed, false)
+            } else if cancelled {
+                (NodeView::Cancelled, false)
+            } else if uncertain {
+                (NodeView::Uncertain, true)
+            } else if node
+                .dependencies
+                .iter()
+                .all(|&d| self.nodes.get(d).is_some_and(|n| n.completed))
+            {
+                (NodeView::Running, true)
+            } else {
+                (NodeView::Blocked, true)
+            };
+            view.upsert(DagNodeView {
+                id,
+                view: node_view,
+                resumable,
+                output: None,
+            });
+        }
+        view
+    }
+
+    /// Resume CLI status text for a mission view — never claims full success
+    /// when work remains (VC-201-030).
+    #[must_use]
+    pub fn resume_cli_status(view: &MissionView) -> String {
+        crate::mission_resume::cli_status_line(view)
+    }
+
+    /// Seed the active roster (bootstrap only — subsequent changes go through
+    /// joint-consensus propose/endorse/commit).
+    pub fn bootstrap_roster(&mut self, members: impl IntoIterator<Item = impl Into<String>>) {
+        self.roster = Electorate::from_ids(members);
+        self.pending_membership = None;
+    }
+
+    /// Propose a roster change; replaces any prior unfinished transition.
+    pub fn propose_membership(&mut self, new: Electorate) {
+        self.pending_membership = Some(MembershipTransition::new(self.roster.clone(), new));
+    }
+
+    /// Record an endorsement on the pending transition (ignored if none).
+    pub fn endorse_membership(&mut self, member: &str) {
+        if let Some(t) = self.pending_membership.as_mut() {
+            t.endorse(member);
+        }
+    }
+
+    /// Commit the pending roster change only under joint quorum. Returns
+    /// whether the roster advanced. Concurrent overlapping transitions that
+    /// would leave disjoint active rosters are refused via
+    /// [`overlapping_disjoint_blocked`].
+    pub fn try_commit_membership(&mut self, competing: Option<&MembershipTransition>) -> bool {
+        let Some(pending) = self.pending_membership.as_ref() else {
+            return false;
+        };
+        if !pending.can_commit() {
+            return false;
+        }
+        if let Some(other) = competing {
+            if !overlapping_disjoint_blocked(pending, other) {
+                return false;
+            }
+        }
+        let new_roster = pending.new.clone();
+        self.roster = new_roster;
+        self.pending_membership = None;
+        true
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).

@@ -183,6 +183,25 @@ mod tests {
         assert_eq!(task.status.state, TaskState::Canceled);
         assert!(task.status.message.is_none());
     }
+
+    /// Policy: the broken `handler` module is excluded from the module tree
+    /// and the file must not exist on disk. Any future handler must be
+    /// re-added explicitly here (pub mod handler) together with a live
+    /// implementation — no stub modules.
+    #[test]
+    fn a2a_handler_module_policy() {
+        assert!(
+            !std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src/handler.rs")).exists(),
+            "handler.rs must be removed or restored with a live implementation"
+        );
+        // The module tree must not contain `handler` — compile-time check
+        // via the source text since we cannot reference a nonexistent module.
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
+        assert!(
+            !src.lines().any(|l| l.trim().starts_with("pub mod handler")),
+            "handler must not be declared in the module tree"
+        );
+    }
 }
 #[cfg(test)]
 mod eco_a2a_security;
