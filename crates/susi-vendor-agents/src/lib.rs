@@ -28,6 +28,7 @@ pub mod zc_agent_approvals;
 pub mod zc_agent_autodetect;
 pub mod zc_agent_flags;
 pub mod zc_cloud_agent_autoenable;
+pub mod zc_delegation_dir;
 pub mod zc_devin_org;
 pub mod zc_openhands_docker;
 pub mod zc_workspace_trust;
