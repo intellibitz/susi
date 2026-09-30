@@ -40,6 +40,7 @@ pub mod mission_persist;
 pub mod model_placement;
 pub mod node_enrollment;
 pub mod peer_registry;
+pub mod resource_schedule;
 pub mod side_effects;
 pub mod swarm_chaos;
 pub mod task_lease;
@@ -74,6 +75,9 @@ mod vc_201_022_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_023.rs"]
 mod vc_201_023_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_024.rs"]
+mod vc_201_024_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_026.rs"]
 mod vc_201_026_tests;
