@@ -71,6 +71,7 @@ pub mod net_guard;
 pub mod otel_export;
 pub mod plane_bus;
 pub mod plane_bus_ipc;
+pub mod privacy_profiles;
 pub mod prompt_secret_scan;
 pub mod provider;
 pub mod queue;

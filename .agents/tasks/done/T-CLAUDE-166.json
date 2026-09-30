@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CLAUDE",
-  "created_unix": 1790712978
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790733405,
+    "commit": "90829fc8bc7bcc6eb5fb9f1503c1a9363862ae90",
+    "by": "INTELLIBITZ"
+  }
 }
