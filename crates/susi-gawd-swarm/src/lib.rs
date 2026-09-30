@@ -59,6 +59,7 @@ pub mod snapshot_bootstrap;
 pub mod swarm_chaos;
 pub mod task_lease;
 pub mod wan_peers;
+pub mod worker_recovery;
 pub mod workspace_txn;
 pub mod zc_agent_pick;
 pub mod zc_lan_cluster;
