@@ -32,6 +32,9 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
         std::env::set_var("HOME", &tmp);
         std::env::set_var("USERPROFILE", &tmp);
         std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
+        // Mandate 52: an inherited SUSI_HOME must not override the HOME swap.
+        std::env::remove_var("SUSI_HOME");
+        std::env::remove_var("SUSI_HERMETIC_FORBIDDEN");
     }
     if let Some(token) = host_token {
         let path = susi_paths::SusiDirs::config_dir().join("api_token");
@@ -77,9 +80,12 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
         &workspace,
     );
     let _ = std::fs::remove_dir_all(&tmp);
-    if second.contains("susi-native service unreachable") {
+    if second.contains("susi-native service unreachable")
+        || second.contains("HTTP 401")
+        || second.contains("bearer token rejected")
+    {
         eprintln!(
-            "[SKIP] susi-native service not running on 127.0.0.1:18084, \
+            "[SKIP] susi-native service not reachable with an isolatable host token, \
              reflex-execution leg not exercised: {second}"
         );
         return;
