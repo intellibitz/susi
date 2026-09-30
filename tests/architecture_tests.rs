@@ -1705,3 +1705,50 @@ fn readme_covers_the_workflow_ecosystem_and_brain() {
         "README says Mandates 49–{stated}; identity.json goes to {max}"
     );
 }
+
+/// README quickstart may ask a new user for at most two manual commands;
+/// the budget may only go down (ratchet).
+#[test]
+fn zc_quickstart_budget() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let readme = std::fs::read_to_string(root.join("README.md")).unwrap();
+    // New-user install only: ## Install until the developing/Mandate-48 section.
+    let install = readme
+        .split("## Install")
+        .nth(1)
+        .expect("README has ## Install");
+    let end = install
+        .find("### Developing susi")
+        .or_else(|| install.find("\n## "))
+        .unwrap_or(install.len());
+    let section = &install[..end];
+    let mut cmds = Vec::new();
+    let mut in_fence = false;
+    for line in section.lines() {
+        let t = line.trim();
+        if t.starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence && !t.is_empty() && !t.starts_with('#') {
+            // Count base install one-liners; env-prefix variants of the same
+            // pipe are the same manual step for budget purposes.
+            let canonical = if t.contains("install.sh") {
+                "install.sh | bash".to_string()
+            } else if t.contains("install.ps1") {
+                "install.ps1".to_string()
+            } else {
+                t.to_string()
+            };
+            cmds.push(canonical);
+        }
+    }
+    cmds.sort();
+    cmds.dedup();
+    const MAX_MANUAL_COMMANDS: usize = 2;
+    assert!(
+        cmds.len() <= MAX_MANUAL_COMMANDS,
+        "README Install asks for {} manual commands (budget {MAX_MANUAL_COMMANDS}): {cmds:?}",
+        cmds.len()
+    );
+}

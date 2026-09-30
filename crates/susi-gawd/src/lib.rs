@@ -92,7 +92,12 @@ pub mod self_validation;
 pub mod task_edit_guard;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
+pub mod zc_agent_files_gen;
+pub mod zc_agent_identity;
+pub mod zc_gh_auth_auto;
+pub mod zc_toolchain_auto;
 pub mod zc_updates_default;
+pub mod zc_worktree_gc;
 
 #[cfg(test)]
 #[path = "tests/formal_invariants.rs"]

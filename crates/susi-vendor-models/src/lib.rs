@@ -64,6 +64,7 @@ pub mod zc_hf_token_jit;
 pub mod zc_key_aliases;
 pub mod zc_key_autodetect;
 pub mod zc_rotation_prompt;
+pub mod zc_scan_paths;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]
