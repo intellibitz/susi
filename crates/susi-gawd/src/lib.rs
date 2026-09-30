@@ -80,6 +80,7 @@ pub mod changelog_from_tasks;
 pub mod cloud_brain_wiring;
 pub mod cloud_rsi;
 pub mod cloud_rsi_delivery;
+pub mod cloud_rsi_e2e;
 pub mod cloud_rsi_lifecycle;
 pub mod cloud_rsi_outcomes;
 pub mod dev_canary;
