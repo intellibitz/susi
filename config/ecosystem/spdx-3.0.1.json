@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "spdx-3.0.1",
+    "name": "SPDX 3.0.1",
+    "version": "3.0.1",
+    "provenance": {
+      "source": "https://cyclonedx.org/capabilities/mlbom/",
+      "spec_version": "1.6",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2024-04-18"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "spdx-3.0.1",
+      "to": "spdx-3",
+      "provenance": {
+        "source": "https://cyclonedx.org/capabilities/mlbom/",
+        "spec_version": "1.6",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

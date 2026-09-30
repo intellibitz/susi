@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "owasp",
+    "name": "OWASP",
+    "home": "https://owasp.org",
+    "provenance": {
+      "source": "https://cyclonedx.org/capabilities/mlbom/",
+      "spec_version": "1.6",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "owasp",
+      "to": "cyclonedx",
+      "provenance": {
+        "source": "https://cyclonedx.org/capabilities/mlbom/",
+        "spec_version": "1.6",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
