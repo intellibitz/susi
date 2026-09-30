@@ -498,6 +498,7 @@ impl AgentExecutor for CloudImplExec<'_> {
             AttemptOutcome::PreDispatch(r) => {
                 ExecResult::Failed(format!("inference pre-dispatch: {r:?}"))
             }
+            AttemptOutcome::WorkerFailed(why) => ExecResult::Failed(why),
             AttemptOutcome::MidStream { partial, .. } => ExecResult::Failed(format!(
                 "inference midstream failure ({partial} bytes discarded)"
             )),

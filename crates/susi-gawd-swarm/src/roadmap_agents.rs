@@ -129,14 +129,102 @@ pub struct RoundReport {
     pub outcomes: Vec<JobOutcome>,
 }
 
-/// Runner that maps a candidate attempt onto the agent executor.
-struct AgentRunner<'a, E: AgentExecutor> {
-    executor: &'a E,
-    brief: WorkerBrief,
-    candidates: &'a [Candidate],
+/// A claimed task bound to its worker identity and isolated workspace.
+#[derive(Debug)]
+pub struct ClaimedWork {
+    /// Task spec.
+    pub task: TaskSpec,
+    /// Worker identity holding the claim.
+    pub worker: String,
+    /// Private worktree prepared for this task.
+    pub worktree: PathBuf,
 }
 
-impl<E: AgentExecutor> Runner for AgentRunner<'_, E> {
+/// Result of the claim+prepare front phase shared by `run_round` and the
+/// production lifecycle.
+#[derive(Debug, Default)]
+pub struct ClaimBatch {
+    /// Dispatchable jobs (one per claimed task).
+    pub jobs: Vec<Job>,
+    /// Per-task claim contexts (task, worker, worktree).
+    pub claimed: Vec<ClaimedWork>,
+    /// Tasks lost to claim races.
+    pub races_lost: Vec<String>,
+    /// Tasks skipped (not ready or no workspace).
+    pub skipped: Vec<String>,
+}
+
+/// Claim every ready task and prepare its isolated workspace — the shared
+/// front half of `run_round` and the production lifecycle.
+pub fn claim_and_prepare<Q, W>(
+    queue: &Q,
+    workspaces: &W,
+    agent_prefix: &str,
+    lease_until: u64,
+) -> ClaimBatch
+where
+    Q: TaskQueue + ?Sized,
+    W: Workspaces + ?Sized,
+{
+    let mut batch = ClaimBatch::default();
+    for task in queue.ready() {
+        let worker = format!("{agent_prefix}-{}", task.id);
+        match queue.claim(&task.id, &worker, lease_until) {
+            Ok(()) => {}
+            Err(ClaimDenied::Held { .. }) => {
+                batch.races_lost.push(task.id.clone());
+                continue;
+            }
+            Err(ClaimDenied::NotReady) => {
+                batch.skipped.push(task.id.clone());
+                continue;
+            }
+        }
+        match workspaces.prepare(&task.id, &worker) {
+            Ok(wt) => {
+                batch.claimed.push(ClaimedWork {
+                    task: task.clone(),
+                    worker,
+                    worktree: wt,
+                });
+                batch.jobs.push(Job {
+                    id: task.id.clone(),
+                    intent: IntentConstraints {
+                        task_class: task.task_class.clone(),
+                        discovery_budget: 3,
+                        ..Default::default()
+                    },
+                });
+            }
+            Err(_) => batch.skipped.push(task.id.clone()),
+        }
+    }
+    batch
+}
+
+/// Runner that maps a candidate attempt onto the agent executor.
+pub struct AgentRunner<'a, E: AgentExecutor + ?Sized> {
+    /// The worker executor (agent CLI in production, fake in tests).
+    pub executor: &'a E,
+    /// Brief template — `model` is overwritten per attempt.
+    pub brief: WorkerBrief,
+    /// Candidate inventory for opaque-id stamping.
+    pub candidates: &'a [Candidate],
+}
+
+impl<'a, E: AgentExecutor + ?Sized> AgentRunner<'a, E> {
+    /// Bind an executor to a worker brief and candidate pool.
+    #[must_use]
+    pub fn new(executor: &'a E, brief: WorkerBrief, candidates: &'a [Candidate]) -> Self {
+        Self {
+            executor,
+            brief,
+            candidates,
+        }
+    }
+}
+
+impl<E: AgentExecutor + ?Sized> Runner for AgentRunner<'_, E> {
     fn attempt(&mut self, index: usize, _remaining_ms: u64) -> AttemptOutcome {
         let Some(c) = self.candidates.get(index) else {
             return AttemptOutcome::PreDispatch(
@@ -151,13 +239,9 @@ impl<E: AgentExecutor> Runner for AgentRunner<'_, E> {
         brief.model = c.opaque_id();
         match self.executor.execute(&brief) {
             ExecResult::Accepted => AttemptOutcome::Success(brief.model),
-            ExecResult::Failed(why) => AttemptOutcome::PreDispatch(
-                susi_vendor_models::cloud_eligibility::InferenceResult::Failed {
-                    status: None,
-                    body_snippet: why,
-                    retry_after_secs: None,
-                },
-            ),
+            // Executor-side failure — never recorded as model evidence,
+            // so a broken worker can't poison the pool for siblings.
+            ExecResult::Failed(why) => AttemptOutcome::WorkerFailed(why),
         }
     }
 }
@@ -182,42 +266,15 @@ where
     Q: TaskQueue,
     W: Workspaces,
 {
+    let batch = claim_and_prepare(queue, workspaces, agent_prefix, lease_until);
+    let jobs = batch.jobs;
+    let ctxs = batch.claimed;
     let mut report = RoundReport {
         ran: Vec::new(),
-        races_lost: Vec::new(),
-        skipped: Vec::new(),
+        races_lost: batch.races_lost,
+        skipped: batch.skipped,
         outcomes: Vec::new(),
     };
-    let mut jobs: Vec<Job> = Vec::new();
-    let mut ctxs: Vec<(TaskSpec, String, PathBuf)> = Vec::new();
-    for task in queue.ready() {
-        let worker = format!("{agent_prefix}-{}", task.id);
-        match queue.claim(&task.id, &worker, lease_until) {
-            Ok(()) => {}
-            Err(ClaimDenied::Held { .. }) => {
-                report.races_lost.push(task.id.clone());
-                continue;
-            }
-            Err(ClaimDenied::NotReady) => {
-                report.skipped.push(task.id.clone());
-                continue;
-            }
-        }
-        match workspaces.prepare(&task.id, &worker) {
-            Ok(wt) => {
-                ctxs.push((task.clone(), worker, wt));
-                jobs.push(Job {
-                    id: task.id.clone(),
-                    intent: IntentConstraints {
-                        task_class: task.task_class.clone(),
-                        discovery_budget: 3,
-                        ..Default::default()
-                    },
-                });
-            }
-            Err(_) => report.skipped.push(task.id.clone()),
-        }
-    }
     if jobs.is_empty() {
         return report;
     }
@@ -225,34 +282,36 @@ where
     // executes the claimed task in its private worktree.
     let mandates_owned = mandates.to_string();
     let outcomes = run_jobs(&jobs, candidates, shared, plan, &|job: &Job| {
-        let (task, worker, worktree) = ctxs
+        let cw = ctxs
             .iter()
-            .find(|(t, _, _)| t.id == job.id)
-            .cloned()
-            .unwrap_or_else(|| {
-                (
-                    TaskSpec {
-                        id: job.id.clone(),
-                        task_class: "general".into(),
-                        accept: vec![],
-                        title: String::new(),
-                    },
-                    format!("{agent_prefix}-{}", job.id),
-                    PathBuf::from("/nonexistent"),
-                )
+            .find(|c| c.task.id == job.id)
+            .map(|c| ClaimedWork {
+                task: c.task.clone(),
+                worker: c.worker.clone(),
+                worktree: c.worktree.clone(),
+            })
+            .unwrap_or_else(|| ClaimedWork {
+                task: TaskSpec {
+                    id: job.id.clone(),
+                    task_class: "general".into(),
+                    accept: vec![],
+                    title: String::new(),
+                },
+                worker: format!("{agent_prefix}-{}", job.id),
+                worktree: PathBuf::from("/nonexistent"),
             });
-        AgentRunner {
+        AgentRunner::new(
             executor,
-            brief: WorkerBrief {
-                task,
-                worker,
-                worktree,
+            WorkerBrief {
+                task: cw.task,
+                worker: cw.worker,
+                worktree: cw.worktree,
                 model: String::new(), // set per attempt
                 mandates: mandates_owned.clone(),
                 grants: grants.clone(),
             },
             candidates,
-        }
+        )
     });
     for o in &outcomes {
         if o.output.is_some() {
