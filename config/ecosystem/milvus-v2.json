@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "milvus-v2",
+    "name": "Milvus v2 API",
+    "version": "v2",
+    "provenance": {
+      "source": "https://docs.pinecone.io/reference/api/introduction",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "milvus-v2",
+      "to": "milvus-api",
+      "provenance": {
+        "source": "https://docs.pinecone.io/reference/api/introduction",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

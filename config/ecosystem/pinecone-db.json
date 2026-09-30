@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "pinecone-db",
+    "name": "Pinecone",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.pinecone.io/reference/api/introduction",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "pinecone-db",
+      "to": "pinecone-api",
+      "provenance": {
+        "source": "https://docs.pinecone.io/reference/api/introduction",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "pinecone-db",
+      "to": "pinecone-2025",
+      "provenance": {
+        "source": "https://docs.pinecone.io/reference/api/introduction",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "pinecone-db",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.pinecone.io/reference/api/introduction",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

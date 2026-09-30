@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "pinecone",
+    "name": "Pinecone",
+    "home": "https://www.pinecone.io",
+    "provenance": {
+      "source": "https://docs.pinecone.io/reference/api/introduction",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "pinecone",
+      "to": "pinecone-db",
+      "provenance": {
+        "source": "https://docs.pinecone.io/reference/api/introduction",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "weaviate",
+    "name": "Weaviate",
+    "home": "https://weaviate.io",
+    "provenance": {
+      "source": "https://docs.pinecone.io/reference/api/introduction",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "weaviate",
+      "to": "weaviate-db",
+      "provenance": {
+        "source": "https://docs.pinecone.io/reference/api/introduction",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
