@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "openrail-m-v1",
+    "name": "OpenRAIL-M v1",
+    "version": "openrail-m-1.0",
+    "provenance": {
+      "source": "https://spdx.org/licenses/",
+      "spec_version": "3.26",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "openrail-m-v1",
+      "to": "openrail-license",
+      "provenance": {
+        "source": "https://spdx.org/licenses/",
+        "spec_version": "3.26",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

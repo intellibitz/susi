@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "openrail-license",
+    "name": "OpenRAIL license family",
+    "body": "BigScience / RAIL Initiative",
+    "provenance": {
+      "source": "https://spdx.org/licenses/",
+      "spec_version": "3.26",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

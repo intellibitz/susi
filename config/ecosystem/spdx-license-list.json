@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "spdx-license-list",
+    "name": "SPDX License List",
+    "body": "SPDX Project",
+    "provenance": {
+      "source": "https://spdx.org/licenses/",
+      "spec_version": "3.26",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

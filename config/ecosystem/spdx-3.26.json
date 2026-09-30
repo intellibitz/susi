@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "spdx-3.26",
+    "name": "SPDX License List 3.26",
+    "version": "3.26",
+    "provenance": {
+      "source": "https://spdx.org/licenses/",
+      "spec_version": "3.26",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "spdx-3.26",
+      "to": "spdx-license-list",
+      "provenance": {
+        "source": "https://spdx.org/licenses/",
+        "spec_version": "3.26",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
