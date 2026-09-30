@@ -10,7 +10,6 @@ pub struct PatternBundle {
 }
 
 /// Accept an update only when the signature verifies.
-#[must_use]
 pub fn apply_signed_update(
     current: PatternBundle,
     incoming: PatternBundle,
