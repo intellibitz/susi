@@ -189,10 +189,12 @@ fn hooks_sync_primary_never_fails_or_moves_unsafe_state() {
     w.origin_advances();
     // Dirty primary: no move, and the commit still succeeds.
     std::fs::write(w.primary.join("scratch.txt"), "wip").unwrap();
+    git(&w.primary, &["add", "scratch.txt"]);
     let before = w.primary_head();
     assert_eq!(w.commit_in_worktree(&[FG]), 0);
     assert_eq!(w.primary_head(), before);
     // Server unreachable: the commit still succeeds.
+    git(&w.primary, &["reset", "--quiet"]);
     std::fs::remove_file(w.primary.join("scratch.txt")).unwrap();
     std::fs::remove_dir_all(w.root.join("server.git")).unwrap();
     assert_eq!(w.commit_in_worktree(&[FG, ("SUSI_SYNC_INTERVAL", "0")]), 0);

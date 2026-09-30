@@ -35,6 +35,7 @@ echo "$*" >> "$D/calls"
 jqexpr() { local p=; for a in "$@"; do [ "$p" = --jq ] && { echo "$a"; return; }; p=$a; done; }
 argafter() { local flag=$1; shift; local p=; for a in "$@"; do [ "$p" = "$flag" ] && { echo "$a"; return; }; p=$a; done; }
 case "$1 $2" in
+api\ *) cat "$D/comparison" 2>/dev/null || echo ahead ;;
 "pr list") jq -r "$(jqexpr "$@")" "$D/prs.json" ;;
 "pr merge") if [ -f "$D/merge_fail" ]; then echo "merge refused" >&2; exit 1; fi ;;
 "pr view")
@@ -284,4 +285,20 @@ fn the_workflow_wires_every_path_to_the_shared_scripts() {
         !wf.contains("gh pr merge"),
         "merge logic belongs in scripts/auto-merge-pr.sh"
     );
+}
+
+#[test]
+fn a_tested_branch_missing_current_main_cannot_merge() {
+    for status in ["behind", "diverged"] {
+        let f = Fake::new(
+            status,
+            serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+            serde_json::json!({}),
+        );
+        f.flag("comparison", status);
+        let (code, out) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
+        assert_eq!(code, 1, "{out}");
+        assert!(!f.calls().contains("pr merge"), "{}", f.calls());
+        assert!(out.contains("sync and retest"));
+    }
 }

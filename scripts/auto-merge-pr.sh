@@ -18,6 +18,14 @@ if [ -z "$pr" ]; then
     exit 0
 fi
 
+# A green head must include the latest integration branch, not merely have
+# passed against an older base. The agent syncs, retests and pushes on refusal.
+comparison=$(gh api "repos/$repo/compare/main...$sha" --jq .status) || exit 1
+case "$comparison" in
+ ahead|identical) ;;
+ *) echo "PR #$pr is behind or diverged from main; sync and retest before merge." >&2; exit 1 ;;
+esac
+
 if gh pr merge "$pr" --repo "$repo" --merge --match-head-commit "$sha"; then
     echo "merged #$pr"
     # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.

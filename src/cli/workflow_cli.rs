@@ -9,6 +9,13 @@ use susi_gawd::admin::workflow::{self, State};
 
 #[derive(Debug, Subcommand)]
 pub enum WorkflowCommands {
+    /// Fetch and merge origin/main into a clean agent worktree.
+    Sync,
+    /// Verify, close, push, wait for remote merge, sync, then release ownership.
+    Finish { id: String },
+    /// Keep the clean primary checkout current with remote main (local process).
+    Watch,
+
     /// Create your own worktree on a fresh branch off origin/main, ready to
     /// work in (hooks installed, primary checkout parked). Prints `cd <path>`.
     Start {
@@ -31,6 +38,9 @@ pub enum WorkflowCommands {
 
 pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
     let (json, agent) = match action {
+        WorkflowCommands::Sync => return run_loop(cwd, &["sync"]),
+        WorkflowCommands::Finish { id } => return run_loop(cwd, &["finish", &id]),
+        WorkflowCommands::Watch => return run_loop(cwd, &["watch"]),
         WorkflowCommands::Check { json, agent } => (json, agent),
         WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
     };
@@ -122,4 +132,17 @@ fn sync_primary(root: &Path) {
             eprintln!("ℹ️  {}", said.trim());
         }
     }
+}
+
+fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
+    let root = crate::cli::tasks_cli::repo_root(cwd);
+    let status = std::process::Command::new(root.join("scripts/parallel-workflow.sh"))
+        .args(args)
+        .env("SUSI_WORKFLOW_BIN", std::env::current_exe()?)
+        .current_dir(&root)
+        .status()?;
+    if !status.success() {
+        bail!("workflow operation failed; resolve the reported blocker and retry");
+    }
+    Ok(())
 }

@@ -63,6 +63,12 @@ fn default_size() -> String {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Claim {
+    /// Branch that owns this lease; absent only on legacy claim records.
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Repo-relative files or directories reserved by this task.
+    #[serde(default)]
+    pub scopes: Vec<String>,
     pub task: String,
     pub agent: String,
     pub claimed_unix: u64,
@@ -421,15 +427,25 @@ pub fn claims(ws: &Path) -> EaiResult<Vec<Claim>> {
 
 /// Refuse work on a stale base: an agent must hold every commit of
 /// `origin/main` before claiming, so it starts from current rules and a current
-/// queue. An unreachable remote or a repo without `origin/main` cannot be judged
-/// and is not an error (claims themselves still need the remote).
+/// queue. Unreachable remotes and missing integration refs fail closed.
 pub fn ensure_synced(ws: &Path) -> EaiResult<()> {
-    if git(ws, &["fetch", "--quiet", "origin"]).is_err() {
-        return Ok(());
+    git(ws, &["fetch", "--quiet", "origin"])?;
+    let n = git(ws, &["rev-list", "--count", "HEAD..origin/main"])?;
+    let unpublished = git(
+        ws,
+        &[
+            "diff",
+            "--name-only",
+            "origin/main...HEAD",
+            "--",
+            ".agents/tasks/done/",
+        ],
+    )?;
+    if !unpublished.is_empty() {
+        return Err(EaiError::config(
+            "claim refused: publish and merge the completed task before starting another",
+        ));
     }
-    let Ok(n) = git(ws, &["rev-list", "--count", "HEAD..origin/main"]) else {
-        return Ok(());
-    };
     match n.parse::<u64>() {
         Ok(0) | Err(_) => Ok(()),
         Ok(n) => Err(EaiError::config(format!(
@@ -442,6 +458,50 @@ pub fn ensure_synced(ws: &Path) -> EaiResult<()> {
 /// Claim `id` for `agent`. Fails if another live claim exists or a dependency
 /// is still open. An expired claim is taken over by compare-and-swap.
 pub fn claim(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResult<Claim> {
+    claim_scoped(
+        ws,
+        id,
+        agent,
+        ClaimOptions {
+            hours,
+            now,
+            scopes: &[],
+        },
+    )
+}
+
+/// Reserve declared files/directories together with task and agent ownership.
+/// A global CAS ref makes overlapping-scope decisions atomic across clones.
+pub struct ClaimOptions<'a> {
+    pub hours: u64,
+    pub now: u64,
+    pub scopes: &'a [String],
+}
+
+pub fn claim_scoped(
+    ws: &Path,
+    id: &str,
+    agent: &str,
+    options: ClaimOptions<'_>,
+) -> EaiResult<Claim> {
+    let ClaimOptions { hours, now, scopes } = options;
+    for scope in scopes {
+        if scope.is_empty()
+            || scope.starts_with('/')
+            || scope
+                .split('/')
+                .any(|c| c.is_empty() || c == "." || c == "..")
+        {
+            return Err(EaiError::config(
+                "scope must be a normalized repo-relative path",
+            ));
+        }
+    }
+    let generation_ref = "refs/claim-generation/current";
+    // Read the generation BEFORE the snapshot; any concurrent successful
+    // claim invalidates our transaction, including a claim on a different task.
+    let generation = git(ws, &["ls-remote", &remote(), generation_ref])?;
+    let generation_old = generation.split_whitespace().next().unwrap_or("");
     let task = find_open(ws, id)?;
     let open: std::collections::HashSet<String> = list_open(ws).into_iter().map(|t| t.id).collect();
     if let Some(dep) = task.deps.iter().find(|d| open.contains(*d)) {
@@ -450,7 +510,40 @@ pub fn claim(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResul
         )));
     }
     let agent = agent_token(agent)?;
-    sync_claims(ws)?;
+    let live = claims(ws)?;
+    for other in live.iter().filter(|c| !c.expired(now)) {
+        if scopes.iter().any(|a| {
+            other.scopes.iter().any(|b| {
+                a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/"))
+            })
+        }) {
+            return Err(EaiError::config(format!(
+                "scope overlaps {} held by {}",
+                other.task, other.agent
+            )));
+        }
+    }
+    if let Some(other) = live.iter().find(|c| c.agent == agent && !c.expired(now)) {
+        return Err(EaiError::config(format!(
+            "{agent} already holds {}; complete or release it before claiming {id}",
+            other.task
+        )));
+    }
+    // A second atomic ref serializes claims by this agent even across clones.
+    let agent_ref = format!("refs/claim-agents/{agent}");
+    let listed = git(ws, &["ls-remote", &remote(), &agent_ref])?;
+    let agent_old = listed.split_whitespace().next().unwrap_or("").to_string();
+    if !agent_old.is_empty() {
+        git(ws, &["fetch", "--quiet", &remote(), &agent_ref])?;
+        let body = git(ws, &["cat-file", "-p", &agent_old])?;
+        let owner: Claim = serde_json::from_str(&body)?;
+        if !owner.expired(now) {
+            return Err(EaiError::config(format!(
+                "{agent} already holds {}; complete or release it first",
+                owner.task
+            )));
+        }
+    }
     let existing = read_claim(ws, id);
     if let Some((_, c)) = &existing {
         if !c.expired(now) {
@@ -461,12 +554,49 @@ pub fn claim(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResul
         }
     }
     let mine = Claim {
+        branch: git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok(),
+        scopes: scopes.to_vec(),
         task: id.to_string(),
         agent,
         claimed_unix: now,
-        lease_until_unix: now + hours.max(1) * 3600,
+        lease_until_unix: now.saturating_add(hours.max(1).saturating_mul(3600)),
     };
-    let body = serde_json::to_string(&mine)?;
+    let blob = claim_blob(ws, &mine)?;
+    let target = format!("{blob}:{}", claim_ref(id));
+    let r = remote();
+    let task_old = existing.as_ref().map_or("", |(sha, _)| sha.as_str());
+    let task_lease = format!("--force-with-lease={}:{}", claim_ref(id), task_old);
+    let agent_lease = format!("--force-with-lease={agent_ref}:{agent_old}");
+    let agent_target = format!("{blob}:{agent_ref}");
+    let generation_lease = format!("--force-with-lease={generation_ref}:{generation_old}");
+    let generation_target = format!("{blob}:{generation_ref}");
+    git(
+        ws,
+        &[
+            "push",
+            "--quiet",
+            "--atomic",
+            &task_lease,
+            &agent_lease,
+            &generation_lease,
+            &r,
+            &target,
+            &agent_target,
+            &generation_target,
+        ],
+    )
+    .map_err(|_| {
+        EaiError::config(format!(
+            "{id} or agent {} was claimed concurrently; refresh the queue and retry",
+            mine.agent
+        ))
+    })?;
+    git(ws, &["update-ref", &claim_ref(id), &blob])?;
+    Ok(mine)
+}
+
+fn claim_blob(ws: &Path, claim: &Claim) -> EaiResult<String> {
+    let body = serde_json::to_string(claim)?;
     let mut child = Command::new("git")
         .args(["hash-object", "-w", "--stdin"])
         .current_dir(ws)
@@ -486,19 +616,61 @@ pub fn claim(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResul
     if !out.status.success() {
         return Err(EaiError::process("git hash-object failed"));
     }
-    let blob = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let target = format!("{blob}:{}", claim_ref(id));
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Extend an owned live lease without relinquishing its task or scope locks.
+pub fn renew(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResult<Claim> {
+    if !valid_id(id) {
+        return Err(EaiError::config("invalid task id"));
+    }
     let r = remote();
-    let pushed = match &existing {
-        // Take over an expired lease only if nobody re-claimed it meanwhile.
-        Some((old, _)) => {
-            let lease = format!("--force-with-lease={}:{old}", claim_ref(id));
-            git(ws, &["push", "--quiet", &lease, &r, &target])
-        }
-        None => git(ws, &["push", "--quiet", &r, &target]),
-    };
-    pushed.map_err(|_| EaiError::config(format!("{id} was claimed by someone else first")))?;
-    Ok(mine)
+    let generation_ref = "refs/claim-generation/current";
+    let generation = git(ws, &["ls-remote", &r, generation_ref])?;
+    let generation_old = generation.split_whitespace().next().unwrap_or("");
+    sync_claims(ws)?;
+    let (old, mut claim) =
+        read_claim(ws, id).ok_or_else(|| EaiError::config("no claim to renew"))?;
+    let branch = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
+    if claim.agent != agent_token(agent)?
+        || claim.expired(now)
+        || claim
+            .branch
+            .as_ref()
+            .is_some_and(|b| Some(b) != branch.as_ref())
+    {
+        return Err(EaiError::config(
+            "renewal requires your live claim on this branch",
+        ));
+    }
+    if claim.branch.is_none() {
+        claim.branch = branch;
+    }
+    claim.lease_until_unix = now.saturating_add(hours.max(1).saturating_mul(3600));
+    let blob = claim_blob(ws, &claim)?;
+    let agent_ref = format!("refs/claim-agents/{}", claim.agent);
+    let agent_list = git(ws, &["ls-remote", &r, &agent_ref])?;
+    let agent_old = agent_list.split_whitespace().next().unwrap_or("");
+    if !agent_old.is_empty() && agent_old != old {
+        return Err(EaiError::config("agent ownership changed; cannot renew"));
+    }
+    git(
+        ws,
+        &[
+            "push",
+            "--quiet",
+            "--atomic",
+            &format!("--force-with-lease={}:{}", claim_ref(id), old),
+            &format!("--force-with-lease={agent_ref}:{agent_old}"),
+            &format!("--force-with-lease={generation_ref}:{generation_old}"),
+            &r,
+            &format!("{blob}:{}", claim_ref(id)),
+            &format!("{blob}:{agent_ref}"),
+            &format!("{blob}:{generation_ref}"),
+        ],
+    )?;
+    git(ws, &["update-ref", &claim_ref(id), &blob])?;
+    Ok(claim)
 }
 
 /// Give up a claim (only your own unless `force`).
@@ -517,16 +689,29 @@ pub fn release(ws: &Path, id: &str, agent: &str, force: bool) -> EaiResult<()> {
         )));
     }
     let lease = format!("--force-with-lease={}:{sha}", claim_ref(id));
-    git(
-        ws,
-        &[
-            "push",
-            "--quiet",
-            &lease,
-            &remote(),
-            &format!(":{}", claim_ref(id)),
-        ],
-    )?;
+    let agent_ref = format!("refs/claim-agents/{}", c.agent);
+    let listed = git(ws, &["ls-remote", &remote(), &agent_ref])?;
+    let agent_old = listed.split_whitespace().next().unwrap_or("");
+    let deletion = format!(":{}", claim_ref(id));
+    if agent_old == sha {
+        let agent_lease = format!("--force-with-lease={agent_ref}:{sha}");
+        git(
+            ws,
+            &[
+                "push",
+                "--quiet",
+                "--atomic",
+                &lease,
+                &agent_lease,
+                &remote(),
+                &deletion,
+                &format!(":{agent_ref}"),
+            ],
+        )?;
+    } else {
+        // Legacy claims have no agent ref; never delete a newer agent lease.
+        git(ws, &["push", "--quiet", &lease, &remote(), &deletion])?;
+    }
     let _ = git(ws, &["update-ref", "-d", &claim_ref(id)]);
     Ok(())
 }
@@ -549,18 +734,33 @@ fn tests_passed(cargo_output: &str) -> u64 {
 }
 
 /// Run the acceptance check; on success move the task to `done/` (recording
-/// who, when and at which commit) and release the claim. Returns the record.
+/// who, when and at which commit), retaining ownership until merge. Returns the record.
 pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     let mut task = find_open(ws, id)?;
     let by = agent_token(agent)?;
-    if let Some(c) = claims(ws)?.into_iter().find(|c| c.task == id) {
-        if !c.expired(now_unix()) && c.agent != by {
+    let verify_owner = || -> EaiResult<()> {
+        let claim = claims(ws)?
+            .into_iter()
+            .find(|c| c.task == id)
+            .ok_or_else(|| {
+                EaiError::config(format!("{id} requires a live owned claim before closing"))
+            })?;
+        let branch = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
+        if claim.agent != by
+            || claim.expired(now_unix())
+            || claim
+                .branch
+                .as_ref()
+                .is_some_and(|b| Some(b) != branch.as_ref())
+        {
             return Err(EaiError::config(format!(
-                "{id} is claimed by {}, not {by}",
-                c.agent
+                "{id} is claimed by {}, not {by} on this branch, or its lease expired",
+                claim.agent
             )));
         }
-    }
+        Ok(())
+    };
+    verify_owner()?;
     if !accept_allowed(&task.accept.cmd) {
         return Err(EaiError::config("task acceptance command is not allowed"));
     }
@@ -602,6 +802,8 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             )));
         }
     }
+    // Acceptance may outlive a lease; re-check before mutating the queue.
+    verify_owner()?;
     task.closed = Some(Closed {
         at_unix: now_unix(),
         commit: git(ws, &["rev-parse", "HEAD"]).unwrap_or_default(),
@@ -613,7 +815,9 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
         serde_json::to_vec_pretty(&task)?,
     )?;
     std::fs::remove_file(tasks_dir(ws).join(format!("{id}.json")))?;
-    let _ = release(ws, id, agent, true);
+    // Keep the lease until the closing commit reaches main. Releasing here
+    // allowed another current agent to reclaim the still-open remote task.
+
     Ok(task)
 }
 
@@ -761,6 +965,7 @@ mod tests {
         let t3 = linked(&a, "VC-201-002").unwrap();
         claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();
         close(&a, &t2.id, "claude").unwrap();
+        release(&a, &t2.id, "claude", false).unwrap();
         let cov = roadmap_coverage(
             &roadmap_vectors(&a).unwrap(),
             &list_open(&a),
@@ -836,9 +1041,14 @@ mod tests {
         std::fs::create_dir_all(a.join("src")).unwrap();
         std::fs::write(a.join("src/lib.rs"), "#[test]\nfn real() {}\n").unwrap();
         let cmd = |filter: &str| {
-            ["cargo", "test", "--offline", "--quiet", filter]
+            let mut cmd = ["cargo", "test", "--offline", "--quiet", filter]
                 .map(String::from)
-                .to_vec()
+                .to_vec();
+            cmd.extend([
+                "--target-dir".into(),
+                a.join("accept-target").display().to_string(),
+            ]);
+            cmd
         };
         let vacuous = addt!(&a, "claude", "vacuous", "", "s", &[], cmd("nomatch")).unwrap();
         claim(&a, &vacuous.id, "claude", 1, now_unix()).unwrap();
@@ -847,6 +1057,7 @@ mod tests {
         assert_eq!(list_open(&a).len(), 1);
 
         let real = addt!(&a, "claude", "real", "", "s", &[], cmd("real")).unwrap();
+        release(&a, &vacuous.id, "claude", false).unwrap();
         claim(&a, &real.id, "claude", 1, now_unix()).unwrap();
         close(&a, &real.id, "claude").unwrap();
         assert_eq!(list_done(&a).len(), 1);
@@ -902,6 +1113,149 @@ mod tests {
         assert!(addt!(&a, "claude", "x", "", "s", &["T-NOPE-9".into()], true_cmd()).is_err());
         assert_eq!(list_open(&a).len(), 3);
         drop(r);
+    }
+
+    #[test]
+    fn renewal_keeps_scope_ownership_and_rejects_other_agents() {
+        let (_r, a, _) = Repos::new("renewal");
+        let task = addt!(&a, "claude", "job", "", "s", &[], true_cmd()).unwrap();
+        let now = now_unix();
+        claim_scoped(
+            &a,
+            &task.id,
+            "claude",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["src".into()],
+            },
+        )
+        .unwrap();
+        assert!(renew(&a, &task.id, "devin", 1, now + 10).is_err());
+        let renewed = renew(&a, &task.id, "claude", 2, now + 10).unwrap();
+        assert_eq!(renewed.lease_until_unix, now + 10 + 7200);
+        assert_eq!(renewed.scopes, vec!["src"]);
+        assert!(renew(&a, &task.id, "claude", 1, now + 8000).is_err());
+        release(&a, &task.id, "claude", false).unwrap();
+    }
+
+    #[test]
+    fn scopes_reject_nested_overlap_and_allow_disjoint_work() {
+        let (_r, a, b) = Repos::new("scopes");
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        let second = addt!(&b, "devin", "second", "", "s", &[], true_cmd()).unwrap();
+        let now = now_unix();
+        claim_scoped(
+            &a,
+            &first.id,
+            "claude",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["src/cli".into()],
+            },
+        )
+        .unwrap();
+        assert!(claim_scoped(
+            &b,
+            &second.id,
+            "devin",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["src/cli/tasks.rs".into()]
+            }
+        )
+        .is_err());
+        assert!(claim_scoped(
+            &b,
+            &second.id,
+            "devin",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["src".into()]
+            }
+        )
+        .is_err());
+        assert!(claim_scoped(
+            &b,
+            &second.id,
+            "devin",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["../src".into()]
+            }
+        )
+        .is_err());
+        claim_scoped(
+            &b,
+            &second.id,
+            "devin",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["src/client".into()],
+            },
+        )
+        .unwrap();
+        // The commit checker enforces the reservation at the write boundary.
+        std::fs::create_dir_all(a.join("src/cli")).unwrap();
+        std::fs::write(a.join("src/cli/test.rs"), "allowed").unwrap();
+        git(&a, &["add", "src/cli/test.rs"]).unwrap();
+        let checker =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/check-task-scope.py");
+        let checked = || {
+            Command::new("python3")
+                .arg(&checker)
+                .arg(&first.id)
+                .current_dir(&a)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        };
+        assert!(checked());
+        std::fs::write(a.join("outside.rs"), "outside scope").unwrap();
+        git(&a, &["add", "outside.rs"]).unwrap();
+        assert!(!checked());
+        release(&a, &first.id, "claude", false).unwrap();
+        release(&b, &second.id, "devin", false).unwrap();
+    }
+
+    #[test]
+    fn one_agent_cannot_claim_two_tasks_across_clones() {
+        let (_r, a, b) = Repos::new("agent-race");
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        let second = addt!(&b, "claude", "second", "", "s", &[], true_cmd()).unwrap();
+        // Distinct ids are needed: both clones start with their own counter.
+        let second_id = "T-DEVIN-1";
+        let mut second = second;
+        second.id = second_id.into();
+        std::fs::write(
+            tasks_dir(&b).join(format!("{second_id}.json")),
+            serde_json::to_vec(&second).unwrap(),
+        )
+        .unwrap();
+        let now = now_unix();
+        let (left, right) = std::thread::scope(|scope| {
+            let left = scope.spawn(|| claim(&a, &first.id, "worker", 1, now));
+            let right = scope.spawn(|| claim(&b, second_id, "worker", 1, now));
+            (left.join().unwrap(), right.join().unwrap())
+        });
+        assert_ne!(
+            left.is_ok(),
+            right.is_ok(),
+            "exactly one atomic agent lease wins"
+        );
+        let winner = left.or(right).unwrap();
+        let ws = if winner.task == first.id { &a } else { &b };
+        release(ws, &winner.task, "worker", false).unwrap();
+        assert!(claims(ws).unwrap().is_empty());
+        assert!(git(ws, &["ls-remote", "origin", "refs/claim-agents/*"])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -996,14 +1350,17 @@ mod tests {
         assert!(list_done(&a).is_empty());
 
         let passing = addt!(&a, "claude", "yes", "", "s", &[], true_cmd()).unwrap();
+        release(&a, &failing.id, "claude", false).unwrap();
         claim(&a, &passing.id, "claude", 1, now_unix()).unwrap();
         let done = close(&a, &passing.id, "claude").unwrap();
         assert_eq!(done.closed.as_ref().unwrap().by, "CLAUDE");
         assert!(!done.closed.unwrap().commit.is_empty());
         assert_eq!(list_open(&a).len(), 1);
         assert_eq!(list_done(&a).len(), 1);
-        // Closing released the claim.
-        assert!(claims(&a).unwrap().iter().all(|c| c.task != passing.id));
+        // Publication retains ownership until the closing commit is merged.
+        assert!(claims(&a).unwrap().iter().any(|c| c.task == passing.id));
+        release(&a, &passing.id, "claude", false).unwrap();
+        assert!(claims(&a).unwrap().is_empty());
         drop(r);
     }
 

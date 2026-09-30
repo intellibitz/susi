@@ -41,7 +41,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: auto-merge-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  group: auto-merge-integration
   cancel-in-progress: false
 
 jobs:

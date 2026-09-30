@@ -16,7 +16,13 @@
 # version. Routine pushes just need to build and pass the checks below.
 
 # Mandate 49 (stdin carries the pushed refs; the guard must consume it first).
-"$(dirname "$0")/workflow-guard" push || exit 1
+pushed_refs=$(cat)
+printf '%s\n' "$pushed_refs" | "$(dirname "$0")/workflow-guard" push || exit 1
+# Queue/lease transactions push blobs, not code. Running cargo here would
+# block lease renewal behind the very build whose ownership it protects.
+if ! printf '%s\n' "$pushed_refs" | grep -q ' refs/heads/'; then
+    exit 0
+fi
 "$(dirname "$0")/sync-primary"
 
 echo "🛡️ Running SUSI Deep Compliance Checks (Deferred from Commit)..."

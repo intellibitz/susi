@@ -1,0 +1,19 @@
+{
+  "id": "T-CODEX-35",
+  "title": "Enforce parallel task ownership and synchronized worktree lifecycle",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "admin::tasks",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEX",
+  "created_unix": 1790793624
+}

@@ -66,6 +66,9 @@ fn add_claim_race_and_gated_close_through_the_binary() {
     git(&bare, &["init", "--bare", "--quiet"]);
     let a = clone_of(&bare, &root, "a");
     let b = clone_of(&bare, &root, "b");
+    git(&a, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&b, &["fetch", "--quiet", "origin"]);
+    git(&b, &["reset", "--hard", "origin/main"]);
 
     let (code, out, err) = susi(
         &a,
@@ -110,7 +113,11 @@ fn add_claim_race_and_gated_close_through_the_binary() {
     assert!(out.contains("closed T-CLAUDE-1"), "{out}");
     assert!(!bad.exists());
     assert!(a.join(".agents/tasks/done/T-CLAUDE-1.json").exists());
-    // The claim is gone, so the other agent sees a clean queue.
+    // Ownership remains while the completion awaits publication.
+    let (_, listing, _) = susi(&b, &home, "devin", &["tasks"]);
+    assert!(listing.contains("CLAUDE\""), "{listing}");
+    let (code, _, err) = susi(&a, &home, "claude", &["tasks", "release", "T-CLAUDE-1"]);
+    assert_eq!(code, 0, "{err}");
     let (_, listing, _) = susi(&b, &home, "devin", &["tasks"]);
     assert!(!listing.contains("CLAUDE\""), "{listing}");
     let _ = std::fs::remove_dir_all(&root);
