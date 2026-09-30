@@ -24,6 +24,7 @@ pub use susi_sandbox_client as susi_sandbox;
 pub mod accel_reserve;
 pub mod cloud;
 pub mod cloud_manage;
+pub mod disk_budget;
 pub mod eco_anthropic_features;
 pub mod eco_anthropic_messages;
 pub mod eco_cohere_mistral;
@@ -58,6 +59,14 @@ pub mod price_catalog;
 pub mod quant_recommender;
 pub mod resource_inventory;
 pub mod signed_catalog;
+pub mod zc_default_models;
+pub mod zc_disk_default;
+pub mod zc_engine_autopull;
+pub mod zc_hf_token_jit;
+pub mod zc_key_aliases;
+pub mod zc_key_autodetect;
+pub mod zc_rotation_prompt;
+pub mod zc_scan_paths;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]

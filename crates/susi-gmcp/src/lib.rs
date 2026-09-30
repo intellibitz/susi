@@ -40,6 +40,8 @@ mod stdio;
 pub mod tool_registry;
 pub mod tool_types;
 pub mod tools;
+pub mod zc_mcp_autoinstall;
+pub mod zc_mcp_import;
 
 use std::path::Path;
 

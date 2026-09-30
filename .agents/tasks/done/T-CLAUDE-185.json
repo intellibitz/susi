@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-185",
+  "title": "One canonical key per vendor: accept the aliases people already have",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Accept the alternate env names vendors and tools use (GOOGLE_API_KEY, KIMI_API_KEY, HUGGINGFACEHUB_API_TOKEN, ...) without the user renaming anything. Tests zc_key_aliases_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "zc_key_aliases"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790727690,
+    "commit": "374e060ee1c2af61877e44726e26b1a484c9ef60",
+    "by": "CURSOR"
+  }
+}

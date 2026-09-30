@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-208",
+  "title": "Sandbox image detected or built without a config key",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Replace sandbox_image config with detection of an available runtime (docker/podman/none) and a bundled default. Tests zc_sandbox_image_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-sandbox-client",
+      "zc_sandbox_image"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790728709,
+    "commit": "a5f7baf78e92e0ebd879dba0011092632c7cbafe",
+    "by": "CURSOR"
+  }
+}

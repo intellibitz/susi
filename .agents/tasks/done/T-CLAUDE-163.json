@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-163",
+  "title": "Installer and runtime pick the right GPU build automatically",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. A CPU build on an NVIDIA host warns and runs 17x slower; installs choose the matching asset/feature from detected hardware and a running binary that lacks the backend for its GPU says so and points to the exact fix. Tests zc_gpu_asset_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "zc_gpu_asset"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790726857,
+    "commit": "9df0bb64260a549a7dda17c3e46d95380c95b809",
+    "by": "CURSOR"
+  }
+}

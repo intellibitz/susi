@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-196",
+  "title": "Agent permission requests answered by policy, not an env var",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Replace SUSI_ACP_AUTO_APPROVE with a decision from the privacy posture and the action's risk (read-only auto-approved, mutating asks or denies). Tests zc_agent_approvals_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "zc_agent_approvals"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790728039,
+    "commit": "0ca01361448bbd39a197a226356807e1d524e914",
+    "by": "CURSOR"
+  }
+}

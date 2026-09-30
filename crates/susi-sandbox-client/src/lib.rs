@@ -139,6 +139,7 @@ pub(crate) mod service {
 pub mod audit_chain;
 pub mod daemon_state;
 pub mod manager;
+pub mod zc_sandbox_image;
 
 pub use manager::SandboxManager;
 pub use susi_config::extensions;

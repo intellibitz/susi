@@ -39,6 +39,9 @@ pub mod peer_registry;
 pub mod side_effects;
 pub mod swarm_chaos;
 pub mod task_lease;
+pub mod zc_agent_pick;
+pub mod zc_nat_auto;
+pub mod zc_trust_store;
 
 pub use susi_gawd_agents::{
     accountability, admin_hooks, agents, axiom, brain, dag_hooks, external_peers, goal_shape, pkb,

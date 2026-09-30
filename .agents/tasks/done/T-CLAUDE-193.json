@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-193",
+  "title": "Renew consent tokens without a manual command",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Expiring egress consent prompts once near expiry and renews on a yes; no 'susi privacy --egress' ritual. Tests zc_consent_renewal_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "zc_consent_renewal"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790727993,
+    "commit": "0ca01361448bbd39a197a226356807e1d524e914",
+    "by": "CURSOR"
+  }
+}

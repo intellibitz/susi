@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-206",
+  "title": "Delegation ingress created, secured and watched automatically",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Create ~/.susi/delegations with safe permissions on first use and process it without setup. Tests zc_delegation_dir_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "zc_delegation_dir"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790728663,
+    "commit": "a5f7baf78e92e0ebd879dba0011092632c7cbafe",
+    "by": "CURSOR"
+  }
+}
