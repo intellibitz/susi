@@ -1,0 +1,71 @@
+{
+  "version": "eco-profile/v1",
+  "id": "eval-frameworks",
+  "name": "Evaluation frameworks and benchmarks",
+  "subject": "lm-eval-harness",
+  "kind": "framework",
+  "versions": [
+    {
+      "id": "2025",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "lm-eval-cli",
+      "format": "text",
+      "fields": [
+        "lm_eval --model hf|openai-chat-completions|vllm --tasks mmlu,...",
+        "--model_args",
+        "--output_path results.json",
+        "task registry with yaml task defs"
+      ],
+      "notes": "the de-facto OSS harness"
+    },
+    {
+      "name": "deepeval-metrics",
+      "format": "python",
+      "fields": [
+        "GEval(llm-judge rubric)",
+        "HallucinationMetric",
+        "FaithfulnessMetric",
+        "deepeval test run -> Confident AI platform"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "ragas-metrics",
+      "format": "python",
+      "fields": [
+        "faithfulness",
+        "context_precision|recall",
+        "answer_relevancy",
+        "RAG triad evaluation"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "helm",
+      "format": "text",
+      "fields": [
+        "run-specs (scenario+adapter+metric)",
+        "helm-run + helm-summarize",
+        "leaderboard publication"
+      ],
+      "notes": ""
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://github.com/EleutherAI/lm-evaluation-harness",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

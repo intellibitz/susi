@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "confident-ai",
+    "name": "Confident AI",
+    "home": "https://www.confident-ai.com",
+    "provenance": {
+      "source": "https://github.com/EleutherAI/lm-evaluation-harness",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "confident-ai",
+      "to": "deepeval",
+      "provenance": {
+        "source": "https://github.com/EleutherAI/lm-evaluation-harness",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
