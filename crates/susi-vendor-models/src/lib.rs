@@ -78,6 +78,7 @@ pub mod resumable_downloads;
 pub mod signed_catalog;
 pub mod vertex_provider;
 pub mod vllm_launcher;
+pub mod zc_cloud_cli_auth;
 pub mod zc_default_models;
 pub mod zc_disk_default;
 pub mod zc_engine_autopull;

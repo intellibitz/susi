@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-67",
+  "title": "MCP server discovery with trust scoring and sandboxing",
+  "goal": "Score MCP servers by provenance, permissions requested and observed behaviour; run untrusted ones in the sandbox with least privilege. Tests mcp_registry_trust_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "mcp_registry_trust"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790733025,
+    "commit": "cdadbfd0ce7d03a3fb7839e5da0e4af5cc1433fe",
+    "by": "CURSOR"
+  }
+}

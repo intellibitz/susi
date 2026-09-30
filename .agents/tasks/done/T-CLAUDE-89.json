@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-89",
+  "title": "Local web dashboard for ecosystem, brain and tasks",
+  "goal": "A localhost-only dashboard (served by susi-server, no external assets) showing hardware, engines, provider health and quarantines, brain ranking, mission traces and the task queue. Tests web_dashboard_* for routes and auth.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-server",
+      "web_dashboard"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790733089,
+    "commit": "cdadbfd0ce7d03a3fb7839e5da0e4af5cc1433fe",
+    "by": "CURSOR"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-62",
+  "title": "Agent-card cache, refresh and signature verification",
+  "goal": "Cache remote agent cards with ETag revalidation and verify signed cards when present, so delegation does not refetch on every task and rejects tampered cards. Tests a2a_card_cache_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "a2a_card_cache"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790731835,
+    "commit": "a24d3357ece180f897205248bf021cee4b139405",
+    "by": "CURSOR"
+  }
+}

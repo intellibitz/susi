@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-213",
+  "title": "Cluster join on the LAN with mDNS and a confirmation",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Discover other susi hosts by mDNS and join after a one-time confirmation that exchanges the cluster key epoch, replacing manual enrollment. Tests zc_lan_cluster_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "zc_lan_cluster"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979,
+  "closed": {
+    "at_unix": 1790732991,
+    "commit": "cdadbfd0ce7d03a3fb7839e5da0e4af5cc1433fe",
+    "by": "CURSOR"
+  }
+}

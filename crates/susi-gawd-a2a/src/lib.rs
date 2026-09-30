@@ -29,11 +29,13 @@ pub use susi_sandbox_client as susi_sandbox;
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
 pub use self_core::AlphaSelf;
 
+pub mod a2a_conformance;
 pub mod a2a_profile;
 pub mod capabilities;
 pub mod executor;
 pub mod server;
 pub mod task_store;
+pub mod zc_peer_discovery;
 
 pub use capabilities::GawdCapabilities;
 pub use executor::GawdA2AExecutor;

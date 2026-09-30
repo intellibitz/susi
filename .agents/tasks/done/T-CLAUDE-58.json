@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-58",
+  "title": "A/B experiments with statistical tests on routing",
+  "goal": "Run two routing policies on a traffic split and decide a winner with a proper test on success and cost, promoting the winner automatically. Tests brain_experiments_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "brain_experiments"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790731813,
+    "commit": "a24d3357ece180f897205248bf021cee4b139405",
+    "by": "CURSOR"
+  }
+}

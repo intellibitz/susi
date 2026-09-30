@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-222",
+  "title": "Tune agent and reflex thresholds from outcomes",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. agent_rank_threshold, reflex_training_threshold and similar constants adapt from mission traces within safe bounds. Tests zc_threshold_tuning_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "zc_threshold_tuning"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979,
+  "closed": {
+    "at_unix": 1790732598,
+    "commit": "e631c8ea7eb851c6e6bfa6ef2df9840810a4065a",
+    "by": "CURSOR"
+  }
+}

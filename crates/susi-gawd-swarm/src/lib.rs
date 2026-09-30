@@ -26,6 +26,7 @@ pub use susi_core;
 pub mod ama;
 pub mod amas;
 pub mod cancel_propagate;
+pub mod capability_market;
 pub(crate) mod cloud_recovery;
 pub mod dag;
 pub mod deliberation;
@@ -35,12 +36,16 @@ pub mod independent_verify;
 pub mod joint_consensus;
 pub mod membership_model;
 pub mod mission_persist;
+pub mod model_placement;
+pub mod node_enrollment;
 pub mod peer_registry;
 pub mod side_effects;
 pub mod swarm_chaos;
 pub mod task_lease;
 pub mod zc_agent_pick;
+pub mod zc_lan_cluster;
 pub mod zc_nat_auto;
+pub mod zc_threshold_tuning;
 pub mod zc_trust_store;
 
 pub use susi_gawd_agents::{

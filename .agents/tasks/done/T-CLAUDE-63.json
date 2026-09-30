@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-63",
+  "title": "A2A client streaming and push notifications",
+  "goal": "Use message/stream and push-notification config instead of polling tasks/get where the remote supports them. Tests a2a_streaming_client_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "a2a_streaming_client"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790698460,
+  "closed": {
+    "at_unix": 1790731854,
+    "commit": "a24d3357ece180f897205248bf021cee4b139405",
+    "by": "CURSOR"
+  }
+}
