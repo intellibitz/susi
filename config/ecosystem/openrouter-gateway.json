@@ -1,0 +1,105 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "openrouter-gateway",
+    "name": "OpenRouter",
+    "category": "serving-gateway",
+    "provenance": {
+      "source": "https://openrouter.ai/docs/api-reference/overview",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "openrouter-gateway",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "openrouter-gateway",
+      "to": "openai-chat-completions-2024-06",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "openrouter-gateway",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openrouter-gateway",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openrouter-gateway",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openrouter-gateway",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openrouter-gateway",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openrouter-gateway",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

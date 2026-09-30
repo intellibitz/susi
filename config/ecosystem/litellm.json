@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "litellm",
+    "name": "LiteLLM (BerriAI)",
+    "home": "https://litellm.ai",
+    "provenance": {
+      "source": "https://openrouter.ai/docs/api-reference/overview",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "litellm",
+      "to": "litellm-proxy",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "litellm-proxy",
+    "name": "LiteLLM proxy",
+    "category": "serving-gateway",
+    "provenance": {
+      "source": "https://openrouter.ai/docs/api-reference/overview",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "litellm-proxy",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "litellm-proxy",
+      "to": "openai-chat-completions-2024-06",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "litellm-proxy",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "litellm-proxy",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "litellm-proxy",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "litellm-proxy",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://openrouter.ai/docs/api-reference/overview",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
