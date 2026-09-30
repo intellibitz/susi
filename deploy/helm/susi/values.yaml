@@ -1,0 +1,12 @@
+replicaCount: 1
+image:
+  repository: ghcr.io/intellibitz/susi
+  tag: latest
+resources:
+  limits:
+    memory: 2Gi
+    cpu: "2"
+nodeSelector: {}
+gpu:
+  enabled: false
+  vendor: nvidia

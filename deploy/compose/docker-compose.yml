@@ -1,0 +1,12 @@
+services:
+  susi:
+    image: ghcr.io/intellibitz/susi:latest
+    profiles: ["cpu", "nvidia", "rocm"]
+    ports:
+      - "9090-9094:9090-9094"
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["cpu", "nvidia", "rocm"]
+  vllm:
+    image: vllm/vllm-openai:latest
+    profiles: ["nvidia", "rocm"]

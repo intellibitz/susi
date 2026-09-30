@@ -1,0 +1,7 @@
+{
+  "profiles": [
+    {"id": "cpu-only", "expect": ["daemon_up", "local_model_optional"]},
+    {"id": "emulated-gpu", "expect": ["daemon_up", "gpu_feature_probe"]},
+    {"id": "low-memory", "expect": ["daemon_up", "ladder_tiny_only"]}
+  ]
+}
