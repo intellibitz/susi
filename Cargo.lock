@@ -6416,6 +6416,7 @@ dependencies = [
  "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
+ "susi-vendor-sha2",
  "susi-vendor-tokio",
 ]
 

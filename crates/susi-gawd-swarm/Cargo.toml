@@ -21,6 +21,7 @@ flume = { package = "susi-vendor-flume", path = "../susi-vendor-flume" }
 dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 susi-vendor-agents = { workspace = true }
 susi-vendor-models = { workspace = true }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 [lints]
 workspace = true
