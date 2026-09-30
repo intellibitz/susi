@@ -4,6 +4,7 @@
 use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
 use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
 use crate::independent_verify::{verification_satisfied, ReviewConclusion};
+use crate::joint_consensus::{overlapping_disjoint_blocked, Electorate, MembershipTransition};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
 use crate::mission_resume::{DagNodeView, MissionView, NodeView};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
@@ -39,6 +40,10 @@ pub struct MissionDag {
     pub cancel: CancelBus,
     /// Fair multi-mission admit queue (VC-201-025).
     pub fair_queue: FairQueue,
+    /// Active swarm roster; changes commit only under joint consensus (VC-201-032).
+    pub roster: Electorate,
+    /// In-flight membership transition awaiting joint quorum.
+    pub pending_membership: Option<MembershipTransition>,
 }
 
 pub type SwarmDag = MissionDag;
@@ -74,6 +79,8 @@ impl MissionDag {
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
             fair_queue: FairQueue::new(QueueLimits::default()),
+            roster: Electorate(BTreeSet::new()),
+            pending_membership: None,
         }
     }
 
@@ -166,6 +173,8 @@ impl MissionDag {
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
             fair_queue: FairQueue::new(QueueLimits::default()),
+            roster: Electorate(BTreeSet::new()),
+            pending_membership: None,
         }
     }
 
@@ -371,6 +380,47 @@ impl MissionDag {
     #[must_use]
     pub fn resume_cli_status(view: &MissionView) -> String {
         crate::mission_resume::cli_status_line(view)
+    }
+
+    /// Seed the active roster (bootstrap only — subsequent changes go through
+    /// joint-consensus propose/endorse/commit).
+    pub fn bootstrap_roster(&mut self, members: impl IntoIterator<Item = impl Into<String>>) {
+        self.roster = Electorate::from_ids(members);
+        self.pending_membership = None;
+    }
+
+    /// Propose a roster change; replaces any prior unfinished transition.
+    pub fn propose_membership(&mut self, new: Electorate) {
+        self.pending_membership = Some(MembershipTransition::new(self.roster.clone(), new));
+    }
+
+    /// Record an endorsement on the pending transition (ignored if none).
+    pub fn endorse_membership(&mut self, member: &str) {
+        if let Some(t) = self.pending_membership.as_mut() {
+            t.endorse(member);
+        }
+    }
+
+    /// Commit the pending roster change only under joint quorum. Returns
+    /// whether the roster advanced. Concurrent overlapping transitions that
+    /// would leave disjoint active rosters are refused via
+    /// [`overlapping_disjoint_blocked`].
+    pub fn try_commit_membership(&mut self, competing: Option<&MembershipTransition>) -> bool {
+        let Some(pending) = self.pending_membership.as_ref() else {
+            return false;
+        };
+        if !pending.can_commit() {
+            return false;
+        }
+        if let Some(other) = competing {
+            if !overlapping_disjoint_blocked(pending, other) {
+                return false;
+            }
+        }
+        let new_roster = pending.new.clone();
+        self.roster = new_roster;
+        self.pending_membership = None;
+        true
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).
