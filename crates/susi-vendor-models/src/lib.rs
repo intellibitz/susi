@@ -78,6 +78,7 @@ pub mod zc_engine_autopull;
 pub mod zc_hf_token_jit;
 pub mod zc_key_aliases;
 pub mod zc_key_autodetect;
+pub mod zc_key_sources;
 pub mod zc_rotation_prompt;
 pub mod zc_scan_paths;
 

@@ -50,6 +50,7 @@ pub mod emergency_stop;
 pub mod evidence;
 pub mod memory_provenance;
 pub mod memory_tombstone;
+pub mod privacy_profiles;
 pub mod untrusted_content;
 pub mod wasm_grants;
 pub mod zc_consent_jit;

@@ -59,6 +59,7 @@ pub mod plugins;
 pub mod privacy;
 pub mod resource_governor;
 pub mod runtime_admin;
+pub mod scheduled_missions;
 pub mod security;
 pub mod server;
 pub mod signal;

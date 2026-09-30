@@ -43,6 +43,7 @@ pub use susi_gemi_models as models;
 pub mod placement_uses_task_class;
 pub mod plane_handler;
 
+pub mod action_executor;
 pub mod batch_api;
 pub mod benchmark;
 pub mod brain_decay;
@@ -78,6 +79,7 @@ pub mod status_pages;
 pub mod thermal_routing;
 pub mod tool_call_normalisation;
 pub mod tui_top;
+pub mod usage_accounting;
 pub mod verifier_escalation;
 pub mod vision_routing;
 pub mod zc_budget_derived;
