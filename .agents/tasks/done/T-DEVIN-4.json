@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN-4",
+  "title": "De-flake parallel_admission bounded_load test — time-bound retry instead of spin count",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "parallel_model_admission_bounded_load",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790797223,
+  "closed": {
+    "at_unix": 1790797548,
+    "commit": "efa35f3914cb10b40847ae88ecf8133d111fa481",
+    "by": "DEVIN"
+  }
+}
