@@ -1,0 +1,282 @@
+{
+  "version": "eco-profile/v1",
+  "id": "llamacpp-api",
+  "name": "llama.cpp server API",
+  "subject": "llamacpp-http",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/completion",
+      "description": "Native completion",
+      "streaming": false,
+      "request": "llama-completion",
+      "response": "llama-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "OpenAI-compatible chat",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "description": "Legacy chat alias",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/embedding",
+      "description": "Embeddings",
+      "streaming": false,
+      "request": "embed",
+      "response": "embed"
+    },
+    {
+      "method": "POST",
+      "path": "/tokenize",
+      "description": "Tokenise",
+      "streaming": false,
+      "request": "tok",
+      "response": "tok"
+    },
+    {
+      "method": "POST",
+      "path": "/detokenize",
+      "description": "Detokenise",
+      "streaming": false,
+      "request": "detok",
+      "response": "detok"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "description": "Health+model status",
+      "streaming": false,
+      "response": "health"
+    },
+    {
+      "method": "GET",
+      "path": "/props",
+      "description": "Server properties",
+      "streaming": false,
+      "response": "props"
+    },
+    {
+      "method": "GET",
+      "path": "/slots",
+      "description": "Parallel-slot state",
+      "streaming": false,
+      "response": "slots"
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "description": "Prometheus metrics",
+      "streaming": false,
+      "response": "empty"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none",
+      "header": "none",
+      "prefix": "",
+      "env": []
+    },
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "LLAMA_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "rolling-b",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "llama-completion",
+      "format": "json",
+      "fields": [
+        "prompt|input_ids",
+        "n_predict",
+        "grammar",
+        "json_schema",
+        "cache_prompt",
+        "id_slot",
+        "stream"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "messages[]",
+        "chat_template_kwargs"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "embed",
+      "format": "json",
+      "fields": [
+        "content"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "tok",
+      "format": "json",
+      "fields": [
+        "content",
+        "add_special|with_pieces"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "detok",
+      "format": "json",
+      "fields": [
+        "tokens[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "llama-response",
+      "format": "json",
+      "fields": [
+        "content",
+        "stop",
+        "tokens_predicted|evaluated|cached",
+        "timings"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "embed",
+      "format": "json",
+      "fields": [
+        "embedding[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "tok",
+      "format": "json",
+      "fields": [
+        "tokens[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "detok",
+      "format": "json",
+      "fields": [
+        "content"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "health",
+      "format": "json",
+      "fields": [
+        "status ok|loading|error",
+        "error details"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "props",
+      "format": "json",
+      "fields": [
+        "model_path",
+        "n_ctx",
+        "chat_template"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "slots",
+      "format": "json",
+      "fields": [
+        "[{id,n_ctx,state,task_id,prompt}]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "empty",
+      "format": "text",
+      "fields": [
+        "prometheus exposition"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "invalid_request",
+      "retriable": false
+    },
+    {
+      "status": "500",
+      "code": "slot_unavailable|decode_error",
+      "retriable": true
+    },
+    {
+      "status": "503",
+      "code": "loading_model",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "503 loading_model",
+      "meaning": "model still loading or all slots busy"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-embeddings"
+  ],
+  "deviations": [],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "data: {content,stop:false}",
+      "data: {stop:true,timings}"
+    ],
+    "notes": "completion streams partial content"
+  },
+  "provenance": {
+    "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+    "spec_version": "bXXXX",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

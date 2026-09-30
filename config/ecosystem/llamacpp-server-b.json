@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "llamacpp-server-b",
+    "name": "llama.cpp server (rolling)",
+    "version": "rolling-b",
+    "provenance": {
+      "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+      "spec_version": "bXXXX",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "llamacpp-server-b",
+      "to": "llamacpp-http",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

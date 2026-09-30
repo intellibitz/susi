@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "ggml-org",
+    "name": "ggml-org",
+    "home": "https://github.com/ggml-org/llama.cpp",
+    "provenance": {
+      "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+      "spec_version": "bXXXX",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "ggml-org",
+      "to": "llama-cpp-server",
+      "provenance": {
+        "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "spec_version": "bXXXX",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
