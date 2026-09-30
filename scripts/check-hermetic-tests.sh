@@ -7,11 +7,18 @@
 # Mandate 52: `SUSI_HERMETIC_FORBIDDEN` marks that throwaway so `SusiDirs`
 # ignores it (unit tests resolve under the throwaway HOME/XDG instead). A test
 # that sets SUSI_HOME to a *different* path still gets an instance root.
+#
+# Keep CARGO_HOME/RUSTUP_HOME on the real developer dirs: rustup shims resolve
+# toolchains via those, and crown verify needs rustc/wasm32-wasip1 on PATH.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+real_home="${HOME}"
 home=$(mktemp -d)
 testhome=$(mktemp -d)
 trap 'rm -rf "$home" "$testhome"' EXIT
+export CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}"
+export RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}"
+export PATH="${CARGO_HOME}/bin:/usr/bin:/bin"
 export HOME="$testhome"
 export USERPROFILE="$testhome"
 export XDG_CONFIG_HOME="$testhome/xdg-config"

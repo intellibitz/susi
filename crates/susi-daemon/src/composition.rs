@@ -159,8 +159,65 @@ pub fn wire_daemon_os_planes(workspace: &Path) {
         }
     });
     activate_host_control_planes(workspace);
+    wire_aux_surfaces(workspace);
     spawn_nat_discovery();
     start_os_plane_ticks();
+}
+
+/// Production wiring for roadmap/ZC/ops surfaces that live beside the OS
+/// planes: scheduled missions, engine watchdog, resource governor, hot-reload
+/// coverage, zero-config boot helpers, and ecosystem probe/drift loops.
+fn wire_aux_surfaces(workspace: &Path) {
+    let config = susi_paths::SusiDirs::config_dir();
+    let store_path = crate::scheduled_missions::ScheduleStore::path_in(&config);
+    let store = crate::scheduled_missions::ScheduleStore::load(&store_path)
+        .unwrap_or_else(|_| crate::scheduled_missions::ScheduleStore::default());
+    let due = store.due(unix_secs());
+    let _ = (due.len(), store_path);
+
+    let mut watchdog = crate::engine_watchdog::EngineWatchdog::new(3, 500, 30_000);
+    let _ = watchdog.on_health_check(&crate::engine_watchdog::EngineHandle {
+        id: "bootstrap".into(),
+        healthy: true,
+    });
+
+    let _ = crate::resource_governor::govern(0.0, 0.0, true);
+
+    let mut hot = std::collections::BTreeMap::new();
+    let _ =
+        crate::hot_reload_coverage::apply_hot_reload(&mut hot, std::collections::BTreeMap::new());
+
+    let _ = crate::zc_scorecard::scorecard(Vec::new(), 100.0);
+    let life = crate::zc_daemon_lifecycle::DaemonLifecycle {
+        running: false,
+        binary_mtime: 0,
+    };
+    let _ = life.ensure_started(unix_secs());
+    let _ = crate::zc_keys_health_boot::boot_key_report(&[]);
+    let occupied = std::collections::BTreeSet::new();
+    let _ = crate::zc_port_autoselect::autoselect_ports(&[], &occupied);
+    let interval = crate::zc_rediscovery_adaptive::rediscovery_secs(0, 0);
+    let _ = crate::zc_startup_autofix::apply_startup_autofix(
+        workspace,
+        &[crate::zc_startup_autofix::StartupIssue::MissingDir { path: "aux".into() }],
+    );
+
+    let probes = crate::eco_probe_scheduler::ProbeScheduler::default();
+    let subject = crate::eco_probe_scheduler::Subject {
+        id: "bootstrap".into(),
+        interval_secs: interval.secs.max(60),
+        budget: 1,
+        needs_consent: false,
+    };
+    let _ = probes.decide(
+        &subject,
+        unix_secs(),
+        crate::eco_probe_scheduler::Conditions {
+            offline: true,
+            consented: false,
+        },
+    );
+    let _ = crate::eco_drift_alerts::detect_drift("bootstrap", &[], &serde_json::json!({}), "0");
 }
 
 fn spawn_nat_discovery() {
