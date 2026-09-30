@@ -303,6 +303,11 @@ impl EligibilityStore {
         self.observations.is_empty()
     }
 
+    /// All stored observations (redacted) — for diagnostics surfaces.
+    pub fn observations(&self) -> impl Iterator<Item = &Observation> {
+        self.observations.values()
+    }
+
     /// Insert an observation, redacting the reason against the credential
     /// material and any live `*_API_KEY`/`_TOKEN`/`_SECRET` env values.
     /// Over-capacity evicts expired entries first, then the oldest.

@@ -105,7 +105,6 @@ pub struct BrainRankStore {
     records: BTreeMap<(String, String, String), Vec<EvalEvidence>>,
     /// Evidence older than this many secs is ignored.
     pub stale_secs: u64,
-    clock: fn() -> u64,
 }
 
 fn file_name(task_class: &str, model: &str, version: &str) -> String {
@@ -126,7 +125,7 @@ fn file_name(task_class: &str, model: &str, version: &str) -> String {
 impl BrainRankStore {
     /// Open (or create) the store at `dir`.
     #[must_use]
-    pub fn load(dir: PathBuf, stale_secs: u64, clock: fn() -> u64) -> Self {
+    pub fn load(dir: PathBuf, stale_secs: u64) -> Self {
         let mut records: BTreeMap<(String, String, String), Vec<EvalEvidence>> = BTreeMap::new();
         if let Ok(rd) = fs::read_dir(&dir) {
             for e in rd.flatten() {
@@ -153,7 +152,6 @@ impl BrainRankStore {
             dir,
             records,
             stale_secs,
-            clock,
         }
     }
 
@@ -195,16 +193,14 @@ impl BrainRankStore {
     fn dim_score(
         &self,
         task_class: &str,
-        model: &str,
-        version: &str,
+        pair: &(String, String),
         dim: EvalDimension,
         now: u64,
     ) -> (f64, u32) {
-        let Some(v) = self.records.get(&(
-            task_class.to_string(),
-            model.to_string(),
-            version.to_string(),
-        )) else {
+        let Some(v) = self
+            .records
+            .get(&(task_class.to_string(), pair.0.clone(), pair.1.clone()))
+        else {
             return (NEUTRAL, 0);
         };
         let mut sum = 0.0;
@@ -237,23 +233,13 @@ impl BrainRankStore {
     ) -> Vec<RankedBrain> {
         let mut out: Vec<RankedBrain> = candidates
             .iter()
-            .map(|(model, version)| {
-                let (c, n_c) =
-                    self.dim_score(task_class, model, version, EvalDimension::Correctness, now);
-                let (t, n_t) = self.dim_score(
-                    task_class,
-                    model,
-                    version,
-                    EvalDimension::ToolReliability,
-                    now,
-                );
-                let (x, n_x) = self.dim_score(
-                    task_class,
-                    model,
-                    version,
-                    EvalDimension::ContextCapability,
-                    now,
-                );
+            .map(|pair| {
+                let (model, version) = pair;
+                let (c, n_c) = self.dim_score(task_class, pair, EvalDimension::Correctness, now);
+                let (t, n_t) =
+                    self.dim_score(task_class, pair, EvalDimension::ToolReliability, now);
+                let (x, n_x) =
+                    self.dim_score(task_class, pair, EvalDimension::ContextCapability, now);
                 let score = c * W_CORRECTNESS + t * W_TOOL + x * W_CONTEXT;
                 let measured = n_c + n_t + n_x;
                 // Confidence: dimension coverage (0..3) folded with volume.
@@ -300,7 +286,7 @@ mod tests {
     fn store(tag: &str) -> (PathBuf, BrainRankStore) {
         let dir = std::env::temp_dir().join(format!("br-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        (dir.clone(), BrainRankStore::load(dir, 86_400, || T0))
+        (dir.clone(), BrainRankStore::load(dir, 86_400))
     }
 
     fn ev(model: &str, version: &str, dim: EvalDimension, score: f64, n: u32) -> EvalEvidence {
