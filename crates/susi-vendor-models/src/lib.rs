@@ -28,6 +28,7 @@ pub mod cloud;
 pub mod cloud_cli_auth;
 pub mod cloud_eligibility;
 pub mod cloud_manage;
+pub mod cloud_quota;
 pub mod deepseek_default;
 pub mod default_models;
 pub mod disk_budget;

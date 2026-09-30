@@ -553,6 +553,15 @@ fn global_store() -> &'static Mutex<EligibilityStore> {
     GLOBAL.get_or_init(|| Mutex::new(EligibilityStore::load(&default_path())))
 }
 
+/// Mutate the process-global store and persist it. Best-effort — a poisoned
+/// lock or unwritable path is swallowed so state tracking never turns an
+/// inference call into a failure.
+pub fn update_global(f: impl FnOnce(&mut EligibilityStore)) {
+    let mut store = global_store().lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut store);
+    let _ = store.save(&default_path());
+}
+
 /// Record one inference outcome into the process-global store and persist it.
 /// `api_base` derives the provider region when the subject has none.
 /// Best-effort: state tracking must never turn an inference call into a

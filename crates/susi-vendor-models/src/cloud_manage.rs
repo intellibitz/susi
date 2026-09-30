@@ -115,6 +115,21 @@ fn check_endpoint(name: &str, api_base: &str, protocol: &str, model: &str, key: 
     };
     out.http_status = Some(call.status);
     out.state = classify(call.status);
+    // Provider quota/rate-limit headers are real response metadata — feed
+    // the quota inventory before the body is consumed. Remote endpoints
+    // only, matching the eligibility guard below.
+    if !is_local(api_base) {
+        crate::cloud_quota::record_quota_headers(
+            crate::cloud_eligibility::Subject {
+                provider: name,
+                api_key: key,
+                account: None,
+                region: None,
+                model,
+            },
+            call.headers(),
+        );
+    }
     if out.state == KeyState::Valid {
         let ids = call
             .into_bytes(8 * 1024 * 1024)

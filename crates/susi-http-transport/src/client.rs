@@ -31,6 +31,11 @@ impl HttpCall {
             .map(|(_, v)| v.as_str())
     }
 
+    /// All response headers as `(name, value)` pairs.
+    pub fn headers(&self) -> &[(String, String)] {
+        &self.headers
+    }
+
     /// Consume the body as a `Read`.
     pub fn into_reader(self) -> impl Read {
         self.body.into_reader()
