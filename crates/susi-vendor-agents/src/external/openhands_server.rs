@@ -242,6 +242,37 @@ mod tests {
         );
     }
 
+    /// Read one full HTTP request (headers plus `Content-Length` body). A
+    /// single `read` can return the headers alone; replying and closing with
+    /// the body unread makes the kernel RST the connection, which the client
+    /// reports as "Peer disconnected".
+    fn read_request(s: &mut std::net::TcpStream) -> String {
+        let mut data = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            let n = s.read(&mut chunk).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            data.extend_from_slice(&chunk[..n]);
+            let text = String::from_utf8_lossy(&data);
+            if let Some(end) = text.find("\r\n\r\n") {
+                let want = text[..end]
+                    .lines()
+                    .find_map(|l| {
+                        let (k, v) = l.split_once(':')?;
+                        k.eq_ignore_ascii_case("content-length")
+                            .then(|| v.trim().parse::<usize>().ok())?
+                    })
+                    .unwrap_or(0);
+                if data.len() >= end + 4 + want {
+                    break;
+                }
+            }
+        }
+        String::from_utf8_lossy(&data).to_string()
+    }
+
     /// Fake app-server: create → start-task (READY) → conversation (finished).
     fn fake_server() -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -249,9 +280,7 @@ mod tests {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut s) = stream else { return };
-                let mut buf = [0u8; 8192];
-                let n = s.read(&mut buf).unwrap_or(0);
-                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let req = read_request(&mut s);
                 let line = req.lines().next().unwrap_or("").to_string();
                 let body = if line.starts_with("POST /api/v1/app-conversations ") {
                     assert!(req.contains("Bearer k-test"));
