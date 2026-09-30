@@ -1,0 +1,52 @@
+{
+  "version": "eco-profile/v1",
+  "id": "rate-limit-models",
+  "name": "Rate-limit headers and quota semantics",
+  "subject": "ratelimit-headers",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "draft-10",
+      "status": "beta"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "standard-fields",
+      "format": "http",
+      "fields": [
+        "RateLimit-Limit: n;w=seconds;partition/policy",
+        "RateLimit-Remaining",
+        "RateLimit-Reset seconds",
+        "RateLimit-Policy quota rules",
+        "Retry-After (RFC 9110)"
+      ],
+      "notes": "draft keeps evolving; still not an RFC"
+    },
+    {
+      "name": "vendor-sets",
+      "format": "http",
+      "fields": [
+        "openai: x-ratelimit-limit-requests|tokens, -remaining-*, -reset-*",
+        "anthropic: anthropic-ratelimit-* + retry-after",
+        "gemini: no headers; RESOURCE_EXHAUSTED body",
+        "bedrock: ThrottlingException; quotas in service-quotas",
+        "mistral: monthly-tier headers rls/bs limits"
+      ],
+      "notes": ""
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/",
+    "spec_version": "draft-10",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}
