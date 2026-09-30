@@ -64,6 +64,30 @@ fn http_ok(status: u16) -> bool {
     (200..300).contains(&status)
 }
 
+/// Wire errors arrive as `HTTP {status}: {body}` — recover the status for
+/// eligibility classification.
+fn parse_http_status(err: &str) -> Option<u16> {
+    err.strip_prefix("HTTP ")?
+        .split(':')
+        .next()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Providers that embed a retry hint in the error body (e.g. Gemini
+/// `retryDelay`, "try again in N s"); headers do not reach the error string.
+fn parse_retry_after(err: &str) -> Option<u64> {
+    let lower = err.to_ascii_lowercase();
+    let idx = lower.find("retry")?;
+    let digits: String = lower[idx..]
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
+}
+
 fn healthy_blocking(
     api_base: &str,
     api_key: &str,
@@ -201,15 +225,44 @@ impl Provider for HttpProvider {
 
         Box::pin(async move {
             refuse_off_host_under_local_only(&api_base)?;
-            tokio::task::spawn_blocking(move || {
+            let provider = name.clone();
+            let outcome_base = api_base.clone();
+            let outcome_model = model.clone();
+            let outcome_key = api_key.clone();
+            let result = tokio::task::spawn_blocking(move || {
                 generate_blocking(&api_base, &model, &api_key, protocol, &prompt)
             })
             .await
             .map_err(|e| {
                 crate::susi_core::susi_error::EaiError::process(format!("Provider '{name}': {e}"))
-            })?
-            .map_err(|e| {
-                crate::susi_core::susi_error::EaiError::process(format!("Provider '{name}': {e}"))
+            })?;
+            // Feed the eligibility ledger with the real inference outcome so
+            // eligibility reflects proven success/failure, not guesswork.
+            let tracked = match &result {
+                Ok(_) => susi_gemi_models::cloud_eligibility::InferenceResult::Success,
+                Err(e) => susi_gemi_models::cloud_eligibility::InferenceResult::Failed {
+                    status: parse_http_status(e),
+                    body_snippet: e.clone(),
+                    retry_after_secs: parse_retry_after(e),
+                },
+            };
+            if susi_gemi_models::cloud::is_remote_cloud(&outcome_base) {
+                susi_gemi_models::cloud_eligibility::record_inference_outcome(
+                    susi_gemi_models::cloud_eligibility::Subject {
+                        provider: &provider,
+                        api_key: &outcome_key,
+                        account: None,
+                        region: None,
+                        model: &outcome_model,
+                    },
+                    &outcome_base,
+                    &tracked,
+                );
+            }
+            result.map_err(|e| {
+                crate::susi_core::susi_error::EaiError::process(format!(
+                    "Provider '{provider}': {e}"
+                ))
             })
         })
     }

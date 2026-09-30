@@ -32,6 +32,7 @@ pub mod admin_hooks;
 pub mod agents;
 pub mod axiom;
 pub mod brain;
+pub mod cloud_intent;
 pub mod dag_hooks;
 pub mod external_peers;
 pub mod goal_shape;

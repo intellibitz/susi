@@ -115,6 +115,21 @@ fn check_endpoint(name: &str, api_base: &str, protocol: &str, model: &str, key: 
     };
     out.http_status = Some(call.status);
     out.state = classify(call.status);
+    // Provider quota/rate-limit headers are real response metadata — feed
+    // the quota inventory before the body is consumed. Remote endpoints
+    // only, matching the eligibility guard below.
+    if !is_local(api_base) {
+        crate::cloud_quota::record_quota_headers(
+            crate::cloud_eligibility::Subject {
+                provider: name,
+                api_key: key,
+                account: None,
+                region: None,
+                model,
+            },
+            call.headers(),
+        );
+    }
     if out.state == KeyState::Valid {
         let ids = call
             .into_bytes(8 * 1024 * 1024)
@@ -128,6 +143,34 @@ fn check_endpoint(name: &str, api_base: &str, protocol: &str, model: &str, key: 
         });
         out.model_count = ids.len();
         out.models = ids.into_iter().take(MODEL_CAP).collect();
+    }
+    // Probe evidence feeds the shared eligibility ledger; a listing success
+    // is deliberately not recorded — it is not proof a model is usable.
+    // Remote endpoints only: eligibility tracks cloud credentials, and the
+    // guard also keeps loopback fixture tests from writing state.
+    if is_local(api_base) {
+        return out;
+    }
+    match out.state {
+        KeyState::Rejected => crate::cloud_eligibility::record_probe(
+            name,
+            key,
+            out.http_status,
+            "vendor rejected the credential",
+        ),
+        KeyState::RateLimited => crate::cloud_eligibility::record_probe(
+            name,
+            key,
+            out.http_status,
+            "vendor throttled the probe",
+        ),
+        KeyState::Unreachable => crate::cloud_eligibility::record_probe(
+            name,
+            key,
+            out.http_status,
+            "endpoint unreachable from probe",
+        ),
+        KeyState::Valid | KeyState::Missing => {}
     }
     out
 }
