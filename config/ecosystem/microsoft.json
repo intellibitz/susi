@@ -1,0 +1,61 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "microsoft",
+    "name": "Microsoft",
+    "home": "https://www.microsoft.com",
+    "provenance": {
+      "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+      "spec_version": "2025-04-01-preview",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "microsoft",
+      "to": "azure-ai-foundry",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "microsoft",
+      "to": "azure-openai",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "microsoft",
+      "to": "onnxruntime",
+      "provenance": {
+        "source": "https://huggingface.co/docs/safetensors/index",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "microsoft",
+      "to": "playwright-mcp",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

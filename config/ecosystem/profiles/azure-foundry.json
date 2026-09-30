@@ -1,0 +1,182 @@
+{
+  "version": "eco-profile/v1",
+  "id": "azure-foundry",
+  "name": "Azure OpenAI and AI Foundry",
+  "subject": "azure-openai-rest",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/openai/deployments/{deployment-id}/chat/completions",
+      "description": "Chat completions on a named deployment; api-version query required",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/openai/v1/chat/completions",
+      "description": "Foundry unified v1 \u2014 model in body, no api-version",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/openai/deployments/{deployment-id}/embeddings",
+      "description": "Embeddings",
+      "streaming": false,
+      "request": "openai-embeddings",
+      "response": "openai-embeddings"
+    },
+    {
+      "method": "GET",
+      "path": "/openai/deployments",
+      "description": "List deployments (control plane)",
+      "streaming": false,
+      "response": "list"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "api-key-header",
+      "header": "api-key",
+      "prefix": "",
+      "env": [
+        "AZURE_OPENAI_API_KEY"
+      ]
+    },
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "AZURE_AD_TOKEN",
+        "AZURE_OPENAI_AD_TOKEN"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "2025-04-01-preview",
+      "status": "current"
+    },
+    {
+      "id": "2024-10-21",
+      "status": "deprecated"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model implicit in deployment-id",
+        "messages[]",
+        "tools[]",
+        "response_format"
+      ],
+      "notes": "OpenAI request shape"
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "input",
+        "encoding_format",
+        "dimensions"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage",
+        "content_filter_results"
+      ],
+      "notes": "Azure adds content_filter annotations per choice"
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "data[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "list",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "content_filter",
+      "retriable": false
+    },
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "404",
+      "code": "DeploymentNotFound",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limit_exceeded",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-embeddings",
+    "cap-audio",
+    "cap-image-generation"
+  ],
+  "deviations": [
+    {
+      "host": "azure-openai",
+      "field": "path",
+      "behavior": "deployment-scoped paths + api-version query, no model field in body"
+    },
+    {
+      "host": "azure-openai",
+      "field": "auth",
+      "behavior": "`api-key` header or Entra ID bearer; no organization header"
+    },
+    {
+      "host": "azure-openai",
+      "field": "response",
+      "behavior": "content_filter_results and prompt_filter_results extensions"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+    "spec_version": "2025-04-01-preview",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

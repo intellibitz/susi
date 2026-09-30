@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "azure-ai-foundry",
+    "name": "Azure AI Foundry",
+    "category": "service",
+    "provenance": {
+      "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+      "spec_version": "2025-04-01-preview",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "azure-ai-foundry",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "azure-ai-foundry",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
