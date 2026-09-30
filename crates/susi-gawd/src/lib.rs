@@ -92,6 +92,7 @@ pub mod self_validation;
 pub mod task_edit_guard;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
+pub mod update_health;
 pub mod zc_agent_files_gen;
 pub mod zc_agent_identity;
 pub mod zc_gh_auth_auto;

@@ -8,25 +8,32 @@ pub struct AbResult {
     pub significant: bool,
 }
 
-/// Simple two-proportion z-test style gate (threshold on rate delta).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArmStats<'a> {
+    pub name: &'a str,
+    pub ok: u32,
+    pub n: u32,
+}
+
+/// Simple two-proportion gate (threshold on rate delta).
 #[must_use]
-pub fn ab_decide(a_name: &str, a_ok: u32, a_n: u32, b_name: &str, b_ok: u32, b_n: u32) -> AbResult {
-    if a_n == 0 || b_n == 0 {
+pub fn ab_decide(a: ArmStats<'_>, b: ArmStats<'_>) -> AbResult {
+    if a.n == 0 || b.n == 0 {
         return AbResult {
             winner: None,
             significant: false,
         };
     }
-    let ra = f64::from(a_ok) / f64::from(a_n);
-    let rb = f64::from(b_ok) / f64::from(b_n);
+    let ra = f64::from(a.ok) / f64::from(a.n);
+    let rb = f64::from(b.ok) / f64::from(b.n);
     let delta = (ra - rb).abs();
-    let significant = delta >= 0.1 && a_n.min(b_n) >= 20;
+    let significant = delta >= 0.1 && a.n.min(b.n) >= 20;
     let winner = if !significant {
         None
     } else if ra > rb {
-        Some(a_name.into())
+        Some(a.name.into())
     } else {
-        Some(b_name.into())
+        Some(b.name.into())
     };
     AbResult {
         winner,
@@ -40,8 +47,33 @@ mod brain_experiments_tests {
 
     #[test]
     fn brain_experiments_needs_enough_samples() {
-        assert!(!ab_decide("a", 9, 10, "b", 1, 10).significant);
-        let r = ab_decide("a", 18, 20, "b", 4, 20);
+        assert!(
+            !ab_decide(
+                ArmStats {
+                    name: "a",
+                    ok: 9,
+                    n: 10
+                },
+                ArmStats {
+                    name: "b",
+                    ok: 1,
+                    n: 10
+                }
+            )
+            .significant
+        );
+        let r = ab_decide(
+            ArmStats {
+                name: "a",
+                ok: 18,
+                n: 20,
+            },
+            ArmStats {
+                name: "b",
+                ok: 4,
+                n: 20,
+            },
+        );
         assert!(r.significant);
         assert_eq!(r.winner.as_deref(), Some("a"));
     }
