@@ -1,0 +1,25 @@
+{
+  "id": "T-DEVIN-3",
+  "title": "Land PubMeta/QueueKnowledge publication refactor required by brain_gap_e2e",
+  "goal": "Commit the pending brain_gap_publish.rs refactor (PubMeta bundling + QueueKnowledge) that T-CODEX-34's e2e module imports; fixes the PR #171 compile gate.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "brain_gap_publication",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-020",
+  "created_by": "DEVIN",
+  "created_unix": 1790795956,
+  "closed": {
+    "at_unix": 1790796192,
+    "commit": "d1bf687253c2dc33e5e078652607657f6576f833",
+    "by": "DEVIN"
+  }
+}

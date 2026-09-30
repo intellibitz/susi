@@ -167,10 +167,15 @@ pub fn run_selection<R: Runner>(
     }
     let mut attempted: Vec<usize> = Vec::new();
     let mut saw_lockout_only = false;
+    let mut saw_budget_denial = false;
     loop {
         let Some(ranked) = selection.next_after(&attempted) else {
+            // Report the *actual* reason nothing else could run — a spend
+            // denial is BudgetExhausted, not "we ran out of attempts".
             out.stop = Some(if saw_lockout_only {
                 FailoverStop::AllLockedOut
+            } else if saw_budget_denial {
+                FailoverStop::BudgetExhausted
             } else {
                 FailoverStop::AttemptBudgetExhausted {
                     used: out.attempts.len() as u32,
@@ -230,6 +235,7 @@ pub fn run_selection<R: Runner>(
                     | Denial::NeedsPriceConsent { .. }
                     | Denial::OverBudget { .. },
                 ) => {
+                    saw_budget_denial = true;
                     attempted.push(ranked.index);
                     out.stop = Some(FailoverStop::BudgetExhausted);
                     // Keep scanning: a *free* sibling may still be legal.

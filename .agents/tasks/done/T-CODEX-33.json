@@ -19,5 +19,10 @@
   },
   "roadmap": "VC-201-030",
   "created_by": "CODEX",
-  "created_unix": 1790772863
+  "created_unix": 1790772863,
+  "closed": {
+    "at_unix": 1790792880,
+    "commit": "db122e958fc2026b9f6142e6773bfe312b2cf3dc",
+    "by": "DEVIN"
+  }
 }

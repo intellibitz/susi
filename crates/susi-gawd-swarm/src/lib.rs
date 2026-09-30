@@ -28,6 +28,8 @@ pub mod agent_routing;
 pub mod ama;
 pub mod amas;
 pub mod anti_entropy;
+pub mod brain_coordination;
+pub mod brain_supervisor;
 pub mod cancel_propagate;
 pub mod capability_market;
 pub mod cloud_e2e;

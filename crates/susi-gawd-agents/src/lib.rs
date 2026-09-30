@@ -32,6 +32,8 @@ pub mod admin_hooks;
 pub mod agents;
 pub mod axiom;
 pub mod brain;
+pub mod brain_ranking;
+pub mod cloud_brain_policy;
 pub mod cloud_budget;
 pub mod cloud_explain;
 pub mod cloud_intent;
