@@ -79,6 +79,9 @@ pub use dag::{MissionDag, SwarmDag};
 #[path = "tests/cancel_propagate_dispatch_wiring.rs"]
 mod cancel_propagate_dispatch_wiring_tests;
 #[cfg(test)]
+#[path = "tests/fair_queue_dispatch_wiring.rs"]
+mod fair_queue_dispatch_wiring_tests;
+#[cfg(test)]
 #[path = "tests/mission_dag_persist_wiring.rs"]
 mod mission_dag_persist_wiring_tests;
 #[cfg(test)]

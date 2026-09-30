@@ -2,6 +2,7 @@
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
 use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
+use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
@@ -32,6 +33,8 @@ pub struct MissionDag {
     pub side_effects: std::collections::BTreeMap<String, ActionOutcome>,
     /// Cancellation bus for workers/peers (VC-201-026).
     pub cancel: CancelBus,
+    /// Fair multi-mission admit queue (VC-201-025).
+    pub fair_queue: FairQueue,
 }
 
 pub type SwarmDag = MissionDag;
@@ -66,6 +69,7 @@ impl MissionDag {
             leases: LeaseTable::new(),
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
+            fair_queue: FairQueue::new(QueueLimits::default()),
         }
     }
 
@@ -157,6 +161,7 @@ impl MissionDag {
             leases: LeaseTable::new(),
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
+            fair_queue: FairQueue::new(QueueLimits::default()),
         }
     }
 
@@ -213,6 +218,27 @@ impl MissionDag {
             Some(t) => t.cancelled || t.remaining_secs(now).is_none(),
             None => false,
         }
+    }
+
+    /// Admit this mission into the fair concurrent queue (VC-201-025).
+    pub fn fair_admit(
+        &mut self,
+        mission_id: &str,
+        workspace: &str,
+        now: u64,
+        weight: u32,
+    ) -> EnqueueResult {
+        self.fair_queue.enqueue(QueuedMission {
+            mission_id: mission_id.to_string(),
+            workspace: workspace.to_string(),
+            enqueued_at: now,
+            weight,
+        })
+    }
+
+    /// Release a finished mission and promote the next fair waiter.
+    pub fn fair_complete(&mut self, mission_id: &str, now: u64) -> Option<QueuedMission> {
+        self.fair_queue.complete(mission_id, now)
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).
