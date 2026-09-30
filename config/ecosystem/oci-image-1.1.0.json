@@ -1,0 +1,40 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "oci-image-1.1.0",
+    "name": "OCI image-spec 1.1",
+    "version": "1.1.0",
+    "provenance": {
+      "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+      "spec_version": "1.1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2024-02-23"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "oci-image-1.1.0",
+      "to": "oci-image-spec",
+      "provenance": {
+        "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+        "spec_version": "1.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "supersedes",
+      "from": "oci-image-1.1.0",
+      "to": "oci-image-1.0.2",
+      "provenance": {
+        "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+        "spec_version": "1.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

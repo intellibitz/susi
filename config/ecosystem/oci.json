@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "oci",
+    "name": "Open Container Initiative",
+    "home": "https://opencontainers.org",
+    "provenance": {
+      "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+      "spec_version": "1.1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "oci",
+      "to": "oci-image-spec",
+      "provenance": {
+        "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+        "spec_version": "1.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "oci-image-spec",
+    "name": "OCI Image Specification",
+    "body": "Open Container Initiative",
+    "provenance": {
+      "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+      "spec_version": "1.1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}
