@@ -1,6 +1,7 @@
 // Dependency-ordered task graph: agents can spawn sub-tasks with
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
+use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
@@ -29,6 +30,8 @@ pub struct MissionDag {
     pub leases: LeaseTable,
     /// Side-effect outcomes keyed by persist id (VC-201-023).
     pub side_effects: std::collections::BTreeMap<String, ActionOutcome>,
+    /// Cancellation bus for workers/peers (VC-201-026).
+    pub cancel: CancelBus,
 }
 
 pub type SwarmDag = MissionDag;
@@ -62,6 +65,7 @@ impl MissionDag {
             }],
             leases: LeaseTable::new(),
             side_effects: std::collections::BTreeMap::new(),
+            cancel: CancelBus::default(),
         }
     }
 
@@ -152,6 +156,7 @@ impl MissionDag {
             nodes,
             leases: LeaseTable::new(),
             side_effects: std::collections::BTreeMap::new(),
+            cancel: CancelBus::default(),
         }
     }
 
@@ -174,6 +179,40 @@ impl MissionDag {
         self.side_effects
             .get(&Self::persist_id(idx))
             .is_none_or(|o| crate::side_effects::may_retry_after_crash(o.class))
+    }
+
+    /// Attach a cancel token and register a worker descendant for this node.
+    pub fn register_cancel_worker(
+        &mut self,
+        idx: usize,
+        kind: WorkerKind,
+        cancellable: bool,
+        deadline_unix: u64,
+    ) {
+        let id = Self::persist_id(idx);
+        if self.cancel.token.is_none() {
+            self.cancel
+                .set_token(CancelToken::fresh(&id, deadline_unix));
+        }
+        self.cancel.register(Descendant {
+            id,
+            kind,
+            cancellable,
+        });
+    }
+
+    /// Propagate cancellation through registered workers/peers.
+    pub fn cancel_propagate(&mut self) -> Vec<String> {
+        self.cancel.propagate()
+    }
+
+    /// True when the mission cancel token is cancelled or past deadline.
+    #[must_use]
+    pub fn is_cancelled(&self, now: u64) -> bool {
+        match &self.cancel.token {
+            Some(t) => t.cancelled || t.remaining_secs(now).is_none(),
+            None => false,
+        }
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).
@@ -305,6 +344,17 @@ impl MissionDag {
         let total_nodes = self.nodes.len();
 
         while executed_count < total_nodes {
+            if self.is_cancelled(now_unix()) {
+                let reports = self.cancel_propagate();
+                let detail = if reports.is_empty() {
+                    "cancelled".to_string()
+                } else {
+                    reports.join("; ")
+                };
+                return Err(EaiError::governance(format!(
+                    "DAG_EXECUTION_FAILED: cancel propagated: {detail}"
+                )));
+            }
             let ready_indices: Vec<usize> = self
                 .nodes
                 .iter()
