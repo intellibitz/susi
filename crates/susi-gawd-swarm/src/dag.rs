@@ -2,6 +2,7 @@
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
+use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
 use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
@@ -175,6 +176,43 @@ impl MissionDag {
             .is_none_or(|o| crate::side_effects::may_retry_after_crash(o.class))
     }
 
+    /// Default resource request for a DAG node (dispatch scheduling).
+    #[must_use]
+    pub fn default_resource_node(idx: usize) -> ResNode {
+        ResNode {
+            id: Self::persist_id(idx),
+            cpu: 1.0,
+            gpu_mem_gb: 0.0,
+            needs_model: true,
+            needs_tools: vec!["exec_command".into()],
+        }
+    }
+
+    /// Filter ready indices by live resource constraints; reserves as admits
+    /// succeed so concurrent admits never oversubscribe (VC-201-024).
+    pub fn schedule_ready(
+        ready: &[usize],
+        free: &Resources,
+        requests: &std::collections::BTreeMap<usize, ResNode>,
+    ) -> (Vec<usize>, Resources) {
+        let mut remaining = free.clone();
+        let mut admitted = Vec::new();
+        for &idx in ready {
+            let req = requests
+                .get(&idx)
+                .cloned()
+                .unwrap_or_else(|| Self::default_resource_node(idx));
+            match admit(&req, &remaining) {
+                Admit::Run => {
+                    remaining = reserve(&remaining, &req);
+                    admitted.push(idx);
+                }
+                Admit::Queue => {}
+            }
+        }
+        (admitted, remaining)
+    }
+
     /// Issue an expiring ownership fence for a ready DAG node (dispatch).
     pub fn lease_dispatch(&mut self, idx: usize, owner: &str, now: u64, ttl: u64) -> TaskLease {
         self.leases
@@ -284,6 +322,21 @@ impl MissionDag {
             if ready_indices.is_empty() {
                 return Err(EaiError::governance(
                     "DAG_EXECUTION_FAILED: unresolved dependencies (cycle or missing task)",
+                ));
+            }
+
+            // Admit by live resources so oversubscribed fixtures queue (VC-201-024).
+            let free = Resources {
+                cpu: 8.0,
+                gpu_mem_gb: 16.0,
+                model_ready: true,
+                tool_grants: vec!["exec_command".into()],
+            };
+            let (ready_indices, _remaining) =
+                Self::schedule_ready(&ready_indices, &free, &std::collections::BTreeMap::new());
+            if ready_indices.is_empty() {
+                return Err(EaiError::governance(
+                    "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints",
                 ));
             }
 
