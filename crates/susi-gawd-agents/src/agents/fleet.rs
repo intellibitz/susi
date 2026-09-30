@@ -1434,32 +1434,38 @@ mod tests {
         assert_eq!(blackboard.get("SearchAgent").as_deref(), Some(res.as_str()));
     }
 
-    /// TranslationAgent either has a native factory or falls back
-    /// to DynamicAgent — never a phantom with no implementation.
+    /// TranslationAgent must not be a DynamicAgent-only phantom in the
+    /// bundled defaults: either it has a native factory, or it is absent
+    /// from `agents.default.json` entirely.
     #[test]
     fn translation_agent_native_or_absent() {
-        let profile = AgentProfile {
-            name: "TranslationAgent".into(),
-            description: "Translation-intent recruitment; executed via DynamicAgent (no separate native TranslationAgent backend).".into(),
-            categories: vec!["translate".into(), "language".into()],
-            semantic_anchors: vec!["tamil".into(), "hindi".into(), "french".into(), "translator".into()],
-            base_rank: 0.9,
-            is_core: false,
-        };
-        let agent = instantiate_agent(&profile);
-        assert_eq!(agent.name(), "TranslationAgent");
-        // If a native factory exists it must be reachable via the registry.
-        let has_native = agent_registry()
-            .instantiate::<Arc<dyn GawdAgent>>("TranslationAgent")
-            .is_some();
+        let defaults: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../../../../config/agents.default.json"))
+                .expect("agents.default.json parses");
+        let in_defaults = defaults
+            .iter()
+            .any(|e| e.get("name").and_then(|n| n.as_str()) == Some("TranslationAgent"));
+        let has_native = instantiate_native_agent("TranslationAgent").is_some();
+        assert!(
+            has_native || !in_defaults,
+            "TranslationAgent must have a native factory or be absent from agents.default.json \
+             (DynamicAgent-only phantoms are forbidden)"
+        );
         if has_native {
-            let native = instantiate_native_agent("TranslationAgent")
-                .expect("registry says native → instantiate_native_agent works");
+            let native = instantiate_native_agent("TranslationAgent").expect("native");
             assert_eq!(native.name(), "TranslationAgent");
+        } else {
+            assert!(
+                !in_defaults,
+                "absent path: TranslationAgent must not appear in bundled defaults"
+            );
+            assert!(
+                agent_registry()
+                    .instantiate::<Arc<dyn GawdAgent>>("TranslationAgent")
+                    .is_none(),
+                "absent path: no registry factory for TranslationAgent"
+            );
         }
-        // In all cases the instantiated agent is usable (not a zero-size phantom).
-        let bb: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
-        let _ = agent.execute("translate hello to Tamil", Path::new("."), &bb);
     }
 
     /// Every `is_core: true` entry in agents.default.json has a live

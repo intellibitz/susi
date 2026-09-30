@@ -17,7 +17,9 @@
   "roadmap": "VC-200-001",
   "created_by": "INTELLIBITZ",
   "created_unix": 1790774661,
-  "closed_by": "INTELLIBITZ",
-  "closed_unix": 1790784519,
-  "commit": "942b6289"
+  "closed": {
+    "at_unix": 1790784610,
+    "commit": "9512a904e14d4dd407b380da774d698bd96e64da",
+    "by": "INTELLIBITZ"
+  }
 }

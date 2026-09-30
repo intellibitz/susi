@@ -50,24 +50,6 @@
     "is_core": false
   },
   {
-    "name": "TranslationAgent",
-    "description": "Translation-intent recruitment; executed via DynamicAgent (no separate native TranslationAgent backend).",
-    "categories": [
-      "translate",
-      "language",
-      "tamil",
-      "linguistic"
-    ],
-    "semantic_anchors": [
-      "tamil",
-      "hindi",
-      "french",
-      "translator"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
     "name": "SusiRuntimeAgent",
     "description": "Runtime Substrate Preparation.",
     "categories": [

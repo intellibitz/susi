@@ -445,17 +445,6 @@
       "lookup",
       "who is",
       "weather"
-    ],
-    "TranslationAgent": [
-      "translate",
-      "spanish",
-      "french",
-      "german",
-      "italian",
-      "japanese",
-      "chinese",
-      "hindi",
-      "russian"
     ]
   },
   "gemi_port": 9091,
