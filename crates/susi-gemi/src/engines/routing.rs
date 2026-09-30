@@ -1505,15 +1505,11 @@ mod tests {
         let _ = std::fs::create_dir_all(&config);
         let _ = std::fs::create_dir_all(tmp.join(".susi"));
 
-        let prev_home = std::env::var_os("HOME");
-        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-        let prev_susi_xdg = std::env::var_os("SUSI_XDG");
-        // SAFETY: test-only env override; restored below under ENV_LOCK.
-        unsafe {
-            std::env::set_var("HOME", &tmp);
-            std::env::set_var("XDG_CONFIG_HOME", &config);
-            std::env::set_var("SUSI_XDG", "0");
-        }
+        // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET; restored via `env` below.
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", &tmp);
+        env.set("XDG_CONFIG_HOME", &config);
+        env.set("SUSI_XDG", "0");
 
         let registry = CapabilityRegistry::new();
         registry.register_provider(crate::engines::http_provider::HttpProvider {
@@ -1549,20 +1545,7 @@ mod tests {
         );
         let order = InferenceRouter::cloud_failover_order(&registry);
 
-        unsafe {
-            match prev_home {
-                Some(h) => std::env::set_var("HOME", h),
-                None => std::env::remove_var("HOME"),
-            }
-            match prev_xdg {
-                Some(h) => std::env::set_var("XDG_CONFIG_HOME", h),
-                None => std::env::remove_var("XDG_CONFIG_HOME"),
-            }
-            match prev_susi_xdg {
-                Some(h) => std::env::set_var("SUSI_XDG", h),
-                None => std::env::remove_var("SUSI_XDG"),
-            }
-        }
+        drop(env);
         let _ = std::fs::remove_dir_all(&tmp);
 
         assert_eq!(

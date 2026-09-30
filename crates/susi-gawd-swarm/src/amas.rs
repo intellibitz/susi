@@ -2021,7 +2021,11 @@ mod tests {
     #[test]
     fn discovered_peers_never_receive_host_bearer() {
         // Local master is rostered as PeerAdmission::Local on the GMCP port.
-        let local = format!("127.0.0.1:{}", susi_paths::ports::GMCP);
+        // The roster's local entry carries the instance's offset GMCP port.
+        let local = format!(
+            "127.0.0.1:{}",
+            susi_paths::ports::effective(susi_paths::ports::GMCP)
+        );
         assert!(SusiSupervisor::peer_allows_bearer(&local));
         // Arbitrary loopback ports are not automatic trust — a local listener
         // must not steal the host bearer just by binding nearby.

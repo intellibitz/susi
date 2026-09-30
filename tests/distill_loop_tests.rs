@@ -27,6 +27,10 @@ fn wire_test_substrate() {
         // Tier-0 weights under the config dir, which must not be the host's.
         let home = test_home();
         std::fs::create_dir_all(&home).unwrap();
+        // Instance knobs outrank HOME/XDG: a dev-instance launch must not
+        // redirect this process-lifetime substrate (or its ports).
+        std::env::remove_var("SUSI_HOME");
+        std::env::remove_var("SUSI_PORT_OFFSET");
         unsafe {
             std::env::set_var("HOME", &home);
             std::env::set_var("USERPROFILE", &home);

@@ -2865,6 +2865,9 @@ mod unwired_governance_tests {
         let dir = std::env::temp_dir()
             .join("susi-unwired")
             .join(std::process::id().to_string());
+        // SUSI_HOME outranks XDG_CACHE_HOME: drop it so the bus root really
+        // moves under a dev-instance launch too.
+        std::env::remove_var("SUSI_HOME");
         std::env::set_var("SUSI_XDG", "1");
         std::env::set_var("XDG_CACHE_HOME", &dir);
     }
@@ -3105,7 +3108,11 @@ mod os_tools_wired_tests {
     /// shared env lock for the returned guard's lifetime — `cluster_key()`
     /// resolves through XDG env vars and other tests seal/verify against
     /// it, so the mutation must be exclusive for the whole test.
-    fn isolate_config() -> (std::sync::MutexGuard<'static, ()>, PathBuf) {
+    fn isolate_config() -> (
+        std::sync::MutexGuard<'static, ()>,
+        susi_paths::test_env::EnvGuard,
+        PathBuf,
+    ) {
         let guard = crate::susi_core::commit_log::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -3114,18 +3121,20 @@ mod os_tools_wired_tests {
             .join(std::process::id().to_string());
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp config dir");
-        std::env::set_var("XDG_CONFIG_HOME", &dir);
+        // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET, which outrank XDG_CONFIG_HOME.
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("XDG_CONFIG_HOME", &dir);
         // susi_paths only honors XDG vars under SUSI_XDG when a legacy
         // ~/.susi exists — without this the tests would write the real
         // host's term.json/commit_log.jsonl.
-        std::env::set_var("SUSI_XDG", "1");
-        (guard, dir)
+        env.set("SUSI_XDG", "1");
+        (guard, env, dir)
     }
 
     #[test]
     fn commit_record_accepts_signed_record_and_appends_to_ledger() {
         let _permit = wire_permissive_audit();
-        let (_env, dir) = isolate_config();
+        let (_lock, _env, dir) = isolate_config();
         let Some(rec) = crate::susi_core::commit_log::CommitRecord::seal(
             crate::susi_core::commit_log::CommitInput {
                 coordinator: "susi-local-master",
@@ -3159,7 +3168,7 @@ mod os_tools_wired_tests {
     #[test]
     fn commit_record_rejects_forged_and_unsigned_records() {
         let _permit = wire_permissive_audit();
-        let (_env, dir) = isolate_config();
+        let (_lock, _env, dir) = isolate_config();
         // Forged: no valid signature.
         let forged = serde_json::json!({
             "epoch": "aa", "coordinator": "evil-peer", "electorate": ["A", "B"],
@@ -3188,7 +3197,7 @@ mod os_tools_wired_tests {
     #[test]
     fn commit_records_batch_intake_applies_skips_refuses() {
         let _permit = wire_permissive_audit();
-        let (_env, dir) = isolate_config();
+        let (_lock, _env, dir) = isolate_config();
         let seal = |value: &str| {
             crate::susi_core::commit_log::CommitRecord::seal(
                 crate::susi_core::commit_log::CommitInput {
@@ -3245,7 +3254,7 @@ mod os_tools_wired_tests {
     #[test]
     fn commit_log_fetch_filters_by_coordinator_and_seq() {
         let _permit = wire_permissive_audit();
-        let (_env, dir) = isolate_config();
+        let (_lock, _env, dir) = isolate_config();
         let seal = |value: &str| {
             crate::susi_core::commit_log::CommitRecord::seal(
                 crate::susi_core::commit_log::CommitInput {
@@ -3295,7 +3304,7 @@ mod os_tools_wired_tests {
     #[test]
     fn commit_record_reports_gap_when_repair_unreachable() {
         let _permit = wire_permissive_audit();
-        let (_env, dir) = isolate_config();
+        let (_lock, _env, dir) = isolate_config();
         let seal = |value: &str| {
             crate::susi_core::commit_log::CommitRecord::seal(
                 crate::susi_core::commit_log::CommitInput {
@@ -3331,7 +3340,7 @@ mod os_tools_wired_tests {
     #[test]
     fn commit_record_rejects_stale_term_and_adopts_newer() {
         let _permit = wire_permissive_audit();
-        let (_env, dir) = isolate_config();
+        let (_lock, _env, dir) = isolate_config();
         // Coordinator authority requires explicit membership — declare
         // the test's coordinators in the isolated roster so their
         // records may drive term state.

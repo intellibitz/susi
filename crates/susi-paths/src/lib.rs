@@ -289,6 +289,8 @@ impl LocalDirs {
 
 pub mod loopback;
 pub mod ports;
+#[doc(hidden)]
+pub mod test_env;
 mod xdg;
 pub mod zc_ports_file;
 
@@ -366,6 +368,10 @@ pub fn is_service_mode() -> bool {
     SERVICE_MODE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Serialises tests that read or mutate process-wide env (`HOME`, `SUSI_HOME`).
+#[cfg(test)]
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,7 +392,17 @@ mod tests {
 
     #[test]
     fn substrate_home_is_not_a_project_cwd() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let home = SusiDirs::substrate_home();
+        // A pinned instance root (`SUSI_HOME`, e.g. a dev instance) is the
+        // substrate home verbatim, whatever it is named.
+        if let Some(root) = std::env::var_os("SUSI_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+        {
+            assert_eq!(home, root);
+            return;
+        }
         assert!(
             home.ends_with(".susi") || home.to_string_lossy().contains("susi"),
             "substrate_home should be the host substrate root, got {}",
@@ -410,10 +426,6 @@ mod tests {
 #[cfg(test)]
 mod hermetic_forbidden_tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
     #[test]
     fn hermetic_forbidden_susi_home_is_ignored() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());

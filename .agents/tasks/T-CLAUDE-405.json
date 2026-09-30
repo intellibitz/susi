@@ -1,0 +1,17 @@
+{
+  "id": "T-CLAUDE-405",
+  "title": "Land env-isolation test guard (EnvGuard) and serialise susi-paths env tests",
+  "goal": "Tests that swap HOME must also scrub SUSI_HOME/SUSI_PORT_OFFSET via susi_paths::test_env::EnvGuard; susi-paths env-reading tests share one lock.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-paths"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790755340
+}

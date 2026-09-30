@@ -163,12 +163,10 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         let h = ToolsPlaneHandler;
         let dir = tempfile::tempdir().unwrap();
-        let prev_home = std::env::var_os("HOME");
-        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-        unsafe {
-            std::env::set_var("HOME", dir.path());
-            std::env::set_var("XDG_CONFIG_HOME", dir.path().join("config"));
-        }
+        // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET; restored when `env` drops.
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", dir.path());
+        env.set("XDG_CONFIG_HOME", dir.path().join("config"));
         let ws = json!({"workspace": dir.path().to_str().unwrap()});
         // Status on a fresh workspace returns rows or a typed error — never panic.
         let listed = h.handle(topics::TOOLS_LEADING_LIST, ws.clone());
@@ -184,16 +182,7 @@ mod tests {
         ) {
             assert_eq!(disabled["removed"], json!(false));
         }
-        unsafe {
-            match prev_home {
-                Some(h) => std::env::set_var("HOME", h),
-                None => std::env::remove_var("HOME"),
-            }
-            match prev_xdg {
-                Some(x) => std::env::set_var("XDG_CONFIG_HOME", x),
-                None => std::env::remove_var("XDG_CONFIG_HOME"),
-            }
-        }
+        drop(env);
     }
 
     #[test]

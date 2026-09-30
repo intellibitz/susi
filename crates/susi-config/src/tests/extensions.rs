@@ -16,36 +16,15 @@ fn with_temp_home<F: FnOnce()>(f: F) {
     // Pre-create the legacy base so `susi_paths::SusiDirs::use_xdg()` cannot flip
     // mid-test if a concurrent test creates it under the swapped HOME.
     let _ = std::fs::create_dir_all(tmp.join(".susi"));
-    let prev_home = std::env::var_os("HOME");
-    let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-    let prev_pack = std::env::var_os("SUSI_EXTENSION_PACK");
-    let prev_susi_xdg = std::env::var_os("SUSI_XDG");
-    unsafe {
-        std::env::set_var("HOME", &tmp);
-        std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
-        std::env::set_var("SUSI_XDG", "0");
-        std::env::remove_var("SUSI_EXTENSION_PACK");
-    }
+    // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET; restored when `env` drops.
+    let mut env = susi_paths::test_env::EnvGuard::isolated();
+    env.set("HOME", &tmp);
+    env.set("XDG_CONFIG_HOME", tmp.join("config"));
+    env.set("SUSI_XDG", "0");
+    env.remove("SUSI_EXTENSION_PACK");
     invalidate_extension_caches();
     f();
-    unsafe {
-        match prev_home {
-            Some(h) => std::env::set_var("HOME", h),
-            None => std::env::remove_var("HOME"),
-        }
-        match prev_xdg {
-            Some(h) => std::env::set_var("XDG_CONFIG_HOME", h),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-        match prev_pack {
-            Some(h) => std::env::set_var("SUSI_EXTENSION_PACK", h),
-            None => std::env::remove_var("SUSI_EXTENSION_PACK"),
-        }
-        match prev_susi_xdg {
-            Some(h) => std::env::set_var("SUSI_XDG", h),
-            None => std::env::remove_var("SUSI_XDG"),
-        }
-    }
+    drop(env);
     invalidate_extension_caches();
     let _ = std::fs::remove_dir_all(tmp);
 }
