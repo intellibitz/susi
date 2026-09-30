@@ -7,6 +7,7 @@ use crate::independent_verify::{verification_satisfied, ReviewConclusion};
 use crate::joint_consensus::{overlapping_disjoint_blocked, Electorate, MembershipTransition};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
 use crate::mission_resume::{DagNodeView, MissionView, NodeView};
+use crate::node_enrollment::{enroll, Enrollment};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
 use crate::role_select::{select_roles, AgentEvidence, RoleAssignment, SelectError};
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
@@ -421,6 +422,24 @@ impl MissionDag {
         self.roster = new_roster;
         self.pending_membership = None;
         true
+    }
+
+    /// Production node enrollment: join token + mTLS provisions peer id into
+    /// the live roster at the given cluster key epoch.
+    pub fn enroll_node(
+        &mut self,
+        token: &str,
+        expected_token: &str,
+        mtls_identity: Option<&str>,
+        key_epoch: u64,
+    ) -> Enrollment {
+        let outcome = enroll(token, expected_token, mtls_identity, key_epoch);
+        if outcome.accepted {
+            if let Some(peer) = outcome.peer_id.as_ref() {
+                self.roster.0.insert(peer.clone());
+            }
+        }
+        outcome
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).
