@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "replicate-api-v1",
+    "name": "Replicate API v1",
+    "version": "v1",
+    "provenance": {
+      "source": "https://replicate.com/docs/reference/http",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "replicate-api-v1",
+      "to": "replicate-predictions",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

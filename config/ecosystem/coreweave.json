@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "coreweave",
+    "name": "CoreWeave",
+    "home": "https://www.coreweave.com",
+    "provenance": {
+      "source": "https://replicate.com/docs/reference/http",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "coreweave",
+      "to": "coreweave-cloud",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

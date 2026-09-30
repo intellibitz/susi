@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "replicate",
+    "name": "Replicate",
+    "home": "https://replicate.com",
+    "provenance": {
+      "source": "https://replicate.com/docs/reference/http",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "replicate",
+      "to": "replicate-api",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

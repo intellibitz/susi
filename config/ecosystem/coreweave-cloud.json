@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "coreweave-cloud",
+    "name": "CoreWeave",
+    "category": "service",
+    "provenance": {
+      "source": "https://replicate.com/docs/reference/http",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "coreweave-cloud",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

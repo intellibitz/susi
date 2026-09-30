@@ -1,0 +1,171 @@
+{
+  "version": "eco-profile/v1",
+  "id": "gpu-clouds",
+  "name": "Replicate, Modal, RunPod, Lambda and CoreWeave",
+  "subject": "replicate-predictions",
+  "kind": "platform",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/predictions",
+      "description": "Create a prediction (model version or owner/name)",
+      "streaming": false,
+      "request": "prediction",
+      "response": "prediction"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/predictions/{id}",
+      "description": "Poll prediction",
+      "streaming": false,
+      "response": "prediction"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/models/{owner}/{name}/predictions",
+      "description": "Official-model shortcut",
+      "streaming": false,
+      "request": "prediction",
+      "response": "prediction"
+    },
+    {
+      "method": "POST",
+      "path": "/v2/{endpoint_id}/run",
+      "description": "RunPod serverless run",
+      "streaming": false,
+      "request": "runpod-job",
+      "response": "runpod-job"
+    },
+    {
+      "method": "POST",
+      "path": "/v2/{endpoint_id}/runsync",
+      "description": "RunPod synchronous run",
+      "streaming": false,
+      "request": "runpod-job",
+      "response": "runpod-job"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "REPLICATE_API_TOKEN",
+        "RUNPOD_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1/v2",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "prediction",
+      "format": "json",
+      "fields": [
+        "version|model",
+        "input{} model-defined",
+        "webhook",
+        "stream bool"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "runpod-job",
+      "format": "json",
+      "fields": [
+        "input{} worker-defined"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "prediction",
+      "format": "json",
+      "fields": [
+        "id",
+        "status starting|processing|succeeded|failed",
+        "output",
+        "urls{get,cancel,stream}",
+        "logs"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "runpod-job",
+      "format": "json",
+      "fields": [
+        "id",
+        "status IN_QUEUE|IN_PROGRESS|COMPLETED",
+        "output",
+        "delayTime",
+        "executionTime"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-image-generation",
+    "cap-audio",
+    "cap-streaming"
+  ],
+  "deviations": [
+    {
+      "host": "modal-cloud",
+      "field": "surface",
+      "behavior": "Python SDK + web endpoints rather than a public REST catalog"
+    },
+    {
+      "host": "lambda-cloud",
+      "field": "surface",
+      "behavior": "raw GPU instances; inference is bring-your-own server"
+    },
+    {
+      "host": "coreweave-cloud",
+      "field": "surface",
+      "behavior": "Kubernetes CKS + SUNK; inference via deployed k8s services"
+    }
+  ],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "output chunks on urls.stream"
+    ],
+    "notes": "replicate exposes per-prediction stream url"
+  },
+  "provenance": {
+    "source": "https://replicate.com/docs/reference/http",
+    "spec_version": "v1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

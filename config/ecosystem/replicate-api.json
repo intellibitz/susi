@@ -1,0 +1,83 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "replicate-api",
+    "name": "Replicate",
+    "category": "service",
+    "provenance": {
+      "source": "https://replicate.com/docs/reference/http",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "replicate-api",
+      "to": "replicate-predictions",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "replicate-api",
+      "to": "replicate-api-v1",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "replicate-api",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "replicate-api",
+      "to": "cap-image-generation",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "replicate-api",
+      "to": "cap-audio",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "replicate-api",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://replicate.com/docs/reference/http",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
