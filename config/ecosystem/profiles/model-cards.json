@@ -1,0 +1,55 @@
+{
+  "version": "eco-profile/v1",
+  "id": "model-cards",
+  "name": "Model cards and Hugging Face card metadata",
+  "subject": "hf-model-card",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "cards-v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "card-metadata",
+      "format": "yaml",
+      "fields": [
+        "license",
+        "license_name/license_link for other",
+        "tags[]",
+        "pipeline_tag",
+        "library_name",
+        "base_model{,[]}",
+        "datasets[]",
+        "language[]",
+        "model-index[]{results{task,dataset,metrics}}",
+        "eval_results",
+        "widget[]",
+        "inference bool"
+      ],
+      "notes": "YAML front matter; unknown keys pass through"
+    },
+    {
+      "name": "card-body",
+      "format": "markdown",
+      "fields": [
+        "# Model Card sections: description, use, limitations, evals, citation"
+      ],
+      "notes": "markdown body is free-form; metadata drives indexing"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://huggingface.co/docs/hub/model-cards",
+    "spec_version": "cards-v1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}
