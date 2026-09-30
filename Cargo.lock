@@ -6852,12 +6852,14 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-base64",
  "susi-vendor-ed25519-dalek",
  "susi-vendor-hex",
  "susi-vendor-jsonschema",
  "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
+ "susi-vendor-sha2",
 ]
 
 [[package]]

@@ -236,26 +236,14 @@ pub fn effective_inference_endpoints() -> Vec<crate::susi_sandbox::manager::Infe
 /// Host `config.json` often freezes an endpoint's `model` at first seed.
 /// When that ID has been retired by the vendor, substitute the current
 /// bundled default so registration does not advertise a known-404 name.
+/// The table itself lives in `model_deprecation` (which can also remap from
+/// live `/models` diffs when a listing is available).
 fn remap_retired_endpoint_model(
     endpoint: &mut crate::susi_sandbox::manager::InferenceEndpointItem,
 ) {
     let name = endpoint.name.to_ascii_lowercase();
     let model = endpoint.model.as_str();
-    let replacement = match (name.as_str(), model) {
-        (
-            "groq",
-            "llama-3.3-70b-versatile"
-            | "llama-3.1-8b-instant"
-            | "llama-3.1-70b-versatile"
-            | "mixtral-8x7b-32768",
-        ) => Some("openai/gpt-oss-20b"),
-        (
-            "googlegemini" | "gemini" | "google",
-            "gemini-2.0-pro" | "gemini-1.5-pro" | "gemini-2.5-pro" | "gemini-2.5-flash"
-            | "gemini-2.0-flash" | "gemini-1.5-flash",
-        ) => Some("gemini-3.6-flash"),
-        _ => None,
-    };
+    let replacement = crate::model_deprecation::bundled_replacement(&name, model);
     if let Some(next) = replacement {
         endpoint.model = next.to_string();
     }
