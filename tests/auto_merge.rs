@@ -273,7 +273,7 @@ fn the_workflow_wires_every_path_to_the_shared_scripts() {
         "workflow_dispatch:",
         "scripts/auto-merge-pr.sh",
         "scripts/reconcile-prs.sh",
-        "Merge now if this commit already went green",
+        "Reconcile if this commit already went green",
     ] {
         assert!(
             wf.contains(needle),
@@ -300,5 +300,28 @@ fn a_tested_branch_missing_current_main_cannot_merge() {
         assert_eq!(code, 1, "{out}");
         assert!(!f.calls().contains("pr merge"), "{}", f.calls());
         assert!(out.contains("sync and retest"));
+    }
+}
+
+#[test]
+fn integration_lock_never_serializes_branch_pr_creation() {
+    let workflow = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/auto-merge.yml"),
+    )
+    .unwrap();
+    let open = workflow
+        .split("  open-pr:")
+        .nth(1)
+        .unwrap()
+        .split("  merge-pr:")
+        .next()
+        .unwrap();
+    assert!(!open.contains("group: auto-merge-integration"));
+    assert!(!open.contains("bash \"$RUNNER_TEMP/auto-merge-pr.sh\""));
+    assert!(open.contains("gh workflow run auto-merge.yml"));
+    for job in ["merge-pr", "reconcile"] {
+        let body = workflow.split(&format!("  {job}:")).nth(1).unwrap();
+        assert!(body.contains("group: auto-merge-integration"));
+        assert!(body.contains("queue: max"));
     }
 }

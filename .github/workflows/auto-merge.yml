@@ -41,7 +41,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: auto-merge-integration
+  group: auto-merge-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -64,7 +64,7 @@ jobs:
           gh pr create --base main --head "$BRANCH" \
             --title "$(git log -1 --format=%s)" \
             --body "Automated PR for \`$BRANCH\` (Mandate 49). Merges itself once the Test gate passes."
-      - name: Merge now if this commit already went green
+      - name: Reconcile if this commit already went green
         # The Test run can finish before the PR exists; the workflow_run merge
         # job would then find no PR and never retry.
         env:
@@ -76,11 +76,15 @@ jobs:
           green=$(gh run list --repo "$REPO" --workflow test.yml --commit "$SHA" --event push \
                     --json status,conclusion --jq '.[0] | select(.status=="completed" and .conclusion=="success") | "yes"')
           [ "$green" = "yes" ] || { echo "Test not green yet; the merge job or reconciler will merge it"; exit 0; }
-          git show origin/main:scripts/auto-merge-pr.sh > "$RUNNER_TEMP/auto-merge-pr.sh" 2>/dev/null \
-            || { echo "auto-merge-pr.sh not on main yet"; exit 0; }
-          bash "$RUNNER_TEMP/auto-merge-pr.sh" "$REPO" "$BRANCH" "$SHA"
+          # Dispatch the serialized integration job. PR creation must never
+          # share its global queue: GitHub replaces older pending jobs.
+          gh workflow run auto-merge.yml --repo "$REPO" --ref main
 
   merge-pr:
+    concurrency:
+      group: auto-merge-integration
+      queue: max
+      cancel-in-progress: false
     if: >-
       github.event_name == 'workflow_run'
       && github.event.workflow_run.conclusion == 'success'
@@ -101,6 +105,10 @@ jobs:
         run: scripts/auto-merge-pr.sh "$REPO" "$BRANCH" "$SHA"
 
   reconcile:
+    concurrency:
+      group: auto-merge-integration
+      queue: max
+      cancel-in-progress: false
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
