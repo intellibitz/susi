@@ -5,6 +5,7 @@ use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
 use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
 use crate::independent_verify::{verification_satisfied, ReviewConclusion};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
+use crate::mission_resume::{DagNodeView, MissionView, NodeView};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
 use crate::role_select::{select_roles, AgentEvidence, RoleAssignment, SelectError};
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
@@ -325,6 +326,51 @@ impl MissionDag {
             }
         }
         true
+    }
+
+    /// Build a durable resume CLI view from live DAG + optional side-effect
+    /// uncertainty (VC-201-030). Partial outcomes never report full success.
+    #[must_use]
+    pub fn resume_cli_view(&self, mission_id: &str) -> MissionView {
+        let mut view = MissionView::new(mission_id);
+        for (idx, node) in self.nodes.iter().enumerate() {
+            let id = Self::persist_id(idx);
+            let uncertain = self
+                .side_effects
+                .get(&id)
+                .is_some_and(|o| o.uncertain_external);
+            let cancelled = self.cancel.descendants.contains_key(&id)
+                && self.cancel.token.as_ref().is_some_and(|t| t.cancelled);
+            let (node_view, resumable) = if node.completed {
+                (NodeView::Completed, false)
+            } else if cancelled {
+                (NodeView::Cancelled, false)
+            } else if uncertain {
+                (NodeView::Uncertain, true)
+            } else if node
+                .dependencies
+                .iter()
+                .all(|&d| self.nodes.get(d).is_some_and(|n| n.completed))
+            {
+                (NodeView::Running, true)
+            } else {
+                (NodeView::Blocked, true)
+            };
+            view.upsert(DagNodeView {
+                id,
+                view: node_view,
+                resumable,
+                output: None,
+            });
+        }
+        view
+    }
+
+    /// Resume CLI status text for a mission view — never claims full success
+    /// when work remains (VC-201-030).
+    #[must_use]
+    pub fn resume_cli_status(view: &MissionView) -> String {
+        crate::mission_resume::cli_status_line(view)
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).
