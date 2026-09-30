@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN-13",
+  "title": "Fix panic-path allow justifications in T-DEVIN-11/12 test modules",
+  "goal": "architecture_tests::every_panic_path_allow_is_justified fails on main: capacity_admission.rs and quorum_durable.rs test-module allow headers lack justification comments",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests",
+      "every_panic_path"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790807780,
+  "closed": {
+    "at_unix": 1790807845,
+    "commit": "ada626a366d734f3f3721956713375608f269761",
+    "by": "DEVIN"
+  }
+}
