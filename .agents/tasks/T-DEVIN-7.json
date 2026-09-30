@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN-7",
+  "title": "Mandatory verified closure: run_round/Gate finishes a task only after acceptance verified on the exact branch SHA — executor self-report never closes work",
+  "goal": "P1: roadmap_agents::run_round marks finish on any output, trusting the executor claim; independent verify checks names/digest strings without receipt provenance. Bind closure to verified acceptance at the exact commit.",
+  "size": "m",
+  "deps": [
+    "T-DEVIN-5"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "verified_closure",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790798896
+}

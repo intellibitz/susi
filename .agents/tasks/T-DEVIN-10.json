@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN-10",
+  "title": "Crash-replay intent journal: persist side-effect intent BEFORE dispatch; reconcile uncertain actions before retry; arbitrary exec_command/apply_patch are not idempotent",
+  "goal": "P1: side_effects::classify_tool_action marks exec_command/apply_patch idempotent by tool name; outcomes recorded after execution. Journal intent first, reconcile before replay.",
+  "size": "m",
+  "deps": [
+    "T-DEVIN-5"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "side_effect_journal",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790798926
+}

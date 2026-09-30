@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN-11",
+  "title": "Durable quorum commit: QUORUM_COMMIT only after commit-log append succeeds with defined acknowledgement guarantees — no ledger failure swallowed by eprintln",
+  "goal": "P1: amas.rs ~1278 logs commit_log::append failure and still reports QUORUM_COMMIT; replication detached/best-effort. Require durable storage before declaring commit.",
+  "size": "m",
+  "deps": [
+    "T-DEVIN-5"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "quorum_durable",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790798932
+}

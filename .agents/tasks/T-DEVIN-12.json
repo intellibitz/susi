@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN-12",
+  "title": "Measured capacity admission in DAG scheduling: replace fixed 8 CPU / 16 GB assumptions with measured capacity, shared reservations, fair queue; deferred specialists must drain",
+  "goal": "P2: dag.rs ~605 supplies fixed Resources{cpu:8,gpu_mem_gb:16,model_ready:true}; specialists beyond cap deferred without being drained in that dispatch.",
+  "size": "m",
+  "deps": [
+    "T-DEVIN-6"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "capacity_admission",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790798944
+}

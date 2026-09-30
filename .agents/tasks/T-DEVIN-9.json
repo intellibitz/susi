@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN-9",
+  "title": "Durable fencing before writes: persist lease+fence in mission state; check the fence before a worker's first mutating op — rejecting stale completions cannot undo writes",
+  "goal": "P1: task_lease::LeaseTable holds leases/fences in memory only; live DAG checks the fence after commands execute. Persisted fencing + pre-write check required.",
+  "size": "m",
+  "deps": [
+    "T-DEVIN-6"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "durable_fence",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790798918
+}

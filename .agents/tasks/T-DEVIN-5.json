@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN-5",
+  "title": "Wire production mission lifecycle: cloud brain coordinator + roadmap scheduler + integration gate as ONE dispatch entry (no more test-only composition)",
+  "goal": "P1: brain_coordination::Coordinator, roadmap_agents::run_round, agent_integration::Gate exist but only test callers compose them; native missions still run fleet dispatch → DAG. Provide a production entry point that runs the full lifecycle.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "production_lifecycle",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790798877
+}
