@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-402",
+  "title": "Make member-key binding itself consensus-checked",
+  "goal": "VC-200-001's own residual: the pre-binding window, backdated committed_at and proposer-attested member_pubkey stay bounded-but-nonzero until a member->key binding is accepted only after a bound-majority check on the committed ledger, so overlapping config changes serialize. Tests vc_200_001_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_200_001"
+    ]
+  },
+  "roadmap": "VC-200-001",
+  "created_by": "CLAUDE",
+  "created_unix": 1790742957
+}

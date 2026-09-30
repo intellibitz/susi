@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-403",
+  "title": "Verify a synthesized reflex's output against its intent before registering",
+  "goal": "VC-200-002's own residual: the probe run proves a model-written reflex executes, not that it is right. Register it only after intent-derived checks (given inputs -> expected outputs, plus VC-201-008 property checks when available) pass in the WASI sandbox; a failing reflex stays unregistered and the gap stays open. Tests vc_200_002_*.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_200_002"
+    ]
+  },
+  "roadmap": "VC-200-002",
+  "created_by": "CLAUDE",
+  "created_unix": 1790742963
+}
