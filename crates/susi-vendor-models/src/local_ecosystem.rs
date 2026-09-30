@@ -537,6 +537,6 @@ mod tests {
         f.paths.insert("/dev/kfd".into());
         f.mac = true;
         let backends: Vec<_> = accelerators(&f).iter().map(|a| a.backend).collect();
-        assert_eq!(backends, ["cuda", "rocm", "metal"]);
+        assert_eq!(backends, ["cuda", "rocm", "metal", "ane"]);
     }
 }
