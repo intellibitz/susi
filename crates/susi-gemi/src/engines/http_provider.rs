@@ -396,7 +396,7 @@ pub fn register_configured_cloud_endpoints(
                 })
         } else if endpoint.model.is_empty() {
             match protocol {
-                InferenceProtocol::Anthropic => "claude-3-5-haiku-20241022".to_string(),
+                InferenceProtocol::Anthropic => "claude-haiku-4-5-20251001".to_string(),
                 InferenceProtocol::Gemini => "gemini-3.6-flash".to_string(),
                 InferenceProtocol::OpenAiChat
                 | InferenceProtocol::OpenAiCompletions
