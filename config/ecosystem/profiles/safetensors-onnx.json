@@ -1,0 +1,53 @@
+{
+  "version": "eco-profile/v1",
+  "id": "safetensors-onnx",
+  "name": "safetensors and ONNX standards",
+  "subject": "safetensors",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "safetensors-1",
+      "status": "current"
+    },
+    {
+      "id": "onnx-1.17",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "safetensors-file",
+      "format": "binary",
+      "fields": [
+        "u64le header length",
+        "JSON header {tensor->dtype|shape|data_offsets}",
+        "__metadata__ key",
+        "contiguous tensor bytes"
+      ],
+      "notes": "no code execution in header \u2014 safe vs pickle"
+    },
+    {
+      "name": "onnx-model",
+      "format": "protobuf",
+      "fields": [
+        "ModelProto{ir_version,opset_import,graph}",
+        "opset_import{domain,version}",
+        "initializer tensors"
+      ],
+      "notes": "opset version pins operator semantics"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://huggingface.co/docs/safetensors/index",
+    "spec_version": "1.0",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

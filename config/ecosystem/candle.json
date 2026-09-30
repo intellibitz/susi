@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "candle",
+    "name": "candle (HF Rust ML)",
+    "category": "agent-framework",
+    "provenance": {
+      "source": "https://huggingface.co/docs/safetensors/index",
+      "spec_version": "1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "candle",
+      "to": "safetensors",
+      "provenance": {
+        "source": "https://huggingface.co/docs/safetensors/index",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "candle",
+      "to": "onnx",
+      "provenance": {
+        "source": "https://huggingface.co/docs/safetensors/index",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

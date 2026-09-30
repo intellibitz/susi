@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "onnx",
+    "name": "Open Neural Network Exchange",
+    "body": "LF AI & Data / ONNX",
+    "provenance": {
+      "source": "https://huggingface.co/docs/safetensors/index",
+      "spec_version": "1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

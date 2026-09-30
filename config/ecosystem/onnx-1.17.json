@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "onnx-1.17",
+    "name": "ONNX 1.17",
+    "version": "1.17.0",
+    "provenance": {
+      "source": "https://huggingface.co/docs/safetensors/index",
+      "spec_version": "1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "onnx-1.17",
+      "to": "onnx",
+      "provenance": {
+        "source": "https://huggingface.co/docs/safetensors/index",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "supersedes",
+      "from": "onnx-1.17",
+      "to": "onnx-1.16",
+      "provenance": {
+        "source": "https://huggingface.co/docs/safetensors/index",
+        "spec_version": "1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
