@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-334",
+  "title": "Profile: browser and computer-use tooling",
+  "goal": "browser-use, Playwright-based MCP servers and vendor computer-use tools: capabilities, sandboxing needs and risk notes. Author the machine-readable profile (endpoints, auth, versions, request/response shapes, errors, rate-limit signals, streaming, capability tags) in config/ecosystem/ and test it offline against recorded fixtures. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "eco_computer_use_tools"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713552,
+  "closed": {
+    "at_unix": 1790727607,
+    "commit": "1d4f7e0e0acd018395edb41ef557c05f4efd7cb0",
+    "by": "INTELLIBITZ"
+  }
+}

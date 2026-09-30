@@ -1,0 +1,27 @@
+{
+  "id": "T-CLAUDE-272",
+  "title": "Mapping between vendor prompt and message formats",
+  "goal": "A lossless-where-possible mapping table between OpenAI, Anthropic and Gemini message/tool shapes, with documented lossy cases, used by routing to pick or refuse a target.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-263",
+    "T-CLAUDE-268",
+    "T-CLAUDE-270"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_prompt_formats"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551,
+  "closed": {
+    "at_unix": 1790726570,
+    "commit": "1d4f7e0e0acd018395edb41ef557c05f4efd7cb0",
+    "by": "INTELLIBITZ"
+  }
+}

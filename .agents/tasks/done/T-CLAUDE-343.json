@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-343",
+  "title": "Log unrecognised fields and endpoints for review",
+  "goal": "Protocol parsers count fields, event types and error codes they do not know, and surface the most frequent as knowledge-base gaps.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-261"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_unknown_fields"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553,
+  "closed": {
+    "at_unix": 1790728685,
+    "commit": "89f60d8cc571e59e054c6f9a19557c7a56171e97",
+    "by": "INTELLIBITZ"
+  }
+}

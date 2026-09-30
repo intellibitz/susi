@@ -1,0 +1,27 @@
+{
+  "id": "T-CLAUDE-351",
+  "title": "Risk and compliance questions answered from the knowledge base",
+  "goal": "Residency, licence, disclosure and framework mapping questions answered with citations and clear 'mapping, not certification' wording.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDE-302",
+    "T-CLAUDE-324",
+    "T-CLAUDE-322"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "eco_risk_answers"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713553,
+  "closed": {
+    "at_unix": 1790728828,
+    "commit": "89f60d8cc571e59e054c6f9a19557c7a56171e97",
+    "by": "INTELLIBITZ"
+  }
+}
