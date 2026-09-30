@@ -1,0 +1,53 @@
+{
+  "version": "eco-profile/v1",
+  "id": "k8s-serving",
+  "name": "Kubernetes model serving (KServe, KubeAI, Ray Serve)",
+  "subject": "kserve",
+  "kind": "platform",
+  "versions": [
+    {
+      "id": "v1beta1-crd",
+      "status": "current"
+    },
+    {
+      "id": "oip-v2",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "inference-service",
+      "format": "yaml",
+      "fields": [
+        "apiVersion serving.kserve.io/v1beta1",
+        "predictor{model{modelFormat,storageUri}}",
+        "transformer",
+        "explainer"
+      ],
+      "notes": "CRD declares runtime + format + artifact uri"
+    },
+    {
+      "name": "oip-v2-dataplane",
+      "format": "http",
+      "fields": [
+        "POST /v2/models/{m}/infer",
+        "GET /v2/health/ready",
+        "GET /v2/models/{m}/ready"
+      ],
+      "notes": "load via POST /v2/repository/models/{m}/load"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://kserve.github.io/website/latest/",
+    "spec_version": "v1beta1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

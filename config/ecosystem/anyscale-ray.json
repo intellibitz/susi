@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "anyscale-ray",
+    "name": "Anyscale / Ray project",
+    "home": "https://www.ray.io",
+    "provenance": {
+      "source": "https://kserve.github.io/website/latest/",
+      "spec_version": "v1beta1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "anyscale-ray",
+      "to": "ray-serve",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

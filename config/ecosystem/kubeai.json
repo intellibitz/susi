@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "kubeai",
+    "name": "KubeAI",
+    "home": "https://www.kubeai.org",
+    "provenance": {
+      "source": "https://kserve.github.io/website/latest/",
+      "spec_version": "v1beta1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "kubeai",
+      "to": "kubeai-gateway",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
