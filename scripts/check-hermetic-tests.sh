@@ -18,7 +18,8 @@ testhome=$(mktemp -d)
 trap 'rm -rf "$home" "$testhome"' EXIT
 export CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}"
 export RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}"
-export PATH="${CARGO_HOME}/bin:/usr/bin:/bin"
+# The real cargo shim must stay reachable after HOME is replaced.
+export PATH="${CARGO_HOME}/bin:${PATH}"
 export HOME="$testhome"
 export USERPROFILE="$testhome"
 export XDG_CONFIG_HOME="$testhome/xdg-config"

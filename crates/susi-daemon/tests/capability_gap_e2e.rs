@@ -80,6 +80,9 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
         &workspace,
     );
     let _ = std::fs::remove_dir_all(&tmp);
+    // A 401 means *someone else's* susi-native holds the fixed port — a
+    // dev instance whose bearer token this isolated run cannot (and must
+    // not) read. That is the same absent prerequisite as "unreachable".
     if second.contains("susi-native service unreachable")
         || second.contains("HTTP 401")
         || second.contains("bearer token rejected")
