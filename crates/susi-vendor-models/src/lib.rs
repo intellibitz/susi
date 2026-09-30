@@ -55,7 +55,11 @@ pub mod price_catalog;
 pub mod resource_inventory;
 pub mod signed_catalog;
 pub mod zc_default_models;
+pub mod zc_engine_autopull;
+pub mod zc_hf_token_jit;
+pub mod zc_key_aliases;
 pub mod zc_key_autodetect;
+pub mod zc_rotation_prompt;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]

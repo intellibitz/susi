@@ -58,7 +58,9 @@ pub mod spend_tracker;
 pub mod thermal_routing;
 pub mod tui_top;
 pub mod zc_budget_derived;
+pub mod zc_cost_from_catalog;
 pub mod zc_gpu_asset;
+pub mod zc_local_first_default;
 pub mod zc_preferred_auto;
 
 #[cfg(test)]

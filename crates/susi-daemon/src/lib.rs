@@ -77,6 +77,7 @@ pub mod webhook_dispatcher;
 pub mod what_if;
 pub mod workflows;
 pub mod zc_daemon_lifecycle;
+pub mod zc_keys_health_boot;
 pub mod zc_port_autoselect;
 pub mod zc_startup_autofix;
 
