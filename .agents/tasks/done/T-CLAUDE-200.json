@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-200",
+  "title": "Import MCP servers from other clients with consent",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Read Claude Desktop, Cursor and VS Code MCP configs, show what would be imported, add on a yes. Tests zc_mcp_import_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "zc_mcp_import"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790728301,
+    "commit": "f1547feeb1ffbf8ff16ba7ff769292809507115e",
+    "by": "CURSOR"
+  }
+}

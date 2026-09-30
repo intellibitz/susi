@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-184",
+  "title": "Check key health at startup and say what needs attention",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Run the read-only key check in the background at startup and surface rejected or missing keys in 'susi status' with the fix command. Tests zc_keys_health_boot_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "zc_keys_health_boot"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790727674,
+    "commit": "374e060ee1c2af61877e44726e26b1a484c9ef60",
+    "by": "CURSOR"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-242",
+  "title": "Zero-config scorecard in 'susi os'",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Show config debt, each remaining manual step and the task that removes it, and how the score changed since last release. Tests zc_scorecard_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "zc_scorecard"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979,
+  "closed": {
+    "at_unix": 1790730054,
+    "commit": "acc23e6bf5e2d1c8816d1d66ed021d43020c0d6b",
+    "by": "CURSOR"
+  }
+}

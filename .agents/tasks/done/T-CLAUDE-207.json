@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-207",
+  "title": "Peer and agent trust store maintained automatically",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Record fingerprints on first use, alert on change, and expire stale entries, with no file to edit. Tests zc_trust_store_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "zc_trust_store"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790728693,
+    "commit": "a5f7baf78e92e0ebd879dba0011092632c7cbafe",
+    "by": "CURSOR"
+  }
+}

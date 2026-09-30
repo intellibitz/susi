@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-232",
+  "title": "Detect the agent identity from the running tool",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. SUSI_AGENT is inferred from parent process and tool markers (codex, claude, cursor, gemini, devin) so claims and task ids need no setup. Tests zc_agent_identity_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "zc_agent_identity"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979,
+  "closed": {
+    "at_unix": 1790729972,
+    "commit": "acc23e6bf5e2d1c8816d1d66ed021d43020c0d6b",
+    "by": "CURSOR"
+  }
+}

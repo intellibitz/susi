@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-201",
+  "title": "Auto-install an MCP server's runtime prerequisite when asked to enable it",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Enabling a server whose npx/uvx runtime is present just works; when absent offer the install command. Tests zc_mcp_autoinstall_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "zc_mcp_autoinstall"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790728318,
+    "commit": "f1547feeb1ffbf8ff16ba7ff769292809507115e",
+    "by": "CURSOR"
+  }
+}

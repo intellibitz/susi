@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-205",
+  "title": "Enable Devin/Manus automatically when their keys exist",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. A DEVIN_API_KEY or MANUS_API_KEY in the environment or key store enables the agent with its cost guard on; no configure step. Tests zc_cloud_agent_autoenable_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-agents",
+      "zc_cloud_agent_autoenable"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790728369,
+    "commit": "f1547feeb1ffbf8ff16ba7ff769292809507115e",
+    "by": "CURSOR"
+  }
+}

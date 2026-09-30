@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-167",
+  "title": "Model ladder correct on tiny and huge hosts",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. 4 GB RAM, no GPU, multi-GPU and 512 GB hosts must all get a sensible ladder with no config. Tests zc_ladder_edges_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi-models",
+      "zc_ladder_edges"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790726889,
+    "commit": "9df0bb64260a549a7dda17c3e46d95380c95b809",
+    "by": "CURSOR"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-220",
+  "title": "Disk budget for model storage as a percentage of free space",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Default the model-store budget to a safe share of free disk and adjust as disk changes. Tests zc_disk_default_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "zc_disk_default"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979,
+  "closed": {
+    "at_unix": 1790729420,
+    "commit": "e5ae96678bbe36aca8d885bcaf3e10f5c5017003",
+    "by": "CURSOR"
+  }
+}

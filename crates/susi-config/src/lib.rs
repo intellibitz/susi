@@ -53,8 +53,11 @@ pub mod zc_bare_susi;
 pub mod zc_config_overrides;
 pub mod zc_debt_report;
 pub mod zc_env_classify;
+pub mod zc_env_detectable;
+pub mod zc_installer;
 pub mod zc_path;
 pub mod zc_susi_fix;
+pub mod zc_uninstall;
 
 /// IPC client for the standalone `susi-config` service. Only the global
 /// config path is routed here; per-directory loads and `cluster_key` stay

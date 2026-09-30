@@ -67,6 +67,14 @@ pub mod quant_recommender;
 pub mod resource_inventory;
 pub mod signed_catalog;
 pub mod vllm_launcher;
+pub mod zc_default_models;
+pub mod zc_disk_default;
+pub mod zc_engine_autopull;
+pub mod zc_hf_token_jit;
+pub mod zc_key_aliases;
+pub mod zc_key_autodetect;
+pub mod zc_rotation_prompt;
+pub mod zc_scan_paths;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]

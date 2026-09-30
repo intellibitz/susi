@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-157",
+  "title": "Replace env vars that only carry detectable facts",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. SUSI_PUBLIC_IP, SUSI_MODEL_DIR, SUSI_XDG, SUSI_TURN_* and similar state something the host can detect. Detect first; keep the variable only as an override. Tests zc_env_detectable_*.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "zc_env_detectable"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790726794,
+    "commit": "9df0bb64260a549a7dda17c3e46d95380c95b809",
+    "by": "CURSOR"
+  }
+}

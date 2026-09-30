@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-245",
+  "title": "README quickstart needs at most two manual commands",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Pin the number of manual steps the README asks a new user to perform; it may only go down. Architecture test zc_quickstart_budget.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "zc_quickstart_budget"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712979,
+  "closed": {
+    "at_unix": 1790730070,
+    "commit": "acc23e6bf5e2d1c8816d1d66ed021d43020c0d6b",
+    "by": "CURSOR"
+  }
+}
