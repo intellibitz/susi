@@ -82,6 +82,8 @@ pub fn undurable_err(detail: &str) -> EaiError {
 }
 
 #[cfg(test)]
+// Test module: panic-path macros are the assertion mechanism here; the
+// mandate exemption applies to test code only.
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
