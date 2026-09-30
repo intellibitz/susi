@@ -188,10 +188,24 @@ impl LocalDirs {
     /// `SUSI_HOME` selects a fully isolated instance root — the multi-instance
     /// knob: `SUSI_HOME=~/.susi-b SUSI_PORT_OFFSET=100 susi start` runs a
     /// second node beside the primary with its own config, lock, and state.
+    ///
+    /// Mandate 52: an inherited launch-time `SUSI_HOME` (e.g. `~/.susi-dev`)
+    /// must not receive test writes. `scripts/check-hermetic-tests.sh` exports
+    /// `SUSI_HERMETIC_FORBIDDEN` to the throwaway it set as `SUSI_HOME`; that
+    /// path is ignored here so unit tests fall back to the (also throwaway)
+    /// `HOME`/`XDG_*` the script provides. A test that points `SUSI_HOME` at a
+    /// *different* absolute path still gets a real instance root.
     fn instance_root() -> Option<PathBuf> {
-        std::env::var_os("SUSI_HOME")
+        let p = std::env::var_os("SUSI_HOME")
             .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
+            .filter(|p| p.is_absolute())?;
+        if std::env::var_os("SUSI_HERMETIC_FORBIDDEN")
+            .map(PathBuf::from)
+            .is_some_and(|f| f == p)
+        {
+            return None;
+        }
+        Some(p)
     }
 
     fn legacy_base() -> PathBuf {
@@ -390,5 +404,62 @@ mod tests {
     fn percent_encode_query_and_path() {
         assert_eq!(percent_encode_query("Chennai, India"), "Chennai%2C%20India");
         assert_eq!(percent_encode_path("/tmp/my ws"), "/tmp/my%20ws");
+    }
+}
+
+#[cfg(test)]
+mod hermetic_forbidden_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn hermetic_forbidden_susi_home_is_ignored() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let forbidden =
+            std::env::temp_dir().join(format!("susi_hermetic_forbid_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&forbidden);
+        let home = std::env::temp_dir().join(format!("susi_hermetic_home_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&home);
+        let prev_home = std::env::var_os("HOME");
+        let prev_susi = std::env::var_os("SUSI_HOME");
+        let prev_forbid = std::env::var_os("SUSI_HERMETIC_FORBIDDEN");
+        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::set_var("HOME", &home);
+        std::env::set_var("SUSI_HOME", &forbidden);
+        std::env::set_var("SUSI_HERMETIC_FORBIDDEN", &forbidden);
+        std::env::remove_var("XDG_CONFIG_HOME");
+        // Without a pre-existing ~/.susi, XDG layout applies under HOME.
+        let cfg = LocalDirs::config_dir();
+        assert_ne!(
+            cfg, forbidden,
+            "forbidden SUSI_HOME must not be the config root"
+        );
+        // An explicit different SUSI_HOME still pins the instance.
+        let other =
+            std::env::temp_dir().join(format!("susi_hermetic_other_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&other);
+        std::env::set_var("SUSI_HOME", &other);
+        assert_eq!(LocalDirs::config_dir(), other);
+        match prev_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+        match prev_susi {
+            Some(v) => std::env::set_var("SUSI_HOME", v),
+            None => std::env::remove_var("SUSI_HOME"),
+        }
+        match prev_forbid {
+            Some(v) => std::env::set_var("SUSI_HERMETIC_FORBIDDEN", v),
+            None => std::env::remove_var("SUSI_HERMETIC_FORBIDDEN"),
+        }
+        match prev_xdg {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&forbidden);
+        let _ = std::fs::remove_dir_all(&home);
+        let _ = std::fs::remove_dir_all(&other);
     }
 }
