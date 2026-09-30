@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-398",
+  "title": "Sync the primary checkout's main from git hooks, for every agent",
+  "goal": "post-commit, post-merge, post-checkout and pre-push run a throttled, silent, non-blocking park-primary --sync-only, so any agent's git activity keeps the primary main current. Tests hooks_sync_primary_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "sync_hooks",
+      "hooks_sync_primary"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790740379,
+  "closed": {
+    "at_unix": 1790740704,
+    "commit": "7aa02d057d6b6ba5295638ca502ae1b8f563e6c5",
+    "by": "CLAUDE"
+  }
+}

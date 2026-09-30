@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Mandate 49: keep the primary checkout's main current (see sync-primary).
+"$(dirname "$0")/sync-primary"
+exit 0

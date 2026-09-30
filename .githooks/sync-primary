@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Mandate 49: any git activity by any agent keeps the primary checkout's main
+# current. Called by post-commit, post-merge, post-checkout and pre-push. It is
+# silent, never fails the caller, and is throttled (SUSI_SYNC_INTERVAL seconds,
+# default 30) so a burst of commits fetches once. It runs
+# `park-primary.sh --sync-only`, which only ever fast-forwards a clean `main`
+# with no local commits. SUSI_SYNC_FOREGROUND=1 waits for it (tests).
+# Hooks run with GIT_DIR/GIT_INDEX_FILE set for the calling worktree.
+unset GIT_INDEX_FILE GIT_PREFIX
+script=$(git rev-parse --show-toplevel 2>/dev/null)/scripts/park-primary.sh
+[ -x "$script" ] || exit 0
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+stamp="$common/susi-primary-sync"
+now=$(date +%s)
+last=$(cat "$stamp" 2>/dev/null || echo 0)
+[ $((now - last)) -ge "${SUSI_SYNC_INTERVAL:-30}" ] || exit 0
+echo "$now" >"$stamp" 2>/dev/null || exit 0
+if [ -n "${SUSI_SYNC_FOREGROUND:-}" ]; then
+    "$script" --sync-only >/dev/null 2>&1 || true
+else
+    ("$script" --sync-only >/dev/null 2>&1 </dev/null &) 
+fi
+exit 0
