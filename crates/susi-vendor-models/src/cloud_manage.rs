@@ -129,6 +129,34 @@ fn check_endpoint(name: &str, api_base: &str, protocol: &str, model: &str, key: 
         out.model_count = ids.len();
         out.models = ids.into_iter().take(MODEL_CAP).collect();
     }
+    // Probe evidence feeds the shared eligibility ledger; a listing success
+    // is deliberately not recorded — it is not proof a model is usable.
+    // Remote endpoints only: eligibility tracks cloud credentials, and the
+    // guard also keeps loopback fixture tests from writing state.
+    if is_local(api_base) {
+        return out;
+    }
+    match out.state {
+        KeyState::Rejected => crate::cloud_eligibility::record_probe(
+            name,
+            key,
+            out.http_status,
+            "vendor rejected the credential",
+        ),
+        KeyState::RateLimited => crate::cloud_eligibility::record_probe(
+            name,
+            key,
+            out.http_status,
+            "vendor throttled the probe",
+        ),
+        KeyState::Unreachable => crate::cloud_eligibility::record_probe(
+            name,
+            key,
+            out.http_status,
+            "endpoint unreachable from probe",
+        ),
+        KeyState::Valid | KeyState::Missing => {}
+    }
     out
 }
 
