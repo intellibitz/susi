@@ -1,0 +1,121 @@
+{
+  "version": "eco-profile/v1",
+  "id": "nist-ai-rmf",
+  "name": "NIST AI RMF 1.0 \u2014 susi control mapping",
+  "subject": "nist-ai-rmf",
+  "kind": "framework",
+  "versions": [
+    {
+      "id": "1.0",
+      "released": "2023-01-26",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "govern",
+      "format": "rmf-function",
+      "fields": [
+        "accountability-structures",
+        "policies",
+        "culture",
+        "third-party-risk"
+      ],
+      "notes": "GOVERN is cross-cutting"
+    },
+    {
+      "name": "map",
+      "format": "rmf-function",
+      "fields": [
+        "context-identification",
+        "risk-categorization",
+        "capability-inventory"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "measure",
+      "format": "rmf-function",
+      "fields": [
+        "risk-metrics",
+        "evaluation",
+        "testing",
+        "tracking"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "manage",
+      "format": "rmf-function",
+      "fields": [
+        "risk-response",
+        "monitoring",
+        "incident-handling",
+        "communication"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "susi-control-mapping",
+      "format": "mapping",
+      "fields": [
+        "control",
+        "rmf-function",
+        "rationale"
+      ],
+      "notes": "susi control -> RMF function rows"
+    }
+  ],
+  "mappings": [
+    {
+      "control": "policy-gates",
+      "rmf_function": "MANAGE",
+      "rationale": "task accept/close gates bound to evidence run the risk-response loop"
+    },
+    {
+      "control": "task-queue-claims",
+      "rmf_function": "GOVERN",
+      "rationale": "atomic leases + audit trail implement accountability structures"
+    },
+    {
+      "control": "evidence-ledger",
+      "rmf_function": "MEASURE",
+      "rationale": "recorded outcomes are the tracked metrics for decisions"
+    },
+    {
+      "control": "ecosystem-kb",
+      "rmf_function": "MAP",
+      "rationale": "capability/context inventory that categorises third-party AI risk"
+    },
+    {
+      "control": "compliance-checks",
+      "rmf_function": "MEASURE",
+      "rationale": "consistency and conflict checks evaluate trustworthiness claims"
+    },
+    {
+      "control": "release-gate",
+      "rmf_function": "MANAGE",
+      "rationale": "verified release gate is the documented risk-treatment before ship"
+    }
+  ],
+  "deviations": [
+    {
+      "host": "susi",
+      "field": "scope",
+      "behavior": "mapping only \u2014 susi never claims RMF compliance or certification"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "provenance": {
+    "source": "https://www.nist.gov/itl/ai-risk-management-framework",
+    "spec_version": "NIST AI 100-1",
+    "retrieved": "2026-09-01",
+    "confidence": "verified"
+  }
+}

@@ -6264,6 +6264,7 @@ dependencies = [
  "susi-vendor-flume",
  "susi-vendor-getrandom",
  "susi-vendor-hex",
+ "susi-vendor-models",
  "susi-vendor-parking-lot",
  "susi-vendor-proptest",
  "susi-vendor-regex",
