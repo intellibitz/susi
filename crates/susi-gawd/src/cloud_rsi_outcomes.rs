@@ -370,6 +370,22 @@ impl OutcomeLedger {
     }
 }
 
+/// Production wiring: the outcome ledger is the verified-outcome ranking
+/// source for the default brain policy.
+impl susi_gawd_agents::cloud_brain_policy::OutcomeRanking for OutcomeLedger {
+    fn rank(
+        &self,
+        task_class: &str,
+        models: &[String],
+        is_working: &dyn Fn(&str) -> bool,
+    ) -> Vec<String> {
+        self.rank_for_assignment(task_class, models, is_working)
+    }
+    fn quality(&self, task_class: &str, model: &str) -> Option<f64> {
+        self.get(task_class, model).and_then(|r| r.quality())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
