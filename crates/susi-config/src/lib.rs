@@ -59,6 +59,7 @@ pub mod zc_env_detectable;
 pub mod zc_installer;
 pub mod zc_local_progress;
 pub mod zc_path;
+pub mod zc_qualification;
 pub mod zc_susi_fix;
 pub mod zc_uninstall;
 

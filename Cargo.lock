@@ -6405,6 +6405,7 @@ dependencies = [
  "susi-gawd-agents",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-agents",
  "susi-vendor-dashmap",
  "susi-vendor-flume",
  "susi-vendor-parking-lot",

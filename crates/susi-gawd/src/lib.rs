@@ -65,6 +65,7 @@ pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
 pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
 pub mod admin;
+pub mod autonomous_builder;
 pub mod baseline_capture;
 pub mod bloat_audit;
 pub mod changelog_from_tasks;

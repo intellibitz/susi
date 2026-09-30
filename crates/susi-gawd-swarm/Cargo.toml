@@ -19,6 +19,7 @@ tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
 flume = { package = "susi-vendor-flume", path = "../susi-vendor-flume" }
 dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
+susi-vendor-agents = { workspace = true }
 
 [lints]
 workspace = true
