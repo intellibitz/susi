@@ -159,7 +159,9 @@ pub struct AuditInputSerde {
 }
 
 impl AuditInputSerde {
-    fn to_input(&self) -> AuditInput {
+    /// Convert to the in-memory audit input.
+    #[must_use]
+    pub fn to_input(&self) -> AuditInput {
         AuditInput {
             id: self.id.clone(),
             source: match self.source.as_str() {
@@ -248,6 +250,24 @@ impl TriggerEngine {
     #[must_use]
     pub fn pending(&self) -> &[AuditUnit] {
         &self.q.units
+    }
+
+    /// Drain all pending units — the caller owns them and must `requeue`
+    /// any it cannot process (brain outage, budget bound). Persisted.
+    pub fn take_pending(&mut self) -> Vec<AuditUnit> {
+        let units = std::mem::take(&mut self.q.units);
+        self.persist();
+        units
+    }
+
+    /// Re-queue a unit that could not be processed. Bounded by
+    /// `policy.max_pending`; overflow drops with the audit trail intact
+    /// (`last_seen` still debounces re-ingestion).
+    pub fn requeue(&mut self, unit: AuditUnit) {
+        if self.q.units.len() < self.policy.max_pending {
+            self.q.units.push(unit);
+            self.persist();
+        }
     }
 
     /// Ingest one event: classify → debounce → fold/queue → bound.

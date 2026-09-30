@@ -71,6 +71,7 @@ pub mod baseline_capture;
 pub mod bloat_audit;
 pub mod brain_gap_audit;
 pub mod brain_gap_dedup;
+pub mod brain_gap_e2e;
 pub mod brain_gap_publish;
 pub mod brain_gap_tasks;
 pub mod brain_gap_triggers;
