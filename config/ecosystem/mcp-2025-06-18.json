@@ -1,0 +1,40 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "mcp-2025-06-18",
+    "name": "MCP 2025-06-18",
+    "version": "2025-06-18",
+    "provenance": {
+      "source": "https://modelcontextprotocol.io/specification/2025-06-18",
+      "spec_version": "2025-06-18",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2025-06-18"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "mcp-2025-06-18",
+      "to": "mcp",
+      "provenance": {
+        "source": "https://modelcontextprotocol.io/specification/2025-06-18",
+        "spec_version": "2025-06-18",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "supersedes",
+      "from": "mcp-2025-06-18",
+      "to": "mcp-2025-03-26",
+      "provenance": {
+        "source": "https://modelcontextprotocol.io/specification/2025-06-18",
+        "spec_version": "2025-06-18",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

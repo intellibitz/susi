@@ -40,6 +40,7 @@ susi-vendor-syn = { workspace = true, optional = true }
 tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
 
 [dev-dependencies]
+susi-vendor-models = { workspace = true }
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 
 [features]
