@@ -1,16 +1,21 @@
 // Dependency-ordered task graph: agents can spawn sub-tasks with
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
+use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
+use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
+use crate::independent_verify::{verification_satisfied, ReviewConclusion};
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
+use crate::role_select::{select_roles, AgentEvidence, RoleAssignment, SelectError};
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
 use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
 use crate::task_lease::{CompleteVerdict, LeaseTable, TaskLease};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use susi_gawd_agents::agents::MissionBlackboard;
+use susi_gawd_agents::agents::{instantiate_native_agent, MissionBlackboard};
 
 #[derive(Debug, Clone)]
 pub struct TaskNode {
@@ -29,6 +34,10 @@ pub struct MissionDag {
     pub leases: LeaseTable,
     /// Side-effect outcomes keyed by persist id (VC-201-023).
     pub side_effects: std::collections::BTreeMap<String, ActionOutcome>,
+    /// Cancellation bus for workers/peers (VC-201-026).
+    pub cancel: CancelBus,
+    /// Fair multi-mission admit queue (VC-201-025).
+    pub fair_queue: FairQueue,
 }
 
 pub type SwarmDag = MissionDag;
@@ -62,6 +71,8 @@ impl MissionDag {
             }],
             leases: LeaseTable::new(),
             side_effects: std::collections::BTreeMap::new(),
+            cancel: CancelBus::default(),
+            fair_queue: FairQueue::new(QueueLimits::default()),
         }
     }
 
@@ -152,6 +163,8 @@ impl MissionDag {
             nodes,
             leases: LeaseTable::new(),
             side_effects: std::collections::BTreeMap::new(),
+            cancel: CancelBus::default(),
+            fair_queue: FairQueue::new(QueueLimits::default()),
         }
     }
 
@@ -174,6 +187,144 @@ impl MissionDag {
         self.side_effects
             .get(&Self::persist_id(idx))
             .is_none_or(|o| crate::side_effects::may_retry_after_crash(o.class))
+    }
+
+    /// Attach a cancel token and register a worker descendant for this node.
+    pub fn register_cancel_worker(
+        &mut self,
+        idx: usize,
+        kind: WorkerKind,
+        cancellable: bool,
+        deadline_unix: u64,
+    ) {
+        let id = Self::persist_id(idx);
+        if self.cancel.token.is_none() {
+            self.cancel
+                .set_token(CancelToken::fresh(&id, deadline_unix));
+        }
+        self.cancel.register(Descendant {
+            id,
+            kind,
+            cancellable,
+        });
+    }
+
+    /// Propagate cancellation through registered workers/peers.
+    pub fn cancel_propagate(&mut self) -> Vec<String> {
+        self.cancel.propagate()
+    }
+
+    /// True when the mission cancel token is cancelled or past deadline.
+    #[must_use]
+    pub fn is_cancelled(&self, now: u64) -> bool {
+        match &self.cancel.token {
+            Some(t) => t.cancelled || t.remaining_secs(now).is_none(),
+            None => false,
+        }
+    }
+
+    /// Admit this mission into the fair concurrent queue (VC-201-025).
+    pub fn fair_admit(
+        &mut self,
+        mission_id: &str,
+        workspace: &str,
+        now: u64,
+        weight: u32,
+    ) -> EnqueueResult {
+        self.fair_queue.enqueue(QueuedMission {
+            mission_id: mission_id.to_string(),
+            workspace: workspace.to_string(),
+            enqueued_at: now,
+            weight,
+        })
+    }
+
+    /// Release a finished mission and promote the next fair waiter.
+    pub fn fair_complete(&mut self, mission_id: &str, now: u64) -> Option<QueuedMission> {
+        self.fair_queue.complete(mission_id, now)
+    }
+
+    /// Select implementer/verifier (and optional specialist) from the native
+    /// fleet only — DynamicAgent phantoms without a native factory are dropped
+    /// before [`select_roles`] runs (VC-201-027).
+    pub fn assign_native_roles(
+        &mut self,
+        fleet: &[AgentEvidence],
+        required_caps: &BTreeSet<String>,
+        solo_cost: f64,
+    ) -> Result<RoleAssignment, SelectError> {
+        let native: Vec<AgentEvidence> = fleet
+            .iter()
+            .filter(|a| instantiate_native_agent(&a.id).is_some())
+            .cloned()
+            .collect();
+        let assignment = select_roles(&native, required_caps, solo_cost)?;
+
+        if let Some(root) = self.nodes.first_mut() {
+            root.assigned_agent = Some(assignment.implementer.clone());
+        }
+
+        let verify_idx = self
+            .nodes
+            .iter()
+            .position(|n| n.title == "Independent Verify")
+            .unwrap_or_else(|| {
+                self.push_node(
+                    "Independent Verify",
+                    "independently verify implementer output",
+                    vec![0],
+                )
+            });
+        if let Some(node) = self.nodes.get_mut(verify_idx) {
+            node.assigned_agent = Some(assignment.verifier.clone());
+        }
+
+        if let Some(specialist) = assignment.specialist.as_ref() {
+            let spec_idx = self
+                .nodes
+                .iter()
+                .position(|n| n.title == "Specialist")
+                .unwrap_or_else(|| {
+                    self.push_node("Specialist", "cover remaining capability gap", vec![0])
+                });
+            if let Some(node) = self.nodes.get_mut(spec_idx) {
+                node.assigned_agent = Some(specialist.clone());
+            }
+        }
+
+        Ok(assignment)
+    }
+
+    /// Accept a swarm verify-path conclusion only when independent evidence
+    /// satisfies VC-201-028: reviewer ≠ implementer, pass, unique receipts.
+    /// On success marks the Independent Verify node complete.
+    pub fn accept_independent_verify(&mut self, conclusion: &ReviewConclusion) -> bool {
+        let implementer = self
+            .nodes
+            .first()
+            .and_then(|n| n.assigned_agent.as_deref())
+            .unwrap_or(conclusion.implementer.as_str());
+        if !verification_satisfied(conclusion, implementer) {
+            return false;
+        }
+        let verify_idx = self
+            .nodes
+            .iter()
+            .position(|n| n.title == "Independent Verify");
+        if let Some(idx) = verify_idx {
+            if let Some(node) = self.nodes.get_mut(idx) {
+                if node
+                    .assigned_agent
+                    .as_deref()
+                    .is_some_and(|a| a != conclusion.reviewer)
+                {
+                    // Assigned verifier must match the conclusion reviewer.
+                    return false;
+                }
+                node.completed = true;
+            }
+        }
+        true
     }
 
     /// Default resource request for a DAG node (dispatch scheduling).
@@ -305,6 +456,17 @@ impl MissionDag {
         let total_nodes = self.nodes.len();
 
         while executed_count < total_nodes {
+            if self.is_cancelled(now_unix()) {
+                let reports = self.cancel_propagate();
+                let detail = if reports.is_empty() {
+                    "cancelled".to_string()
+                } else {
+                    reports.join("; ")
+                };
+                return Err(EaiError::governance(format!(
+                    "DAG_EXECUTION_FAILED: cancel propagated: {detail}"
+                )));
+            }
             let ready_indices: Vec<usize> = self
                 .nodes
                 .iter()
