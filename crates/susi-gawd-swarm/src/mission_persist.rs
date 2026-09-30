@@ -34,6 +34,10 @@ pub struct PersistedMission {
     /// workers can't collide with freshly issued fences.
     #[serde(default)]
     pub leases: crate::task_lease::LeaseTable,
+    /// Durable side-effect intent journal (T-DEVIN-10): intents recorded
+    /// before dispatch survive the crash so replay reconciles them.
+    #[serde(default)]
+    pub side_effect_journal: crate::side_effect_journal::IntentJournal,
 }
 
 impl PersistedMission {
@@ -43,6 +47,7 @@ impl PersistedMission {
             mission_id: mission_id.into(),
             nodes: BTreeMap::new(),
             leases: crate::task_lease::LeaseTable::new(),
+            side_effect_journal: crate::side_effect_journal::IntentJournal::new(),
         }
     }
 

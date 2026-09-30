@@ -39,6 +39,10 @@ pub struct MissionDag {
     pub side_effects: std::collections::BTreeMap<String, ActionOutcome>,
     /// Cancellation bus for workers/peers (VC-201-026).
     pub cancel: CancelBus,
+    /// Side-effect intent journal (T-DEVIN-10): every mutating call is
+    /// recorded before dispatch; pending entries become Uncertain on crash
+    /// and block replay until reconciled.
+    pub intent_journal: std::sync::Mutex<crate::side_effect_journal::IntentJournal>,
     /// Fair multi-mission admit queue (VC-201-025).
     pub fair_queue: FairQueue,
     /// Active swarm roster; changes commit only under joint consensus (VC-201-032).
@@ -98,6 +102,7 @@ impl MissionDag {
             leases: LeaseTable::new(),
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
+            intent_journal: std::sync::Mutex::new(crate::side_effect_journal::IntentJournal::new()),
             fair_queue: FairQueue::new(QueueLimits::default()),
             roster: Electorate(BTreeSet::new()),
             pending_membership: None,
@@ -135,6 +140,11 @@ impl MissionDag {
     pub fn to_persisted(&self, mission_id: &str) -> PersistedMission {
         let mut mission = PersistedMission::new(mission_id);
         mission.leases = self.leases.clone();
+        mission.side_effect_journal = self
+            .intent_journal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         for (idx, node) in self.nodes.iter().enumerate() {
             let id = Self::persist_id(idx);
             let state = if node.completed {
@@ -189,15 +199,27 @@ impl MissionDag {
                 completed: n.state == NodeTerminal::Completed,
             })
             .collect();
-        Self {
+        let mut dag = Self {
             nodes,
             leases: LeaseTable::new(),
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
+            intent_journal: std::sync::Mutex::new(crate::side_effect_journal::IntentJournal::new()),
             fair_queue: FairQueue::new(QueueLimits::default()),
             roster: Electorate(BTreeSet::new()),
             pending_membership: None,
+        };
+        // Durable state survives the crash (T-DEVIN-9/10): fences stay
+        // monotonic so stale tokens can't collide, and intents recorded
+        // pre-dispatch but never observed become Uncertain — replay is
+        // refused until each is reconciled.
+        dag.leases.adopt(&mission.leases);
+        {
+            let mut journal = dag.intent_journal.lock().unwrap_or_else(|e| e.into_inner());
+            journal.adopt(&mission.side_effect_journal);
+            journal.reconcile_after_crash();
         }
+        dag
     }
 
     /// Record / reconcile a tool side effect for a DAG node (dispatch wiring).
@@ -214,11 +236,38 @@ impl MissionDag {
     }
 
     /// Whether a crashed node may retry its last recorded side effect.
+    /// A node with unreconciled journal intents is never replayed —
+    /// reconcile the uncertain dispatch first (T-DEVIN-10).
     #[must_use]
     pub fn may_retry_node(&self, idx: usize) -> bool {
-        self.side_effects
-            .get(&Self::persist_id(idx))
-            .is_none_or(|o| crate::side_effects::may_retry_after_crash(o.class))
+        let id = Self::persist_id(idx);
+        let journal_ok = self
+            .intent_journal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .may_replay_node(&id);
+        journal_ok
+            && self
+                .side_effects
+                .get(&id)
+                .is_none_or(|o| crate::side_effects::may_retry_after_crash(o.class))
+    }
+
+    /// Record dispatch intent for a node's tool call BEFORE execution;
+    /// returns the intent id to mark executed on success.
+    pub fn record_dispatch_intent(&self, idx: usize, tool: &str, args: &str) -> String {
+        self.intent_journal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record_intent(&Self::persist_id(idx), tool, args, now_unix())
+    }
+
+    /// Mark an intent's dispatch observed-complete.
+    pub fn mark_intent_executed(&self, intent_id: &str) {
+        self.intent_journal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .mark_executed(intent_id);
     }
 
     /// Attach a cancel token and register a worker descendant for this node.
@@ -715,6 +764,11 @@ impl MissionDag {
             // stale worker token can never collide with a fresh lease.
             if let Some(ctx) = persist_slot.as_mut() {
                 ctx.mission.leases = self.leases.clone();
+                ctx.mission.side_effect_journal = self
+                    .intent_journal
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
                 let _ = ctx.mission.save(ctx.dir);
             }
 
@@ -824,7 +878,19 @@ impl MissionDag {
                                 "cancel_scope": mission_scope,
                             });
                             node_calls.push(call.to_string());
+                            // T-DEVIN-10: intent is durable BEFORE dispatch;
+                            // a crash between here and completion leaves the
+                            // entry Pending → Uncertain on resume, blocking
+                            // blind replay until reconciled.
+                            let intent_id = self.record_dispatch_intent(
+                                idx,
+                                "exec_command",
+                                &call.to_string(),
+                            );
                             let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &call, &node_ws).unwrap_or_else(|e| format!("[Error] {e}"));
+                            if !result.starts_with("[Error]") {
+                                self.mark_intent_executed(&intent_id);
+                            }
                             executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
                         }
                     }
@@ -909,6 +975,11 @@ impl MissionDag {
                     .join(",");
                 if let Some(ctx) = persist_slot.as_mut() {
                     ctx.mission.leases = self.leases.clone();
+                    ctx.mission.side_effect_journal = self
+                        .intent_journal
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
                     for &idx in &stale_nodes {
                         let id = Self::persist_id(idx);
                         if let Some(node) = ctx.mission.nodes.get_mut(&id) {
@@ -1041,6 +1112,11 @@ impl MissionDag {
                                 // Lease consumed by completion — persist the
                                 // table so resume sees it closed (T-DEVIN-9).
                                 ctx.mission.leases = self.leases.clone();
+                    ctx.mission.side_effect_journal = self
+                        .intent_journal
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
                                 let _ = Self::persist_node_complete(
                                     ctx.mission,
                                     ctx.dir,

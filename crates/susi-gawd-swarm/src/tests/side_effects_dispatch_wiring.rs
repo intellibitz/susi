@@ -8,9 +8,15 @@ fn side_effects_dispatch_wiring() {
     let mut dag = MissionDag::new("side effect wiring");
 
     assert_eq!(classify_tool_action("read_file"), ActionClass::ReadOnly);
+    // Arbitrary shell/patch calls are Reconcilable, never Idempotent by name
+    // (T-DEVIN-10) — replay requires reconciling the uncertain intent.
     assert_eq!(
         classify_tool_action("exec_command"),
-        ActionClass::Idempotent
+        ActionClass::Reconcilable
+    );
+    assert_eq!(
+        classify_tool_action("apply_patch"),
+        ActionClass::Reconcilable
     );
     assert_eq!(classify_tool_action("http_call"), ActionClass::Reconcilable);
     assert_eq!(
@@ -19,13 +25,13 @@ fn side_effects_dispatch_wiring() {
     );
 
     let first = dag.record_side_effect(0, "exec_command", None);
-    assert_eq!(first.class, ActionClass::Idempotent);
+    assert_eq!(first.class, ActionClass::Reconcilable);
     assert!(!first.completed);
     assert!(dag.may_retry_node(0));
 
     let after_crash = dag.record_side_effect(0, "exec_command", Some(&first));
     assert!(after_crash.completed);
-    assert!(!after_crash.uncertain_external);
+    assert!(after_crash.uncertain_external);
 
     let non_retry = ActionOutcome {
         class: ActionClass::NonRetryable,
