@@ -67,21 +67,31 @@ pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 pub mod admin;
 pub mod baseline_capture;
 pub mod bloat_audit;
+pub mod changelog_from_tasks;
 pub mod eval_receipt;
 pub mod eval_separation;
 pub mod evolution;
+pub mod experiment_budget;
 pub mod experiment_lifecycle;
 pub mod formal_invariants;
 pub mod genome_distiller;
 pub mod kernel_loader;
+pub mod lane_overlap_warning;
 pub mod patch_cycle;
+pub mod patch_fence;
+pub mod perf_regression_gate;
 pub mod reason_trainer;
 pub mod reflex_intent;
 pub mod reflex_synth;
 pub mod reflex_trainer;
+pub mod repo_gate;
 pub mod rsi_corpus;
+pub mod rsi_promotion;
 pub mod scorecard;
 pub mod self_validation;
+pub mod task_edit_guard;
+pub mod tasks_from_brain;
+pub mod tasks_from_ci;
 
 #[cfg(test)]
 #[path = "tests/formal_invariants.rs"]
@@ -107,6 +117,18 @@ mod vc_201_007_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_011.rs"]
 mod vc_201_011_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_013.rs"]
+mod vc_201_013_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_014.rs"]
+mod vc_201_014_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_015.rs"]
+mod vc_201_015_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_018.rs"]
+mod vc_201_018_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};

@@ -1,0 +1,22 @@
+{
+  "id": "T-CLAUDE-168",
+  "title": "Bare 'susi' prints status and the one next step",
+  "goal": "Zero-config means zero REQUIRED files or env vars: derive, detect or default; where only the human can supply something (a secret, a consent) ask once at the moment of need, never via a hand-edited file. Running 'susi' with no arguments and no tty shows readiness and exactly one suggested next action instead of waiting for input. Integration test zc_bare_susi.rs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "zc_bare_susi"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790712978,
+  "closed": {
+    "at_unix": 1790726545,
+    "commit": "4631bd2b261387c4f123f53af2c9706d176e84e3",
+    "by": "CURSOR"
+  }
+}

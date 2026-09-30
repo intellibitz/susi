@@ -46,9 +46,13 @@ pub mod eco_store;
 pub mod eco_taxonomy;
 pub mod frontier;
 pub mod hf_discovery;
+pub mod lmstudio_models;
 pub mod local_ecosystem;
+pub mod model_store_dedupe;
 pub mod open_weight;
 pub mod openrouter;
+pub mod port_conflicts;
+pub mod price_catalog;
 pub mod resource_inventory;
 pub mod signed_catalog;
 

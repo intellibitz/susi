@@ -54,6 +54,9 @@ pub mod provider_contract;
 pub mod pulse;
 pub mod rate_limit_scheduler;
 pub mod region_eligibility;
+pub mod spend_tracker;
+pub mod thermal_routing;
+pub mod tui_top;
 
 pub mod eco_capability_routing;
 pub mod eco_compat_gate;
@@ -70,6 +73,12 @@ mod model_preload_tests;
 #[cfg(test)]
 #[path = "tests/rate_limit_scheduler.rs"]
 mod rate_limit_scheduler_tests;
+#[cfg(test)]
+#[path = "tests/spend_tracker.rs"]
+mod spend_tracker_tests;
+#[cfg(test)]
+#[path = "tests/thermal_routing.rs"]
+mod thermal_routing_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_051.rs"]
 mod vc_201_051_tests;

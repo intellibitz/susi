@@ -1,0 +1,28 @@
+{
+  "id": "T-CLAUDE-143",
+  "title": "Apply an operator emergency stop across the fleet",
+  "goal": "Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled. Prerequisite roadmap vectors without tasks yet: VC-201-068. Delivers roadmap vector VC-201-080. Tests must be named vc_201_080_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-127",
+    "T-CLAUDE-140",
+    "T-CLAUDE-77"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_080"
+    ]
+  },
+  "roadmap": "VC-201-080",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702518,
+  "closed": {
+    "at_unix": 1790725341,
+    "commit": "17732834ab76b918ae42a51bac5f0b463f6e4196",
+    "by": "CURSOR"
+  }
+}

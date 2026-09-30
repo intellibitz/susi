@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDE-120",
+  "title": "Fence autonomous patches into isolated workspaces",
+  "goal": "Create a candidate checkout with explicit path and command scope for each experiment; concurrent experiments preserve user changes and cannot write the installed release or another experiment's workspace. Delivers roadmap vector VC-201-013. Tests must be named vc_201_013_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-119"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_013"
+    ]
+  },
+  "roadmap": "VC-201-013",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517,
+  "closed": {
+    "at_unix": 1790724077,
+    "commit": "97e702770a6456d4e8f096ca737758fa98102b81",
+    "by": "CURSOR"
+  }
+}

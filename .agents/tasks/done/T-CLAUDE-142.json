@@ -1,0 +1,28 @@
+{
+  "id": "T-CLAUDE-142",
+  "title": "Attenuate grants for generated Wasm capabilities",
+  "goal": "Derive each reflex's filesystem, network, memory, fuel, and time grants from its parent mission; malicious generated code is contained and cannot acquire permissions through registration or delegation. Prerequisite roadmap vectors without tasks yet: VC-201-016. Delivers roadmap vector VC-201-075. Tests must be named vc_201_075_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-118",
+    "T-CLAUDE-140",
+    "T-CLAUDE-77"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_075"
+    ]
+  },
+  "roadmap": "VC-201-075",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702518,
+  "closed": {
+    "at_unix": 1790724121,
+    "commit": "97e702770a6456d4e8f096ca737758fa98102b81",
+    "by": "CURSOR"
+  }
+}

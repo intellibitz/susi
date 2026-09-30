@@ -37,16 +37,24 @@ pub mod extensions;
 pub mod file_lock;
 mod json_util;
 pub mod key_scope;
+pub mod keyring_storage;
 pub mod plan_apply;
 pub mod rekey_schedule;
 pub mod secret_ref;
 pub mod selfheal;
 pub mod setting_registry;
 pub mod setup_workflow;
+pub mod state_backup;
 pub mod state_migration;
 mod types;
 pub mod validate;
 pub mod versioned_store;
+pub mod zc_bare_susi;
+pub mod zc_config_overrides;
+pub mod zc_debt_report;
+pub mod zc_env_classify;
+pub mod zc_path;
+pub mod zc_susi_fix;
 
 /// IPC client for the standalone `susi-config` service. Only the global
 /// config path is routed here; per-directory loads and `cluster_key` stay
@@ -156,6 +164,9 @@ mod json_util_tests;
 #[path = "tests/key_scope.rs"]
 mod key_scope_tests;
 #[cfg(test)]
+#[path = "tests/keyring_storage.rs"]
+mod keyring_storage_tests;
+#[cfg(test)]
 #[path = "tests/rekey_schedule.rs"]
 mod rekey_schedule_tests;
 #[cfg(test)]
@@ -165,11 +176,17 @@ mod selfheal_tests;
 #[path = "tests/setup_workflow.rs"]
 mod setup_workflow_tests;
 #[cfg(test)]
+#[path = "tests/state_backup.rs"]
+mod state_backup_tests;
+#[cfg(test)]
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_063.rs"]
 mod vc_201_063_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_065.rs"]
+mod vc_201_065_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_066.rs"]
 mod vc_201_066_tests;
@@ -177,8 +194,14 @@ mod vc_201_066_tests;
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;
 #[cfg(test)]
+#[path = "tests/zc_config_all_optional.rs"]
+mod zc_config_all_optional_tests;
+#[cfg(test)]
 #[path = "tests/zc_config_explain.rs"]
 mod zc_config_explain_tests;
+#[cfg(test)]
+#[path = "tests/zc_debt_report.rs"]
+mod zc_debt_report_tests;
 #[cfg(test)]
 #[path = "tests/zc_setting_registry.rs"]
 mod zc_setting_registry_tests;

@@ -1,0 +1,28 @@
+{
+  "id": "T-CLAUDE-127",
+  "title": "Propagate cancellation through the entire swarm",
+  "goal": "Carry cancellation and remaining deadlines through local workers, external agents, peer dispatch, and model calls; integration tests terminate cancellable descendants and report any irreversibly running remote job. Delivers roadmap vector VC-201-026. Tests must be named vc_201_026_*.",
+  "size": "l",
+  "deps": [
+    "T-CLAUDE-121",
+    "T-CLAUDE-124",
+    "T-CLAUDE-125"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_026"
+    ]
+  },
+  "roadmap": "VC-201-026",
+  "created_by": "CLAUDE",
+  "created_unix": 1790702517,
+  "closed": {
+    "at_unix": 1790725054,
+    "commit": "ccd5d2220fd545b768868477431622d0627b423f",
+    "by": "CURSOR"
+  }
+}
