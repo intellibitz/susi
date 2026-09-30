@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-12",
+  "title": "Recover one parallel model worker without losing other jobs",
+  "goal": "Persist job-to-worker/model/claim/worktree assignment, task inputs, progress, receipts and terminal states. If a model loses credit, hits a cooldown, times out or crashes, keep independent workers running and reassign only recoverable work to another eligible working model with fenced ownership. Preserve partial edits and reconcile uncertain tool effects before retry; never duplicate external effects or publish stale completion. Propagate job/mission cancellation and deadlines, renew or release leases safely, and recover after scheduler restart. Hermetic fault-injection tests cover model failure during parallel execution, stale worker publication and no eligible replacement. Implement nonzero tests named parallel_worker_recovery_* in the production owning crate.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-6",
+    "T-CODEX-11"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "parallel_worker_recovery",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-030",
+  "created_by": "CODEX",
+  "created_unix": 1790772463
+}

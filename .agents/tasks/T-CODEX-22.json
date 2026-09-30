@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEX-22",
+  "title": "Prove cloud models improve Susi across successive self-development cycles",
+  "goal": "Build an offline end-to-end harness through actual self-development orchestration: working fake cloud models propose an observable Susi improvement, native tools implement it in an isolated repository, another model reviews it, real acceptance detects before/after behavior, and the task closes only after gates pass. Exercise at least three successive candidate generations on a fixed held-out suite, including one rejected regression and one unavailable model with working fallback; parallel independent candidates must preserve isolation and budgets. Report measured correctness/quality/performance gains and cumulative cost, never claim self-improvement from generated suggestions or task counts alone. Add deterministic offline release E2E coverage where practical. Implement nonzero tests named cloud_rsi_e2e_* in susi-gawd exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-20",
+    "T-CODEX-21",
+    "T-CODEX-15"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cloud_rsi_e2e",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-020",
+  "created_by": "CODEX",
+  "created_unix": 1790772591
+}

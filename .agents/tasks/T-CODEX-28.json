@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEX-28",
+  "title": "Expose and verify the default powerful working cloud brain end to end",
+  "goal": "Expose actual primary brain model, capability evidence, working-state freshness, exclusions and fallback/recovery events through existing brain/status/mission diagnostics with no secrets. Add end-to-end hermetic coverage through production intent, planning, parallel execution and self-improvement entry points proving the strongest authorized working cloud model leads by default, even when a cheaper/local model is configured; a stronger nonworking candidate is excluded. Verify explicit pins, free-only/privacy/budget restrictions, no eligible cloud model, safe fallback and return after recovery. Include deterministic release E2E coverage where practical; do not report policy activation merely from configuration or catalog presence. Implement nonzero tests named powerful_cloud_brain_e2e_* exercising production behavior.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-24",
+    "T-CODEX-25",
+    "T-CODEX-26",
+    "T-CODEX-27"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "powerful_cloud_brain_e2e",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-030",
+  "created_by": "CODEX",
+  "created_unix": 1790772738
+}

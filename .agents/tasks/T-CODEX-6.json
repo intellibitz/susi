@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEX-6",
+  "title": "Fail over user intent safely when a cloud attempt fails",
+  "goal": "Connect selection and health updates to actual mission execution: after a classified failure choose another eligible credential/model or consented local target within a bounded attempt/deadline/spend budget. Preserve messages, capability requirements and tool state. Handle failures before response, during streaming and after ambiguous completion; do not duplicate external tool side effects or silently splice incompatible partial answers. Explicit pins and policy constraints remain binding. Hermetic injected-provider tests prove usable fallback succeeds, shared-account failures stay scoped and exhaustion returns a typed actionable error. Implement tests named cloud_intent_failover_*; acceptance must execute at least one test. Selection is not completion: continue through permitted working alternatives until the actual user intent succeeds or eligible candidates/attempt, deadline or spending limits are exhausted. Never return success merely because a model was selected or a health probe passed. A highly ranked but failing model must not strand an intent while a compatible working alternative remains.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-3",
+    "T-CODEX-4",
+    "T-CODEX-5"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "cloud_intent_failover",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-058",
+  "created_by": "CODEX",
+  "created_unix": 1790772270
+}

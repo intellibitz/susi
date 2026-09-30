@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEX-26",
+  "title": "Fail over and restore the strongest working cloud brain during missions",
+  "goal": "During real multi-step execution, promptly replace the brain when it stops working due to exhausted credit/quota, lockout, service failure or access errors. Preserve mission context, tool receipts, job ownership and bounded budgets without replaying uncertain side effects. Use the strongest remaining eligible working target; independent parallel workers continue. Restore the stronger brain at safe checkpoints after fresh recovery evidence, with hysteresis to prevent oscillation. Report model transitions and reasons truthfully; do not claim intent success from successful selection or probe. Hermetic production-dispatch tests cover midstream and between-step failure, weaker working fallback, recovery and all-cloud-blocked paths. Implement nonzero tests named powerful_cloud_brain_recovery_* exercising production behavior.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-23",
+    "T-CODEX-6",
+    "T-CODEX-12"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "powerful_cloud_brain_recovery",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-058",
+  "created_by": "CODEX",
+  "created_unix": 1790772737
+}

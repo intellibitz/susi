@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-7",
+  "title": "Explain cloud selection and blocked model recovery without exposing keys",
+  "goal": "Expose redacted per-credential/model eligibility, selected model and evidence-based reason, free/paid allowance freshness, cooldown/reset times and exclusion causes through existing brain/keys status and mission diagnostics. If no eligible model exists, report whether waiting, providing credit, replacing an invalid credential, granting paid fallback consent or using an eligible local model can help; never promise guaranteed completion. Do not ask for replacement of a valid out-of-credit key and never remove saved keys. Hermetic CLI/diagnostic tests verify actionable all-blocked results and complete secret redaction. Implement tests named cloud_selection_explain_*; acceptance must execute at least one test.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-3",
+    "T-CODEX-6"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "cloud_selection_explain",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-058",
+  "created_by": "CODEX",
+  "created_unix": 1790772270
+}

@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEX-19",
+  "title": "Persist and resume budgeted cloud-assisted self-development cycles",
+  "goal": "Persist the production cloud-assisted loop from proposal through task claim, implementation, independent review, validation, rejection or promotion readiness. Track candidate lineage, model and redacted credential references, receipts, checkpoints and cumulative tokens/spend/time across workers, retries and descendants. Enforce existing grants, free-only/paid policy and cancellation; do not buy credit or change keys automatically. Cloud outage, quota exhaustion or restart must resume only safe work, preserve candidate edits and fence stale workers. No passing state without recorded gate results. Hermetic fault-injection tests exercise restart at each phase and exhausted budgets. Implement nonzero tests named cloud_rsi_lifecycle_* in susi-gawd exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-17",
+    "T-CODEX-18",
+    "T-CODEX-12"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cloud_rsi_lifecycle",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-011",
+  "created_by": "CODEX",
+  "created_unix": 1790772591
+}

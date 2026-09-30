@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-21",
+  "title": "Deliver validated cloud-assisted improvements through PR and release gates",
+  "goal": "Wire passing cloud-assisted candidates into reviewable feature-branch commits and existing PR auto-merge workflow: merge current origin/main, preserve task trailers and records, rerun required gates after material integration changes and explicitly close passing tasks. Bind candidate artifacts, reviewer provenance and acceptance receipts to the delivered commit. Report proposed, implemented, validated, merged and released states distinctly. Installed Susi changes only through the existing verified tagged release path; no direct main push, dev-binary hot swap, tag or release without applicable authorization. Hermetic fake-git/release boundary tests prove rejected candidates cannot be promoted. Implement nonzero tests named cloud_rsi_delivery_* in susi-gawd exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-18",
+    "T-CODEX-19"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cloud_rsi_delivery",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-018",
+  "created_by": "CODEX",
+  "created_unix": 1790772591
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-13",
+  "title": "Verify and integrate parallel agent changes through task acceptance",
+  "goal": "Collect completed worker patches and receipts, run each task's exact nonzero acceptance check and required repository gates, and explicitly close only passing tasks. Require independent model-backed verification where policy calls for it. Integrate nonoverlapping changes from isolated branches against current origin/main; overlapping edits produce reviewable conflicts rather than silent overwrites. Preserve other agents' records by union, require task trailers, push feature branches through the existing PR workflow and never push directly to main. Hermetic git integration tests cover conflicting edits, failed acceptance, open dependencies and false completion reports. Implement nonzero tests named parallel_agent_integration_* in the production owning crate.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-11",
+    "T-CODEX-12"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "parallel_agent_integration",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-029",
+  "created_by": "CODEX",
+  "created_unix": 1790772463
+}

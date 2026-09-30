@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEX-15",
+  "title": "Prove end-to-end parallel roadmap execution across working models",
+  "goal": "Build an offline end-to-end test through production scheduler, task claims, isolated worktrees, model dispatch and task close, using at least three different working fake models and multiple independent tasks plus a dependency chain. A synchronization barrier must prove execution overlap, not merely multiple configured models or serial fallback. Inject insufficient credit and temporary lockout into one worker while others finish; verify reassignment, shared-account quota ceilings, budgets, cancellation, restart, edit conflicts and acceptance failure. Every reported completed task has passing acceptance and a closed queue record; blocked tasks remain honest. Record elapsed time, cost and quality against sequential execution without claiming speedup unless measured. Implement nonzero tests named parallel_roadmap_e2e_* in the production owning crate.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-13",
+    "T-CODEX-14",
+    "T-CODEX-8"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "parallel_roadmap_e2e",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-027",
+  "created_by": "CODEX",
+  "created_unix": 1790772463
+}

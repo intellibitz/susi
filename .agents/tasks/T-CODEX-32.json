@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-32",
+  "title": "Trigger bounded brain gap discovery from failures and completed work",
+  "goal": "Wire gap discovery into production events: failed user intents, recurring tool/model failures, acceptance/CI regressions, completed task verification and explicit audit requests. Re-evaluate unmet roadmap mastery targets after related work closes. Debounce repeated events and apply configurable token/spend/time and queue limits so discovery cannot amplify incidents or generate endless task chains. Use current working powerful brain selection, record unavailable-brain state and resume eligible discovery after recovery without duplicate tasks. Keep operational transient issues distinct from actionable software gaps. Hermetic event-path tests cover burst failures, restart, closed-task residual gaps and budget exhaustion. Implement nonzero tests named brain_gap_triggers_* exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-31",
+    "T-CODEX-26"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "brain_gap_triggers",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-019",
+  "created_by": "CODEX",
+  "created_unix": 1790772863
+}
