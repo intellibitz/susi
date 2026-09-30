@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-10",
+  "title": "Reserve shared quotas and resources for concurrent model workers",
+  "goal": "Wire atomic admission reservations into parallel dispatch for provider/account/key/model request and token limits, paid spend, subprocesses and local CPU/RAM/VRAM capacity. Enforce per-mission and global concurrency, fairness, bounded queues and backpressure. Credentials sharing an account cannot multiply its quota; one exhausted account must not block unrelated working providers. Release/reconcile reservations on success, failure and cancellation; restart cannot silently oversubscribe. Injected-clock concurrency tests demonstrate bounded load, no double reservations and no starvation. Implement nonzero tests named parallel_model_admission_* in the production owning crate.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-4",
+    "T-CODEX-5"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "parallel_model_admission",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-025",
+  "created_by": "CODEX",
+  "created_unix": 1790772463
+}

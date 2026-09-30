@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEX-34",
+  "title": "Verify powerful-brain gap discovery creates executable roadmap work end to end",
+  "goal": "Exercise production audit/event ingress, strongest-working-cloud selection, evidence collection, structured proposal validation, deduplication and task queue publication in an offline temporary repository. Seed a real observable capability gap and show the brain creates one actionable roadmap-linked task with correct dependency and nonzero acceptance that fails before repair and passes after repair. Repeat discovery to prove no duplicate; close related work while leaving a residual mastery gap to prove follow-up creation. Include fabricated gap rejection, invalid commands, concurrent discovery, brain outage/fallback, privacy redaction and budget limits. Assert actual new queue records, not merely generated task text, and never claim the capability improved simply because a task was added. Implement nonzero tests named brain_gap_e2e_* exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-33",
+    "T-CODEX-22",
+    "T-CODEX-28"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "brain_gap_e2e",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-020",
+  "created_by": "CODEX",
+  "created_unix": 1790772863
+}

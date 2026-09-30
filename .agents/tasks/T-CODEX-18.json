@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-18",
+  "title": "Require independent cloud review and measured validation of self-improvements",
+  "goal": "Assign an independent eligible working model to critique a candidate using the actual diff, requirements and tool receipts, with reviewer provenance separate from the implementer. Reviewer approval alone cannot pass: run exact task acceptance with nonzero tests, cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings and cargo test --workspace --locked. Compare behavior/quality/performance against a preserved baseline and held-out workload; reject regressions, missing checks and fabricated receipts. Test on an isolated dev instance where needed, never the installed release. Hermetic integration tests reject self-approval, false test claims and model-generated changes that fail execution. Implement nonzero tests named cloud_rsi_verification_* in susi-gawd exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-17",
+    "T-CODEX-13"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cloud_rsi_verification",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-028",
+  "created_by": "CODEX",
+  "created_unix": 1790772591
+}

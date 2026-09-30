@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-11",
+  "title": "Run roadmap tasks with isolated parallel model-backed agents",
+  "goal": "Connect the existing susi tasks queue to the multi-model worker scheduler: select dependency-ready unclaimed tasks, atomically claim each with distinct worker identity and live lease, and assign each agent its own branch/worktree based on current origin/main. Different working models may implement different tasks simultaneously. Give workers AGENTS.md/self-build mandates and declared tool grants, acceptance command and task trailer requirements. Never share a worktree, steal an active claim, dispatch an open dependency, edit primary/main or install dev binaries into the release instance. Hermetic temporary repositories and fake agents must prove parallel execution, claim races and workspace isolation. Implement nonzero tests named parallel_roadmap_agents_* in the production owning crate.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-9",
+    "T-CODEX-10"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "parallel_roadmap_agents",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-022",
+  "created_by": "CODEX",
+  "created_unix": 1790772463
+}

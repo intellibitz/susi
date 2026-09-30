@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-29",
+  "title": "Use the powerful working brain to audit Susi capability gaps",
+  "goal": "Wire the strongest eligible working cloud brain into a production gap-audit workflow covering user intent failures, test/benchmark receipts, code behavior, user feedback and roadmap mastery targets. Compare promised behavior with observed behavior, including gaps hidden behind closed tasks or helper-only tests. Each gap records source receipts, reproducible trigger, expected versus actual behavior, impact, confidence and observation time. Distinguish verified gaps from hypotheses; model claims alone are not evidence. Respect redacted context, privacy, budget and current availability; fall back to another working brain when necessary. Hermetic production-path tests use fake inference and real fixture receipts. Implement nonzero tests named brain_gap_audit_* exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-24",
+    "T-CODEX-16"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "brain_gap_audit",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-012",
+  "created_by": "CODEX",
+  "created_unix": 1790772862
+}

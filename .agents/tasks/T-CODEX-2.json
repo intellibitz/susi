@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEX-2",
+  "title": "Discover free quotas, credit and reset windows conservatively",
+  "goal": "Normalize provider-supported balance, remaining request/token limits, free allowances, reset windows and Retry-After from official metadata and actual responses. Represent unknown separately from zero and unlimited; do not invent balance APIs or assume a successful model listing proves inference credit. Support multiple keys per vendor with opaque credential IDs. No automatic purchase, top-up or paid probe; bounded probes require existing consent and budget. Wire observations into eligibility; hermetic fixtures cover free-only, paid-only, mixed tiers, missing/stale headers, clock skew and account-shared quotas. Implement tests named cloud_quota_inventory_*; acceptance must execute at least one test.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "cloud_quota_inventory",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-053",
+  "created_by": "CODEX",
+  "created_unix": 1790772269
+}

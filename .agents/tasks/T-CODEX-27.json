@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEX-27",
+  "title": "Use the powerful cloud brain to coordinate parallel specialist models",
+  "goal": "Make the strongest eligible working cloud brain plan, assign, monitor and synthesize parallel work across other working model-backed agents. Specialists may use models suited to their job; the primary brain retains evidence-backed coordination without forcing all jobs through one provider quota. Preserve separate claims/worktrees, shared budgets, verified results and independent reviewer provenance. Coordination must not serialize independent jobs unnecessarily or become an unbounded single point of failure; checkpoint and replace an unavailable brain safely. Hermetic integration tests demonstrate overlapping roadmap work, real coordinator inference and successful continuation after coordinator failure. Implement nonzero tests named powerful_cloud_brain_parallel_* exercising production behavior.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-24",
+    "T-CODEX-26",
+    "T-CODEX-15"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "powerful_cloud_brain_parallel",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-027",
+  "created_by": "CODEX",
+  "created_unix": 1790772738
+}

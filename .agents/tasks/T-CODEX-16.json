@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-16",
+  "title": "Use working cloud models to propose evidence-backed Susi improvements",
+  "goal": "Wire Susi's actual self-development loop to working cloud models that analyze redacted failure receipts, user feedback, roadmap gaps and repository evidence. Produce concrete deduplicated improvement proposals with affected behavior, measurable benefit, risks and an executable acceptance plan. Separate observed facts from model suggestions; no fabricated evidence or automatic completion claims. Turn accepted proposals into namespaced susi tasks linked to valid roadmap vectors, avoiding duplicate existing work. Use current model availability, task-class ranking, privacy grants and spending limits; insufficient credit triggers permitted fallback. Hermetic model-backed integration tests cover proposal creation, deduplication and rejection of unsupported suggestions. Implement nonzero tests named cloud_rsi_proposals_* in susi-gawd exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-3",
+    "T-CODEX-4"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cloud_rsi_proposals",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-012",
+  "created_by": "CODEX",
+  "created_unix": 1790772590
+}

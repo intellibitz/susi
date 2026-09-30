@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-9",
+  "title": "Dispatch parallel jobs across multiple working models",
+  "goal": "Build a production scheduler that dispatches independent ready jobs simultaneously across multiple currently working credential/model targets, rather than using all models solely as serial fallbacks. Use fresh actual inference availability and task-class evidence; preserve capability, tool grants, privacy, deadlines and budgets. Distinct model IDs sharing a provider/account are not independent quota pools. Admit bounded concurrency, queue excess work fairly, and fall back per job if a target fails. Hermetic dispatch tests prove overlapping real execution on at least three fake working models and skip higher-ranked nonworking models. Implement nonzero tests named parallel_working_models_* in the production owning crate.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-3",
+    "T-CODEX-4"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "parallel_working_models",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-024",
+  "created_by": "CODEX",
+  "created_unix": 1790772463
+}

@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEX-31",
+  "title": "Deduplicate and prioritize brain-generated roadmap gaps",
+  "goal": "Check open, claimed and closed tasks plus roadmap vectors and recent rejected proposals before creating a gap task. Combine evidence for the same issue without duplicating tasks; a closed task with demonstrated recurrence gets a linked follow-up rather than erasing its history or silently reopening it. Rank by measured user impact, frequency, severity, unblock value, verified capability deficit and expected cost, recording uncertainty instead of invented numeric estimates. Concurrent brains must not create duplicate active proposals or overwrite another agent's records. Hermetic tests cover semantic duplicates with different wording, genuine distinct gaps, concurrent publication and recurrence after closure. Implement nonzero tests named brain_gap_dedup_* exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-30"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "brain_gap_dedup",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-012",
+  "created_by": "CODEX",
+  "created_unix": 1790772863
+}

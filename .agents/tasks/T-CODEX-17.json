@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-17",
+  "title": "Have Susi implement its own improvements using cloud-backed native agents",
+  "goal": "Connect approved self-improvement tasks to Susi's native agent tool loop with working cloud inference for reasoning and native tools for repository inspection, edits, builds and tests. Claim each task and use a dedicated branch/worktree with AGENTS.md mandates, scoped grants and task commit trailers. Multiple independent improvements may use parallel working models via the existing scheduler. Cloud-generated patches must be applied and executed locally; generated text or a proposed diff is not implemented work. Use A2A external delegation only for a recorded capability gap/fallback and preserve the same mandates. Never edit primary/main or install dev builds into release paths. Hermetic integration tests use temporary repositories and fake models through production orchestration. Implement nonzero tests named cloud_rsi_implementation_* in susi-gawd exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-16",
+    "T-CODEX-11"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cloud_rsi_implementation",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-013",
+  "created_by": "CODEX",
+  "created_unix": 1790772591
+}

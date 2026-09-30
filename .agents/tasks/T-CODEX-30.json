@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEX-30",
+  "title": "Convert brain-discovered gaps into actionable roadmap tasks automatically",
+  "goal": "Extend the existing proposal/task path so an evidence-backed actionable gap is recorded automatically as a namespaced susi task with clear outcome, scoped implementation goal, supported acceptance command that will execute nonzero verification, size, valid roadmap link and dependency IDs. The brain may propose tests but must never fabricate passing receipts or mark new work complete. Link to an existing vector when appropriate; propose a new schema-valid vector and mastery target for genuinely uncovered capability through the repository workflow. Reject malformed model output, unsupported commands, arbitrary shell, unresolved dependencies and cycles before publication. Preserve atomic one-file-per-task records and all existing tasks/vectors. Hermetic tests exercise actual task creation from inference output. Implement nonzero tests named brain_gap_tasks_* exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-29"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "brain_gap_tasks",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-012",
+  "created_by": "CODEX",
+  "created_unix": 1790772862
+}

@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEX-25",
+  "title": "Rank cloud brain capability from comparable verified task outcomes",
+  "goal": "Extend evidence-ranked brain selection to choose the strongest working cloud candidate per reasoning class using comparable held-out evaluations and actual verified outcomes with model/version, freshness and confidence. Distinguish correctness, reasoning/tool reliability and context capability from availability, cost and latency. Unknown capability is unknown; bounded authorized evaluation may establish it without invented rankings or unbudgeted paid probes. Define deterministic tie-breaking, stale evidence handling and update rules. Current failure/unfunded state excludes leadership despite historical superiority. Hermetic tests cover unknown/new models, version changes, misleading self-reports and task-specific rank changes. Implement nonzero tests named powerful_cloud_brain_ranking_* exercising production behavior.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-20"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "powerful_cloud_brain_ranking",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-010",
+  "created_by": "CODEX",
+  "created_unix": 1790772737
+}

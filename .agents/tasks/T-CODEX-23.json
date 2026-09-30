@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEX-23",
+  "title": "Make the strongest eligible working cloud model the default Susi brain",
+  "goal": "Implement the user's default policy: whenever an authorized cloud model is currently working and satisfies the request, Susi uses the most capable eligible cloud model as its primary reasoning brain across supported intelligent workflows. Rank capability by verified task-class outcomes and fresh capability evidence, never model name, price or vendor marketing alone. Availability includes successful inference credentials, access, credit/quota and service health. Quality takes priority over cheaper or local candidates within authorized budget, deadline, privacy and capability constraints; explicit user overrides remain binding. If none qualifies, use permitted fallback or explain the blocker. Wire this as the actual default rather than an opt-in helper. Hermetic tests prove a stronger working cloud model leads and a stronger blocked model does not. Implement nonzero tests named powerful_cloud_brain_policy_* exercising production behavior.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-3",
+    "T-CODEX-4",
+    "T-CODEX-20"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "powerful_cloud_brain_policy",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-058",
+  "created_by": "CODEX",
+  "created_unix": 1790772737
+}

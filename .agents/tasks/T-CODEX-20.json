@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-20",
+  "title": "Learn which cloud models actually improve Susi from verified outcomes",
+  "goal": "Feed verified self-development outcomes into Susi's evidence-ranked brain by task class and model: accepted/rejected patch, exact test receipts, regression metrics, latency, cost, availability failure and reviewer disagreement. Keep operational unavailability distinct from implementation quality. Persist failure counterexamples and rejection reasons; repeated proposals must address them or provide fresh evidence. Do not reward self-reported success or tune against held-out checks. Use these outcomes for future implementer/reviewer assignments while continuing to exclude currently nonworking models. Hermetic tests prove rankings respond to verified improvement and rejected candidates do not earn success evidence. Implement nonzero tests named cloud_rsi_outcomes_* in susi-gawd exercising production wiring.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-18",
+    "T-CODEX-19"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cloud_rsi_outcomes",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-019",
+  "created_by": "CODEX",
+  "created_unix": 1790772591
+}

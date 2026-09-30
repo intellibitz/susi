@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-5",
+  "title": "Recover temporary cloud lockouts without retry storms",
+  "goal": "Implement scoped cooldowns with Retry-After, bounded exponential backoff/jitter, circuit breaking and limited half-open probes shared by concurrent workers. Separate temporary throttle/outage from permanent auth errors and insufficient credit; never repeatedly retry unfunded accounts. Detect quota reset or renewed credit from fresh supported evidence and allow recovered targets again without deleting keys. Use injected clocks and hermetic tests for restart, clock skew, concurrent probes, expiry and recovery; wire recovery into real selection and dispatch. Implement tests named cloud_lockout_recovery_*; acceptance must execute at least one test.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-1",
+    "T-CODEX-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "cloud_lockout_recovery",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-053",
+  "created_by": "CODEX",
+  "created_unix": 1790772270
+}

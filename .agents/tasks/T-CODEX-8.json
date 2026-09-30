@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEX-8",
+  "title": "Verify ten-key mixed availability through end-to-end intent routing",
+  "goal": "Build a hermetic fake-provider integration harness through the production user-intent dispatch path with at least ten credentials spanning vendors and shared accounts. Cover insufficient credit, invalid/revoked keys, temporary lockout, free quota available/exhausted/reset, paid budget denied/allowed, inaccessible models, outages/timeouts, stale/unknown state, parallel intents, streaming failures and recovery. Assert the right eligible model for each task class, bounded attempts/spend, no duplicate tool effects, preserved constraints and honest all-blocked failure. Add property-based failure-order/state-transition tests and a deterministic offline release E2E check where practical. Acceptance must execute real nonzero integration tests, never only pure helper tests. Implement tests named cloud_ten_key_intent_e2e_*; acceptance must execute at least one test. Explicitly test that the highest-quality or preferred model is nonworking while a lower-ranked compatible model works: production dispatch must skip/fail over and complete the intent using the working model. Also test misleading successful model-list/health responses followed by failed inference and update eligibility accordingly.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-3",
+    "T-CODEX-4",
+    "T-CODEX-5",
+    "T-CODEX-6",
+    "T-CODEX-7"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "cloud_ten_key_intent_e2e",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-058",
+  "created_by": "CODEX",
+  "created_unix": 1790772270
+}

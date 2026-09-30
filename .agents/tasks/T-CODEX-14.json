@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEX-14",
+  "title": "Expose parallel model jobs and actionable worker controls",
+  "goal": "Provide existing CLI/API mission and task status surfaces with each job's task/worker/model, redacted credential reference, worktree/branch, claim lease, running/queued/blocked/recovering state, budget/quota usage and outcome. Report actual concurrent workers and why queued jobs cannot start; allow bounded concurrency settings, pause new dispatch, cancellation and supported resume without abandoning running work silently. Never reveal credentials or report partial execution as full success. Hermetic status/control tests exercise multi-model jobs and all-workers-blocked recovery. Implement nonzero tests named parallel_jobs_status_* in the production owning crate.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-12"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "parallel_jobs_status",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-030",
+  "created_by": "CODEX",
+  "created_unix": 1790772463
+}

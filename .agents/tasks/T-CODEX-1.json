@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEX-1",
+  "title": "Track availability per cloud credential, account and model",
+  "goal": "Model usable, unknown, invalid/revoked credential, insufficient credit, quota exhausted, temporarily rate-limited, unavailable service, model access denied and unsupported request separately. Scope failures to credential/account/model/region as supported by provider evidence; a model failure must not disable unrelated models, and keys sharing an account must not bypass its limits. Preserve keys, redact identifiers, persist bounded state with observation time, reason, expiry and provenance. Provider protocol classification lives in vendor crates. Wire state into actual inference outcomes, not only a standalone classifier. Hermetic fixture and state-machine tests verify isolation, restart, stale observations and secret redaction. Implement tests named cloud_eligibility_state_*; acceptance must execute at least one test. Working means successful authenticated inference for this credential and model under the current request constraints; configured keys, catalog presence and model-list success alone are not proof. Record actual inference success and failure with freshness.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "cloud_eligibility_state",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-051",
+  "created_by": "CODEX",
+  "created_unix": 1790772269
+}

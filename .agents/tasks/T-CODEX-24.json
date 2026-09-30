@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEX-24",
+  "title": "Route every supported reasoning workflow through Susi's cloud brain policy",
+  "goal": "Audit and wire user-intent interpretation, planning, task decomposition, tool selection, execution reasoning, error diagnosis, swarm coordination, memory synthesis, independent verification and self-improvement through the shared strongest-working-cloud brain selector. Produce a testable inventory of production entry points and remove silent local/weaker-model defaults that bypass policy. Deterministic control-plane commands and native tool execution remain deterministic; the brain reasons and delegates through existing grants. Cloud input uses only policy-eligible redacted context. Hermetic integration tests exercise each supported reasoning entry point and prove the selected brain actually receives inference requests, not just a reported preference. Implement nonzero tests named powerful_cloud_brain_wiring_* exercising production behavior.",
+  "size": "l",
+  "deps": [
+    "T-CODEX-23",
+    "T-CODEX-17"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "powerful_cloud_brain_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-027",
+  "created_by": "CODEX",
+  "created_unix": 1790772737
+}
