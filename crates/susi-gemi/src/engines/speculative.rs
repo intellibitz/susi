@@ -615,8 +615,17 @@ mod tests {
         let max_tokens = 10usize;
         let repeat_penalty = 1.15f32;
         let repeat_last_n = 64usize;
-        let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task("test_speculative_equivalence", prompt);
+        let idle_mgr = crate::susi_core::task_manager::SwarmTaskManager {
+            tasks: Default::default(),
+            cancel_map: Default::default(),
+            pause_map: Default::default(),
+        };
+        // Local manager (no idle watchdog): under full-workspace load the
+        // global SwarmTaskManager watchdog can cancel this ~18s CPU decode
+        // as stalled, which made `.expect("speculative run must succeed")`
+        // fail nondeterministically. Isolation keeps the correctness proof
+        // independent of concurrent test wall-clock pressure.
+        let task_handle = idle_mgr.register_task("test_speculative_equivalence", prompt);
 
         // Speculative path.
         let mut target = load(&target_path);
