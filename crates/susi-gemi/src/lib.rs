@@ -40,6 +40,7 @@ pub mod engines;
 pub use susi_gemi_models as models;
 
 // Cross-cutting surfaces that use both tiers
+pub mod action_executor;
 pub mod placement_uses_task_class;
 pub mod plane_handler;
 
