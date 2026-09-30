@@ -17,6 +17,7 @@
 
 # Mandate 49 (stdin carries the pushed refs; the guard must consume it first).
 "$(dirname "$0")/workflow-guard" push || exit 1
+"$(dirname "$0")/sync-primary"
 
 echo "🛡️ Running SUSI Deep Compliance Checks (Deferred from Commit)..."
 
