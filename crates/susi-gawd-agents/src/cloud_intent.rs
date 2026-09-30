@@ -124,7 +124,8 @@ impl Candidate {
     }
 
     /// Opaque identifier for outcomes/logs — never the key.
-    fn opaque_id(&self) -> String {
+    #[must_use]
+    pub fn opaque_id(&self) -> String {
         format!(
             "{}/{}/{}",
             self.provider,
