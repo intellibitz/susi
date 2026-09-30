@@ -24,12 +24,11 @@
 //! calls; a blocked coordinator or a failed gate is reported honestly,
 //! never silently closed.
 
-use std::collections::BTreeMap;
-
 use susi_gawd_agents::cloud_intent::Candidate;
 
 use crate::agent_integration::{
-    AcceptRunner, Gate, IntegrateOutcome, IntegrationQueue, Integrator, Verifier,
+    assign_fences, verified_closure, AcceptRunner, Gate, HeadProbe, IntegrateOutcome,
+    IntegrationQueue, Integrator, Verifier,
 };
 use crate::brain_coordination::{CoordinationReport, Coordinator};
 use crate::brain_supervisor::{BrainMission, StepSpec};
@@ -38,7 +37,7 @@ use crate::parallel_dispatch::{run_jobs, DispatchPlan, Job, Shared};
 use crate::roadmap_agents::{
     claim_and_prepare, AgentExecutor, AgentRunner, ClaimedWork, TaskQueue, ToolGrants, WorkerBrief,
 };
-use crate::worker_recovery::{Assign, JobLedger};
+use crate::worker_recovery::JobLedger;
 
 /// The queue surface a mission lifecycle needs: claimable work plus
 /// closure control (finish/reopen/deps). Production queue
@@ -92,6 +91,9 @@ pub struct MissionLifecycle<'a, Q: LifecycleQueue> {
     pub integrator: &'a dyn Integrator,
     /// Optional independent verifier (a different model in production).
     pub verifier: Option<&'a dyn Verifier>,
+    /// Revision provenance for the gate — binds acceptance to the exact
+    /// worktree revision being merged.
+    pub head: &'a dyn HeadProbe,
     /// Worker identity prefix (`agent-taskid`).
     pub agent_prefix: &'a str,
     /// Claim lease expiry (unix secs).
@@ -123,6 +125,7 @@ impl<'a, Q: LifecycleQueue> MissionLifecycle<'a, Q> {
             accept,
             integrator,
             verifier,
+            head,
             agent_prefix,
             lease_until,
             grants,
@@ -155,17 +158,7 @@ impl<'a, Q: LifecycleQueue> MissionLifecycle<'a, Q> {
             rep.skipped.extend(batch.skipped);
             // Job → fence assigned by the ledger (always 1 for a fresh
             // assignment; recorded so completion presents the same fence).
-            let mut fences: BTreeMap<String, u64> = BTreeMap::new();
-            for cw in &ctxs {
-                let fence = ledger.assign(Assign {
-                    job_id: &cw.task.id,
-                    worker: &cw.worker,
-                    model: "",
-                    worktree: cw.worktree.clone(),
-                    lease_until: *lease_until,
-                });
-                fences.insert(cw.task.id.clone(), fence);
-            }
+            let fences = assign_fences(ledger, &ctxs, *lease_until);
             if jobs.is_empty() {
                 return Vec::new();
             }
@@ -205,42 +198,18 @@ impl<'a, Q: LifecycleQueue> MissionLifecycle<'a, Q> {
             });
             // Closure phase: only the gate finishes a task. Dispatch
             // output is evidence to verify, not proof of done.
-            for o in &outcomes {
-                let fence = fences.get(&o.job_id).copied().unwrap_or(0);
-                let Some(cw) = ctxs.iter().find(|c| c.task.id == o.job_id) else {
-                    continue;
-                };
-                match &o.output {
-                    Some(model) => {
-                        let _ = ledger.heartbeat(&o.job_id, fence, *lease_until);
-                        let _ = ledger.record_receipt(
-                            &o.job_id,
-                            fence,
-                            &format!("executed on {model}"),
-                        );
-                        let _ = ledger.complete(&o.job_id, fence);
-                        let gate = Gate {
-                            ledger,
-                            queue: *queue,
-                            accept: *accept,
-                            integrator: *integrator,
-                            verifier: *verifier,
-                        };
-                        // Worker branch convention: the worker identity
-                        // names its own branch/worktree.
-                        let out = gate.integrate_job(&o.job_id, &cw.worker, &cw.task);
-                        rep.gated.push((o.job_id.clone(), out));
-                    }
-                    None => {
-                        let why = o
-                            .stop
-                            .as_ref()
-                            .map_or_else(|| "no output".to_string(), |s| format!("{s:?}"));
-                        let _ = ledger.fail(&o.job_id, fence, &why);
-                        rep.dispatch_failed.push(o.job_id.clone());
-                    }
-                }
-            }
+            let gate = Gate {
+                ledger,
+                queue: *queue,
+                accept: *accept,
+                integrator: *integrator,
+                verifier: *verifier,
+                head: *head,
+            };
+            let (gated, dispatch_failed) =
+                verified_closure(&outcomes, &ctxs, &fences, &gate, *lease_until);
+            rep.gated.extend(gated);
+            rep.dispatch_failed.extend(dispatch_failed);
             outcomes
                 .iter()
                 .map(|o| {
@@ -664,6 +633,7 @@ mod tests {
                 accept: &CmdAccept,
                 integrator: self.int,
                 verifier: self.verifier,
+                head: &crate::agent_integration::ManifestProbe,
                 agent_prefix: "w",
                 lease_until: T0 + 300,
                 grants: ToolGrants::default(),

@@ -1567,6 +1567,7 @@ mod tests {
             u64::MAX,
             Default::default(),
             "",
+            &susi_gawd_swarm::worker_recovery::JobLedger::new(),
         );
         assert_eq!(
             rep.ran.len(),
