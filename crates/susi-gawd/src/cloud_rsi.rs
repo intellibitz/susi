@@ -383,6 +383,186 @@ struct Proposals {
     proposals: Vec<Proposal>,
 }
 
+// ============================================================ implementation
+//
+// T-CODEX-17 / VC-201-013: cloud-reasoned, locally-executed improvements.
+// A cloud model produces a patch plan; the plan is APPLIED and TESTED in the
+// worker's own worktree through `patch_cycle` — generated text is not
+// implemented work. When no candidate satisfies the intent (a recorded
+// capability gap), the task may go to an external agent via A2A — the gap
+// and its outcome are recorded, never presented as native work.
+
+use std::path::PathBuf;
+
+use susi_gawd_swarm::parallel_dispatch::JobOutcome;
+use susi_gawd_swarm::roadmap_agents::{AgentExecutor, ExecResult, TaskSpec, WorkerBrief};
+
+use crate::patch_cycle::{apply_patch_cycle, FilePatch, PatchRequest};
+
+/// Everything the implementing agent needs: its task and its private
+/// worktree. Built from the worker brief — mandates travel in `WorkerBrief`.
+#[derive(Debug, Clone)]
+pub struct ImplBrief {
+    /// Task being implemented.
+    pub task_id: String,
+    /// Human-readable goal line.
+    pub title: String,
+    /// The worker's private worktree (all writes confined here).
+    pub worktree: PathBuf,
+    /// Acceptance argv — joined and run as the patch cycle's verify step.
+    pub verify_cmd: Vec<String>,
+}
+
+/// The model's proposed change set — `files` match `patch_cycle` semantics
+/// (`old` must equal current content; empty `old` creates the file).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PatchPlan {
+    /// Workspace-confined file rewrites.
+    pub files: Vec<FilePatch>,
+    /// Freeform model notes (never executed).
+    #[serde(default)]
+    pub notes: String,
+}
+
+/// Cloud inference seam for implementation: returns the patch-plan JSON as
+/// the `Success` payload — or a classified failure for failover.
+pub trait ImplModel: Send + Sync {
+    /// Produce a patch plan for `brief` on candidate `c`.
+    fn plan(&self, c: &Candidate, brief: &ImplBrief) -> AttemptOutcome;
+}
+
+/// Apply a plan JSON and verify it locally. Any confinement violation,
+/// parse failure, apply failure or verify failure is an error — the caller
+/// treats the attempt as failed and the scheduler may try another model.
+fn apply_plan(brief: &ImplBrief, json: &str) -> Result<String, String> {
+    let plan: PatchPlan = extract_json(json)
+        .map_err(|e| format!("plan parse: {e:?}"))
+        .and_then(|j| serde_json::from_str(&j).map_err(|e| format!("plan json: {e}")))?;
+    let outcome = apply_patch_cycle(
+        &brief.worktree,
+        &PatchRequest {
+            files: plan.files,
+            test_command: Some(brief.verify_cmd.join(" ")),
+            auto_apply: true,
+            description: brief.title.clone(),
+        },
+        "autonomous",
+    )
+    .map_err(|e| e.to_string())?;
+    if !outcome.applied {
+        return Err(format!(
+            "patch not applied: {}",
+            outcome.error.unwrap_or_default()
+        ));
+    }
+    if !outcome.test_passed {
+        return Err(format!(
+            "verification failed (reverted): {}",
+            outcome.test_stderr
+        ));
+    }
+    Ok(format!("applied {} file(s)", outcome.files_changed.len()))
+}
+
+/// AgentExecutor that reasons on a cloud model and acts through native
+/// confined tools. The parallel scheduler drives it — one `execute` per
+/// (task, candidate) attempt with `brief.model` set to the dispatched model.
+pub struct CloudImplExec<'a> {
+    /// Inference backend (real provider or fake).
+    pub model: &'a dyn ImplModel,
+    /// The candidate pool in dispatch order — `brief.model` (opaque id)
+    /// resolves to the candidate actually used.
+    pub candidates: &'a [Candidate],
+}
+
+impl AgentExecutor for CloudImplExec<'_> {
+    fn execute(&self, brief: &WorkerBrief) -> ExecResult {
+        let Some(c) = self
+            .candidates
+            .iter()
+            .find(|c| c.opaque_id() == brief.model)
+        else {
+            return ExecResult::Failed(format!("unknown model {}", brief.model));
+        };
+        let ctx = ImplBrief {
+            task_id: brief.task.id.clone(),
+            title: brief.task.title.clone(),
+            worktree: brief.worktree.clone(),
+            verify_cmd: brief.task.accept.clone(),
+        };
+        match self.model.plan(c, &ctx) {
+            AttemptOutcome::Success(json) => match apply_plan(&ctx, &json) {
+                Ok(_summary) => ExecResult::Accepted,
+                Err(why) => ExecResult::Failed(why),
+            },
+            AttemptOutcome::PreDispatch(r) => {
+                ExecResult::Failed(format!("inference pre-dispatch: {r:?}"))
+            }
+            AttemptOutcome::MidStream { partial, .. } => ExecResult::Failed(format!(
+                "inference midstream failure ({partial} bytes discarded)"
+            )),
+            AttemptOutcome::Ambiguous(_) => {
+                ExecResult::Failed("inference outcome ambiguous".into())
+            }
+        }
+    }
+}
+
+/// External-agent delegation seam (A2A in production).
+pub trait Delegator: Send + Sync {
+    /// Hand `task` to an external agent; `gap` records WHY local models
+    /// could not serve it. Returns a summary of the delegation result.
+    fn delegate(&self, task: &TaskSpec, gap: &str) -> Result<String, String>;
+}
+
+/// A recorded delegation — the gap is preserved with the outcome so the
+/// handoff is auditable and the task is never silently claimed done.
+#[derive(Debug, Clone)]
+pub struct DelegationRecord {
+    /// Task delegated.
+    pub task_id: String,
+    /// The capability gap that forced delegation.
+    pub gap: String,
+    /// Delegator's report (or refusal).
+    pub outcome: String,
+}
+
+/// After a scheduling round, delegate tasks whose dispatch stopped at
+/// `NoEligibleCandidates` — a recorded capability gap, the ONLY permitted
+/// trigger for external delegation. Other failures stay local.
+#[must_use]
+pub fn delegate_capability_gaps(
+    outcomes: &[JobOutcome],
+    specs: &dyn Fn(&str) -> Option<TaskSpec>,
+    delegator: &dyn Delegator,
+) -> Vec<DelegationRecord> {
+    let mut out = Vec::new();
+    for o in outcomes {
+        if o.output.is_some() {
+            continue;
+        }
+        if !matches!(
+            o.stop,
+            Some(susi_gawd_swarm::cloud_failover::FailoverStop::NoEligibleCandidates)
+        ) {
+            continue;
+        }
+        let gap = format!("no candidate satisfied the intent for {}", o.job_id);
+        let Some(task) = specs(&o.job_id) else {
+            continue;
+        };
+        let outcome = delegator
+            .delegate(&task, &gap)
+            .unwrap_or_else(|e| format!("delegation refused: {e}"));
+        out.push(DelegationRecord {
+            task_id: o.job_id.clone(),
+            gap,
+            outcome,
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,27 +595,35 @@ mod tests {
     }
 
     struct StoresOwned {
-        elig: EligibilityStore,
+        elig: Mutex<EligibilityStore>,
         quota: QuotaInventory,
-        lock: LockoutTracker,
+        lock: Mutex<LockoutTracker>,
         ledger: BudgetLedger,
     }
     impl StoresOwned {
         fn new() -> Self {
             Self {
-                elig: EligibilityStore::new(),
+                elig: Mutex::new(EligibilityStore::new()),
                 quota: QuotaInventory::new(),
-                lock: LockoutTracker::new(LockoutPolicy::default(), now_unix),
+                lock: Mutex::new(LockoutTracker::new(LockoutPolicy::default(), now_unix)),
                 ledger: BudgetLedger::new(),
             }
         }
         fn stores(&mut self) -> Stores<'_> {
             Stores {
-                eligibility: &mut self.elig,
+                eligibility: self.elig.get_mut().unwrap_or_else(|e| e.into_inner()),
                 quota: &self.quota,
-                lockouts: &mut self.lock,
+                lockouts: self.lock.get_mut().unwrap_or_else(|e| e.into_inner()),
                 ledger: &self.ledger,
             }
+        }
+        fn shared(&self) -> susi_gawd_swarm::parallel_dispatch::Shared<'_> {
+            susi_gawd_swarm::parallel_dispatch::Shared::new(
+                &self.elig,
+                &self.quota,
+                &self.lock,
+                &self.ledger,
+            )
         }
     }
 
@@ -743,7 +931,7 @@ mod tests {
             Some(FailoverStop::AttemptBudgetExhausted { .. })
         ));
         // Failures were recorded as evidence, not silently swallowed.
-        assert!(!s.elig.is_empty());
+        assert!(!s.elig.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -767,5 +955,434 @@ mod tests {
             round.rejected[0].reason,
             RejectReason::Malformed(_)
         ));
+    }
+
+    // ------------------------------------------- implementation (T-CODEX-17)
+
+    use std::time::Duration;
+    use susi_gawd_swarm::parallel_dispatch::{run_jobs, DispatchPlan, Job};
+    use susi_gawd_swarm::roadmap_agents::{run_round, ClaimDenied, TaskQueue, Workspaces};
+
+    /// Per-model scripted patch plans / failures.
+    struct FakeImpl {
+        script: Mutex<BTreeMap<String, Vec<AttemptOutcome>>>,
+    }
+    impl FakeImpl {
+        fn plan(model: &str, json: &str) -> Self {
+            let mut m = BTreeMap::new();
+            m.insert(
+                model.to_string(),
+                vec![AttemptOutcome::Success(json.to_string())],
+            );
+            Self {
+                script: Mutex::new(m),
+            }
+        }
+        fn plan_seq(model: &str, outs: Vec<AttemptOutcome>) -> Self {
+            let mut m = BTreeMap::new();
+            m.insert(model.to_string(), outs);
+            Self {
+                script: Mutex::new(m),
+            }
+        }
+        fn crash(model: &str) -> Self {
+            let mut m = BTreeMap::new();
+            m.insert(
+                model.to_string(),
+                vec![AttemptOutcome::PreDispatch(InferenceResult::Failed {
+                    status: Some(500),
+                    body_snippet: "boom".into(),
+                    retry_after_secs: None,
+                })],
+            );
+            Self {
+                script: Mutex::new(m),
+            }
+        }
+    }
+    impl ImplModel for FakeImpl {
+        fn plan(&self, c: &Candidate, _b: &ImplBrief) -> AttemptOutcome {
+            let mut m = self.script.lock().unwrap_or_else(|e| e.into_inner());
+            let entry = m.entry(c.model.clone()).or_default();
+            if entry.is_empty() {
+                return AttemptOutcome::PreDispatch(InferenceResult::Failed {
+                    status: Some(500),
+                    body_snippet: "unscripted".into(),
+                    retry_after_secs: None,
+                });
+            }
+            if entry.len() == 1 {
+                return entry[0].clone();
+            }
+            entry.remove(0)
+        }
+    }
+
+    /// Adapt CloudImplExec (per-brief executor) into a failover Runner.
+    struct ImplRunner<'a> {
+        exec: &'a CloudImplExec<'a>,
+        candidates: &'a [Candidate],
+        worktree: PathBuf,
+        task: TaskSpec,
+    }
+    impl Runner for ImplRunner<'_> {
+        fn attempt(&mut self, index: usize, _r: u64) -> AttemptOutcome {
+            let Some(c) = self.candidates.get(index) else {
+                return AttemptOutcome::PreDispatch(InferenceResult::Failed {
+                    status: None,
+                    body_snippet: "no candidate".into(),
+                    retry_after_secs: None,
+                });
+            };
+            let brief = WorkerBrief {
+                task: self.task.clone(),
+                worker: format!("w-{}", self.task.id),
+                worktree: self.worktree.clone(),
+                model: c.opaque_id(),
+                mandates: String::new(),
+                grants: Default::default(),
+            };
+            match self.exec.execute(&brief) {
+                ExecResult::Accepted => AttemptOutcome::Success(c.opaque_id()),
+                ExecResult::Failed(why) => AttemptOutcome::PreDispatch(InferenceResult::Failed {
+                    status: None,
+                    body_snippet: why,
+                    retry_after_secs: None,
+                }),
+            }
+        }
+    }
+
+    fn impl_task(id: &str, verify: &[&str]) -> TaskSpec {
+        TaskSpec {
+            id: id.into(),
+            task_class: "coding".into(),
+            accept: verify.iter().map(|s| s.to_string()).collect(),
+            title: id.into(),
+        }
+    }
+
+    fn good_plan(file: &str) -> String {
+        serde_json::json!({
+            "files": [{"path": file, "old": "", "new": "done\n"}],
+            "notes": "adds the artifact"
+        })
+        .to_string()
+    }
+
+    fn impl_budget() -> FailoverBudget {
+        FailoverBudget {
+            max_attempts: 4,
+            deadline_ms: Some(NOW_MS + 60_000),
+            spend: SpendPolicy::FreeOnly,
+            attempt_estimate_micros: 1_000,
+            now_ms: NOW_MS,
+        }
+    }
+
+    #[test]
+    fn cloud_rsi_implementation_plan_applied_and_verified_locally() {
+        let wt = std::env::temp_dir().join(format!("impl-{}", std::process::id()));
+        std::fs::create_dir_all(&wt).unwrap();
+        let model = FakeImpl::plan("m1", &good_plan("artifact.txt"));
+        let cs = vec![cand("k1", "m1", "p1", "a1", 0.0)];
+        let exec = CloudImplExec {
+            model: &model,
+            candidates: &cs,
+        };
+        let task = impl_task("T-IMPL", &["test", "-f", "artifact.txt"]);
+        let mut runner = ImplRunner {
+            exec: &exec,
+            candidates: &cs,
+            worktree: wt.clone(),
+            task: task.clone(),
+        };
+        let mut s = StoresOwned::new();
+        let res = run(
+            &IntentConstraints::default(),
+            &cs,
+            &mut s.stores(),
+            impl_budget(),
+            &mut runner,
+        );
+        assert!(res.output.is_some(), "impl should succeed: {:?}", res.stop);
+        // The cloud plan was APPLIED locally — the file is real.
+        assert!(wt.join("artifact.txt").is_file());
+        let _ = std::fs::remove_dir_all(&wt);
+    }
+
+    #[test]
+    fn cloud_rsi_implementation_bad_plan_fails_over_to_working_model() {
+        let wt = std::env::temp_dir().join(format!("implfo-{}", std::process::id()));
+        std::fs::create_dir_all(&wt).unwrap();
+        // m1 writes the wrong file → verify fails → patch reverted → m2 wins.
+        let mut model = FakeImpl::plan("m2", &good_plan("right.txt"));
+        model.script.lock().unwrap().insert(
+            "m1".into(),
+            vec![AttemptOutcome::Success(good_plan("wrong.txt"))],
+        );
+        let cs = vec![
+            cand("k1", "m1", "p1", "a1", 0.0),
+            cand("k2", "m2", "p2", "a2", 0.0),
+        ];
+        let exec = CloudImplExec {
+            model: &model,
+            candidates: &cs,
+        };
+        let task = impl_task("T-FO", &["test", "-f", "right.txt"]);
+        let mut runner = ImplRunner {
+            exec: &exec,
+            candidates: &cs,
+            worktree: wt.clone(),
+            task,
+        };
+        let mut s = StoresOwned::new();
+        let res = run(
+            &IntentConstraints::default(),
+            &cs,
+            &mut s.stores(),
+            impl_budget(),
+            &mut runner,
+        );
+        assert_eq!(res.winner, Some(1));
+        assert!(res.attempts.len() >= 2, "failover recorded");
+        assert!(wt.join("right.txt").is_file());
+        // m1's wrong file was reverted by the patch cycle, not left behind.
+        assert!(!wt.join("wrong.txt").exists());
+        let _ = std::fs::remove_dir_all(&wt);
+    }
+
+    #[test]
+    fn cloud_rsi_implementation_workspace_escape_is_refused() {
+        let root = std::env::temp_dir().join(format!("implesc-{}", std::process::id()));
+        let wt = root.join("wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        let escape = serde_json::json!({
+            "files": [{"path": "../escape.txt", "old": "", "new": "owned\n"}]
+        })
+        .to_string();
+        let model = FakeImpl::plan("m1", &escape);
+        let cs = vec![cand("k1", "m1", "p1", "a1", 0.0)];
+        let exec = CloudImplExec {
+            model: &model,
+            candidates: &cs,
+        };
+        let task = impl_task("T-ESC", &["true"]);
+        let mut runner = ImplRunner {
+            exec: &exec,
+            candidates: &cs,
+            worktree: wt.clone(),
+            task,
+        };
+        let mut s = StoresOwned::new();
+        let res = run(
+            &IntentConstraints::default(),
+            &cs,
+            &mut s.stores(),
+            impl_budget(),
+            &mut runner,
+        );
+        assert!(res.output.is_none(), "escape attempt must not succeed");
+        assert!(
+            !root.join("escape.txt").exists(),
+            "nothing outside worktree"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cloud_rsi_implementation_capability_gap_delegates_with_record() {
+        // Intent requires structured output; no candidate supports it →
+        // dispatch stops honestly and the gap routes to A2A delegation.
+        let mut intent = IntentConstraints::default();
+        intent.needs_structured_output = true;
+        let mut c1 = cand("k1", "m1", "p1", "a1", 0.0);
+        c1.supports_structured_output = false;
+        let mut c2 = cand("k2", "m2", "p2", "a2", 0.0);
+        c2.supports_structured_output = false;
+        let model = FakeImpl::crash("m1");
+        let exec = CloudImplExec {
+            model: &model,
+            candidates: &[c1.clone(), c2.clone()],
+        };
+        let _ = &exec;
+        let s = StoresOwned::new();
+        let jobs = vec![Job {
+            id: "T-GAP".into(),
+            intent,
+        }];
+        let cs = vec![c1, c2];
+        let plan = DispatchPlan {
+            max_workers: 1,
+            mission: "e2e".into(),
+            job_cpu_millis: 0,
+            job_ram_mb: 0,
+            job_vram_mb: 0,
+            job_subprocesses: 0,
+            per_job: impl_budget(),
+        };
+        let outcomes = run_jobs(&jobs, &cs, &s.shared(), plan, &|_j: &Job| {
+            struct Nope;
+            impl Runner for Nope {
+                fn attempt(&mut self, _i: usize, _r: u64) -> AttemptOutcome {
+                    AttemptOutcome::PreDispatch(InferenceResult::Failed {
+                        status: None,
+                        body_snippet: "never reached".into(),
+                        retry_after_secs: None,
+                    })
+                }
+            }
+            Nope
+        });
+        assert!(outcomes[0].output.is_none());
+        assert!(matches!(
+            outcomes[0].stop,
+            Some(FailoverStop::NoEligibleCandidates)
+        ));
+        struct RecDelegator {
+            got: Mutex<Vec<(String, String)>>,
+        }
+        impl Delegator for RecDelegator {
+            fn delegate(&self, task: &TaskSpec, gap: &str) -> Result<String, String> {
+                self.got
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((task.id.clone(), gap.to_string()));
+                Ok("delegated to a2a peer".into())
+            }
+        }
+        let d = RecDelegator {
+            got: Mutex::new(Vec::new()),
+        };
+        let specs = |id: &str| {
+            if id == "T-GAP" {
+                Some(impl_task(id, &["true"]))
+            } else {
+                None
+            }
+        };
+        let recs = delegate_capability_gaps(&outcomes, &specs, &d);
+        assert_eq!(recs.len(), 1);
+        assert!(recs[0].gap.contains("T-GAP"));
+        assert_eq!(d.got.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cloud_rsi_implementation_parallel_tasks_each_apply_locally() {
+        // Two independent tasks dispatched in parallel through run_round —
+        // each lands on a distinct working model and applies its own patch.
+        struct Q {
+            tasks: Mutex<Vec<(TaskSpec, Option<String>)>>,
+        }
+        impl TaskQueue for Q {
+            fn ready(&self) -> Vec<TaskSpec> {
+                self.tasks
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .filter(|(_, c)| c.is_none())
+                    .map(|(t, _)| t.clone())
+                    .collect()
+            }
+            fn claim(&self, id: &str, w: &str, _l: u64) -> Result<(), ClaimDenied> {
+                let mut m = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
+                for (t, c) in m.iter_mut() {
+                    if t.id == id {
+                        return match c {
+                            None => {
+                                *c = Some(w.to_string());
+                                Ok(())
+                            }
+                            Some(by) => Err(ClaimDenied::Held { by: by.clone() }),
+                        };
+                    }
+                }
+                Err(ClaimDenied::NotReady)
+            }
+            fn finish(&self, _id: &str) {}
+        }
+        struct Ws(PathBuf);
+        impl Workspaces for Ws {
+            fn prepare(&self, task: &str, worker: &str) -> Result<PathBuf, String> {
+                let d = self.0.join(format!("{worker}-{task}"));
+                std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+                Ok(d)
+            }
+        }
+        let root = std::env::temp_dir().join(format!("implpar-{}", std::process::id()));
+        let queue = Q {
+            tasks: Mutex::new(vec![
+                (impl_task("T-P1", &["test", "-f", "p1.txt"]), None),
+                (impl_task("T-P2", &["test", "-f", "p2.txt"]), None),
+            ]),
+        };
+        // m1's plan writes p1.txt for T-P1, m2 writes p2.txt for T-P2 — the
+        // plan is keyed on the task, not the model: make each plan write
+        // both markers conditional on the brief... simplest: write a file
+        // named after the task id.
+        struct PerTask;
+        impl ImplModel for PerTask {
+            fn plan(&self, _c: &Candidate, b: &ImplBrief) -> AttemptOutcome {
+                let file = if b.task_id == "T-P1" {
+                    "p1.txt"
+                } else {
+                    "p2.txt"
+                };
+                AttemptOutcome::Success(good_plan(file))
+            }
+        }
+        let model = PerTask;
+        let cs = vec![
+            cand("k1", "m1", "p1", "a1", 0.0),
+            cand("k2", "m2", "p2", "a2", 0.0),
+        ];
+        let exec = CloudImplExec {
+            model: &model,
+            candidates: &cs,
+        };
+        let s = StoresOwned::new();
+        let rep = run_round(
+            &queue,
+            &Ws(root.clone()),
+            &exec,
+            &s.shared(),
+            plan_dispatch(),
+            &cs,
+            "d",
+            u64::MAX,
+            Default::default(),
+            "",
+        );
+        assert_eq!(
+            rep.ran.len(),
+            2,
+            "{:?}",
+            rep.outcomes
+                .iter()
+                .map(|o| (&o.job_id, &o.stop))
+                .collect::<Vec<_>>()
+        );
+        // Both tasks' artifacts exist in their own worktrees.
+        let mut found = 0;
+        for e in std::fs::read_dir(&root).unwrap().flatten() {
+            let p = e.path();
+            if p.join("p1.txt").exists() || p.join("p2.txt").exists() {
+                found += 1;
+            }
+        }
+        assert_eq!(found, 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn plan_dispatch() -> DispatchPlan {
+        DispatchPlan {
+            max_workers: 4,
+            mission: "e2e".into(),
+            job_cpu_millis: 0,
+            job_ram_mb: 0,
+            job_vram_mb: 0,
+            job_subprocesses: 0,
+            per_job: impl_budget(),
+        }
     }
 }
