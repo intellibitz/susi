@@ -67,6 +67,7 @@ pub mod model_store_dedupe;
 pub mod more_openai_compat;
 pub mod multi_gpu_plan;
 pub mod npu_detection;
+pub mod ollama_models;
 pub mod open_weight;
 pub mod openrouter;
 pub mod port_conflicts;
@@ -83,6 +84,7 @@ pub mod zc_engine_autopull;
 pub mod zc_hf_token_jit;
 pub mod zc_key_aliases;
 pub mod zc_key_autodetect;
+pub mod zc_key_sources;
 pub mod zc_rotation_prompt;
 pub mod zc_scan_paths;
 
