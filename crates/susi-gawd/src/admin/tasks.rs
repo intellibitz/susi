@@ -419,6 +419,26 @@ pub fn claims(ws: &Path) -> EaiResult<Vec<Claim>> {
         .collect())
 }
 
+/// Refuse work on a stale base: an agent must hold every commit of
+/// `origin/main` before claiming, so it starts from current rules and a current
+/// queue. An unreachable remote or a repo without `origin/main` cannot be judged
+/// and is not an error (claims themselves still need the remote).
+pub fn ensure_synced(ws: &Path) -> EaiResult<()> {
+    if git(ws, &["fetch", "--quiet", "origin"]).is_err() {
+        return Ok(());
+    }
+    let Ok(n) = git(ws, &["rev-list", "--count", "HEAD..origin/main"]) else {
+        return Ok(());
+    };
+    match n.parse::<u64>() {
+        Ok(0) | Err(_) => Ok(()),
+        Ok(n) => Err(EaiError::config(format!(
+            "claim refused: this worktree is {n} commit(s) behind origin/main. \
+             Sync first: `git merge origin/main` (then re-run the claim)"
+        ))),
+    }
+}
+
 /// Claim `id` for `agent`. Fails if another live claim exists or a dependency
 /// is still open. An expired claim is taken over by compare-and-swap.
 pub fn claim(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResult<Claim> {

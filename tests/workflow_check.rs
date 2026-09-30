@@ -277,3 +277,61 @@ fn workflow_check_keeps_the_primary_checkouts_main_current() {
         "main"
     );
 }
+
+fn advance_origin(w: &World) {
+    let other = w.root.join("other");
+    if !other.exists() {
+        git(
+            &w.root,
+            &[
+                "clone",
+                "--quiet",
+                w.root.join("server.git").to_str().unwrap(),
+                other.to_str().unwrap(),
+            ],
+        );
+    }
+    git(&other, &["pull", "--quiet", "origin", "main"]);
+    git(
+        &other,
+        &["commit", "--allow-empty", "--quiet", "-m", "newer"],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+}
+
+fn add_task(w: &World) {
+    let (code, _, err) = w.susi(
+        &w.wt,
+        &["tasks", "add", "job", "--accept", "cargo --version"],
+    );
+    assert_eq!(code, 0, "{err}");
+}
+
+#[test]
+fn claim_requires_a_synced_worktree_and_says_how_to_sync() {
+    let w = World::new("claimsync");
+    add_task(&w);
+    advance_origin(&w);
+    let (code, _, err) = w.susi(&w.wt, &["tasks", "claim", "T-TEST-1"]);
+    assert_ne!(code, 0, "a stale worktree must not claim");
+    assert!(err.contains("1 commit(s) behind origin/main"), "{err}");
+    assert!(err.contains("git merge origin/main"), "{err}");
+    // No claim was taken.
+    let (_, out, _) = w.susi(&w.wt, &["tasks", "list"]);
+    assert!(!out.contains("\"claimed_by\": \"TEST\""), "{out}");
+    // After syncing, the same claim goes through.
+    git(&w.wt, &["merge", "--quiet", "origin/main"]);
+    let (code, _, err) = w.susi(&w.wt, &["tasks", "claim", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+}
+
+#[test]
+fn claim_requires_a_synced_worktree_but_offline_is_not_an_error() {
+    let w = World::new("claimoffline");
+    add_task(&w);
+    // Server gone: freshness is unknowable, and the claim then fails on the
+    // remote itself, not on the sync check.
+    std::fs::remove_dir_all(w.root.join("server.git")).unwrap();
+    let (_, _, err) = w.susi(&w.wt, &["tasks", "claim", "T-TEST-1"]);
+    assert!(!err.contains("behind origin/main"), "{err}");
+}
