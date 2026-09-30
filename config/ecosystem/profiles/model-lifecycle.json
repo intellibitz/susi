@@ -1,0 +1,51 @@
+{
+  "version": "eco-profile/v1",
+  "id": "model-lifecycle",
+  "name": "Model lifecycle facts",
+  "subject": "model-lifecycle-catalog",
+  "kind": "catalog",
+  "versions": [
+    {
+      "id": "2025",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "lifecycle-states",
+      "format": "text",
+      "fields": [
+        "release (dated snapshots alongside -latest)",
+        "deprecated (warning; still served)",
+        "sunset announced",
+        "shutdown (410/404)",
+        "successor pinned per model"
+      ],
+      "notes": "states recorded with their provider evidence"
+    },
+    {
+      "name": "vendor-policies",
+      "format": "text",
+      "fields": [
+        "openai: deprecations page + api-versions; shutdown ~6mo after notice",
+        "anthropic: model deprecations page; retired models 404",
+        "google: gemini model lifecycle page; preview vs stable",
+        "mistral: dated model ids + overview deprecation table"
+      ],
+      "notes": "each provider publishes a deprecation surface"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://platform.openai.com/docs/deprecations",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}
