@@ -40,6 +40,7 @@ pub mod engines;
 pub use susi_gemi_models as models;
 
 // Cross-cutting surfaces that use both tiers
+pub mod placement_uses_task_class;
 pub mod plane_handler;
 
 pub mod benchmark;
@@ -48,12 +49,14 @@ pub mod brain_explain;
 pub mod brain_export;
 pub mod coding_models_ext;
 pub mod context_length_routing;
+pub mod embedding_routing;
 pub mod engine_benchmark;
 pub mod eval;
 pub mod frontier_ext;
 pub mod model_preload;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
+pub mod prompt_caching;
 pub mod provider_contract;
 pub mod pulse;
 pub mod rate_limit_scheduler;
@@ -63,11 +66,14 @@ pub mod spend_tracker;
 pub mod status_pages;
 pub mod thermal_routing;
 pub mod tui_top;
+pub mod vision_routing;
 pub mod zc_budget_derived;
+pub mod zc_chat_templates;
 pub mod zc_cost_from_catalog;
 pub mod zc_eos_tokens;
 pub mod zc_generation_defaults;
 pub mod zc_gpu_asset;
+pub mod zc_gpu_build_auto;
 pub mod zc_idle_adaptive;
 pub mod zc_kv_auto;
 pub mod zc_local_first_default;

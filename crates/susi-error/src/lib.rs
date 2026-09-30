@@ -22,6 +22,7 @@ pub mod redact;
 #[cfg(test)]
 #[path = "redact_tests.rs"]
 mod redact_test_suite;
+pub mod zc_errors_fixable;
 
 use std::path::PathBuf;
 use std::time::Duration;

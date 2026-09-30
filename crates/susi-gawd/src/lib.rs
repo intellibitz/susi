@@ -95,6 +95,8 @@ pub mod tasks_from_ci;
 pub mod zc_agent_files_gen;
 pub mod zc_agent_identity;
 pub mod zc_gh_auth_auto;
+pub mod zc_task_scaffold;
+pub mod zc_tasks_next;
 pub mod zc_toolchain_auto;
 pub mod zc_updates_default;
 pub mod zc_worktree_gc;
