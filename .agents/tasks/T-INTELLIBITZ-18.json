@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ-18",
+  "title": "Wire fair queues into concurrent MissionDag admits",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "fair_queue_dispatch_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-025",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774661
+}

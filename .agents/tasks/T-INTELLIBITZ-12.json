@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ-12",
+  "title": "Expose durable mission resume CLI for partial swarm outcomes",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "mission_resume_cli_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-030",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774661
+}

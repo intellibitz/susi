@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mandate 49: create your own worktree + branch off the latest origin/main,
-# ready to work in. Everything an agent needs happens here, unprompted:
+# ready for the atomic per-task loop (sync→claim→work→commit→sync→push→sync).
 #
 #   scripts/susi-worktree.sh              auto name: <agent>-<timestamp>
 #   scripts/susi-worktree.sh <name> [base]   (base defaults to origin/main)
@@ -35,5 +35,5 @@ echo "worktree: $dest (branch $name)" >&2
 # stale branch that invites work (non-fatal: it refuses if it has real work).
 "$root/scripts/park-primary.sh" >&2 || echo "note: primary checkout not parked (see above); it is still not for work" >&2
 
-echo "ready: run \`susi workflow check\` there, then \`susi tasks list\` / \`susi tasks claim <id>\`" >&2
+echo "ready: atomic loop — \`susi workflow check\`, then sync→claim one→work→commit→sync→push→sync" >&2
 echo "cd $dest"
