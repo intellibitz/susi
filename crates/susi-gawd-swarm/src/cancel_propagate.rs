@@ -44,11 +44,20 @@ impl CancelToken {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// No PartialEq/Eq: `signal` is a live atomic, equality on it is meaningless.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Descendant {
     pub id: String,
     pub kind: WorkerKind,
     pub cancellable: bool,
+    /// Task-registry scope whose running commands are killed on propagate
+    /// (T-DEVIN-8). Without it, propagate only records the id.
+    #[serde(default)]
+    pub cancel_scope: Option<String>,
+    /// Shared flag set on propagate; workers poll it between steps so they
+    /// stop issuing new work mid-batch instead of running to completion.
+    #[serde(skip)]
+    pub signal: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 #[derive(Debug, Default)]
@@ -69,6 +78,12 @@ impl CancelBus {
     }
 
     /// Propagate cancel: terminate cancellable descendants; report irreversible.
+    ///
+    /// Termination is real, not bookkeeping (T-DEVIN-8): each descendant's
+    /// shared `signal` is set so workers abort between steps, and its
+    /// `cancel_scope` cancels every task the worker registered — running
+    /// `exec_command` children are killed and reaped within one poll
+    /// interval instead of continuing to mutate files or burn CPU.
     pub fn propagate(&mut self) -> Vec<String> {
         let Some(tok) = self.token.as_mut() else {
             return Vec::new();
@@ -77,6 +92,12 @@ impl CancelBus {
         let mut reports = Vec::new();
         for d in self.descendants.values() {
             if d.cancellable {
+                if let Some(sig) = &d.signal {
+                    sig.store(true, std::sync::atomic::Ordering::Release);
+                }
+                if let Some(scope) = &d.cancel_scope {
+                    crate::susi_core::task_manager::SwarmTaskManager::global().cancel_scope(scope);
+                }
                 self.terminated.insert(d.id.clone());
             } else {
                 self.irreversible_running.insert(d.id.clone());

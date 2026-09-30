@@ -6,7 +6,7 @@
 //   "unresponsive," not "slow," and is proactively terminated.
 // Mandate 26: Glass Box Transparency & Omni-Trace Task Control.
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
@@ -79,6 +79,9 @@ pub struct TaskRecord {
     pub intent: String,
     pub start_time_secs: u64,
     pub expected_idle_ms: u64,
+    /// Cancellation scope (e.g. a mission/ DAG batch id). `cancel_scope`
+    /// kills every running task registered under it (T-DEVIN-8).
+    pub scope: Option<String>,
     pub status: Arc<AtomicU8>,
     pub last_progress_secs: Arc<AtomicU64>,
     pub progress_count: Arc<AtomicU64>,
@@ -90,10 +93,11 @@ impl Serialize for TaskRecord {
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("TaskRecord", 9)?;
+        let mut state = serializer.serialize_struct("TaskRecord", 10)?;
         state.serialize_field("task_id", &self.task_id)?;
         state.serialize_field("name", &self.name)?;
         state.serialize_field("intent", &self.intent)?;
+        state.serialize_field("scope", &self.scope)?;
         state.serialize_field(
             "status",
             &TaskStatus::from(self.status.load(Ordering::Acquire)),
@@ -376,6 +380,11 @@ pub struct SwarmTaskManager {
     pub tasks: DashMap<String, TaskRecord>,
     pub cancel_map: DashMap<String, Arc<AtomicBool>>,
     pub pause_map: DashMap<String, Arc<AtomicBool>>,
+    /// Scopes cancelled while (or before) their tasks ran. Cancellation is
+    /// durable for the scope's lifetime: tasks registered after
+    /// `cancel_scope` start already cancelled instead of running new work
+    /// under a dead mission (T-DEVIN-8).
+    pub cancelled_scopes: DashSet<String>,
 }
 
 impl SwarmTaskManager {
@@ -386,6 +395,7 @@ impl SwarmTaskManager {
                 tasks: DashMap::new(),
                 cancel_map: DashMap::new(),
                 pause_map: DashMap::new(),
+                cancelled_scopes: DashSet::new(),
             };
             manager.start_watchdog();
             manager
@@ -393,6 +403,17 @@ impl SwarmTaskManager {
     }
 
     pub fn register_task(&self, name: &str, intent: &str) -> Arc<TaskHandle> {
+        self.register_task_scoped(name, intent, None)
+    }
+
+    /// Register a task under a cancellation scope. A scope cancelled before
+    /// registration yields a handle that is already cancelled.
+    pub fn register_task_scoped(
+        &self,
+        name: &str,
+        intent: &str,
+        scope: Option<&str>,
+    ) -> Arc<TaskHandle> {
         let task_id = format!(
             "task_{}_{}",
             SystemTime::now()
@@ -411,13 +432,15 @@ impl SwarmTaskManager {
         let last_progress_secs = Arc::new(AtomicU64::new(now_secs));
         let progress_count = Arc::new(AtomicU64::new(0));
         let result = Arc::new(parking_lot::RwLock::new(None));
-        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let scope_cancelled = scope.is_some_and(|s| self.cancelled_scopes.contains(s));
+        let cancel_flag = Arc::new(AtomicBool::new(scope_cancelled));
         let pause_flag = Arc::new(AtomicBool::new(false));
 
         let record = TaskRecord {
             task_id: task_id.clone(),
             name: name.to_string(),
             intent: intent.to_string(),
+            scope: scope.map(str::to_string),
             status: Arc::clone(&status),
             start_time_secs: now_secs,
             expected_idle_ms: idle_threshold,
@@ -446,6 +469,36 @@ impl SwarmTaskManager {
             last_progress_ms: AtomicU64::new(0),
             max_idle_ms: AtomicU64::new(0),
         })
+    }
+
+    /// Cancel a scope: every running/paused task registered under it gets its
+    /// cancel flag set (running `exec_command` children are killed within one
+    /// poll interval), and the scope stays cancelled so later registrations
+    /// abort immediately. Returns how many live tasks were cancelled.
+    pub fn cancel_scope(&self, scope: &str) -> usize {
+        self.cancelled_scopes.insert(scope.to_string());
+        let mut cancelled = 0usize;
+        for rec in self.tasks.iter() {
+            let scoped_live = rec.scope.as_deref() == Some(scope)
+                && matches!(
+                    TaskStatus::from(rec.status.load(Ordering::Acquire)),
+                    TaskStatus::Running | TaskStatus::Paused
+                );
+            if !scoped_live {
+                continue;
+            }
+            if let Some(flag) = self.cancel_map.get(&rec.task_id) {
+                flag.store(true, Ordering::Release);
+                cancelled += 1;
+            }
+        }
+        cancelled
+    }
+
+    /// True once `cancel_scope` has run for this scope (sticky).
+    #[must_use]
+    pub fn is_scope_cancelled(&self, scope: &str) -> bool {
+        self.cancelled_scopes.contains(scope)
     }
 
     /// Upper bound on task records. Finished records were never removed, so
@@ -629,6 +682,7 @@ mod tests {
             tasks: DashMap::new(),
             cancel_map: DashMap::new(),
             pause_map: DashMap::new(),
+            cancelled_scopes: DashSet::new(),
         };
         for status in [
             TaskStatus::Completed,
@@ -653,6 +707,7 @@ mod tests {
             tasks: DashMap::new(),
             cancel_map: DashMap::new(),
             pause_map: DashMap::new(),
+            cancelled_scopes: DashSet::new(),
         };
         let handle = manager.register_task("lifecycle_test", "test");
         assert!(manager.pause_task(&handle.task_id));
@@ -715,6 +770,7 @@ mod tests {
             tasks: DashMap::new(),
             cancel_map: DashMap::new(),
             pause_map: DashMap::new(),
+            cancelled_scopes: DashSet::new(),
         };
         let live = manager.register_task("lifecycle_test", "live");
         for _ in 0..SwarmTaskManager::MAX_TASK_RECORDS * 2 {
@@ -734,6 +790,7 @@ mod tests {
             tasks: DashMap::new(),
             cancel_map: DashMap::new(),
             pause_map: DashMap::new(),
+            cancelled_scopes: DashSet::new(),
         };
         let handle = manager.register_task("lifecycle_test", "test");
         handle.report_progress();
@@ -752,6 +809,7 @@ mod tests {
             tasks: DashMap::new(),
             cancel_map: DashMap::new(),
             pause_map: DashMap::new(),
+            cancelled_scopes: DashSet::new(),
         };
         let handle = manager.register_task("lifecycle_test", "test");
         let id = handle.task_id.clone();

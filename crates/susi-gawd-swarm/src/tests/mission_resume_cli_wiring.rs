@@ -48,6 +48,8 @@ fn mission_resume_cli_wiring() {
             id: "n1".into(),
             kind: WorkerKind::Local,
             cancellable: true,
+            cancel_scope: None,
+            signal: None,
         });
     }
     let view3 = dag.resume_cli_view("mission-partial");

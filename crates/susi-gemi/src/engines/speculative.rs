@@ -619,6 +619,7 @@ mod tests {
             tasks: Default::default(),
             cancel_map: Default::default(),
             pause_map: Default::default(),
+            cancelled_scopes: Default::default(),
         };
         // Local manager (no idle watchdog): under full-workspace load the
         // global SwarmTaskManager watchdog can cancel this ~18s CPU decode

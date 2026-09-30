@@ -56,17 +56,19 @@ pub struct MissionPersistCtx<'a> {
 }
 
 /// One node's run: index, output, elapsed ms, receipt args, lease owner,
-/// fence, and the worker's private write scope (folded before results are
-/// processed).
-type NodeRun = (
-    usize,
-    EaiResult<String>,
-    u64,
-    Vec<String>,
-    String,
-    u64,
-    crate::writer_isolation::WorkerScope,
-);
+/// fence, the worker's private write scope (folded before results are
+/// processed), and whether the worker aborted on mission cancellation
+/// (T-DEVIN-8) — cancelled runs are discarded without fold-back.
+struct NodeRun {
+    idx: usize,
+    res: EaiResult<String>,
+    elapsed_ms: u64,
+    calls: Vec<String>,
+    owner: String,
+    fence: u64,
+    scope: crate::writer_isolation::WorkerScope,
+    cancelled: bool,
+}
 
 fn now_unix() -> u64 {
     SystemTime::now()
@@ -74,6 +76,10 @@ fn now_unix() -> u64 {
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
+
+/// Unique-per-process execution counter minting task-registry cancel scopes
+/// for each DAG batch run (T-DEVIN-8).
+static DAG_EXEC_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl MissionDag {
     pub fn new(initial_goal: &str) -> Self {
@@ -218,16 +224,36 @@ impl MissionDag {
         cancellable: bool,
         deadline_unix: u64,
     ) {
-        let id = Self::persist_id(idx);
+        self.register_cancel_worker_scoped(
+            idx,
+            deadline_unix,
+            Descendant {
+                id: String::new(),
+                kind,
+                cancellable,
+                cancel_scope: None,
+                signal: None,
+            },
+        );
+    }
+
+    /// As [`Self::register_cancel_worker`], with the descendant's real
+    /// termination handles set on `worker`: a task-registry `cancel_scope`
+    /// (running commands under it are killed on propagate) and a shared
+    /// `signal` the worker polls between steps (T-DEVIN-8). The worker's
+    /// `id` is overwritten with the node's persist id.
+    pub fn register_cancel_worker_scoped(
+        &mut self,
+        idx: usize,
+        deadline_unix: u64,
+        mut worker: Descendant,
+    ) {
+        worker.id = Self::persist_id(idx);
         if self.cancel.token.is_none() {
             self.cancel
-                .set_token(CancelToken::fresh(&id, deadline_unix));
+                .set_token(CancelToken::fresh(&worker.id, deadline_unix));
         }
-        self.cancel.register(Descendant {
-            id,
-            kind,
-            cancellable,
-        });
+        self.cancel.register(worker);
     }
 
     /// Propagate cancellation through registered workers/peers.
@@ -639,12 +665,41 @@ impl MissionDag {
             // Assign expiring ownership fences before workers run (VC-201-022).
             let now = now_unix();
             let lease_ttl = 3_600;
+            let deadline = self
+                .cancel
+                .token
+                .as_ref()
+                .map(|t| t.deadline_unix)
+                .unwrap_or(now + lease_ttl);
+            // T-DEVIN-8: one task-registry scope per mission execution —
+            // `cancel_scope` kills every in-flight worker command at once,
+            // and the shared signal aborts workers between steps.
+            let mission_scope = format!(
+                "dag-exec-{}-{}",
+                std::process::id(),
+                DAG_EXEC_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
             let mut batch_leases: Vec<(usize, String, u64)> =
+                Vec::with_capacity(ready_indices.len());
+            let mut batch_signals: Vec<Arc<std::sync::atomic::AtomicBool>> =
                 Vec::with_capacity(ready_indices.len());
             for &idx in &ready_indices {
                 let owner = format!("worker-{idx}");
                 let lease = self.lease_dispatch(idx, &owner, now, lease_ttl);
+                let signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                self.register_cancel_worker_scoped(
+                    idx,
+                    deadline,
+                    Descendant {
+                        id: String::new(),
+                        kind: WorkerKind::Local,
+                        cancellable: true,
+                        cancel_scope: Some(mission_scope.clone()),
+                        signal: Some(Arc::clone(&signal)),
+                    },
+                );
                 batch_leases.push((idx, owner, lease.fence));
+                batch_signals.push(signal);
             }
 
             let ws = workspace.to_path_buf();
@@ -663,10 +718,35 @@ impl MissionDag {
             let batch_results: Vec<NodeRun> = batch_leases
                 .into_par_iter()
                 .zip(batch_scopes)
-                .map(|((idx, owner, fence), scope)| {
+                .zip(batch_signals)
+                .map(|(((idx, owner, fence), scope), signal)| {
                     let node = &self.nodes[idx];
                     let node_ws = scope.dir.clone();
                     let start = std::time::Instant::now();
+                    // Mid-batch cancel check (T-DEVIN-8): a mission cancel can
+                    // only arrive via the task scope (propagate / external
+                    // stop), the shared signal, or the token deadline —
+                    // the dag itself is mutably borrowed for the whole run.
+                    let manager =
+                        crate::susi_core::task_manager::SwarmTaskManager::global();
+                    let scope_for_check = mission_scope.clone();
+                    let cancelled = move || {
+                        signal.load(std::sync::atomic::Ordering::Acquire)
+                            || manager.is_scope_cancelled(&scope_for_check)
+                            || now_unix() >= deadline
+                    };
+                    if cancelled() {
+                        return NodeRun {
+                            idx,
+                            res: Err(EaiError::governance("worker cancelled")),
+                            elapsed_ms: start.elapsed().as_millis() as u64,
+                            calls: Vec::new(),
+                            owner,
+                            fence,
+                            scope,
+                            cancelled: true,
+                        };
+                    }
                     let _ = tx.send(crate::susi_core::bus::SwarmEventType::AgentStarted {
                         agent_name: node.title.clone(),
                     });
@@ -693,10 +773,19 @@ impl MissionDag {
                     // exec_command argument), for binding its own evidence.
                     let mut node_calls = Vec::new();
                     for block in res.split("```").skip(1).step_by(2) {
+                        if cancelled() {
+                            break;
+                        }
                         if let Some(cmd) = shell_block_command(block) {
                             eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
                             let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
-                            let call = serde_json::Value::String(wrapped_cmd);
+                            // cancel_scope binds the spawned process to this
+                            // mission's cancellation scope: propagate/kill
+                            // terminates the live child, not just the record.
+                            let call = serde_json::json!({
+                                "command": wrapped_cmd,
+                                "cancel_scope": mission_scope,
+                            });
                             node_calls.push(call.to_string());
                             let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &call, &node_ws).unwrap_or_else(|e| format!("[Error] {e}"));
                             executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
@@ -712,7 +801,17 @@ impl MissionDag {
                     }
 
                     let elapsed = start.elapsed().as_millis() as u64;
-                    (idx, Ok(res), elapsed, node_calls, owner, fence, scope)
+                    let was_cancelled = cancelled();
+                    NodeRun {
+                        idx,
+                        res: Ok(res),
+                        elapsed_ms: elapsed,
+                        calls: node_calls,
+                        owner,
+                        fence,
+                        scope,
+                        cancelled: was_cancelled,
+                    }
                 })
                 .collect();
 
@@ -721,19 +820,28 @@ impl MissionDag {
             // conflicts instead of silently lost writes.
             let mut write_conflicts: Vec<String> = Vec::new();
             let mut conflicted_nodes: BTreeSet<usize> = BTreeSet::new();
-            for (idx, _, _, _, _, _, scope) in &batch_results {
-                match isolation.fold(scope) {
+            for run in &batch_results {
+                // Cancelled workers' private writes are discarded, never
+                // folded — a killed command's partial output must not land.
+                if run.cancelled {
+                    isolation.cleanup(&run.scope);
+                    continue;
+                }
+                match isolation.fold(&run.scope) {
                     Ok(crate::writer_isolation::FoldOutcome::Clean { .. }) => {}
                     Ok(crate::writer_isolation::FoldOutcome::Conflict { paths }) => {
                         write_conflicts.push(format!(
-                            "n{idx}:{}",
+                            "n{}:{}",
+                            run.idx,
                             paths.into_iter().collect::<Vec<_>>().join(",")
                         ));
-                        conflicted_nodes.insert(*idx);
+                        conflicted_nodes.insert(run.idx);
                     }
                     Err(e) => {
-                        for (_, _, _, _, _, _, rest) in &batch_results {
-                            isolation.cleanup(rest);
+                        for rest in &batch_results {
+                            if !rest.cancelled {
+                                isolation.cleanup(&rest.scope);
+                            }
                         }
                         return Err(e);
                     }
@@ -751,18 +859,67 @@ impl MissionDag {
                     }
                     let _ = ctx.mission.save(ctx.dir);
                 }
-                for (_, _, _, _, _, _, scope) in &batch_results {
-                    isolation.cleanup(scope);
+                for run in &batch_results {
+                    if !run.cancelled {
+                        isolation.cleanup(&run.scope);
+                    }
                 }
                 return Err(EaiError::governance(format!(
                     "DAG_EXECUTION_FAILED: write conflict needs review: {detail}"
                 )));
             }
-            for (_, _, _, _, _, _, scope) in &batch_results {
-                isolation.cleanup(scope);
+
+            // A cancel that arrived mid-batch: workers aborted between steps
+            // and their scoped commands were killed. Propagate to terminate
+            // the rest, then refuse to complete the batch.
+            if batch_results.iter().any(|run| run.cancelled) || self.is_cancelled(now_unix()) {
+                let reports = self.cancel_propagate();
+                let mut cancelled_nodes: Vec<usize> = batch_results
+                    .iter()
+                    .filter(|run| run.cancelled)
+                    .map(|run| run.idx)
+                    .collect();
+                cancelled_nodes.sort_unstable();
+                if let Some(ctx) = persist_slot.as_mut() {
+                    for &idx in &cancelled_nodes {
+                        let id = Self::persist_id(idx);
+                        if let Some(node) = ctx.mission.nodes.get_mut(&id) {
+                            node.state = NodeTerminal::Failed;
+                            node.output = Some("[CANCELLED] mission cancel propagated".to_string());
+                        }
+                    }
+                    let _ = ctx.mission.save(ctx.dir);
+                }
+                for run in &batch_results {
+                    if !run.cancelled {
+                        isolation.cleanup(&run.scope);
+                    }
+                }
+                let detail = if reports.is_empty() {
+                    "cancelled".to_string()
+                } else {
+                    reports.join("; ")
+                };
+                return Err(EaiError::governance(format!(
+                    "DAG_EXECUTION_FAILED: cancel propagated mid-batch (nodes {cancelled_nodes:?}): {detail}"
+                )));
+            }
+            for run in &batch_results {
+                if !run.cancelled {
+                    isolation.cleanup(&run.scope);
+                }
             }
 
-            for (idx, res, elapsed, node_calls, owner, fence, _scope) in batch_results {
+            for run in batch_results {
+                let NodeRun {
+                    idx,
+                    res,
+                    elapsed_ms: elapsed,
+                    calls: node_calls,
+                    owner,
+                    fence,
+                    ..
+                } = run;
                 if let Ok(output) = res {
                     // Crown path: citation answers resolve from the live ledger;
                     // narratives without required citations fail TRUTH_UNVERIFIED.

@@ -91,6 +91,9 @@ pub use dag::{MissionDag, SwarmDag};
 #[path = "tests/cancel_propagate_dispatch_wiring.rs"]
 mod cancel_propagate_dispatch_wiring_tests;
 #[cfg(test)]
+#[path = "tests/cancel_terminates.rs"]
+mod cancel_terminates_tests;
+#[cfg(test)]
 #[path = "tests/fair_queue_dispatch_wiring.rs"]
 mod fair_queue_dispatch_wiring_tests;
 #[cfg(test)]
