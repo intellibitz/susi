@@ -40,3 +40,26 @@ fn vc_201_033_rotation_requires_quorum() {
     );
     assert!(err.is_err());
 }
+
+use crate::node_enrollment::{enroll, Enrollment};
+
+#[test]
+fn vc_201_033_enrollment_requires_token_and_mtls() {
+    assert!(!enroll("x", "secret", Some("node-a")).accepted);
+    assert!(!enroll("secret", "secret", None).accepted);
+    assert!(enroll("secret", "secret", Some("node-a")).accepted);
+}
+
+/// Production enrollment path: valid production token plus mTLS identity.
+#[test]
+fn node_enrollment_production() {
+    let prod = enroll("prod-token-2026", "prod-token-2026", Some("node-prod-1"));
+    assert!(prod.accepted);
+    assert_eq!(prod.reason, "enrolled");
+    // Wrong token rejected even with mTLS.
+    let bad = enroll("wrong", "prod-token-2026", Some("node-prod-1"));
+    assert!(!bad.accepted);
+    // No mTLS rejected even with correct token.
+    let no_tls = enroll("prod-token-2026", "prod-token-2026", None);
+    assert!(!no_tls.accepted);
+}
