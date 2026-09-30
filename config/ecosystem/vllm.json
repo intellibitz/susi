@@ -1,0 +1,116 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "vllm",
+    "name": "vLLM",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "vllm",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "vllm",
+      "to": "openai-chat-completions-2024-06",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "vllm",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "vllm",
+      "to": "gguf",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "vllm",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "vllm",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "vllm",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "vllm",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "vllm",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
