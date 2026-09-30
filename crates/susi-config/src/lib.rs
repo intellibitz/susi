@@ -36,6 +36,7 @@ pub mod explain;
 pub mod extensions;
 pub mod file_lock;
 mod json_util;
+pub mod key_rotation;
 pub mod key_scope;
 pub mod keyring_storage;
 pub mod plan_apply;
@@ -51,10 +52,12 @@ pub mod validate;
 pub mod versioned_store;
 pub mod zc_bare_susi;
 pub mod zc_config_overrides;
+pub mod zc_debt_ratchet;
 pub mod zc_debt_report;
 pub mod zc_env_classify;
 pub mod zc_env_detectable;
 pub mod zc_installer;
+pub mod zc_local_progress;
 pub mod zc_path;
 pub mod zc_susi_fix;
 pub mod zc_uninstall;
@@ -163,6 +166,10 @@ mod extensions_tests;
 #[cfg(test)]
 #[path = "tests/json_util.rs"]
 mod json_util_tests;
+#[cfg(test)]
+#[path = "tests/key_rotation.rs"]
+mod key_rotation_tests;
+
 #[cfg(test)]
 #[path = "tests/key_scope.rs"]
 mod key_scope_tests;

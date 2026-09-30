@@ -70,6 +70,7 @@ pub mod mcp_client;
 pub mod mission_trace;
 pub mod net_guard;
 pub mod otel_export;
+pub mod pii_redaction;
 pub mod plane_bus;
 pub mod plane_bus_ipc;
 pub mod prompt_secret_scan;

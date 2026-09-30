@@ -1,0 +1,55 @@
+{{- if .Values.operator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "susi.fullname" . }}-operator
+  labels:
+    {{- include "susi.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "susi.name" . }}-operator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "susi.name" . }}-operator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "susi.fullname" . }}-operator
+      containers:
+        - name: operator
+          image: {{ .Values.operator.image }}
+          args: ["--leader-elect"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "susi.fullname" . }}-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "susi.fullname" . }}-operator
+rules:
+  - apiGroups: ["susi.dev"]
+    resources: ["susistacks", "susistacks/status"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["apps", ""]
+    resources: ["deployments", "services", "secrets", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "susi.fullname" . }}-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "susi.fullname" . }}-operator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "susi.fullname" . }}-operator
+    namespace: {{ .Release.Namespace }}
+{{- end }}
