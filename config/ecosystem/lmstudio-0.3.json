@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "lmstudio-0.3",
+    "name": "LM Studio API 0.3",
+    "version": "0.3",
+    "provenance": {
+      "source": "https://lmstudio.ai/docs/app/api",
+      "spec_version": "0.3",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "lmstudio-0.3",
+      "to": "lmstudio-rest",
+      "provenance": {
+        "source": "https://lmstudio.ai/docs/app/api",
+        "spec_version": "0.3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
