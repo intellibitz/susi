@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "otel-genai-1.38",
+    "name": "OTel semconv 1.38",
+    "version": "1.38",
+    "provenance": {
+      "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+      "spec_version": "1.38",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "otel-genai-1.38",
+      "to": "otel-genai-semconv",
+      "provenance": {
+        "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+        "spec_version": "1.38",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

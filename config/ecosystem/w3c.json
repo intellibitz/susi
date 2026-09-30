@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "w3c",
+    "name": "W3C",
+    "home": "https://www.w3.org",
+    "provenance": {
+      "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+      "spec_version": "1.38",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "w3c",
+      "to": "w3c-trace-context",
+      "provenance": {
+        "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+        "spec_version": "1.38",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
