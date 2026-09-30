@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "awq-format",
+    "name": "AWQ quantisation descriptor",
+    "body": "AWQ authors (MIT)",
+    "provenance": {
+      "source": "https://huggingface.co/docs/peft/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

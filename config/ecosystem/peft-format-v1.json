@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "peft-format-v1",
+    "name": "PEFT adapter format",
+    "version": "v1",
+    "provenance": {
+      "source": "https://huggingface.co/docs/peft/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "peft-format-v1",
+      "to": "peft-adapter-format",
+      "provenance": {
+        "source": "https://huggingface.co/docs/peft/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
