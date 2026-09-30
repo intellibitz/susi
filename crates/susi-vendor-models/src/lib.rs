@@ -43,6 +43,7 @@ pub mod eco_signed_kb;
 pub mod eco_store;
 pub mod eco_taxonomy;
 pub mod frontier;
+pub mod gguf_inspector;
 pub mod hf_discovery;
 pub mod lmstudio_models;
 pub mod local_ecosystem;
@@ -53,6 +54,8 @@ pub mod port_conflicts;
 pub mod price_catalog;
 pub mod resource_inventory;
 pub mod signed_catalog;
+pub mod zc_default_models;
+pub mod zc_key_autodetect;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]

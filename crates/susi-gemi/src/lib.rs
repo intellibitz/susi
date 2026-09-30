@@ -57,7 +57,9 @@ pub mod region_eligibility;
 pub mod spend_tracker;
 pub mod thermal_routing;
 pub mod tui_top;
+pub mod zc_budget_derived;
 pub mod zc_gpu_asset;
+pub mod zc_preferred_auto;
 
 #[cfg(test)]
 #[path = "tests/engine_benchmark.rs"]

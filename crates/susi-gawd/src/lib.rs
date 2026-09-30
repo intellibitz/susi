@@ -92,6 +92,7 @@ pub mod self_validation;
 pub mod task_edit_guard;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
+pub mod zc_updates_default;
 
 #[cfg(test)]
 #[path = "tests/formal_invariants.rs"]
