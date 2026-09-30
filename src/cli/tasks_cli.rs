@@ -45,9 +45,20 @@ pub enum TaskCommands {
     /// Claim a task (atomic; fails if someone else holds a live claim)
     Claim {
         id: String,
+        /// Reserve a repo-relative file/directory (repeatable); overlapping claims fail.
+        #[arg(long = "scope")]
+        scopes: Vec<String>,
         #[arg(long)]
         agent: Option<String>,
         /// Lease length; an expired claim can be taken over
+        #[arg(long, default_value_t = tasks::DEFAULT_LEASE_HOURS)]
+        hours: u64,
+    },
+    /// Renew an owned live task lease, retaining its scopes.
+    Renew {
+        id: String,
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long, default_value_t = tasks::DEFAULT_LEASE_HOURS)]
         hours: u64,
     },
@@ -110,6 +121,16 @@ pub(crate) fn who(agent: Option<String>, root: &Path) -> String {
     agent
         .or_else(|| std::env::var("SUSI_AGENT").ok())
         .filter(|a| !a.trim().is_empty())
+        .or_else(|| {
+            std::process::Command::new("git")
+                .args(["config", "--get", "susi.agent"])
+                .current_dir(root)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
         .or_else(|| agent_from_branch(root))
         .or_else(|| {
             std::process::Command::new("git")
@@ -149,6 +170,8 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                         "roadmap": t.roadmap,
                         "claimed_by": claim.filter(|c| !c.expired(now)).map(|c| c.agent.clone()),
                         "lease_until_unix": claim.map(|c| c.lease_until_unix),
+                        "scopes": claim.map(|c| &c.scopes),
+                        "branch": claim.and_then(|c| c.branch.as_ref()),
                     })
                 })
                 .collect();
@@ -226,13 +249,27 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                 task.id, task.id
             );
         }
-        TaskCommands::Claim { id, agent, hours } => {
+        TaskCommands::Claim {
+            id,
+            agent,
+            hours,
+            scopes,
+        } => {
             tasks::ensure_synced(&root)?;
-            let c = tasks::claim(&root, &id, &who(agent, &root), hours, tasks::now_unix())?;
+            let c = tasks::claim_scoped(
+                &root,
+                &id,
+                &who(agent, &root),
+                tasks::ClaimOptions { hours, now: tasks::now_unix(), scopes: &scopes },
+            )?;
             println!(
                 "{} claimed {} until unix {}",
                 c.agent, c.task, c.lease_until_unix
             );
+        }
+        TaskCommands::Renew { id, agent, hours } => {
+            let claim = tasks::renew(&root, &id, &who(agent, &root), hours, tasks::now_unix())?;
+            println!("renewed {id} until unix {}", claim.lease_until_unix);
         }
         TaskCommands::Release { id, agent, force } => {
             tasks::release(&root, &id, &who(agent, &root), force)?;
@@ -240,7 +277,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
         }
         TaskCommands::Close { id, agent } => match tasks::close(&root, &id, &who(agent, &root)) {
             Ok(t) => println!(
-                "closed {} — moved to .agents/tasks/done/; commit that change",
+                "closed {} — moved to .agents/tasks/done/; commit and merge, then release the claim",
                 t.id
             ),
             Err(e) => bail!("{e}"),

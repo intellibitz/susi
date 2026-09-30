@@ -70,10 +70,9 @@ fn git(dir: &Path, args: &[&str]) -> EaiResult<String> {
 ///   best for the task class); `None` aborts before claiming.
 /// - `delegate`: performs the work inside the worktree and returns.
 ///
-/// Order matters: the worktree is created only after the claim lands, and
-/// the commit happens only after [`tasks::close`] proved the acceptance
-/// check — a failed agent leaves the claim to expire, not a half-shipped
-/// branch.
+/// A fresh synchronized worktree acquires the claim before delegation.
+/// Implementation commits precede the acceptance/closure commit; failures
+/// preserve work, and ownership remains until remote publication is merged.
 ///
 /// # Errors
 /// Propagates queue, git and delegate failures as [`EaiError`].
@@ -84,7 +83,9 @@ pub fn run_cycle(
     pick_agent: impl Fn(&Task) -> Option<String>,
     delegate: impl Fn(&Delegation) -> EaiResult<()>,
 ) -> EaiResult<BuildOutcome> {
-    // 1. Pick + claim through the shared queue (atomic ref push).
+    // Refuse a cached queue before selecting work.
+    tasks::ensure_synced(repo)?;
+    // 1. Pick from the synchronized queue.
     let open = tasks::list_open(repo);
     let id = pick_task(&open).ok_or_else(|| EaiError::config("no open task to build"))?;
     let task = open
@@ -93,24 +94,33 @@ pub fn run_cycle(
         .ok_or_else(|| EaiError::config(format!("picked task {id} is not open")))?;
     let agent = pick_agent(&task)
         .ok_or_else(|| EaiError::config(format!("no agent qualifies for {id}")))?;
-    tasks::claim(
-        repo,
-        &id,
-        builder,
-        tasks::DEFAULT_LEASE_HOURS,
-        tasks::now_unix(),
-    )?;
-
     // 2. Fresh worktree on its own branch — Mandate 49.
     let branch = format!("agent/{}", id.to_ascii_lowercase());
     let wt = repo.parent().unwrap_or(repo).join(format!("builder-{id}"));
     if let Err(e) = git(
         repo,
-        &["worktree", "add", &wt.to_string_lossy(), "-b", &branch],
+        &[
+            "worktree",
+            "add",
+            &wt.to_string_lossy(),
+            "-b",
+            &branch,
+            "origin/main",
+        ],
     ) {
         let _ = git(repo, &["branch", "-D", &branch]);
         return Err(e);
     }
+
+    crate::admin::workflow::ensure_infrastructure(&wt);
+    tasks::ensure_synced(&wt)?;
+    tasks::claim(
+        &wt,
+        &id,
+        builder,
+        tasks::DEFAULT_LEASE_HOURS,
+        tasks::now_unix(),
+    )?;
 
     // 3. Delegate the briefed goal — the contract travels with the task.
     let briefed_goal = brief_task(&wt, &task.goal);
@@ -120,31 +130,49 @@ pub fn run_cycle(
         briefed_goal,
         task,
     };
-    if let Err(e) = delegate(&delegation) {
-        let _ = git(
-            repo,
-            &["worktree", "remove", "--force", &wt.to_string_lossy()],
-        );
-        let _ = git(repo, &["branch", "-D", &branch]);
-        return Err(e);
-    }
+    // Failures preserve the worktree, partial work and lease for diagnosis.
+    delegate(&delegation)?;
+    // Commit implementation while its task is still open. Closing and code
+    // in one commit violates the task trailer's own-tree compliance rule.
+    git(&wt, &["add", "-A"])?;
+    let msg = format!("{} ({})\n\nTask: {id}", delegation.task.title, agent);
+    git(&wt, &["commit", "-q", "--allow-empty", "-m", &msg])?;
 
     // 4. Verify with the task's own acceptance command (runs it in the
     //    worktree and moves the task file to done/ on success).
-    if let Err(e) = tasks::close(&wt, &id, builder) {
-        let _ = git(
-            repo,
-            &["worktree", "remove", "--force", &wt.to_string_lossy()],
-        );
-        let _ = git(repo, &["branch", "-D", &branch]);
-        return Err(e);
-    }
+    tasks::close(&wt, &id, builder)?;
 
     // 5. Commit the result with the mandatory trailer, then push for
     //    auto-merge to open the PR.
     git(&wt, &["add", "-A"])?;
-    let msg = format!("{} ({})\n\nTask: {id}", delegation.task.title, agent);
+    let msg = format!("Close {id} after acceptance\n\nTask: {id}");
     git(&wt, &["commit", "-q", "-m", &msg])?;
+    git(&wt, &["fetch", "--quiet", "origin"])?;
+    git(&wt, &["merge", "--no-edit", "origin/main"])?;
+    // Real SUSI workspaces pass the full branch-push gate, not acceptance alone.
+    // Generic task-fixture repositories have no workspace lockfile.
+    if wt.join("Cargo.lock").is_file() {
+        for args in [
+            vec!["fmt", "--all", "--check"],
+            vec![
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+            vec!["test", "--workspace", "--locked"],
+        ] {
+            let status = Command::new("cargo").args(args).current_dir(&wt).status()?;
+            if !status.success() {
+                return Err(EaiError::process(
+                    "autonomous builder verification gate failed; worktree retained",
+                ));
+            }
+        }
+    }
     let commit = git(&wt, &["rev-parse", "HEAD"])?;
     git(&wt, &["push", "-q", "origin", &branch])?;
 

@@ -121,7 +121,7 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         ),
         None => Check {
             name: "up to date",
-            state: State::Warn,
+            state: State::Fail,
             detail: "could not fetch origin (offline?); freshness unknown".into(),
             fix: "git fetch origin && git merge origin/main".into(),
         },
@@ -157,14 +157,15 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
     out.push(match &f.claims {
         Err(why) => Check {
             name: "holds a claim",
-            state: State::Warn,
+            state: State::Fail,
             detail: format!("claims unavailable: {why}"),
             fix: "susi tasks list".into(),
         },
         Ok(claims) => {
             let mine: Vec<&str> = claims
                 .iter()
-                .filter(|c| c.agent == f.agent && !c.expired(f.now))
+                .filter(|c| c.agent == f.agent && !c.expired(f.now)
+                    && c.branch.as_ref().is_none_or(|branch| Some(branch) == f.branch.as_ref()))
                 .map(|c| c.task.as_str())
                 .collect();
             if mine.is_empty() {
@@ -173,6 +174,8 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
                     format!("{} holds no live claim; every commit must name a claimed task (Mandate 50)", f.agent),
                     "susi tasks list   # pick one, then: susi tasks claim <id>",
                 )
+            } else if mine.len() > 1 {
+                fail("holds a claim", format!("{} holds multiple claims: {}", f.agent, mine.join(", ")), "susi tasks release <id>   # retain exactly one claim")
             } else {
                 pass("holds a claim", format!("{} holds {}", f.agent, mine.join(", ")))
             }
@@ -339,6 +342,8 @@ mod tests {
             },
             agent: "CLAUDE".into(),
             claims: Ok(vec![Claim {
+                branch: None,
+                scopes: vec![],
                 task: "T-CLAUDE-1".into(),
                 agent: "CLAUDE".into(),
                 claimed_unix: 100,
@@ -377,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn behind_fails_offline_only_warns() {
+    fn behind_and_unverified_freshness_fail() {
         let mut f = good();
         f.behind = Some(12);
         let c = evaluate(&f);
@@ -385,8 +390,8 @@ mod tests {
         assert!(c[1].detail.contains("12") && c[1].fix.contains("git merge origin/main"));
         f.behind = None;
         let c = evaluate(&f);
-        assert_eq!(state(&c, "up to date"), State::Warn);
-        assert!(ok(&c), "an offline fetch must not block work");
+        assert_eq!(state(&c, "up to date"), State::Fail);
+        assert!(!ok(&c), "freshness must be verified before work");
     }
 
     #[test]
@@ -408,6 +413,8 @@ mod tests {
     fn a_claim_must_be_yours_and_live() {
         let mut f = good();
         f.claims = Ok(vec![Claim {
+            branch: None,
+            scopes: vec![],
             task: "T-DEVIN-2".into(),
             agent: "DEVIN".into(),
             claimed_unix: 100,
@@ -419,6 +426,8 @@ mod tests {
             "someone else's claim"
         );
         f.claims = Ok(vec![Claim {
+            branch: None,
+            scopes: vec![],
             task: "T-CLAUDE-1".into(),
             agent: "CLAUDE".into(),
             claimed_unix: 100,
@@ -433,8 +442,15 @@ mod tests {
         assert_eq!(state(&evaluate(&f), "holds a claim"), State::Fail);
         f.claims = Err("no remote".into());
         let c = evaluate(&f);
-        assert_eq!(state(&c, "holds a claim"), State::Warn);
-        assert!(ok(&c));
+        assert_eq!(state(&c, "holds a claim"), State::Fail);
+        assert!(!ok(&c));
+    }
+
+    #[test]
+    fn a_claim_on_another_branch_does_not_authorize_work() {
+        let mut facts = good();
+        facts.claims.as_mut().unwrap()[0].branch = Some("other-worker".into());
+        assert_eq!(state(&evaluate(&facts), "holds a claim"), State::Fail);
     }
 
     #[test]

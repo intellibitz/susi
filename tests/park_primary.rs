@@ -258,6 +258,7 @@ fn sync_only_never_switches_branches_or_touches_work() {
     // On main with uncommitted changes: untouched.
     git(&w.primary, &["switch", "--quiet", "main"]);
     std::fs::write(w.primary.join("wip.txt"), "unsaved").unwrap();
+    git(&w.primary, &["add", "wip.txt"]);
     let before = git(&w.primary, &["rev-parse", "HEAD"]);
     let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
     assert_eq!((code, out.trim()), (0, ""));
@@ -265,6 +266,7 @@ fn sync_only_never_switches_branches_or_touches_work() {
     assert!(w.primary.join("wip.txt").exists());
 
     // On main with a local commit: untouched.
+    git(&w.primary, &["reset", "--quiet"]);
     std::fs::remove_file(w.primary.join("wip.txt")).unwrap();
     git(
         &w.primary,
@@ -288,4 +290,67 @@ fn sync_only_is_silent_and_harmless_when_offline() {
     let (code, out, _) = w.park_with(&w.primary, &["--sync-only"]);
     assert_eq!((code, out.trim()), (0, ""));
     assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), before);
+}
+
+#[test]
+fn sync_preserves_untracked_tools_while_advancing_main() {
+    let w = World::new("untracked-tools");
+    git(&w.primary, &["switch", "--quiet", "main"]);
+    std::fs::create_dir_all(w.primary.join(".nova")).unwrap();
+    std::fs::write(w.primary.join(".nova/config"), "local tools").unwrap();
+    let (code, _, err) = w.park_with(&w.primary, &["--sync-only"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(w.on_main_at_origin_main());
+    assert_eq!(
+        std::fs::read_to_string(w.primary.join(".nova/config")).unwrap(),
+        "local tools"
+    );
+}
+
+#[test]
+fn watcher_observes_remote_merges_without_local_git_hooks() {
+    let w = World::new("watcher");
+    git(&w.primary, &["switch", "--quiet", "main"]);
+    let scripts = w.primary.join("scripts");
+    std::fs::create_dir_all(&scripts).unwrap();
+    for name in ["parallel-workflow.sh", "park-primary.sh"] {
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("scripts")
+                .join(name),
+            scripts.join(name),
+        )
+        .unwrap();
+    }
+    let mut child = Command::new("bash")
+        .arg(scripts.join("parallel-workflow.sh"))
+        .arg("watch")
+        .current_dir(&w.primary)
+        .env("SUSI_SYNC_INTERVAL", "1")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let other = w.root.join("other");
+    git(
+        &other,
+        &[
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "third remote merge",
+        ],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+    let expected = git(&other, &["rev-parse", "HEAD"]);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while git(&w.primary, &["rev-parse", "HEAD"]) != expected
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), expected);
 }
