@@ -6367,6 +6367,7 @@ dependencies = [
  "susi-http-transport",
  "susi-sandbox-client",
  "susi-vendor-axum",
+ "susi-vendor-models",
  "susi-vendor-ra2a",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
@@ -6482,6 +6483,7 @@ dependencies = [
  "susi-vendor-jsonschema",
  "susi-vendor-libc",
  "susi-vendor-mcp-server",
+ "susi-vendor-models",
  "susi-vendor-parking-lot",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
@@ -6630,6 +6632,7 @@ dependencies = [
  "susi-sandbox-client",
  "susi-vendor-getrandom",
  "susi-vendor-libc",
+ "susi-vendor-models",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
 ]
