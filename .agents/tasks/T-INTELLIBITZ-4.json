@@ -1,0 +1,23 @@
+{
+  "id": "T-INTELLIBITZ-4",
+  "title": "Replace retired default Anthropic model claude-3-5-haiku-20241022 with claude-haiku-4-5-20251001",
+  "goal": "susi keys check reports the old default is NOT served. Update config.default.json and http_provider.rs fallback; add catalog entry.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "http_provider"
+    ]
+  },
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790771772,
+  "closed": {
+    "at_unix": 1790771925,
+    "commit": "22834f88bae79aec252f3632c2ae3cdf037d3d9a",
+    "by": "INTELLIBITZ"
+  }
+}

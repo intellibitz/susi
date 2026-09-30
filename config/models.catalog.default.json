@@ -31,6 +31,12 @@
       "api_key_env": "OPENAI_API_KEY"
     },
     {
+      "id": "claude-haiku-4-5-20251001",
+      "engine": "Anthropic",
+      "protocol_type": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    {
       "id": "claude-3-5-haiku-20241022",
       "engine": "Anthropic",
       "protocol_type": "anthropic",
