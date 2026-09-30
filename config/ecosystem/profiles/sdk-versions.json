@@ -1,0 +1,51 @@
+{
+  "version": "eco-profile/v1",
+  "id": "sdk-versions",
+  "name": "Vendor SDK versions and breaking changes",
+  "subject": "openai-python",
+  "kind": "catalog",
+  "versions": [
+    {
+      "id": "2025",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "sdk-table",
+      "format": "text",
+      "fields": [
+        "openai-python: v1 rewrite (Nov 2023) \u2014 Azure split, async, pydantic",
+        "anthropic-python: 0.x -> 1.x message/beta namespace moves",
+        "google-genai: NEW unified SDK replacing google-generativeai + vertexai",
+        "cohere: v2 SDK aligns with v2 API (message objects)",
+        "mistralai: v1 SDK refresh (speakeasy-generated)"
+      ],
+      "notes": "tracked per SDK: current major, last breaking release"
+    },
+    {
+      "name": "breaking-signals",
+      "format": "text",
+      "fields": [
+        "client-constructor signature",
+        "response type renames",
+        "beta->GA namespace moves",
+        "minimum-python bumps"
+      ],
+      "notes": ""
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://github.com/openai/openai-python/releases",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

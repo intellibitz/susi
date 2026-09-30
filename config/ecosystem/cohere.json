@@ -34,6 +34,17 @@
         "retrieved": "2026-09-01",
         "confidence": "reported"
       }
+    },
+    {
+      "kind": "provides",
+      "from": "cohere",
+      "to": "cohere-python",
+      "provenance": {
+        "source": "https://github.com/openai/openai-python/releases",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
     }
   ]
 }
