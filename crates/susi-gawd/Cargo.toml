@@ -15,6 +15,7 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-native-client = { workspace = true }
+susi-vendor-models = { workspace = true }
 susi-vendor-syn = { workspace = true }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }

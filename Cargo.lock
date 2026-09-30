@@ -6349,6 +6349,7 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-hex",
+ "susi-vendor-models",
  "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
