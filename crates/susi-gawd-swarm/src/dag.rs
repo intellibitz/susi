@@ -1,10 +1,15 @@
 // Dependency-ordered task graph: agents can spawn sub-tasks with
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
+use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
+use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
+use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
 use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
+use crate::task_lease::{CompleteVerdict, LeaseTable, TaskLease};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use susi_gawd_agents::agents::MissionBlackboard;
 
 #[derive(Debug, Clone)]
@@ -19,13 +24,30 @@ pub struct TaskNode {
 
 pub struct MissionDag {
     pub nodes: Vec<TaskNode>,
+    /// Per-dispatch ownership fences (VC-201-022). Completions without the
+    /// live fence are refused so a recovered worker cannot publish.
+    pub leases: LeaseTable,
+    /// Side-effect outcomes keyed by persist id (VC-201-023).
+    pub side_effects: std::collections::BTreeMap<String, ActionOutcome>,
 }
 
 pub type SwarmDag = MissionDag;
 
-/// One node's run: index, output, elapsed ms, and the receipt arguments of
-/// the commands it executed.
-type NodeRun = (usize, EaiResult<String>, u64, Vec<String>);
+/// Borrowed mission persistence handle passed through DAG execution.
+pub struct MissionPersistCtx<'a> {
+    pub mission: &'a mut PersistedMission,
+    pub dir: &'a Path,
+}
+
+/// One node's run: index, output, elapsed ms, receipt args, lease owner, fence.
+type NodeRun = (usize, EaiResult<String>, u64, Vec<String>, String, u64);
+
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 impl MissionDag {
     pub fn new(initial_goal: &str) -> Self {
@@ -38,7 +60,212 @@ impl MissionDag {
                 assigned_agent: None,
                 completed: false,
             }],
+            leases: LeaseTable::new(),
+            side_effects: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Stable persisted node id for a DAG index (`n0`, `n1`, …).
+    #[must_use]
+    pub fn persist_id(idx: usize) -> String {
+        format!("n{idx}")
+    }
+
+    /// Append a dependent task node; returns its index.
+    pub fn push_node(
+        &mut self,
+        title: impl Into<String>,
+        goal: impl Into<String>,
+        deps: Vec<usize>,
+    ) -> usize {
+        let task_id = self.nodes.len();
+        self.nodes.push(TaskNode {
+            task_id,
+            title: title.into(),
+            goal: goal.into(),
+            dependencies: deps,
+            assigned_agent: None,
+            completed: false,
+        });
+        task_id
+    }
+
+    /// Snapshot live DAG state into a [`PersistedMission`] (VC-201-021 wiring).
+    #[must_use]
+    pub fn to_persisted(&self, mission_id: &str) -> PersistedMission {
+        let mut mission = PersistedMission::new(mission_id);
+        for (idx, node) in self.nodes.iter().enumerate() {
+            let id = Self::persist_id(idx);
+            let state = if node.completed {
+                NodeTerminal::Completed
+            } else {
+                NodeTerminal::Pending
+            };
+            mission.upsert_node(PersistedNode {
+                id,
+                input: node.goal.clone(),
+                dependencies: node
+                    .dependencies
+                    .iter()
+                    .map(|&d| Self::persist_id(d))
+                    .collect(),
+                output: None,
+                state,
+            });
+        }
+        mission
+    }
+
+    /// Rebuild a DAG from persisted state. Completed nodes stay completed so
+    /// resume skips them; unfinished nodes stay pending/runnable.
+    #[must_use]
+    pub fn from_persisted(mission: &PersistedMission) -> Self {
+        // Ordered by numeric suffix of n<idx> when parseable, else by id.
+        let mut entries: Vec<&PersistedNode> = mission.nodes.values().collect();
+        entries.sort_by_key(|n| {
+            n.id.strip_prefix('n')
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(usize::MAX)
+        });
+        let id_to_idx: std::collections::BTreeMap<&str, usize> = entries
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.id.as_str(), i))
+            .collect();
+        let nodes = entries
+            .iter()
+            .enumerate()
+            .map(|(idx, n)| TaskNode {
+                task_id: idx,
+                title: n.id.clone(),
+                goal: n.input.clone(),
+                dependencies: n
+                    .dependencies
+                    .iter()
+                    .filter_map(|d| id_to_idx.get(d.as_str()).copied())
+                    .collect(),
+                assigned_agent: None,
+                completed: n.state == NodeTerminal::Completed,
+            })
+            .collect();
+        Self {
+            nodes,
+            leases: LeaseTable::new(),
+            side_effects: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Record / reconcile a tool side effect for a DAG node (dispatch wiring).
+    pub fn record_side_effect(
+        &mut self,
+        idx: usize,
+        tool: &str,
+        prior: Option<&ActionOutcome>,
+    ) -> ActionOutcome {
+        let outcome = reconcile_dispatch_side_effect(tool, prior);
+        self.side_effects
+            .insert(Self::persist_id(idx), outcome.clone());
+        outcome
+    }
+
+    /// Whether a crashed node may retry its last recorded side effect.
+    #[must_use]
+    pub fn may_retry_node(&self, idx: usize) -> bool {
+        self.side_effects
+            .get(&Self::persist_id(idx))
+            .is_none_or(|o| crate::side_effects::may_retry_after_crash(o.class))
+    }
+
+    /// Default resource request for a DAG node (dispatch scheduling).
+    #[must_use]
+    pub fn default_resource_node(idx: usize) -> ResNode {
+        ResNode {
+            id: Self::persist_id(idx),
+            cpu: 1.0,
+            gpu_mem_gb: 0.0,
+            needs_model: true,
+            needs_tools: vec!["exec_command".into()],
+        }
+    }
+
+    /// Filter ready indices by live resource constraints; reserves as admits
+    /// succeed so concurrent admits never oversubscribe (VC-201-024).
+    pub fn schedule_ready(
+        ready: &[usize],
+        free: &Resources,
+        requests: &std::collections::BTreeMap<usize, ResNode>,
+    ) -> (Vec<usize>, Resources) {
+        let mut remaining = free.clone();
+        let mut admitted = Vec::new();
+        for &idx in ready {
+            let req = requests
+                .get(&idx)
+                .cloned()
+                .unwrap_or_else(|| Self::default_resource_node(idx));
+            match admit(&req, &remaining) {
+                Admit::Run => {
+                    remaining = reserve(&remaining, &req);
+                    admitted.push(idx);
+                }
+                Admit::Queue => {}
+            }
+        }
+        (admitted, remaining)
+    }
+
+    /// Issue an expiring ownership fence for a ready DAG node (dispatch).
+    pub fn lease_dispatch(&mut self, idx: usize, owner: &str, now: u64, ttl: u64) -> TaskLease {
+        self.leases
+            .dispatch(&Self::persist_id(idx), owner, now, ttl)
+    }
+
+    /// Authoritative completion under the live fence. Stale/expired tokens
+    /// leave the node unfinished.
+    pub fn lease_complete(
+        &mut self,
+        idx: usize,
+        owner: &str,
+        fence: u64,
+        now: u64,
+    ) -> CompleteVerdict {
+        let verdict = self
+            .leases
+            .complete(&Self::persist_id(idx), owner, fence, now);
+        if verdict == CompleteVerdict::Accepted {
+            if let Some(node) = self.nodes.get_mut(idx) {
+                node.completed = true;
+            }
+        }
+        verdict
+    }
+
+    /// Apply a node completion into the persisted mission and save it.
+    pub fn persist_node_complete(
+        persist: &mut PersistedMission,
+        persist_dir: &Path,
+        idx: usize,
+        output: &str,
+    ) -> EaiResult<()> {
+        let id = Self::persist_id(idx);
+        let Some(node) = persist.nodes.get_mut(&id) else {
+            return Err(EaiError::governance(format!(
+                "persist missing node {id} on complete"
+            )));
+        };
+        // Force authoritative completion regardless of prior Pending/Running —
+        // resume must see Completed or it will re-dispatch.
+        node.output = Some(output.to_string());
+        node.state = NodeTerminal::Completed;
+        persist.save(persist_dir)?;
+        Ok(())
+    }
+
+    /// Seed persist from this DAG when the mission file has no nodes yet.
+    pub fn seed_persist(&self, persist: &mut PersistedMission) {
+        if !persist.nodes.is_empty() {
+            return;
+        }
+        *persist = self.to_persisted(&persist.mission_id);
     }
 
     /// Execute the DAG topologically using work-stealing parallel execution
@@ -47,6 +274,29 @@ impl MissionDag {
         workspace: &Path,
         blackboard: &MissionBlackboard,
         event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
+    ) -> EaiResult<Vec<EvidenceRecord>> {
+        self.execute_dag_inner(workspace, blackboard, event_sender, None)
+    }
+
+    /// Execute while persisting each successful node completion (resume-safe).
+    pub fn execute_dag_persisted(
+        &mut self,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+        event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
+        persist: &mut MissionPersistCtx<'_>,
+    ) -> EaiResult<Vec<EvidenceRecord>> {
+        self.seed_persist(persist.mission);
+        persist.mission.save(persist.dir)?;
+        self.execute_dag_inner(workspace, blackboard, event_sender, Some(persist))
+    }
+
+    fn execute_dag_inner(
+        &mut self,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+        event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
+        mut persist_slot: Option<&mut MissionPersistCtx<'_>>,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         use rayon::prelude::*;
         let mut all_evidence = Vec::new();
@@ -75,13 +325,48 @@ impl MissionDag {
                 ));
             }
 
+            // Admit by live resources so oversubscribed fixtures queue (VC-201-024).
+            let free = Resources {
+                cpu: 8.0,
+                gpu_mem_gb: 16.0,
+                model_ready: true,
+                tool_grants: vec!["exec_command".into()],
+            };
+            let (ready_indices, _remaining) =
+                Self::schedule_ready(&ready_indices, &free, &std::collections::BTreeMap::new());
+            if ready_indices.is_empty() {
+                return Err(EaiError::governance(
+                    "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints",
+                ));
+            }
+
+            // Mark ready nodes Running in persist before the parallel batch.
+            if let Some(ctx) = persist_slot.as_mut() {
+                for &idx in &ready_indices {
+                    let id = Self::persist_id(idx);
+                    let _ = ctx.mission.dispatch(&id);
+                }
+                let _ = ctx.mission.save(ctx.dir);
+            }
+
+            // Assign expiring ownership fences before workers run (VC-201-022).
+            let now = now_unix();
+            let lease_ttl = 3_600;
+            let mut batch_leases: Vec<(usize, String, u64)> =
+                Vec::with_capacity(ready_indices.len());
+            for &idx in &ready_indices {
+                let owner = format!("worker-{idx}");
+                let lease = self.lease_dispatch(idx, &owner, now, lease_ttl);
+                batch_leases.push((idx, owner, lease.fence));
+            }
+
             let ws = workspace.to_path_buf();
             let bb = Arc::clone(blackboard);
             let tx = event_sender.clone();
 
-            let batch_results: Vec<NodeRun> = ready_indices
+            let batch_results: Vec<NodeRun> = batch_leases
                 .into_par_iter()
-                .map(|idx| {
+                .map(|(idx, owner, fence)| {
                     let node = &self.nodes[idx];
                     let start = std::time::Instant::now();
                     let _ = tx.send(crate::susi_core::bus::SwarmEventType::AgentStarted {
@@ -129,11 +414,11 @@ impl MissionDag {
                     }
 
                     let elapsed = start.elapsed().as_millis() as u64;
-                    (idx, Ok(res), elapsed, node_calls)
+                    (idx, Ok(res), elapsed, node_calls, owner, fence)
                 })
                 .collect();
 
-            for (idx, res, elapsed, node_calls) in batch_results {
+            for (idx, res, elapsed, node_calls, owner, fence) in batch_results {
                 if let Ok(output) = res {
                     // Crown path: citation answers resolve from the live ledger;
                     // narratives without required citations fail TRUTH_UNVERIFIED.
@@ -144,14 +429,45 @@ impl MissionDag {
                         workspace,
                     ) {
                         Ok(verified) => {
+                            // Classify exec_command side effects before fencing
+                            // completion so crash resume can reconcile (VC-201-023).
+                            if !node_calls.is_empty() {
+                                let prior = self.side_effects.get(&Self::persist_id(idx)).cloned();
+                                let _ = self.record_side_effect(
+                                    idx,
+                                    "exec_command",
+                                    prior.as_ref(),
+                                );
+                            }
+                            let complete_now = now_unix();
+                            match self.lease_complete(idx, &owner, fence, complete_now) {
+                                CompleteVerdict::Accepted => {}
+                                CompleteVerdict::StaleFence
+                                | CompleteVerdict::NotOwner
+                                | CompleteVerdict::Expired
+                                | CompleteVerdict::UnknownTask => {
+                                    return Err(EaiError::governance(format!(
+                                        "DAG_EXECUTION_FAILED: lease fence refused completion of n{idx}"
+                                    )));
+                                }
+                            }
                             let _ =
                                 event_sender.send(crate::susi_core::bus::SwarmEventType::AgentCompleted {
                                     agent_name: self.nodes[idx].title.clone(),
                                     elapsed_ms: elapsed,
                                 });
-                            self.nodes[idx].completed = true;
+                            // lease_complete already marked completed=true
                             executed_count += 1;
-                            bb.insert(format!("TaskNode_{}", idx), verified);
+                            bb.insert(format!("TaskNode_{}", idx), verified.clone());
+
+                            if let Some(ctx) = persist_slot.as_mut() {
+                                let _ = Self::persist_node_complete(
+                                    ctx.mission,
+                                    ctx.dir,
+                                    idx,
+                                    &verified,
+                                );
+                            }
 
                             // Pillar Evidence: only store Claim trails that assess Verified
                             // (ToolReceipt-bound). Naked AgentObservation IR is not a trail.
@@ -210,15 +526,36 @@ fn shell_block_command(block: &str) -> Option<&str> {
 }
 
 /// Hook body registered into `susi_gawd_agents::dag_hooks` by [`crate::init`].
+///
+/// Loads any prior [`PersistedMission`] under `<workspace>/.susi/missions`,
+/// resumes completed nodes without re-running them, and persists each new
+/// completion so a crash mid-mission does not treat unfinished work as done.
 pub fn dispatch_mission_dag(
     goal: &str,
     workspace: &Path,
     blackboard: &MissionBlackboard,
 ) -> Vec<(String, String)> {
     let mut results = Vec::new();
-    let mut dag = MissionDag::new(goal);
+    let persist_dir = PersistedMission::missions_dir(workspace);
+    let mission_id = PersistedMission::mission_id_for_goal(goal);
+    let mut persist = PersistedMission::load_or_new(&persist_dir, &mission_id)
+        .unwrap_or_else(|_| PersistedMission::new(mission_id.clone()));
+
+    let mut dag = if persist.nodes.is_empty() {
+        let dag = MissionDag::new(goal);
+        dag.seed_persist(&mut persist);
+        let _ = persist.save(&persist_dir);
+        dag
+    } else {
+        MissionDag::from_persisted(&persist)
+    };
+
     let (event_tx, _event_rx) = crate::susi_core::bus::create_swarm_bus();
-    match dag.execute_dag(workspace, blackboard, &event_tx) {
+    let mut persist_ctx = MissionPersistCtx {
+        mission: &mut persist,
+        dir: &persist_dir,
+    };
+    match dag.execute_dag_persisted(workspace, blackboard, &event_tx, &mut persist_ctx) {
         Ok(evidence_records) => {
             for record in &evidence_records {
                 let payload =

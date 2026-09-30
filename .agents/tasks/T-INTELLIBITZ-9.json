@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ-9",
+  "title": "Propagate swarm cancellation through workers and peers",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "cancel_propagate_dispatch_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-026",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774660
+}

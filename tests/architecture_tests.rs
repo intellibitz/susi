@@ -1458,6 +1458,7 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
         (49, "park-primary.sh", "scripts/park-primary.sh"),
         (49, "SessionStart hook", ".claude/settings.json"),
         (49, "CLAUDE.md", "CLAUDE.md"),
+        (49, "atomic per task", ".githooks/workflow-guard"),
         (50, "refs/claims/", "crates/susi-gawd/src/admin/tasks.rs"),
         (
             50,
@@ -1465,6 +1466,8 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
             "scripts/check-workflow-compliance.sh",
         ),
         (50, "commit-msg", ".githooks/commit-msg"),
+        (50, "One live claim at a time", ".githooks/workflow-guard"),
+        (50, "sync-before-push", ".githooks/workflow-guard"),
         (
             51,
             "union the entries",

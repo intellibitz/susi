@@ -116,7 +116,7 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         Some(0) => pass("up to date", "contains all of origin/main"),
         Some(n) => fail(
             "up to date",
-            format!("{n} commit(s) behind origin/main — you would be working from stale rules"),
+            format!("{n} commit(s) behind origin/main — sync before claim or push (atomic loop)"),
             "git fetch origin && git merge origin/main",
         ),
         None => Check {

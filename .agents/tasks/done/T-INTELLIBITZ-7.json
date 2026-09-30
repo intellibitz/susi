@@ -1,0 +1,25 @@
+{
+  "id": "T-INTELLIBITZ-7",
+  "title": "Classify and reconcile swarm task side effects in dispatch",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "side_effects_dispatch_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-023",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774660,
+  "closed": {
+    "at_unix": 1790782181,
+    "commit": "2a1685935cdcbad0e9e6e86e2d00559b9eff31f2",
+    "by": "INTELLIBITZ"
+  }
+}

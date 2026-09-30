@@ -120,4 +120,29 @@ impl PersistedMission {
             .map_err(|e| EaiError::filesystem(format!("read {}: {e}", path.display())))?;
         serde_json::from_str(&raw).map_err(|e| EaiError::internal(format!("parse mission: {e}")))
     }
+
+    /// Workspace-local missions directory (`<workspace>/.susi/missions`).
+    #[must_use]
+    pub fn missions_dir(workspace: &Path) -> PathBuf {
+        workspace.join(".susi").join("missions")
+    }
+
+    /// Stable mission id derived from the goal (hex of DefaultHasher).
+    #[must_use]
+    pub fn mission_id_for_goal(goal: &str) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        goal.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+
+    /// Load an existing mission file or create an empty one for `mission_id`.
+    pub fn load_or_new(dir: &Path, mission_id: &str) -> EaiResult<Self> {
+        let path = dir.join(format!("{mission_id}.json"));
+        if path.is_file() {
+            Self::load(&path)
+        } else {
+            Ok(Self::new(mission_id))
+        }
+    }
 }

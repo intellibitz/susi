@@ -1,0 +1,25 @@
+{
+  "id": "T-INTELLIBITZ-8",
+  "title": "Schedule MissionDag admits by live resource constraints",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "resource_schedule_dispatch_wiring",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-024",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774660,
+  "closed": {
+    "at_unix": 1790782276,
+    "commit": "fa0c1727af240c3b8889effe09a55df02905d773",
+    "by": "INTELLIBITZ"
+  }
+}

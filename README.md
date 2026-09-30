@@ -347,9 +347,10 @@ is the START HERE block at the top of [`AGENTS.md`](AGENTS.md):
    `scripts/susi-worktree.sh` (no name needed; or `susi workflow start`). It
    branches off the latest `origin/main`, installs the hooks, parks the primary
    checkout at `origin/main`, and prints `cd <path>`.
-3. **Work comes from the queue.** `susi tasks add "<title>" --accept "<cmd>"`,
-   `susi tasks claim <id>` (an atomic git ref with a lease, so two agents can
-   never both win), and end every commit with `Task: T-<AGENT>-<n>`.
+3. **Atomic per-task loop.** Sync with `origin/main`, `susi tasks claim <id>`
+   (one live claim; an atomic git ref with a lease), do the work, end every
+   commit with `Task: T-<AGENT>-<n>`, sync again, push, then sync before the
+   next claim — so parallel agents always build on latest main.
 4. **Done means the acceptance check passes:** `susi tasks close <id>` runs it,
    and a `cargo test` filter that ran zero tests does not count. Tasks may link
    to a roadmap vector (`--roadmap VC-201-0NN`); `susi tasks roadmap` reports
