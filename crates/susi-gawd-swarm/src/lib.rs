@@ -82,6 +82,9 @@ mod mission_dag_persist_wiring_tests;
 #[path = "tests/swarm_chaos.rs"]
 mod swarm_chaos_tests;
 #[cfg(test)]
+#[path = "tests/task_lease_dispatch_wiring.rs"]
+mod task_lease_dispatch_wiring_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_021.rs"]
 mod vc_201_021_tests;
 #[cfg(test)]

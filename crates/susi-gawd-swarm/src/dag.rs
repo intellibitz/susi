@@ -4,8 +4,10 @@
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
 use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
+use crate::task_lease::{CompleteVerdict, LeaseTable, TaskLease};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use susi_gawd_agents::agents::MissionBlackboard;
 
 #[derive(Debug, Clone)]
@@ -20,6 +22,9 @@ pub struct TaskNode {
 
 pub struct MissionDag {
     pub nodes: Vec<TaskNode>,
+    /// Per-dispatch ownership fences (VC-201-022). Completions without the
+    /// live fence are refused so a recovered worker cannot publish.
+    pub leases: LeaseTable,
 }
 
 pub type SwarmDag = MissionDag;
@@ -30,9 +35,15 @@ pub struct MissionPersistCtx<'a> {
     pub dir: &'a Path,
 }
 
-/// One node's run: index, output, elapsed ms, and the receipt arguments of
-/// the commands it executed.
-type NodeRun = (usize, EaiResult<String>, u64, Vec<String>);
+/// One node's run: index, output, elapsed ms, receipt args, lease owner, fence.
+type NodeRun = (usize, EaiResult<String>, u64, Vec<String>, String, u64);
+
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 impl MissionDag {
     pub fn new(initial_goal: &str) -> Self {
@@ -45,6 +56,7 @@ impl MissionDag {
                 assigned_agent: None,
                 completed: false,
             }],
+            leases: LeaseTable::new(),
         }
     }
 
@@ -131,7 +143,36 @@ impl MissionDag {
                 completed: n.state == NodeTerminal::Completed,
             })
             .collect();
-        Self { nodes }
+        Self {
+            nodes,
+            leases: LeaseTable::new(),
+        }
+    }
+
+    /// Issue an expiring ownership fence for a ready DAG node (dispatch).
+    pub fn lease_dispatch(&mut self, idx: usize, owner: &str, now: u64, ttl: u64) -> TaskLease {
+        self.leases
+            .dispatch(&Self::persist_id(idx), owner, now, ttl)
+    }
+
+    /// Authoritative completion under the live fence. Stale/expired tokens
+    /// leave the node unfinished.
+    pub fn lease_complete(
+        &mut self,
+        idx: usize,
+        owner: &str,
+        fence: u64,
+        now: u64,
+    ) -> CompleteVerdict {
+        let verdict = self
+            .leases
+            .complete(&Self::persist_id(idx), owner, fence, now);
+        if verdict == CompleteVerdict::Accepted {
+            if let Some(node) = self.nodes.get_mut(idx) {
+                node.completed = true;
+            }
+        }
+        verdict
     }
 
     /// Apply a node completion into the persisted mission and save it.
@@ -229,13 +270,24 @@ impl MissionDag {
                 let _ = ctx.mission.save(ctx.dir);
             }
 
+            // Assign expiring ownership fences before workers run (VC-201-022).
+            let now = now_unix();
+            let lease_ttl = 3_600;
+            let mut batch_leases: Vec<(usize, String, u64)> =
+                Vec::with_capacity(ready_indices.len());
+            for &idx in &ready_indices {
+                let owner = format!("worker-{idx}");
+                let lease = self.lease_dispatch(idx, &owner, now, lease_ttl);
+                batch_leases.push((idx, owner, lease.fence));
+            }
+
             let ws = workspace.to_path_buf();
             let bb = Arc::clone(blackboard);
             let tx = event_sender.clone();
 
-            let batch_results: Vec<NodeRun> = ready_indices
+            let batch_results: Vec<NodeRun> = batch_leases
                 .into_par_iter()
-                .map(|idx| {
+                .map(|(idx, owner, fence)| {
                     let node = &self.nodes[idx];
                     let start = std::time::Instant::now();
                     let _ = tx.send(crate::susi_core::bus::SwarmEventType::AgentStarted {
@@ -283,11 +335,11 @@ impl MissionDag {
                     }
 
                     let elapsed = start.elapsed().as_millis() as u64;
-                    (idx, Ok(res), elapsed, node_calls)
+                    (idx, Ok(res), elapsed, node_calls, owner, fence)
                 })
                 .collect();
 
-            for (idx, res, elapsed, node_calls) in batch_results {
+            for (idx, res, elapsed, node_calls, owner, fence) in batch_results {
                 if let Ok(output) = res {
                     // Crown path: citation answers resolve from the live ledger;
                     // narratives without required citations fail TRUTH_UNVERIFIED.
@@ -298,12 +350,24 @@ impl MissionDag {
                         workspace,
                     ) {
                         Ok(verified) => {
+                            let complete_now = now_unix();
+                            match self.lease_complete(idx, &owner, fence, complete_now) {
+                                CompleteVerdict::Accepted => {}
+                                CompleteVerdict::StaleFence
+                                | CompleteVerdict::NotOwner
+                                | CompleteVerdict::Expired
+                                | CompleteVerdict::UnknownTask => {
+                                    return Err(EaiError::governance(format!(
+                                        "DAG_EXECUTION_FAILED: lease fence refused completion of n{idx}"
+                                    )));
+                                }
+                            }
                             let _ =
                                 event_sender.send(crate::susi_core::bus::SwarmEventType::AgentCompleted {
                                     agent_name: self.nodes[idx].title.clone(),
                                     elapsed_ms: elapsed,
                                 });
-                            self.nodes[idx].completed = true;
+                            // lease_complete already marked completed=true
                             executed_count += 1;
                             bb.insert(format!("TaskNode_{}", idx), verified.clone());
 
