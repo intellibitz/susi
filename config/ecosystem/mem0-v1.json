@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "mem0-v1",
+    "name": "Mem0 API v1",
+    "version": "v1",
+    "provenance": {
+      "source": "https://docs.mem0.ai/",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "mem0-v1",
+      "to": "mem0-api",
+      "provenance": {
+        "source": "https://docs.mem0.ai/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "version": "eco-profile/v1",
+  "id": "memory-frameworks",
+  "name": "Agent memory and retrieval frameworks",
+  "subject": "mem0-cloud",
+  "kind": "framework",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/memories/",
+      "description": "Mem0 add memories",
+      "streaming": false,
+      "request": "m0-add",
+      "response": "m0-list"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memories/search/",
+      "description": "Mem0 search",
+      "streaming": false,
+      "request": "m0-search",
+      "response": "m0-list"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memories/",
+      "description": "Mem0 list",
+      "streaming": false,
+      "response": "m0-list"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/graph",
+      "description": "Zep temporal knowledge graph ops",
+      "streaming": false,
+      "request": "zep-graph",
+      "response": "zep-result"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "api-key-header",
+      "header": "authorization",
+      "prefix": "Token ",
+      "env": [
+        "MEM0_API_KEY",
+        "ZEP_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1/v2",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "m0-add",
+      "format": "json",
+      "fields": [
+        "messages[]",
+        "user_id|agent_id|app_id",
+        "metadata"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "m0-search",
+      "format": "json",
+      "fields": [
+        "query",
+        "filters{user_id,...}",
+        "top_k"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "zep-graph",
+      "format": "json",
+      "fields": [
+        "graph_id|user_id",
+        "fact/nodes/edges upsert",
+        "episode add"
+      ],
+      "notes": "temporal + entity graph, not flat RAG"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "m0-list",
+      "format": "json",
+      "fields": [
+        "[{id,memory,hash,metadata,score?}]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "zep-result",
+      "format": "json",
+      "fields": [
+        "edges[]{fact,valid_at,invalid_at}",
+        "nodes[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-resource-access",
+    "cap-agent-delegation"
+  ],
+  "deviations": [
+    {
+      "host": "letta-runtime",
+      "field": "surface",
+      "behavior": "memory is agent-internal (core/archival blocks + ADE), not a standalone store"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://docs.mem0.ai/",
+    "spec_version": "v1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

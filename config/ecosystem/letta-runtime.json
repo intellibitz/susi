@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "letta-runtime",
+    "name": "Letta (MemGPT)",
+    "category": "agent-runtime",
+    "provenance": {
+      "source": "https://docs.mem0.ai/",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "letta-runtime",
+      "to": "cap-resource-access",
+      "provenance": {
+        "source": "https://docs.mem0.ai/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "letta-runtime",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://docs.mem0.ai/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
