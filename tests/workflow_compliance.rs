@@ -176,13 +176,19 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     let (code, err) = e.check(&before);
     assert_eq!(code, 1);
     assert!(err.contains("nobody holds a claim"), "{err}");
+    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
     let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-2"]);
     assert_eq!(code, 0, "{err}");
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "{err}");
 
     // 5. Work then close on the same branch passes: the task was open at the
-    //    work commit and the branch closed it (the claim is released on close).
+    //    work commit and the branch closed it (ownership remains until merge).
+    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-2"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
     let before = e.head();
     e.commit("e", "fix: e", Some("T-TEST-1"));
     let (code, _, err) = e.susi(&["tasks", "close", "T-TEST-1"]);

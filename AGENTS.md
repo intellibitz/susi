@@ -32,6 +32,49 @@ SessionStart hooks (Claude Code: `.claude/settings.json`; Codex:
 `.codex/hooks.json`; Devin: `.devin/hooks.v1.json`, all →
 `scripts/workflow-session-start.sh`) run the check for you. Keep those pointers identical; this file is the single source.
 
+## Parallel task lifecycle
+
+`workflow start` assigns a unique identity in worktree-local Git config,
+including when workers share a Git login. Explicit `SUSI_AGENT` overrides
+must also be unique per worker (`CODEX1`, `CODEX2`, etc.).
+A worker owns one linked worktree and one live task claim. Several workers
+contribute to one larger goal through separate subtasks with explicit
+`--dep` dependencies and disjoint `--scope` files/directories; never share a
+single task claim or working directory. Declare every implementation path:
+`susi tasks claim <id> --scope src/cli --scope tests/workflow_check.rs`.
+Use `susi tasks renew <id>` during long work; finish renews before verification
+and periodically while waiting for integration. Task, agent and scope reservations are acquired in one atomic remote push.
+Overlapping directory/file reservations reject the claim; a concurrent
+claim may lose the compare-and-swap and must refresh and retry. Legacy
+unscoped claims remain readable; coordinate their scope before overlapping
+work. Commit hooks reject staged code outside declared scopes.
+
+The concrete loop is:
+
+1. `susi workflow start`, then `susi workflow sync` in that worktree.
+2. List and claim one available dependency-ready task with its scopes.
+3. Implement and commit the work with its open task trailer.
+4. `susi workflow finish <id>` synchronizes, runs fmt/clippy/tests and
+   acceptance, commits completion, synchronizes and pushes, waits for the
+   remote merge, then syncs and releases ownership. It integrates intervening
+   merges and reruns the gate before repushing. A failed check/conflict stops
+   for repair; rerun finish after committing the repair. Do not claim another
+   task until the completion is on remote main. Closing alone retains the
+   claim so nobody duplicates work while the PR awaits merge.
+5. Repeat sync → claim. No offline freshness or unavailable claim snapshot
+   counts as permission to start work.
+
+`workflow start` starts one local primary-checkout watcher per clone.
+`susi workflow watch` runs it explicitly; it fetches every 15 seconds and
+fast-forwards clean primary `main`, serialized with other local hooks.
+Hosted GitHub Actions cannot update a local filesystem: this local watcher
+is required while agents run. Dirty primary trees, local-only commits and
+in-progress operations are preserved; inspect `.git/susi-primary-watch.log`
+and clear the blocker before expecting primary checkout convergence.
+Remote integration is serialized and rejects tested heads missing current
+main. Other agents see changes once they merge remotely, then synchronize at
+their next task boundary; never merge into another agent's dirty worktree.
+
 The full rules follow (identity.json Mandates 48–56 are the constitution).
 
 ---
@@ -286,5 +329,5 @@ This repository is structurally designed for SUSI to act as the primary intellig
   - External agents invoked this way are bound to the exact same strict mandates listed in this file.
 - **Self-Build Order (Mandate 48)**: SUSI, its delegates, and human developers all build dev in `target/`, verify on the dev instance (`~/.susi-dev`, ports 9190–9194), and change the installed susi only by cutting a release (`susi release`), which `scripts/susi-release-sync.sh` promotes. Never install or hot-swap a dev binary into `~/.susi/bin`. SUSI states this contract in every task it gives a coding agent in its own tree (`susi_core::self_build::BRIEF`: delegated external agents and DAG shell nodes), self-patches clear the full fmt/clippy/test gate, and the CI builder (`susi-builder.yml`) is the *released* susi, landing work as a PR (draft if the gate fails).
 - **End-to-end verification of the built binary**: the release gate (`susi admin release`) runs the freshly built debug binary on its own newest behaviour (`susi_gawd::admin::E2E_CHECKS`: deterministic, offline, scratch HOME, no daemon) after the smoke missions, and `tests/release_e2e_checks.rs` runs the same list on every test run. A release that ships new behaviour adds a check for it; a check that stops matching fails CI, not the cut.
-- **The task queue (`susi tasks`).** Every agent, user and susi itself records work as one file per task under `.agents/tasks/` (`T-<AGENT>-<n>`, namespaced like ledger IDs so adding a task never conflicts) and executes from that queue. `susi tasks add "<title>" --accept "<cmd>"` requires an acceptance command (`cargo …`, `susi …` or `scripts/<file>` only — a task file is not a shell). `susi tasks claim <id>` first fetches origin and refuses from a worktree behind `origin/main` (`git merge origin/main`), then is atomic: it pushes a blob to `refs/claims/<id>` on the shared remote, the server accepts the first push and rejects the rest, and a claim carries a lease (default 4 h) so a crashed agent cannot hold a task — an expired lease is taken over by compare-and-swap. A task with an open dependency cannot be claimed. `susi tasks close <id>` runs the acceptance command and only a passing run moves the file to `.agents/tasks/done/` (recording who, when, at which commit) and releases the claim; a `cargo test` check that ran zero tests does not count. Tasks may name the roadmap vector they deliver (`susi tasks add --roadmap VC-201-0NN`, validated against `.agents/roadmap.json`); `susi tasks roadmap [--uncovered]` reports each vector's linked open/closed tasks and totals by priority. Coverage is not completion: a vector is done when its `mastery_target` is verified, not merely when its linked tasks close. Commit task files and `done/` moves with the work. Coarse ownership (which agent works which learning-loop stage) is one file per agent in `.agents/lanes/`; it never replaces a claim.
+- **The task queue (`susi tasks`).** Every agent, user and susi itself records work as one file per task under `.agents/tasks/` (`T-<AGENT>-<n>`, namespaced like ledger IDs so adding a task never conflicts) and executes from that queue. `susi tasks add "<title>" --accept "<cmd>"` requires an acceptance command (`cargo …`, `susi …` or `scripts/<file>` only — a task file is not a shell). `susi tasks claim <id>` first fetches origin and refuses from a worktree behind `origin/main` (`git merge origin/main`), then is atomic: it pushes a blob to `refs/claims/<id>` on the shared remote, the server accepts the first push and rejects the rest, and a claim carries a lease (default 4 h) so a crashed agent cannot hold a task — an expired lease is taken over by compare-and-swap. A task with an open dependency cannot be claimed. `susi tasks close <id>` runs the acceptance command and only a passing run moves the file to `.agents/tasks/done/` (recording who, when, at which commit) and retains the claim until publication; a `cargo test` check that ran zero tests does not count. Tasks may name the roadmap vector they deliver (`susi tasks add --roadmap VC-201-0NN`, validated against `.agents/roadmap.json`); `susi tasks roadmap [--uncovered]` reports each vector's linked open/closed tasks and totals by priority. Coverage is not completion: a vector is done when its `mastery_target` is verified, not merely when its linked tasks close. Commit task files and `done/` moves with the work. Coarse ownership (which agent works which learning-loop stage) is one file per agent in `.agents/lanes/`; it never replaces a claim.
 - **Continuous Execution**: The `exec_command` native tool explicitly permits `cargo`, `gh`, `bash`, and `sh` to allow SUSI to test itself and manage source control natively without triggering governance violations.

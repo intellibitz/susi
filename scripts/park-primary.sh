@@ -17,6 +17,10 @@
 # Refuses — and says why — when the primary checkout has uncommitted changes,
 # an operation in progress, or commits that are not in origin/main yet.
 set -euo pipefail
+# A fast-forward runs post-merge hooks. Foreground hooks must not re-enter
+# this lock while their parent Git command is waiting for them.
+[ -z "${SUSI_PRIMARY_SYNC_ACTIVE:-}" ] || exit 0
+export SUSI_PRIMARY_SYNC_ACTIVE=1
 # Git exports GIT_DIR/GIT_INDEX_FILE to hooks, pointing at the calling
 # worktree; the commands below must act on the primary checkout instead.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
@@ -24,6 +28,9 @@ sync_only=0
 [ "${1:-}" = "--sync-only" ] && sync_only=1
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 primary=$(dirname "$common")
+# Serialize all watchers/hooks that mutate the primary index and branch.
+exec 7>"$common/susi-primary-update.lock"
+flock 7
 cd "$primary"
 [ "$(git rev-parse --path-format=absolute --git-dir)" = "$common" ] \
     || { echo "park-primary: $primary is not the primary checkout" >&2; exit 2; }
@@ -33,7 +40,9 @@ if [ "$sync_only" = 1 ]; then
     git fetch --quiet origin 2>/dev/null || exit 0
     target=$(git rev-parse --verify -q origin/main) || exit 0
     [ "$(git symbolic-ref -q --short HEAD || true)" = main ] || exit 0
-    [ -z "$(git status --porcelain)" ] || exit 0
+    # Untracked local tools are preserved. Git itself refuses a fast-forward
+    # that would overwrite an untracked file; tracked edits always block.
+    [ -z "$(git status --porcelain --untracked-files=no)" ] || exit 0
     [ "$(git rev-list --count "$target..main")" = 0 ] || exit 0
     [ "$(git rev-parse HEAD)" != "$target" ] || exit 0
     for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do

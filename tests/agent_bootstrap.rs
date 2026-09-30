@@ -263,3 +263,22 @@ fn the_session_start_hook_never_blocks_a_session() {
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("susi-worktree.sh"), "{out}");
 }
+
+#[test]
+fn simultaneous_workers_get_distinct_worktrees_and_local_identities() {
+    let w = World::new("parallel-start");
+    let (left, right) = std::thread::scope(|scope| {
+        let left = scope.spawn(|| w.worktree(&[], "shared-login"));
+        let right = scope.spawn(|| w.worktree(&[], "shared-login"));
+        (left.join().unwrap(), right.join().unwrap())
+    });
+    assert_eq!(left.0, 0, "{}", left.2);
+    assert_eq!(right.0, 0, "{}", right.2);
+    let a = cd_target(&left.1);
+    let b = cd_target(&right.1);
+    assert_ne!(a, b);
+    assert_ne!(
+        git(&a, &["config", "--worktree", "--get", "susi.agent"]),
+        git(&b, &["config", "--worktree", "--get", "susi.agent"])
+    );
+}
