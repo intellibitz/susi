@@ -1,0 +1,191 @@
+{
+  "version": "eco-profile/v1",
+  "id": "gcp-vertex",
+  "name": "Google Vertex AI and Model Garden",
+  "subject": "vertex-predict",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/projects/{project}/locations/{loc}/publishers/google/models/{model}:generateContent",
+      "description": "Gemini generateContent on Vertex",
+      "streaming": false,
+      "request": "gc-request",
+      "response": "gc-response"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/projects/{project}/locations/{loc}/publishers/google/models/{model}:streamGenerateContent",
+      "description": "Streaming generateContent",
+      "streaming": true,
+      "request": "gc-request",
+      "response": "gc-stream"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/projects/{project}/locations/{loc}/publishers/anthropic/models/{model}:rawPredict",
+      "description": "Partner-model passthrough (rawPredict)",
+      "streaming": false,
+      "request": "raw-body",
+      "response": "raw-body"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/projects/{project}/locations/{loc}/publishers/google/models/{model}:predict",
+      "description": "Model Garden predict (embeddings, custom)",
+      "streaming": false,
+      "request": "instances",
+      "response": "predictions"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "GOOGLE_OAUTH_ACCESS_TOKEN",
+        "CLOUDSDK_AUTH_ACCESS_TOKEN"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "gc-request",
+      "format": "json",
+      "fields": [
+        "contents[]",
+        "systemInstruction",
+        "tools",
+        "generationConfig{responseSchema,responseMimeType}"
+      ],
+      "notes": "same shape as AI Studio generateContent"
+    },
+    {
+      "name": "raw-body",
+      "format": "json",
+      "fields": [
+        "anthropic_version",
+        "messages[]",
+        "max_tokens"
+      ],
+      "notes": "rawPredict forwards the partner's native body"
+    },
+    {
+      "name": "instances",
+      "format": "json",
+      "fields": [
+        "instances[]",
+        "parameters{}"
+      ],
+      "notes": "predict wraps instances"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "gc-response",
+      "format": "json",
+      "fields": [
+        "candidates[]",
+        "usageMetadata"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "gc-stream",
+      "format": "sse",
+      "fields": [
+        "data: {candidates[...]}",
+        "usageMetadata on last chunk"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "raw-body",
+      "format": "json",
+      "fields": [
+        "native partner response"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "predictions",
+      "format": "json",
+      "fields": [
+        "predictions[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "INVALID_ARGUMENT",
+      "retriable": false
+    },
+    {
+      "status": "401",
+      "code": "UNAUTHENTICATED",
+      "retriable": false
+    },
+    {
+      "status": "403",
+      "code": "PERMISSION_DENIED",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "RESOURCE_EXHAUSTED",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "INTERNAL",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "RESOURCE_EXHAUSTED",
+      "meaning": "shared-quota or per-project QPM limit hit"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-vision",
+    "cap-embeddings"
+  ],
+  "deviations": [
+    {
+      "host": "gcp-vertex-ai",
+      "field": "auth",
+      "behavior": "OAuth2 access token (service account), not x-goog-api-key"
+    },
+    {
+      "host": "gcp-vertex-ai",
+      "field": "path",
+      "behavior": "project+location+publisher scoped; region pins residency"
+    },
+    {
+      "host": "gcp-vertex-ai",
+      "field": "partner-models",
+      "behavior": "anthropic/meta/mistral models via :rawPredict or :streamRawPredict"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+    "spec_version": "v1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}
