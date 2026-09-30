@@ -70,6 +70,7 @@ pub mod autonomous_builder;
 pub mod baseline_capture;
 pub mod bloat_audit;
 pub mod brain_gap_audit;
+pub mod brain_gap_dedup;
 pub mod brain_gap_tasks;
 pub mod brain_status;
 pub mod capacity_limits;

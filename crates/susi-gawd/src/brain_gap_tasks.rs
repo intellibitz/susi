@@ -111,18 +111,23 @@ pub enum DraftReject {
     Malformed(String),
 }
 
-/// Build a draft from a verified gap. `accept_cmd` is the proposed
-/// verification argv — validated later by [`validate_draft`]. Gaps still
-/// at `Hypothesis` cannot mint tasks (no receipts → nothing actionable).
-pub fn draft_from_gap(
-    gap: &Gap,
-    seq: u32,
-    agent: &str,
-    roadmap: &str,
-    accept_cmd: Vec<String>,
-    deps: Vec<String>,
-    now: u64,
-) -> Result<TaskDraft, DraftReject> {
+/// Drafting context for one minting run.
+pub struct DraftCtx<'a> {
+    /// Minting agent identity (`DEVIN`, `CODEX`, …).
+    pub agent: &'a str,
+    /// Roadmap vector id the task advances.
+    pub roadmap: &'a str,
+    /// Proposed verification argv — validated by [`validate_draft`].
+    pub accept_cmd: Vec<String>,
+    /// Dependency task ids.
+    pub deps: Vec<String>,
+    /// Unix creation time.
+    pub now: u64,
+}
+
+/// Build a draft from a verified gap. Gaps still at `Hypothesis` cannot
+/// mint tasks (no receipts → nothing actionable).
+pub fn draft_from_gap(gap: &Gap, seq: u32, ctx: &DraftCtx<'_>) -> Result<TaskDraft, DraftReject> {
     if gap.status == GapStatus::Hypothesis {
         return Err(DraftReject::Malformed(
             "hypothesis gaps have no receipts; promote evidence first".into(),
@@ -144,15 +149,17 @@ pub fn draft_from_gap(
         gap.receipts.join(", "),
     );
     Ok(TaskDraft {
-        id: format!("T-{agent}-{seq}"),
+        id: format!("T-{}-{seq}", ctx.agent),
         title: format!("Close gap: {}", gap.title),
         goal,
         size,
-        deps,
-        accept: AcceptCmd { cmd: accept_cmd },
-        roadmap: roadmap.to_string(),
-        created_by: agent.to_string(),
-        created_unix: now,
+        deps: ctx.deps.clone(),
+        accept: AcceptCmd {
+            cmd: ctx.accept_cmd.clone(),
+        },
+        roadmap: ctx.roadmap.to_string(),
+        created_by: ctx.agent.to_string(),
+        created_unix: ctx.now,
     })
 }
 
@@ -363,11 +370,23 @@ mod tests {
         ]
     }
 
-    fn sets() -> (
+    type Known = (
         BTreeSet<String>,
         BTreeMap<String, Vec<String>>,
         BTreeSet<String>,
-    ) {
+    );
+
+    fn ctx<'a>(roadmap: &'a str, accept_cmd: Vec<String>, deps: Vec<String>) -> DraftCtx<'a> {
+        DraftCtx {
+            agent: "DEVIN",
+            roadmap,
+            accept_cmd,
+            deps,
+            now: T0,
+        }
+    }
+
+    fn sets() -> Known {
         let ids: BTreeSet<String> = ["T-CODEX-1", "T-CODEX-2"]
             .iter()
             .map(|s| s.to_string())
@@ -390,11 +409,7 @@ mod tests {
         let d = draft_from_gap(
             &gap(),
             40,
-            "DEVIN",
-            "VC-201-014",
-            accept(),
-            vec!["T-CODEX-1".into()],
-            T0,
+            &ctx("VC-201-014", accept(), vec!["T-CODEX-1".into()]),
         )
         .unwrap();
         validate_draft(&d, &ids, &graph, &vectors, &BTreeSet::new()).unwrap();
@@ -429,7 +444,7 @@ mod tests {
                 "--locked".into(),
             ],
         ] {
-            let d = draft_from_gap(&g, 41, "DEVIN", "VC-201-014", bad, vec![], T0).unwrap();
+            let d = draft_from_gap(&g, 41, &ctx("VC-201-014", bad, vec![])).unwrap();
             assert!(
                 validate_draft(&d, &ids, &graph, &vectors, &BTreeSet::new()).is_err(),
                 "{:?} must reject",
@@ -445,7 +460,7 @@ mod tests {
         let mut g = gap();
         g.status = GapStatus::Hypothesis;
         assert!(matches!(
-            draft_from_gap(&g, 42, "DEVIN", "VC-201-014", accept(), vec![], T0),
+            draft_from_gap(&g, 42, &ctx("VC-201-014", accept(), vec![])),
             Err(DraftReject::Malformed(_))
         ));
     }
@@ -459,11 +474,7 @@ mod tests {
         let d = draft_from_gap(
             &g,
             43,
-            "DEVIN",
-            "VC-201-014",
-            accept(),
-            vec!["T-GHOST-9".into()],
-            T0,
+            &ctx("VC-201-014", accept(), vec!["T-GHOST-9".into()]),
         )
         .unwrap();
         assert!(matches!(
@@ -475,11 +486,7 @@ mod tests {
         let d2 = draft_from_gap(
             &g,
             44,
-            "DEVIN",
-            "VC-201-014",
-            accept(),
-            vec!["T-CODEX-2".into()],
-            T0,
+            &ctx("VC-201-014", accept(), vec!["T-CODEX-2".into()]),
         )
         .unwrap();
         assert!(matches!(
@@ -518,10 +525,10 @@ mod tests {
         // Task may link to the proposed vector once registered.
         let (ids, graph, vectors) = sets();
         let proposed: BTreeSet<String> = [v.id.clone()].into_iter().collect();
-        let d = draft_from_gap(&gap(), 45, "DEVIN", &v.id, accept(), vec![], T0).unwrap();
+        let d = draft_from_gap(&gap(), 45, &ctx(&v.id, accept(), vec![])).unwrap();
         validate_draft(&d, &ids, &graph, &vectors, &proposed).unwrap();
         // Without the proposal registered, the same draft must reject.
-        let d2 = draft_from_gap(&gap(), 46, "DEVIN", "VC-999-999", accept(), vec![], T0).unwrap();
+        let d2 = draft_from_gap(&gap(), 46, &ctx("VC-999-999", accept(), vec![])).unwrap();
         assert!(matches!(
             validate_draft(&d2, &ids, &graph, &vectors, &BTreeSet::new()),
             Err(DraftReject::UnknownVector(_))
@@ -536,7 +543,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let existing = dir.join("T-OTHER-1.json");
         fs::write(&existing, "{\"id\":\"T-OTHER-1\"}").unwrap();
-        let d = draft_from_gap(&gap(), 47, "DEVIN", "VC-201-014", accept(), vec![], T0).unwrap();
+        let d = draft_from_gap(&gap(), 47, &ctx("VC-201-014", accept(), vec![])).unwrap();
         publish(&dir, &d).unwrap();
         assert_eq!(
             fs::read_to_string(&existing).unwrap(),
