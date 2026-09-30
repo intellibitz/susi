@@ -30,9 +30,9 @@ pub use susi_sandbox_client as susi_sandbox;
 pub use susi_core;
 
 pub use susi_vendor_models::{
-    cloud, cloud_manage, eco_conflicts, eco_consistency, eco_coverage, eco_engine_capability_map,
-    eco_matrix, eco_profile, eco_provenance, eco_relations, eco_schema, eco_store, eco_taxonomy,
-    frontier, hf_discovery, local_ecosystem, open_weight, openrouter,
+    cloud, cloud_eligibility, cloud_manage, eco_conflicts, eco_consistency, eco_coverage,
+    eco_engine_capability_map, eco_matrix, eco_profile, eco_provenance, eco_relations, eco_schema,
+    eco_store, eco_taxonomy, frontier, hf_discovery, local_ecosystem, open_weight, openrouter,
 };
 pub mod coding_models;
 pub(crate) mod download;

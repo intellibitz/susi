@@ -13,6 +13,7 @@ susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
 susi-vendor-web = { workspace = true }
+susi-vendor-models = { workspace = true }
 regex = { package = "susi-vendor-regex", path = "../susi-vendor-regex" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
