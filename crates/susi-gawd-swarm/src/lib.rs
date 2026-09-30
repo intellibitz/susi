@@ -30,6 +30,7 @@ pub mod amas;
 pub mod anti_entropy;
 pub mod cancel_propagate;
 pub mod capability_market;
+pub mod cloud_e2e;
 pub mod cloud_failover;
 pub mod cloud_lockout;
 pub(crate) mod cloud_recovery;
