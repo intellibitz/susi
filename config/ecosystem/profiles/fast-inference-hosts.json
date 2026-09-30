@@ -1,0 +1,162 @@
+{
+  "version": "eco-profile/v1",
+  "id": "fast-inference-hosts",
+  "name": "Groq, Cerebras and SambaNova",
+  "subject": "groq-api",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/openai/v1/chat/completions",
+      "description": "Groq chat",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "Cerebras/SambaNova chat",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "GET",
+      "path": "/openai/v1/models",
+      "description": "Groq model list",
+      "streaming": false,
+      "response": "list"
+    },
+    {
+      "method": "POST",
+      "path": "/openai/v1/audio/transcriptions",
+      "description": "Groq Whisper",
+      "streaming": false,
+      "request": "audio",
+      "response": "audio"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "GROQ_API_KEY",
+        "CEREBRAS_API_KEY",
+        "SAMBANOVA_API_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages[]",
+        "tools",
+        "response_format"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "audio",
+      "format": "multipart",
+      "fields": [
+        "file",
+        "model whisper-large-v3"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage{queue_time,completion_time?}",
+        "x_groq{id}"
+      ],
+      "notes": "groq adds x_groq echo"
+    },
+    {
+      "name": "list",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "audio",
+      "format": "json",
+      "fields": [
+        "text"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-audio"
+  ],
+  "deviations": [
+    {
+      "host": "groq-api",
+      "field": "base-url",
+      "behavior": "api.groq.com/openai/v1 prefix; hard context limits per model"
+    },
+    {
+      "host": "cerebras-api",
+      "field": "structured-output",
+      "behavior": "strict json_schema response_format; wafer-scale throughput"
+    },
+    {
+      "host": "sambanova-api",
+      "field": "tiers",
+      "behavior": "SambaStudio enterprise endpoints mirror cloud paths"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://console.groq.com/docs/quickstart",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}
