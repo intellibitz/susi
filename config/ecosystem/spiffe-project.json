@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "spiffe-project",
+    "name": "SPIFFE project (CNCF)",
+    "home": "https://spiffe.io",
+    "provenance": {
+      "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+      "spec_version": "1.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "spiffe-project",
+      "to": "spiffe",
+      "provenance": {
+        "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+        "spec_version": "1.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "spiffe-project",
+      "to": "spire",
+      "provenance": {
+        "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+        "spec_version": "1.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

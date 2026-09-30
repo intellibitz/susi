@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "oauth-mtls",
+    "name": "OAuth 2.0 Mutual-TLS client auth",
+    "body": "IETF",
+    "provenance": {
+      "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+      "spec_version": "1.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}
