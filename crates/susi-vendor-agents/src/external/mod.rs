@@ -126,6 +126,7 @@ pub struct AgentManager {
     root: PathBuf,
     config: PathBuf,
     shutdown: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    poll_interval: std::time::Duration,
 }
 
 /// Execution-catalog entries whose task text is a search query or browsing
@@ -164,6 +165,7 @@ impl AgentManager {
             root,
             config,
             shutdown: None,
+            poll_interval: std::time::Duration::from_secs(3),
         })
     }
 
@@ -174,6 +176,17 @@ impl AgentManager {
     pub fn with_shutdown(mut self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
         self.shutdown = Some(flag);
         self
+    }
+
+    /// Cadence long-polling adapters sleep between status refreshes.
+    /// Tests tighten it so polls are deterministic, not wall-clock bound.
+    pub fn with_poll_interval(mut self, interval: std::time::Duration) -> Self {
+        self.poll_interval = interval;
+        self
+    }
+
+    pub fn poll_interval(&self) -> std::time::Duration {
+        self.poll_interval
     }
 
     pub fn adapter(&self, id: &str) -> Result<Adapter> {

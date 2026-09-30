@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDE-401",
+  "title": "Deflake susi-gemi speculative test_speculative_output_matches_plain_greedy_decoding under load",
+  "goal": "Passes alone (~18s) but failed once in a full workspace run (speculative.rs:638). Find the load/timing dependence and make it deterministic. Tests test_speculative_output_matches_*.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "test_speculative_output_matches"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790742298
+}

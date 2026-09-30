@@ -199,6 +199,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             );
         }
         TaskCommands::Claim { id, agent, hours } => {
+            tasks::ensure_synced(&root)?;
             let c = tasks::claim(&root, &id, &who(agent, &root), hours, tasks::now_unix())?;
             println!(
                 "{} claimed {} until unix {}",
