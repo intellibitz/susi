@@ -1,0 +1,12 @@
+{
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$DEVIN_PROJECT_DIR\"/scripts/workflow-session-start.sh"
+        }
+      ]
+    }
+  ]
+}

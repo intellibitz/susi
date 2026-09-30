@@ -32,7 +32,7 @@ pub enum TaskCommands {
         /// Roadmap vector this delivers (VC-<n>-<n>, from .agents/roadmap.json)
         #[arg(long)]
         roadmap: Option<String>,
-        /// Who is adding it (default: $SUSI_AGENT or your git user)
+        /// Who is adding it (default: $SUSI_AGENT, your worktree branch, or your git user)
         #[arg(long)]
         agent: Option<String>,
     },
@@ -79,10 +79,38 @@ pub(crate) fn repo_root(cwd: &Path) -> PathBuf {
         .unwrap_or_else(|| cwd.to_path_buf())
 }
 
+/// `scripts/susi-worktree.sh` names every auto worktree branch
+/// `<agent>-<yyyymmdd>-<hhmmss>`, so inside one the branch names the agent —
+/// no `--agent` flag or `SUSI_AGENT` needed.
+fn agent_from_branch_name(branch: &str) -> Option<String> {
+    let (rest, time) = branch.rsplit_once('-')?;
+    let (slug, date) = rest.rsplit_once('-')?;
+    let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(date, 8) || !digits(time, 6) {
+        return None;
+    }
+    let ok = !slug.is_empty()
+        && slug
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    ok.then(|| slug.to_string())
+}
+
+fn agent_from_branch(root: &Path) -> Option<String> {
+    std::process::Command::new("git")
+        .args(["symbolic-ref", "-q", "--short", "HEAD"])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| agent_from_branch_name(String::from_utf8_lossy(&o.stdout).trim()))
+}
+
 pub(crate) fn who(agent: Option<String>, root: &Path) -> String {
     agent
         .or_else(|| std::env::var("SUSI_AGENT").ok())
         .filter(|a| !a.trim().is_empty())
+        .or_else(|| agent_from_branch(root))
         .or_else(|| {
             std::process::Command::new("git")
                 .args(["config", "user.name"])
@@ -219,4 +247,37 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
         },
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::agent_from_branch_name;
+
+    #[test]
+    fn worktree_branch_names_its_agent() {
+        assert_eq!(
+            agent_from_branch_name("devin-20260930-163229"),
+            Some("devin".to_string())
+        );
+        assert_eq!(
+            agent_from_branch_name("codex-agent-20260930-120000"),
+            Some("codex-agent".to_string())
+        );
+    }
+
+    #[test]
+    fn plain_branches_do_not_pose_as_agents() {
+        for b in [
+            "main",
+            "feature-x",
+            "claude/load-worktree-e2a385",
+            "wip/experiment",
+            "devin-2026",
+            "x-20260930-1632299",
+            "Devin-20260930-163229",
+            "devin-20260930",
+        ] {
+            assert_eq!(agent_from_branch_name(b), None, "{b}");
+        }
+    }
 }

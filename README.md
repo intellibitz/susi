@@ -370,8 +370,10 @@ checks), with `--relax` as an audited emergency switch. Releases are cut only by
 built binary on its own newest behaviour (`E2E_CHECKS`) before it tags.
 
 Each agent tool loads the first step on its own: `CLAUDE.md`, `GEMINI.md`,
-`.github/copilot-instructions.md`, `.cursor/rules/susi-workflow.mdc`, and a
-Claude Code SessionStart hook that runs the check.
+`.github/copilot-instructions.md`, `.cursor/rules/susi-workflow.mdc`,
+`.devin/rules/susi-workflow.md`, and SessionStart hooks
+(`.claude/settings.json`, `.codex/hooks.json`, `.devin/hooks.v1.json`) that run
+the check.
 
 ### Windows PowerShell (native, not WSL)
 ```powershell

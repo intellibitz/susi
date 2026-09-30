@@ -22,9 +22,10 @@ each ❌. (No installed susi? `cargo run -q -- workflow check`.)
    own PR.
 
 This block is loaded for you: `CLAUDE.md`, `GEMINI.md`,
-`.github/copilot-instructions.md` and `.cursor/rules/susi-workflow.mdc` each
-point every agent tool here, and SessionStart hooks (Claude Code:
-`.claude/settings.json`; Codex: `.codex/hooks.json`, both →
+`.github/copilot-instructions.md`, `.cursor/rules/susi-workflow.mdc` and
+`.devin/rules/susi-workflow.md` each point every agent tool here, and
+SessionStart hooks (Claude Code: `.claude/settings.json`; Codex:
+`.codex/hooks.json`; Devin: `.devin/hooks.v1.json`, all →
 `scripts/workflow-session-start.sh`) run the check for you. Keep those pointers identical; this file is the single source.
 
 The full rules follow (identity.json Mandates 48–56 are the constitution).

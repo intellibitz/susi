@@ -1,0 +1,23 @@
+{
+  "id": "T-DEVIN-1",
+  "title": "Wire Devin CLI into the susi workflow pointers",
+  "goal": "Add .devin/rules/susi-workflow.md (always_on) and .devin/hooks.v1.json (SessionStart -> scripts/workflow-session-start.sh) so Devin CLI follows Mandate 49/50 like Claude/Codex/Cursor; update AGENTS.md, README, check-agent-hooks.sh, agent_bootstrap test.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "agent_bootstrap",
+      "every_agent_tool_auto_loads_the_same_first_step"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790769468,
+  "closed": {
+    "at_unix": 1790769584,
+    "commit": "e4dec376ae779582405a847308a78af0078cedfb",
+    "by": "DEVIN"
+  }
+}

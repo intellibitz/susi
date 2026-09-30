@@ -14,7 +14,7 @@ pub enum WorkflowCommands {
     Start {
         /// Branch/worktree name (default: <agent>-<timestamp>)
         name: Option<String>,
-        /// Who you are (default: $SUSI_AGENT or your git user)
+        /// Who you are (default: $SUSI_AGENT, your worktree branch, or your git user)
         #[arg(long)]
         agent: Option<String>,
     },
@@ -23,7 +23,7 @@ pub enum WorkflowCommands {
         /// Machine-readable output
         #[arg(long)]
         json: bool,
-        /// Who you are (default: $SUSI_AGENT or your git user)
+        /// Who you are (default: $SUSI_AGENT, your worktree branch, or your git user)
         #[arg(long)]
         agent: Option<String>,
     },

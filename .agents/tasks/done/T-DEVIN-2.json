@@ -1,0 +1,23 @@
+{
+  "id": "T-DEVIN-2",
+  "title": "Derive agent id from worktree branch name",
+  "goal": "who() currently needs --agent/SUSI_AGENT or falls back to git user.name. susi-worktree.sh already names branches <agent>-<yyyymmdd>-<hhmmss>; derive the agent from that pattern so every tool self-identifies in its own worktree with zero env.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--bin",
+      "susi",
+      "tasks_cli"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790770088,
+  "closed": {
+    "at_unix": 1790770357,
+    "commit": "50c2630dd95832dc19dfb0d8c2bf2a3e232a5a49",
+    "by": "DEVIN"
+  }
+}
