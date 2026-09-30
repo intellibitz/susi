@@ -35,6 +35,9 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
     };
     let root = crate::cli::tasks_cli::repo_root(cwd);
+    // Hooks + ledger merge driver install themselves on any susi command —
+    // a fresh clone never needs setup-dev.sh (Mandate: zero-config).
+    workflow::ensure_infrastructure(&root);
     let agent = crate::cli::tasks_cli::who(agent, &root)
         .to_ascii_uppercase()
         .chars()
