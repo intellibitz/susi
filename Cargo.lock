@@ -6388,6 +6388,7 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-models",
  "susi-vendor-rayon",
  "susi-vendor-regex",
  "susi-vendor-serde",

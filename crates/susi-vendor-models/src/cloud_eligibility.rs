@@ -424,27 +424,56 @@ impl EligibilityStore {
                     observed_unix: o.observed_unix,
                 })
         };
+        // Newest *proven* success for this exact pair. A success observed
+        // after a block means the condition cleared (key funded again,
+        // throttle lifted, access granted) — fresh evidence supersedes the
+        // older observation, though it is not a dispatch guarantee.
+        let fresh_usable = live
+            .clone()
+            .filter(|o| {
+                o.kind == EligibilityKind::Usable
+                    && o.level == ScopeLevel::Model
+                    && o.credential == fp
+                    && o.model == model
+                    && o.provenance == Provenance::Inference
+            })
+            .map(|o| o.observed_unix)
+            .max();
+        let block = |v: Verdict| -> Option<Verdict> {
+            if fresh_usable.is_some_and(|u| u > v.observed_unix) {
+                None
+            } else {
+                Some(v)
+            }
+        };
 
         // 1) the key itself is bad — blocks everything it touches.
         if let Some(v) = pick(&|o| {
             o.level == ScopeLevel::Credential
                 && o.credential == fp
                 && o.kind == EligibilityKind::InvalidCredential
-        }) {
+        })
+        .and_then(block)
+        {
             return v;
         }
-        // 2) account-level exhaustion applies to every key on the account;
-        //    recorded per-credential when the account is unknown.
+        // 2) account-level exhaustion applies to every key on the account —
+        //    and always to the credential that recorded it, even when the
+        //    account id itself is unknown.
         if let Some(v) = pick(&|o| {
             matches!(
                 o.kind,
                 EligibilityKind::InsufficientCredit | EligibilityKind::QuotaExhausted
             ) && match o.level {
-                ScopeLevel::Account => !account.is_empty() && o.account == account,
+                ScopeLevel::Account => {
+                    o.credential == fp || (!account.is_empty() && o.account == account)
+                }
                 ScopeLevel::Credential => o.credential == fp,
                 ScopeLevel::Model | ScopeLevel::Region => false,
             }
-        }) {
+        })
+        .and_then(block)
+        {
             return v;
         }
         // 3) model-scoped denials — never bleed onto sibling models.
@@ -456,7 +485,9 @@ impl EligibilityStore {
                     EligibilityKind::AccessDenied | EligibilityKind::UnsupportedRequest
                 )
                 && (o.credential == fp || o.credential == "*")
-        }) {
+        })
+        .and_then(block)
+        {
             return v;
         }
         // 4) transient credential throttle.
@@ -464,7 +495,9 @@ impl EligibilityStore {
             o.level == ScopeLevel::Credential
                 && o.credential == fp
                 && o.kind == EligibilityKind::RateLimited
-        }) {
+        })
+        .and_then(block)
+        {
             return v;
         }
         // 5) provider/region outage: a provider-wide observation (empty
@@ -472,7 +505,9 @@ impl EligibilityStore {
         if let Some(v) = pick(&|o| {
             o.kind == EligibilityKind::ServiceUnavailable
                 && (o.region.is_empty() || o.region == region)
-        }) {
+        })
+        .and_then(block)
+        {
             return v;
         }
         // 6) proven, fresh inference success for this pair.
