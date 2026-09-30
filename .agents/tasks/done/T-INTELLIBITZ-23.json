@@ -1,0 +1,25 @@
+{
+  "id": "T-INTELLIBITZ-23",
+  "title": "Commit cloud_rsi_delivery module (PR/release gates)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cloud_rsi_delivery",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-018",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790787615,
+  "closed": {
+    "at_unix": 1790787652,
+    "commit": "d12748177a3029ee5ddff4fcfcd956552617e7ba",
+    "by": "INTELLIBITZ"
+  }
+}
