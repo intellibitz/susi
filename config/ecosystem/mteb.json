@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "mteb",
+    "name": "MTEB benchmark metadata",
+    "body": "embeddings-benchmark team",
+    "provenance": {
+      "source": "https://www.sbert.net/",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

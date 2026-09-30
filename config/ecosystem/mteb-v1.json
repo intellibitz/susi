@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "mteb-v1",
+    "name": "MTEB metadata",
+    "version": "v1",
+    "provenance": {
+      "source": "https://www.sbert.net/",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "mteb-v1",
+      "to": "mteb",
+      "provenance": {
+        "source": "https://www.sbert.net/",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
