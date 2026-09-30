@@ -959,7 +959,6 @@ mod tests {
 
     // ------------------------------------------- implementation (T-CODEX-17)
 
-    use std::time::Duration;
     use susi_gawd_swarm::parallel_dispatch::{run_jobs, DispatchPlan, Job};
     use susi_gawd_swarm::roadmap_agents::{run_round, ClaimDenied, TaskQueue, Workspaces};
 
@@ -974,13 +973,6 @@ mod tests {
                 model.to_string(),
                 vec![AttemptOutcome::Success(json.to_string())],
             );
-            Self {
-                script: Mutex::new(m),
-            }
-        }
-        fn plan_seq(model: &str, outs: Vec<AttemptOutcome>) -> Self {
-            let mut m = BTreeMap::new();
-            m.insert(model.to_string(), outs);
             Self {
                 script: Mutex::new(m),
             }
@@ -1116,7 +1108,7 @@ mod tests {
         let wt = std::env::temp_dir().join(format!("implfo-{}", std::process::id()));
         std::fs::create_dir_all(&wt).unwrap();
         // m1 writes the wrong file → verify fails → patch reverted → m2 wins.
-        let mut model = FakeImpl::plan("m2", &good_plan("right.txt"));
+        let model = FakeImpl::plan("m2", &good_plan("right.txt"));
         model.script.lock().unwrap().insert(
             "m1".into(),
             vec![AttemptOutcome::Success(good_plan("wrong.txt"))],
@@ -1194,8 +1186,10 @@ mod tests {
     fn cloud_rsi_implementation_capability_gap_delegates_with_record() {
         // Intent requires structured output; no candidate supports it →
         // dispatch stops honestly and the gap routes to A2A delegation.
-        let mut intent = IntentConstraints::default();
-        intent.needs_structured_output = true;
+        let intent = IntentConstraints {
+            needs_structured_output: true,
+            ..Default::default()
+        };
         let mut c1 = cand("k1", "m1", "p1", "a1", 0.0);
         c1.supports_structured_output = false;
         let mut c2 = cand("k2", "m2", "p2", "a2", 0.0);
