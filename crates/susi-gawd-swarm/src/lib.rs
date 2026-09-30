@@ -56,6 +56,7 @@ pub mod node_enrollment;
 pub mod parallel_admission;
 pub mod parallel_dispatch;
 pub mod peer_registry;
+pub mod production_lifecycle;
 pub mod resource_schedule;
 pub mod roadmap_agents;
 pub mod role_select;

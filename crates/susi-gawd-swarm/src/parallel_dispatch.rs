@@ -428,6 +428,15 @@ fn run_job<R: Runner>(
                     outcome: "pre_dispatch",
                 });
             }
+            AttemptOutcome::WorkerFailed(why) => {
+                let _ = why;
+                // Executor-side failure — not model evidence, unbilled.
+                shared.ledger.release(reservation);
+                out.attempts.push(AttemptRecord {
+                    candidate: ranked.candidate.clone(),
+                    outcome: "worker_failed",
+                });
+            }
             AttemptOutcome::MidStream {
                 result: res,
                 partial,

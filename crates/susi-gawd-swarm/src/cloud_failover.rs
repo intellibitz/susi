@@ -34,6 +34,11 @@ pub enum AttemptOutcome {
     Success(String),
     /// Failed before any response — safe to retry elsewhere immediately.
     PreDispatch(InferenceResult),
+    /// The worker/executor failed without involving the model (agent
+    /// crash, workspace fault). NOT model evidence: never recorded into
+    /// eligibility or lockouts, so a broken worker can't poison the pool
+    /// for sibling jobs. Safe to retry on the next candidate.
+    WorkerFailed(String),
     /// Failed mid-stream; `partial` was produced but is discarded — never
     /// spliced into another model's answer.
     MidStream {
@@ -275,6 +280,15 @@ pub fn run_selection<R: Runner>(
                 out.attempts.push(AttemptRecord {
                     candidate: ranked.candidate.clone(),
                     outcome: "pre_dispatch",
+                });
+            }
+            AttemptOutcome::WorkerFailed(why) => {
+                let _ = why;
+                // No model was touched: no evidence, release the hold.
+                stores.ledger.release(reservation);
+                out.attempts.push(AttemptRecord {
+                    candidate: ranked.candidate.clone(),
+                    outcome: "worker_failed",
                 });
             }
             AttemptOutcome::MidStream {
