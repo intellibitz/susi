@@ -182,3 +182,5 @@ mod tests {
         assert!(task.status.message.is_none());
     }
 }
+#[cfg(test)]
+mod eco_a2a_security;

@@ -1,0 +1,201 @@
+{
+  "version": "eco-profile/v1",
+  "id": "enterprise-clouds",
+  "name": "IBM watsonx and Oracle OCI Generative AI",
+  "subject": "watsonx-ml",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/ml/v1/text/generation?version={date}",
+      "description": "watsonx text generation",
+      "streaming": false,
+      "request": "wx-generate",
+      "response": "wx-result"
+    },
+    {
+      "method": "POST",
+      "path": "/ml/v1/text/chat?version={date}",
+      "description": "watsonx chat",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/20231130/actions/chat",
+      "description": "OCI Generative AI chat",
+      "streaming": false,
+      "request": "oci-chat",
+      "response": "oci-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/20231130/actions/embedText",
+      "description": "OCI embed",
+      "streaming": false,
+      "request": "oci-embed",
+      "response": "oci-embed"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "IBM_IAM_ACCESS_TOKEN"
+      ]
+    },
+    {
+      "scheme": "request-signature",
+      "header": "authorization",
+      "prefix": "Signature ",
+      "env": [
+        "OCI_CLI_USER",
+        "OCI_CLI_FINGERPRINT",
+        "OCI_CLI_KEY_FILE"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "wx-generate",
+      "format": "json",
+      "fields": [
+        "model_id",
+        "input",
+        "parameters{decoding_method,...}",
+        "project_id or space_id required"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model_id",
+        "messages[]",
+        "tools"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "oci-chat",
+      "format": "json",
+      "fields": [
+        "compartmentId",
+        "servingMode{modelId|onDemandServingMode}",
+        "chatRequest{apiFormat,message[]}"
+      ],
+      "notes": "cohere/generic apiFormat"
+    },
+    {
+      "name": "oci-embed",
+      "format": "json",
+      "fields": [
+        "compartmentId",
+        "inputs[]",
+        "servingMode"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "wx-result",
+      "format": "json",
+      "fields": [
+        "results[]{generated_text,stop_reason}",
+        "created_at"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "oci-chat",
+      "format": "json",
+      "fields": [
+        "modelId",
+        "chatResponse{apiFormat,choices|text,usage}",
+        "timeCreated"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "oci-embed",
+      "format": "json",
+      "fields": [
+        "embeddings[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "invalid_request_error",
+      "retriable": false
+    },
+    {
+      "status": "401",
+      "code": "not_authenticated",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "too_many_requests",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-streaming",
+    "cap-embeddings"
+  ],
+  "deviations": [
+    {
+      "host": "ibm-watsonx",
+      "field": "versioning",
+      "behavior": "mandatory ?version=YYYY-MM-DD query param on every call"
+    },
+    {
+      "host": "oci-generative-ai",
+      "field": "auth",
+      "behavior": "OCI v1 request signing over (request-target), date, host headers"
+    },
+    {
+      "host": "oci-generative-ai",
+      "field": "region",
+      "behavior": "inference.generativeai.{region}.oci.oraclecloud.com per region"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+    "spec_version": "2024-07-25",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "triton",
+    "name": "NVIDIA Triton Inference Server",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://github.com/kserve/open-inference-protocol",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "triton",
+      "to": "open-inference-protocol",
+      "provenance": {
+        "source": "https://github.com/kserve/open-inference-protocol",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "triton",
+      "to": "oip-v2",
+      "provenance": {
+        "source": "https://github.com/kserve/open-inference-protocol",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "triton",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://github.com/kserve/open-inference-protocol",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "triton",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://github.com/kserve/open-inference-protocol",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

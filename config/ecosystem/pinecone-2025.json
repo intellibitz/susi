@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "pinecone-2025",
+    "name": "Pinecone API",
+    "version": "2025-04",
+    "provenance": {
+      "source": "https://docs.pinecone.io/reference/api/introduction",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "pinecone-2025",
+      "to": "pinecone-api",
+      "provenance": {
+        "source": "https://docs.pinecone.io/reference/api/introduction",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

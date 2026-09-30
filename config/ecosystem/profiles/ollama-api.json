@@ -1,0 +1,261 @@
+{
+  "version": "eco-profile/v1",
+  "id": "ollama-api",
+  "name": "Ollama native and OpenAI-compatible APIs",
+  "subject": "ollama-native",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/generate",
+      "description": "Generate",
+      "streaming": false,
+      "request": "o-gen",
+      "response": "ndjson"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat",
+      "description": "Chat",
+      "streaming": false,
+      "request": "o-chat",
+      "response": "ndjson"
+    },
+    {
+      "method": "POST",
+      "path": "/api/embed",
+      "description": "Embeddings",
+      "streaming": false,
+      "request": "o-embed",
+      "response": "o-embed"
+    },
+    {
+      "method": "POST",
+      "path": "/api/show",
+      "description": "Model details (modelfile, params)",
+      "streaming": false,
+      "request": "o-show",
+      "response": "o-show"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tags",
+      "description": "Local model list",
+      "streaming": false,
+      "response": "o-tags"
+    },
+    {
+      "method": "POST",
+      "path": "/api/pull",
+      "description": "Pull a model (streams progress)",
+      "streaming": true,
+      "request": "o-pull",
+      "response": "ndjson"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ps",
+      "description": "Loaded models",
+      "streaming": false,
+      "response": "o-ps"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "OpenAI-compatible chat",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "OpenAI model list",
+      "streaming": false,
+      "response": "openai-models"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none",
+      "header": "none",
+      "prefix": "",
+      "env": []
+    }
+  ],
+  "versions": [
+    {
+      "id": "0.x",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "o-gen",
+      "format": "json",
+      "fields": [
+        "model",
+        "prompt",
+        "system",
+        "options{}",
+        "format json|json-schema",
+        "images[]",
+        "keep_alive",
+        "stream bool"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "o-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages[]",
+        "tools[]",
+        "format",
+        "think bool (reasoning models)"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "o-embed",
+      "format": "json",
+      "fields": [
+        "model",
+        "input"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "o-show",
+      "format": "json",
+      "fields": [
+        "model|name",
+        "verbose bool"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "o-pull",
+      "format": "json",
+      "fields": [
+        "model",
+        "insecure|stream"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "ndjson",
+      "format": "jsonl",
+      "fields": [
+        "one JSON object per line; final line has done:true + metrics"
+      ],
+      "notes": "native endpoints stream NDJSON even for unary calls"
+    },
+    {
+      "name": "o-embed",
+      "format": "json",
+      "fields": [
+        "embeddings[][]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "o-show",
+      "format": "json",
+      "fields": [
+        "modelfile",
+        "parameters",
+        "template",
+        "details{quantization_level}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "o-tags",
+      "format": "json",
+      "fields": [
+        "models[]{name,model,size,digest,details}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "o-ps",
+      "format": "json",
+      "fields": [
+        "models[]{name,size_vram,expires_at}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-models",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "404",
+      "code": "model_not_found",
+      "retriable": false
+    },
+    {
+      "status": "400",
+      "code": "invalid_request",
+      "retriable": false
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "none",
+      "meaning": "local server; no documented rate limits"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-embeddings",
+    "cap-vision",
+    "cap-discovery"
+  ],
+  "deviations": [],
+  "streaming": {
+    "format": "jsonl",
+    "events": [
+      "partial {response|message} lines",
+      "done:true final line"
+    ],
+    "notes": "NDJSON on every native endpoint"
+  },
+  "provenance": {
+    "source": "https://github.com/ollama/ollama/blob/main/docs/api.md",
+    "spec_version": "0.x",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

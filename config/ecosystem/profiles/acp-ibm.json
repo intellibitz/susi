@@ -1,0 +1,50 @@
+{
+  "version": "eco-profile/v1",
+  "id": "acp-ibm",
+  "name": "Agent Communication Protocol (IBM/BeeAI)",
+  "subject": "acp-ibm",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "0.2",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "agent-runs",
+      "format": "http",
+      "fields": [
+        "POST /runs {agent_name,input}",
+        "GET /agents",
+        "await/resume states"
+      ],
+      "notes": "message parts carry MIME-typed content; manifests describe agents"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "run-events",
+      "format": "sse",
+      "fields": [
+        "run.created",
+        "run.in-progress",
+        "message.part",
+        "run.completed"
+      ],
+      "notes": "runs stream partial outputs as events"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://agentcommunicationprotocol.dev",
+    "spec_version": "0.2",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

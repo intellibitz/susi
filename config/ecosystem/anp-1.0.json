@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "anp-1.0",
+    "name": "ANP 1.0 draft",
+    "version": "1.0-draft",
+    "provenance": {
+      "source": "https://agent-network-protocol.com",
+      "spec_version": "0.1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "anp-1.0",
+      "to": "anp",
+      "provenance": {
+        "source": "https://agent-network-protocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

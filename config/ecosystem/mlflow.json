@@ -1,0 +1,61 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "mlflow",
+    "name": "MLflow",
+    "category": "model-registry",
+    "provenance": {
+      "source": "https://mlflow.org/docs/latest/ml/model/",
+      "spec_version": "2.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "mlflow",
+      "to": "mlflow-model-format",
+      "provenance": {
+        "source": "https://mlflow.org/docs/latest/ml/model/",
+        "spec_version": "2.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "mlflow",
+      "to": "mlflow-tracking-rest",
+      "provenance": {
+        "source": "https://mlflow.org/docs/latest/ml/model/",
+        "spec_version": "2.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "mlflow",
+      "to": "mlflow-api-2.0",
+      "provenance": {
+        "source": "https://mlflow.org/docs/latest/ml/model/",
+        "spec_version": "2.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "mlflow",
+      "to": "mlflow-format-2.x",
+      "provenance": {
+        "source": "https://mlflow.org/docs/latest/ml/model/",
+        "spec_version": "2.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

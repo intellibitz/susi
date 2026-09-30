@@ -1,0 +1,19 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "protocol",
+    "id": "llamacpp-http",
+    "name": "llama.cpp server HTTP API",
+    "transports": [
+      "http",
+      "http-sse"
+    ],
+    "provenance": {
+      "source": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+      "spec_version": "bXXXX",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

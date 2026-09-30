@@ -1,0 +1,137 @@
+{
+  "version": "eco-profile/v1",
+  "id": "aws-sagemaker",
+  "name": "AWS SageMaker inference endpoints",
+  "subject": "sagemaker-invoke",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/endpoints/{EndpointName}/invocations",
+      "description": "Sync invoke; body is model-defined",
+      "streaming": false,
+      "request": "model-body",
+      "response": "model-body"
+    },
+    {
+      "method": "POST",
+      "path": "/endpoints/{EndpointName}/invocations-async",
+      "description": "Async invoke to S3 result",
+      "streaming": false,
+      "request": "async-invoke",
+      "response": "async-response"
+    },
+    {
+      "method": "POST",
+      "path": "/endpoints/{EndpointName}/invocations-response-stream",
+      "description": "Response-streaming invoke",
+      "streaming": true,
+      "request": "model-body",
+      "response": "payload-stream"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "request-signature",
+      "header": "authorization",
+      "prefix": "AWS4-HMAC-SHA256 ",
+      "env": [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "2017-05-13",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "model-body",
+      "format": "binary",
+      "fields": [
+        "ContentType/Accept set the wire format",
+        "custom attributes",
+        "inference-component name"
+      ],
+      "notes": "body schema is whatever the deployed model speaks"
+    },
+    {
+      "name": "async-invoke",
+      "format": "json",
+      "fields": [
+        "InputLocation (s3)",
+        "InvocationTimeoutSeconds"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "model-body",
+      "format": "binary",
+      "fields": [
+        "model-defined response body"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "payload-stream",
+      "format": "aws-eventstream",
+      "fields": [
+        "PayloadPart.Bytes chunks",
+        "InvokeModel bidirectional variant on BiDi endpoints"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "async-response",
+      "format": "json",
+      "fields": [
+        "OutputLocation",
+        "FailureLocation",
+        "InferenceId"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-embeddings",
+    "cap-vision",
+    "cap-streaming"
+  ],
+  "deviations": [],
+  "streaming": null,
+  "provenance": {
+    "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+    "spec_version": "2017-05-13",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

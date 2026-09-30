@@ -1,0 +1,61 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "playwright-mcp",
+    "name": "Playwright MCP server",
+    "category": "mcp-server",
+    "provenance": {
+      "source": "https://github.com/microsoft/playwright-mcp",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "playwright-mcp",
+      "to": "mcp",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "playwright-mcp",
+      "to": "mcp-2025-03-26",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "playwright-mcp",
+      "to": "cap-resource-access",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "playwright-mcp",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

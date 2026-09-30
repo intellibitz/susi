@@ -1,0 +1,105 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "text-generation-inference",
+    "name": "Text Generation Inference",
+    "category": "inference-engine",
+    "provenance": {
+      "source": "https://huggingface.github.io/text-generation-inference/",
+      "spec_version": "3.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "text-generation-inference",
+      "to": "tgi-api",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "text-generation-inference",
+      "to": "tgi-3.x",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "text-generation-inference",
+      "to": "openai-chat-completions",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "text-generation-inference",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "text-generation-inference",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "text-generation-inference",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "text-generation-inference",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "text-generation-inference",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

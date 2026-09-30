@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "rfc9728",
+    "name": "RFC 9728",
+    "version": "rfc9728",
+    "provenance": {
+      "source": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization",
+      "spec_version": "2025-06-18",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2025-04-01"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "rfc9728",
+      "to": "oauth-protected-resource-metadata",
+      "provenance": {
+        "source": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization",
+        "spec_version": "2025-06-18",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

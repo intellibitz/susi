@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "spiffe",
+    "name": "SPIFFE workload identity",
+    "body": "CNCF / SPIFFE",
+    "provenance": {
+      "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+      "spec_version": "1.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

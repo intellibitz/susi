@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "zep",
+    "name": "Zep",
+    "home": "https://www.getzep.com",
+    "provenance": {
+      "source": "https://docs.mem0.ai/",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "zep",
+      "to": "zep-cloud",
+      "provenance": {
+        "source": "https://docs.mem0.ai/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

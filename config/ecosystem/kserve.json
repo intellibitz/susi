@@ -1,0 +1,61 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "kserve",
+    "name": "KServe",
+    "category": "serving-gateway",
+    "provenance": {
+      "source": "https://kserve.github.io/website/latest/",
+      "spec_version": "v1beta1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "kserve",
+      "to": "open-inference-protocol",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "kserve",
+      "to": "oip-v2",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "kserve",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "kserve",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://kserve.github.io/website/latest/",
+        "spec_version": "v1beta1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

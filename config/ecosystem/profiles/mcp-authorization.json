@@ -1,0 +1,58 @@
+{
+  "version": "eco-profile/v1",
+  "id": "mcp-authorization",
+  "name": "MCP authorization (OAuth 2.1, resource indicators)",
+  "subject": "mcp",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "2025-06-18",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "discovery",
+      "format": "http",
+      "fields": [
+        "GET /.well-known/oauth-protected-resource",
+        "WWW-Authenticate: Bearer resource_metadata=..."
+      ],
+      "notes": "server publishes its authorization server via RFC 9728 metadata"
+    },
+    {
+      "name": "token-request",
+      "format": "http",
+      "fields": [
+        "grant_type=authorization_code",
+        "resource=<mcp-server-uri> (RFC 8707)",
+        "PKCE required"
+      ],
+      "notes": "audience binding via resource indicator is mandatory in 2025-06-18"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "auth-errors",
+      "format": "http",
+      "fields": [
+        "401 invalid_token",
+        "403 insufficient_scope",
+        "WWW-Authenticate challenge"
+      ],
+      "notes": "token audience mismatch must fail, not silently pass"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization",
+    "spec_version": "2025-06-18",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

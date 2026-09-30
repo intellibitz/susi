@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "llama-community-license",
+    "name": "Llama Community License",
+    "body": "Meta",
+    "provenance": {
+      "source": "https://spdx.org/licenses/",
+      "spec_version": "3.26",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

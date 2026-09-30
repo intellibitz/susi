@@ -1,0 +1,61 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "nvidia",
+    "name": "NVIDIA",
+    "home": "https://www.nvidia.com",
+    "provenance": {
+      "source": "https://docs.api.nvidia.com/nim/reference",
+      "spec_version": "2024",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "nvidia",
+      "to": "nvidia-nim",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "nvidia",
+      "to": "ngc-catalog",
+      "provenance": {
+        "source": "https://docs.api.nvidia.com/nim/reference",
+        "spec_version": "2024",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "nvidia",
+      "to": "triton",
+      "provenance": {
+        "source": "https://github.com/kserve/open-inference-protocol",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "nvidia",
+      "to": "nemo-guardrails",
+      "provenance": {
+        "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

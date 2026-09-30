@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "oauth-resource-indicators",
+    "name": "OAuth 2.0 Resource Indicators",
+    "body": "IETF",
+    "provenance": {
+      "source": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization",
+      "spec_version": "2025-06-18",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

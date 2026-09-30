@@ -1,0 +1,61 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "snowflake-cortex",
+    "name": "Snowflake Cortex",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+      "spec_version": "2.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "snowflake-cortex",
+      "to": "snowflake-cortex-rest",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "snowflake-cortex",
+      "to": "snowflake-api-v2",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "snowflake-cortex",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "snowflake-cortex",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "version": "eco-profile/v1",
+  "id": "computer-use-tools",
+  "name": "Browser and computer-use tooling",
+  "subject": "playwright-mcp",
+  "kind": "framework",
+  "versions": [
+    {
+      "id": "0.x",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "playwright-mcp-tools",
+      "format": "json-rpc",
+      "fields": [
+        "browser_navigate|click|type|snapshot|take_screenshot|evaluate",
+        "accessibility-snapshot driven (not pixels)"
+      ],
+      "notes": "deterministic actions over the a11y tree"
+    },
+    {
+      "name": "computer-use-actions",
+      "format": "json",
+      "fields": [
+        "anthropic computer_20241022: screenshot|click|type|scroll|key|coordinate",
+        "openai computer_call: click|type|scroll|screenshot|keypress|wait",
+        "loop: screenshot -> model -> action -> screenshot"
+      ],
+      "notes": "pixel-space actions; sandboxed env required"
+    },
+    {
+      "name": "safety",
+      "format": "text",
+      "fields": [
+        "isolated VM/browser required",
+        "action allow-lists",
+        "screenshot-injection risk",
+        "human-in-loop for sensitive ops"
+      ],
+      "notes": ""
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://github.com/microsoft/playwright-mcp",
+    "spec_version": "0.x",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

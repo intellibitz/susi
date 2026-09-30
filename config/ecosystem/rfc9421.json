@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "rfc9421",
+    "name": "RFC 9421",
+    "version": "rfc9421",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/rfc9421/",
+      "spec_version": "rfc9421",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2024-02-20"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "rfc9421",
+      "to": "http-message-signatures",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc9421/",
+        "spec_version": "rfc9421",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

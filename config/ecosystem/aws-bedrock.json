@@ -1,0 +1,138 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "aws-bedrock",
+    "name": "Amazon Bedrock",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+      "spec_version": "2023-09-30",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "aws-bedrock",
+      "to": "bedrock-runtime",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "aws-bedrock",
+      "to": "bedrock-runtime-2023",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-bedrock",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-bedrock",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-bedrock",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-bedrock",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-bedrock",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-bedrock",
+      "to": "cap-moderation",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "aws-bedrock",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "aws-bedrock",
+      "to": "aws-sigv4",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc9421/",
+        "spec_version": "rfc9421",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "aws-bedrock",
+      "to": "sigv4",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc9421/",
+        "spec_version": "rfc9421",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "openai-computer-use",
+    "name": "OpenAI computer-use-preview",
+    "category": "model",
+    "provenance": {
+      "source": "https://github.com/microsoft/playwright-mcp",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "openai-computer-use",
+      "to": "cap-resource-access",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

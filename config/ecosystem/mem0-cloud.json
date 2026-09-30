@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "mem0-cloud",
+    "name": "Mem0",
+    "category": "service",
+    "provenance": {
+      "source": "https://docs.mem0.ai/",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "mem0-cloud",
+      "to": "mem0-api",
+      "provenance": {
+        "source": "https://docs.mem0.ai/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "mem0-cloud",
+      "to": "mem0-v1",
+      "provenance": {
+        "source": "https://docs.mem0.ai/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "mem0-cloud",
+      "to": "cap-resource-access",
+      "provenance": {
+        "source": "https://docs.mem0.ai/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

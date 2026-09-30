@@ -1,0 +1,83 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "oci-generative-ai",
+    "name": "OCI Generative AI",
+    "category": "service",
+    "provenance": {
+      "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+      "spec_version": "2024-07-25",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "oci-generative-ai",
+      "to": "oci-genai-api",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "oci-generative-ai",
+      "to": "oci-genai-20231130",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "oci-generative-ai",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "oci-generative-ai",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "oci-generative-ai",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "oci-generative-ai",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

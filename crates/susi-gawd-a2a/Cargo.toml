@@ -20,5 +20,8 @@ tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-to
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 
+[dev-dependencies]
+susi-vendor-models = { workspace = true }
+
 [lints]
 workspace = true

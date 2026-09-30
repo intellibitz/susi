@@ -1,0 +1,72 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "ietf",
+    "name": "IETF",
+    "home": "https://www.ietf.org",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/rfc6749/",
+      "spec_version": "rfc6749",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "ietf",
+      "to": "oauth-2",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc6749/",
+        "spec_version": "rfc6749",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "ietf",
+      "to": "jwt",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc6749/",
+        "spec_version": "rfc6749",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "ietf",
+      "to": "oauth-mtls",
+      "provenance": {
+        "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+        "spec_version": "1.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "ietf",
+      "to": "http-message-signatures",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc9421/",
+        "spec_version": "rfc9421",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "ietf",
+      "to": "ratelimit-headers",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/",
+        "spec_version": "draft-10",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

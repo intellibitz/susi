@@ -1,0 +1,66 @@
+{
+  "version": "eco-profile/v1",
+  "id": "data-residency",
+  "name": "Regions, sovereignty and residency rules",
+  "subject": "data-residency-catalog",
+  "kind": "catalog",
+  "versions": [
+    {
+      "id": "2025",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "residency-model",
+      "format": "text",
+      "fields": [
+        "aws-bedrock: fully regional; inference stays in selected region",
+        "azure-openai: datazone (US/EU) or regional deployments",
+        "gcp-vertex-ai: location segment in every path pins region",
+        "mistral: EU-hosted by default (La Plateforme)",
+        "anthropic/openai: US processing; residency via Bedrock/Vertex resell"
+      ],
+      "notes": "region selection is the residency control"
+    },
+    {
+      "name": "sovereignty-facts",
+      "format": "text",
+      "fields": [
+        "eu-ai-act pushes EU data-boundary offerings",
+        "fedramp: aws/azure/gcp gov regions expose separate endpoints",
+        "no global-endpoint guarantee for chat APIs except dedicated tiers"
+      ],
+      "notes": ""
+    }
+  ],
+  "deviations": [
+    {
+      "host": "gcp-vertex-ai",
+      "field": "endpoint",
+      "behavior": "{location}-aiplatform.googleapis.com per region; global endpoint exists for some models"
+    },
+    {
+      "host": "aws-bedrock",
+      "field": "endpoint",
+      "behavior": "bedrock-runtime.{region}.amazonaws.com; cross-region inference profiles opt-in"
+    },
+    {
+      "host": "azure-openai",
+      "field": "endpoint",
+      "behavior": "deployment type chooses global/datazone/regional processing"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "provenance": {
+    "source": "https://aws.amazon.com/bedrock/faqs/",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

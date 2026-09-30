@@ -1,0 +1,160 @@
+{
+  "version": "eco-profile/v1",
+  "id": "hf-platform",
+  "name": "Hugging Face Hub, Inference Providers and Endpoints",
+  "subject": "hf-inference-api",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "Router: OpenAI-compatible chat across providers",
+      "streaming": false,
+      "request": "router-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/models",
+      "description": "Hub model search/list",
+      "streaming": false,
+      "response": "model-list"
+    },
+    {
+      "method": "POST",
+      "path": "/models/{model}",
+      "description": "Legacy api-inference task endpoint",
+      "streaming": false,
+      "request": "task-input",
+      "response": "task-output"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/{provider}/chat/completions",
+      "description": "Explicit provider namespace",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "HF_TOKEN"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "router-chat",
+      "format": "json",
+      "fields": [
+        "model{repo, repo:provider, repo:provider/filename}",
+        "messages[]"
+      ],
+      "notes": "model selects upstream provider"
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "messages[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "task-input",
+      "format": "json",
+      "fields": [
+        "inputs",
+        "parameters{}"
+      ],
+      "notes": "task-shaped body"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "model-list",
+      "format": "json",
+      "fields": [
+        "[{id,downloads,likes,tags}]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "task-output",
+      "format": "json",
+      "fields": [
+        "task-specific result"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-streaming",
+    "cap-embeddings",
+    "cap-discovery"
+  ],
+  "deviations": [
+    {
+      "host": "hf-inference-providers",
+      "field": "model",
+      "behavior": "`org/model:provider` suffix routes to a specific inference partner"
+    },
+    {
+      "host": "hf-inference-endpoints",
+      "field": "lifecycle",
+      "behavior": "dedicated container; scales to zero; per-replica pricing"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://huggingface.co/docs/api-inference/index",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

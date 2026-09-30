@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "arize-phoenix",
+    "name": "Arize Phoenix",
+    "category": "service",
+    "provenance": {
+      "source": "https://langfuse.com/docs",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "arize-phoenix",
+      "to": "otlp",
+      "provenance": {
+        "source": "https://langfuse.com/docs",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "arize-phoenix",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://langfuse.com/docs",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

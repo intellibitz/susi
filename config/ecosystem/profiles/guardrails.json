@@ -1,0 +1,59 @@
+{
+  "version": "eco-profile/v1",
+  "id": "guardrails",
+  "name": "Guardrail systems",
+  "subject": "nemo-guardrails",
+  "kind": "framework",
+  "versions": [
+    {
+      "id": "0.x",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "nemo-rails",
+      "format": "yaml",
+      "fields": [
+        "rails{input,dialog,output,retrieval,execution} flow types",
+        "config.yml models + rails",
+        "colang flows",
+        "actions server"
+      ],
+      "notes": "typed rail categories decide where checks run"
+    },
+    {
+      "name": "gai-validators",
+      "format": "python",
+      "fields": [
+        "Validator classes from Hub",
+        "Guard().use(*validators).parse|validate",
+        "OnFail actions fix|reask|exception|filter"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "llama-guard",
+      "format": "text",
+      "fields": [
+        "hazard taxonomy S1-S14",
+        "safe/unsafe + category output format",
+        "prompt+response classification"
+      ],
+      "notes": "a model, not a framework"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+    "spec_version": "0.x",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

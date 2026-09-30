@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "azure-openai-2024-10-21",
+    "name": "Azure OpenAI 2024-10-21",
+    "version": "2024-10-21",
+    "provenance": {
+      "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+      "spec_version": "2025-04-01-preview",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "azure-openai-2024-10-21",
+      "to": "azure-openai-rest",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

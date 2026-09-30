@@ -1,0 +1,141 @@
+{
+  "version": "eco-profile/v1",
+  "id": "data-platforms",
+  "name": "Databricks Mosaic AI and Snowflake Cortex",
+  "subject": "databricks-serving-api",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/serving-endpoints/{name}/invocations",
+      "description": "Invoke a serving endpoint (chat/embeddings/task)",
+      "streaming": false,
+      "request": "invocation",
+      "response": "invocation"
+    },
+    {
+      "method": "POST",
+      "path": "/api/2.0/cortex/inference:complete",
+      "description": "Snowflake Cortex REST complete (snowflake)",
+      "streaming": false,
+      "request": "cortex",
+      "response": "cortex"
+    },
+    {
+      "method": "POST",
+      "path": "/serving-endpoints/{name}/served-models/{model}/invocations",
+      "description": "Invoke a specific served model",
+      "streaming": false,
+      "request": "invocation",
+      "response": "invocation"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "DATABRICKS_TOKEN",
+        "SNOWFLAKE_PAT"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "invocation",
+      "format": "json",
+      "fields": [
+        "messages[] OpenAI-style or dataframe_records for tabular",
+        "databricks options{stream}"
+      ],
+      "notes": "OpenAI shape for foundation-model endpoints; agents get trace events"
+    },
+    {
+      "name": "cortex",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages[]",
+        "guardrails?"
+      ],
+      "notes": "Cortex COMPLETE mirrors chat completions"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "invocation",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage",
+        "databricks{trace_id}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "cortex",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "BAD_REQUEST",
+      "retriable": false
+    },
+    {
+      "status": "403",
+      "code": "PERMISSION_DENIED",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "REQUEST_LIMIT_EXCEEDED",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-tool-calling",
+    "cap-streaming",
+    "cap-embeddings",
+    "cap-agent-delegation"
+  ],
+  "deviations": [
+    {
+      "host": "snowflake-cortex",
+      "field": "surface",
+      "behavior": "SQL functions (SNOWFLAKE.CORTEX.COMPLETE) plus REST /api/v2/cortex"
+    },
+    {
+      "host": "databricks-serving",
+      "field": "agents",
+      "behavior": "agent endpoints stream TraceAgent events inside choices"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+    "spec_version": "2.0",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

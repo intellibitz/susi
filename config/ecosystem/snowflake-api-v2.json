@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "snowflake-api-v2",
+    "name": "Snowflake REST API v2",
+    "version": "v2",
+    "provenance": {
+      "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+      "spec_version": "2.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "snowflake-api-v2",
+      "to": "snowflake-cortex-rest",
+      "provenance": {
+        "source": "https://docs.databricks.com/api/workspace/servingendpoints",
+        "spec_version": "2.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "ratelimit-draft-10",
+    "name": "RateLimit headers draft",
+    "version": "draft-10",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/",
+      "spec_version": "draft-10",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "ratelimit-draft-10",
+      "to": "ratelimit-headers",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/",
+        "spec_version": "draft-10",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

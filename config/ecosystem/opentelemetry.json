@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "opentelemetry",
+    "name": "OpenTelemetry (CNCF)",
+    "home": "https://opentelemetry.io",
+    "provenance": {
+      "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+      "spec_version": "1.38",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "opentelemetry",
+      "to": "otel-genai-semconv",
+      "provenance": {
+        "source": "https://opentelemetry.io/docs/specs/semconv/gen-ai/",
+        "spec_version": "1.38",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "opentelemetry",
+      "to": "otlp",
+      "provenance": {
+        "source": "https://langfuse.com/docs",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

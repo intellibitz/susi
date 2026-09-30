@@ -1,0 +1,51 @@
+{
+  "version": "eco-profile/v1",
+  "id": "anp-agui",
+  "name": "Agent Network Protocol and AG-UI",
+  "subject": "ag-ui",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "0.1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "agui-events",
+      "format": "sse",
+      "fields": [
+        "RUN_STARTED",
+        "TEXT_MESSAGE_START/CONTENT/END",
+        "TOOL_CALL_START/ARGS/END",
+        "STATE_SNAPSHOT",
+        "RUN_FINISHED",
+        "RUN_ERROR"
+      ],
+      "notes": "agents stream UI-facing events; ~16 lifecycle event types"
+    },
+    {
+      "name": "anp-identity",
+      "format": "json-ld",
+      "fields": [
+        "did:wba identity document",
+        "meta-protocol negotiation",
+        "natural-language + JSON-RPC hybrid description"
+      ],
+      "notes": "agents discover each other via DID documents"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://agent-network-protocol.com",
+    "spec_version": "0.1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "sbert-config-v2",
+    "name": "sentence-transformers config v2",
+    "version": "v2",
+    "provenance": {
+      "source": "https://www.sbert.net/",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "sbert-config-v2",
+      "to": "sentence-transformers-config",
+      "provenance": {
+        "source": "https://www.sbert.net/",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

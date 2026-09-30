@@ -1,0 +1,29 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "rfc8705",
+    "name": "RFC 8705",
+    "version": "rfc8705",
+    "provenance": {
+      "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+      "spec_version": "1.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    },
+    "released": "2020-02-01"
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "rfc8705",
+      "to": "oauth-mtls",
+      "provenance": {
+        "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+        "spec_version": "1.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

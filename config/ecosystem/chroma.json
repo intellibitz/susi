@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "chroma",
+    "name": "Chroma",
+    "home": "https://www.trychroma.com",
+    "provenance": {
+      "source": "https://api.qdrant.tech/api-reference",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "chroma",
+      "to": "chroma-db",
+      "provenance": {
+        "source": "https://api.qdrant.tech/api-reference",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

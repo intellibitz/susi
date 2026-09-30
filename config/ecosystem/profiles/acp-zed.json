@@ -1,0 +1,50 @@
+{
+  "version": "eco-profile/v1",
+  "id": "acp-zed",
+  "name": "Agent Client Protocol (Zed)",
+  "subject": "acp",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "0.1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "session-methods",
+      "format": "json-rpc",
+      "fields": [
+        "initialize",
+        "authenticate",
+        "session/new",
+        "session/prompt",
+        "session/cancel",
+        "fs/read_text_file (client callback)"
+      ],
+      "notes": "agent calls back into the client for fs and terminal access"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "session-updates",
+      "format": "json-rpc",
+      "fields": [
+        "session/update notification:{agent_message_chunk,tool_call,plan}"
+      ],
+      "notes": "prompt turns stream as session/update notifications"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://agentclientprotocol.com",
+    "spec_version": "0.1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

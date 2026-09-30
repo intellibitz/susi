@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "meta",
+    "name": "Meta",
+    "home": "https://www.meta.com",
+    "provenance": {
+      "source": "https://spdx.org/licenses/",
+      "spec_version": "3.26",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "meta",
+      "to": "llama-community-license",
+      "provenance": {
+        "source": "https://spdx.org/licenses/",
+        "spec_version": "3.26",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "meta",
+      "to": "llama-stack",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "meta",
+      "to": "meta-llama-guard",
+      "provenance": {
+        "source": "https://docs.nvidia.com/nemo/guardrails/latest/",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

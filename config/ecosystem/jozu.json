@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "jozu",
+    "name": "Jozu (KitOps)",
+    "home": "https://jozu.com",
+    "provenance": {
+      "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+      "spec_version": "1.1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "jozu",
+      "to": "kitops",
+      "provenance": {
+        "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+        "spec_version": "1.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "version": "eco-profile/v1",
+  "id": "tokenizers-templates",
+  "name": "Tokenizers and chat templates",
+  "subject": "hf-tokenizer-json",
+  "kind": "format",
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "tokenizer-json",
+      "format": "json",
+      "fields": [
+        "model{type:BPE|Unigram|WordPiece,vocab,merges}",
+        "normalizer{precompiled_charsmap|sequence}",
+        "pre_tokenizer",
+        "post_processor (special tokens)",
+        "added_tokens[]{id,content,special}",
+        "decoder"
+      ],
+      "notes": "serialised fast tokenizer, no runtime vocab build"
+    },
+    {
+      "name": "chat-template",
+      "format": "jinja2",
+      "fields": [
+        "{{ messages }} loop",
+        "bos/eos tokens",
+        "add_generation_prompt",
+        "tools support via {{ tools }}"
+      ],
+      "notes": "tokenizer_config.json#chat_template or chat_template.jinja"
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+    "spec_version": "v1",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

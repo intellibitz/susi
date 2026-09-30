@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "anp-project",
+    "name": "ANP community",
+    "home": "https://agent-network-protocol.com",
+    "provenance": {
+      "source": "https://agent-network-protocol.com",
+      "spec_version": "0.1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "publishes",
+      "from": "anp-project",
+      "to": "anp",
+      "provenance": {
+        "source": "https://agent-network-protocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

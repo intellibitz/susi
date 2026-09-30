@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "aws",
+    "name": "Amazon Web Services",
+    "home": "https://aws.amazon.com",
+    "provenance": {
+      "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+      "spec_version": "2023-09-30",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "aws",
+      "to": "aws-bedrock",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",
+        "spec_version": "2023-09-30",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "aws",
+      "to": "aws-sagemaker-runtime",
+      "provenance": {
+        "source": "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html",
+        "spec_version": "2017-05-13",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "aws",
+      "to": "aws-sigv4",
+      "provenance": {
+        "source": "https://datatracker.ietf.org/doc/rfc9421/",
+        "spec_version": "rfc9421",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

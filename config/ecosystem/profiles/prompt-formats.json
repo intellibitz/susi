@@ -1,0 +1,78 @@
+{
+  "version": "eco-profile/v1",
+  "id": "prompt-formats",
+  "name": "Vendor prompt and message format mapping",
+  "subject": "vendor-prompt-formats",
+  "kind": "catalog",
+  "request_shapes": [
+    {
+      "name": "openai-messages",
+      "format": "json",
+      "fields": [
+        "messages[]:{role:system|user|assistant|tool,content|parts}",
+        "tool_calls[]",
+        "tool_call_id"
+      ],
+      "notes": "parts-based content; tool results are role:tool messages"
+    },
+    {
+      "name": "anthropic-messages",
+      "format": "json",
+      "fields": [
+        "system top-level (not a message)",
+        "messages[]:{role:user|assistant,content:blocks[]}",
+        "tool_use/tool_result blocks"
+      ],
+      "notes": "system prompt hoisted out of the message list"
+    },
+    {
+      "name": "gemini-contents",
+      "format": "json",
+      "fields": [
+        "contents[]:{role:user|model,parts[]}",
+        "systemInstruction separate field",
+        "functionCall/functionResponse parts"
+      ],
+      "notes": "roles user|model only"
+    },
+    {
+      "name": "cohere-v2",
+      "format": "json",
+      "fields": [
+        "messages[]:{role:system|user|assistant|tool}",
+        "tool_results objects"
+      ],
+      "notes": "OpenAI-like but tool results carry call_id objects"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "mapping-table",
+      "format": "text",
+      "fields": [
+        "system message -> top-level field (anthropic, gemini)",
+        "assistant tool_calls -> tool_use blocks -> functionCall parts",
+        "tool result message -> tool_result block -> functionResponse part"
+      ],
+      "notes": ""
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://github.com/susi-ecosystem/prompt-formats",
+    "spec_version": "1.0",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

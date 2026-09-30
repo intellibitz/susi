@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "spire",
+    "name": "SPIRE",
+    "category": "service",
+    "provenance": {
+      "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+      "spec_version": "1.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "spire",
+      "to": "spiffe",
+      "provenance": {
+        "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+        "spec_version": "1.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "spire",
+      "to": "spiffe-1.x",
+      "provenance": {
+        "source": "https://spiffe.io/docs/latest/spiffe-about/overview/",
+        "spec_version": "1.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

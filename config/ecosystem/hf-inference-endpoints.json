@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "hf-inference-endpoints",
+    "name": "HF Inference Endpoints",
+    "category": "service",
+    "provenance": {
+      "source": "https://huggingface.co/docs/api-inference/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "hf-inference-endpoints",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "hf-inference-endpoints",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

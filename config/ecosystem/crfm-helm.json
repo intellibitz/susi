@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "crfm-helm",
+    "name": "HELM benchmark",
+    "category": "service",
+    "provenance": {
+      "source": "https://github.com/EleutherAI/lm-evaluation-harness",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "crfm-helm",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://github.com/EleutherAI/lm-evaluation-harness",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

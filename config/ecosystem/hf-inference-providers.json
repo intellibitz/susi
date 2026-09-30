@@ -1,0 +1,94 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "hf-inference-providers",
+    "name": "HF Inference Providers",
+    "category": "service",
+    "provenance": {
+      "source": "https://huggingface.co/docs/api-inference/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "hf-inference-providers",
+      "to": "hf-inference-api",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "hf-inference-providers",
+      "to": "hf-router-2025",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "hf-inference-providers",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "hf-inference-providers",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "hf-inference-providers",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "hf-inference-providers",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "hf-inference-providers",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "llama-stack",
+    "name": "Llama Stack distribution server",
+    "category": "agent-runtime",
+    "provenance": {
+      "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "llama-stack",
+      "to": "llama-stack-api",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "llama-stack",
+      "to": "llama-stack-v1",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-stack",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-stack",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-stack",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-stack",
+      "to": "cap-resource-access",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-stack",
+      "to": "cap-moderation",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-stack",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "llama-stack",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://llama-stack.readthedocs.io/en/latest/references/api_reference/",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

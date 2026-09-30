@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "chroma-api-v2",
+    "name": "Chroma API v2",
+    "version": "v2",
+    "provenance": {
+      "source": "https://api.qdrant.tech/api-reference",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "chroma-api-v2",
+      "to": "chroma-rest",
+      "provenance": {
+        "source": "https://api.qdrant.tech/api-reference",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

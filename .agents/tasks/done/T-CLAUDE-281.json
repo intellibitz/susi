@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDE-281",
+  "title": "Acronym disambiguation guard in the knowledge base",
+  "goal": "Entities sharing an acronym (ACP, MCP-like names, A2A/ANP) must carry distinct ids and a disambiguation record; queries that hit an ambiguous acronym return all candidates, never one.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-279",
+    "T-CLAUDE-280"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "eco_acronym_guard"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713551,
+  "closed": {
+    "at_unix": 1790728187,
+    "commit": "89f60d8cc571e59e054c6f9a19557c7a56171e97",
+    "by": "INTELLIBITZ"
+  }
+}

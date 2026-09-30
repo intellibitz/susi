@@ -1,0 +1,25 @@
+{
+  "id": "T-CLAUDE-322",
+  "title": "Frameworks: NIST AI RMF mapping",
+  "goal": "Map susi's controls (policy gates, audit, evidence) to RMF functions as structured metadata; never claim compliance, only mapping. Facts come from official machine-readable specs or cited primary sources (no scraping that violates terms); every fact carries source, spec version, retrieved date and confidence.",
+  "size": "s",
+  "deps": [
+    "T-CLAUDE-252"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "eco_nist_rmf"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790713552,
+  "closed": {
+    "at_unix": 1790728428,
+    "commit": "89f60d8cc571e59e054c6f9a19557c7a56171e97",
+    "by": "INTELLIBITZ"
+  }
+}

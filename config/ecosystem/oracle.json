@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "oracle",
+    "name": "Oracle",
+    "home": "https://www.oracle.com",
+    "provenance": {
+      "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+      "spec_version": "2024-07-25",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "oracle",
+      "to": "oci-generative-ai",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

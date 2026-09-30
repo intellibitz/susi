@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "fastembed",
+    "name": "fastembed (Qdrant)",
+    "category": "extension",
+    "provenance": {
+      "source": "https://www.sbert.net/",
+      "spec_version": "v2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "fastembed",
+      "to": "onnx",
+      "provenance": {
+        "source": "https://www.sbert.net/",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "fastembed",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://www.sbert.net/",
+        "spec_version": "v2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

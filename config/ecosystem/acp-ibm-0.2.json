@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "acp-ibm-0.2",
+    "name": "ACP (IBM) 0.2",
+    "version": "0.2",
+    "provenance": {
+      "source": "https://agentcommunicationprotocol.dev",
+      "spec_version": "0.2",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "acp-ibm-0.2",
+      "to": "acp-ibm",
+      "provenance": {
+        "source": "https://agentcommunicationprotocol.dev",
+        "spec_version": "0.2",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

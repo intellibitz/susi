@@ -1,0 +1,255 @@
+{
+  "version": "eco-profile/v1",
+  "id": "vectordb-managed",
+  "name": "Pinecone, Weaviate and Milvus",
+  "subject": "pinecone-api",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/query",
+      "description": "Pinecone vector query",
+      "streaming": false,
+      "request": "pc-query",
+      "response": "pc-result"
+    },
+    {
+      "method": "POST",
+      "path": "/vectors/upsert",
+      "description": "Pinecone upsert",
+      "streaming": false,
+      "request": "pc-upsert",
+      "response": "pc-ack"
+    },
+    {
+      "method": "POST",
+      "path": "/vectors/fetch",
+      "description": "Pinecone fetch",
+      "streaming": false,
+      "request": "pc-fetch",
+      "response": "pc-fetch"
+    },
+    {
+      "method": "GET",
+      "path": "/describe_index_stats",
+      "description": "Index stats",
+      "streaming": false,
+      "response": "pc-stats"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/graphql",
+      "description": "Weaviate GraphQL",
+      "streaming": false,
+      "request": "wv-gql",
+      "response": "wv-gql"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/objects",
+      "description": "Weaviate REST objects",
+      "streaming": false,
+      "request": "wv-obj",
+      "response": "wv-obj"
+    },
+    {
+      "method": "POST",
+      "path": "/v2/vectordb/entities/search",
+      "description": "Milvus RESTful search",
+      "streaming": false,
+      "request": "mv-search",
+      "response": "mv-search"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "api-key-header",
+      "header": "api-key",
+      "prefix": "",
+      "env": [
+        "PINECONE_API_KEY",
+        "WEAVIATE_API_KEY",
+        "MILVUS_TOKEN"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v1",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "pc-query",
+      "format": "json",
+      "fields": [
+        "vector|id",
+        "topK",
+        "namespace",
+        "filter{metadata}",
+        "includeMetadata"
+      ],
+      "notes": "host is per-index"
+    },
+    {
+      "name": "pc-upsert",
+      "format": "json",
+      "fields": [
+        "vectors[]{id,values,metadata}",
+        "namespace"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "pc-fetch",
+      "format": "json",
+      "fields": [
+        "ids[]",
+        "namespace"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "wv-gql",
+      "format": "graphql",
+      "fields": [
+        "{ Get { Class(nearVector:{}) { field _additional{id distance} } } }"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "wv-obj",
+      "format": "json",
+      "fields": [
+        "class",
+        "properties{}",
+        "vector[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "mv-search",
+      "format": "json",
+      "fields": [
+        "collectionName",
+        "data[vectors]",
+        "annsField",
+        "limit",
+        "filter",
+        "outputFields"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "pc-result",
+      "format": "json",
+      "fields": [
+        "matches[]{id,score,metadata}",
+        "namespace"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "pc-ack",
+      "format": "json",
+      "fields": [
+        "upsertedCount"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "pc-fetch",
+      "format": "json",
+      "fields": [
+        "vectors{id:values}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "pc-stats",
+      "format": "json",
+      "fields": [
+        "namespaces{ns:vectorCount}",
+        "dimension",
+        "indexFullness"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "wv-gql",
+      "format": "json",
+      "fields": [
+        "data{Get{Class[]}}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "wv-obj",
+      "format": "json",
+      "fields": [
+        "id",
+        "properties"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "mv-search",
+      "format": "json",
+      "fields": [
+        "code",
+        "data[]{id,distance,fields}"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-embeddings",
+    "cap-discovery",
+    "cap-structured-output"
+  ],
+  "deviations": [
+    {
+      "host": "pinecone-db",
+      "field": "host",
+      "behavior": "{index}-{proj}.svc.{env}.pinecone.io per index; serverless"
+    },
+    {
+      "host": "milvus",
+      "field": "transport",
+      "behavior": "primary gRPC; RESTful proxy under /v2/vectordb/*"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://docs.pinecone.io/reference/api/introduction",
+    "spec_version": "2025",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

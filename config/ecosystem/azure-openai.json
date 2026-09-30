@@ -1,0 +1,127 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "azure-openai",
+    "name": "Azure OpenAI Service",
+    "category": "service",
+    "provenance": {
+      "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+      "spec_version": "2025-04-01-preview",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "azure-openai",
+      "to": "azure-openai-rest",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "azure-openai",
+      "to": "azure-openai-2025-04-01-preview",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "compatible-with",
+      "from": "azure-openai",
+      "to": "openai-api",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "azure-openai",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "azure-openai",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "azure-openai",
+      "to": "cap-structured-output",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "azure-openai",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "azure-openai",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "azure-openai",
+      "to": "cap-audio",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "azure-openai",
+      "to": "cap-image-generation",
+      "provenance": {
+        "source": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/reference",
+        "spec_version": "2025-04-01-preview",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

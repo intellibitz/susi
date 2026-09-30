@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "http-message-signatures",
+    "name": "HTTP Message Signatures",
+    "body": "IETF",
+    "provenance": {
+      "source": "https://datatracker.ietf.org/doc/rfc9421/",
+      "spec_version": "rfc9421",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

@@ -56,6 +56,39 @@
         "retrieved": "2026-09-01",
         "confidence": "reported"
       }
+    },
+    {
+      "kind": "provides",
+      "from": "google",
+      "to": "google-adk",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "google",
+      "to": "gcp-vertex-ai",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "google",
+      "to": "google-genai-python",
+      "provenance": {
+        "source": "https://github.com/openai/openai-python/releases",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
     }
   ]
 }

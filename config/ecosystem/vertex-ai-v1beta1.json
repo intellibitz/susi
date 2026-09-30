@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "vertex-ai-v1beta1",
+    "name": "Vertex AI API v1beta1",
+    "version": "v1beta1",
+    "provenance": {
+      "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "vertex-ai-v1beta1",
+      "to": "vertex-predict",
+      "provenance": {
+        "source": "https://cloud.google.com/vertex-ai/docs/reference/rest",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

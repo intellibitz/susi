@@ -1,0 +1,49 @@
+{
+  "version": "eco-profile/v1",
+  "id": "model-licences",
+  "name": "Model and data licences",
+  "subject": "spdx-license-list",
+  "kind": "catalog",
+  "versions": [
+    {
+      "id": "3.26",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "licence-classes",
+      "format": "text",
+      "fields": [
+        "permissive: apache-2.0, mit",
+        "copyleft-ish: cc-by-sa-4.0",
+        "use-restricted: openrail-m (behavioural use restrictions)",
+        "community: llama-* (700M-MAU clause, naming, acceptable-use)",
+        "non-commercial: cc-by-nc-4.0, fair-noncommercial"
+      ],
+      "notes": "class decides commercial redeployment"
+    },
+    {
+      "name": "metadata-keys",
+      "format": "text",
+      "fields": [
+        "license: spdx-id or 'other' + license_name/link (HF cards)",
+        "gemma/gemma-terms, qwen/research licenses as custom ids"
+      ],
+      "notes": ""
+    }
+  ],
+  "endpoints": [],
+  "auth": [],
+  "response_shapes": [],
+  "errors": [],
+  "rate_limits": [],
+  "capabilities": [],
+  "deviations": [],
+  "provenance": {
+    "source": "https://spdx.org/licenses/",
+    "spec_version": "3.26",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

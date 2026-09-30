@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "oras-project",
+    "name": "ORAS project (CNCF)",
+    "home": "https://oras.land",
+    "provenance": {
+      "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+      "spec_version": "1.1.0",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "oras-project",
+      "to": "oras-cli",
+      "provenance": {
+        "source": "https://github.com/opencontainers/image-spec/blob/main/manifest.md",
+        "spec_version": "1.1.0",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

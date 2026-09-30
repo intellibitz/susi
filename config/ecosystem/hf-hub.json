@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "hf-hub",
+    "name": "Hugging Face Hub",
+    "category": "model-registry",
+    "provenance": {
+      "source": "https://huggingface.co/docs/api-inference/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "has-capability",
+      "from": "hf-hub",
+      "to": "cap-discovery",
+      "provenance": {
+        "source": "https://huggingface.co/docs/api-inference/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "hf-hub",
+      "to": "hf-model-card",
+      "provenance": {
+        "source": "https://huggingface.co/docs/hub/model-cards",
+        "spec_version": "cards-v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "watsonx-api-2024",
+    "name": "watsonx.ai API",
+    "version": "2024-07-25",
+    "provenance": {
+      "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+      "spec_version": "2024-07-25",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "watsonx-api-2024",
+      "to": "watsonx-ml",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

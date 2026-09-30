@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "nist-ai-rmf",
+    "name": "NIST AI Risk Management Framework",
+    "body": "NIST",
+    "provenance": {
+      "source": "https://www.nist.gov/itl/ai-risk-management-framework",
+      "spec_version": "NIST AI 100-1",
+      "retrieved": "2026-09-01",
+      "confidence": "verified"
+    }
+  },
+  "relations": []
+}

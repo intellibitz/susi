@@ -27,6 +27,7 @@ getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrando
 [dev-dependencies]
 criterion = { package = "susi-vendor-criterion", path = "../susi-vendor-criterion" }
 proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }
+susi-vendor-models = { workspace = true }
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 
 [[bench]]

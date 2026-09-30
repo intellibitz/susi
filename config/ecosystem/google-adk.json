@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "google-adk",
+    "name": "Google Agent Development Kit",
+    "category": "agent-framework",
+    "provenance": {
+      "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "google-adk",
+      "to": "a2a",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "google-adk",
+      "to": "mcp",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "google-adk",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

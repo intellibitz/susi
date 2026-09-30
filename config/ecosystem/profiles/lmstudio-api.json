@@ -1,0 +1,179 @@
+{
+  "version": "eco-profile/v1",
+  "id": "lmstudio-api",
+  "name": "LM Studio server and lms CLI",
+  "subject": "lmstudio-rest",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "OpenAI-compatible chat",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "description": "Models (includes downloaded-not-loaded)",
+      "streaming": false,
+      "response": "openai-models"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/embeddings",
+      "description": "Embeddings",
+      "streaming": false,
+      "request": "openai-embeddings",
+      "response": "openai-embeddings"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/models",
+      "description": "Native v0 model listing w/ load state",
+      "streaming": false,
+      "response": "v0-models"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/models/download",
+      "description": "Native v0 download",
+      "streaming": false,
+      "request": "v0-download",
+      "response": "v0-download"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none",
+      "header": "none",
+      "prefix": "",
+      "env": []
+    }
+  ],
+  "versions": [
+    {
+      "id": "0.3",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model",
+        "messages[]",
+        "response_format",
+        "tools"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "input"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "v0-download",
+      "format": "json",
+      "fields": [
+        "model",
+        "draft_model?"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage",
+        "stats{tokens_per_second,time_to_first_token}"
+      ],
+      "notes": "LM Studio adds a stats block"
+    },
+    {
+      "name": "openai-models",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-embeddings",
+      "format": "json",
+      "fields": [
+        "data[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "v0-models",
+      "format": "json",
+      "fields": [
+        "data[]{id,state loaded|not-loaded,arch,quant}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "v0-download",
+      "format": "json",
+      "fields": [
+        "job_id + progress events"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-embeddings",
+    "cap-vision"
+  ],
+  "deviations": [
+    {
+      "host": "lm-studio",
+      "field": "stats",
+      "behavior": "responses append LM-Studio-specific stats + model fields"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://lmstudio.ai/docs/app/api",
+    "spec_version": "0.3",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

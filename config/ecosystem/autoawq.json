@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "autoawq",
+    "name": "AutoAWQ",
+    "category": "extension",
+    "provenance": {
+      "source": "https://huggingface.co/docs/peft/index",
+      "spec_version": "2025",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "autoawq",
+      "to": "awq-format",
+      "provenance": {
+        "source": "https://huggingface.co/docs/peft/index",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
