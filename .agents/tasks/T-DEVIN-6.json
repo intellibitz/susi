@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN-6",
+  "title": "Isolate parallel writers: each mutating DAG worker gets its own synced worktree + claimed scope; never concurrent shell commands in one directory",
+  "goal": "P1: dag.rs batch executes generated shell commands concurrently in the same workspace dir; transactional workspace abstraction is test-only. Ordinary file writes collide even with git hooks.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "writer_isolation",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790798886
+}

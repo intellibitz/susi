@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN-8",
+  "title": "Cancellation actually terminates workers: cancel token/process teardown reaches executing commands, not just descendant IDs in CancelBus; DAG checks during batches, not only between",
+  "goal": "P1: cancel_propagate::CancelBus::propagate records ids as terminated without process handles or cancellation calls; running commands keep mutating files and consuming resources.",
+  "size": "m",
+  "deps": [
+    "T-DEVIN-6"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "cancel_terminates",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN",
+  "created_unix": 1790798909
+}
