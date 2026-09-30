@@ -34,6 +34,7 @@ pub mod capabilities;
 pub mod executor;
 pub mod server;
 pub mod task_store;
+pub mod zc_peer_discovery;
 
 pub use capabilities::GawdCapabilities;
 pub use executor::GawdA2AExecutor;
