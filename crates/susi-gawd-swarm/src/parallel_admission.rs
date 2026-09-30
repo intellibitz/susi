@@ -615,7 +615,10 @@ mod tests {
             handles.push(std::thread::spawn(move || {
                 let job = format!("j{i}");
                 let pool = "acct:prov:a".to_string();
-                let mut tries = 0;
+                // ScopeFull is terminal per call — retry until a held slot
+                // frees. Bound by wall-clock, not spin count: yields can burn
+                // through any fixed count long before holders' sleeps elapse.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
                 loop {
                     let r = req(
                         "m",
@@ -636,9 +639,8 @@ mod tests {
                             drop(t);
                             break;
                         }
-                        Err(_) if tries < 10_000 => {
-                            tries += 1;
-                            std::thread::yield_now();
+                        Err(_) if std::time::Instant::now() < deadline => {
+                            std::thread::sleep(std::time::Duration::from_millis(1));
                         }
                         Err(e) => panic!("never admitted: {e:?}"),
                     }
