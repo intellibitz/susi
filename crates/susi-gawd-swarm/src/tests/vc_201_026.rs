@@ -8,26 +8,36 @@ fn vc_201_026_cancels_cancellable_descendants_and_reports_irreversible() {
         id: "local-1".into(),
         kind: WorkerKind::Local,
         cancellable: true,
+        cancel_scope: None,
+        signal: None,
     });
     bus.register(Descendant {
         id: "ext-1".into(),
         kind: WorkerKind::ExternalAgent,
         cancellable: true,
+        cancel_scope: None,
+        signal: None,
     });
     bus.register(Descendant {
         id: "peer-1".into(),
         kind: WorkerKind::PeerDispatch,
         cancellable: true,
+        cancel_scope: None,
+        signal: None,
     });
     bus.register(Descendant {
         id: "model-1".into(),
         kind: WorkerKind::ModelCall,
         cancellable: true,
+        cancel_scope: None,
+        signal: None,
     });
     bus.register(Descendant {
         id: "remote-irreversible".into(),
         kind: WorkerKind::PeerDispatch,
         cancellable: false,
+        cancel_scope: None,
+        signal: None,
     });
     let reports = bus.propagate();
     assert!(bus.terminated.contains("local-1"));

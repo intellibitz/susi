@@ -361,7 +361,11 @@ impl CoreTools {
         gawd_hooks::audit_action("exec_command", clean, workspace)?;
 
         let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task("exec_command", clean);
+            .register_task_scoped(
+                "exec_command",
+                clean,
+                arg.get("cancel_scope").and_then(|v| v.as_str()),
+            );
 
         let args = shlex::split(clean).ok_or_else(|| EaiError::protocol("Invalid shell syntax"))?;
         if args.is_empty() {
@@ -2784,6 +2788,7 @@ mod exec_pipe_tests {
             tasks: dashmap::DashMap::new(),
             cancel_map: dashmap::DashMap::new(),
             pause_map: dashmap::DashMap::new(),
+            cancelled_scopes: dashmap::DashSet::new(),
         };
         let silent = manager.register_task("exec_pipe_test", "silent");
         let out = drain_exec_pipe(Some(std::io::Cursor::new(Vec::new())), silent.clone());
