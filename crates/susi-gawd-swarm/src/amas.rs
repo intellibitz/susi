@@ -1610,55 +1610,48 @@ impl SusiSupervisor {
             )
             .filter_map(|r| serde_json::to_string(r).ok())
             .collect();
-        let mut offset = 0usize;
-        // The full remote set is retained for the push half of the
-        // exchange — records we hold that the peer lacks get pushed
-        // back, so convergence doesn't depend on the peer also running
-        // a sweep (mixed-version clusters still heal).
-        let mut their_records: Vec<crate::susi_core::commit_log::CommitRecord> = Vec::new();
-        loop {
-            let Ok(result) = crate::susi_core::mcp_client::call_tool(
-                addr,
-                "commit_log_fetch",
-                &serde_json::json!({ "limit": 1000, "offset": offset }),
-                bearer.as_deref(),
-            ) else {
-                return;
+        // Bounded catch-up (VC-201-037): pages stream through
+        // `bounded_sweep` — the remote ledger is never fully retained,
+        // per-sweep apply is rate-limited, and a persisted per-peer
+        // cursor resumes an interrupted sweep mid-ledger instead of
+        // restarting at zero.
+        let mut book = crate::anti_entropy::load_book();
+        // Remote keys seen this sweep for the symmetric push — bounded
+        // by `max_scan_per_sweep` because the sweep yields past it.
+        let mut their_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let bounds = crate::anti_entropy::CatchUpBounds::default();
+        let held_ref = &held;
+        let mut fetch =
+            |offset: usize, limit: usize| -> Vec<crate::susi_core::commit_log::CommitRecord> {
+                let Ok(result) = crate::susi_core::mcp_client::call_tool(
+                    addr,
+                    "commit_log_fetch",
+                    &serde_json::json!({ "limit": limit, "offset": offset }),
+                    bearer.as_deref(),
+                ) else {
+                    return Vec::new();
+                };
+                if result.get("isError").and_then(|v| v.as_bool()) == Some(true) {
+                    return Vec::new();
+                }
+                let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str()) else {
+                    return Vec::new();
+                };
+                let Ok(mut records) =
+                    serde_json::from_str::<Vec<crate::susi_core::commit_log::CommitRecord>>(text)
+                else {
+                    return Vec::new();
+                };
+                // Descending seq inside the batch: prior-epoch records
+                // (signed under the retired cluster key) may only append
+                // when their seq+1 successor is held — landing successors
+                // first lets a pre-rotation tail gap fill in one pass.
+                records.sort_by_key(|r| std::cmp::Reverse(r.seq));
+                records
             };
-            if result.get("isError").and_then(|v| v.as_bool()) == Some(true) {
-                return;
-            }
-            let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str()) else {
-                return;
-            };
-            let Ok(records) =
-                serde_json::from_str::<Vec<crate::susi_core::commit_log::CommitRecord>>(text)
-            else {
-                return;
-            };
-            let page = records.len();
-            offset += page;
-            their_records.extend(records);
-            if page < 1000 {
-                break;
-            }
-        }
-        let theirs: std::collections::HashSet<String> = their_records
-            .iter()
-            .filter_map(|r| serde_json::to_string(r).ok())
-            .collect();
-        // Descending seq order: prior-epoch records (signed under the
-        // retired cluster key) may only append when their seq+1
-        // successor is held and names their epoch — landing successors
-        // first lets a pre-rotation tail gap fill in one sweep instead
-        // of one record per ~5min cycle.
-        let mut ordered: Vec<&crate::susi_core::commit_log::CommitRecord> =
-            their_records.iter().collect();
-        ordered.sort_by_key(|r| std::cmp::Reverse(r.seq));
-        let mut to_apply: Vec<crate::susi_core::commit_log::CommitRecord> = Vec::new();
-        for r in ordered {
+        let mut admit = |r: &crate::susi_core::commit_log::CommitRecord| -> bool {
             if !r.verify() {
-                continue;
+                return false;
             }
             // Raft's step-down on the pull path, but only from member
             // coordinators: an evicted node still holds cluster.key, so
@@ -1669,20 +1662,32 @@ impl SusiSupervisor {
             }
             // Member records need coordinator authority: signature alone
             // can't authorize roster changes. Refused records stay
-            // missing — retried next sweep once the coordinator is known.
+            // missing — retried once the sweep wraps after the tip.
             if !crate::susi_core::commit_log::member_coordinator_known(r) {
-                continue;
+                return false;
             }
             let key = serde_json::to_string(&r).unwrap_or_default();
-            if held.contains(&key) {
-                continue;
-            }
-            to_apply.push((*r).clone());
-        }
-        // One lock + one ledger load for the whole pull — per-record
-        // `append` would re-read and re-lock the ledger per record
-        // (O(N²) on a full-history repair).
-        let _ = crate::susi_core::commit_log::append_many(&to_apply);
+            !held_ref.contains(&key)
+        };
+        // One lock + one ledger load per batch — per-record `append`
+        // would re-read and re-lock the ledger per record.
+        let mut apply = |batch: &[crate::susi_core::commit_log::CommitRecord]| {
+            let _ = crate::susi_core::commit_log::append_many(batch);
+        };
+        let _ = crate::anti_entropy::bounded_sweep(
+            &mut book,
+            addr,
+            bounds,
+            &mut fetch,
+            &mut admit,
+            &mut apply,
+            &mut |r: &crate::susi_core::commit_log::CommitRecord| {
+                if let Ok(key) = serde_json::to_string(r) {
+                    their_keys.insert(key);
+                }
+            },
+        );
+        crate::anti_entropy::save_book(&book);
         // Symmetric repair: push our records the peer lacks — batch intake
         // first (`commit_records`: one RPC for the whole repair), per-record
         // `commit_record` as the pre-batch-peer fallback. Their receive
@@ -1690,8 +1695,9 @@ impl SusiSupervisor {
         // way, so a rejection is the protocol's gate working, not a sync
         // failure. The archive is ours to serve: an uncompacted peer
         // missing below-floor history can only get it from our cold
-        // storage.
-        let to_push: Vec<crate::susi_core::commit_log::CommitRecord> =
+        // storage. Pushes are bounded to one sweep's rate — a peer this
+        // far behind converges over cycles, not one starved mission slot.
+        let mut to_push: Vec<crate::susi_core::commit_log::CommitRecord> =
             crate::susi_core::commit_log::load()
                 .into_iter()
                 .chain(crate::susi_core::commit_log::load_from(
@@ -1699,9 +1705,11 @@ impl SusiSupervisor {
                 ))
                 .filter(|r| {
                     let key = serde_json::to_string(r).unwrap_or_default();
-                    !theirs.contains(&key)
+                    !their_keys.contains(&key)
                 })
                 .collect();
+        to_push.sort_by_key(|r| r.seq);
+        to_push.truncate(bounds.max_apply_per_sweep);
         // The tool caps a batch at 1000 — a bigger delta takes the
         // per-record path.
         let batch_ok = !to_push.is_empty()
