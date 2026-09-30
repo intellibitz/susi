@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "capability",
+    "id": "cap-discovery",
+    "name": "Discovery",
+    "class": "discovery",
+    "provenance": {
+      "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

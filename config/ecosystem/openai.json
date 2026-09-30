@@ -111,6 +111,50 @@
         "retrieved": "2026-09-01",
         "confidence": "reported"
       }
+    },
+    {
+      "kind": "provides",
+      "from": "openai",
+      "to": "openai-agents-sdk",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "openai",
+      "to": "tiktoken",
+      "provenance": {
+        "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "openai",
+      "to": "openai-python",
+      "provenance": {
+        "source": "https://github.com/openai/openai-python/releases",
+        "spec_version": "2025",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "openai",
+      "to": "openai-computer-use",
+      "provenance": {
+        "source": "https://github.com/microsoft/playwright-mcp",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
     }
   ]
 }

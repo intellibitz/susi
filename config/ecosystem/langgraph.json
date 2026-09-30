@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "langgraph",
+    "name": "LangGraph",
+    "category": "agent-framework",
+    "provenance": {
+      "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "langgraph",
+      "to": "mcp",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "langgraph",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

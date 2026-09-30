@@ -1,0 +1,50 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "openai-agents-sdk",
+    "name": "OpenAI Agents SDK",
+    "category": "agent-framework",
+    "provenance": {
+      "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+      "spec_version": "0.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "openai-agents-sdk",
+      "to": "mcp",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements",
+      "from": "openai-agents-sdk",
+      "to": "a2a",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "openai-agents-sdk",
+      "to": "cap-agent-delegation",
+      "provenance": {
+        "source": "https://docs.langchain.com/oss/python/langgraph/overview",
+        "spec_version": "0.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
