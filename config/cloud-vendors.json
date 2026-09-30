@@ -1,0 +1,50 @@
+[
+  {
+    "id": "cerebras",
+    "name": "Cerebras",
+    "base_url": "https://api.cerebras.ai/v1",
+    "key_env": "CEREBRAS_API_KEY",
+    "models_path": "/models",
+    "dialect": "chat-completions"
+  },
+  {
+    "id": "sambanova",
+    "name": "SambaNova",
+    "base_url": "https://api.sambanova.ai/v1",
+    "key_env": "SAMBANOVA_API_KEY",
+    "models_path": "/models",
+    "dialect": "chat-completions"
+  },
+  {
+    "id": "nim",
+    "name": "NVIDIA NIM",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "key_env": "NVIDIA_API_KEY",
+    "models_path": "/models",
+    "dialect": "chat-completions"
+  },
+  {
+    "id": "hyperbolic",
+    "name": "Hyperbolic",
+    "base_url": "https://api.hyperbolic.xyz/v1",
+    "key_env": "HYPERBOLIC_API_KEY",
+    "models_path": "/models",
+    "dialect": "chat-completions"
+  },
+  {
+    "id": "perplexity",
+    "name": "Perplexity",
+    "base_url": "https://api.perplexity.ai",
+    "key_env": "PERPLEXITY_API_KEY",
+    "models_path": "/models",
+    "dialect": "chat-completions"
+  },
+  {
+    "id": "cohere",
+    "name": "Cohere",
+    "base_url": "https://api.cohere.com/compatibility/v1",
+    "key_env": "COHERE_API_KEY",
+    "models_path": "/models",
+    "dialect": "chat-completions"
+  }
+]
