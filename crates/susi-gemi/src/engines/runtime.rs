@@ -496,6 +496,14 @@ impl GemiEngine {
         if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
             names.retain(|n| !crate::engines::routing::InferenceRouter::is_cloud_provider_name(n));
         }
+        names.retain(|name| {
+            crate::engines::routing::InferenceRouter::provider_inference_available(registry, name)
+                && registry.get_provider(name).is_some_and(|p| {
+                    p.as_any()
+                        .downcast_ref::<crate::engines::http_provider::HttpProvider>()
+                        .is_none_or(|http| http.fits_prompt(prompt))
+                })
+        });
         if names.is_empty() {
             return None;
         }
@@ -509,6 +517,18 @@ impl GemiEngine {
                 .map(|r| (r.provider, (r.score * 10_000.0) as i64))
                 .collect();
         let brain_score = |n: &String| scores.get(n).copied().unwrap_or(0);
+        let working = |n: &String| {
+            registry.get_provider(n).is_some_and(|p| {
+                p.as_any()
+                    .downcast_ref::<crate::engines::http_provider::HttpProvider>()
+                    .is_some_and(|http| {
+                        matches!(
+                            http.inference_availability(),
+                            Ok(susi_gemi_models::cloud_eligibility::Availability::Working)
+                        )
+                    })
+            })
+        };
         // A provider that keeps failing right now (no credit, rejected key)
         // sorts behind every fit one — even the sticky preferred cloud.
         let unfit = |n: &String| crate::engines::brain::is_unfit(n, class);
@@ -529,12 +549,14 @@ impl GemiEngine {
             {
                 return None;
             }
+            names.retain(|n| n.to_ascii_lowercase().contains(&model_l));
             names.sort_by_key(|n| {
                 let hit = n.to_ascii_lowercase().contains(&model_l);
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
                 (
                     !hit,
+                    !working(n),
                     !probe(n),
                     unfit(n),
                     !preferred,
@@ -548,6 +570,7 @@ impl GemiEngine {
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
                 (
+                    !working(n),
                     !probe(n),
                     unfit(n),
                     !preferred,
@@ -560,8 +583,22 @@ impl GemiEngine {
 
         let runtime = Self::provider_runtime()?;
         let mut errors: Vec<String> = Vec::new();
+        // Unknown targets get bounded real dispatch, never an unbounded
+        // health-probe loop. The same pass covers all fallback attempts.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let mut attempts = 0;
         for name in names {
-            if crate::engines::routing::InferenceRouter::provider_cooled(&name) {
+            if attempts >= 8 {
+                break;
+            }
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                break;
+            };
+            if crate::engines::routing::InferenceRouter::provider_cooled(&name)
+                || !crate::engines::routing::InferenceRouter::provider_inference_available(
+                    registry, &name,
+                )
+            {
                 continue;
             }
             let Some(provider) = registry.get_provider(&name) else {
@@ -571,7 +608,17 @@ impl GemiEngine {
             // Adapters flatten failures into `Ok("... Error: ...")`; counting that
             // as an answer would teach the brain to prefer a broken provider
             // and would hand the caller the error text as the reply.
-            let outcome = match runtime.block_on(provider.generate(prompt)) {
+            attempts += 1;
+            let generated = runtime
+                .block_on(async {
+                    tokio::time::timeout(remaining, provider.generate(prompt)).await
+                })
+                .unwrap_or_else(|_| {
+                    Err(EaiError::inference(
+                        "provider pass exceeded the intent deadline",
+                    ))
+                });
+            let outcome = match generated {
                 Ok(text) if Self::looks_like_error_text(&text) => {
                     Err(crate::susi_core::susi_error::EaiError::process(text))
                 }
@@ -1300,6 +1347,126 @@ mod tests {
 
         let out = GemiEngine::try_providers(&registry, "hello", Some("mixtral"), &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("mixtral"));
+    }
+
+    #[test]
+    fn cloud_intent_selection_ten_credentials_skip_nonworking_high_ranked_models() {
+        use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
+        use std::io::{Read, Write};
+        use susi_gemi_models::cloud_eligibility::{
+            inference_observation, record, state_path, Target,
+        };
+        let _lock = crate::engines::env_test_lock();
+        let root = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", root.path())
+            .set("XDG_DATA_HOME", root.path().join("data"))
+            .set("XDG_CONFIG_HOME", root.path().join("config"));
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut buf = [0u8; 8192];
+            let count = stream.read(&mut buf).unwrap();
+            assert!(count > 0);
+            let text = String::from_utf8_lossy(&buf[..count]);
+            assert!(text.contains("POST /chat/completions"));
+            let body = r#"{"choices":[{"message":{"content":"working answer"}}]}"#;
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+        });
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        for n in 0..10 {
+            let endpoint = if n == 9 {
+                base.clone()
+            } else {
+                format!("https://blocked-{n}.invalid")
+            };
+            let model = format!("model-{n}");
+            let key = format!("test-key-{n}");
+            let outcome = if n == 9 || n == 4 {
+                Ok(())
+            } else {
+                Err(match n {
+                    0 => "HTTP 402: insufficient balance",
+                    1 => "HTTP 429: retry later",
+                    2 => "HTTP 401: invalid key",
+                    3 => "HTTP 403: not allowed",
+                    _ => "HTTP 503: unavailable",
+                })
+            };
+            record(
+                &state_path(),
+                inference_observation(Target::new(&endpoint, &key, &model, None, ""), outcome, now),
+            )
+            .unwrap();
+            if n == 4 {
+                susi_gemi_models::cloud_contracts::observe_catalog(&susi_gemi_models::cloud_contracts::directory(),&endpoint,&serde_json::json!({"data":[{"id":model,"context_length":1024,"architecture":{"input_modalities":["text"]}}]}),now).unwrap();
+            }
+            registry.register_provider(HttpProvider {
+                name: format!("openai-intent-{n}"),
+                api_base: endpoint,
+                model,
+                api_key: key,
+                protocol: InferenceProtocol::OpenAiChat,
+            });
+        }
+        for _ in 0..20 {
+            crate::engines::brain::record_outcome(
+                "openai-intent-0",
+                crate::engines::brain::TaskClass::Code,
+                true,
+                1,
+            );
+        }
+        let mut served = String::new();
+        let served_cell = std::cell::RefCell::new(&mut served);
+        assert_eq!(
+            GemiEngine::try_providers(
+                &registry,
+                "implement this function",
+                None,
+                &|_| {},
+                &|name| **served_cell.borrow_mut() = name.into()
+            )
+            .as_deref(),
+            Some("working answer")
+        );
+        assert_eq!(served, "openai-intent-9");
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn cloud_intent_selection_explicit_pin_never_silently_uses_another_model() {
+        let _lock = crate::engines::env_test_lock();
+        let root = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", root.path())
+            .set("XDG_DATA_HOME", root.path().join("data"))
+            .set("XDG_CONFIG_HOME", root.path().join("config"));
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(MockRouteProvider {
+            name: "openai-pinned",
+            reply: "ERR: failure",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "openai-other",
+            reply: "must not substitute",
+        });
+        assert!(GemiEngine::try_providers(
+            &registry,
+            "answer",
+            Some("openai-pinned"),
+            &|_| {},
+            &|_| {}
+        )
+        .is_none());
     }
 
     #[test]

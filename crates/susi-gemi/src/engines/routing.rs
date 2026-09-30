@@ -662,6 +662,28 @@ impl InferenceRouter {
     /// Cloud providers = registered remote HTTPS `HttpProvider`s plus MCP-bridged
     /// LLM tools (`mcp-*`). This is the source of truth for OpenAI-compatible
     /// vendors and MCP-exposed cloud models.
+    /// Rechecked before ranking and dispatch; unreadable availability evidence
+    /// fails closed rather than making a blocked provider eligible.
+    pub fn provider_inference_available(
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+        name: &str,
+    ) -> bool {
+        let Some(provider) = registry.get_provider(name) else {
+            return false;
+        };
+        let Some(http) = provider
+            .as_any()
+            .downcast_ref::<crate::engines::http_provider::HttpProvider>()
+        else {
+            return true;
+        };
+        matches!(
+            http.inference_availability(),
+            Ok(susi_gemi_models::cloud_eligibility::Availability::Working
+                | susi_gemi_models::cloud_eligibility::Availability::Unknown)
+        )
+    }
+
     pub fn list_cloud_providers_from_registry(
         registry: &crate::susi_core::registry::CapabilityRegistry,
     ) -> Vec<String> {
@@ -703,7 +725,9 @@ impl InferenceRouter {
             return Vec::new();
         }
         let mut providers = Self::list_cloud_providers_from_registry(registry);
-        providers.retain(|name| !Self::provider_cooled(name));
+        providers.retain(|name| {
+            !Self::provider_cooled(name) && Self::provider_inference_available(registry, name)
+        });
         // Recovery has no prompt to classify: order by how each provider has
         // performed on ordinary chat, with the static rank as the tiebreaker.
         let scores: std::collections::HashMap<String, i64> =
@@ -744,6 +768,7 @@ impl InferenceRouter {
     ) -> Option<String> {
         let mut clouds = Self::cloud_failover_order(registry);
         Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
+        Self::apply_live_capabilities(&mut clouds, requires, registry);
 
         clouds.first().cloned()
     }
@@ -756,16 +781,6 @@ impl InferenceRouter {
         if requires.is_some_and(|value| !Self::supports_requirement(value)) {
             clouds.clear();
             return;
-        }
-        if requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
-            clouds.retain(|name| {
-                let name = name.to_ascii_lowercase();
-                name.contains("gpt-4o")
-                    || name.contains("claude-3-5-sonnet")
-                    || name.contains("gemini")
-                    || name.contains("vision")
-                    || name.contains("vl-")
-            });
         }
         // Cost ceilings use the same tier table the brain ranks with: a zero
         // ceiling keeps only free routes, a near-zero one drops the premium tier.
@@ -780,6 +795,30 @@ impl InferenceRouter {
         }
     }
 
+    fn apply_live_capabilities(
+        clouds: &mut Vec<String>,
+        requires: Option<&str>,
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+    ) {
+        let Some(required) = requires else {
+            return;
+        };
+        if matches!(
+            required.to_ascii_lowercase().as_str(),
+            "text" | "chat" | "code" | "reasoning"
+        ) {
+            return;
+        }
+        clouds.retain(|name| {
+            registry.get_provider(name).is_some_and(|provider| {
+                provider
+                    .as_any()
+                    .downcast_ref::<crate::engines::http_provider::HttpProvider>()
+                    .is_some_and(|http| http.supports_requirement(required))
+            })
+        });
+    }
+
     fn remove_cooled_providers(clouds: &mut Vec<String>) {
         clouds.retain(|name| !Self::provider_cooled(name));
     }
@@ -787,7 +826,15 @@ impl InferenceRouter {
     fn supports_requirement(requirement: &str) -> bool {
         matches!(
             requirement.to_ascii_lowercase().as_str(),
-            "text" | "chat" | "reasoning" | "code" | "vision"
+            "text"
+                | "chat"
+                | "reasoning"
+                | "code"
+                | "vision"
+                | "tools"
+                | "tool-calling"
+                | "structured-output"
+                | "audio"
         )
     }
 
@@ -964,6 +1011,11 @@ impl InferenceRouter {
             .collect();
         Self::remove_cooled_providers(&mut clouds);
         Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
+        Self::apply_live_capabilities(
+            &mut clouds,
+            requires,
+            crate::susi_core::registry::CapabilityRegistry::global(),
+        );
 
         if clouds.is_empty() {
             return PlacementDecision {
@@ -1290,20 +1342,38 @@ mod tests {
     }
 
     #[test]
-    fn cloud_constraints_share_capability_and_budget_filtering() {
-        let mut clouds = vec![
-            "openai-gpt-4o-mini".to_string(),
-            "anthropic-claude-opus".to_string(),
-            "google-gemini-flash".to_string(),
-            "local-text-only".to_string(),
-        ];
-        InferenceRouter::apply_cloud_constraints(&mut clouds, Some("VISION"), Some(0.01));
+    fn cloud_intent_selection_unknown_capability_is_not_inferred_from_name() {
+        let _lock = super::super::env_test_lock();
+        let root = tempfile::tempdir().unwrap();
+        let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set("HOME", root.path())
+            .set("XDG_DATA_HOME", root.path().join("data"))
+            .set("XDG_CONFIG_HOME", root.path().join("config"));
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(crate::engines::http_provider::HttpProvider {
+            name: "openai-gpt-4o-vision".into(),
+            api_base: "https://fake.invalid".into(),
+            model: "vision".into(),
+            protocol: crate::engines::http_provider::InferenceProtocol::OpenAiChat,
+            api_key: "test-key".into(),
+        });
+        assert!(
+            InferenceRouter::resolve_model_for_capabilities(Some("vision"), None, &registry)
+                .is_none()
+        );
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        susi_gemi_models::cloud_contracts::observe_catalog(&susi_gemi_models::cloud_contracts::directory(),"https://fake.invalid",&serde_json::json!({"data":[{"id":"vision","context_length":4096,"architecture":{"input_modalities":["text","image"]},"supported_parameters":["tools"]}]}),now).unwrap();
         assert_eq!(
-            clouds,
-            vec![
-                "openai-gpt-4o-mini".to_string(),
-                "google-gemini-flash".to_string()
-            ]
+            InferenceRouter::resolve_model_for_capabilities(Some("vision"), None, &registry)
+                .as_deref(),
+            Some("openai-gpt-4o-vision")
+        );
+        assert!(
+            InferenceRouter::resolve_model_for_capabilities(Some("audio"), None, &registry)
+                .is_none()
         );
     }
 

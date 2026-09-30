@@ -1,7 +1,7 @@
 {
   "id": "T-CODEX-3",
   "title": "Select eligible models for user intent using evidence and constraints",
-  "goal": "Before each real intent invocation, filter credential/model candidates by availability, context size, modality, tools, structured output, privacy/residency, deadline and budget. Rank eligible candidates by recorded task-class quality evidence, latency and allowed cost; free status alone must not override required capability or quality. Honor explicit model pins with a clear policy for permitted fallback. Unknown state uses bounded, budgeted discovery rather than assumed availability. Failed or unfunded models never lead, recovered ones become eligible through fresh evidence. Deterministic tests with at least ten credentials prove intent-specific choices and no secret leakage. Implement tests named cloud_intent_selection_*; acceptance must execute at least one test. The right model MUST also be a working model: current credential, credit/quota, access and service state must permit the actual user request. Filter nonworking targets before ranking; historical quality or a preferred model must never override a current availability block. Fresh success evidence helps eligibility but is not a guarantee; actual dispatch failure must immediately update availability and invoke bounded fallback.",
+  "goal": "Before each real intent invocation, filter credential/model candidates by availability, context size, modality, tools, structured output, privacy/residency, deadline and budget. Rank eligible candidates by recorded task-class quality evidence, latency and allowed cost; free status alone must not override required capability or quality. Honor explicit model pins with a clear policy for permitted fallback. Unknown state uses bounded, budgeted discovery rather than assumed availability. Failed or unfunded models never lead, recovered ones become eligible through fresh evidence. Deterministic tests with at least ten credentials prove intent-specific choices and no secret leakage. Implement tests named cloud_intent_selection_*; acceptance must execute at least one test. The right model MUST also be a working model: current credential, credit/quota, access and service state must permit the actual user request. Filter nonworking targets before ranking; historical quality or a preferred model must never override a current availability block. Fresh success evidence helps eligibility but is not a guarantee; actual dispatch failure must immediately update availability and invoke bounded fallback. Acceptance owner corrected to susi-gemi: production provider selection and execution live in engines/runtime.rs and engines/routing.rs, not the gawd-agents context snapshot.",
   "size": "l",
   "deps": [
     "T-CODEX-1",
@@ -12,7 +12,7 @@
       "cargo",
       "test",
       "-p",
-      "susi-gawd-agents",
+      "susi-gemi",
       "cloud_intent_selection",
       "--locked"
     ]

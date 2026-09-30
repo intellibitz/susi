@@ -15,6 +15,74 @@ pub struct HttpProvider {
 }
 
 impl HttpProvider {
+    /// A configured key or model list is not successful inference evidence.
+    pub fn inference_availability(
+        &self,
+    ) -> crate::susi_error::EaiResult<susi_gemi_models::cloud_eligibility::Availability> {
+        use susi_gemi_models::cloud_eligibility::{state_path, Availability, Eligibility, Target};
+        if self.api_key.is_empty() && !Self::is_remote_cloud(&self.api_base) {
+            return Ok(Availability::Unknown);
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let state = Eligibility::load(&state_path())?;
+        let target = state.resolve_account(
+            Target::new(
+                self.api_base.trim_end_matches('/'),
+                &self.api_key,
+                &self.model,
+                None,
+                "",
+            ),
+            now,
+        );
+        Ok(state.state(&target, now))
+    }
+
+    pub fn supports_requirement(&self, required: &str) -> bool {
+        if matches!(
+            required.to_ascii_lowercase().as_str(),
+            "text" | "chat" | "code" | "reasoning"
+        ) {
+            return true;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        susi_gemi_models::cloud_contracts::load(
+            &susi_gemi_models::cloud_contracts::directory(),
+            &self.api_base,
+        )
+        .is_ok_and(|rows| {
+            rows.iter()
+                .any(|r| r.model == self.model && r.supports(required, now))
+        })
+    }
+
+    pub fn fits_prompt(&self, prompt: &str) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let Ok(rows) = susi_gemi_models::cloud_contracts::load(
+            &susi_gemi_models::cloud_contracts::directory(),
+            &self.api_base,
+        ) else {
+            return false;
+        };
+        let known = rows
+            .iter()
+            .find(|r| r.model == self.model && r.observed_at <= now && now < r.expires_at);
+        // Byte count is a conservative input-token ceiling; reserve the
+        // exact max output request plus protocol-envelope headroom.
+        known
+            .and_then(|r| r.context_tokens)
+            .is_none_or(|limit| prompt.len() as u64 + 2560 <= limit)
+    }
+
     pub fn openai_local(
         name: impl Into<String>,
         api_base: impl Into<String>,
@@ -345,8 +413,24 @@ pub fn register_configured_cloud_endpoints(
             endpoint.name.to_ascii_lowercase().replace(' ', "-"),
             model
         );
-        if registry.get_provider(&name).is_some() {
-            continue;
+        if is_cloud {
+            if let Ok(credentials) = susi_gemi_models::cloud_credentials::list(
+                &susi_gemi_models::cloud_credentials::directory(),
+                &endpoint.api_key_env,
+            ) {
+                for credential in credentials {
+                    if credential.key() == api_key {
+                        continue;
+                    }
+                    registry.register_provider(HttpProvider {
+                        name: format!("{name}-credential-{}", credential.id),
+                        api_base: api_base.clone(),
+                        model: model.clone(),
+                        protocol,
+                        api_key: credential.key().to_string(),
+                    });
+                }
+            }
         }
 
         registry.register_provider(HttpProvider {

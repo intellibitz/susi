@@ -122,7 +122,19 @@ fn check_endpoint(name: &str, api_base: &str, protocol: &str, model: &str, key: 
             .into_bytes(8 * 1024 * 1024)
             .ok()
             .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .map(|v| parse_model_ids(&v))
+            .map(|v| {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let _ = crate::cloud_contracts::observe_catalog(
+                    &crate::cloud_contracts::directory(),
+                    api_base,
+                    &v,
+                    now,
+                );
+                parse_model_ids(&v)
+            })
             .unwrap_or_default();
         out.default_model_served = (!ids.is_empty() && !model.is_empty()).then(|| {
             ids.iter()
