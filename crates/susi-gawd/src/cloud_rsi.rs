@@ -16,7 +16,7 @@
 //!   permitted alternative; total blockage is an honest failure, never a
 //!   fabricated proposal.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -392,7 +392,7 @@ struct Proposals {
 // capability gap), the task may go to an external agent via A2A — the gap
 // and its outcome are recorded, never presented as native work.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use susi_gawd_swarm::parallel_dispatch::JobOutcome;
 use susi_gawd_swarm::roadmap_agents::{AgentExecutor, ExecResult, TaskSpec, WorkerBrief};
@@ -561,6 +561,226 @@ pub fn delegate_capability_gaps(
         });
     }
     out
+}
+
+// ============================================================== verification
+//
+// T-CODEX-18 / VC-201-014: independent review + measured validation of a
+// candidate change. Two separations are enforced structurally:
+//
+// - PROVENANCE: the reviewing model must differ from the implementer — a
+//   self-review is refused before it runs.
+// - AUTHORITY: reviewer approval is advisory only. A change verifies only
+//   when the exact acceptance command AND the workspace gates (fmt, clippy,
+//   test) pass AND measured behavior does not regress beyond tolerance AND
+//   the claimed tool receipts match what actually ran — fabricated receipts
+//   and missing checks are rejections, not warnings.
+
+/// The evidence a reviewer and the gates judge: real diff, the task's own
+/// requirements, the receipts the implementer claims, and the preserved
+/// baseline to compare against.
+#[derive(Debug, Clone)]
+pub struct ReviewPacket {
+    /// Task id under review.
+    pub task_id: String,
+    /// The actual diff under review (`git diff` output).
+    pub diff: String,
+    /// Acceptance argv the work must leave passing.
+    pub accept: Vec<String>,
+    /// Opaque id of the model that produced the change.
+    pub implementer: String,
+    /// Receipts the implementer claims it ran (command + exit code lines).
+    pub claimed_receipts: Vec<String>,
+    /// Receipts actually recorded by the tool loop.
+    pub actual_receipts: Vec<String>,
+    /// Preserved baseline metrics (name → value).
+    pub baseline: BTreeMap<String, f64>,
+    /// Metrics measured on the held-out workload for this change.
+    pub measured: BTreeMap<String, f64>,
+}
+
+/// The independent reviewer's verdict — advisory, parsed from model output
+/// `{"verdict":"approve"|"reject","reasons":[..]}`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ReviewVerdict {
+    /// "approve" or "reject".
+    pub verdict: String,
+    /// Reviewer's reasons.
+    #[serde(default)]
+    pub reasons: Vec<String>,
+}
+
+/// Independent review seam — production wraps a provider call on a
+/// DIFFERENT model than the implementer.
+pub trait ReviewModel: Send + Sync {
+    /// Critique `packet` on candidate `c`; Success payload is the verdict JSON.
+    fn review(&self, c: &Candidate, packet: &ReviewPacket) -> AttemptOutcome;
+}
+
+/// Executes one verification gate in the candidate worktree.
+pub trait GateRunner: Send + Sync {
+    /// Returns true iff the gate passed (exit 0).
+    fn run_gate(&self, worktree: &Path, name: &str, argv: &[String]) -> bool;
+}
+
+/// Policy for the verification stage.
+pub struct VerifyPolicy {
+    /// Gates to run in order (name, argv). The exact task acceptance
+    /// command is always run first, in addition to these.
+    pub gates: Vec<(String, Vec<String>)>,
+    /// Allowed regression percent on any measured metric vs baseline.
+    pub max_regress_pct: f64,
+}
+
+/// Final verification outcome.
+#[derive(Debug)]
+pub struct Verification {
+    /// True only when: independent reviewer approved AND every gate passed
+    /// AND no regression AND no fabricated receipts.
+    pub verified: bool,
+    /// Reviewer verdict (None when review never ran — e.g. self-approval
+    /// refused or all reviewers blocked).
+    pub review: Option<ReviewVerdict>,
+    /// The reviewer's opaque id (must differ from the implementer).
+    pub reviewer: Option<String>,
+    /// Per-gate results, in run order.
+    pub gates: Vec<(String, bool)>,
+    /// Metrics that regressed beyond tolerance.
+    pub regressions: Vec<String>,
+    /// Claimed receipts with no matching actual execution.
+    pub fabricated: Vec<String>,
+    /// Dispatch audit trail of the reviewer call.
+    pub failover: Option<FailoverResult>,
+    /// Human-readable rejection reasons, if not verified.
+    pub reasons: Vec<String>,
+}
+
+struct ReviewRunner<'a> {
+    backend: &'a dyn ReviewModel,
+    candidates: &'a [Candidate],
+    packet: &'a ReviewPacket,
+}
+impl Runner for ReviewRunner<'_> {
+    fn attempt(&mut self, index: usize, _r: u64) -> AttemptOutcome {
+        let Some(c) = self.candidates.get(index) else {
+            return AttemptOutcome::PreDispatch(InferenceResult::Failed {
+                status: None,
+                body_snippet: "no such candidate".into(),
+                retry_after_secs: None,
+            });
+        };
+        self.backend.review(c, self.packet)
+    }
+}
+
+/// Verify a candidate change end-to-end. Never called on the installed
+/// release instance — `worktree` is the isolated dev workspace.
+#[allow(clippy::too_many_arguments)] // every parameter is an injected seam
+pub fn verify_candidate(
+    intent: &IntentConstraints,
+    reviewers: &[Candidate],
+    stores: &mut Stores<'_>,
+    budget: FailoverBudget,
+    model: &dyn ReviewModel,
+    gates: &dyn GateRunner,
+    packet: &ReviewPacket,
+    policy: &VerifyPolicy,
+    worktree: &Path,
+) -> Verification {
+    let mut v = Verification {
+        verified: false,
+        review: None,
+        reviewer: None,
+        gates: Vec::new(),
+        regressions: Vec::new(),
+        fabricated: Vec::new(),
+        failover: None,
+        reasons: Vec::new(),
+    };
+    // Fabricated receipts are rejected regardless of everything else.
+    let actual: BTreeSet<&String> = packet.actual_receipts.iter().collect();
+    v.fabricated = packet
+        .claimed_receipts
+        .iter()
+        .filter(|r| !actual.contains(r))
+        .cloned()
+        .collect();
+    if !v.fabricated.is_empty() {
+        v.reasons
+            .push(format!("fabricated receipts: {}", v.fabricated.join(", ")));
+    }
+    // Independent reviewer via production failover — the implementer's
+    // model is excluded from the reviewer pool before selection.
+    let pool: Vec<Candidate> = reviewers
+        .iter()
+        .filter(|c| c.opaque_id() != packet.implementer)
+        .cloned()
+        .collect();
+    if pool.is_empty() {
+        v.reasons
+            .push("self-approval refused: no reviewer distinct from implementer".into());
+    } else {
+        let mut runner = ReviewRunner {
+            backend: model,
+            candidates: &pool,
+            packet,
+        };
+        let res = run(intent, &pool, stores, budget, &mut runner);
+        let approved = res.output.clone().and_then(|raw| {
+            extract_json(&raw)
+                .ok()
+                .and_then(|j| serde_json::from_str::<ReviewVerdict>(&j).ok())
+        });
+        v.reviewer = res.winner.map(|i| pool[i].opaque_id());
+        match &approved {
+            Some(rv) => {
+                if rv.verdict == "approve" {
+                    v.review = Some(rv.clone());
+                } else {
+                    v.reasons
+                        .push(format!("reviewer rejected: {}", rv.reasons.join("; ")));
+                    v.review = Some(rv.clone());
+                }
+            }
+            None => {
+                v.reasons.push("no reviewer produced a verdict".into());
+            }
+        }
+        v.failover = Some(res);
+    }
+    // Gates — the exact task acceptance command first, then the workspace
+    // gates. Reviewer approval cannot substitute for a failing gate.
+    let mut gate_list: Vec<(String, Vec<String>)> =
+        vec![(format!("accept:{}", packet.task_id), packet.accept.clone())];
+    gate_list.extend(policy.gates.iter().cloned());
+    for (name, argv) in &gate_list {
+        let ok = gates.run_gate(worktree, name, argv);
+        v.gates.push((name.clone(), ok));
+        if !ok {
+            v.reasons.push(format!("gate failed: {name}"));
+        }
+    }
+    // Baseline comparison — measured metrics must not regress.
+    for (name, base) in &packet.baseline {
+        let Some(meas) = packet.measured.get(name) else {
+            v.regressions.push(format!("{name}: missing measurement"));
+            continue;
+        };
+        if *base > 0.0 {
+            let regress = (base - meas) / base * 100.0;
+            if regress > policy.max_regress_pct {
+                v.regressions.push(format!(
+                    "{name}: {base} -> {meas} ({regress:.1}% regression)"
+                ));
+            }
+        }
+    }
+    if !v.regressions.is_empty() {
+        v.reasons
+            .push(format!("regressions: {}", v.regressions.join("; ")));
+    }
+    v.verified = v.reasons.is_empty() && v.review.as_ref().is_some_and(|r| r.verdict == "approve");
+    v
 }
 
 #[cfg(test)]
@@ -1378,5 +1598,225 @@ mod tests {
             job_subprocesses: 0,
             per_job: impl_budget(),
         }
+    }
+
+    // ------------------------------------------- verification (T-CODEX-18)
+
+    /// Scripted review backend: verdict JSON per model, or a crash.
+    struct FakeReview {
+        script: Mutex<BTreeMap<String, AttemptOutcome>>,
+    }
+    impl FakeReview {
+        fn approve(model: &str) -> Self {
+            Self::with(
+                model,
+                r#"{"verdict":"approve","reasons":["diff satisfies the task"]}"#,
+            )
+        }
+        fn with(model: &str, body: &str) -> Self {
+            let mut m = BTreeMap::new();
+            m.insert(model.to_string(), AttemptOutcome::Success(body.to_string()));
+            Self {
+                script: Mutex::new(m),
+            }
+        }
+        fn dead(_model: &str) -> AttemptOutcome {
+            AttemptOutcome::PreDispatch(InferenceResult::Failed {
+                status: Some(503),
+                body_snippet: "down".into(),
+                retry_after_secs: None,
+            })
+        }
+    }
+    impl ReviewModel for FakeReview {
+        fn review(&self, c: &Candidate, _p: &ReviewPacket) -> AttemptOutcome {
+            self.script
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&c.model)
+                .cloned()
+                .unwrap_or_else(|| FakeReview::dead(&c.model))
+        }
+    }
+
+    /// Scripted gates: name → pass/fail.
+    struct FakeGates(BTreeMap<String, bool>);
+    impl GateRunner for FakeGates {
+        fn run_gate(&self, _w: &Path, name: &str, _argv: &[String]) -> bool {
+            *self.0.get(name).unwrap_or(&true)
+        }
+    }
+
+    fn impl_cand() -> Candidate {
+        cand("kI", "mI", "pI", "aI", 0.0)
+    }
+    fn rev_cand(tag: &str) -> Candidate {
+        cand(
+            &format!("k{tag}"),
+            &format!("m{tag}"),
+            &format!("p{tag}"),
+            &format!("a{tag}"),
+            0.0,
+        )
+    }
+
+    fn packet() -> ReviewPacket {
+        ReviewPacket {
+            task_id: "T-9".into(),
+            diff: "diff --git a/f.rs b/f.rs\n+fn f() {}\n".into(),
+            accept: vec!["cargo".into(), "test".into()],
+            implementer: impl_cand().opaque_id(),
+            claimed_receipts: vec!["cargo test -> 0".into()],
+            actual_receipts: vec!["cargo test -> 0".into()],
+            baseline: [("throughput".into(), 100.0)].into_iter().collect(),
+            measured: [("throughput".into(), 102.0)].into_iter().collect(),
+        }
+    }
+
+    fn verify_policy() -> VerifyPolicy {
+        VerifyPolicy {
+            gates: vec![
+                ("fmt".into(), vec!["cargo".into(), "fmt".into()]),
+                ("clippy".into(), vec!["cargo".into(), "clippy".into()]),
+            ],
+            max_regress_pct: 5.0,
+        }
+    }
+
+    fn verify_with(
+        reviewers: &[Candidate],
+        model: &dyn ReviewModel,
+        gates: &dyn GateRunner,
+        packet: &ReviewPacket,
+    ) -> Verification {
+        let mut s = StoresOwned::new();
+        let wt = std::env::temp_dir();
+        verify_candidate(
+            &IntentConstraints::default(),
+            reviewers,
+            &mut s.stores(),
+            impl_budget(),
+            model,
+            gates,
+            packet,
+            &verify_policy(),
+            &wt,
+        )
+    }
+
+    #[test]
+    fn cloud_rsi_verification_independent_approval_plus_gates_verifies() {
+        let reviewers = vec![impl_cand(), rev_cand("R1")];
+        let v = verify_with(
+            &reviewers,
+            &FakeReview::approve("mR1"),
+            &FakeGates(BTreeMap::new()),
+            &packet(),
+        );
+        assert!(v.verified, "reasons: {:?}", v.reasons);
+        assert_eq!(
+            v.reviewer.as_deref(),
+            Some(rev_cand("R1").opaque_id().as_str())
+        );
+        assert_ne!(v.reviewer.as_deref(), Some(packet().implementer.as_str()));
+        assert_eq!(v.gates.len(), 3, "accept + fmt + clippy all ran");
+        assert!(v.gates.iter().all(|(_, ok)| *ok));
+    }
+
+    #[test]
+    fn cloud_rsi_verification_self_approval_is_refused() {
+        // The only "reviewer" available is the implementer itself.
+        let reviewers = vec![impl_cand()];
+        let v = verify_with(
+            &reviewers,
+            &FakeReview::approve("mI"),
+            &FakeGates(BTreeMap::new()),
+            &packet(),
+        );
+        assert!(!v.verified);
+        assert!(v.reasons.iter().any(|r| r.contains("self-approval")));
+    }
+
+    #[test]
+    fn cloud_rsi_verification_approval_cannot_replace_failing_gates() {
+        let mut g = BTreeMap::new();
+        g.insert("clippy".to_string(), false);
+        let reviewers = vec![rev_cand("R1")];
+        let v = verify_with(
+            &reviewers,
+            &FakeReview::approve("mR1"),
+            &FakeGates(g),
+            &packet(),
+        );
+        assert!(!v.verified, "approval alone must not pass");
+        assert!(v.reasons.iter().any(|r| r.contains("gate failed: clippy")));
+    }
+
+    #[test]
+    fn cloud_rsi_verification_fabricated_receipts_are_rejected() {
+        let mut p = packet();
+        p.claimed_receipts.push("cargo publish -> 0".into()); // never ran
+        let reviewers = vec![rev_cand("R1")];
+        let v = verify_with(
+            &reviewers,
+            &FakeReview::approve("mR1"),
+            &FakeGates(BTreeMap::new()),
+            &p,
+        );
+        assert!(!v.verified);
+        assert_eq!(v.fabricated, vec!["cargo publish -> 0".to_string()]);
+    }
+
+    #[test]
+    fn cloud_rsi_verification_regression_beyond_tolerance_rejected() {
+        let mut p = packet();
+        p.measured.insert("throughput".into(), 80.0); // -20%
+        let reviewers = vec![rev_cand("R1")];
+        let v = verify_with(
+            &reviewers,
+            &FakeReview::approve("mR1"),
+            &FakeGates(BTreeMap::new()),
+            &p,
+        );
+        assert!(!v.verified);
+        assert!(v.reasons.iter().any(|r| r.contains("regression")));
+    }
+
+    #[test]
+    fn cloud_rsi_verification_blocked_reviewer_fails_over_independently() {
+        // Reviewer A is down; reviewer B reviews — never the implementer.
+        let mut m = BTreeMap::new();
+        m.insert("mRA".to_string(), FakeReview::dead("mRA"));
+        m.insert(
+            "mRB".to_string(),
+            AttemptOutcome::Success(r#"{"verdict":"approve","reasons":[]}"#.into()),
+        );
+        let backend = FakeReview {
+            script: Mutex::new(m),
+        };
+        let reviewers = vec![impl_cand(), rev_cand("RA"), rev_cand("RB")];
+        let v = verify_with(&reviewers, &backend, &FakeGates(BTreeMap::new()), &packet());
+        assert!(v.verified, "{:?}", v.reasons);
+        assert_eq!(
+            v.reviewer.as_deref(),
+            Some(rev_cand("RB").opaque_id().as_str())
+        );
+        assert_ne!(v.reviewer.as_deref(), Some(packet().implementer.as_str()));
+    }
+
+    #[test]
+    fn cloud_rsi_verification_reviewer_rejection_blocks() {
+        let reviewers = vec![rev_cand("R1")];
+        let v = verify_with(
+            &reviewers,
+            &FakeReview::with(
+                "mR1",
+                r#"{"verdict":"reject","reasons":["removes safety check"]}"#,
+            ),
+            &FakeGates(BTreeMap::new()),
+            &packet(),
+        );
+        assert!(!v.verified);
+        assert!(v.reasons.iter().any(|r| r.contains("reviewer rejected")));
     }
 }
