@@ -27,7 +27,9 @@ pub fn next_action(history: &[Generation], min_gens: u32) -> MultiGenResult {
     if history.len() < min_gens as usize {
         return MultiGenResult::Continue;
     }
-    let last = history.last().unwrap();
+    let Some(last) = history.last() else {
+        return MultiGenResult::Continue;
+    };
     if last.rejected || last.delta < 0.0 {
         return MultiGenResult::StopRegression;
     }
