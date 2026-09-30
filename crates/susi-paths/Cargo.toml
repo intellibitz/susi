@@ -8,5 +8,12 @@ publish = false
 [dependencies]
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
+# The broken-pipe guard ends the process, so its check cannot run on a
+# test-harness thread: `harness = false` lets this file own `main` and spawn
+# itself as the child whose stdout reader is already gone.
+[[test]]
+name = "cli_output_contract"
+harness = false
+
 [lints]
 workspace = true

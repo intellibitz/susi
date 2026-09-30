@@ -88,10 +88,14 @@ impl SusiMasterAgent {
         version: &str,
         model: Option<&str>,
     ) -> String {
-        self.solve_stream_with_model(goal, workspace, version, model, &|piece| {
-            print!("{}", piece);
-            let _ = std::io::stdout().flush();
-        })
+        // The caller renders the answer this returns (`susi status`,
+        // `susi models local`, `susi mcp-scout`, bare intents through
+        // `glass_box_callback`). Streaming it to stdout here as well made
+        // every fast-path Read answer print twice — `susi status` emitted its
+        // whole line duplicated on one line. Progressive streaming stays
+        // available through `solve_stream*`, where the caller owns the
+        // callback that decides where output goes.
+        self.solve_stream_with_model(goal, workspace, version, model, &|_| {})
     }
 
     /// Generative mission (`/v1/chat/completions`): the provider's own
@@ -450,10 +454,12 @@ impl SusiMasterAgent {
 
             eprintln!("\n[LIVE REASONING TOKENS]");
             eprintln!("- [Fast-Path Execution] Fast-path Read bypassed heavy neural loop. Output direct response stream:");
-            for token in final_answer.split_whitespace() {
-                print!("{} ", token);
-                let _ = std::io::stdout().flush();
-            }
+            // Deliver through the streaming seam, never straight to stdout.
+            // The fast path used to print the answer here itself, so a caller
+            // that renders the returned report (`susi status`) printed a
+            // second copy on the same line, and a library write bypassed
+            // whoever actually owns the output stream.
+            _callback(final_answer.clone());
             eprintln!();
 
             eprintln!("\n[SUBSTRATE VERIFICATION RESULTS]");
@@ -1801,5 +1807,109 @@ mod compiled_read_truth_tests {
         assert!(body.contains("EVIDENCE_CAPTURED"));
         assert!(body.contains("thought") || body.contains("supervise_mission_swarm"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The mission engine returns the answer; it never writes it to stdout.
+///
+/// Regression for `susi status`, which printed its whole line twice on one
+/// line: this module's fast-path Read wrote the answer *and*
+/// `cli::mission_cli` printed the report it returned. Both were in this
+/// module, so the invariant is enforced by scanning the crate's sources — a
+/// stray write is a duplicate the moment a caller renders the report.
+#[cfg(test)]
+mod cli_output_contract {
+    use std::path::{Path, PathBuf};
+
+    /// Files still allowed to write to stdout, each with the reason it does.
+    /// The mission-answer path must never be listed here: callers render the
+    /// report this crate returns, so a write here prints the answer twice.
+    const STDOUT_EXEMPT: &[(&str, &str)] = &[(
+        "amas.rs",
+        "consensus synthesis streams its deliberation from inside \
+         `supervise_mission`, which takes no callback yet — threading one \
+         reaches `solve_internal` and its five callers",
+    )];
+
+    #[test]
+    fn cli_output_contract_mission_engine_never_writes_the_answer_to_stdout() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        collect_rust_files(&src, &mut files);
+        assert!(!files.is_empty(), "no rust sources under {src:?}");
+
+        let mut offenders = Vec::new();
+        for file in files {
+            let rel = file.strip_prefix(&src).unwrap_or(&file).to_path_buf();
+            // Test-only modules may print; the mission path may not.
+            if rel.components().any(|c| c.as_os_str() == "tests") {
+                continue;
+            }
+            let name = file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if STDOUT_EXEMPT.iter().any(|(exempt, _)| *exempt == name) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            // Only production code is bound by the rule; tests may print.
+            let production = text
+                .split_once("#[cfg(test)]")
+                .map_or(text.as_str(), |(before, _)| before);
+            for (index, line) in production.lines().enumerate() {
+                // A comment naming the macro is prose, not a write.
+                let code = line.split_once("//").map_or(line, |(before, _)| before);
+                if let Some(found) = stdout_write(code) {
+                    offenders.push(format!("{}:{}: {found}", rel.display(), index + 1));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "the mission engine must not write answers to stdout — the caller \
+             renders the report it returns; keep the glass-box trace on stderr. \
+             Offending sites: {offenders:?}"
+        );
+    }
+
+    /// The stdout-writing macro on `line`, if any. `eprintln!`/`eprint!` are
+    /// the glass-box trace and stay: they never collide with the answer a
+    /// caller prints.
+    fn stdout_write(line: &str) -> Option<&'static str> {
+        for (needle, name) in [("println!", "println!"), ("print!", "print!")] {
+            let mut search = 0;
+            while let Some(at) = line[search..].find(needle) {
+                let start = search + at;
+                // `eprintln!`/`eprint!` are prefixed by an identifier;
+                // `std::println!` and a bare `println!` are not.
+                let prefixed = line[..start]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+                if !prefixed {
+                    return Some(name);
+                }
+                search = start + needle.len();
+            }
+        }
+        if line.contains("stdout") && (line.contains("write!(") || line.contains("writeln!(")) {
+            return Some("write!(stdout)");
+        }
+        None
+    }
+
+    fn collect_rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rust_files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                out.push(path);
+            }
+        }
     }
 }

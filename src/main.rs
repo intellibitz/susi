@@ -124,6 +124,11 @@ fn get_home_dir() -> PathBuf {
 }
 
 fn main() -> std::process::ExitCode {
+    // Before anything can write: a consumer that closes the pipe (`susi status
+    // | head -1`) must stop us cleanly instead of panicking, which under
+    // `panic = "abort"` was a SIGABRT (exit 134). This also covers clap's own
+    // `--help`/usage output below.
+    susi_paths::stdio::install_broken_pipe_guard();
     // First, while single-threaded: a non-installed binary is a dev build
     // and runs as its own instance (see `dev_instance`).
     dev_instance::isolate_if_dev_build(&get_home_dir());

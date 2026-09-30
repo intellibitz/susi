@@ -1,0 +1,26 @@
+{
+  "id": "T-INTELLIBITZ-24",
+  "title": "CLI stdout contract: render each mission answer once (susi status duplicated its line) and exit cleanly when the reader closes the pipe (SIGABRT)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-paths",
+      "-p",
+      "susi-gawd-swarm",
+      "--locked",
+      "cli_output"
+    ]
+  },
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790807074,
+  "closed": {
+    "at_unix": 1790809166,
+    "commit": "7f96ad5b78379d02e40ed70ee9f9c7dd63494e17",
+    "by": "INTELLIBITZ202610010348312006752"
+  }
+}
