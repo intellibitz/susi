@@ -23,6 +23,7 @@ pub use susi_sandbox_client as susi_sandbox;
 
 pub use susi_core;
 
+pub mod agent_integration;
 pub mod agent_routing;
 pub mod ama;
 pub mod amas;
