@@ -105,6 +105,9 @@ mod mission_resume_cli_wiring_tests;
 #[path = "tests/native_role_select_wiring.rs"]
 mod native_role_select_wiring_tests;
 #[cfg(test)]
+#[path = "tests/parallel_roadmap_e2e.rs"]
+mod parallel_roadmap_e2e_tests;
+#[cfg(test)]
 #[path = "tests/resource_schedule_dispatch_wiring.rs"]
 mod resource_schedule_dispatch_wiring_tests;
 #[cfg(test)]
