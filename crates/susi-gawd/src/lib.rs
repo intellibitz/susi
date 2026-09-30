@@ -69,8 +69,10 @@ pub mod audit_evidence;
 pub mod autonomous_builder;
 pub mod baseline_capture;
 pub mod bloat_audit;
+pub mod capacity_limits;
 pub mod changelog_from_tasks;
 pub mod dev_canary;
+pub mod disaster_recovery;
 pub mod eval_contamination;
 pub mod eval_receipt;
 pub mod eval_separation;
@@ -84,6 +86,7 @@ pub mod genome_distiller;
 pub mod intent_invariants;
 pub mod kernel_loader;
 pub mod lane_overlap_warning;
+pub mod ops_slo;
 pub mod paired_regression;
 pub mod patch_cycle;
 pub mod patch_fence;
@@ -93,6 +96,7 @@ pub mod reflex_intent;
 pub mod reflex_revisions;
 pub mod reflex_synth;
 pub mod reflex_trainer;
+pub mod release_qualify;
 pub mod repo_gate;
 pub mod rsi_comparisons;
 pub mod rsi_corpus;
@@ -104,6 +108,7 @@ pub mod task_edit_guard;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
 pub mod tenant_isolation;
+pub mod unsafe_ratchet;
 pub mod update_health;
 pub mod zc_agent_files_gen;
 pub mod zc_agent_identity;
@@ -183,6 +188,21 @@ mod vc_201_078_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_079.rs"]
 mod vc_201_079_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_092.rs"]
+mod vc_201_092_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_093.rs"]
+mod vc_201_093_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_094.rs"]
+mod vc_201_094_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_097.rs"]
+mod vc_201_097_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_100.rs"]
+mod vc_201_100_tests;
 
 // Tier surfaces kept on the host public API
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};

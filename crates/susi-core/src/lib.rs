@@ -57,6 +57,7 @@ pub mod privacy_profiles;
 pub mod retrieval_eval;
 pub mod skill_artifacts;
 pub mod untrusted_content;
+pub mod vertical_workflow;
 pub mod wasm_grants;
 pub mod zc_consent_jit;
 pub mod zc_consent_renewal;
@@ -178,3 +179,6 @@ mod vc_201_085_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_089.rs"]
 mod vc_201_089_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_090.rs"]
+mod vc_201_090_tests;
