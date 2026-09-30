@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-8",
+  "title": "Decide and build who acts on a served Tier-0/1 ACTION: line",
+  "goal": "Open since 2026-09-29 (was in brain-lanes.md). Nothing in the tree parses Tier-0/1 'ACTION: <name> [args]' output: there is no executor, so a Tier-0 hit shows the person the literal text 'ACTION: status'. After reflexes were restricted to direct, model-less user prompts, options are: (a) execute read-only foundational actions (status, version, list_directory <ws>) through the tools plane and return their output with a reflex:* receipt; (b) return the action only to clients that opt in to the ACTION protocol and escalate otherwise; (c) keep as is. (a) makes Tier-0 genuinely useful but touches runtime::reason_internal and MAC policy, so agree the option first. Tests named action_executor_* must prove the chosen behaviour, including that a non-read-only action is never executed.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "action_executor"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790697736,
+  "closed": {
+    "at_unix": 1790734270,
+    "commit": "054952e85e994132b50e5de6400422af3ac8e5f5",
+    "by": "CURSOR"
+  }
+}
