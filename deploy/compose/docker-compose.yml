@@ -1,0 +1,78 @@
+# susi + local inference engines. Profiles pick the hardware stack:
+#   docker compose --profile cpu up        # cpu-only
+#   docker compose --profile nvidia up     # NVIDIA GPU
+#   docker compose --profile rocm up       # AMD GPU
+name: susi-stack
+
+services:
+  susi:
+    image: ghcr.io/intellibitz/susi:latest
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.susi
+    environment:
+      SUSI_HOME: /susi
+      # engines are loopback siblings — same zero-config discovery the
+      # bare-metal path uses, just at compose-assigned ports
+      OLLAMA_HOST: http://ollama:11434
+      VLLM_HOST: http://vllm:8000
+    volumes:
+      - susi-home:/susi
+      - models:/models:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    # cpu profile is the only way susi runs without a GPU engine dep
+    profiles: ["cpu", "nvidia", "rocm"]
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - models:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    profiles: ["cpu", "nvidia", "rocm"]
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    volumes:
+      - models:/root/.cache/huggingface
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    profiles: ["cpu"]
+    # cpu profile: vLLM runs its cpu build args
+    command: ["--device", "cpu"]
+
+  vllm-nvidia:
+    image: vllm/vllm-openai:latest
+    extends:
+      service: vllm
+    volumes:
+      - models:/root/.cache/huggingface
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles: ["nvidia"]
+    command: []
+
+  ollama-rocm:
+    image: ollama/ollama:rocm
+    extends:
+      service: ollama
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add: [video]
+    profiles: ["rocm"]
+
+volumes:
+  susi-home:
+  models:

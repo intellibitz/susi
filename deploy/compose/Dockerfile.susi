@@ -1,0 +1,12 @@
+# Minimal runtime image for the susi daemon. Build context is the repo
+# root; the release binary is produced by the normal release flow, so this
+# image packages it rather than rebuilding inside Docker.
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY target/release/susi /usr/local/bin/susi
+ENV SUSI_HOME=/susi
+VOLUME ["/susi"]
+EXPOSE 9090
+ENTRYPOINT ["susi"]
+CMD ["daemon", "run"]
