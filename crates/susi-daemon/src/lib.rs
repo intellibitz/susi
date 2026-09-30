@@ -80,3 +80,5 @@ pub use composition::{swarm_host_snapshot, wire_cli_substrate, wire_engine_hooks
 pub use engine_hooks::SusiEngineHooks;
 pub use server::SusiDaemon;
 // SusiAdmin and EvolutionManager are used via fully qualified names in tools.rs
+pub mod eco_drift_alerts;
+pub mod eco_probe_scheduler;
