@@ -564,6 +564,7 @@ fn finish_all(
     ledger: &JobLedger,
     queue: &E2eQueue,
     integrator: &dyn crate::agent_integration::Integrator,
+    head: &dyn crate::agent_integration::HeadProbe,
 ) -> BTreeMap<String, IntegrateOutcome> {
     let gate = Gate {
         ledger,
@@ -571,6 +572,7 @@ fn finish_all(
         accept: &CmdAccept,
         integrator,
         verifier: None,
+        head,
     };
     let mut out = BTreeMap::new();
     for a in ledger.all() {
@@ -649,6 +651,7 @@ fn parallel_roadmap_e2e_three_models_overlap_and_close() {
         u64::MAX,
         ToolGrants::default(),
         &crate::roadmap_agents::worker_mandates(),
+        &ledger,
     );
     let elapsed = started.elapsed();
     assert_eq!(
@@ -675,7 +678,12 @@ fn parallel_roadmap_e2e_three_models_overlap_and_close() {
     assert_eq!(models.len(), 3, "three distinct models won");
 
     settle_ledger(&ledger, &rep.outcomes);
-    let merged = finish_all(&ledger, &queue, &MainIntegrator(repo.clone()));
+    let merged = finish_all(
+        &ledger,
+        &queue,
+        &MainIntegrator(repo.clone()),
+        &crate::agent_integration::GitHeadProbe,
+    );
     assert_eq!(merged.len(), 3);
     for (job, oc) in &merged {
         assert!(
@@ -731,6 +739,7 @@ fn parallel_roadmap_e2e_dependency_chain_stays_blocked_until_dep_closes() {
         u64::MAX,
         ToolGrants::default(),
         "",
+        &ledger,
     );
     assert_eq!(r1.ran, vec!["T-ROOT".to_string()]);
     assert!(!queue.is_done_str("T-CHILD"));
@@ -743,6 +752,7 @@ fn parallel_roadmap_e2e_dependency_chain_stays_blocked_until_dep_closes() {
         accept: &CmdAccept,
         integrator: &main,
         verifier: None,
+        head: &crate::agent_integration::GitHeadProbe,
     };
     ledger.assign(Assign {
         job_id: "T-CHILD",
@@ -776,6 +786,7 @@ fn parallel_roadmap_e2e_dependency_chain_stays_blocked_until_dep_closes() {
         u64::MAX,
         ToolGrants::default(),
         "",
+        &ledger,
     );
     assert_eq!(r2.ran, vec!["T-CHILD".to_string()]);
     settle_ledger(&ledger, &r2.outcomes);
@@ -862,6 +873,7 @@ fn parallel_roadmap_e2e_credit_lockout_reassign_and_shared_pool_ceiling() {
             u64::MAX,
             ToolGrants::default(),
             "",
+            &ledger,
         );
         for o in &rep.outcomes {
             let w = o.winner.clone().unwrap_or_default();
@@ -922,6 +934,7 @@ fn parallel_roadmap_e2e_credit_lockout_reassign_and_shared_pool_ceiling() {
         u64::MAX,
         ToolGrants::default(),
         "",
+        &ledger,
     );
     assert!(r.ran.is_empty());
     assert!(!q2.is_done_str("T-STARVED"), "honest: nothing finished");
@@ -1016,6 +1029,8 @@ fn parallel_roadmap_e2e_accept_failure_conflict_cancel_and_restart() {
         accept: &CmdAccept,
         integrator: &main,
         verifier: None,
+        // bad_wt is a plain dir — content revision, not git HEAD.
+        head: &crate::agent_integration::ManifestProbe,
     };
     let oc = gate.integrate_job("T-BADACCEPT", "w-T-BADACCEPT", &queue.spec("T-BADACCEPT"));
     assert!(
@@ -1123,6 +1138,7 @@ fn parallel_roadmap_e2e_metrics_record_elapsed_attempts_and_winner() {
         u64::MAX,
         ToolGrants::default(),
         "",
+        &ledger,
     );
     let parallel_elapsed = started.elapsed();
     // Recorded audit trail: attempts, winner, no unexpected stops.

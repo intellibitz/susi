@@ -43,7 +43,7 @@ fn sig_of(path: &Path) -> EaiResult<Sig> {
     })
 }
 
-fn is_excluded(rel: &Path) -> bool {
+fn is_excluded(rel: &Path, skip_all_susi: bool) -> bool {
     let mut parts = rel.iter().map(|p| p.to_string_lossy().to_string());
     let Some(first) = parts.next() else {
         return false;
@@ -52,6 +52,11 @@ fn is_excluded(rel: &Path) -> bool {
         return true;
     }
     if first == ".susi" {
+        if skip_all_susi {
+            // Payload revision: `.susi` is orchestrator metadata (receipts,
+            // ledgers), never the worker's deliverable.
+            return true;
+        }
         if let Some(second) = parts.next() {
             return EXCLUDED_SUSI.contains(&second.as_str());
         }
@@ -60,7 +65,7 @@ fn is_excluded(rel: &Path) -> bool {
 }
 
 /// Recursive file listing relative to `root`, honoring [`is_excluded`].
-fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> EaiResult<()> {
+fn walk(root: &Path, rel: &Path, skip_all_susi: bool, out: &mut Vec<PathBuf>) -> EaiResult<()> {
     let dir = root.join(rel);
     let rd = match std::fs::read_dir(&dir) {
         Ok(rd) => rd,
@@ -77,14 +82,14 @@ fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> EaiResult<()> {
             entry.map_err(|e| EaiError::io(format!("writer isolation: read dir entry: {e}")))?;
         let name = entry.file_name();
         let child = rel.join(&name);
-        if is_excluded(&child) {
+        if is_excluded(&child, skip_all_susi) {
             continue;
         }
         let ty = entry
             .file_type()
             .map_err(|e| EaiError::io(format!("writer isolation: stat entry: {e}")))?;
         if ty.is_dir() {
-            walk(root, &child, out)?;
+            walk(root, &child, skip_all_susi, out)?;
         } else if ty.is_file() || ty.is_symlink() {
             out.push(child);
         }
@@ -95,13 +100,33 @@ fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> EaiResult<()> {
 /// Snapshot manifest of a directory: relative path → content signature.
 fn manifest_of(root: &Path) -> EaiResult<BTreeMap<String, Sig>> {
     let mut files = Vec::new();
-    walk(root, Path::new(""), &mut files)?;
+    walk(root, Path::new(""), false, &mut files)?;
     let mut manifest = BTreeMap::new();
     for rel in files {
         let sig = sig_of(&root.join(&rel))?;
         manifest.insert(rel.to_string_lossy().into_owned(), sig);
     }
     Ok(manifest)
+}
+
+/// Content revision of a workspace: a SHA-256 over the sorted manifest of
+/// *payload* files (`.susi` orchestrator state excluded, like `.git`).
+/// The non-git analogue of a commit SHA — two identical trees share a
+/// revision; any payload byte difference produces a different one.
+pub fn revision(root: &Path) -> EaiResult<String> {
+    let mut files = Vec::new();
+    walk(root, Path::new(""), true, &mut files)?;
+    files.sort();
+    let mut h = Sha256::new();
+    for rel in files {
+        let sig = sig_of(&root.join(&rel))?;
+        h.update(rel.to_string_lossy().as_bytes());
+        h.update([0]);
+        h.update(sig.len.to_le_bytes());
+        h.update(sig.hash);
+    }
+    let digest: [u8; 32] = h.finalize().into();
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// One worker's claimed scope: a private synced copy of the mission

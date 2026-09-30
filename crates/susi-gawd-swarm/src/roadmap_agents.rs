@@ -127,6 +127,14 @@ pub struct RoundReport {
     pub skipped: Vec<String>,
     /// Per-job dispatch outcomes.
     pub outcomes: Vec<JobOutcome>,
+    /// Claim contexts for every job — the caller feeds these to
+    /// [`crate::agent_integration::verified_closure`] together with
+    /// `fences` and `outcomes`.
+    pub claimed: Vec<ClaimedWork>,
+    /// Ledger fence per claimed job id (from `assign_fences`).
+    pub fences: std::collections::BTreeMap<String, u64>,
+    /// Jobs that produced no output at all (dispatch-level failures).
+    pub dispatch_failed: Vec<String>,
 }
 
 /// A claimed task bound to its worker identity and isolated workspace.
@@ -246,8 +254,14 @@ impl<E: AgentExecutor + ?Sized> Runner for AgentRunner<'_, E> {
     }
 }
 
-/// One scheduling round: claim ready tasks, dispatch each to working
-/// models via the parallel scheduler.
+/// One scheduling round: claim ready tasks, fence their assignments in
+/// the ledger, and dispatch each to working models via the parallel
+/// scheduler.
+///
+/// Closure is NOT part of dispatch: an executor self-report is a claim,
+/// not proof. Tasks close only through
+/// [`crate::agent_integration::verified_closure`], which the caller runs
+/// on this report's `claimed`/`fences`/`outcomes` (T-DEVIN-7).
 #[allow(clippy::too_many_arguments)] // every dependency is an injected seam
 pub fn run_round<E, Q, W>(
     queue: &Q,
@@ -260,6 +274,7 @@ pub fn run_round<E, Q, W>(
     lease_until: u64,
     grants: ToolGrants,
     mandates: &str,
+    ledger: &crate::worker_recovery::JobLedger,
 ) -> RoundReport
 where
     E: AgentExecutor,
@@ -269,11 +284,16 @@ where
     let batch = claim_and_prepare(queue, workspaces, agent_prefix, lease_until);
     let jobs = batch.jobs;
     let ctxs = batch.claimed;
+    // Fence every assignment before dispatch: completion must present it.
+    let fences = crate::agent_integration::assign_fences(ledger, &ctxs, lease_until);
     let mut report = RoundReport {
         ran: Vec::new(),
         races_lost: batch.races_lost,
         skipped: batch.skipped,
         outcomes: Vec::new(),
+        claimed: ctxs.iter().map(clone_claimed).collect(),
+        fences,
+        dispatch_failed: Vec::new(),
     };
     if jobs.is_empty() {
         return report;
@@ -314,13 +334,24 @@ where
         )
     });
     for o in &outcomes {
+        // `ran` records what was dispatched and produced output — it is
+        // NOT closure. Tasks finish only via verified_closure.
         if o.output.is_some() {
-            queue.finish(&o.job_id);
             report.ran.push(o.job_id.clone());
+        } else {
+            report.dispatch_failed.push(o.job_id.clone());
         }
     }
     report.outcomes = outcomes;
     report
+}
+
+fn clone_claimed(c: &ClaimedWork) -> ClaimedWork {
+    ClaimedWork {
+        task: c.task.clone(),
+        worker: c.worker.clone(),
+        worktree: c.worktree.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -393,6 +424,28 @@ mod tests {
                 .push(id.to_string());
         }
     }
+    impl crate::agent_integration::IntegrationQueue for FakeQueue {
+        fn is_done(&self, id: &str) -> bool {
+            self.finished
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .any(|f| f == id)
+        }
+        fn deps(&self, _id: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn finish(&self, id: &str) {
+            <Self as TaskQueue>::finish(self, id);
+        }
+        fn reopen(&self, id: &str, _why: &str) {
+            self.tasks
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(id.to_string())
+                .and_modify(|(_, claim)| *claim = None);
+        }
+    }
 
     /// Per-task unique tempdir workspaces.
     struct FakeWorkspaces {
@@ -408,6 +461,39 @@ mod tests {
                 .unwrap_or_else(|e| e.into_inner())
                 .push(dir.clone());
             Ok(dir)
+        }
+    }
+
+    /// Minimal verified-closure plumbing for the tempdir worktrees.
+    struct PassAccept;
+    impl crate::agent_integration::AcceptRunner for PassAccept {
+        fn run(&self, _w: &std::path::Path, _c: &[String]) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    struct CleanMerge;
+    impl crate::agent_integration::Integrator for CleanMerge {
+        fn integrate(
+            &self,
+            _r: &std::path::Path,
+            _b: &str,
+        ) -> Result<crate::agent_integration::MergeResult, String> {
+            Ok(crate::agent_integration::MergeResult::Clean(
+                "test-merge-sha".into(),
+            ))
+        }
+    }
+    fn test_gate<'a>(
+        ledger: &'a crate::worker_recovery::JobLedger,
+        queue: &'a FakeQueue,
+    ) -> crate::agent_integration::Gate<'a> {
+        crate::agent_integration::Gate {
+            ledger,
+            queue,
+            accept: &PassAccept,
+            integrator: &CleanMerge,
+            verifier: None,
+            head: &crate::agent_integration::ManifestProbe,
         }
     }
 
@@ -516,6 +602,7 @@ mod tests {
             cand("k3", "m3", "p3"),
         ];
         let started = Instant::now();
+        let jl = crate::worker_recovery::JobLedger::new();
         let rep = run_round(
             &queue,
             &ws,
@@ -527,6 +614,7 @@ mod tests {
             u64::MAX,
             ToolGrants::default(),
             &worker_mandates(),
+            &jl,
         );
         assert_eq!(rep.ran.len(), 3);
         assert!(
@@ -570,6 +658,7 @@ mod tests {
         let ledger = BudgetLedger::new();
         let shared = mk_shared(&elig, &quota, &lock, &ledger);
         let cs = vec![cand("k1", "m1", "p1")];
+        let jl = crate::worker_recovery::JobLedger::new();
         let r1 = run_round(
             &queue,
             &ws,
@@ -581,7 +670,9 @@ mod tests {
             u64::MAX,
             ToolGrants::default(),
             "",
+            &jl,
         );
+        let jl = crate::worker_recovery::JobLedger::new();
         let r2 = run_round(
             &queue,
             &ws,
@@ -593,6 +684,7 @@ mod tests {
             u64::MAX,
             ToolGrants::default(),
             "",
+            &jl,
         );
         assert_eq!(r1.ran, vec!["T-9".to_string()]);
         assert!(r2.ran.is_empty());
@@ -623,6 +715,7 @@ mod tests {
         let ledger = BudgetLedger::new();
         let shared = mk_shared(&elig, &quota, &lock, &ledger);
         let cs = vec![cand("k1", "m1", "p1"), cand("k2", "m2", "p2")];
+        let jl = crate::worker_recovery::JobLedger::new();
         let rep = run_round(
             &queue,
             &ws,
@@ -634,6 +727,7 @@ mod tests {
             u64::MAX,
             ToolGrants::default(),
             "",
+            &jl,
         );
         assert_eq!(rep.ran.len(), 2);
         let dirs = ws.dirs.lock().unwrap_or_else(|e| e.into_inner());
@@ -671,6 +765,7 @@ mod tests {
         let ledger = BudgetLedger::new();
         let shared = mk_shared(&elig, &quota, &lock, &ledger);
         let cs = vec![cand("k1", "m1", "p1"), cand("k2", "m2", "p2")];
+        let jl = crate::worker_recovery::JobLedger::new();
         let rep = run_round(
             &queue,
             &ws,
@@ -682,9 +777,32 @@ mod tests {
             u64::MAX,
             ToolGrants::default(),
             "",
+            &jl,
         );
-        // T-bad fails on both candidates (same runner), T-ok finishes.
+        // T-bad fails on both candidates (same runner), T-ok dispatched.
         assert_eq!(rep.ran, vec!["T-ok".to_string()]);
+        // Dispatch alone finished nothing — closure needs the gate.
+        assert!(queue
+            .finished
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty());
+        let gate = test_gate(&jl, &queue);
+        let (gated, failed) = crate::agent_integration::verified_closure(
+            &rep.outcomes,
+            &rep.claimed,
+            &rep.fences,
+            &gate,
+            u64::MAX,
+        );
+        assert_eq!(failed, vec!["T-bad".to_string()]);
+        assert!(gated.iter().any(|(id, out)| {
+            id == "T-ok"
+                && matches!(
+                    out,
+                    crate::agent_integration::IntegrateOutcome::Integrated { .. }
+                )
+        }));
         let fin = queue.finished.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(fin.as_slice(), &["T-ok".to_string()]);
         let _ = std::fs::remove_dir_all(&root);
