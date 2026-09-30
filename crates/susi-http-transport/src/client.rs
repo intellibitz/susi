@@ -127,10 +127,9 @@ pub fn http_call_with_body(
 ) -> Result<HttpCall, String> {
     let agent = agent_for(timeout_secs, max_redirects);
     match method {
-        "HEAD" | "GET" | "DELETE" => {
+        "HEAD" | "GET" => {
             let mut req = match method {
                 "HEAD" => agent.head(url),
-                "DELETE" => agent.delete(url),
                 _ => agent.get(url),
             };
             for (name, value) in headers {
@@ -144,6 +143,32 @@ pub fn http_call_with_body(
                 .map_err(|e| e.to_string())?;
             Ok(into_call(resp))
         }
+        "DELETE" => match body {
+            None => {
+                let mut req = agent.delete(url);
+                for (name, value) in headers {
+                    req = req.header(*name, *value);
+                }
+                let resp = req
+                    .config()
+                    .http_status_as_error(false)
+                    .build()
+                    .call()
+                    .map_err(|e| e.to_string())?;
+                Ok(into_call(resp))
+            }
+            // DELETE may carry a JSON body (e.g. Ollama /api/delete); ureq's
+            // typed builder is bodyless so the request is built raw.
+            Some(payload) => {
+                let mut builder = ureq::http::Request::builder().method("DELETE").uri(url);
+                for (name, value) in headers {
+                    builder = builder.header(*name, *value);
+                }
+                let request = builder.body(payload.to_vec()).map_err(|e| e.to_string())?;
+                let resp = agent.run(request).map_err(|e| e.to_string())?;
+                Ok(into_call(resp))
+            }
+        },
         "POST" | "PUT" | "PATCH" => {
             let mut req = match method {
                 "PUT" => agent.put(url),
