@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "workers-ai-v4",
+    "name": "Cloudflare API v4",
+    "version": "v4",
+    "provenance": {
+      "source": "https://developers.cloudflare.com/workers-ai/",
+      "spec_version": "v4",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "workers-ai-v4",
+      "to": "workers-ai-rest",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

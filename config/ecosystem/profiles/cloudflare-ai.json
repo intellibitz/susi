@@ -1,0 +1,149 @@
+{
+  "version": "eco-profile/v1",
+  "id": "cloudflare-ai",
+  "name": "Cloudflare Workers AI and AI Gateway",
+  "subject": "workers-ai-rest",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/client/v4/accounts/{account_id}/ai/run/{model_name}",
+      "description": "Run a Workers AI model (task inferred from model)",
+      "streaming": false,
+      "request": "task-input",
+      "response": "task-result"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/{account_id}/{gateway_id}/chat/completions",
+      "description": "AI Gateway OpenAI-compatible endpoint",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/{account_id}/{gateway_id}/{provider}",
+      "description": "AI Gateway provider passthrough",
+      "streaming": false,
+      "request": "native",
+      "response": "native"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "bearer",
+      "header": "authorization",
+      "prefix": "Bearer ",
+      "env": [
+        "CLOUDFLARE_API_TOKEN"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "v4",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "task-input",
+      "format": "json",
+      "fields": [
+        "{prompt|messages|text|image} per task type"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "messages[]",
+        "model"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "native",
+      "format": "json",
+      "fields": [
+        "provider-native body"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "task-result",
+      "format": "json",
+      "fields": [
+        "result{response|data}",
+        "success",
+        "errors[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "native",
+      "format": "json",
+      "fields": [
+        "provider-native"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "401",
+      "code": "unauthorized",
+      "retriable": false
+    },
+    {
+      "status": "429",
+      "code": "rate_limited",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "internal",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-429",
+      "meaning": "request quota exhausted; back off and retry"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-embeddings",
+    "cap-vision",
+    "cap-audio",
+    "cap-image-generation"
+  ],
+  "deviations": [
+    {
+      "host": "cloudflare-ai-gateway",
+      "field": "path",
+      "behavior": "vendor path segment selects upstream provider"
+    }
+  ],
+  "streaming": null,
+  "provenance": {
+    "source": "https://developers.cloudflare.com/workers-ai/",
+    "spec_version": "v4",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

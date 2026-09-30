@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "cloudflare",
+    "name": "Cloudflare",
+    "home": "https://www.cloudflare.com",
+    "provenance": {
+      "source": "https://developers.cloudflare.com/workers-ai/",
+      "spec_version": "v4",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "cloudflare",
+      "to": "cloudflare-workers-ai",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "provides",
+      "from": "cloudflare",
+      "to": "cloudflare-ai-gateway",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

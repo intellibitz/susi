@@ -1,0 +1,94 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "cloudflare-workers-ai",
+    "name": "Workers AI",
+    "category": "service",
+    "provenance": {
+      "source": "https://developers.cloudflare.com/workers-ai/",
+      "spec_version": "v4",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "cloudflare-workers-ai",
+      "to": "workers-ai-rest",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "cloudflare-workers-ai",
+      "to": "workers-ai-v4",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cloudflare-workers-ai",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cloudflare-workers-ai",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cloudflare-workers-ai",
+      "to": "cap-vision",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cloudflare-workers-ai",
+      "to": "cap-audio",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "cloudflare-workers-ai",
+      "to": "cap-image-generation",
+      "provenance": {
+        "source": "https://developers.cloudflare.com/workers-ai/",
+        "spec_version": "v4",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
