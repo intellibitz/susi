@@ -1,0 +1,23 @@
+{
+  "id": "T-INTELLIBITZ-15",
+  "title": "Eliminate TranslationAgent DynamicAgent-only phantom",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "translation_agent_native_or_absent",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-200-001",
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790774661,
+  "closed_by": "INTELLIBITZ",
+  "closed_unix": 1790784436,
+  "commit": "187c4701"
+}
