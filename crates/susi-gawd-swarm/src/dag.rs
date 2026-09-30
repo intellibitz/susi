@@ -55,8 +55,18 @@ pub struct MissionPersistCtx<'a> {
     pub dir: &'a Path,
 }
 
-/// One node's run: index, output, elapsed ms, receipt args, lease owner, fence.
-type NodeRun = (usize, EaiResult<String>, u64, Vec<String>, String, u64);
+/// One node's run: index, output, elapsed ms, receipt args, lease owner,
+/// fence, and the worker's private write scope (folded before results are
+/// processed).
+type NodeRun = (
+    usize,
+    EaiResult<String>,
+    u64,
+    Vec<String>,
+    String,
+    u64,
+    crate::writer_isolation::WorkerScope,
+);
 
 fn now_unix() -> u64 {
     SystemTime::now()
@@ -641,10 +651,21 @@ impl MissionDag {
             let bb = Arc::clone(blackboard);
             let tx = event_sender.clone();
 
+            // Writer isolation (T-DEVIN-6): every mutating worker runs in
+            // its own synced scope — never concurrent shell commands in
+            // one directory. Writes fold back sequentially below.
+            let isolation = crate::writer_isolation::WriterIsolation::new(&ws)?;
+            let mut batch_scopes = Vec::with_capacity(batch_leases.len());
+            for (_, owner, _) in &batch_leases {
+                batch_scopes.push(isolation.scope(owner)?);
+            }
+
             let batch_results: Vec<NodeRun> = batch_leases
                 .into_par_iter()
-                .map(|(idx, owner, fence)| {
+                .zip(batch_scopes)
+                .map(|((idx, owner, fence), scope)| {
                     let node = &self.nodes[idx];
+                    let node_ws = scope.dir.clone();
                     let start = std::time::Instant::now();
                     let _ = tx.send(crate::susi_core::bus::SwarmEventType::AgentStarted {
                         agent_name: node.title.clone(),
@@ -652,7 +673,7 @@ impl MissionDag {
 
                     // Mandate 48: in SUSI's own tree the node that turns model
                     // output into shell commands carries the self-build contract.
-                    let prompt = crate::susi_core::self_build::brief_task(&ws, &format!(
+                    let prompt = crate::susi_core::self_build::brief_task(&node_ws, &format!(
                         "Execute task node '{}': {}. If you need to execute a shell command, provide it in a ```bash codeblock. The command must perform every requested side effect: printing intended file content is not file creation. For file writes, write the named workspace path and then verify that exact path and its contents.",
                         node.title, node.goal
                     ));
@@ -664,7 +685,7 @@ impl MissionDag {
                     // 0.60–0.64 support on everyday intents).
                     let mut res =
                         crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
-                            &prompt, &ws,
+                            &prompt, &node_ws,
                         );
 
                     let mut executed_scripts = String::new();
@@ -677,25 +698,71 @@ impl MissionDag {
                             let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
                             let call = serde_json::Value::String(wrapped_cmd);
                             node_calls.push(call.to_string());
-                            let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &call, &ws).unwrap_or_else(|e| format!("[Error] {e}"));
+                            let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &call, &node_ws).unwrap_or_else(|e| format!("[Error] {e}"));
                             executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
                         }
                     }
 
                     if !executed_scripts.is_empty() {
                         res.push_str(&executed_scripts);
-                        if let Some(citations) = crate::susi_core::capture::EvidenceSession::auto_format_truth(&ws) {
+                        if let Some(citations) = crate::susi_core::capture::EvidenceSession::auto_format_truth(&node_ws) {
                             res.push_str("\n\n");
                             res.push_str(&citations);
                         }
                     }
 
                     let elapsed = start.elapsed().as_millis() as u64;
-                    (idx, Ok(res), elapsed, node_calls, owner, fence)
+                    (idx, Ok(res), elapsed, node_calls, owner, fence, scope)
                 })
                 .collect();
 
-            for (idx, res, elapsed, node_calls, owner, fence) in batch_results {
+            // Fold each scope's writes back into the shared workspace,
+            // sequentially and in node order — deterministic, reviewable
+            // conflicts instead of silently lost writes.
+            let mut write_conflicts: Vec<String> = Vec::new();
+            let mut conflicted_nodes: BTreeSet<usize> = BTreeSet::new();
+            for (idx, _, _, _, _, _, scope) in &batch_results {
+                match isolation.fold(scope) {
+                    Ok(crate::writer_isolation::FoldOutcome::Clean { .. }) => {}
+                    Ok(crate::writer_isolation::FoldOutcome::Conflict { paths }) => {
+                        write_conflicts.push(format!(
+                            "n{idx}:{}",
+                            paths.into_iter().collect::<Vec<_>>().join(",")
+                        ));
+                        conflicted_nodes.insert(*idx);
+                    }
+                    Err(e) => {
+                        for (_, _, _, _, _, _, rest) in &batch_results {
+                            isolation.cleanup(rest);
+                        }
+                        return Err(e);
+                    }
+                }
+            }
+            if !write_conflicts.is_empty() {
+                let detail = write_conflicts.join(";");
+                if let Some(ctx) = persist_slot.as_mut() {
+                    for &idx in &conflicted_nodes {
+                        let id = Self::persist_id(idx);
+                        if let Some(node) = ctx.mission.nodes.get_mut(&id) {
+                            node.state = NodeTerminal::Failed;
+                            node.output = Some(format!("[WRITE_CONFLICT] {detail}"));
+                        }
+                    }
+                    let _ = ctx.mission.save(ctx.dir);
+                }
+                for (_, _, _, _, _, _, scope) in &batch_results {
+                    isolation.cleanup(scope);
+                }
+                return Err(EaiError::governance(format!(
+                    "DAG_EXECUTION_FAILED: write conflict needs review: {detail}"
+                )));
+            }
+            for (_, _, _, _, _, _, scope) in &batch_results {
+                isolation.cleanup(scope);
+            }
+
+            for (idx, res, elapsed, node_calls, owner, fence, _scope) in batch_results {
                 if let Ok(output) = res {
                     // Crown path: citation answers resolve from the live ledger;
                     // narratives without required citations fail TRUTH_UNVERIFIED.

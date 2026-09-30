@@ -67,6 +67,7 @@ pub mod task_lease;
 pub mod wan_peers;
 pub mod worker_recovery;
 pub mod workspace_txn;
+pub mod writer_isolation;
 pub mod zc_agent_pick;
 pub mod zc_lan_cluster;
 pub mod zc_nat_auto;
