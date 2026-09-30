@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDE-404",
+  "title": "Give the legacy VC-200 vectors a priority and tasks",
+  "goal": "VC-200-001/002 had no priority or tasks; both are P1 with a task for the residual their own progress text names.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "roadmap"
+    ]
+  },
+  "created_by": "CLAUDE",
+  "created_unix": 1790743324,
+  "closed": {
+    "at_unix": 1790743344,
+    "commit": "cd4ea1d6e075e1afd81c4ee4601d12532a6914eb",
+    "by": "CLAUDE"
+  }
+}
