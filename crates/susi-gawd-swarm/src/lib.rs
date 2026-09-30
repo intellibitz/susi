@@ -26,6 +26,7 @@ pub use susi_core;
 pub mod ama;
 pub mod amas;
 pub mod cancel_propagate;
+pub mod capability_market;
 pub(crate) mod cloud_recovery;
 pub mod dag;
 pub mod deliberation;
