@@ -67,6 +67,7 @@ pub mod spend_tracker;
 pub mod status_pages;
 pub mod thermal_routing;
 pub mod tui_top;
+pub mod usage_accounting;
 pub mod vision_routing;
 pub mod zc_budget_derived;
 pub mod zc_chat_templates;
