@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "gguf-v2",
+    "name": "GGUF v2",
+    "version": "2",
+    "provenance": {
+      "source": "https://github.com/ggml-org/ggml/blob/master/docs/gguf.md",
+      "spec_version": "3",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "gguf-v2",
+      "to": "gguf",
+      "provenance": {
+        "source": "https://github.com/ggml-org/ggml/blob/master/docs/gguf.md",
+        "spec_version": "3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "supersedes",
+      "from": "gguf-v2",
+      "to": "gguf-v1",
+      "provenance": {
+        "source": "https://github.com/ggml-org/ggml/blob/master/docs/gguf.md",
+        "spec_version": "3",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

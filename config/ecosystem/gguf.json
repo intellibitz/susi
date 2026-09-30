@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "gguf",
+    "name": "GGUF binary model format",
+    "body": "ggml-org",
+    "provenance": {
+      "source": "https://github.com/ggml-org/ggml/blob/master/docs/gguf.md",
+      "spec_version": "3",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}
