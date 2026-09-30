@@ -37,6 +37,7 @@ pub use susi_abi;
 pub mod abi_bridge;
 
 pub mod a2a_wire;
+pub mod adapter_upgrade;
 pub mod agent_tx;
 pub mod agent_types;
 pub mod audit_export;
@@ -49,9 +50,12 @@ pub mod context_graph;
 pub mod emergency_stop;
 pub mod evidence;
 pub mod memory_provenance;
+pub mod memory_replicate;
 pub mod memory_tombstone;
 pub mod pii_redaction;
 pub mod privacy_profiles;
+pub mod retrieval_eval;
+pub mod skill_artifacts;
 pub mod untrusted_content;
 pub mod wasm_grants;
 pub mod zc_consent_jit;
@@ -160,5 +164,17 @@ mod vc_201_080_tests;
 #[path = "tests/vc_201_081.rs"]
 mod vc_201_081_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_082.rs"]
+mod vc_201_082_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_083.rs"]
 mod vc_201_083_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_084.rs"]
+mod vc_201_084_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_085.rs"]
+mod vc_201_085_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_089.rs"]
+mod vc_201_089_tests;
