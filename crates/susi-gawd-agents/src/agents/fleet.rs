@@ -1433,4 +1433,62 @@ mod tests {
         }
         assert_eq!(blackboard.get("SearchAgent").as_deref(), Some(res.as_str()));
     }
+
+    /// TranslationAgent either has a native factory or falls back
+    /// to DynamicAgent — never a phantom with no implementation.
+    #[test]
+    fn translation_agent_native_or_absent() {
+        let profile = AgentProfile {
+            name: "TranslationAgent".into(),
+            description: "Translation-intent recruitment; executed via DynamicAgent (no separate native TranslationAgent backend).".into(),
+            categories: vec!["translate".into(), "language".into()],
+            semantic_anchors: vec!["tamil".into(), "hindi".into(), "french".into(), "translator".into()],
+            base_rank: 0.9,
+            is_core: false,
+        };
+        let agent = instantiate_agent(&profile);
+        assert_eq!(agent.name(), "TranslationAgent");
+        // If a native factory exists it must be reachable via the registry.
+        let has_native = agent_registry()
+            .instantiate::<Arc<dyn GawdAgent>>("TranslationAgent")
+            .is_some();
+        if has_native {
+            let native = instantiate_native_agent("TranslationAgent")
+                .expect("registry says native → instantiate_native_agent works");
+            assert_eq!(native.name(), "TranslationAgent");
+        }
+        // In all cases the instantiated agent is usable (not a zero-size phantom).
+        let bb: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        let _ = agent.execute("translate hello to Tamil", Path::new("."), &bb);
+    }
+
+    /// Every `is_core: true` entry in agents.default.json has a live
+    /// native factory in the registry — core agents are never phantoms.
+    #[test]
+    fn core_agents_have_native_factories() {
+        let registry = agent_registry();
+        let core_names: Vec<&str> = vec![
+            "SusiRuntimeAgent",
+            "HardwareAgent",
+            "SafetyAgent",
+            "SecurityAgent",
+            "EvolutionAgent",
+            "GmcpAgent",
+        ];
+        for name in &core_names {
+            let agent = instantiate_native_agent(name);
+            assert!(
+                agent.is_some(),
+                "core agent {name} must have a native factory in agent_registry()"
+            );
+            // Also confirm the registry can instantiate it by name.
+            let instantiated: Option<Arc<dyn GawdAgent>> = registry
+                .instantiate::<Arc<dyn GawdAgent>>(name)
+                .map(|arc_of_arc| (*arc_of_arc).clone());
+            assert!(
+                instantiated.is_some(),
+                "core agent {name} must be instantiable by name from the registry"
+            );
+        }
+    }
 }

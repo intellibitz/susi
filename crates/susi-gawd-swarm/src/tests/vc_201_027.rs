@@ -63,3 +63,41 @@ fn vc_201_027_requires_independent_verifier() {
     let err = select_roles(&agents, &BTreeSet::new(), 1.0).unwrap_err();
     assert_eq!(err, SelectError::NoIndependentVerifier);
 }
+
+/// Wiring test: native fleet roles are selected via role_select.
+///
+/// Verifies that a native fleet with distinct capability sets
+/// produces an implementer, an independent verifier (different
+/// identity), and an optional specialist — all required by
+/// the swarm verify path.
+#[test]
+fn native_role_select_wiring() {
+    let agents = vec![
+        AgentEvidence {
+            id: "native-impl".into(),
+            capabilities: BTreeSet::from(["code".into(), "rust".into()]),
+            suitability: 0.95,
+            cost_per_success: 1.0,
+        },
+        AgentEvidence {
+            id: "native-ver".into(),
+            capabilities: BTreeSet::from(["review".into(), "rust".into()]),
+            suitability: 0.85,
+            cost_per_success: 0.5,
+        },
+        AgentEvidence {
+            id: "native-spec".into(),
+            capabilities: BTreeSet::from(["gpu".into()]),
+            suitability: 0.7,
+            cost_per_success: 0.4,
+        },
+    ];
+    let required = BTreeSet::from(["code".into(), "review".into(), "gpu".into()]);
+    let a = select_roles(&agents, &required, 10.0).unwrap();
+    assert_eq!(a.implementer, "native-impl");
+    assert_eq!(a.verifier, "native-ver");
+    assert_eq!(a.specialist.as_deref(), Some("native-spec"));
+    assert!(a.multi_agent_cheaper);
+    // Verifier must be independent of implementer.
+    assert_ne!(a.implementer, a.verifier);
+}
