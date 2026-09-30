@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-357",
+  "title": "Publish evidence-backed RSI experiment comparisons",
+  "goal": "Expose candidate-versus-baseline metrics and receipt links through CLI and machine-readable output; failed, inconclusive, and rejected trials remain visible alongside successful ones. Deps (vectors): VC-201-003, VC-201-006, VC-201-007, VC-201-009. Acceptance is tests named vc_201_010_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_010"
+    ]
+  },
+  "roadmap": "VC-201-010",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740142
+}

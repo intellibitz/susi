@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-391",
+  "title": "Sandbox and roll back adapter upgrades",
+  "goal": "Install an adapter revision beside the active one, run contract checks, and switch only after success; a failed upgrade preserves the working revision and in-flight session ownership. Deps (vectors): VC-201-061, VC-201-063, VC-201-076, VC-201-086. Acceptance is tests named vc_201_089_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_089"
+    ]
+  },
+  "roadmap": "VC-201-089",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

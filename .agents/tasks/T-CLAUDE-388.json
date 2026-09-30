@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-388",
+  "title": "Evaluate retrieval quality before promoting memory changes",
+  "goal": "Use a versioned relevance and grounded-answer suite to compare retrieval/index revisions; a larger index or higher recall alone cannot hide regression in answer correctness or private-data isolation. Deps (vectors): VC-201-001, VC-201-081. Acceptance is tests named vc_201_082_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_082"
+    ]
+  },
+  "roadmap": "VC-201-082",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

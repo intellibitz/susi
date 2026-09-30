@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-397",
+  "title": "Qualify a complete RSI swarm AI operating-layer release",
+  "goal": "On isolated local and explicitly configured cloud environments, configure the ecosystem, run and recover a swarm mission, evaluate a self-patch, and promote only through the tagged release path; publish reproducible scorecard deltas and remaining limitations, including a 2x improvement claim only if its predeclared metric and evidence support it. Deps (vectors): VC-201-010, VC-201-018, VC-201-020, VC-201-040, VC-201-050, VC-201-058, VC-201-068, VC-201-070, VC-201-078, VC-201-080, VC-201-090, VC-201-092, VC-201-093, VC-201-094, VC-201-095, VC-201-096, VC-201-097, VC-201-098, VC-201-099. Acceptance is tests named vc_201_100_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_100"
+    ]
+  },
+  "roadmap": "VC-201-100",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740144
+}

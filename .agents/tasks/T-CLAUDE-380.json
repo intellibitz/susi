@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-380",
+  "title": "Recover supported work from preemptible capacity",
+  "goal": "Checkpoint eligible managed jobs and resume them after eviction under fencing and retry policy; non-checkpointable jobs report interruption and all duplicate compute is included in cost accounting. Deps (vectors): VC-201-023, VC-201-030, VC-201-055. Acceptance is tests named vc_201_057_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-cloud",
+      "vc_201_057"
+    ]
+  },
+  "roadmap": "VC-201-057",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-369",
+  "title": "Fence coordinator failover during live missions",
+  "goal": "Tie task leases and authoritative mission writes to accepted leadership epochs; partition and reconnect tests reject stale-coordinator writes and preserve the surviving mission state. Deps (vectors): VC-201-022, VC-201-031, VC-201-032. Acceptance is tests named vc_201_035_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_035"
+    ]
+  },
+  "roadmap": "VC-201-035",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

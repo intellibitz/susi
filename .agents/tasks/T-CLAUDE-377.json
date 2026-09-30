@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-377",
+  "title": "Batch compatible local inference requests",
+  "goal": "Introduce bounded batching only for backends that support it, with per-request deadlines and cancellation; load tests demonstrate throughput changes without violating configured latency or memory limits. Deps (vectors): VC-201-024, VC-201-025, VC-201-042, VC-201-043. Acceptance is tests named vc_201_046_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "vc_201_046"
+    ]
+  },
+  "roadmap": "VC-201-046",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

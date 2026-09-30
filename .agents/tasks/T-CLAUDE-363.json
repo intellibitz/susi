@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-363",
+  "title": "Schedule by live resource and capability constraints",
+  "goal": "Use measured CPU, GPU memory, model readiness, and tool grants to admit runnable DAG nodes; oversubscribed fixtures queue work and never exceed declared resource reservations. Deps (vectors): VC-201-021. Acceptance is tests named vc_201_024_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_024"
+    ]
+  },
+  "roadmap": "VC-201-024",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

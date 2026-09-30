@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-386",
+  "title": "Isolate tenant resource and data access",
+  "goal": "Enforce per-tenant workspace paths, memory namespaces, tool grants, queues, and budgets in the supported isolation mode; cross-tenant read and resource-exhaustion tests establish the documented boundary. Deps (vectors): VC-201-025, VC-201-043, VC-201-071, VC-201-072. Acceptance is tests named vc_201_078_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_078"
+    ]
+  },
+  "roadmap": "VC-201-078",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

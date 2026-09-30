@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-393",
+  "title": "Define and measure operating-layer service objectives",
+  "goal": "Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient. Deps (vectors): VC-201-003, VC-201-030, VC-201-091. Acceptance is tests named vc_201_092_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_092"
+    ]
+  },
+  "roadmap": "VC-201-092",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

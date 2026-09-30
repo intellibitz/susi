@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-387",
+  "title": "Export independently verifiable audit evidence",
+  "goal": "Provide redacted exports with chain anchors, signature metadata, and a verification command; truncation, tampering, missing segments, and unknown keys produce distinct failures without exposing secrets. Deps (vectors): VC-201-004, VC-201-071, VC-201-072. Acceptance is tests named vc_201_079_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_079"
+    ]
+  },
+  "roadmap": "VC-201-079",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

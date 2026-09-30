@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-361",
+  "title": "Learn from failed and rejected experiments",
+  "goal": "Store failure causes, counterexamples, and proposal lineage in scoped experiment memory; repeated proposals must address the previous rejection or explicitly declare new evidence. Deps (vectors): VC-201-010, VC-201-011. Acceptance is tests named vc_201_019_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_019"
+    ]
+  },
+  "roadmap": "VC-201-019",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

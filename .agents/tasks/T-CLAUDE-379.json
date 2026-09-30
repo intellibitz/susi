@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-379",
+  "title": "Autoscale managed endpoints within spend limits",
+  "goal": "Scale an admitted deployment using queue depth, latency, min/max replicas, and stabilization windows; load tests show bounded scale decisions and scale-down drains in-flight requests. Deps (vectors): VC-201-024, VC-201-052, VC-201-055. Acceptance is tests named vc_201_056_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-cloud",
+      "vc_201_056"
+    ]
+  },
+  "roadmap": "VC-201-056",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-382",
+  "title": "Collect orphaned managed cloud resources",
+  "goal": "Tag owned resources with mission and deployment identities and reconcile them against authoritative state; dry-run and apply tests remove only expired SUSI-owned resources and preserve explicitly retained assets. Deps (vectors): VC-201-052, VC-201-055. Acceptance is tests named vc_201_059_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-cloud",
+      "vc_201_059"
+    ]
+  },
+  "roadmap": "VC-201-059",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

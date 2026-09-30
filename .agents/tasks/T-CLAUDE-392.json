@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-392",
+  "title": "Deliver one vertical workflow across the AI ecosystem",
+  "goal": "Run an evidence-backed workspace task using local retrieval, an allowed model target, an MCP tool, and a delegated agent when policy permits; demonstrate offline, denied-egress, and failed-dependency outcomes. Deps (vectors): VC-201-030, VC-201-073, VC-201-081, VC-201-086, VC-201-087. Acceptance is tests named vc_201_090_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_090"
+    ]
+  },
+  "roadmap": "VC-201-090",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-370",
+  "title": "Authenticate snapshot-based peer bootstrap",
+  "goal": "Bootstrap a new peer from a signed snapshot manifest plus verified ledger tail; reject tampered state, missing anchors, and roster histories that cannot establish the snapshot's authority. Deps (vectors): VC-201-031, VC-201-032. Acceptance is tests named vc_201_036_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "vc_201_036"
+    ]
+  },
+  "roadmap": "VC-201-036",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}

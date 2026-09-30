@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDE-359",
+  "title": "Version and revoke generated reflexes",
+  "goal": "Store source, compiler, Wasm digest, intent tests, and grants per reflex revision; pinned callers retain their revision while revocation blocks new execution and rollback restores a previously verified artifact. Deps (vectors): VC-201-007, VC-201-011, VC-201-013. Acceptance is tests named vc_201_016_* in the owning crate; write them with the feature.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_016"
+    ]
+  },
+  "roadmap": "VC-201-016",
+  "created_by": "CLAUDE",
+  "created_unix": 1790740143
+}
