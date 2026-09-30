@@ -24,6 +24,7 @@ pub use susi_sandbox_client as susi_sandbox;
 pub mod accel_reserve;
 pub mod cloud;
 pub mod cloud_manage;
+pub mod disk_budget;
 pub mod eco_anthropic_features;
 pub mod eco_anthropic_messages;
 pub mod eco_cohere_mistral;
@@ -47,6 +48,7 @@ pub mod eco_taxonomy;
 pub mod frontier;
 pub mod gguf_inspector;
 pub mod hf_discovery;
+pub mod llamacpp_launcher;
 pub mod lmstudio_models;
 pub mod local_ecosystem;
 pub mod model_store_dedupe;
@@ -58,6 +60,7 @@ pub mod price_catalog;
 pub mod quant_recommender;
 pub mod resource_inventory;
 pub mod signed_catalog;
+pub mod vllm_launcher;
 
 #[cfg(test)]
 #[path = "tests/resource_inventory.rs"]
