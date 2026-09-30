@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "oci-genai-20231130",
+    "name": "OCI Generative AI 20231130",
+    "version": "20231130",
+    "provenance": {
+      "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+      "spec_version": "2024-07-25",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "oci-genai-20231130",
+      "to": "oci-genai-api",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

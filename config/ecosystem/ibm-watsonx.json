@@ -1,0 +1,83 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "ibm-watsonx",
+    "name": "IBM watsonx.ai",
+    "category": "service",
+    "provenance": {
+      "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+      "spec_version": "2024-07-25",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "ibm-watsonx",
+      "to": "watsonx-ml",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "ibm-watsonx",
+      "to": "watsonx-api-2024",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ibm-watsonx",
+      "to": "cap-chat",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ibm-watsonx",
+      "to": "cap-streaming",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ibm-watsonx",
+      "to": "cap-embeddings",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "has-capability",
+      "from": "ibm-watsonx",
+      "to": "cap-tool-calling",
+      "provenance": {
+        "source": "https://cloud.ibm.com/apidocs/watsonx-ai",
+        "spec_version": "2024-07-25",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
