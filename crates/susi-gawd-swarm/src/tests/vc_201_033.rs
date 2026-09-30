@@ -41,7 +41,7 @@ fn vc_201_033_rotation_requires_quorum() {
     assert!(err.is_err());
 }
 
-use crate::node_enrollment::{enroll, Enrollment};
+use crate::node_enrollment::enroll;
 
 #[test]
 fn vc_201_033_enrollment_requires_token_and_mtls() {
