@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn eco_http_signatures_facts_cover_the_required_surface() {
-        let p = profile().unwrap();
+        let _p = profile().unwrap();
         let kb = store();
         assert!(kb.entity("http-message-signatures").is_some());
         assert!(kb.entity("aws-sigv4").is_some());

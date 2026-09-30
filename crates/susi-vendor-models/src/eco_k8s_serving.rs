@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn eco_k8s_serving_facts_cover_the_required_surface() {
-        let p = profile().unwrap();
+        let _p = profile().unwrap();
         let kb = store();
         assert!(kb.entity("kserve").is_some());
         assert!(kb.entity("kubeai-gateway").is_some());

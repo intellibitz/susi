@@ -7,7 +7,6 @@
 //! reviewable proposals like everything else from the live edge.
 
 use crate::eco_schema::{ComponentCategory, Confidence, Provenance, RelationKind};
-use serde::{Deserialize, Serialize};
 
 /// What changed between two `/models` snapshots.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

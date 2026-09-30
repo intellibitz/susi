@@ -252,9 +252,9 @@ mod tests {
             assert!(!back.summary.is_empty());
         }
         // profile unchanged — ingest only proposes
-        let before = serde_json::to_value(&mini_profile()).unwrap();
-        diff_profile(&mini_profile(), &spec_doc(), &src());
-        assert_eq!(before, serde_json::to_value(&mini_profile()).unwrap());
+        let before = serde_json::to_value(mini_profile()).unwrap();
+        let _ = diff_profile(&mini_profile(), &spec_doc(), &src());
+        assert_eq!(before, serde_json::to_value(mini_profile()).unwrap());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn eco_openapi_tools_facts_cover_the_required_surface() {
-        let p = profile().unwrap();
+        let _p = profile().unwrap();
         let kb = store();
         assert!(kb.entity("openapi").is_some());
         assert!(kb.entity("json-schema").is_some());
