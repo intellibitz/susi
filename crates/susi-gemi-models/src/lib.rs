@@ -41,5 +41,6 @@ pub mod hardware;
 pub mod intent;
 mod lifecycle;
 pub mod model_cache;
+pub mod zc_ladder_edges;
 
 pub use lifecycle::*;

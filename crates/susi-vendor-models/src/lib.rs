@@ -24,6 +24,7 @@ pub use susi_sandbox_client as susi_sandbox;
 pub mod accel_reserve;
 pub mod cloud;
 pub mod cloud_manage;
+pub mod disk_budget;
 pub mod eco_anthropic_messages;
 pub mod eco_conflicts;
 pub mod eco_consistency;
