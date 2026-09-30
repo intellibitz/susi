@@ -72,12 +72,9 @@ pub fn negotiate_version(
     component: &str,
     client_versions: &[&str],
 ) -> Option<String> {
-    for v in implemented_versions(kb, component) {
-        if client_versions.iter().any(|c| *c == v) {
-            return Some(v);
-        }
-    }
-    None
+    implemented_versions(kb, component)
+        .into_iter()
+        .find(|v| client_versions.iter().any(|c| c == v))
 }
 
 /// Full negotiation result for one endpoint.

@@ -126,7 +126,7 @@ fn answer_for<'a>(
         match freshness(&r.provenance, policy, now) {
             Freshness::Stale { age_days } => oldest = oldest.max(age_days),
             Freshness::Unreadable => oldest = i64::MAX,
-            _ => {}
+            Freshness::Fresh { .. } | Freshness::Aging { .. } | Freshness::Future { .. } => {}
         }
     }
     let citations: Vec<Citation> = relations.iter().map(|r| cite(&r.provenance)).collect();
@@ -185,9 +185,11 @@ mod tests {
     #[test]
     fn eco_qa_cited_stale_fact_is_flagged_not_hidden() {
         let kb = kb();
-        let mut p = Policy::default();
-        p.stale_after_days = 0;
-        p.warn_after_days = 0;
+        let p = Policy {
+            stale_after_days: 0,
+            warn_after_days: 0,
+            ..Policy::default()
+        };
         match supports(&kb, "vllm", "cap-chat", &p, i64::MAX / 4) {
             Answer::Stale { citations, .. } => assert!(!citations.is_empty()),
             other => panic!("expected stale, got {other:?}"),

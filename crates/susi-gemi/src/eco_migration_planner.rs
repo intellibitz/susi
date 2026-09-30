@@ -111,7 +111,7 @@ pub fn plan(kb: &KnowledgeBase, deprecated_id: &str) -> MigrationPlan {
         }
     }
     plan.tests
-        .push(format!("cargo test -p susi-vendor-models eco_profile"));
+        .push("cargo test -p susi-vendor-models eco_profile".to_string());
     if plan.replacement.is_none() {
         plan.basis
             .push("no replacement recorded — plan is a gap report".into());

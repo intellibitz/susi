@@ -71,11 +71,13 @@ pub fn route(kb: &KnowledgeBase, required: &[&str], policy: &Policy, now_unix: i
         let mut worst = "fresh";
         let mut sources = Vec::new();
         for f in &facts {
-            if covered.iter().any(|c| *c == f.to) {
+            if covered.contains(&f.to) {
                 match freshness(&f.provenance, policy, now_unix) {
                     Freshness::Stale { .. } | Freshness::Unreadable => worst = "stale",
+                    Freshness::Fresh { .. } => {}
+                    Freshness::Future { .. } => {}
                     Freshness::Aging { .. } if worst == "fresh" => worst = "aging",
-                    _ => {}
+                    Freshness::Aging { .. } => {}
                 }
                 sources.push(f.provenance.source.clone());
             }
@@ -90,7 +92,7 @@ pub fn route(kb: &KnowledgeBase, required: &[&str], policy: &Policy, now_unix: i
             sources,
         });
     }
-    routes.sort_by(|a, b| b.rank().cmp(&a.rank()));
+    routes.sort_by_key(|r| std::cmp::Reverse(r.rank()));
     routes
 }
 
@@ -156,9 +158,11 @@ mod tests {
     fn eco_capability_routing_stale_evidence_is_flagged() {
         let kb = kb();
         // a policy that stales everything marks routes "stale"
-        let mut p = Policy::default();
-        p.stale_after_days = 0;
-        p.warn_after_days = 0;
+        let p = Policy {
+            stale_after_days: 0,
+            warn_after_days: 0,
+            ..Policy::default()
+        };
         let routes = route(&kb, &["cap-chat"], &p, i64::MAX / 4);
         assert!(routes.iter().all(|r| r.freshness == "stale"));
     }
