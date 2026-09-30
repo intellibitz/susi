@@ -1,0 +1,172 @@
+{
+  "version": "eco-profile/v1",
+  "id": "oip-v2",
+  "name": "Open Inference Protocol v2 (KServe, Triton)",
+  "subject": "open-inference-protocol",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v2/models/{model}/infer",
+      "description": "Infer with named tensors",
+      "streaming": false,
+      "request": "infer",
+      "response": "infer"
+    },
+    {
+      "method": "GET",
+      "path": "/v2/health/live",
+      "description": "Liveness",
+      "streaming": false,
+      "response": "empty"
+    },
+    {
+      "method": "GET",
+      "path": "/v2/health/ready",
+      "description": "Server readiness",
+      "streaming": false,
+      "response": "empty"
+    },
+    {
+      "method": "GET",
+      "path": "/v2/models/{model}/ready",
+      "description": "Model readiness",
+      "streaming": false,
+      "response": "empty"
+    },
+    {
+      "method": "GET",
+      "path": "/v2",
+      "description": "Server metadata",
+      "streaming": false,
+      "response": "meta"
+    },
+    {
+      "method": "GET",
+      "path": "/v2/models/{model}",
+      "description": "Model metadata",
+      "streaming": false,
+      "response": "model-meta"
+    },
+    {
+      "method": "POST",
+      "path": "/v2/repository/models/{model}/load",
+      "description": "Explicit load",
+      "streaming": false,
+      "response": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/v2/repository/models/{model}/unload",
+      "description": "Explicit unload",
+      "streaming": false,
+      "response": "empty"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none",
+      "header": "none",
+      "prefix": "",
+      "env": []
+    }
+  ],
+  "versions": [
+    {
+      "id": "v2",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "infer",
+      "format": "json",
+      "fields": [
+        "id",
+        "inputs[]{name,datatype,shape,data|parameters.binary_data}",
+        "outputs[] requested",
+        "parameters"
+      ],
+      "notes": "tensor data inline or base64 via parameters"
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "infer",
+      "format": "json",
+      "fields": [
+        "model_name",
+        "model_version",
+        "outputs[]{name,datatype,shape,data}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "meta",
+      "format": "json",
+      "fields": [
+        "name",
+        "version",
+        "extensions[]"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "model-meta",
+      "format": "json",
+      "fields": [
+        "name",
+        "versions[]",
+        "platform",
+        "inputs",
+        "outputs"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "empty",
+      "format": "json",
+      "fields": [
+        "200 empty body"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "400",
+      "code": "invalid_inference_request",
+      "retriable": false
+    },
+    {
+      "status": "404",
+      "code": "model_not_found",
+      "retriable": false
+    },
+    {
+      "status": "500",
+      "code": "inference_failure",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "http-503",
+      "meaning": "server not ready / model loading"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-embeddings",
+    "cap-vision",
+    "cap-discovery"
+  ],
+  "deviations": [],
+  "streaming": null,
+  "provenance": {
+    "source": "https://github.com/kserve/open-inference-protocol",
+    "spec_version": "v2",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}
