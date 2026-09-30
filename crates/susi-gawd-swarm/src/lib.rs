@@ -26,6 +26,7 @@ pub use susi_core;
 pub mod agent_routing;
 pub mod ama;
 pub mod amas;
+pub mod anti_entropy;
 pub mod cancel_propagate;
 pub mod capability_market;
 pub(crate) mod cloud_recovery;
@@ -33,11 +34,13 @@ pub mod coordinator_fence;
 pub mod dag;
 pub mod deliberation;
 pub mod fair_queue;
+pub mod fault_matrix;
 pub mod federation_compat;
 pub mod host_hooks;
 pub mod identity_revoke;
 pub mod independent_verify;
 pub mod joint_consensus;
+pub mod locality_placement;
 pub mod membership_model;
 pub mod mission_persist;
 pub mod mission_resume;
@@ -50,6 +53,7 @@ pub mod side_effects;
 pub mod snapshot_bootstrap;
 pub mod swarm_chaos;
 pub mod task_lease;
+pub mod wan_peers;
 pub mod workspace_txn;
 pub mod zc_agent_pick;
 pub mod zc_lan_cluster;
@@ -121,6 +125,18 @@ mod vc_201_035_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_036.rs"]
 mod vc_201_036_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_037.rs"]
+mod vc_201_037_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_038.rs"]
+mod vc_201_038_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_039.rs"]
+mod vc_201_039_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_040.rs"]
+mod vc_201_040_tests;
 
 /// Wire the MissionDag post-swarm hook into the agents leaf.
 ///
