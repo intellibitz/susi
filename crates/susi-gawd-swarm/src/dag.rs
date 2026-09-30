@@ -68,6 +68,9 @@ struct NodeRun {
     fence: u64,
     scope: crate::writer_isolation::WorkerScope,
     cancelled: bool,
+    /// Fence was lost before/during the run (T-DEVIN-9): its private writes
+    /// are discarded, never folded, and the node is refused completion.
+    stale_fence: bool,
 }
 
 fn now_unix() -> u64 {
@@ -127,9 +130,11 @@ impl MissionDag {
     }
 
     /// Snapshot live DAG state into a [`PersistedMission`] (VC-201-021 wiring).
+    /// Carries the lease table so fencing survives restart (T-DEVIN-9).
     #[must_use]
     pub fn to_persisted(&self, mission_id: &str) -> PersistedMission {
         let mut mission = PersistedMission::new(mission_id);
+        mission.leases = self.leases.clone();
         for (idx, node) in self.nodes.iter().enumerate() {
             let id = Self::persist_id(idx);
             let state = if node.completed {
@@ -589,6 +594,9 @@ impl MissionDag {
         persist: &mut MissionPersistCtx<'_>,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         self.seed_persist(persist.mission);
+        // Adopt durable fences: a fresh in-memory table restarts `next_fence`
+        // at 0, letting a stale worker's token collide with a new lease.
+        self.leases.adopt(&persist.mission.leases);
         persist.mission.save(persist.dir)?;
         self.execute_dag_inner(workspace, blackboard, event_sender, Some(persist))
     }
@@ -702,6 +710,14 @@ impl MissionDag {
                 batch_signals.push(signal);
             }
 
+            // Durable fences (T-DEVIN-9): the lease table rides mission
+            // state, so a crash + resume keeps `next_fence` monotonic — a
+            // stale worker token can never collide with a fresh lease.
+            if let Some(ctx) = persist_slot.as_mut() {
+                ctx.mission.leases = self.leases.clone();
+                let _ = ctx.mission.save(ctx.dir);
+            }
+
             let ws = workspace.to_path_buf();
             let bb = Arc::clone(blackboard);
             let tx = event_sender.clone();
@@ -735,16 +751,28 @@ impl MissionDag {
                             || manager.is_scope_cancelled(&scope_for_check)
                             || now_unix() >= deadline
                     };
-                    if cancelled() {
+                    // Fence check BEFORE the first mutating operation
+                    // (T-DEVIN-9): rejecting only at completion cannot undo
+                    // writes the stale worker already made.
+                    let node_id = Self::persist_id(idx);
+                    let mut stale = self.leases.check_fence(
+                        &node_id, &owner, fence, now_unix(),
+                    ) != CompleteVerdict::Accepted;
+                    if cancelled() || stale {
                         return NodeRun {
                             idx,
-                            res: Err(EaiError::governance("worker cancelled")),
+                            res: Err(EaiError::governance(if stale {
+                                "worker lost fence before dispatch"
+                            } else {
+                                "worker cancelled"
+                            })),
                             elapsed_ms: start.elapsed().as_millis() as u64,
                             calls: Vec::new(),
                             owner,
                             fence,
                             scope,
-                            cancelled: true,
+                            cancelled: cancelled(),
+                            stale_fence: stale,
                         };
                     }
                     let _ = tx.send(crate::susi_core::bus::SwarmEventType::AgentStarted {
@@ -773,7 +801,16 @@ impl MissionDag {
                     // exec_command argument), for binding its own evidence.
                     let mut node_calls = Vec::new();
                     for block in res.split("```").skip(1).step_by(2) {
-                        if cancelled() {
+                        // Recheck before each mutation — a fence displaced
+                        // mid-run stops further writes immediately.
+                        stale = stale
+                            || self.leases.check_fence(
+                                &node_id,
+                                &owner,
+                                fence,
+                                now_unix(),
+                            ) != CompleteVerdict::Accepted;
+                        if cancelled() || stale {
                             break;
                         }
                         if let Some(cmd) = shell_block_command(block) {
@@ -801,7 +838,6 @@ impl MissionDag {
                     }
 
                     let elapsed = start.elapsed().as_millis() as u64;
-                    let was_cancelled = cancelled();
                     NodeRun {
                         idx,
                         res: Ok(res),
@@ -810,7 +846,8 @@ impl MissionDag {
                         owner,
                         fence,
                         scope,
-                        cancelled: was_cancelled,
+                        cancelled: cancelled(),
+                        stale_fence: stale,
                     }
                 })
                 .collect();
@@ -820,10 +857,27 @@ impl MissionDag {
             // conflicts instead of silently lost writes.
             let mut write_conflicts: Vec<String> = Vec::new();
             let mut conflicted_nodes: BTreeSet<usize> = BTreeSet::new();
+            let mut stale_nodes: Vec<usize> = Vec::new();
             for run in &batch_results {
                 // Cancelled workers' private writes are discarded, never
                 // folded — a killed command's partial output must not land.
                 if run.cancelled {
+                    isolation.cleanup(&run.scope);
+                    continue;
+                }
+                // Re-check the fence before merging private writes
+                // (T-DEVIN-9): a lease displaced mid-run means this worker's
+                // writes are stale — discarding them is safe because they
+                // never left the private scope.
+                let run_stale = run.stale_fence
+                    || self.leases.check_fence(
+                        &Self::persist_id(run.idx),
+                        &run.owner,
+                        run.fence,
+                        now_unix(),
+                    ) != CompleteVerdict::Accepted;
+                if run_stale {
+                    stale_nodes.push(run.idx);
                     isolation.cleanup(&run.scope);
                     continue;
                 }
@@ -839,13 +893,35 @@ impl MissionDag {
                     }
                     Err(e) => {
                         for rest in &batch_results {
-                            if !rest.cancelled {
+                            if !rest.cancelled && !stale_nodes.contains(&rest.idx) {
                                 isolation.cleanup(&rest.scope);
                             }
                         }
                         return Err(e);
                     }
                 }
+            }
+            if !stale_nodes.is_empty() {
+                let detail = stale_nodes
+                    .iter()
+                    .map(|i| format!("n{i}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if let Some(ctx) = persist_slot.as_mut() {
+                    ctx.mission.leases = self.leases.clone();
+                    for &idx in &stale_nodes {
+                        let id = Self::persist_id(idx);
+                        if let Some(node) = ctx.mission.nodes.get_mut(&id) {
+                            node.state = NodeTerminal::Failed;
+                            node.output =
+                                Some("[STALE_FENCE] worker's fence was displaced".to_string());
+                        }
+                    }
+                    let _ = ctx.mission.save(ctx.dir);
+                }
+                return Err(EaiError::governance(format!(
+                    "DAG_EXECUTION_FAILED: stale fence rejected worker writes: {detail}"
+                )));
             }
             if !write_conflicts.is_empty() {
                 let detail = write_conflicts.join(";");
@@ -962,6 +1038,9 @@ impl MissionDag {
                             bb.insert(format!("TaskNode_{}", idx), verified.clone());
 
                             if let Some(ctx) = persist_slot.as_mut() {
+                                // Lease consumed by completion — persist the
+                                // table so resume sees it closed (T-DEVIN-9).
+                                ctx.mission.leases = self.leases.clone();
                                 let _ = Self::persist_node_complete(
                                     ctx.mission,
                                     ctx.dir,
