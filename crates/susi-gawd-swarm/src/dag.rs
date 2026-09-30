@@ -2,6 +2,8 @@
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
 use crate::mission_persist::{NodeTerminal, PersistedMission, PersistedNode};
+use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
+use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
 use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
 use crate::task_lease::{CompleteVerdict, LeaseTable, TaskLease};
@@ -25,6 +27,8 @@ pub struct MissionDag {
     /// Per-dispatch ownership fences (VC-201-022). Completions without the
     /// live fence are refused so a recovered worker cannot publish.
     pub leases: LeaseTable,
+    /// Side-effect outcomes keyed by persist id (VC-201-023).
+    pub side_effects: std::collections::BTreeMap<String, ActionOutcome>,
 }
 
 pub type SwarmDag = MissionDag;
@@ -57,6 +61,7 @@ impl MissionDag {
                 completed: false,
             }],
             leases: LeaseTable::new(),
+            side_effects: std::collections::BTreeMap::new(),
         }
     }
 
@@ -146,7 +151,66 @@ impl MissionDag {
         Self {
             nodes,
             leases: LeaseTable::new(),
+            side_effects: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Record / reconcile a tool side effect for a DAG node (dispatch wiring).
+    pub fn record_side_effect(
+        &mut self,
+        idx: usize,
+        tool: &str,
+        prior: Option<&ActionOutcome>,
+    ) -> ActionOutcome {
+        let outcome = reconcile_dispatch_side_effect(tool, prior);
+        self.side_effects
+            .insert(Self::persist_id(idx), outcome.clone());
+        outcome
+    }
+
+    /// Whether a crashed node may retry its last recorded side effect.
+    #[must_use]
+    pub fn may_retry_node(&self, idx: usize) -> bool {
+        self.side_effects
+            .get(&Self::persist_id(idx))
+            .is_none_or(|o| crate::side_effects::may_retry_after_crash(o.class))
+    }
+
+    /// Default resource request for a DAG node (dispatch scheduling).
+    #[must_use]
+    pub fn default_resource_node(idx: usize) -> ResNode {
+        ResNode {
+            id: Self::persist_id(idx),
+            cpu: 1.0,
+            gpu_mem_gb: 0.0,
+            needs_model: true,
+            needs_tools: vec!["exec_command".into()],
+        }
+    }
+
+    /// Filter ready indices by live resource constraints; reserves as admits
+    /// succeed so concurrent admits never oversubscribe (VC-201-024).
+    pub fn schedule_ready(
+        ready: &[usize],
+        free: &Resources,
+        requests: &std::collections::BTreeMap<usize, ResNode>,
+    ) -> (Vec<usize>, Resources) {
+        let mut remaining = free.clone();
+        let mut admitted = Vec::new();
+        for &idx in ready {
+            let req = requests
+                .get(&idx)
+                .cloned()
+                .unwrap_or_else(|| Self::default_resource_node(idx));
+            match admit(&req, &remaining) {
+                Admit::Run => {
+                    remaining = reserve(&remaining, &req);
+                    admitted.push(idx);
+                }
+                Admit::Queue => {}
+            }
+        }
+        (admitted, remaining)
     }
 
     /// Issue an expiring ownership fence for a ready DAG node (dispatch).
@@ -261,6 +325,21 @@ impl MissionDag {
                 ));
             }
 
+            // Admit by live resources so oversubscribed fixtures queue (VC-201-024).
+            let free = Resources {
+                cpu: 8.0,
+                gpu_mem_gb: 16.0,
+                model_ready: true,
+                tool_grants: vec!["exec_command".into()],
+            };
+            let (ready_indices, _remaining) =
+                Self::schedule_ready(&ready_indices, &free, &std::collections::BTreeMap::new());
+            if ready_indices.is_empty() {
+                return Err(EaiError::governance(
+                    "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints",
+                ));
+            }
+
             // Mark ready nodes Running in persist before the parallel batch.
             if let Some(ctx) = persist_slot.as_mut() {
                 for &idx in &ready_indices {
@@ -350,6 +429,16 @@ impl MissionDag {
                         workspace,
                     ) {
                         Ok(verified) => {
+                            // Classify exec_command side effects before fencing
+                            // completion so crash resume can reconcile (VC-201-023).
+                            if !node_calls.is_empty() {
+                                let prior = self.side_effects.get(&Self::persist_id(idx)).cloned();
+                                let _ = self.record_side_effect(
+                                    idx,
+                                    "exec_command",
+                                    prior.as_ref(),
+                                );
+                            }
                             let complete_now = now_unix();
                             match self.lease_complete(idx, &owner, fence, complete_now) {
                                 CompleteVerdict::Accepted => {}

@@ -41,3 +41,28 @@ pub fn after_crash_retry(prior: &ActionOutcome) -> ActionOutcome {
         completed: true,
     }
 }
+
+/// Classify a swarm tool invocation for crash-retry policy (dispatch wiring).
+#[must_use]
+pub fn classify_tool_action(tool: &str) -> ActionClass {
+    match tool {
+        "read_file" | "list_dir" | "search" | "grep" => ActionClass::ReadOnly,
+        "exec_command" | "write_file" | "apply_patch" => ActionClass::Idempotent,
+        "http_call" | "peer_dispatch" => ActionClass::Reconcilable,
+        _ => ActionClass::NonRetryable,
+    }
+}
+
+/// Decide whether a crashed dispatch may retry a tool, and what outcome to
+/// record for reconciliation.
+#[must_use]
+pub fn reconcile_dispatch_side_effect(tool: &str, prior: Option<&ActionOutcome>) -> ActionOutcome {
+    match prior {
+        Some(p) => after_crash_retry(p),
+        None => ActionOutcome {
+            class: classify_tool_action(tool),
+            uncertain_external: false,
+            completed: false,
+        },
+    }
+}
