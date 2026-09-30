@@ -23,4 +23,7 @@ pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
 
 pub mod external;
+pub mod zc_agent_approvals;
+pub mod zc_agent_autodetect;
 pub mod zc_devin_org;
+pub mod zc_workspace_trust;
