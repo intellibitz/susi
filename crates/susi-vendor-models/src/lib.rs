@@ -60,6 +60,7 @@ pub mod model_store_dedupe;
 pub mod more_openai_compat;
 pub mod multi_gpu_plan;
 pub mod npu_detection;
+pub mod ollama_models;
 pub mod open_weight;
 pub mod openrouter;
 pub mod port_conflicts;
