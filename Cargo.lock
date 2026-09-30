@@ -6261,6 +6261,7 @@ dependencies = [
  "susi-paths",
  "susi-vendor-criterion",
  "susi-vendor-dashmap",
+ "susi-vendor-ed25519-dalek",
  "susi-vendor-flume",
  "susi-vendor-getrandom",
  "susi-vendor-hex",

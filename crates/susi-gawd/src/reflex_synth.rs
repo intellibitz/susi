@@ -67,9 +67,9 @@ pub fn reflex_path(slug: &str) -> std::path::PathBuf {
         .join(format!("{slug}.wasm"))
 }
 
-/// Probe input a model-written reflex must run on before it is published.
-const PROBE_INPUT: &str = "susi-probe";
-
+/// A reflex registers only when the intent's own checks pass under the
+/// sandbox, not merely when it executes on one fixed probe (VC-200-002).
+///
 /// Result of [`ReflexSynthesizer::synthesize_capability`].
 #[derive(Debug, Clone)]
 pub struct ReflexSynthesis {
@@ -139,12 +139,25 @@ impl ReflexSynthesizer {
         let intent = name;
         let slug = sanitize_reflex_slug(name)?;
         let functional = Self::model_reflex_source(description, workspace).and_then(|src| {
-            let verify = |staged: &Path| -> Result<(), String> {
-                match crate::susi_native::WasmHost::execute_reflex(staged, PROBE_INPUT) {
-                    Ok(out) if !out.trim().is_empty() => Ok(()),
-                    Ok(_) => Err("reflex produced no output on the probe input".into()),
-                    Err(e) => Err(format!("reflex failed on the probe input: {e}")),
-                }
+            // VC-200-002: execution is not correctness — the staged module
+            // must also satisfy the intent's own checks (fixtures + any
+            // declared invariants) under the WASI sandbox before it may
+            // publish under a live name. An intent the model cannot
+            // produce checks for is unverifiable → stays unregistered.
+            let spec = Self::model_intent_spec(description, workspace)?;
+            let verify = move |staged: &Path| -> Result<(), String> {
+                let run = |input: &str| -> Result<String, String> {
+                    crate::susi_native::WasmHost::execute_reflex(staged, input)
+                        .map_err(|e| format!("reflex failed to execute: {e}"))
+                        .and_then(|out| {
+                            if out.trim().is_empty() {
+                                Err("reflex produced no output".to_string())
+                            } else {
+                                Ok(out)
+                            }
+                        })
+                };
+                crate::reflex_verify::run_checks(&spec, &run)
             };
             Self::compile_and_publish(&slug, &src, Some(&verify))
         });
@@ -187,6 +200,37 @@ impl ReflexSynthesizer {
             ));
         }
         Ok(source)
+    }
+
+    /// The intent's executable check set: ask the model for concrete
+    /// input → expected-output fixtures (plus any VC-201-008 invariants it
+    /// can declare) as a fenced `json` block. `Err` when the model cannot
+    /// produce a verifiable spec — an intent without checks is not
+    /// verifiable, so the reflex stays unregistered and the gap open.
+    fn model_intent_spec(
+        intent: &str,
+        workspace: &Path,
+    ) -> EaiResult<crate::reflex_verify::IntentSpec> {
+        let prompt = format!(
+            "For a self-contained std-only Rust program implementing: {intent}\n\
+             The program reads its input from argv[1] and prints the result to stdout.\n\
+             Reply with ONLY a ```json block — the verification spec: \
+             {{\"fixtures\": [{{\"input\": \"<arg>\", \"expected\": \"<exact stdout>\"}}, \
+             ...at least 3 concrete cases...], \"invariants\": []}}. \
+             Use \"expected\" for exact trimmed output or \"expect_contains\" for a \
+             required substring. No prose, no code."
+        );
+        let reply = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+            &prompt, workspace,
+        );
+        let json = extract_rust_block(&reply).ok_or_else(|| {
+            EaiError::inference("model reply contained no JSON verification spec")
+        })?;
+        crate::reflex_verify::parse_intent_spec(&json).ok_or_else(|| {
+            EaiError::inference(
+                "model produced no usable intent-check spec — reflex is unverifiable",
+            )
+        })
     }
 
     /// Write `source`, compile it to a private staging name, optionally run
@@ -250,15 +294,15 @@ impl ReflexSynthesizer {
     }
 
     /// The one user-facing report of a capability-gap attempt (Mandate 1):
-    /// a model-written reflex is reported as compiled and run on a probe
-    /// input — its correctness for the intent is not verified — and a probe
-    /// reflex is reported as not implementing the capability at all.
+    /// a model-written reflex is reported as compiled and verified against
+    /// the intent's own checks in the WASI sandbox; a probe reflex is
+    /// reported as not implementing the capability at all.
     pub fn gap_report(name: &str, outcome: &EaiResult<ReflexSynthesis>) -> String {
         match outcome {
             Ok(r) if r.functional => format!(
                 "[HOT_PATCH] Synthesized a model-written WASI reflex for '{name}' at {} \
-                 (callable as 'reflex_{name}'). It compiled and ran on a probe input; its \
-                 correctness for '{name}' is not verified.",
+                 (callable as 'reflex_{name}'). It compiled and passed the intent's \
+                 own fixtures and invariants under the WASI sandbox.",
                 r.path
             ),
             Ok(r) => format!(
@@ -376,7 +420,7 @@ mod tests {
             note: None,
         });
         let text = ReflexSynthesizer::gap_report("x", &real);
-        assert!(text.contains("correctness for 'x' is not verified"));
+        assert!(text.contains("passed the intent's own fixtures"));
     }
 
     #[test]

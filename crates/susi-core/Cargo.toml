@@ -29,6 +29,9 @@ criterion = { package = "susi-vendor-criterion", path = "../susi-vendor-criterio
 proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }
 susi-vendor-models = { workspace = true }
 tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
+# Test-only: foreign-member Ed25519 signatures for the endorsement gates —
+# `member_sign` can only sign as this node.
+ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }
 
 [[bench]]
 name = "evidence_verify"
