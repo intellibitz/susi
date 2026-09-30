@@ -1,0 +1,16 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "standard",
+    "id": "hf-chat-template",
+    "name": "HF chat template (Jinja2)",
+    "body": "Hugging Face",
+    "provenance": {
+      "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}

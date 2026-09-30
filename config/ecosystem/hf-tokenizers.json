@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "hf-tokenizers",
+    "name": "HF tokenizers library",
+    "category": "extension",
+    "provenance": {
+      "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+      "spec_version": "v1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "hf-tokenizers",
+      "to": "hf-tokenizer-json",
+      "provenance": {
+        "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "hf-tokenizers",
+      "to": "tokenizer-json-v1",
+      "provenance": {
+        "source": "https://huggingface.co/docs/transformers/en/chat_templating",
+        "spec_version": "v1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
