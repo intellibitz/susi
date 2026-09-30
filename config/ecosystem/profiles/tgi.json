@@ -1,0 +1,186 @@
+{
+  "version": "eco-profile/v1",
+  "id": "tgi",
+  "name": "Text Generation Inference API",
+  "subject": "tgi-api",
+  "kind": "api",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/generate",
+      "description": "Generate (native)",
+      "streaming": false,
+      "request": "tgi-generate",
+      "response": "tgi-response"
+    },
+    {
+      "method": "POST",
+      "path": "/generate_stream",
+      "description": "Streaming generate (SSE)",
+      "streaming": true,
+      "request": "tgi-generate",
+      "response": "tgi-stream"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "description": "OpenAI-compatible chat",
+      "streaming": false,
+      "request": "openai-chat",
+      "response": "openai-chat"
+    },
+    {
+      "method": "GET",
+      "path": "/info",
+      "description": "Model/shard info",
+      "streaming": false,
+      "response": "info"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "description": "Health",
+      "streaming": false,
+      "response": "empty"
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "description": "Prometheus metrics",
+      "streaming": false,
+      "response": "empty"
+    }
+  ],
+  "auth": [
+    {
+      "scheme": "none",
+      "header": "none",
+      "prefix": "",
+      "env": []
+    }
+  ],
+  "versions": [
+    {
+      "id": "3.x",
+      "status": "current"
+    }
+  ],
+  "request_shapes": [
+    {
+      "name": "tgi-generate",
+      "format": "json",
+      "fields": [
+        "inputs",
+        "parameters{temperature,top_p,max_new_tokens,grammar{json|regex}}",
+        "stream on separate endpoint"
+      ],
+      "notes": "grammar enforces structured output"
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "model ignored (single model)",
+        "messages[]"
+      ],
+      "notes": ""
+    }
+  ],
+  "response_shapes": [
+    {
+      "name": "tgi-response",
+      "format": "json",
+      "fields": [
+        "generated_text",
+        "details{tokens,finish_reason,seed}"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "tgi-stream",
+      "format": "sse",
+      "fields": [
+        "token chunks",
+        "final chunk carries details"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "openai-chat",
+      "format": "json",
+      "fields": [
+        "choices[]",
+        "usage"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "info",
+      "format": "json",
+      "fields": [
+        "model_id",
+        "model_dtype",
+        "max_total_tokens",
+        "version"
+      ],
+      "notes": ""
+    },
+    {
+      "name": "empty",
+      "format": "json",
+      "fields": [
+        "200 ok"
+      ],
+      "notes": ""
+    }
+  ],
+  "errors": [
+    {
+      "status": "422",
+      "code": "validation",
+      "retriable": false
+    },
+    {
+      "status": "424",
+      "code": "generation",
+      "retriable": true
+    },
+    {
+      "status": "429",
+      "code": "overloaded",
+      "retriable": true
+    },
+    {
+      "status": "500",
+      "code": "incomplete_generation",
+      "retriable": true
+    }
+  ],
+  "rate_limits": [
+    {
+      "signal": "429 overloaded",
+      "meaning": "shard queue full; retry after backoff"
+    }
+  ],
+  "capabilities": [
+    "cap-chat",
+    "cap-structured-output",
+    "cap-streaming",
+    "cap-embeddings"
+  ],
+  "deviations": [],
+  "streaming": {
+    "format": "sse",
+    "events": [
+      "data: token json",
+      "data: [DONE]-style final"
+    ],
+    "notes": "/generate_stream only"
+  },
+  "provenance": {
+    "source": "https://huggingface.github.io/text-generation-inference/",
+    "spec_version": "3.x",
+    "retrieved": "2026-09-01",
+    "confidence": "reported"
+  }
+}

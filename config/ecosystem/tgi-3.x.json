@@ -1,0 +1,28 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "spec-version",
+    "id": "tgi-3.x",
+    "name": "TGI 3.x",
+    "version": "3.x",
+    "provenance": {
+      "source": "https://huggingface.github.io/text-generation-inference/",
+      "spec_version": "3.x",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "version-of",
+      "from": "tgi-3.x",
+      "to": "tgi-api",
+      "provenance": {
+        "source": "https://huggingface.github.io/text-generation-inference/",
+        "spec_version": "3.x",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}
