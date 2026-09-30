@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "vendor",
+    "id": "copilotkit",
+    "name": "CopilotKit",
+    "home": "https://copilotkit.ai",
+    "provenance": {
+      "source": "https://agent-network-protocol.com",
+      "spec_version": "0.1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "provides",
+      "from": "copilotkit",
+      "to": "copilotkit-runtime",
+      "provenance": {
+        "source": "https://agent-network-protocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "publishes",
+      "from": "copilotkit",
+      "to": "ag-ui",
+      "provenance": {
+        "source": "https://agent-network-protocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

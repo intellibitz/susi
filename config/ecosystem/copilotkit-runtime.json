@@ -1,0 +1,39 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "component",
+    "id": "copilotkit-runtime",
+    "name": "CopilotKit runtime",
+    "category": "agent-framework",
+    "provenance": {
+      "source": "https://agent-network-protocol.com",
+      "spec_version": "0.1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": [
+    {
+      "kind": "implements",
+      "from": "copilotkit-runtime",
+      "to": "ag-ui",
+      "provenance": {
+        "source": "https://agent-network-protocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    },
+    {
+      "kind": "implements-version",
+      "from": "copilotkit-runtime",
+      "to": "ag-ui-0.1",
+      "provenance": {
+        "source": "https://agent-network-protocol.com",
+        "spec_version": "0.1",
+        "retrieved": "2026-09-01",
+        "confidence": "reported"
+      }
+    }
+  ]
+}

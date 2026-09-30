@@ -1,0 +1,18 @@
+{
+  "version": "eco-schema/v1",
+  "entity": {
+    "kind": "protocol",
+    "id": "anp",
+    "name": "Agent Network Protocol",
+    "transports": [
+      "http"
+    ],
+    "provenance": {
+      "source": "https://agent-network-protocol.com",
+      "spec_version": "0.1",
+      "retrieved": "2026-09-01",
+      "confidence": "reported"
+    }
+  },
+  "relations": []
+}
