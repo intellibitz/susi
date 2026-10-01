@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-2",
+  "title": "Gate the test-harness contract on branch pushes: a [[test]] harness=false target is invisible to nextest",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-test-harness-contract.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790850401,
+  "closed": {
+    "at_unix": 1790850556,
+    "commit": "59a3803413cd2982ebfac8dda7cb4ae5b7eca39d",
+    "by": "DEEPSEEK"
+  }
+}

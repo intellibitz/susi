@@ -97,6 +97,15 @@ jobs:
         with:
           fetch-depth: 0 # merge-base diff needs history
 
+      # Static and build-free, so it costs seconds: a `[[test]] harness = false`
+      # target is invisible to nextest (it reports no result and marks the test
+      # skipped) and can therefore never fail the main shards — while its
+      # discovery pass can fail them instead. Branch pushes skip the nextest
+      # shards, so without this gate such a test merges green and breaks main;
+      # that is exactly what PR #185 did to the foundation shard.
+      - name: Test harness contract
+        run: scripts/check-test-harness-contract.sh
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
