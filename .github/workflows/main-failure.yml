@@ -1,0 +1,35 @@
+name: Main Failure Attribution
+
+# A red `main` is a defect (Mandate 54) and, with several agents merging in
+# parallel, it is a shared signal with no owner: the failing commit is a merge
+# commit, so nothing says whose work it carries and every agent bisects the same
+# failure. This hangs off the post-merge suite and points the pull request at its
+# own failure. Additive by design — it never merges, gates or blocks anything,
+# and it stays silent when the sha cannot be attributed.
+
+on:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  attribute:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Comment on the pull request this merge came from
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/report-main-failure.sh \
+            "${{ github.event.workflow_run.head_sha }}" \
+            "${{ github.event.workflow_run.html_url }}"
