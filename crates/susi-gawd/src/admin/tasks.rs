@@ -1446,14 +1446,13 @@ mod tests {
     fn a_dispossessed_agent_can_still_claim_another_task() {
         let (r, a, b) = Repos::new("dispossessed");
         let x = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
-        for clone in [&b] {
-            std::fs::create_dir_all(tasks_dir(clone)).unwrap();
-            std::fs::copy(
-                tasks_dir(&a).join(format!("{}.json", x.id)),
-                tasks_dir(clone).join(format!("{}.json", x.id)),
-            )
-            .unwrap();
-        }
+        // `b` needs the task file too, to be able to take the claim over.
+        std::fs::create_dir_all(tasks_dir(&b)).unwrap();
+        std::fs::copy(
+            tasks_dir(&a).join(format!("{}.json", x.id)),
+            tasks_dir(&b).join(format!("{}.json", x.id)),
+        )
+        .unwrap();
         let t0 = 3_000_000;
         claim(&a, &x.id, "claude", 1, t0).unwrap();
         claim(&b, &x.id, "devin", 1, t0 + 3_601).unwrap();
