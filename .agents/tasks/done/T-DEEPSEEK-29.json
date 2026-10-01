@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-29",
+  "title": "Make a stale installed susi visible in workflow check, so a binary that predates a merged fix cannot silently permit what main forbids",
+  "goal": "Agents drive the whole loop through ~/.susi/bin/susi, which only changes when a release is cut and promoted. On 2026-10-01 the installed release (0.21.0, commit ee0f8269) was 92 commits behind origin/main: it released a claim taken on another branch — the exact protection f9e62947 added — while AGENTS.md documents that protection as active. Nothing reported the drift because the version string matched. Read the release marker the promotion path already writes (susi.build.json, with its commit), compare it against origin/main and warn when the installed release is behind or built off main. Warnings never block the loop. Acceptance: nonzero hermetic tests in tests/workflow_check.rs covering a stale marker (warned, exit 0), a current marker (passes) and no marker (dev build, silent).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(workflow_check)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790896210,
+  "closed": {
+    "at_unix": 1790896793,
+    "commit": "49ddd67dc651549d73d0ed8b7b569d2f80248740",
+    "by": "DEEPSEEK"
+  }
+}

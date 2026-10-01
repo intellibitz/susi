@@ -14,7 +14,9 @@
 //!    used to say so before they did),
 //! 6. that claim's lease is not about to lapse,
 //! 7. the primary-checkout watcher is alive (it is what keeps the primary
-//!    parked at `origin/main`).
+//!    parked at `origin/main`),
+//! 8. the release installed on this host is not older than the fixes merged
+//!    into `main` (the binary every worker runs only changes at a release).
 //!
 //! Evaluation is pure ([`evaluate`]) so every combination is unit-tested;
 //! [`gather`] is the only part that touches git or the network.
@@ -52,6 +54,31 @@ pub struct Hooks {
     pub missing: Vec<String>,
 }
 
+/// The release this host installed as `~/.susi/bin/susi`, from the marker
+/// `scripts/susi-release-sync.sh` writes beside it.
+///
+/// Agents drive the whole loop through that binary, and it only changes when a
+/// release is cut and promoted — so a fix can be merged, documented as active
+/// in `AGENTS.md`, and still absent from the tool every worker runs. A version
+/// string cannot reveal this: the version is bumped by the release commit
+/// itself and stays identical for every commit merged after it. `0.21.0` was
+/// installed 92 commits behind `main`, and released a claim taken on another
+/// branch — exactly the protection `f9e62947` had added.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReleaseDrift {
+    /// The marker exists: a release was installed on this host.
+    pub installed: bool,
+    /// Commit the installed release was built from.
+    pub commit: Option<String>,
+    /// Commits `origin/main` has that the installed release never saw;
+    /// `None` = could not be counted (offline, or an object we do not have).
+    pub behind: Option<u64>,
+    /// The marker's commit is not contained in `origin/main` at all.
+    pub off_main: bool,
+    /// This process *is* that installed binary, not a dev build.
+    pub this_process: bool,
+}
+
 /// Everything [`evaluate`] needs, gathered once.
 #[derive(Debug, Clone)]
 pub struct Facts {
@@ -75,10 +102,17 @@ pub struct Facts {
     /// belong to other agents. See [`finished_worktrees`].
     pub stale_mine: u64,
     pub stale_others: u64,
+    /// How far the release installed on this host trails `origin/main`.
+    pub release: ReleaseDrift,
     pub now: u64,
 }
 
 const HOOKS_REQUIRED: [&str; 4] = ["commit-msg", "pre-commit", "pre-push", "workflow-guard"];
+
+/// A commit for a detail line: short when it looks like a sha.
+fn short(commit: &str) -> &str {
+    commit.get(..8).unwrap_or(commit)
+}
 
 fn pass(name: &'static str, detail: impl Into<String>) -> Check {
     Check {
@@ -283,7 +317,68 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         ),
     });
 
-    // 8. Finished worktrees accumulate in a clone — one per task, and nothing
+    // 8. The binary the agent is running. `~/.susi/bin/susi` changes only when
+    //    a release is cut and promoted, so a merged fix can be documented as
+    //    active while the tool every worker runs still enforces the old rules
+    //    (0.21.0 released another agent's claim across branches, which main
+    //    refuses). The version cannot show it; only the release's commit can.
+    //    Advisory: no agent can fix this alone, and it must not block work.
+    out.push(match f.release.commit.as_deref() {
+        None if !f.release.installed => pass(
+            "installed susi",
+            "no release marker in this instance (dev build or fresh host)",
+        ),
+        None => warn(
+            "installed susi",
+            "the release marker names no commit — cannot tell which revision agents run",
+            "scripts/susi-release-sync.sh",
+        ),
+        Some(commit) if f.release.off_main => warn(
+            "installed susi",
+            format!(
+                "the installed release was built from {}, which is not on origin/main{}",
+                short(commit),
+                if f.release.this_process {
+                    " (this process)"
+                } else {
+                    ""
+                }
+            ),
+            "scripts/susi-release-sync.sh   # promotes a release built from main",
+        ),
+        Some(commit) => match f.release.behind {
+            Some(0) => pass(
+                "installed susi",
+                format!(
+                    "release {} is on origin/main{}",
+                    short(commit),
+                    if f.release.this_process {
+                        " (this process)"
+                    } else {
+                        ""
+                    }
+                ),
+            ),
+            Some(n) => warn(
+                "installed susi",
+                format!(
+                    "the installed release {} is {n} commit(s) behind origin/main — workflow fixes merged since are not active for agents that run it",
+                    short(commit)
+                ),
+                "scripts/susi-release-sync.sh   # then re-run: susi workflow check",
+            ),
+            None => warn(
+                "installed susi",
+                format!(
+                    "release {} is on origin/main, but its distance from it could not be counted (offline?)",
+                    short(commit)
+                ),
+                "git fetch origin && susi workflow check",
+            ),
+        },
+    });
+
+    // 9. Finished worktrees accumulate in a clone — one per task, and nothing
     //    ever reclaimed them (14 here, twelve of them dozens of commits stale).
     //    Advisory: housekeeping must never block the loop, and another agent's
     //    worktree is not this agent's to remove.
@@ -478,6 +573,10 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         None => (0, 0),
     };
 
+    // The tool the agent runs is part of the loop's state: a release that
+    // predates a merged fix enforces the older rules.
+    let release = release_drift(&root);
+
     Facts {
         root,
         primary,
@@ -495,7 +594,62 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         watcher_age,
         stale_mine,
         stale_others,
+        release,
         now,
+    }
+}
+
+/// How far the installed release trails `origin/main`, read from the marker its
+/// promotion path writes (`~/.susi/bin/susi.build.json`, `scripts/susi-release-sync.sh`).
+///
+/// `SusiDirs::home_dir()` is `$HOME` (not the instance root) because the
+/// promotion script installs to `${HOME}/.susi/bin` regardless of an inherited
+/// `SUSI_HOME`; a dev instance is never written there (Mandate 48).
+fn release_drift(root: &Path) -> ReleaseDrift {
+    let bin = susi_paths::SusiDirs::home_dir().join(".susi/bin");
+    let Ok(raw) = std::fs::read_to_string(bin.join("susi.build.json")) else {
+        return ReleaseDrift::default();
+    };
+    let commit = serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|doc| {
+            doc.get("commit")
+                .and_then(|c| c.as_str())
+                .map(str::to_string)
+        })
+        .filter(|c| !c.trim().is_empty());
+    let Some(commit) = commit else {
+        return ReleaseDrift {
+            installed: true,
+            ..ReleaseDrift::default()
+        };
+    };
+    // `--is-ancestor` succeeds only when the commit is contained in main.
+    let off_main = git(
+        root,
+        &["merge-base", "--is-ancestor", &commit, "origin/main"],
+    )
+    .is_none();
+    let behind = (!off_main)
+        .then(|| {
+            git(
+                root,
+                &["rev-list", "--count", &format!("{commit}..origin/main")],
+            )
+        })
+        .flatten()
+        .and_then(|n| n.parse::<u64>().ok());
+    let this_process = std::env::current_exe()
+        .ok()
+        .map(|exe| canonical(&exe))
+        .zip(bin.join("susi").canonicalize().ok())
+        .is_some_and(|(running, installed)| running == installed);
+    ReleaseDrift {
+        installed: true,
+        commit: Some(commit),
+        behind,
+        off_main,
+        this_process,
     }
 }
 
@@ -564,6 +718,7 @@ mod tests {
                 missing: vec![],
             },
             agent: "CLAUDE".into(),
+            release: ReleaseDrift::default(),
             claims: Ok(vec![Claim {
                 branch: None,
                 scopes: vec![],
@@ -775,6 +930,71 @@ mod tests {
         assert_eq!(state(&c, "primary watcher"), State::Warn);
         assert!(c.iter().any(|x| x.fix.contains("susi workflow watch")));
         assert!(ok(&c), "a dead watcher warns; it does not block work");
+    }
+
+    #[test]
+    fn a_stale_installed_release_is_reported_but_never_blocks() {
+        let mut f = good();
+        f.release = ReleaseDrift {
+            installed: true,
+            commit: Some("ee0f8269efdecc14623cce7b2f5d48b913ec3797".into()),
+            behind: Some(92),
+            off_main: false,
+            this_process: true,
+        };
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "installed susi"), State::Warn);
+        let check = c
+            .iter()
+            .find(|x| x.name == "installed susi")
+            .unwrap_or_else(|| panic!("no installed-susi check in {c:?}"));
+        assert!(
+            check.detail.contains("92 commit(s) behind origin/main"),
+            "{}",
+            check.detail
+        );
+        assert!(check.detail.contains("ee0f8269"), "{}", check.detail);
+        assert!(check.fix.contains("susi-release-sync.sh"), "{}", check.fix);
+        // Only the host owner can cut and promote a release; the loop runs on.
+        assert!(ok(&c), "a stale release must not block work");
+    }
+
+    #[test]
+    fn a_current_release_passes_and_a_dev_host_says_nothing() {
+        // No marker (a dev build or a fresh host): nothing to compare.
+        let mut f = good();
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "installed susi"), State::Pass);
+        assert!(
+            c.iter()
+                .any(|x| x.name == "installed susi" && x.detail.contains("no release marker")),
+            "{c:?}"
+        );
+
+        f.release = ReleaseDrift {
+            installed: true,
+            commit: Some("abc1234def5678".into()),
+            behind: Some(0),
+            off_main: false,
+            this_process: false,
+        };
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "installed susi"), State::Pass);
+        assert!(
+            c.iter()
+                .any(|x| x.detail.contains("abc1234d") && x.detail.ends_with("is on origin/main")),
+            "{c:?}"
+        );
+
+        // Built off main entirely: unknown distance, never a pass.
+        f.release.off_main = true;
+        f.release.behind = None;
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "installed susi"), State::Warn);
+        assert!(
+            c.iter().any(|x| x.detail.contains("not on origin/main")),
+            "{c:?}"
+        );
     }
 
     #[test]

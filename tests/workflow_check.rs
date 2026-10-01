@@ -452,3 +452,63 @@ fn finished_worktrees_are_reported_by_the_check() {
     let (_, out) = w.check(&w.wt);
     assert!(out.contains("✅ stale worktrees"), "{out}");
 }
+
+/// Writes the marker `scripts/susi-release-sync.sh` installs beside the binary
+/// (`${HOME}/.susi/bin/susi.build.json`), naming the commit it was built from.
+fn install_release(w: &World, commit: &str) {
+    let dir = w.home.join(".susi/bin");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("susi.build.json"),
+        format!(
+            "{{\"profile\":\"release\",\"accelerator\":\"none\",\"channel\":\"release\",\
+             \"version\":\"0.0.0\",\"commit\":\"{commit}\",\"installed_at\":0}}\n"
+        ),
+    )
+    .unwrap();
+}
+
+/// A release is the only thing agents run, and it only changes when someone
+/// cuts and promotes one — so a fix can be merged and documented as active
+/// while the tool every worker runs still enforces the old rules. `0.21.0` was
+/// installed 92 commits behind main and released a claim taken on another
+/// branch, which main refuses. The version string cannot show that; only the
+/// release's own commit can. Advisory, because no agent can fix it alone.
+#[test]
+fn a_stale_installed_release_is_reported_without_blocking_the_loop() {
+    let w = World::new("release-stale");
+    w.claim_a_task();
+    // The host is running the release built from what main is on right now.
+    let installed = git_out(&w.wt, &["rev-parse", "HEAD"]);
+    install_release(&w, &installed);
+    // Then main moves ahead of it, and this worktree syncs as the loop requires.
+    advance_origin(&w);
+    git(&w.wt, &["fetch", "--quiet", "origin"]);
+    git(&w.wt, &["merge", "--no-edit", "--quiet", "origin/main"]);
+
+    let (code, out) = w.check(&w.wt);
+    assert_eq!(code, 0, "a stale release must not block the loop: {out}");
+    assert!(out.contains("⚠️  installed susi"), "{out}");
+    assert!(out.contains("1 commit(s) behind origin/main"), "{out}");
+    assert!(out.contains("susi-release-sync.sh"), "{out}");
+}
+
+/// A release built from the tip of main is what the loop assumes, and a host
+/// with no marker at all (a dev build, or the first run here) says so instead
+/// of implying drift that cannot be measured.
+#[test]
+fn a_current_release_passes_and_a_dev_host_reports_no_marker() {
+    let w = World::new("release-current");
+    w.claim_a_task();
+    let head = git_out(&w.wt, &["rev-parse", "HEAD"]);
+
+    let (_, out) = w.check(&w.wt);
+    assert!(out.contains("✅ installed susi"), "{out}");
+    assert!(out.contains("no release marker"), "{out}");
+
+    install_release(&w, &head);
+    let (code, out) = w.check(&w.wt);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("✅ installed susi"), "{out}");
+    assert!(out.contains("is on origin/main"), "{out}");
+}
