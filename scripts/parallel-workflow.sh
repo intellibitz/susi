@@ -127,7 +127,10 @@ watch)
     exec 8>"$common/susi-primary-watch.lock"
     flock -n 8 || { echo 'A primary sync watcher is already running.'; exit 0; }
     trap 'exit 0' INT TERM
+    # A heartbeat, because the log stays empty while things go well: a stale
+    # stamp is the only way `susi workflow check` can report a dead watcher.
     while true; do
+        date +%s >"$common/susi-primary-watch.stamp" 2>/dev/null || true
         "$root/scripts/park-primary.sh" --sync-only
         sleep "${SUSI_SYNC_INTERVAL:-15}"
     done

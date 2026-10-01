@@ -1,7 +1,10 @@
 **START HERE: run `susi workflow check` before you change anything.** It
 tells you whether you are in your own worktree, current with `origin/main`,
-have the hooks installed and hold a claim — and prints the command that fixes
-each ❌. (No installed susi? `cargo run -q -- workflow check`.)
+have the hooks installed and hold a claim — and whether you can actually act on
+that: nothing uncommitted and no merge left half-resolved, a claim whose lease
+is not about to lapse, and a live primary-checkout watcher. It prints the
+command that fixes each ❌, and warnings (a work in progress, a stale watcher)
+never block work. (No installed susi? `cargo run -q -- workflow check`.)
 
 The agent loop is **atomic per task** (own worktree, always synced with
 `origin/main` so parallel agents stay current):

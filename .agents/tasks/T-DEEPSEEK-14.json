@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-14",
+  "title": "workflow check must see what blocks the loop: a dirty or mid-merge tree, a claim about to lapse, and a dead primary watcher",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(workflow_check)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790869564
+}
