@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-8",
+  "title": "main clippy red: Rust 1.99 deprecated Atomic::fetch_update in favour of try_update",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-core",
+      "-p",
+      "susi-gawd-a2a",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790860462,
+  "closed": {
+    "at_unix": 1790860708,
+    "commit": "7ff777d3f4390e8f5f0e0ec351b3baf3594c1ac9",
+    "by": "DEEPSEEK"
+  }
+}

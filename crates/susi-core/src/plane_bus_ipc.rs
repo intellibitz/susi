@@ -45,7 +45,7 @@ struct ConnSlot(Arc<std::sync::atomic::AtomicUsize>);
 impl ConnSlot {
     fn claim(live: &Arc<std::sync::atomic::AtomicUsize>, max: usize) -> Option<Self> {
         use std::sync::atomic::Ordering;
-        live.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+        live.try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
             (n < max).then_some(n + 1)
         })
         .ok()
