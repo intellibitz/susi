@@ -10,5 +10,10 @@
     ]
   },
   "created_by": "DEEPSEEK",
-  "created_unix": 1790895380
+  "created_unix": 1790895380,
+  "closed": {
+    "at_unix": 1790895605,
+    "commit": "875e981e9ee49794b4a6781238ed334de2d211c0",
+    "by": "DEEPSEEK"
+  }
 }
