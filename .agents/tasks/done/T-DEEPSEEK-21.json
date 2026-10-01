@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-21",
+  "title": "An uncommitted edit to a tracked task file could open the dependency gate; ensure_synced must refuse it",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(admin::tasks)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790875441,
+  "closed": {
+    "at_unix": 1790878000,
+    "commit": "645c709544075e871df72df080219e7fa4bff590",
+    "by": "DEEPSEEK"
+  }
+}
