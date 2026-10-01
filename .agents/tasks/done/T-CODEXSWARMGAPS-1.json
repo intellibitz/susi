@@ -10,5 +10,10 @@
     ]
   },
   "created_by": "CODEXSWARMGAPS",
-  "created_unix": 1790798556
+  "created_unix": 1790798556,
+  "closed": {
+    "at_unix": 1790895949,
+    "commit": "dd9732c5707eba28818a60e5fbdcab1ca9d20183",
+    "by": "DEEPSEEK"
+  }
 }
