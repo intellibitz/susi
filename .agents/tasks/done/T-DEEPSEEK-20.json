@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-20",
+  "title": "tests/zc_workflow_fix.rs tests its own FixPlan for a --fix flag that does not exist; make it check the guidance the CLI really prints",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(zc_workflow_fix)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790874837,
+  "closed": {
+    "at_unix": 1790875012,
+    "commit": "b0d5659fecbeae6c2ce76b514d4123d88347001c",
+    "by": "DEEPSEEK"
+  }
+}
