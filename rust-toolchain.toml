@@ -1,0 +1,13 @@
+# One compiler for CI and for every agent's local gate.
+#
+# CI installs `stable`, which means a toolchain roll can redden `main` with no
+# code change at all: 1.99.0 deprecated `Atomic::fetch_update`, and that alone
+# failed the clippy job on unchanged code (T-DEEPSEEK-8). The lockfile is
+# committed for exactly this reason — determinism — so the compiler is pinned
+# too. Bump this deliberately, with the fixes the new compiler needs in the
+# same change (the Toolchain Pin job in test.yml fails if a runner does not
+# resolve the pinned version).
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-wasip1"]

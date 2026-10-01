@@ -299,7 +299,14 @@ convergent:
   gate exists to avoid). Running the affected crates' tests here is
   deliberate: the failures that reach `main` are runtime ones — races, flakes,
   cross-test interference — that a compile check cannot see and the shards
-  below would only catch after the merge. On `main` and manual dispatch the
+  below would only catch after the merge. **The compiler is pinned** in
+  `rust-toolchain.toml`, and the `Toolchain Pin` job asserts that a runner
+  which installs `stable` still resolves it: a toolchain roll once reddened
+  `main` with no code change at all (1.99.0 deprecated
+  `Atomic::fetch_update`, which failed the clippy job on unchanged code), and
+  local gates use the same pinned compiler instead of whatever the host
+  happens to have. Bump the pin deliberately, with the fixes the new compiler
+  needs. On `main` and manual dispatch the
   suite runs as six parallel nextest shards (foundation, daemon, gawd,
   gemi, vendor-cells, root-cli) plus a lint job and the live susi-native
   e2e job — the gate is the slowest shard, not one serial workspace build.
