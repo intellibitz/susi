@@ -10,8 +10,29 @@ permissions:
   contents: write
 
 jobs:
+  # A release tag is a claim — "this version, this code" — and this publishes
+  # binaries on any `v*.*.*` tag. Verify the claim before building anything: the
+  # tag ruleset protects tags that exist, not the truth of a new one.
+  verify-tag:
+    name: Verify release tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+        with:
+          # Ancestry against origin/main needs the history, not a shallow clone.
+          fetch-depth: 0
+
+      - name: The tag must be this version, on main
+        # A manual dispatch has no tag to verify; the build still waits on this.
+        if: github.event_name == 'push'
+        run: |
+          git fetch --quiet origin main
+          scripts/check-release-tag.sh "${GITHUB_REF_NAME}"
+
   build:
     name: Build ${{ matrix.name }}
+    needs: [verify-tag]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -88,6 +109,7 @@ jobs:
 
   build-cuda:
     name: Build linux-x86_64-cuda
+    needs: [verify-tag]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
