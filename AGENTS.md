@@ -47,7 +47,9 @@ and periodically while waiting for integration. Task, agent and scope reservatio
 Overlapping directory/file reservations reject the claim; a concurrent
 claim may lose the compare-and-swap and must refresh and retry. Legacy
 unscoped claims remain readable; coordinate their scope before overlapping
-work. Commit hooks reject staged code outside declared scopes.
+work. Commit hooks reject staged code outside declared scopes, and the CI job
+`Workflow Compliance` re-checks the same rule server-side against every commit
+of the pushed branch, together with the branch that holds the claim.
 
 The concrete loop is:
 
@@ -228,7 +230,13 @@ are three layers):
    is refused.
 2. The CI job **Workflow Compliance** (`test.yml`) runs the same script on every
    branch push, server-side — `--no-verify` cannot skip it. The task must be
-   open under a live `refs/claims/<id>` lease, or closed by that same branch.
+   open at that commit under a live `refs/claims/<id>` lease **held on the
+   branch being pushed**, and every file each commit touches must be inside that
+   claim's `--scope`. So a branch cannot push work for a task another branch
+   holds, and cannot reach outside the paths it reserved. Closing the task does
+   not skip the claim rule either: `susi tasks close` keeps the lease until the
+   closing commit reaches main, so work → close → push passes, while a task file
+   hand-moved into `done/` (never claimed) is refused.
 3. `scripts/github-enforce.sh` (repo admin) installs a ruleset on `main` with
    **no bypass actor** — every agent pushes with the admin's own key, so an
    admin bypass would be a bypass for all of them. It is phased: `--apply`

@@ -70,8 +70,8 @@ jobs:
         with:
           fetch-depth: 0 # base..head needs history and origin/main
 
-      - name: Every commit belongs to a claimed or closed task
-        run: scripts/check-workflow-compliance.sh origin/main "$GITHUB_SHA"
+      - name: Every commit belongs to a task this branch claimed
+        run: scripts/check-workflow-compliance.sh origin/main "$GITHUB_SHA" origin "$GITHUB_REF_NAME"
 
   # Roadmap prose must not contradict verified delivery. 100 of 102 vectors
   # said "not an implemented capability" while every one of them had a closed

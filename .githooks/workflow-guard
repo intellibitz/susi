@@ -65,12 +65,13 @@ push)
                     exit 1
                 fi
             fi
-            # Mandates 50/51: every commit on a pushed branch belongs to a claimed
-            # or closed task (the same script CI runs server-side).
+            # Mandates 50/51: every commit on a pushed branch belongs to a task
+            # this branch claimed (the same script CI runs server-side; the
+            # branch is passed so a claim held elsewhere is refused).
             if [ "$lsha" != "$zero" ] && [ -x "$root/scripts/check-workflow-compliance.sh" ]; then
                 base=origin/main
                 git rev-parse --verify --quiet "$base" >/dev/null || base=$(git rev-list --max-parents=0 "$lsha" | tail -1)
-                "$root/scripts/check-workflow-compliance.sh" "$base" "$lsha" || exit 1
+                "$root/scripts/check-workflow-compliance.sh" "$base" "$lsha" origin "${lref#refs/heads/}" || exit 1
             fi
             continue
             ;;

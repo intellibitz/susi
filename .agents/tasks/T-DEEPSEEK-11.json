@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-11",
+  "title": "Bind a pushed commit to the claim that owns it: CI must refuse work on another branch's claim and files outside declared scopes",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "'binary(workflow_compliance)'"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790866933
+}
