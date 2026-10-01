@@ -248,7 +248,7 @@ impl SusiMasterAgent {
         impl Drop for ThinkingGuard {
             fn drop(&mut self) {
                 eprintln!("</thinking>\n");
-                let _ = std::io::stdout().flush();
+                let _ = std::io::stderr().flush();
             }
         }
         let _guard = ThinkingGuard;
@@ -1817,19 +1817,13 @@ mod compiled_read_truth_tests {
 /// `cli::mission_cli` printed the report it returned. Both were in this
 /// module, so the invariant is enforced by scanning the crate's sources — a
 /// stray write is a duplicate the moment a caller renders the report.
+///
+/// The whole crate is now in scope: the last hold-out was `amas.rs`, whose
+/// consensus deliberation printed itself to stdout while its own header went
+/// to stderr as a trace.
 #[cfg(test)]
 mod cli_output_contract {
     use std::path::{Path, PathBuf};
-
-    /// Files still allowed to write to stdout, each with the reason it does.
-    /// The mission-answer path must never be listed here: callers render the
-    /// report this crate returns, so a write here prints the answer twice.
-    const STDOUT_EXEMPT: &[(&str, &str)] = &[(
-        "amas.rs",
-        "consensus synthesis streams its deliberation from inside \
-         `supervise_mission`, which takes no callback yet — threading one \
-         reaches `solve_internal` and its five callers",
-    )];
 
     #[test]
     fn cli_output_contract_mission_engine_never_writes_the_answer_to_stdout() {
@@ -1843,13 +1837,6 @@ mod cli_output_contract {
             let rel = file.strip_prefix(&src).unwrap_or(&file).to_path_buf();
             // Test-only modules may print; the mission path may not.
             if rel.components().any(|c| c.as_os_str() == "tests") {
-                continue;
-            }
-            let name = file
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if STDOUT_EXEMPT.iter().any(|(exempt, _)| *exempt == name) {
                 continue;
             }
             let text = std::fs::read_to_string(&file).unwrap_or_default();

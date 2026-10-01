@@ -1061,7 +1061,7 @@ impl SusiSupervisor {
 
         // 2. Dynamic Fleet Synthesis
         eprintln!("- [Swarm Synthesis] Analyzing goal intent for recruitment...");
-        let _ = std::io::stdout().flush();
+        let _ = std::io::stderr().flush();
         let agents = GawdAgentFleet::synthesize_fleet(goal, workspace);
         let fleet_info: Vec<GawdAgentInfo> = agents
             .iter()
@@ -1082,7 +1082,7 @@ impl SusiSupervisor {
                 "  - [Agent] {} (Rank: {:.2}) via {}",
                 agent.name, agent.rank, agent.provider
             );
-            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
         }
 
         // 3. Broadcast the goal only to Explicitly admitted peers. UDP-
@@ -1108,7 +1108,7 @@ impl SusiSupervisor {
         let active_peers_count = dispatched_peers.len();
         if active_peers_count > 0 {
             eprintln!("- [Distributed Swarm] Broadcasting mission intent to {} explicitly admitted peer nodes...", active_peers_count);
-            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
             for node in &dispatched_peers {
                 let addr = node.address.clone();
                 let node_id = node.node_id.clone();
@@ -1249,7 +1249,7 @@ impl SusiSupervisor {
                     "- [Consensus Master] Quorum reached: majority of {} pinned voters agree on the same output.",
                     electorate.len()
                 );
-                let _ = std::io::stdout().flush();
+                let _ = std::io::stderr().flush();
                 // VC-200-001 log replication: seal the decision with the
                 // cluster key, persist locally, and push it to every peer
                 // that voted — a coordinator crash no longer loses the
@@ -1333,15 +1333,15 @@ impl SusiSupervisor {
                     "- [Consensus Master] Synthesizing swarm wisdom across {} active agents...",
                     valid_outputs.len()
                 );
-                let _ = std::io::stdout().flush();
+                let _ = std::io::stderr().flush();
                 // Deep: consensus synthesis is deliberation, never a reflex.
                 let out =
                     crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream_deep(
                         &consensus_prompt,
                         workspace,
                         &|token| {
-                            print!("{}", token);
-                            let _ = std::io::stdout().flush();
+                            eprint!("{}", token);
+                            let _ = std::io::stderr().flush();
                         },
                     );
                 (out, "STATE_CONVERGENCE")
