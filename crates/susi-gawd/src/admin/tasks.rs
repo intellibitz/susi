@@ -956,6 +956,12 @@ mod tests {
                 let dir = root.join(name);
                 std::fs::create_dir_all(&dir).unwrap();
                 run(&dir, &["init", "--quiet"]);
+                // Repo-local identity: `run` sets the env vars, but a test that
+                // commits through the shared `git` helper has none, and the CI
+                // runner has no global identity either (a test must never need
+                // the developer's ~/.gitconfig).
+                run(&dir, &["config", "user.name", "test"]);
+                run(&dir, &["config", "user.email", "test@example.test"]);
                 run(&dir, &["remote", "add", "origin", bare.to_str().unwrap()]);
                 run(&dir, &["commit", "--allow-empty", "-m", "init", "--quiet"]);
                 clones.push(dir);
