@@ -55,6 +55,22 @@ jobs:
       - name: Every commit belongs to a claimed or closed task
         run: scripts/check-workflow-compliance.sh origin/main "$GITHUB_SHA"
 
+  # Roadmap prose must not contradict verified delivery. 100 of 102 vectors
+  # said "not an implemented capability" while every one of them had a closed
+  # linked task whose acceptance check passed, so the roadmap read as unbuilt
+  # work that was in fact implemented and tested. No `if`: this runs on the
+  # branch-push run that gates the merge *and* on main, so the invariant
+  # cannot silently rot between reconciliations.
+  roadmap:
+    name: Roadmap Progress
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Every vector with closed linked tasks states what verifies it
+        run: scripts/check-roadmap-progress.sh
+
   deny:
     name: cargo deny (licenses + advisories)
     runs-on: ubuntu-latest
