@@ -199,3 +199,56 @@ fn bad_arguments_are_rejected_before_anything_is_sent() {
     assert_eq!(f.run(&["--frobnicate"]).0, 2);
     assert!(!f.calls().contains("-X"), "{}", f.calls());
 }
+
+/// A published release tag must not be re-pointed at different code or deleted:
+/// that is the reason to pin a version at all, and Mandate 53 already forbids the
+/// legitimate case by saying "fix forward with a new tag".
+#[test]
+fn tag_protection_blocks_moving_or_deleting_a_release_tag() {
+    let f = Fake::new("tags", None);
+    let (code, out, err) = f.run(&["--apply", "--tags"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("created susi-main-workflow"), "{out}");
+    assert!(out.contains("created susi-release-tags"), "{out}");
+    // Two rulesets were sent; the last one is the tag ruleset.
+    assert_eq!(
+        f.calls()
+            .matches("-X POST repos/owner/repo/rulesets")
+            .count(),
+        2,
+        "{}",
+        f.calls()
+    );
+    let b = f.body();
+    assert_eq!(b["target"], "tag");
+    assert_eq!(b["name"], "susi-release-tags");
+    assert_eq!(b["conditions"]["ref_name"]["include"][0], "refs/tags/v*");
+    assert!(
+        b["bypass_actors"].as_array().is_some_and(Vec::is_empty),
+        "no bypass actor, exactly like the branch ruleset: {b}"
+    );
+    let types = rule_types(&b);
+    assert!(types.contains(&"deletion".to_string()), "{types:?}");
+    assert!(types.contains(&"update".to_string()), "{types:?}");
+    // Creation stays open: the release flow pushes its own tag.
+    assert!(!types.contains(&"creation".to_string()), "{types:?}");
+}
+
+#[test]
+fn status_with_tags_reports_both_rulesets() {
+    let on = Fake::new("st-tags-on", Some("7"));
+    let (code, out, _) = on.run(&["--status", "--tags"]);
+    assert_eq!(code, 0);
+    assert_eq!(
+        out.matches("[active]").count(),
+        2,
+        "both rulesets are reported: {out}"
+    );
+    let off = Fake::new("st-tags-off", None);
+    let (_, out, _) = off.run(&["--status", "--tags"]);
+    assert_eq!(
+        out.matches("NOT protected").count(),
+        2,
+        "main and the release tags: {out}"
+    );
+}
