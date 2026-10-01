@@ -335,3 +335,74 @@ fn claim_requires_a_synced_worktree_but_offline_is_not_an_error() {
     let (_, _, err) = w.susi(&w.wt, &["tasks", "claim", "T-TEST-1"]);
     assert!(!err.contains("behind origin/main"), "{err}");
 }
+
+/// `sync` refuses a dirty tree and `finish`'s first gate step dies on one, but
+/// `check` used to call that same tree ready — the first symptom was a failed
+/// finish. A work in progress is now visible, and still not blocking.
+#[test]
+fn uncommitted_work_is_reported_without_blocking_the_loop() {
+    let w = World::new("dirty");
+    w.claim_a_task();
+    std::fs::write(w.wt.join("scratch.txt"), "work in progress").unwrap();
+    let (code, out) = w.check(&w.wt);
+    assert_eq!(code, 0, "a work in progress must not block: {out}");
+    assert!(out.contains("⚠️  tree clean"), "{out}");
+    assert!(out.contains("uncommitted change(s)"), "{out}");
+    assert!(out.contains("commit or stash"), "{out}");
+}
+
+/// An unresolved merge is the state the review found agents stuck in: every
+/// later sync and finish dies on it. It fails the check, with the way out.
+#[test]
+fn an_unresolved_merge_fails_the_check_and_says_how_to_get_out() {
+    let w = World::new("merge");
+    w.claim_a_task();
+    std::fs::write(w.wt.join("shared.txt"), "branch side").unwrap();
+    git(&w.wt, &["add", "shared.txt"]);
+    git(&w.wt, &["commit", "--quiet", "-m", "branch side"]);
+    std::fs::write(w.primary.join("shared.txt"), "main side").unwrap();
+    git(&w.primary, &["add", "shared.txt"]);
+    git(&w.primary, &["commit", "--quiet", "-m", "main side"]);
+    git(&w.primary, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&w.wt, &["fetch", "--quiet", "origin"]);
+    // Conflicts, and leaves MERGE_HEAD behind.
+    let _ = Command::new("git")
+        .args(["merge", "--no-edit", "origin/main"])
+        .current_dir(&w.wt)
+        .output()
+        .unwrap();
+    let (code, out) = w.check(&w.wt);
+    assert_ne!(code, 0, "an unresolved merge must fail the check: {out}");
+    assert!(out.contains("❌ tree clean"), "{out}");
+    assert!(out.contains("git merge --abort"), "{out}");
+}
+
+/// The watcher keeps the primary checkout parked at origin/main and is required
+/// while agents run, but nothing noticed when it died: its log stays empty
+/// while things go well. A heartbeat makes a dead watcher visible.
+#[test]
+fn a_primary_watcher_without_a_heartbeat_is_reported() {
+    let w = World::new("watcher");
+    w.claim_a_task();
+    let (_, out) = w.check(&w.wt);
+    assert!(out.contains("⚠️  primary watcher"), "{out}");
+    assert!(out.contains("no heartbeat"), "{out}");
+    assert!(out.contains("susi workflow watch"), "{out}");
+
+    // A fresh heartbeat passes.
+    let common = git_out(
+        &w.wt,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    std::fs::write(
+        std::path::Path::new(common.trim()).join("susi-primary-watch.stamp"),
+        format!("{now}\n"),
+    )
+    .unwrap();
+    let (_, out) = w.check(&w.wt);
+    assert!(out.contains("✅ primary watcher"), "{out}");
+}

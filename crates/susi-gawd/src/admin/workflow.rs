@@ -1,14 +1,20 @@
 //! `susi workflow check`: can this agent start work here, right now?
 //!
 //! The rules (Mandates 49-51) are only followed if an agent learns about them
-//! *before* it edits. This gathers four facts about the current checkout and
-//! turns them into a checklist with the exact fix for each failure:
+//! *before* it edits. This gathers facts about the current checkout and turns
+//! them into a checklist with the exact fix for each failure:
 //!
 //! 1. it is the agent's own worktree (not the primary checkout, not `main`,
 //!    not a detached HEAD),
 //! 2. it is up to date with `origin/main`,
 //! 3. this worktree's git hooks are installed and are its own,
-//! 4. the agent holds a live claim on a task.
+//! 4. the agent holds a live claim on a task,
+//! 5. the tree can actually be synced (no merge in progress, nothing
+//!    uncommitted — `sync` and `finish` both refuse a dirty tree, but nothing
+//!    used to say so before they did),
+//! 6. that claim's lease is not about to lapse,
+//! 7. the primary-checkout watcher is alive (it is what keeps the primary
+//!    parked at `origin/main`).
 //!
 //! Evaluation is pure ([`evaluate`]) so every combination is unit-tested;
 //! [`gather`] is the only part that touches git or the network.
@@ -59,6 +65,12 @@ pub struct Facts {
     pub agent: String,
     /// Claims on the remote, or why they could not be read.
     pub claims: Result<Vec<Claim>, String>,
+    /// `git status --porcelain`: empty = clean, `None` = could not be read.
+    pub porcelain: Option<String>,
+    /// A merge, rebase, cherry-pick or revert is in progress.
+    pub merging: bool,
+    /// Seconds since the primary-checkout watcher last wrote its heartbeat.
+    pub watcher_age: Option<u64>,
     pub now: u64,
 }
 
@@ -77,6 +89,16 @@ fn fail(name: &'static str, detail: impl Into<String>, fix: impl Into<String>) -
     Check {
         name,
         state: State::Fail,
+        detail: detail.into(),
+        fix: fix.into(),
+    }
+}
+
+/// Not blocking, but the agent needs to know: warnings never fail the check.
+fn warn(name: &'static str, detail: impl Into<String>, fix: impl Into<String>) -> Check {
+    Check {
+        name,
+        state: State::Warn,
         detail: detail.into(),
         fix: fix.into(),
     }
@@ -180,6 +202,81 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
                 pass("holds a claim", format!("{} holds {}", f.agent, mine.join(", ")))
             }
         }
+    });
+
+    // 5. Can this tree be synced at all? `sync` refuses a dirty tree and the
+    //    gate refuses an unresolved merge, but `check` called both "ready", so
+    //    the first symptom was a failed finish. A work in progress is a warning
+    //    (agents edit constantly); an unresolved merge is a failure.
+    out.push(match (&f.porcelain, f.merging) {
+        (_, true) => fail(
+            "tree clean",
+            "a merge, rebase or cherry-pick is in progress; sync and finish refuse until it is resolved",
+            "git status   # finish the resolution, or: git merge --abort",
+        ),
+        (None, false) => warn(
+            "tree clean",
+            "could not read `git status`",
+            "git status",
+        ),
+        (Some(status), false) if status.trim().is_empty() => {
+            pass("tree clean", "no uncommitted changes")
+        }
+        (Some(status), false) => warn(
+            "tree clean",
+            format!(
+                "{} uncommitted change(s); sync and the gate refuse a dirty tree",
+                status.lines().count()
+            ),
+            "git status   # commit or stash before sync/finish",
+        ),
+    });
+
+    // 6. A claim that is close to lapsing: finish renews while it waits, but a
+    //    lapse frees the task for another agent, so say so before it happens.
+    if let Ok(claims) = &f.claims {
+        let mine = claims.iter().find(|c| {
+            c.agent == f.agent
+                && !c.expired(f.now)
+                && c.branch
+                    .as_ref()
+                    .is_none_or(|branch| Some(branch) == f.branch.as_ref())
+        });
+        if let Some(mine) = mine {
+            let left = mine.lease_until_unix.saturating_sub(f.now);
+            out.push(if left < 1800 {
+                warn(
+                    "lease healthy",
+                    format!(
+                        "the claim on {} lapses in {}m — after that any agent may take it",
+                        mine.task,
+                        left / 60
+                    ),
+                    format!("susi tasks renew {}", mine.task),
+                )
+            } else {
+                pass(
+                    "lease healthy",
+                    format!("{} holds {} for another {}m", f.agent, mine.task, left / 60),
+                )
+            });
+        }
+    }
+
+    // 7. The primary checkout only converges while this clone's watcher runs
+    //    (AGENTS.md requires it), and nothing noticed when it died.
+    out.push(match f.watcher_age {
+        Some(age) if age <= 120 => pass("primary watcher", format!("heartbeat {age}s ago")),
+        Some(age) => warn(
+            "primary watcher",
+            format!("last heartbeat {age}s ago — the primary checkout is not converging"),
+            "susi workflow watch &",
+        ),
+        None => warn(
+            "primary watcher",
+            "no heartbeat in this clone — the primary checkout is not converging",
+            "susi workflow watch &",
+        ),
     });
 
     out
@@ -309,6 +406,29 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         .collect();
 
     let claims = tasks::claims(&root).map_err(|e| e.to_string());
+
+    // What blocks `sync` and the gate, which used to be invisible here.
+    let porcelain = git(&root, &["status", "--porcelain"]);
+    let merging = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
+        .iter()
+        .any(|m| git(&root, &["rev-parse", "--verify", "--quiet", m]).is_some())
+        || ["rebase-merge", "rebase-apply"].iter().any(|d| {
+            git(
+                &root,
+                &["rev-parse", "--path-format=absolute", "--git-path", d],
+            )
+            .is_some_and(|p| Path::new(&p).exists())
+        });
+
+    // The watcher writes this every loop; a stale stamp is how a dead watcher
+    // becomes visible, since the log file stays empty while things go well.
+    let now = tasks::now_unix();
+    let watcher_age = abs("--git-common-dir")
+        .map(|c| c.join("susi-primary-watch.stamp"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(|stamp| now.saturating_sub(stamp));
+
     Facts {
         root,
         primary,
@@ -321,7 +441,10 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         },
         agent: agent.to_string(),
         claims,
-        now: tasks::now_unix(),
+        porcelain,
+        merging,
+        watcher_age,
+        now,
     }
 }
 
@@ -347,8 +470,12 @@ mod tests {
                 task: "T-CLAUDE-1".into(),
                 agent: "CLAUDE".into(),
                 claimed_unix: 100,
-                lease_until_unix: 1_000,
+                // Well inside the lease: `now` is 500, so this is ~2.6h left.
+                lease_until_unix: 10_000,
             }]),
+            porcelain: Some(String::new()),
+            merging: false,
+            watcher_age: Some(4),
             now: 500,
         }
     }
@@ -458,6 +585,7 @@ mod tests {
         let f = Facts {
             primary: true,
             behind: Some(3),
+            merging: true,
             hooks: Hooks {
                 configured: None,
                 points_here: false,
@@ -466,9 +594,84 @@ mod tests {
             claims: Ok(vec![]),
             ..good()
         };
-        for c in evaluate(&f) {
-            assert_eq!(c.state, State::Fail, "{}", c.name);
-            assert!(!c.fix.is_empty(), "{} needs a fix command", c.name);
+        let c = evaluate(&f);
+        for check in &c {
+            if check.state == State::Fail {
+                assert!(!check.fix.is_empty(), "{} needs a fix command", check.name);
+            }
         }
+        assert!(c.iter().any(|check| check.state == State::Fail));
+    }
+
+    #[test]
+    fn uncommitted_work_warns_without_blocking() {
+        let f = Facts {
+            porcelain: Some(" M src/a.rs\n?? notes.md\n".into()),
+            ..good()
+        };
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "tree clean"), State::Warn);
+        assert!(ok(&c), "a work in progress must not block the loop: {c:?}");
+        assert!(
+            c.iter()
+                .find(|x| x.name == "tree clean")
+                .is_some_and(|x| x.detail.contains("2 uncommitted change(s)")),
+            "{c:?}"
+        );
+    }
+
+    #[test]
+    fn an_unresolved_merge_fails_and_says_how_to_get_out() {
+        let f = Facts {
+            porcelain: Some("UU src/a.rs\n".into()),
+            merging: true,
+            ..good()
+        };
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "tree clean"), State::Fail);
+        assert!(!ok(&c));
+        assert!(
+            c.iter().any(|x| x.fix.contains("git merge --abort")),
+            "{c:?}"
+        );
+    }
+
+    #[test]
+    fn a_lease_about_to_lapse_is_reported_before_another_agent_takes_it() {
+        let f = Facts {
+            claims: Ok(vec![Claim {
+                branch: None,
+                scopes: vec![],
+                task: "T-CLAUDE-1".into(),
+                agent: "CLAUDE".into(),
+                claimed_unix: 100,
+                lease_until_unix: 500 + 60,
+            }]),
+            ..good()
+        };
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "lease healthy"), State::Warn);
+        assert!(ok(&c));
+        assert!(
+            c.iter().any(|x| x.fix == "susi tasks renew T-CLAUDE-1"),
+            "{c:?}"
+        );
+    }
+
+    #[test]
+    fn a_dead_primary_watcher_is_reported() {
+        let stale = Facts {
+            watcher_age: Some(9_000),
+            ..good()
+        };
+        assert_eq!(state(&evaluate(&stale), "primary watcher"), State::Warn);
+        let never = Facts {
+            watcher_age: None,
+            ..good()
+        };
+        let c = evaluate(&never);
+        assert_eq!(state(&c, "primary watcher"), State::Warn);
+        assert!(c.iter().any(|x| x.fix.contains("susi workflow watch")));
+        assert!(ok(&c), "a dead watcher warns; it does not block work");
     }
 }
