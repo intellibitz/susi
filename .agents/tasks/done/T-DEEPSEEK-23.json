@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-23",
+  "title": "A red main is a shared signal with no owner: nothing links the failing merge commit to the PR (and agent) whose work it carries",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(main_failure_report)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790879236,
+  "closed": {
+    "at_unix": 1790879413,
+    "commit": "2db1cc3bcc77a87acf185394832fb1dfcb819cf5",
+    "by": "DEEPSEEK"
+  }
+}

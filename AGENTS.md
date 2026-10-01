@@ -353,6 +353,11 @@ convergent:
   comments once on red or conflicting ones and closes PRs idle for 7 days; PRs are gated by
   the branch-push run (there is deliberately no `pull_request` trigger:
   bot-opened PRs' runs are held for approval and die jobs-less on merge).
+  A red `main` is **attributed**: the `Main Failure Attribution` workflow
+  (`scripts/report-main-failure.sh`) comments once on the pull request whose
+  merge produced the failing commit, because the commit that lands is a merge
+  commit and parallel agents would otherwise each bisect the same failure to
+  find out whose it is.
   The rolling dev release builds only on `workflow_dispatch` or a
   head-commit subject that starts with `[dev-release]`.
 
