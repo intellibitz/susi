@@ -186,3 +186,95 @@ fn a_task_already_closed_on_main_cannot_be_closed_again() {
     assert!(!b.join(".agents/tasks/done/T-CLAUDE-1.json").exists());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Runs the binary without `SUSI_AGENT`, so the identity falls through to the
+/// worktree and the process tree exactly as it does for a real worker.
+fn susi_no_agent(dir: &Path, home: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
+    let out = Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join("xdg"))
+        .env_remove("SUSI_AGENT")
+        .env_remove("SUSI_HOME")
+        .output()
+        .unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// A worktree with no `susi.agent` and a branch that does not name an agent
+/// used to fall back to the clone-wide `user.name`: the primary checkout, a
+/// codex tree and a claude tree all resolved to the same token, sharing one
+/// `refs/claim-agents/<TOKEN>` and one task-id namespace. The tool the agent
+/// runs inside now names it — without inventing one when nothing matches.
+#[test]
+fn the_tool_in_the_process_tree_names_the_agent() {
+    if !Path::new("/proc/self/stat").exists() {
+        return; // No /proc: the fallback is unchanged, nothing to assert.
+    }
+    let root = std::env::temp_dir().join(format!("susi-tasks-ident-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "--quiet", "-b", "main"]);
+    git(&repo, &["config", "user.name", "SHAREDTOKEN"]);
+    git(&repo, &["config", "user.email", "shared@localhost"]);
+    git(&repo, &["commit", "--allow-empty", "--quiet", "-m", "init"]);
+
+    // Nothing in the tree names an agent, and this shell names no tool either.
+    let (_, out, _) = susi_no_agent(
+        &repo,
+        &home,
+        env!("CARGO_BIN_EXE_susi"),
+        &["workflow", "check"],
+    );
+    assert!(out.contains("(agent SHAREDTOKEN)"), "{out}");
+
+    // Inside a wrapper that is the tool, the process tree names the agent.
+    let wrapper = root.join("cursor-agent");
+    std::fs::write(
+        &wrapper,
+        format!("#!/bin/bash\n\"{}\" \"$@\"\n", env!("CARGO_BIN_EXE_susi")),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let (_, out, err) = susi_no_agent(
+        &repo,
+        &home,
+        wrapper.to_str().unwrap(),
+        &["workflow", "check"],
+    );
+    assert!(out.contains("(agent CURSOR)"), "out={out} err={err}");
+
+    // The same wrapper without the tool's name keeps the old fallback.
+    let plain = root.join("worker");
+    std::fs::write(
+        &plain,
+        format!("#!/bin/bash\n\"{}\" \"$@\"\n", env!("CARGO_BIN_EXE_susi")),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let (_, out, _) = susi_no_agent(
+        &repo,
+        &home,
+        plain.to_str().unwrap(),
+        &["workflow", "check"],
+    );
+    assert!(out.contains("(agent SHAREDTOKEN)"), "{out}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

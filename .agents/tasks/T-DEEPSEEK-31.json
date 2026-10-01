@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-31",
+  "title": "Identify the agent from the tool it runs in, so two workers cannot share one claim token",
+  "goal": "who() resolves the agent as --agent, then SUSI_AGENT, then git config susi.agent, then the <agent>-<yyyymmdd>-<hhmmss> branch name, then git config user.name. Only worktrees created by workflow start carry susi.agent, and codex/worktree-20260930 and claude/load-worktree-e2a385 have neither config nor a matching branch name, so both fall through to the clone-wide user.name INTELLIBITZ — the same token as the primary checkout. Shared tokens mean one refs/claim-agents entry and one T-INTELLIBITZ-<n> namespace for several workers, which is the collision Mandate 50 warns about. crates/susi-gawd/src/zc_agent_identity.rs already infers the tool from a parent command but nothing calls it. Walk the parent process chain and use the tool it names, and add the antigravity marker the swarm uses. Acceptance: nonzero tests for the chain mapping and a live wrapper-process check.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(tasks_cli)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790897661
+}
