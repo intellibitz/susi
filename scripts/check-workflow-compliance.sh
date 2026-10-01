@@ -107,13 +107,38 @@ check_claim_owner() {
 }
 
 # The rule binds commits made after it was introduced: history that predates
-# this script cannot be given trailers retroactively.
-cutover=$(git log --diff-filter=A --format=%H -1 "$head" -- scripts/check-workflow-compliance.sh)
+# this script cannot be given trailers retroactively. It fails CLOSED: a range
+# that cannot be resolved, or a branch that removed the script, is an error
+# rather than a silent "nothing to check" — an unresolvable base used to make
+# the loop below iterate zero commits and print its ✅ line.
+head_commit=$(git rev-parse --verify --quiet "${head}^{commit}") || {
+    echo "❌ workflow compliance: cannot resolve head '${head}'" >&2
+    exit 1
+}
+base_commit=$(git rev-parse --verify --quiet "${base}^{commit}") || {
+    echo "❌ workflow compliance: cannot resolve base '${base}' — refusing to certify an unknown range" >&2
+    exit 1
+}
+cutover=$(git log --diff-filter=A --format=%H -1 "$head_commit" -- scripts/check-workflow-compliance.sh)
 if [ -z "$cutover" ]; then
+    # The script is not in this branch's history at all. That is either history
+    # that predates the rule (exempt, and the reason the cutover exists) or a
+    # branch that dropped the gate. The rule's own introduction on the base
+    # tells them apart: if that commit is already an ancestor of head, this
+    # branch had the script and removed it.
+    introduced=$(git log --diff-filter=A --format=%H -1 "$base_commit" -- scripts/check-workflow-compliance.sh)
+    if [ -n "$introduced" ] && git merge-base --is-ancestor "$introduced" "$head_commit" 2>/dev/null; then
+        echo "❌ workflow compliance: this branch removed scripts/check-workflow-compliance.sh — the gate cannot be deleted by the branch it judges" >&2
+        exit 1
+    fi
     echo "✅ workflow compliance: $head predates the rule; nothing to check"
     exit 0
 fi
 
+commits=$(git rev-list --no-merges --reverse --ancestry-path "$cutover^..$head_commit" "^$base_commit") || {
+    echo "❌ workflow compliance: cannot compute the commit range $base..$head" >&2
+    exit 1
+}
 while read -r c; do
     [ -n "$c" ] || continue
     short=${c:0:8}
@@ -152,7 +177,7 @@ while read -r c; do
     else
         err "commit $short names $task, which is not a task in this branch (add or merge the task file first)"
     fi
-done < <(git rev-list --no-merges --reverse --ancestry-path "$cutover^..$head" "^$base")
+done <<<"$commits"
 
 if [ "$fail" = 0 ]; then
     echo "✅ workflow compliance: every commit in $base..$head belongs to a claimed or closed task"

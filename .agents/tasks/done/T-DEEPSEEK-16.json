@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-16",
+  "title": "The compliance gate must fail closed, and the hooks that enforce the loop need the first tests that execute them",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(hook_enforcement)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790870549,
+  "closed": {
+    "at_unix": 1790870939,
+    "commit": "f2249b2a9e25b8ade5a60c7bd61f75825bf557a4",
+    "by": "DEEPSEEK"
+  }
+}
