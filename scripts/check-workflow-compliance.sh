@@ -3,23 +3,45 @@
 # feature-branch push must already contain origin/main (sync-before-push is
 # enforced by .githooks/workflow-guard before this script runs).
 #
-#   check-workflow-compliance.sh <base> <head> [remote]
+#   check-workflow-compliance.sh <base> <head> [remote] [branch]
 #
 # Each non-merge commit in <base>..<head> must carry a trailer
 #     Task: T-<AGENT>-<n>
-# naming a task that was OPEN in that commit's own tree and either is held by a
-# live claim (refs/claims/<id> on <remote>, lease not expired) or was closed by
-# the same branch (.agents/tasks/done/<id>.json at <head>). A commit citing a
-# task already closed at that commit is refused. Exempt: merge commits, `chore: release vX.Y.Z`, github-actions[bot],
-# and commits that touch only .agents/tasks/ (creating/closing a task).
+# naming a task that was OPEN in that commit's own tree and is held by a live
+# claim (refs/claims/<id> on <remote>, lease not expired). A closed task is
+# judged the same way: `susi tasks close` keeps the lease until the closing
+# commit reaches main, so work -> close -> push passes, while a task file
+# hand-moved into done/ (never claimed) does not. A commit citing a task
+# already closed at that commit is refused. Exempt: merge commits,
+# `chore: release vX.Y.Z`, github-actions[bot], and commits that touch only
+# .agents/tasks/ (creating/closing a task).
+#
+# A live claim has an OWNER, and the owner reserved one branch plus a set of
+# paths. So this also refuses:
+#   (a) a commit for a task held on a DIFFERENT branch than the one being
+#       pushed — without it a second agent can push work for a task someone
+#       else already owns, which is exactly the duplicate work the queue
+#       exists to prevent; and
+#   (b) a commit touching files outside the claim's declared scopes, which is
+#       how two agents end up editing the same file.
+# Both are checked here, server-side, because the same scope check in
+# .githooks/pre-commit (scripts/check-task-scope.py) is local and skippable
+# with `--no-verify`, and because it can only see claims this worktree has
+# already fetched. This script is what CI runs against the pushed branch.
+#
+# `branch` defaults to $GITHUB_REF_NAME (set by Actions) and then to the
+# checked-out branch, so the local pre-push hook and CI agree without argument
+# plumbing; when it cannot be determined the ownership check is skipped rather
+# than guessed.
 #
 # Runs locally from .githooks/pre-push and server-side in CI ("Workflow
 # Compliance"), where --no-verify cannot skip it.
 set -uo pipefail
 
-base=${1:?usage: check-workflow-compliance.sh <base> <head> [remote]}
-head=${2:?usage: check-workflow-compliance.sh <base> <head> [remote]}
+base=${1:?usage: check-workflow-compliance.sh <base> <head> [remote] [branch]}
+head=${2:?usage: check-workflow-compliance.sh <base> <head> [remote] [branch]}
 remote=${3:-${SUSI_TASK_REMOTE:-origin}}
+branch=${4:-${GITHUB_REF_NAME:-$(git symbolic-ref -q --short HEAD 2>/dev/null || true)}}
 now=$(date +%s)
 fail=0
 claims_fetched=0
@@ -33,13 +55,55 @@ fetch_claims() {
     git fetch --quiet --prune "$remote" '+refs/claims/*:refs/claims/*' 2>/dev/null || true
 }
 
+# Prints a task's claim blob, or nothing when it has no claim ref.
+claim_blob() {
+    local id=$1 sha
+    fetch_claims
+    sha=$(git rev-parse --verify --quiet "refs/claims/$id" 2>/dev/null) || return 0
+    git cat-file -p "$sha" 2>/dev/null || true
+}
+
 # Prints "live" / "expired" / "none" for a task's claim.
 claim_state() {
-    local id=$1 sha lease
-    fetch_claims
-    sha=$(git rev-parse --verify --quiet "refs/claims/$id" 2>/dev/null) || { echo none; return; }
-    lease=$(git cat-file -p "$sha" 2>/dev/null | jq -r '.lease_until_unix // 0' 2>/dev/null || echo 0)
+    local body lease
+    body=$(claim_blob "$1")
+    [ -n "$body" ] || {
+        echo none
+        return
+    }
+    lease=$(jq -r '.lease_until_unix // 0' <<<"$body" 2>/dev/null || echo 0)
     if [ "${lease:-0}" -gt "$now" ]; then echo live; else echo expired; fi
+}
+
+# A live claim owns one branch and a set of paths: check both for this commit.
+check_claim_owner() {
+    local commit=$1 id=$2 short=$3 body owner_branch owner_agent scopes
+    body=$(claim_blob "$id")
+    owner_branch=$(jq -r '.branch // ""' <<<"$body" 2>/dev/null || true)
+    owner_agent=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
+    if [ -n "$owner_branch" ] && [ -n "$branch" ] && [ "$owner_branch" != "$branch" ]; then
+        err "commit $short works on $id, which $owner_agent holds on branch '$owner_branch', not '$branch' — one task belongs to one branch (susi tasks release $id, then claim it from your own branch)"
+        return
+    fi
+    scopes=$(jq -r '.scopes[]?' <<<"$body" 2>/dev/null || true)
+    [ -n "$scopes" ] || return 0
+    local outside="" f s ok
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in .agents/tasks/*) continue ;; esac
+        ok=0
+        while IFS= read -r s; do
+            [ -n "$s" ] || continue
+            case "$f" in
+            "$s" | "$s"/*)
+                ok=1
+                break
+                ;;
+            esac
+        done <<<"$scopes"
+        [ "$ok" = 1 ] || outside="$outside $f"
+    done < <(git diff-tree --no-commit-id --name-only -r "$commit")
+    [ -z "$outside" ] || err "commit $short touches files outside $id's claimed scopes:$outside — re-claim with a scope that covers them (susi tasks release $id, then susi tasks claim $id --scope <path>), or split the work into a task per area"
 }
 
 # The rule binds commits made after it was introduced: history that predates
@@ -73,15 +137,18 @@ while read -r c; do
     if git cat-file -e "$c:.agents/tasks/done/$task.json" 2>/dev/null; then
         err "commit $short cites $task, which was already closed at that commit — add a new task (susi tasks add) instead"
     elif git cat-file -e "$c:.agents/tasks/$task.json" 2>/dev/null; then
-        if git cat-file -e "$head:.agents/tasks/done/$task.json" 2>/dev/null; then
-            : # this branch went on to close it: the claim was released on close
-        else
-            case "$(claim_state "$task")" in
-            live) ;;
-            expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task)" ;;
-            *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task first (Mandate 50)" ;;
-            esac
-        fi
+        # A closed task still has to be CLAIMED. `susi tasks close` keeps the
+        # lease until the closing commit reaches main (tasks.rs:818), so the
+        # normal work -> close -> push path satisfies this. Skipping the claim
+        # check for a branch that merely ends with done/<id>.json accepted two
+        # kinds of work that never went through the queue: a file hand-moved
+        # into done/ without ever claiming the task, and a done-file that
+        # arrived by merging main.
+        case "$(claim_state "$task")" in
+        live) check_claim_owner "$c" "$task" "$short" ;;
+        expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task)" ;;
+        *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task first (Mandate 50)" ;;
+        esac
     else
         err "commit $short names $task, which is not a task in this branch (add or merge the task file first)"
     fi

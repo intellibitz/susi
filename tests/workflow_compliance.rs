@@ -78,8 +78,9 @@ impl Env {
     }
 
     fn commit(&self, file: &str, subject: &str, task: Option<&str>) -> String {
-        std::fs::create_dir_all(self.repo.join("work")).unwrap();
-        std::fs::write(self.repo.join("work").join(file), file).unwrap();
+        let path = self.repo.join("work").join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, file).unwrap();
         git(&self.repo, &["add", "-A"]);
         match task {
             Some(t) => git(
@@ -103,9 +104,20 @@ impl Env {
     }
 
     fn check(&self, base: &str) -> (i32, String) {
+        self.check_on(base, "main")
+    }
+
+    /// The branch being pushed is what a live claim's ownership is judged
+    /// against, so tests can push as a branch other than the checked-out one.
+    fn check_on(&self, base: &str, branch: &str) -> (i32, String) {
         let script =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh");
-        let (code, _, err) = run(&self.repo, script.to_str().unwrap(), &[base, "HEAD"], &[]);
+        let (code, _, err) = run(
+            &self.repo,
+            script.to_str().unwrap(),
+            &[base, "HEAD", "origin", branch],
+            &[],
+        );
         (code, err)
     }
 }
@@ -253,6 +265,114 @@ fn a_closed_task_cannot_be_cited_again() {
     assert!(err.contains("already closed"), "{err}");
 }
 
+impl Env {
+    /// Copy the compliance script in and commit it, so the cutover exists and
+    /// the commits that follow are judged.
+    fn install_rule(&self, task: &str) {
+        std::fs::create_dir_all(self.repo.join("scripts")).unwrap();
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh"),
+            self.repo.join("scripts/check-workflow-compliance.sh"),
+        )
+        .unwrap();
+        git(&self.repo, &["add", "-A"]);
+        git(
+            &self.repo,
+            &[
+                "commit",
+                "--quiet",
+                "-m",
+                "install the rule",
+                "-m",
+                &format!("Task: {task}"),
+            ],
+        );
+    }
+}
+
+/// A claim owns ONE branch. Without this, a second agent can push work for a
+/// task another agent already holds — the exact duplicate work the queue exists
+/// to prevent, and something the liveness check alone cannot see.
+#[test]
+fn a_claim_held_on_another_branch_is_refused() {
+    let e = Env::new("owner");
+    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    e.install_rule("T-TEST-1"); // claim is live here, so this complies
+
+    // Work on another branch for the task main holds: refused, and the message
+    // says which branch owns it and how to take it over legitimately.
+    git(&e.repo, &["switch", "--quiet", "-c", "feature"]);
+    let before = e.head();
+    e.commit("a", "feat: a", Some("T-TEST-1"));
+    let (code, err) = e.check_on(&before, "feature");
+    assert_eq!(code, 1, "another branch's claim must be refused: {err}");
+    assert!(err.contains("holds on branch 'main'"), "{err}");
+    assert!(err.contains("susi tasks release T-TEST-1"), "{err}");
+
+    // The documented remedy works: release, re-claim from this branch, push.
+    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, err) = e.check_on(&before, "feature");
+    assert_eq!(code, 0, "after re-claiming on this branch: {err}");
+    // ...and the claim really did move: main no longer owns it.
+    let (code, err) = e.check_on(&before, "main");
+    assert_eq!(code, 1, "{err}");
+}
+
+/// Scopes are how two agents stay off each other's files. The local pre-commit
+/// check can be skipped with --no-verify and only sees fetched claims, so CI
+/// enforces the same rule on the pushed commits.
+#[test]
+fn files_outside_the_claims_scopes_are_refused() {
+    let e = Env::new("scopes");
+    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
+    e.install_rule("T-TEST-1");
+    let base = e.head();
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1", "--scope", "work/allowed"]);
+    assert_eq!(code, 0, "{err}");
+
+    // Inside the reserved scope: compliant.
+    e.commit("allowed/a", "feat: a", Some("T-TEST-1"));
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 0, "in-scope work must pass: {err}");
+
+    // Outside it: refused, naming the file and the fix.
+    let before = e.head();
+    e.commit("other/b", "feat: b", Some("T-TEST-1"));
+    let (code, err) = e.check(&before);
+    assert_eq!(code, 1, "out-of-scope work must be refused: {err}");
+    assert!(
+        err.contains("outside T-TEST-1's claimed scopes: work/other/b"),
+        "{err}"
+    );
+
+    // Re-claiming with a scope that covers it makes the same commit compliant.
+    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "claim",
+        "T-TEST-1",
+        "--scope",
+        "work/allowed",
+        "--scope",
+        "work/other",
+    ]);
+    assert_eq!(code, 0, "{err}");
+    let (code, err) = e.check(&before);
+    assert_eq!(code, 0, "after widening the claim's scopes: {err}");
+}
+
 #[test]
 fn history_before_the_rule_is_not_judged() {
     let e = Env::new("cutover");
@@ -286,4 +406,50 @@ fn history_before_the_rule_is_not_judged() {
         code, 0,
         "old untrailered history must not fail the check: {err}"
     );
+}
+
+/// The claim requirement is not skipped just because the branch ends with
+/// `done/<id>.json`. Before this, a branch could create a task, never claim it,
+/// do the work, and hand-move the file into done/ — the closing commit touches
+/// only `.agents/tasks/` (exempt from the trailer rule), so the whole thing
+/// passed. `susi tasks close` keeps the lease until the closing commit reaches
+/// main, so the real path through the CLI is unaffected.
+#[test]
+fn a_hand_moved_done_file_does_not_excuse_an_unclaimed_task() {
+    let e = Env::new("handclosed");
+    let (code, _, err) = e.susi(&["tasks", "add", "target", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, _, err) = e.susi(&["tasks", "add", "rule", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "add tasks"]); // task-only: exempt
+                                                             // The rule-install commit needs a task of its own, and that one is claimed.
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-2"]);
+    assert_eq!(code, 0, "{err}");
+    e.install_rule("T-TEST-2");
+
+    // Work citing T-TEST-1, which nobody ever claimed.
+    e.commit("a", "feat: a", Some("T-TEST-1"));
+    let (code, err) = e.check("origin/main");
+    assert_eq!(code, 1, "unclaimed work must be refused: {err}");
+    assert!(err.contains("nobody holds a claim on it"), "{err}");
+
+    // Hand-moving the task into done/ must not launder it: the check used to
+    // skip the claim requirement as soon as done/<id>.json existed at head.
+    std::fs::create_dir_all(e.repo.join(".agents/tasks/done")).unwrap();
+    git(
+        &e.repo,
+        &[
+            "mv",
+            ".agents/tasks/T-TEST-1.json",
+            ".agents/tasks/done/T-TEST-1.json",
+        ],
+    );
+    git(
+        &e.repo,
+        &["commit", "--quiet", "-m", "close the task by hand"],
+    ); // task-only: exempt
+    let (code, err) = e.check("origin/main");
+    assert_eq!(code, 1, "a hand-moved done file must not excuse it: {err}");
+    assert!(err.contains("nobody holds a claim on it"), "{err}");
 }
