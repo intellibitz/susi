@@ -146,10 +146,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           if [ "$pkgs" = "ALL" ]; then
             echo "cmd=cargo check --workspace --locked" >> "$GITHUB_OUTPUT"
+            echo "lintcmd=cargo clippy --workspace --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           elif [ -z "$pkgs" ]; then
             echo "cmd=" >> "$GITHUB_OUTPUT"
+            echo "lintcmd=" >> "$GITHUB_OUTPUT"
           else
             echo "cmd=cargo check$(printf ' -p %s' $pkgs) --locked" >> "$GITHUB_OUTPUT"
+            echo "lintcmd=cargo clippy$(printf ' -p %s' $pkgs) --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           fi
 
       # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
@@ -163,6 +166,17 @@ jobs:
       - name: cargo check
         if: steps.affected.outputs.cmd != ''
         run: ${{ steps.affected.outputs.cmd }}
+
+      # The lint job is main-only, so a lint break merges green and reddens main
+      # afterwards: 1.99.0 deprecated `Atomic::fetch_update` and `Doc Tests +
+      # Clippy` failed on code nobody had touched (T-DEEPSEEK-8). Lint the
+      # affected crates here, and the whole workspace when the diff is
+      # workspace-wide (`ALL` — a lockfile, toolchain or lint-config change is
+      # exactly where this bites), because that is a `-D warnings` violation the
+      # merge gate should have caught.
+      - name: cargo clippy (affected crates)
+        if: steps.affected.outputs.lintcmd != ''
+        run: ${{ steps.affected.outputs.lintcmd }}
 
       - name: Install cargo-nextest
         if: steps.affected.outputs.pkgs != '' && steps.affected.outputs.pkgs != 'ALL'
