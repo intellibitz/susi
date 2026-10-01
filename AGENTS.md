@@ -62,7 +62,12 @@ The concrete loop is:
    merges and reruns the gate before repushing. A failed check/conflict stops
    for repair; rerun finish after committing the repair. Do not claim another
    task until the completion is on remote main. Closing alone retains the
-   claim so nobody duplicates work while the PR awaits merge.
+   claim so nobody duplicates work while the PR awaits merge. That wait is
+   bounded (`SUSI_FINISH_WAIT_MAX`, default 2 h) and a lease that lapsed during
+   it is re-adopted rather than an abort, so a branch that cannot merge — a red
+   gate, or a PR the reconciler closed after 7 idle days — stops with the
+   closure and the claim intact, says so, and is retried by fixing the branch
+   and running finish again.
 5. Repeat sync → claim. No offline freshness or unavailable claim snapshot
    counts as permission to start work.
 

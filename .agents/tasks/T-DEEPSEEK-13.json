@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-13",
+  "title": "finish could wait forever and abort on a lapsed lease, stranding the PR and leaving the task claimed",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(parallel_workflow)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790868350
+}

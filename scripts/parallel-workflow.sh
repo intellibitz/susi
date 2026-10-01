@@ -19,11 +19,33 @@ sync() {
     flock -u 9
 }
 
+# Keep the claim alive across a long wait. `renew` refuses an expired lease, and
+# under `set -e` that used to abort finish mid-wait — the PR stranded, the task
+# no longer owned by anyone, and its work free for another agent to redo. A
+# lapsed lease is recoverable: take the same task back, keeping its scopes.
+renew_or_readopt() {
+    "$susi_bin" tasks renew "$task" && return 0
+    echo "claim on $task lapsed (a suspend or a very long gate); taking it back" >&2
+    local -a scopes=()
+    local s
+    while IFS= read -r s; do
+        [ -n "$s" ] && scopes+=(--scope "$s")
+    done < <(git cat-file -p "refs/claims/$task" 2>/dev/null | jq -r '.scopes[]?' 2>/dev/null || true)
+    "$susi_bin" tasks claim "$task" ${scopes[@]+"${scopes[@]}"}
+}
+
+# The state of the pull request for this branch, when `gh` can answer. A closed
+# PR will never merge, so waiting out the budget on one is pointless.
+pr_state() {
+    command -v gh >/dev/null 2>&1 || return 0
+    gh pr view "$branch" --json state -q .state 2>/dev/null || true
+}
+
 case "$action" in
 sync) sync ;;
 finish)
     task=${2:?task id required}
-    "$susi_bin" tasks renew "$task"
+    renew_or_readopt
     sync
     cargo fmt --all --check
     cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -46,10 +68,14 @@ finish)
     git push origin "HEAD:refs/heads/$branch"
     sha=$(git rev-parse HEAD)
     echo "Waiting for $sha to reach origin/main (Ctrl-C leaves work intact)."
-    renew_at=$(( $(date +%s) + 900 ))
+    budget=${SUSI_FINISH_WAIT_MAX:-7200}
+    poll=${SUSI_FINISH_POLL:-15}
+    started=$(date +%s)
+    ticks=0
+    renew_at=$(( started + 900 ))
     until git fetch --quiet origin && git merge-base --is-ancestor "$sha" origin/main; do
         if [ "$(date +%s)" -ge "$renew_at" ]; then
-            "$susi_bin" tasks renew "$task"
+            renew_or_readopt
             renew_at=$(( $(date +%s) + 900 ))
         fi
         # Another agent may merge first. Integrate it, rerun the gate and
@@ -62,7 +88,31 @@ finish)
             git push origin "HEAD:refs/heads/$branch"
             sha=$(git rev-parse HEAD)
         fi
-        sleep 15
+        elapsed=$(( $(date +%s) - started ))
+        # Without a budget this loop held the task claim forever on a branch
+        # that could not merge — a red gate, or a PR the reconciler closes after
+        # 7 idle days — and never told the agent.
+        if [ "$elapsed" -ge "$budget" ]; then
+            cat >&2 <<MSG
+❌ $sha is still not on origin/main after ${elapsed}s (budget ${budget}s).
+   Nothing is lost: the task is closed and the claim is retained, so no other
+   agent starts it. Check the branch-push run and whether its pull request was
+   closed, then run finish again (SUSI_FINISH_WAIT_MAX raises the budget).
+MSG
+            exit 1
+        fi
+        ticks=$(( ticks + 1 ))
+        # A closed pull request will never merge; don't wait out the budget.
+        if [ $(( ticks % 4 )) -eq 0 ]; then
+            case "$(pr_state)" in
+            CLOSED)
+                echo "❌ the pull request for $branch is closed; it will not merge." >&2
+                echo "   The task is closed and the claim is retained — push a fix and reopen it, or release the claim." >&2
+                exit 1
+                ;;
+            esac
+        fi
+        sleep "$poll"
     done
     sync
     "$susi_bin" tasks release "$task"
