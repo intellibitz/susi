@@ -273,3 +273,83 @@ fn deleting_or_force_pushing_main_is_refused() {
     assert_ne!(code, 0);
     assert!(err.contains("fast-forward"), "{err}");
 }
+
+#[test]
+fn force_pushing_a_feature_branch_is_refused() {
+    let f = Fixture::new("branchforce");
+    let zero = "0".repeat(40);
+
+    // A branch published on the remote...
+    git(&f.other, &["switch", "--quiet", "-c", "work"]);
+    git(
+        &f.other,
+        &["commit", "--allow-empty", "--quiet", "-m", "published"],
+    );
+    git(&f.other, &["push", "--quiet", "origin", "work"]);
+    let published = git_out(&f.other, &["rev-parse", "HEAD"]);
+
+    // ...a rewritten history that no longer contains it, a fast-forward that
+    // does, and — since a hook can only judge ancestry against objects it
+    // actually has — both parked on scratch branches so the pushing clone
+    // fetches them while origin/work still points at the published commit the
+    // rewrite would drop. All commits come from the second clone: these very
+    // hooks (correctly) refuse commits in `work`.
+    git(&f.other, &["switch", "--quiet", "main"]);
+    git(
+        &f.other,
+        &["commit", "--allow-empty", "--quiet", "-m", "rewritten"],
+    );
+    let rewritten = git_out(&f.other, &["rev-parse", "HEAD"]);
+    git(
+        &f.other,
+        &["push", "--quiet", "origin", "main:refs/heads/scratch"],
+    );
+
+    git(&f.other, &["switch", "--quiet", "work"]);
+    git(
+        &f.other,
+        &["commit", "--allow-empty", "--quiet", "-m", "onwards"],
+    );
+    let onwards = git_out(&f.other, &["rev-parse", "HEAD"]);
+    git(
+        &f.other,
+        &["push", "--quiet", "origin", "work:refs/heads/scratch-fwd"],
+    );
+
+    let refspec = format!("refs/heads/work {rewritten} refs/heads/work {published}\n");
+    let (code, _, err) = hook(&f.work, "workflow-guard", &["push"], &refspec, &[]);
+    assert_ne!(code, 0, "a rewritten feature branch must be refused: {err}");
+    assert!(err.contains("fast-forward"), "{err}");
+    assert!(err.contains("push to work must be a fast-forward"), "{err}");
+    assert!(err.contains("SUSI_ALLOW_FORCE=1"), "{err}");
+
+    // The deliberate override still allows the rewrite.
+    let (code, _, err) = hook(
+        &f.work,
+        "workflow-guard",
+        &["push"],
+        &refspec,
+        &[("SUSI_ALLOW_FORCE", "1")],
+    );
+    assert_eq!(code, 0, "{err}");
+
+    // A fast-forward on the same branch needs no override...
+    let (code, _, err) = hook(
+        &f.work,
+        "workflow-guard",
+        &["push"],
+        &format!("refs/heads/work {onwards} refs/heads/work {published}\n"),
+        &[],
+    );
+    assert_eq!(code, 0, "{err}");
+
+    // ...and neither does creating a branch the remote does not have yet.
+    let (code, _, err) = hook(
+        &f.work,
+        "workflow-guard",
+        &["push"],
+        &format!("refs/heads/work {onwards} refs/heads/work {zero}\n"),
+        &[],
+    );
+    assert_eq!(code, 0, "{err}");
+}

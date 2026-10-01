@@ -5,13 +5,16 @@
 #   commit  — refuse in the primary checkout, and refuse plain commits on main
 #   merge   — refuse in the primary checkout (merging into main is allowed)
 #   push    — refuse deleting, force-pushing or non-fast-forwarding main;
+#             refuse a non-fast-forward push of any other branch too (a rewritten
+#             feature branch orphans the claim, the CI run and the review that
+#             were taken against the commits it dropped);
 #             refuse a feature branch that is behind origin/main (sync-before-push);
 #             refuse a branch whose commits are not tied to claimed/closed tasks
 #
 # Escape hatches (deliberate, visible, never the default):
 #   SUSI_ALLOW_PRIMARY=1  commit in the primary checkout
 #   SUSI_ALLOW_MAIN=1     plain commit on main
-#   SUSI_ALLOW_FORCE=1    non-fast-forward push of main
+#   SUSI_ALLOW_FORCE=1    non-fast-forward push of any branch, main included
 stage=${1:-commit}
 
 primary_checkout() {
@@ -55,6 +58,20 @@ push)
                 # Never judge code freshness against a cached tracking ref.
                 git fetch --quiet origin || { echo "Cannot verify origin/main; push refused." >&2; exit 1; }
                 fetched=1
+            fi
+            # Mandate 49: published history is never rewritten. Only main used to
+            # be checked, so a force-push to a feature branch replaced the commits
+            # a task claim, a CI run and a review were taken against, and nothing
+            # downstream re-derived any of the three.
+            if [ "$lsha" != "$zero" ] && [ "$rsha" != "$zero" ] \
+                && ! git merge-base --is-ancestor "$rsha" "$lsha" 2>/dev/null \
+                && [ -z "${SUSI_ALLOW_FORCE:-}" ]; then
+                echo "❌ Mandate 49: push to ${rref#refs/heads/} must be a fast-forward (would drop ${rsha:0:8})." >&2
+                echo "   A force-push rewrites published history: the task claim, the CI run and the review" >&2
+                echo "   taken against the dropped commits keep pointing at code nobody will ever build." >&2
+                echo "   Integrate instead of rewriting: git fetch origin && git merge origin/main" >&2
+                echo "   (override, knowingly: SUSI_ALLOW_FORCE=1)" >&2
+                exit 1
             fi
             if [ "$lsha" != "$zero" ] && git rev-parse --verify --quiet origin/main >/dev/null; then
                 behind=$(git rev-list --count "$lsha"..origin/main 2>/dev/null || echo 0)

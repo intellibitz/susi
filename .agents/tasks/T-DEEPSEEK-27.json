@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-27",
+  "title": "A force-push to a feature branch rewrites history nothing checks; the guard only protects main",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(hook_enforcement)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790882886
+}
