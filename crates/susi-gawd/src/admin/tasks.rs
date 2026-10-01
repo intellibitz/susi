@@ -444,6 +444,20 @@ pub fn claims(ws: &Path) -> EaiResult<Vec<Claim>> {
 /// queue. Unreachable remotes and missing integration refs fail closed.
 pub fn ensure_synced(ws: &Path) -> EaiResult<()> {
     git(ws, &["fetch", "--quiet", "origin"])?;
+    // The dependency gate below reads task files from this checkout, so an
+    // uncommitted edit to a *tracked* one — deleting the task you depend on,
+    // say — must not open it. Untracked additions are deliberately fine:
+    // `tasks add` writes one, and it is committed with the work.
+    let tampered = git(ws, &["status", "--porcelain", "--", ".agents/tasks/"])?
+        .lines()
+        .filter(|line| !line.starts_with("??"))
+        .count();
+    if tampered > 0 {
+        return Err(EaiError::config(format!(
+            "claim refused: {tampered} uncommitted change(s) to tracked task files — \
+             commit them first (the queue and its dependencies are read from the checkout)"
+        )));
+    }
     let n = git(ws, &["rev-list", "--count", "HEAD..origin/main"])?;
     let unpublished = git(
         ws,
@@ -1461,6 +1475,44 @@ mod tests {
         let y = addt!(&a, "claude", "second", "", "s", &[], true_cmd()).unwrap();
         let got = claim(&a, &y.id, "claude", 1, now_unix()).unwrap();
         assert_eq!(got.agent, "CLAUDE");
+        drop(r);
+    }
+
+    /// The dependency gate reads task files from the checkout, so an
+    /// uncommitted edit to a *tracked* one must not open it — deleting the task
+    /// you depend on is otherwise a way to unblock yourself without doing the
+    /// dependency. This lives in `ensure_synced`, which the CLI claims through
+    /// (`tasks_cli.rs`) and the autonomous builder calls directly; untracked
+    /// additions stay fine, because that is what `tasks add` writes.
+    #[test]
+    fn ensure_synced_refuses_uncommitted_changes_to_tracked_task_files() {
+        let (r, a, _b) = Repos::new("queue-dirty");
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        git(&a, &["add", "-A"]).unwrap();
+        git(&a, &["commit", "--quiet", "-m", "queue"]).unwrap();
+        git(&a, &["push", "--quiet", "origin", "HEAD:main"]).unwrap();
+        git(&a, &["fetch", "--quiet", "origin"]).unwrap();
+
+        // A new, untracked task file is the normal `add` flow: allowed.
+        addt!(
+            &a,
+            "claude",
+            "second",
+            "",
+            "s",
+            std::slice::from_ref(&first.id),
+            true_cmd()
+        )
+        .unwrap();
+        ensure_synced(&a).unwrap();
+
+        // Deleting a tracked task file in the working tree is not.
+        std::fs::remove_file(tasks_dir(&a).join(format!("{}.json", first.id))).unwrap();
+        let err = ensure_synced(&a).unwrap_err().to_string();
+        assert!(
+            err.contains("uncommitted change(s) to tracked task files"),
+            "{err}"
+        );
         drop(r);
     }
 
