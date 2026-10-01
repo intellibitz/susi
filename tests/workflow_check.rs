@@ -47,7 +47,15 @@ struct World {
 impl World {
     /// bare server + a primary clone with `.githooks` on main + a worktree.
     fn new(tag: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("susi-wfc-{tag}-{}", std::process::id()));
+        // Unique per call, not just per process: libtest runs the tests of one
+        // binary as threads, so two tests that happen to pick the same tag would
+        // otherwise share a directory and delete each other's fixture.
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let root =
+            std::env::temp_dir().join(format!("susi-wfc-{tag}-{}-{unique}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let bare = root.join("server.git");
         let primary = root.join("primary");
@@ -412,7 +420,7 @@ fn a_primary_watcher_without_a_heartbeat_is_reported() {
 /// and already contained in `origin/main` — per agent, and never blocks on it.
 #[test]
 fn finished_worktrees_are_reported_by_the_check() {
-    let w = World::new("stale");
+    let w = World::new("stale-trees");
     w.claim_a_task();
     git(&w.primary, &["config", "extensions.worktreeConfig", "true"]);
     let spare = w.root.join("spare");
