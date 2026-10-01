@@ -312,10 +312,15 @@ fn a_claim_held_on_another_branch_is_refused() {
     let (code, err) = e.check_on(&before, "feature");
     assert_eq!(code, 1, "another branch's claim must be refused: {err}");
     assert!(err.contains("holds on branch 'main'"), "{err}");
-    assert!(err.contains("susi tasks release T-TEST-1"), "{err}");
+    assert!(err.contains("susi tasks release T-TEST-1 --force"), "{err}");
 
-    // The documented remedy works: release, re-claim from this branch, push.
+    // The documented remedy works, and it is deliberate: `release` refuses a
+    // claim taken on another branch unless forced, because the agent token
+    // alone can be shared or collide between workers.
     let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1"]);
+    assert_ne!(code, 0, "a cross-branch release must be refused: {err}");
+    assert!(err.contains("was claimed on branch"), "{err}");
+    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1", "--force"]);
     assert_eq!(code, 0, "{err}");
     let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
     assert_eq!(code, 0, "{err}");

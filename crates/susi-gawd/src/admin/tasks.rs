@@ -584,22 +584,40 @@ pub fn claim_scoped(
     let agent_target = format!("{blob}:{agent_ref}");
     let generation_lease = format!("--force-with-lease={generation_ref}:{generation_old}");
     let generation_target = format!("{blob}:{generation_ref}");
-    git(
-        ws,
-        &[
-            "push",
-            "--quiet",
-            "--atomic",
-            &task_lease,
-            &agent_lease,
-            &generation_lease,
-            &r,
-            &target,
-            &agent_target,
-            &generation_target,
-        ],
-    )
-    .map_err(|_| {
+    // A claim is one blob pushed to the task, agent and generation refs, so a
+    // takeover of an expired claim leaves the previous holder's agent ref
+    // pointing at a claim it no longer holds. Clear it in the same atomic push
+    // — but only while it still points at exactly that claim: if that agent has
+    // claimed something else since, its ref is its own bookkeeping, not ours.
+    let stale_agent = match &existing {
+        Some((sha, old)) if old.agent != mine.agent => {
+            let stale = format!("refs/claim-agents/{}", old.agent);
+            let listed = git(ws, &["ls-remote", &r, &stale])?;
+            let current = listed.split_whitespace().next().unwrap_or("");
+            (current == sha).then(|| (stale, sha.clone()))
+        }
+        _ => None,
+    };
+    let mut args: Vec<String> = vec![
+        "push".into(),
+        "--quiet".into(),
+        "--atomic".into(),
+        task_lease,
+        agent_lease,
+        generation_lease,
+    ];
+    if let Some((stale, sha)) = &stale_agent {
+        args.push(format!("--force-with-lease={stale}:{sha}"));
+    }
+    args.push(r);
+    args.push(target);
+    args.push(agent_target);
+    args.push(generation_target);
+    if let Some((stale, _)) = &stale_agent {
+        args.push(format!(":{stale}"));
+    }
+    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+    git(ws, &argv).map_err(|_| {
         EaiError::config(format!(
             "{id} or agent {} was claimed concurrently; refresh the queue and retry",
             mine.agent
@@ -701,6 +719,22 @@ pub fn release(ws: &Path, id: &str, agent: &str, force: bool) -> EaiResult<()> {
             "{id} is claimed by {}, not you",
             c.agent
         )));
+    }
+    // Ownership is also *where*: with a shared or colliding agent token
+    // (`codex-1` and `codex1` both tokenise to `CODEX1`), the token alone would
+    // let one worker free another's live claim — and freeing it lets the task be
+    // redone by someone else. Releasing from a different checkout is a recovery
+    // action, so it stays possible, but explicitly: `--force`.
+    if !force {
+        if let Some(claimed_on) = c.branch.as_deref() {
+            let here = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
+            if here.as_deref() != Some(claimed_on) {
+                return Err(EaiError::config(format!(
+                    "{id} was claimed on branch '{claimed_on}', not '{}' — release it from there, or pass --force to free it anyway",
+                    here.as_deref().unwrap_or("(detached HEAD)")
+                )));
+            }
+        }
     }
     let lease = format!("--force-with-lease={}:{sha}", claim_ref(id));
     let agent_ref = format!("refs/claim-agents/{}", c.agent);
@@ -1351,6 +1385,82 @@ mod tests {
             .contains("not you"));
         release(&b, &t.id, "devin", false).unwrap();
         assert!(claims(&a).unwrap().is_empty());
+        drop(r);
+    }
+
+    /// Releasing is how a claim stops protecting work, so it is bound to the
+    /// branch the claim was taken on: two workers that share an agent token
+    /// (same `SUSI_AGENT`, or `codex-1`/`codex1` both tokenising to `CODEX1`)
+    /// must not be able to free each other's live claim. Recovery from a lost
+    /// worktree stays possible, deliberately, through `--force`.
+    #[test]
+    fn release_is_bound_to_the_branch_that_claimed_unless_forced() {
+        let (r, a, _b) = Repos::new("release-branch");
+        let t = addt!(&a, "claude", "job", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t.id, "claude", 4, now_unix()).unwrap();
+
+        git(&a, &["switch", "--quiet", "-c", "elsewhere"]).unwrap();
+        let err = release(&a, &t.id, "claude", false).unwrap_err().to_string();
+        assert!(err.contains("branch"), "{err}");
+        // Still held: the claim was not freed.
+        assert!(claims(&a).unwrap().iter().any(|c| c.task == t.id));
+
+        release(&a, &t.id, "claude", true).unwrap();
+        assert!(claims(&a).unwrap().is_empty());
+        drop(r);
+    }
+
+    /// Taking over an expired claim used to leave the previous holder's
+    /// `refs/claim-agents/<AGENT>` pointing at the claim it no longer holds.
+    #[test]
+    fn taking_over_an_expired_claim_clears_the_previous_holder() {
+        let (r, a, b) = Repos::new("takeover-ref");
+        let t = addt!(&a, "claude", "job", "", "s", &[], true_cmd()).unwrap();
+        std::fs::create_dir_all(tasks_dir(&b)).unwrap();
+        std::fs::copy(
+            tasks_dir(&a).join(format!("{}.json", t.id)),
+            tasks_dir(&b).join(format!("{}.json", t.id)),
+        )
+        .unwrap();
+        let t0 = 2_000_000;
+        claim(&a, &t.id, "claude", 1, t0).unwrap();
+        assert!(git(&a, &["ls-remote", "origin", "refs/claim-agents/*"])
+            .unwrap()
+            .contains("refs/claim-agents/CLAUDE"));
+
+        claim(&b, &t.id, "devin", 1, t0 + 3_601).unwrap();
+        let refs = git(&b, &["ls-remote", "origin", "refs/claim-agents/*"]).unwrap();
+        assert!(
+            !refs.contains("refs/claim-agents/CLAUDE"),
+            "the dispossessed holder's ref must not outlive its claim: {refs}"
+        );
+        assert!(refs.contains("refs/claim-agents/DEVIN"), "{refs}");
+        drop(r);
+    }
+
+    /// The review feared a dispossessed holder would then be locked out of
+    /// every new claim by its own stale agent ref. It is not: that ref can only
+    /// hold an expired lease (a live claim is only replaced by a takeover after
+    /// expiry), so the same-agent check lets it through. This pins that down.
+    #[test]
+    fn a_dispossessed_agent_can_still_claim_another_task() {
+        let (r, a, b) = Repos::new("dispossessed");
+        let x = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        // `b` needs the task file too, to be able to take the claim over.
+        std::fs::create_dir_all(tasks_dir(&b)).unwrap();
+        std::fs::copy(
+            tasks_dir(&a).join(format!("{}.json", x.id)),
+            tasks_dir(&b).join(format!("{}.json", x.id)),
+        )
+        .unwrap();
+        let t0 = 3_000_000;
+        claim(&a, &x.id, "claude", 1, t0).unwrap();
+        claim(&b, &x.id, "devin", 1, t0 + 3_601).unwrap();
+
+        // CLAUDE lost the claim but holds nothing now, so it can take new work.
+        let y = addt!(&a, "claude", "second", "", "s", &[], true_cmd()).unwrap();
+        let got = claim(&a, &y.id, "claude", 1, now_unix()).unwrap();
+        assert_eq!(got.agent, "CLAUDE");
         drop(r);
     }
 

@@ -82,7 +82,7 @@ check_claim_owner() {
     owner_branch=$(jq -r '.branch // ""' <<<"$body" 2>/dev/null || true)
     owner_agent=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
     if [ -n "$owner_branch" ] && [ -n "$branch" ] && [ "$owner_branch" != "$branch" ]; then
-        err "commit $short works on $id, which $owner_agent holds on branch '$owner_branch', not '$branch' — one task belongs to one branch (susi tasks release $id, then claim it from your own branch)"
+        err "commit $short works on $id, which $owner_agent holds on branch '$owner_branch', not '$branch' — one task belongs to one branch. Move it deliberately (release refuses a claim taken on another branch): susi tasks release $id --force, then susi tasks claim $id from your own branch"
         return
     fi
     scopes=$(jq -r '.scopes[]?' <<<"$body" 2>/dev/null || true)
