@@ -406,3 +406,41 @@ fn a_primary_watcher_without_a_heartbeat_is_reported() {
     let (_, out) = w.check(&w.wt);
     assert!(out.contains("✅ primary watcher"), "{out}");
 }
+
+/// A clone accumulates one worktree per task and nothing reclaims them (this
+/// repository reached 14). The check counts the ones that are finished — clean
+/// and already contained in `origin/main` — per agent, and never blocks on it.
+#[test]
+fn finished_worktrees_are_reported_by_the_check() {
+    let w = World::new("stale");
+    w.claim_a_task();
+    git(&w.primary, &["config", "extensions.worktreeConfig", "true"]);
+    let spare = w.root.join("spare");
+    git(
+        &w.primary,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "spare",
+            spare.to_str().unwrap(),
+            "origin/main",
+        ],
+    );
+    git(&spare, &["config", "--worktree", "susi.agent", "TEST"]);
+
+    let (code, out) = w.check(&w.wt);
+    assert!(out.contains("stale worktrees"), "{out}");
+    assert!(
+        out.contains("1 of your finished worktree(s) can be reclaimed"),
+        "{out}"
+    );
+    assert!(out.contains("scripts/prune-worktrees.sh --apply"), "{out}");
+    assert_eq!(code, 0, "housekeeping must never block the loop: {out}");
+
+    // Uncommitted work in that worktree takes it off the list.
+    std::fs::write(spare.join("scratch.txt"), "wip").unwrap();
+    let (_, out) = w.check(&w.wt);
+    assert!(out.contains("✅ stale worktrees"), "{out}");
+}

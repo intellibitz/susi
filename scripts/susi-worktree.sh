@@ -23,6 +23,8 @@ base=${2:-origin/main}
 case "$name" in
 main | HEAD | "") echo "susi-worktree: refusing branch name '$name'" >&2; exit 2 ;;
 esac
+# The identity this worktree will carry; also what the reuse check compares.
+worker=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
 
 git -C "$root" fetch -q origin
 dest="$(dirname "$primary")/$(basename "$primary")-$name"
@@ -30,6 +32,17 @@ if [ -d "$dest" ]; then
     [ "$(git -C "$dest" rev-parse --path-format=absolute --git-common-dir)" = "$common" ] \
         && [ "$(git -C "$dest" symbolic-ref -q --short HEAD)" = "$name" ] \
         || { echo "susi-worktree: refusing to reuse an unrelated checkout" >&2; exit 1; }
+    # Two workers in one directory is two workers sharing one token and one
+    # branch: they can renew, close and release each other's claim, so this is
+    # the one collision that must never be silent.
+    owner=$(git -C "$dest" config --worktree --get susi.agent 2>/dev/null || true)
+    if [ -n "$owner" ] && [ "$owner" != "$worker" ]; then
+        cat >&2 <<MSG
+❌ $dest already belongs to agent $owner, not $worker.
+   One worktree per worker: pick a different name, or reuse it as $owner.
+MSG
+        exit 1
+    fi
     echo "susi-worktree: $dest already exists — reusing it" >&2
 else
     git -C "$root" worktree add -b "$name" "$dest" "$base" >&2
@@ -38,7 +51,6 @@ echo "worktree: $dest (branch $name)" >&2
 
 # Persist a unique worker identity, even when all tools share one Git login.
 git -C "$root" config extensions.worktreeConfig true
-worker=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
 if ! git -C "$dest" config --worktree --get susi.agent >/dev/null; then
     git -C "$dest" config --worktree susi.agent "$worker"
 fi
