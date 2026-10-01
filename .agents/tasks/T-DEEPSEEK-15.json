@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-15",
+  "title": "Branch pushes must run clippy for affected crates: a lint break lands on main unnoticed (the 1.99 deprecation did)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/ci-changed-crates.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790870164
+}

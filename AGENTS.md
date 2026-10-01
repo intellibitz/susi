@@ -308,14 +308,18 @@ convergent:
   `main` must be fast-forward; compile (`cargo check --workspace`) before
   pushing a merge so fixup commits never ship an uncompiled merge.
 - **CI is branch-scoped and affected-crate-scoped.** Feature-branch pushes
-  run fmt + cargo deny + `cargo check` **and the tests of** just the crates the
-  diff touches (`scripts/ci-changed-crates.sh`; workspace-wide inputs and
-  root-package changes fall back to a full check, which keeps `cargo check`
-  alone because a whole-workspace test build on every macro-push is what this
-  gate exists to avoid). Running the affected crates' tests here is
-  deliberate: the failures that reach `main` are runtime ones — races, flakes,
-  cross-test interference — that a compile check cannot see and the shards
-  below would only catch after the merge. **The compiler is pinned** in
+  run fmt + cargo deny + `cargo check`, **clippy `-D warnings`** and **the tests
+  of** just the crates the diff touches (`scripts/ci-changed-crates.sh`;
+  workspace-wide inputs and root-package changes fall back to a full check,
+  which keeps `cargo check` alone because a whole-workspace test build on every
+  macro-push is what this gate exists to avoid — the *lint* is the exception and
+  runs workspace-wide in that case, since a toolchain, lockfile or lint-config
+  change is exactly where a lint break hides). Running the affected crates' tests
+  here is deliberate: the failures that reach `main` are runtime ones — races,
+  flakes, cross-test interference — that a compile check cannot see and the
+  shards below would only catch after the merge. Clippy is here because the
+  `lint` job is main-only: 1.99.0 deprecated `Atomic::fetch_update` and it
+  failed on code nobody had touched. **The compiler is pinned** in
   `rust-toolchain.toml`, and the `Toolchain Pin` job asserts that a runner
   which installs `stable` still resolves it: a toolchain roll once reddened
   `main` with no code change at all (1.99.0 deprecated
