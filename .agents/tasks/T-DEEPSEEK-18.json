@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-18",
+  "title": "Claim ownership hardening: release must be branch-bound, and a takeover must clear the previous holder's agent ref",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(admin::tasks)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790872601
+}
