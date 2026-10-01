@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-1",
+  "title": "Fix main's red CI: the harness=false broken-pipe test breaks cargo-nextest test discovery",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-paths",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790830595,
+  "closed": {
+    "at_unix": 1790831736,
+    "commit": "54475151820ab356fe4c5603cd303e13c577e431",
+    "by": "DEEPSEEK"
+  }
+}

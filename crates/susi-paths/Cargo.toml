@@ -8,12 +8,16 @@ publish = false
 [dependencies]
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
-# The broken-pipe guard ends the process, so its check cannot run on a
-# test-harness thread: `harness = false` lets this file own `main` and spawn
-# itself as the child whose stdout reader is already gone.
-[[test]]
-name = "cli_output_contract"
-harness = false
+# The broken-pipe guard ends the process, so it cannot be exercised on a
+# test-harness thread: this probe is spawned by tests/cli_output_contract.rs
+# with the read end of its stdout already closed. It is a bin and not a
+# `harness = false` test because cargo-nextest (what CI runs) executes every
+# test binary with `--list`, and reports no result for a binary that is not a
+# libtest harness — it marks the test skipped, so a regression could never fail
+# a shard.
+[[bin]]
+name = "stdio_guard_probe"
+path = "src/bin/stdio_guard_probe.rs"
 
 [lints]
 workspace = true
