@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-3",
+  "title": "Mission engine: the consensus deliberation is a trace, not the answer - stop writing it to stdout",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-gawd-swarm",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790852161,
+  "closed": {
+    "at_unix": 1790852406,
+    "commit": "4c443c2980e88e3e1ae1033c8709663659c162d9",
+    "by": "DEEPSEEK"
+  }
+}
