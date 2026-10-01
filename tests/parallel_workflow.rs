@@ -184,6 +184,30 @@ impl World {
             .output()
             .unwrap()
     }
+
+    /// `finish` where the branch never merges *and* `gh` reports that the run
+    /// for the pushed sha has failed. The budget is larger than the run-check
+    /// cadence, so a passing test proves the loop stopped on the failure rather
+    /// than on the budget.
+    fn finish_with_a_failing_run(&self) -> std::process::Output {
+        executable(
+            &self.bins.join("gh"),
+            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(/usr/bin/git rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+        );
+        self.susi(&["workflow", "finish", "T-WORKER-1"])
+            .env(
+                "PATH",
+                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
+            )
+            .env("TEST_REMOTE", &self.remote)
+            .env("TEST_GATES", self.root.join("gates"))
+            .env("TEST_GATE_FAIL", "0")
+            .env("TEST_NO_MERGE", "1")
+            .env("SUSI_FINISH_POLL", "1")
+            .env("SUSI_FINISH_WAIT_MAX", "8")
+            .output()
+            .unwrap()
+    }
 }
 impl Drop for World {
     fn drop(&mut self) {
@@ -281,5 +305,36 @@ fn a_lapsed_lease_is_re_adopted_with_its_scopes() {
     assert!(
         claim.contains("code.txt"),
         "the re-adopted claim dropped its scopes: {claim}"
+    );
+}
+
+/// A branch whose run has already failed will not merge, so waiting out the
+/// budget is two hours of the agent's time spent not fixing it. `finish` stops
+/// as soon as `gh` reports the failure for the sha it pushed — the same
+/// fast-fail the closed-PR check gets, and the state that actually cost a round
+/// of this session.
+#[test]
+fn finish_stops_when_its_own_run_has_failed() {
+    let w = World::new("redrun");
+    let out = w.finish_with_a_failing_run();
+    assert!(!out.status.success(), "a red run must stop the wait");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("did not pass (completed/failure)"),
+        "the loop must name the failed run, not the budget: {err}"
+    );
+    assert!(
+        !err.contains("still not on origin/main"),
+        "it must stop before the budget: {err}"
+    );
+    // Stopping early loses nothing: the closure and the claim stay.
+    assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
+    let claims = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/claims/"],
+    );
+    assert!(
+        claims.contains("refs/claims/T-WORKER-1"),
+        "the claim must be retained: {claims}"
     );
 }

@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-22",
+  "title": "finish must stop when its own branch run fails, instead of renewing the lease for two hours; document the reopen escape",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(parallel_workflow)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790878460,
+  "closed": {
+    "at_unix": 1790878737,
+    "commit": "c4621aebd46279bc453d9b2146777db67b546ae3",
+    "by": "DEEPSEEK"
+  }
+}
