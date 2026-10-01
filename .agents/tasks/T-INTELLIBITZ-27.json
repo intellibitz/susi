@@ -1,0 +1,14 @@
+{
+  "id": "T-INTELLIBITZ-27",
+  "title": "Gate roadmap progress in CI so the reconciled invariant cannot silently regress",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-progress.sh"
+    ]
+  },
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790827769
+}
