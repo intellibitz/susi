@@ -8,6 +8,13 @@
 # config — or when detection is impossible (missing/shallow base ref,
 # metadata failure). A path under crates/ matching no package is also ALL.
 #
+# `.agents/tasks/` is exempt: it is the shared task queue, one file per task,
+# committed with every task's work. Only `.agents/{identity,roadmap,evidence}
+# .json` are compiled (root build.rs and susi-gawd-agents/build.rs), so the
+# queue is not a build input. Counting it as one meant every agent commit —
+# they all carry a task file — forced `cargo check --workspace` on its branch
+# push instead of the bounded affected-crate gate.
+#
 # Prints nothing when the diff touched no crate (docs/CI-only changes), so
 # callers can skip cargo entirely.
 set -euo pipefail
@@ -23,6 +30,8 @@ changed=$(git diff --name-only "$mb" HEAD)
     echo ALL
     exit 0
 }
+# The task queue is inert at build time; see the header.
+changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
 
 if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml|tests/|src/|benches/|examples/)' <<<"$changed"; then
     echo ALL

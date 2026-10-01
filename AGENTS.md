@@ -292,9 +292,14 @@ convergent:
   `main` must be fast-forward; compile (`cargo check --workspace`) before
   pushing a merge so fixup commits never ship an uncompiled merge.
 - **CI is branch-scoped and affected-crate-scoped.** Feature-branch pushes
-  run fmt + cargo deny + `cargo check` on just the crates the diff touches
-  (`scripts/ci-changed-crates.sh`; workspace-wide inputs and root-package
-  changes fall back to a full check). On `main` and manual dispatch the
+  run fmt + cargo deny + `cargo check` **and the tests of** just the crates the
+  diff touches (`scripts/ci-changed-crates.sh`; workspace-wide inputs and
+  root-package changes fall back to a full check, which keeps `cargo check`
+  alone because a whole-workspace test build on every macro-push is what this
+  gate exists to avoid). Running the affected crates' tests here is
+  deliberate: the failures that reach `main` are runtime ones — races, flakes,
+  cross-test interference — that a compile check cannot see and the shards
+  below would only catch after the merge. On `main` and manual dispatch the
   suite runs as six parallel nextest shards (foundation, daemon, gawd,
   gemi, vendor-cells, root-cli) plus a lint job and the live susi-native
   e2e job — the gate is the slowest shard, not one serial workspace build.
