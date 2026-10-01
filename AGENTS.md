@@ -67,11 +67,16 @@ The concrete loop is:
    for repair; rerun finish after committing the repair. Do not claim another
    task until the completion is on remote main. Closing alone retains the
    claim so nobody duplicates work while the PR awaits merge. That wait is
-   bounded (`SUSI_FINISH_WAIT_MAX`, default 2 h) and a lease that lapsed during
-   it is re-adopted rather than an abort, so a branch that cannot merge — a red
-   gate, or a PR the reconciler closed after 7 idle days — stops with the
-   closure and the claim intact, says so, and is retried by fixing the branch
-   and running finish again.
+   bounded (`SUSI_FINISH_WAIT_MAX`, default 2 h), and it stops early — with the
+   closure and the claim intact, saying what it saw — when the pull request is
+   closed or the run for the pushed sha has failed, so a branch that cannot
+   merge costs a minute of feedback rather than the whole budget. A lease that
+   lapsed during the wait is re-adopted rather than an abort.
+   **When the failure is found after acceptance was recorded, the close has not
+   been published** (`origin/main` still shows the task open), so revert it with
+   a task-only commit — exempt from the trailer rule — and keep fixing under the
+   same live claim: citing a closed task is refused, and claiming a new one is
+   refused while a completed task is unpublished, so that is the way forward.
 5. Repeat sync → claim. No offline freshness or unavailable claim snapshot
    counts as permission to start work.
 

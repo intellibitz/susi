@@ -41,6 +41,17 @@ pr_state() {
     gh pr view "$branch" --json state -q .state 2>/dev/null || true
 }
 
+# The conclusion of the branch-push run for this exact sha, when `gh` can answer:
+# "completed/failure", "in_progress/pending", or empty when it cannot be read
+# (no gh, no jq, no run yet) — unknown never stops the wait.
+run_state() {
+    command -v gh >/dev/null 2>&1 || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    gh run list --branch "$branch" --workflow Test --limit 20 \
+        --json headSha,status,conclusion 2>/dev/null |
+        jq -r --arg sha "$sha" '[.[] | select(.headSha == $sha)][0] | .status + "/" + (.conclusion // "pending")' 2>/dev/null || true
+}
+
 case "$action" in
 sync) sync ;;
 finish)
@@ -102,12 +113,28 @@ MSG
             exit 1
         fi
         ticks=$(( ticks + 1 ))
-        # A closed pull request will never merge; don't wait out the budget.
+        # A closed pull request will never merge, and neither will a run that has
+        # already failed. Both used to be discovered only by waiting out the
+        # whole budget — two hours by default — while the lease was renewed;
+        # that is two hours in which the agent could have been fixing it.
         if [ $(( ticks % 4 )) -eq 0 ]; then
             case "$(pr_state)" in
             CLOSED)
                 echo "❌ the pull request for $branch is closed; it will not merge." >&2
                 echo "   The task is closed and the claim is retained — push a fix and reopen it, or release the claim." >&2
+                exit 1
+                ;;
+            esac
+            state=$(run_state)
+            case "$state" in
+            completed/failure | completed/timed_out | completed/startup_failure)
+                cat >&2 <<MSG
+❌ the branch-push run for $sha did not pass ($state).
+   The task is closed and the claim is retained, so nothing is lost and no other
+   agent will start it. Fix the failure, commit the repair, and run finish again
+   (if the acceptance was already published, revert the close and fix under the
+   same claim — citing a closed task is refused).
+MSG
                 exit 1
                 ;;
             esac
