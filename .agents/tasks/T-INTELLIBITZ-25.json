@@ -1,0 +1,14 @@
+{
+  "id": "T-INTELLIBITZ-25",
+  "title": "Reconcile roadmap.json progress prose with verified delivery (100 of 102 vectors still say PLANNED despite green linked acceptance checks)",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-progress.sh"
+    ]
+  },
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790826143
+}

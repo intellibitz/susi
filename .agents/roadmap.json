@@ -30,7 +30,7 @@
       "id": "VC-201-001",
       "mastery_target": "Create versioned coding, repair, orchestration, and local/cloud operations fixtures with input hashes and held-out splits; replay the same revision with recorded seeds and no evaluator-data exposure to the candidate.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: versioned RSI evaluation corpus with input hashes, held-out splits and recorded-seed replay of the same revision, with evaluator data hidden from the candidate. Verified by `crates/susi-gawd/src/tests/rsi_corpus.rs`: input_hash_and_held_out_split, replay_seeds_cover_all_classes, candidate_view_hides_evaluator_expected. Evidence: T-CLAUDE-113.",
       "type": "RSI_EVALUATION",
       "vector": "Version the RSI evaluation corpus"
     },
@@ -41,7 +41,7 @@
       "id": "VC-201-002",
       "mastery_target": "Benchmark the installed release as an unchanged reference and candidates on the isolated dev instance; record commit, hardware, runtime, dataset, success rate, latency, tokens, and cost with reproducible commands.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: the installed release captured as an unchanged reference with candidates measured on the isolated dev instance, recording commit, hardware, runtime, dataset, success, latency, tokens and cost with reproducible commands. Verified by `crates/susi-gawd/src/tests/vc_201_002.rs`: release_baseline_unchanged_reference, candidate_runs_on_dev_instance, records_required_fields_for_comparison. Evidence: T-CLAUDE-114.",
       "type": "RSI_EVALUATION",
       "vector": "Capture a reproducible released baseline"
     },
@@ -53,7 +53,7 @@
       "id": "VC-201-003",
       "mastery_target": "Publish separate quality, reliability, latency, resource, and operator-effort measures with predeclared comparison thresholds; report uncertainty and never equate task count with a percentage improvement.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: separate quality, reliability, latency, resource and operator-effort dimensions with predeclared thresholds and reported uncertainty; an undersampled result cannot claim an improvement. Verified by `crates/susi-gawd/src/tests/vc_201_003.rs`: separate_dimensions_with_thresholds_and_uncertainty, uncertainty_blocks_claim. Evidence: T-CLAUDE-115.",
       "type": "RSI_EVALUATION",
       "vector": "Define a measurable improvement scorecard"
     },
@@ -64,7 +64,7 @@
       "id": "VC-201-004",
       "mastery_target": "Each evaluation receipt identifies source revision, binary or Wasm digest, suite revision, environment, and actual exit status; a changed artifact or missing receipt invalidates the comparison.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: evaluation receipts bind source revision, artifact digest, suite revision, environment and actual exit status; a changed artifact or a missing receipt invalidates the comparison. Verified by `crates/susi-gawd/src/tests/vc_201_004.rs`: receipt_identifies_revision_digest_suite_env_exit, changed_artifact_invalidates_comparison, missing_receipt_invalidates. Evidence: T-CLAUDE-116.",
       "type": "RSI_EVALUATION",
       "vector": "Bind evaluation receipts to candidate artifacts"
     },
@@ -76,7 +76,7 @@
       "id": "VC-201-005",
       "mastery_target": "Run the evaluator with held-out inputs and write permissions unavailable to the candidate; demonstrate that a patch altering its own expected results cannot satisfy the promotion gate.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: judging is separated from generation - the candidate has no write access to evaluator expectations, a patch that alters its own expected results fails the promotion gate, and an honest candidate still passes. Verified by `crates/susi-gawd/src/tests/vc_201_005.rs`: write_permissions_unavailable_to_candidate, self_altered_expectations_fail_gate, honest_candidate_passes. Evidence: T-CLAUDE-117.",
       "type": "RSI_EVALUATION",
       "vector": "Separate candidate generation from judging"
     },
@@ -100,7 +100,7 @@
       "id": "VC-201-007",
       "mastery_target": "Extend the existing compile-and-probe path with independent intent fixtures, malformed-input checks, and output assertions before registration; reject an executable signature-echo or semantically wrong reflex.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: synthesized reflexes are probed before registration with independent intent fixtures and malformed-input checks; a signature-echo or non-matching output is refused. Verified by `crates/susi-gawd/src/tests/vc_201_007.rs`: accepts_independent_fixture_match, rejects_malformed_input, rejects_signature_echo. Evidence: T-CLAUDE-118.",
       "type": "RSI_EVALUATION",
       "vector": "Verify synthesized reflex intent correctness"
     },
@@ -149,7 +149,7 @@
       "id": "VC-201-011",
       "mastery_target": "Implement proposed, isolated, evaluated, rejected, and promotion-ready states with durable transitions; kill-and-resume tests neither skip evaluation nor duplicate an applied transition.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: durable experiment lifecycle across proposed, isolated, evaluated, rejected and promotion-ready; kill-and-resume neither skips evaluation nor replays an applied transition. Verified by `crates/susi-gawd/src/tests/vc_201_011.rs`: durable_transitions_and_no_duplicate, cannot_skip_evaluation, duplicate_applied_transition_refused, with lifecycle companions in `crates/susi-gawd/src/cloud_rsi_lifecycle.rs` (promotion_requires_all_gates_recorded, persists_lineage_across_restart, restart_rolls_back_transient_phases, stale_fence_refused_after_reassign). Evidence: T-CLAUDE-119, T-CODEX-19.",
       "type": "RSI_EXECUTION",
       "vector": "Persist the self-improvement experiment lifecycle"
     },
@@ -172,7 +172,7 @@
       "id": "VC-201-013",
       "mastery_target": "Create a candidate checkout with explicit path and command scope for each experiment; concurrent experiments preserve user changes and cannot write the installed release or another experiment's workspace.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: patches apply only inside an isolated experiment workspace, and a workspace escape is refused, so concurrent experiments cannot write the installed release or each other. Verified by `crates/susi-gawd/src/tests/vc_201_013.rs`: patches_apply_only_in_isolated_workspace, with companions in `crates/susi-gawd/src/cloud_rsi.rs` (workspace_escape_is_refused, parallel_tasks_each_apply_locally). Evidence: T-CLAUDE-120, T-CODEX-17.",
       "type": "RSI_EXECUTION",
       "vector": "Fence autonomous patches into isolated workspaces"
     },
@@ -184,7 +184,7 @@
       "id": "VC-201-014",
       "mastery_target": "Reserve and debit tokens, wall time, subprocesses, and cloud spend across retries and delegated descendants; exhausting a budget durably stops new work and cancels eligible children.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: cumulative experiment budgets reserve and debit across retries, and exhaustion durably stops new work and cancels eligible children. Verified by `crates/susi-gawd/src/tests/vc_201_014.rs`: reserve_and_debit_across_retries, exhaustion_stops_new_work_and_cancels_children; companions in `crates/susi-gawd/src/cloud_rsi_lifecycle.rs` (spend_cap_refuses_overspend, cancel_and_reject_are_terminal). Evidence: T-CLAUDE-121.",
       "type": "RSI_EXECUTION",
       "vector": "Enforce cumulative RSI experiment budgets"
     },
@@ -196,7 +196,7 @@
       "id": "VC-201-015",
       "mastery_target": "Run cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, and cargo test --workspace --locked against the candidate; missing, skipped, or failing checks prevent promotion readiness.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: promotion readiness requires the full repository gate (cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -D warnings, cargo test --workspace --locked) run against the candidate; missing, skipped or failing checks block it. Verified by `crates/susi-gawd/src/tests/vc_201_015.rs`: full_pass_is_promotion_ready, missing_skipped_or_failing_block_promotion, verify_command_covers_fmt_clippy_test. Evidence: T-CLAUDE-122.",
       "type": "RSI_EXECUTION",
       "vector": "Gate self-patches on the full repository checks"
     },
@@ -234,7 +234,7 @@
       "id": "VC-201-018",
       "mastery_target": "A passing experiment produces a reviewable release candidate and evidence manifest; only susi release and scripts/susi-release-sync.sh promote tagged builds, and attempts to install target/ binaries into ~/.susi/bin are rejected.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: a passing experiment yields a reviewable release candidate and manifest, promotion is release-only, and installing target/ binaries into ~/.susi/bin is rejected. Verified by `crates/susi-gawd/src/tests/vc_201_018.rs`: passing_experiment_yields_reviewable_rc, rejects_target_bin_install_into_susi_home, with delivery companions in `crates/susi-gawd/src/cloud_rsi_delivery.rs` (rejects_dev_binary_hot_swap_and_directory, validated_candidate_merges_and_releases, unverified_candidate_cannot_promote, post_merge_gate_failure_blocks_close). Evidence: T-CLAUDE-123, T-CODEX-21, T-INTELLIBITZ-22, T-INTELLIBITZ-23.",
       "type": "RSI_EXECUTION",
       "vector": "Connect RSI promotion to release-only self-build"
     },
@@ -269,7 +269,7 @@
       "id": "VC-201-021",
       "mastery_target": "Persist task inputs, dependencies, outputs, and terminal states for supported mission types; restarting between dependency completion and dispatch resumes runnable work without treating unfinished nodes as complete.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: mission DAG inputs, dependencies, outputs and terminal states persist, and a restart between dependency completion and dispatch resumes runnable work without treating an unfinished node as complete. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_021.rs`: persist_and_resume_runnable_after_restart, running_not_treated_as_complete_on_reload, refuse_dispatch_before_deps, plus the mission_dag_persist_wiring check. Evidence: T-CLAUDE-124, T-INTELLIBITZ-5.",
       "type": "SWARM_EXECUTION",
       "vector": "Persist executable mission DAG state"
     },
@@ -280,7 +280,7 @@
       "id": "VC-201-022",
       "mastery_target": "Assign expiring ownership and monotonic fencing tokens to dispatched tasks; a recovered or partitioned worker with an old token cannot publish authoritative task completion.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: dispatched tasks carry expiring ownership and monotonic fencing tokens; an expired owner, a wrong owner or a stale fence cannot publish authoritative completion after reassignment. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_022.rs`: dispatch_assigns_expiring_ownership_and_fence, expired_or_wrong_owner_rejected, stale_fence_cannot_complete_after_reassign, plus the task_lease_dispatch_wiring check. Evidence: T-CLAUDE-125, T-CODEX-11, T-INTELLIBITZ-20, T-INTELLIBITZ-21, T-INTELLIBITZ-6.",
       "type": "SWARM_EXECUTION",
       "vector": "Fence swarm task ownership with durable leases"
     },
@@ -292,7 +292,7 @@
       "id": "VC-201-023",
       "mastery_target": "Declare read-only, idempotent, reconcilable, and non-retryable tool actions; crash tests retry only supported actions and surface uncertain external effects for reconciliation.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: tool actions declare read-only, idempotent, reconcilable and non-retryable classes; crash replay retries only supported classes and surfaces uncertain external effects for reconciliation. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_023.rs`: retry_only_supported_classes, idempotent_retries_cleanly, non_retryable_surfaces_uncertain_external, plus the side_effects_dispatch_wiring check. Evidence: T-CLAUDE-126, T-INTELLIBITZ-7.",
       "type": "SWARM_EXECUTION",
       "vector": "Classify and reconcile task side effects"
     },
@@ -328,7 +328,7 @@
       "id": "VC-201-026",
       "mastery_target": "Carry cancellation and remaining deadlines through local workers, external agents, peer dispatch, and model calls; integration tests terminate cancellable descendants and report any irreversibly running remote job.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: cancellation and remaining deadlines propagate through the swarm, cancellable descendants are terminated, and an irreversibly running remote job is reported rather than claimed stopped. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_026.rs`: cancels_cancellable_descendants_and_reports_irreversible, deadline_remaining_propagates, with cancel_terminates_* companions and the cancel_propagate_dispatch_wiring check. Evidence: T-CLAUDE-127, T-INTELLIBITZ-9.",
       "type": "SWARM_EXECUTION",
       "vector": "Propagate cancellation through the entire swarm"
     },
@@ -352,7 +352,7 @@
       "id": "VC-201-028",
       "mastery_target": "Bind review conclusions to tool receipts and reviewer provenance; duplicate outputs or the implementer's own unsupported assertion cannot satisfy an independent verification requirement.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: an independent verification requirement binds to tool receipts and reviewer provenance; duplicate digests or the implementer's own assertion cannot satisfy it. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_028.rs`: requires_receipts_and_independent_reviewer, implementer_assertion_insufficient, duplicate_digests_fail; companions in `crates/susi-gawd/src/cloud_rsi.rs` (self_approval_is_refused, independent_approval_plus_gates_verifies, fabricated_receipts_are_rejected). Evidence: T-CLAUDE-128, T-CODEX-18, T-INTELLIBITZ-11.",
       "type": "SWARM_EXECUTION",
       "vector": "Require independent evidence for swarm verification"
     },
@@ -388,7 +388,7 @@
       "id": "VC-201-031",
       "mastery_target": "Build a deterministic model of the existing signed roster and commit rules with reordered messages, partitions, and restarts; preserve discovered counterexamples and document the exact safety properties the implementation satisfies.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: a deterministic model of the signed roster and commit rules, checked over exhaustive message schedules; reordered claims do not inflate terms, and a partition that reconnects adopts the higher term without split brain. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_031.rs`: exhaustive_message_schedules_preserve_sp3, reordered_claims_same_leader_no_term_inflation, partition_allows_divergent_terms_reconnect_adopts_higher, leadership_change_bumps_term, safety_properties_documented. Evidence: T-CLAUDE-129, T-CURSOR-1.",
       "type": "FEDERATION",
       "vector": "Model-check membership and term transitions"
     },
@@ -399,7 +399,7 @@
       "id": "VC-201-032",
       "mastery_target": "Extend existing member signatures and endorsements with serialized old/new electorate transitions; overlapping add/remove operations cannot commit disjoint active rosters under the documented fault model.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: joint-consensus membership transitions require a quorum from both the old and the new electorate, so overlapping add/remove operations cannot commit disjoint active rosters. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_032.rs`: joint_quorum_required_from_old_and_new, overlapping_disjoint_rosters_cannot_both_commit, serialized_same_new_roster_ok, plus the joint_consensus_membership_wiring check. Evidence: T-CLAUDE-130, T-INTELLIBITZ-13.",
       "type": "FEDERATION",
       "vector": "Implement joint-consensus membership transitions"
     },
@@ -411,7 +411,7 @@
       "id": "VC-201-033",
       "mastery_target": "Commit node-key rotation and revocation with old/new key authorization and quorum checks; revoked credentials fail after restart while historical signed records remain verifiable.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: node-key rotation and revocation commit with quorum; revoked credentials fail after restart while historical signed records remain verifiable. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_033.rs`: rotation_requires_quorum, revoke_fails_after_restart_history_verifiable, enrollment_requires_token_and_mtls, plus the node_enrollment_production check. Evidence: T-CLAUDE-131, T-INTELLIBITZ-14.",
       "type": "FEDERATION",
       "vector": "Revoke compromised peer identities durably"
     },
@@ -511,7 +511,7 @@
       "id": "VC-201-041",
       "mastery_target": "Unify actual CPU, RAM, GPU, VRAM, disk, model, and runtime observations with timestamps and provenance; unavailable probes are unknown rather than zero or fabricated readiness.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: one observed local resource inventory across CPU, RAM, GPU, VRAM, disk, models and runtimes with provenance, where unavailable probes report unknown rather than zero or fabricated readiness. Verified by `crates/susi-vendor-models/src/tests/resource_inventory.rs`: full_observation_reports_ready_fields, provenance_distinguishes_observed_vs_unavailable, unknown_probes_are_not_fabricated_zeros. Evidence: T-CLAUDE-132.",
       "type": "LOCAL_HOSTING",
       "vector": "Publish an observed local AI resource inventory"
     },
@@ -535,7 +535,7 @@
       "id": "VC-201-043",
       "mastery_target": "Coordinate model loads and inference reservations using measured memory headroom; concurrent load and out-of-memory tests release reservations and preserve a responsive control plane.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: model admission reserves accelerator memory from measured headroom and rejects a load that does not fit. Verified by `crates/susi-vendor-models/src/tests/vc_201_043.rs`: reserves_before_admission, rejects_when_insufficient; concurrent admission and reservation release are verified by the parallel_model_admission_* checks listed under VC-201-024 rather than by this vector's own module. Evidence: T-CLAUDE-133.",
       "type": "LOCAL_HOSTING",
       "vector": "Reserve accelerator memory before model admission"
     },
@@ -634,7 +634,7 @@
       "id": "VC-201-051",
       "mastery_target": "Execute opt-in credentialed and fixture-backed checks for authentication, streaming, tool calls, embeddings, usage, and errors; capability claims include provider/model/version, observation time, and unsupported cases.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: opt-in credentialed and fixture-backed provider contract checks covering authentication, streaming, tool calls, embeddings, usage and errors, with unsupported cases recorded and credentialed probing off by default. Verified by `crates/susi-gemi/src/tests/vc_201_051.rs`: fixture_auth_streaming_tools_embeddings_usage_errors, credentialed_opt_in_off_by_default, unsupported_cases_recorded; companions eco_live_probe and cloud_eligibility_state. Evidence: T-CLAUDE-134, T-CLAUDE-336, T-CODEX-1.",
       "type": "CLOUD_HOSTING",
       "vector": "Probe cloud provider contracts reproducibly"
     },
@@ -646,7 +646,7 @@
       "id": "VC-201-052",
       "mastery_target": "Reserve estimated spend before requests and reconcile provider-reported usage afterward across parallel agents and retries; unknown prices or missing usage follow explicit policy and cannot silently bypass a hard budget.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: spend is reserved before the request and reconciled against provider-reported usage; parallelism, retries, unknown prices and missing usage each follow explicit policy and cannot bypass the hard cap. Verified by `crates/susi-gawd-agents/src/cloud_budget.rs` (cloud_free_paid_budget_unknown_price_reserves_the_remaining_cap, missing_usage_charges_the_estimate, retries_never_double_charge, concurrent_workers_cannot_overrun, shared_keys_share_the_account_cap, free_only_never_spends, ask_first_surfaces_consent) and `crates/susi-gemi/src/tests/spend_tracker.rs` (enforces_daily_hard_cap, resets_per_day_and_unknown_vendor_unlimited). Evidence: T-CLAUDE-36, T-CODEX-4.",
       "type": "CLOUD_HOSTING",
       "vector": "Reserve and reconcile cloud inference spend"
     },
@@ -671,7 +671,7 @@
       "id": "VC-201-054",
       "mastery_target": "Attach verified or operator-attested region metadata with provenance to cloud targets; placement rejects unknown or disallowed regions for constrained workloads before any payload is sent.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: cloud targets carry verified or operator-attested region metadata, and placement rejects an unknown or disallowed region before any payload is sent. Verified by `crates/susi-gemi/src/tests/vc_201_054.rs`: allows_attested_allowed_region, rejects_disallowed_region, rejects_unknown_region_before_payload; companion eco_data_residency. Evidence: T-CLAUDE-135, T-CLAUDE-324.",
       "type": "CLOUD_HOSTING",
       "vector": "Enforce provider region and residency eligibility"
     },
@@ -761,7 +761,7 @@
       "id": "VC-201-061",
       "mastery_target": "Describe models, runtimes, providers, peers, tools, and policy using validated references and explicit schema versions; invalid relationships fail before mutation and unknown preserved keys survive round-trips.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: a versioned desired-state contract validates references and schema version before any mutation, and unknown preserved keys survive a round-trip. Verified by `crates/susi-config/src/tests/desired_state.rs`: valid_document_passes, wrong_schema_version_rejected, unknown_requirement_fails_before_mutation, unknown_keys_survive_round_trip; companion zc_setting_registry. Evidence: T-CLAUDE-136, T-CLAUDE-153.",
       "type": "CONFIGURATION",
       "vector": "Define a versioned desired-state configuration contract"
     },
@@ -772,7 +772,7 @@
       "id": "VC-201-062",
       "mastery_target": "Expose the resolved value and origin of each setting across defaults, packs, host overrides, workspace overrides, and environment; secret values are redacted and precedence fixtures match runtime behavior.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: effective configuration reports the resolved value and origin of each setting across bundled defaults, packs, host, workspace and environment layers, with secret values redacted. Verified by `crates/susi-config/src/tests/zc_config_explain.rs`: bundled_default_when_no_overrides, pack_layer_between_bundled_and_host, host_wins_over_bundled, workspace_wins_over_host, env_wins_and_redacts_secrets; validation companion `crates/susi-config/src/tests/config_validate.rs`. Evidence: T-CLAUDE-158, T-CLAUDE-87.",
       "type": "CONFIGURATION",
       "vector": "Explain effective configuration and provenance"
     },
@@ -785,7 +785,7 @@
       "id": "VC-201-063",
       "mastery_target": "Produce a deterministic diff with preconditions and operation IDs using the same resolver as execution; applying a stale plan fails safely and replaying a successful apply does not repeat side effects.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: a configuration plan produces a deterministic diff with operation IDs from the same resolver execution uses; applying a stale plan fails safely and replaying a successful apply does not repeat side effects. Verified by `crates/susi-config/src/tests/vc_201_063.rs`: deterministic_diff_with_op_ids, stale_plan_fails_safely, replay_is_idempotent. Evidence: T-CLAUDE-137.",
       "type": "CONFIGURATION",
       "vector": "Implement inspectable configuration plan and apply"
     },
@@ -809,7 +809,7 @@
       "id": "VC-201-065",
       "mastery_target": "Version migrations with durable backups and validation before activation; termination between each write either restores the previous usable configuration or resumes a verifiable migration.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: configuration migrations keep a durable pre-upgrade backup and are re-runnable, so an interrupted migration retains the previous usable configuration or resumes a verifiable one. Verified by `crates/susi-config/src/tests/vc_201_065.rs`: backup_exists_after_upgrade_from_v0, rerun_after_success_is_noop; companion zc_state_migration. Evidence: T-CLAUDE-138, T-CLAUDE-248.",
       "type": "CONFIGURATION",
       "vector": "Migrate configuration with crash recovery"
     },
@@ -821,7 +821,7 @@
       "id": "VC-201-066",
       "mastery_target": "Replace plaintext deployment credentials with secret references resolved only at the authorized execution boundary; plan, export, tracing, and errors never disclose resolved values.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: deployment credentials are secret references resolved only at the authorized execution boundary; display, plan and export never disclose the resolved value. Verified by `crates/susi-config/src/tests/vc_201_066.rs`: display_is_reference_not_value, plan_export_never_discloses, parse_and_scope_guard; companions zc_jit_credentials and zc_key_scope. Evidence: T-CLAUDE-139, T-CLAUDE-176, T-CLAUDE-188.",
       "type": "CONFIGURATION",
       "vector": "Resolve secrets through scoped references"
     },
@@ -889,7 +889,7 @@
       "id": "VC-201-071",
       "mastery_target": "Map existing MacPolicy and daemon CapabilityPolicy decisions into one authoritative evaluation contract while preserving layer responsibilities; conflicting rules deny consistently across tool, peer, and model entry points.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: the unified capability-policy evaluation contract is delivered and denies consistently on conflict or empty layers. Verified by `crates/susi-core/src/tests/vc_201_071.rs`: all_allow_permits, conflicting_rules_deny_consistently, empty_layers_deny. Residual: the mastery target's 'across tool, peer and model entry points' is not enumerated by a named per-entry-point check, so consistent behaviour at each of those three surfaces is not independently re-verified here. Evidence: T-CLAUDE-140.",
       "type": "GOVERNANCE",
       "vector": "Unify capability-policy decision semantics"
     },
@@ -900,7 +900,7 @@
       "id": "VC-201-072",
       "mastery_target": "Bind credentials to workspace, mission, capabilities, audience, and expiry; an agent cannot reuse a token for a different mission or broader tool scope and cancellation revokes eligible credentials.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: gateway workload credentials are issued, authorized and revoked, with token and spend budgets enforced. Verified by `crates/susi-server/src/gateway_keys.rs`: issue_authorize_and_revoke, enforces_token_budget, enforces_spend_budget. Residual: binding to workspace, mission, capabilities, audience and expiry, and revocation on cancellation, are not individually enumerated by a named check. Evidence: T-CLAUDE-77.",
       "type": "GOVERNANCE",
       "vector": "Issue scoped expiring workload credentials"
     },
@@ -913,7 +913,7 @@
       "id": "VC-201-073",
       "mastery_target": "Propagate local-only, workspace-private, and approved-cloud labels through inference, MCP, A2A, generated tools, and artifacts; indirect delegation cannot strip a label to bypass an egress denial.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: secret detection and egress refusal are verified (`crates/susi-core/src/tests/prompt_secret_scan.rs`: positive_corpus_detects_vendor_prefixes, negative_corpus_keeps_benign_text, block_policy_refuses_egress, env_held_secret_is_detected) and A2A handler policy is checked (`crates/susi-gawd-a2a/src/lib.rs`: a2a_handler_module_policy). Residual: propagation of local-only / workspace-private / approved-cloud labels across every egress boundary, including indirect delegation, is not enumerated by a named check. Evidence: T-CLAUDE-95, T-INTELLIBITZ-17.",
       "type": "GOVERNANCE",
       "vector": "Enforce data classifications at every egress boundary"
     },
@@ -926,7 +926,7 @@
       "id": "VC-201-074",
       "mastery_target": "Mark retrieved content and tool output as untrusted data and require policy checks for consequential actions; adversarial fixtures cannot turn embedded instructions into new permissions or secret disclosure.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: retrieved tool output is marked untrusted, consequential actions still pass a policy check, and an adversarial fixture cannot turn embedded instructions into permissions or secret disclosure. Verified by `crates/susi-core/src/tests/vc_201_074.rs`: marks_tool_output_untrusted, adversarial_fixture_cannot_grant_permissions, benign_content_allows_consequential_after_policy. Evidence: T-CLAUDE-141.",
       "type": "GOVERNANCE",
       "vector": "Test resistance to tool-output prompt injection"
     },
@@ -940,7 +940,7 @@
       "id": "VC-201-075",
       "mastery_target": "Derive each reflex's filesystem, network, memory, fuel, and time grants from its parent mission; malicious generated code is contained and cannot acquire permissions through registration or delegation.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: generated Wasm capabilities cannot gain host filesystem, network or write access. Verified by `crates/susi-core/src/tests/vc_201_075.rs`: wasm_cannot_gain_host_network_or_write. Residual: derivation of memory, fuel and time grants from the parent mission is not enumerated by a named check. Evidence: T-CLAUDE-142.",
       "type": "GOVERNANCE",
       "vector": "Attenuate grants for generated Wasm capabilities"
     },
@@ -1006,7 +1006,7 @@
       "id": "VC-201-080",
       "mastery_target": "Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: the operator emergency stop persists across restart, rejects new work and cancels eligible running tasks. Verified by `crates/susi-core/src/tests/vc_201_080.rs`: persists_across_restart, stop_rejects_new_work_and_cancels_eligible. Residual: status reporting of unreachable peers and of external actions that cannot be recalled is not enumerated by a named check. Evidence: T-CLAUDE-143.",
       "type": "GOVERNANCE",
       "vector": "Apply an operator emergency stop across the fleet"
     },
@@ -1018,7 +1018,7 @@
       "id": "VC-201-081",
       "mastery_target": "Attach workspace, source receipt, source revision, data classification, expiry, and owner to durable memory; reads reject expired or unauthorized records and distinguish evidence from model-generated assertions.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: durable memory records carry provenance and a retention policy. Verified by `crates/susi-core/src/tests/vc_201_081.rs`: records_provenance_and_retention. Residual: rejection of expired or unauthorized reads, and the distinction between evidence and model-generated assertions, are not enumerated by a named check. Evidence: T-CLAUDE-144.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Define authoritative memory provenance and retention"
     },
@@ -1042,7 +1042,7 @@
       "id": "VC-201-083",
       "mastery_target": "Delete selected records from authoritative memory, semantic indexes, caches, and supported replicas with durable tombstones; interrupted deletion resumes and retrieval cannot resurrect deleted content.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: deletion propagates into derived stores with durable tombstones, an interrupted delete resumes, and retrieval cannot resurrect deleted content. Verified by `crates/susi-core/src/tests/vc_201_083.rs`: delete_propagates_with_tombstone, interrupted_delete_resumes, retrieval_cannot_resurrect. Evidence: T-CLAUDE-145.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Propagate memory deletion into derived stores"
     },
@@ -1153,7 +1153,7 @@
       "id": "VC-201-091",
       "mastery_target": "Carry mission, task, placement, experiment, and deployment IDs through bounded redacted logs, metrics, and traces; one failed distributed request can be followed end to end without recording credentials.",
       "priority": "P0",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: mission routing and provider spans are exported to file and the HTTP exporter respects the egress policy, with an empty batch a no-op. Verified by `crates/susi-core/src/tests/otel_export.rs`: writes_mission_routing_provider_spans_to_file, http_respects_egress_policy, empty_batch_is_noop. Residual: carrying placement, experiment and deployment IDs end to end, and the guarantee that credentials are never recorded, are not individually enumerated by a named check. Evidence: T-CLAUDE-92.",
       "type": "OPERATIONS",
       "vector": "Correlate observability across models, tools, and peers"
     },
