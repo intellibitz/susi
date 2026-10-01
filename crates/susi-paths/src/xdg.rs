@@ -100,6 +100,12 @@ mod tests {
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn linux_layout_matches_the_directories_crate() {
+        // Resolving a layout reads HOME, SUSI_HOME and the XDG vars, and
+        // another test in this binary mutates them under `ENV_LOCK`. Without
+        // the lock this test can compare a path resolved before that mutation
+        // against one resolved after it — which is how it failed twice in a
+        // row under the loaded workspace suite while passing on its own.
+        let _env = crate::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let home = super::home_dir().unwrap();
         if std::env::var_os("XDG_CONFIG_HOME").is_none() {
             assert_eq!(super::config_dir().unwrap(), home.join(".config/susi"));

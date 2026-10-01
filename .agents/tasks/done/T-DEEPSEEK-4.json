@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-4",
+  "title": "Fix parallel dispatch pool race (select and mark under one lock) plus the env-reading layout test that kept blocking its gate",
+  "goal": "Two unsynchronized-shared-state races: dispatch could pick a pool another worker was about to take, and the XDG layout test read HOME/XDG while another test mutated them.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-gawd-swarm",
+      "-p",
+      "susi-paths",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790853649,
+  "closed": {
+    "at_unix": 1790854103,
+    "commit": "d4e2715ca8960b620dabcf993879b63b06fa0251",
+    "by": "DEEPSEEK"
+  }
+}
