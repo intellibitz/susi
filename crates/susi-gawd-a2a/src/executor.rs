@@ -20,7 +20,7 @@ struct InflightPermit;
 impl InflightPermit {
     fn try_acquire() -> Option<Self> {
         INFLIGHT_REQUESTS
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
                 (n < MAX_INFLIGHT_REQUESTS).then_some(n + 1)
             })
             .ok()
