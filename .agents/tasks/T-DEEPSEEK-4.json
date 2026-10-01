@@ -1,7 +1,7 @@
 {
   "id": "T-DEEPSEEK-4",
-  "title": "Fix parallel dispatch pool race: selection and marking were separate lock scopes, starving an idle provider",
-  "goal": "",
+  "title": "Fix parallel dispatch pool race (select and mark under one lock) plus the env-reading layout test that kept blocking its gate",
+  "goal": "Two unsynchronized-shared-state races: dispatch could pick a pool another worker was about to take, and the XDG layout test read HOME/XDG while another test mutated them.",
   "size": "s",
   "deps": [],
   "accept": {
@@ -11,6 +11,8 @@
       "run",
       "-p",
       "susi-gawd-swarm",
+      "-p",
+      "susi-paths",
       "--locked"
     ]
   },
