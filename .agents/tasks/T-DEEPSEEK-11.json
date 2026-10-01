@@ -11,7 +11,7 @@
       "run",
       "--locked",
       "-E",
-      "'binary(workflow_compliance)'"
+      "binary(workflow_compliance)"
     ]
   },
   "created_by": "DEEPSEEK",
