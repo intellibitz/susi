@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-32",
+  "title": "Clean the shared board: prune merged remote branches and dead claim refs, behind a re-runnable hygiene check",
+  "goal": "The remote accumulated 21 merged feature branches (every agent leaves its branch behind) and 20 claim refs whose lease lapsed hours ago, 19 of them reserved nothing. Nothing removed either: prune-worktrees.sh reclaims checkouts and deliberately leaves branches alone, and no check ever looked at claim refs. Neither kind of debris breaks the loop, which is exactly why it accumulated. Write scripts/check-board-hygiene.py: report merged remote branches and dead claim refs (lapsed lease on a task that is closed on origin/main or no longer exists) with the exact command that removes each, treat an expired claim on a STILL-OPEN task as a lapsed worker rather than debris, and apply the removals with --apply. Acceptance: the checker exits clean afterwards.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-board-hygiene.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790898321
+}
