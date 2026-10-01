@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-6",
+  "title": "Branch pushes should run the affected crates' tests, not just cargo check",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-test-harness-contract.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790858033,
+  "closed": {
+    "at_unix": 1790858325,
+    "commit": "07544aa310684fd2dcda7965128d4489e1a0f331",
+    "by": "DEEPSEEK"
+  }
+}

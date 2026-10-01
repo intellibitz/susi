@@ -81,12 +81,14 @@ jobs:
       - name: cargo deny check
         uses: EmbarkStudios/cargo-deny-action@v2
 
-  # Non-main branch pushes get a fast affected-crates compile gate only.
-  # Several agents push every macro-step on parallel branches; the full
-  # suite is the integration gate on main and manual dispatch (auto-merge
-  # dispatches it on main right after each merge).
-  # scripts/ci-changed-crates.sh maps the diff to packages, so a leaf-crate
-  # push checks in seconds on a warm cache instead of the whole workspace.
+  # Non-main branch pushes get an affected-crates compile gate plus the tests
+  # of those crates. Several agents push every macro-step on parallel branches,
+  # so this stays bounded to the diff; the full sharded suite is still the
+  # integration gate on main and manual dispatch (auto-merge dispatches it on
+  # main right after each merge). scripts/ci-changed-crates.sh maps the diff to
+  # packages, so a leaf-crate push builds and tests in seconds on a warm cache
+  # instead of the whole workspace; a workspace-wide diff keeps the compile
+  # check alone (see the nextest step below).
   check:
     name: Compile Check (branch pushes)
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
@@ -119,6 +121,11 @@ jobs:
         id: affected
         run: |
           pkgs=$(./scripts/ci-changed-crates.sh)
+          {
+            echo 'pkgs<<AFFECTED_EOF'
+            echo "$pkgs"
+            echo 'AFFECTED_EOF'
+          } >> "$GITHUB_OUTPUT"
           if [ "$pkgs" = "ALL" ]; then
             echo "cmd=cargo check --workspace --locked" >> "$GITHUB_OUTPUT"
           elif [ -z "$pkgs" ]; then
@@ -130,6 +137,24 @@ jobs:
       - name: cargo check
         if: steps.affected.outputs.cmd != ''
         run: ${{ steps.affected.outputs.cmd }}
+
+      - name: Install cargo-nextest
+        if: steps.affected.outputs.pkgs != '' && steps.affected.outputs.pkgs != 'ALL'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+
+      # Compile-clean is not correct: the failures that have actually reached
+      # main - a dispatch pool race, a test that deleted another test's
+      # directory, two tests racing on process env - are all invisible to
+      # `cargo check` and to the nextest shards, which only run on main. So run
+      # the affected crates' tests here, bounded to the diff: a workspace-wide
+      # change (`ALL`) still gets the compile check only, because that is a
+      # whole-workspace test build on every macro-push, and it lands on main
+      # where the full sharded suite runs anyway.
+      - name: cargo nextest (affected crates)
+        if: steps.affected.outputs.pkgs != '' && steps.affected.outputs.pkgs != 'ALL'
+        run: cargo nextest run --locked $(printf ' -p %s' ${{ steps.affected.outputs.pkgs }}) -E 'not binary(capability_gap_e2e)'
 
   # The suite is sharded by area so each runner compiles only its dep
   # closure; the gate is the slowest shard (~4min warm) rather than one
