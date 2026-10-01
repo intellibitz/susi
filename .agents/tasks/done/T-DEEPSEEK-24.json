@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-24",
+  "title": "Phase 2 (required checks) and release-tag protection are decisions the owner has now made; the script has no tag ruleset support",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(github_enforce)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790879836,
+  "closed": {
+    "at_unix": 1790880044,
+    "commit": "f070b62fb8fdf40bffa2a5b0157c7d9eeef2855f",
+    "by": "DEEPSEEK"
+  }
+}

@@ -256,11 +256,22 @@ are three layers):
    admin bypass would be a bypass for all of them. It is phased: `--apply`
    (phase 1) = pull requests only, no force-push, no deletion, which blocks a
    direct push and adds no way to get stuck; `--apply --phase 2` also requires
-   the branch-push checks (move there once Workflow Compliance has been green
-   for weeks — a renamed job or a check that never reports would block every
-   merge). The escape hatch is deliberate and audited, not a bypass:
-   `--relax` disables the ruleset (GitHub records it), `--apply` restores it,
-   `--status` shows where it stands.
+   the branch-push checks — `Workflow Compliance`, `Format Check`,
+   `cargo deny (licenses + advisories)` and `Compile Check (branch pushes)`, all
+   of which report on a branch push, which is where a pull request is judged.
+   The repository runs **phase 2** (every one of those contexts has been green
+   on branch pushes for weeks), so a failing branch cannot be merged by hand
+   either — not just by auto-merge.
+   `--tags` adds a second ruleset, `susi-release-tags`, over `refs/tags/v*` that
+   blocks **moving or deleting** a release tag: re-pointing a published version
+   at different code is exactly what pinning a version is for, and Mandate 53's
+   "fix forward with a new tag" already forbids the legitimate case. Tag
+   *creation* stays open, because the release flow pushes its own tag; the
+   provenance of a new tag (on `main`, matching the workspace version) is the
+   release job's own check. Also applied.
+   The escape hatch is deliberate and audited, not a bypass:
+   `--relax` disables the rulesets (GitHub records it), `--apply` restores them,
+   `--status` (add `--tags`) shows where they stand.
 
 `tests/architecture_tests.rs::workflow_mandates_are_in_identity_and_their_enforcement_exists`
 fails if a mandate goes missing or names an enforcement file that does not exist.
