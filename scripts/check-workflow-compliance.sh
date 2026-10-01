@@ -23,7 +23,12 @@
 #       else already owns, which is exactly the duplicate work the queue
 #       exists to prevent; and
 #   (b) a commit touching files outside the claim's declared scopes, which is
-#       how two agents end up editing the same file.
+#       how two agents end up editing the same file; and
+#   (c) any code at all under a claim that declared NO scopes. That used to
+#       skip the test entirely, so the reservation was optional in practice —
+#       claim without `--scope` and every path was fair game. Task records
+#       (.agents/tasks/) stay exempt, so an unscoped legacy claim can still be
+#       created and closed.
 # Both are checked here, server-side, because the same scope check in
 # .githooks/pre-commit (scripts/check-task-scope.py) is local and skippable
 # with `--no-verify`, and because it can only see claims this worktree has
@@ -86,7 +91,21 @@ check_claim_owner() {
         return
     fi
     scopes=$(jq -r '.scopes[]?' <<<"$body" 2>/dev/null || true)
-    [ -n "$scopes" ] || return 0
+    if [ -z "$scopes" ]; then
+        # An empty scope list used to return here, which made the path
+        # reservation optional in practice: claim without --scope and every
+        # path was fair game, with neither this gate nor the pre-commit hook
+        # able to tell two agents off one file. Refuse the code instead; task
+        # records stay exempt, so an unscoped claim can still be closed.
+        local unreserved="" uf
+        while IFS= read -r uf; do
+            [ -n "$uf" ] || continue
+            case "$uf" in .agents/tasks/*) continue ;; esac
+            unreserved="$unreserved $uf"
+        done < <(git diff-tree --no-commit-id --name-only -r "$commit")
+        [ -z "$unreserved" ] || err "commit $short works on $id, whose claim reserves no paths:$unreserved — re-claim it with a scope that covers this change (susi tasks release $id, then susi tasks claim $id --scope <path>)"
+        return
+    fi
     local outside="" f s ok
     while IFS= read -r f; do
         [ -n "$f" ] || continue
