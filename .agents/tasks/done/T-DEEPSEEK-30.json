@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-30",
+  "title": "Refuse code under a claim that reserves no paths, so scope isolation cannot be skipped by claiming without --scope",
+  "goal": "Both scope checks (scripts/check-task-scope.py in pre-commit, scripts/check-workflow-compliance.sh in pre-push and CI) return success when a claim declares no scopes, so an agent can claim a task with no --scope and write any path: the reservation that keeps two parallel agents off one file silently disappears, and nothing else notices because the claim is otherwise valid. Live probe on 2026-10-02 confirmed 19 of 20 claims on the remote reserved nothing. Refuse a commit that touches anything outside .agents/tasks/ while its claim reserves no paths, naming the fix (release, re-claim with --scope). Task records stay exempt so an unscoped legacy claim can still be closed. Acceptance: nonzero hermetic tests in tests/workflow_compliance.rs for the refusal, for the task-record exemption, and for in-scope work still passing.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(workflow_compliance)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790897095,
+  "closed": {
+    "at_unix": 1790897372,
+    "commit": "9dfbfe0248f4047ae93d6d1695785ecaebfaf4fe",
+    "by": "DEEPSEEK"
+  }
+}

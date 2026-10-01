@@ -137,7 +137,11 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     assert!(out.contains("T-TEST-1"), "{out}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+                                                            // Fixtures reserve `work/`, where every `commit()` in this file writes:
+                                                            // a claim that reserves no paths may no longer land code.
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
     std::fs::copy(
@@ -190,7 +194,9 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     assert!(err.contains("nobody holds a claim"), "{err}");
     let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1"]);
     assert_eq!(code, 0, "{err}");
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-2"]);
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-2", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "{err}");
@@ -199,7 +205,9 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     //    work commit and the branch closed it (ownership remains until merge).
     let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-2"]);
     assert_eq!(code, 0, "{err}");
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     let before = e.head();
     e.commit("e", "fix: e", Some("T-TEST-1"));
@@ -248,7 +256,9 @@ fn a_closed_task_cannot_be_cited_again() {
             "Task: T-TEST-1",
         ],
     );
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     e.commit("work", "feat: work", Some("T-TEST-1"));
     let (code, _, err) = e.susi(&["tasks", "close", "T-TEST-1"]);
@@ -300,7 +310,9 @@ fn a_claim_held_on_another_branch_is_refused() {
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     e.install_rule("T-TEST-1"); // claim is live here, so this complies
 
@@ -322,7 +334,9 @@ fn a_claim_held_on_another_branch_is_refused() {
     assert!(err.contains("was claimed on branch"), "{err}");
     let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1", "--force"]);
     assert_eq!(code, 0, "{err}");
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     let (code, err) = e.check_on(&before, "feature");
     assert_eq!(code, 0, "after re-claiming on this branch: {err}");
@@ -378,6 +392,55 @@ fn files_outside_the_claims_scopes_are_refused() {
     assert_eq!(code, 0, "after widening the claim's scopes: {err}");
 }
 
+/// A claim that reserves no paths used to skip the scope test entirely, which
+/// made the reservation optional in practice: claim without `--scope` and any
+/// path was fair game, with neither the pre-commit hook nor CI able to tell two
+/// agents off one file. 19 of the 20 claims on the real remote reserved
+/// nothing. Task records stay exempt, so an unscoped claim can be closed.
+#[test]
+fn code_under_a_claim_that_reserves_no_paths_is_refused() {
+    let e = Env::new("noscope");
+    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
+    e.install_rule("T-TEST-1");
+    let base = e.head();
+    // Claiming is still allowed without a scope — it just reserves nothing.
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+
+    e.commit("work/a", "feat: a", Some("T-TEST-1"));
+    let (code, err) = e.check(&base);
+    assert_eq!(
+        code, 1,
+        "code under a claim that reserves no paths must be refused: {err}"
+    );
+    assert!(err.contains("reserves no paths"), "{err}");
+    assert!(err.contains("work/a"), "{err}");
+    assert!(err.contains("susi tasks claim T-TEST-1 --scope"), "{err}");
+
+    // Closing it moves only .agents/tasks/: exempt, so the claim can be
+    // finished rather than becoming unclosable.
+    let before_close = e.head();
+    let (code, _, err) = e.susi(&["tasks", "close", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "close first task",
+            "-m",
+            "Task: T-TEST-1",
+        ],
+    );
+    let (code, err) = e.check(&before_close);
+    assert_eq!(code, 0, "closing an unscoped task must still pass: {err}");
+}
+
 #[test]
 fn history_before_the_rule_is_not_judged() {
     let e = Env::new("cutover");
@@ -403,7 +466,9 @@ fn history_before_the_rule_is_not_judged() {
             "Task: T-TEST-1", // the commit that installs the rule is itself bound by it
         ],
     );
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     e.commit("new", "feat: new", Some("T-TEST-1"));
     let (code, err) = e.check("origin/main");
@@ -429,7 +494,9 @@ fn a_hand_moved_done_file_does_not_excuse_an_unclaimed_task() {
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add tasks"]); // task-only: exempt
                                                              // The rule-install commit needs a task of its own, and that one is claimed.
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-2"]);
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-2", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     e.install_rule("T-TEST-2");
 
@@ -469,7 +536,9 @@ fn a_range_that_cannot_be_resolved_is_refused_instead_of_certified() {
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
     e.install_rule("T-TEST-1");
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    let (code, _, err) = e.susi(&[
+        "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
+    ]);
     assert_eq!(code, 0, "{err}");
     e.commit("a", "feat: a", Some("T-TEST-1"));
 
