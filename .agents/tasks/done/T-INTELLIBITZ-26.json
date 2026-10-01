@@ -1,0 +1,23 @@
+{
+  "id": "T-INTELLIBITZ-26",
+  "title": "Tests must not write scratch dirs relative to the process CWD (sandbox-client polluted the primary checkout root)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-sandbox-client",
+      "--locked"
+    ]
+  },
+  "created_by": "INTELLIBITZ",
+  "created_unix": 1790827246,
+  "closed": {
+    "at_unix": 1790827608,
+    "commit": "d37cd46687d679e5adef06f6d05e49c0671be9a3",
+    "by": "INTELLIBITZ202610010348312006752"
+  }
+}

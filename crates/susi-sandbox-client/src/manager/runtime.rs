@@ -44,6 +44,21 @@ mod tests {
     use crate::susi_config::{merge_missing_registry_defaults, DynamicRegistry, DynamicValue};
     use std::collections::HashMap;
 
+    /// Absolute scratch dir for one test.
+    ///
+    /// A bare relative literal resolved against whatever working directory the
+    /// test runner picked; under a linked worktree that was the *primary*
+    /// checkout's root, so the suite created `test_cfg/` and
+    /// `test_hot_reload_cfg/` there, dirtying a checkout nobody works in and
+    /// blocking the local watcher's fast-forward. Scratch dirs must never
+    /// depend on the CWD.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("susi-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(&dir);
+        dir
+    }
+
     #[test]
     fn audit_log_tail_spans_chunks_and_survives_invalid_utf8() {
         let ws = std::env::temp_dir().join(format!("susi-audit-tail-{}", std::process::id()));
@@ -69,27 +84,26 @@ mod tests {
 
     #[test]
     fn test_checkpoint_lifecycle() {
-        let ws = Path::new(".");
+        let ws = scratch("test-checkpoint");
         let mut fields = DynamicRegistry::new();
         fields.insert("intent".to_string(), serde_json::json!("test"));
         let cp = NeuralCheckpoint { fields };
-        SandboxManager::save_mission_checkpoint(ws, &cp);
-        let loaded = SandboxManager::check_interrupted_checkpoint(ws);
+        SandboxManager::save_mission_checkpoint(&ws, &cp);
+        let loaded = SandboxManager::check_interrupted_checkpoint(&ws);
         assert!(loaded.is_some());
         let _ = fs::remove_dir_all(ws.join(".susi"));
     }
 
     #[test]
     fn test_susi_config_lifecycle() {
-        let dir = Path::new("test_cfg");
-        let _ = fs::create_dir_all(dir);
-        let _ = SandboxManager::ensure_global_sandbox(dir);
-        let cfg = SusiConfig::load(dir).expect("Failed to load config");
+        let dir = scratch("test-cfg");
+        let _ = SandboxManager::ensure_global_sandbox(&dir);
+        let cfg = SusiConfig::load(&dir).expect("Failed to load config");
         assert_eq!(
             cfg.gmcp_port(),
             susi_paths::ports::GMCP + susi_paths::ports::env_port_offset()
         );
-        let _ = fs::remove_dir_all(dir);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Every scalar accessor's only fallback is config.default.json itself
@@ -254,11 +268,10 @@ mod tests {
 
     #[test]
     fn test_susi_config_hot_reload_lifecycle() {
-        let dir = Path::new("test_hot_reload_cfg");
-        let _ = fs::create_dir_all(dir);
-        let _ = SandboxManager::ensure_global_sandbox(dir);
+        let dir = scratch("test-hot-reload-cfg");
+        let _ = SandboxManager::ensure_global_sandbox(&dir);
 
-        let mut cfg = SusiConfig::load(dir).expect("Failed to load initial config");
+        let mut cfg = SusiConfig::load(&dir).expect("Failed to load initial config");
         assert_eq!(cfg.execution_lease_secs(), 30);
         assert_eq!(cfg.max_concurrent_agents(), 32);
 
@@ -267,9 +280,9 @@ mod tests {
             .insert("execution_lease_secs".to_string(), serde_json::json!(45));
         cfg.settings
             .insert("max_concurrent_agents".to_string(), serde_json::json!(64));
-        cfg.save(dir).expect("Failed to save updated config");
+        cfg.save(&dir).expect("Failed to save updated config");
 
-        let reloaded = SusiConfig::reload(dir).expect("Failed to reload config");
+        let reloaded = SusiConfig::reload(&dir).expect("Failed to reload config");
         assert_eq!(reloaded.execution_lease_secs(), 45);
         assert_eq!(reloaded.max_concurrent_agents(), 64);
 
@@ -278,8 +291,7 @@ mod tests {
 
     #[test]
     fn test_susi_config_backfills_schema_drift_without_clobbering_user_values() {
-        let dir = Path::new("test_cfg_migration");
-        let _ = fs::create_dir_all(dir);
+        let dir = scratch("test-cfg-migration");
 
         // Simulate a pre-existing user config.json that predates a new field
         // (tokenizer_repo) added to one ladder step in config.default.json,
@@ -298,12 +310,12 @@ mod tests {
             ]
         });
         fs::write(
-            SusiConfig::get_config_path(dir),
+            SusiConfig::get_config_path(&dir),
             serde_json::to_string_pretty(&stale).unwrap(),
         )
         .unwrap();
 
-        let cfg = SusiConfig::load(dir).expect("Failed to load stale config");
+        let cfg = SusiConfig::load(&dir).expect("Failed to load stale config");
 
         // Public ports are a hard contract — polluted values cannot override them.
         assert_eq!(
@@ -326,8 +338,8 @@ mod tests {
             policy.remove("download_attempts");
             policy.insert("max_parallel_downloads".into(), serde_json::json!(1));
         }
-        SusiConfig { settings }.save(dir).unwrap();
-        let reloaded = SusiConfig::load(dir).expect("Failed to load stale lifecycle config");
+        SusiConfig { settings }.save(&dir).unwrap();
+        let reloaded = SusiConfig::load(&dir).expect("Failed to load stale lifecycle config");
         let policy = reloaded.model_lifecycle();
         assert_eq!(
             policy.download_attempts,
@@ -340,7 +352,7 @@ mod tests {
         );
 
         // The merge must have persisted back to disk (self-healing).
-        let on_disk = fs::read_to_string(SusiConfig::get_config_path(dir)).unwrap();
+        let on_disk = fs::read_to_string(SusiConfig::get_config_path(&dir)).unwrap();
         assert!(on_disk.contains("download_attempts"));
 
         let _ = fs::remove_dir_all(dir);
@@ -375,13 +387,12 @@ mod tests {
 
     #[test]
     fn test_susi_memory_lifecycle() {
-        let ws = Path::new("test_mem");
-        let _ = fs::create_dir_all(ws);
-        SusiMemory::save_interaction(ws, "hello", "world", "test");
+        let ws = scratch("test-mem");
+        SusiMemory::save_interaction(&ws, "hello", "world", "test");
         let memory_file = ws.join(".susi/memory.jsonl");
         assert!(memory_file.is_file());
         SusiMemory::save_interaction(
-            ws,
+            &ws,
             "push with ghp_memoryProbe123",
             "done using sk-memoryProbe456",
             "test",
@@ -389,7 +400,7 @@ mod tests {
         let text = fs::read_to_string(&memory_file).unwrap();
         assert!(!text.contains("ghp_memoryProbe123"), "{text}");
         assert!(!text.contains("sk-memoryProbe456"), "{text}");
-        let _ = fs::remove_dir_all(ws);
+        let _ = fs::remove_dir_all(&ws);
     }
 
     /// The experience-promotion threshold (min_output_len, failure_markers)
@@ -398,20 +409,19 @@ mod tests {
     /// accessor returns the right number.
     #[test]
     fn test_susi_memory_experience_promotion_respects_config_heuristics() {
-        let ws = Path::new("test_mem_experience");
-        let _ = fs::create_dir_all(ws);
+        let ws = scratch("test-mem-experience");
         let exp_file = ws.join(".susi/reasoning_experience.jsonl");
 
         let heuristics = SusiConfig::default().memory_experience_heuristics();
         let short_output = "x".repeat(heuristics.min_output_len); // exactly at threshold: not > min_output_len
-        SusiMemory::save_interaction(ws, "goal a", &short_output, "test");
+        SusiMemory::save_interaction(&ws, "goal a", &short_output, "test");
         assert!(
             !exp_file.exists(),
             "output at, not over, the threshold must not be promoted"
         );
 
         let long_output = "x".repeat(heuristics.min_output_len + 1);
-        SusiMemory::save_interaction(ws, "goal b", &long_output, "test");
+        SusiMemory::save_interaction(&ws, "goal b", &long_output, "test");
         assert!(
             exp_file.is_file(),
             "output over the threshold must be promoted"
@@ -419,14 +429,14 @@ mod tests {
 
         let with_marker = format!("{} {}", heuristics.failure_markers[0], long_output);
         let before = fs::read_to_string(&exp_file).unwrap();
-        SusiMemory::save_interaction(ws, "goal c", &with_marker, "test");
+        SusiMemory::save_interaction(&ws, "goal c", &with_marker, "test");
         let after = fs::read_to_string(&exp_file).unwrap();
         assert_eq!(
             before, after,
             "a configured failure marker must suppress promotion"
         );
 
-        let _ = fs::remove_dir_all(ws);
+        let _ = fs::remove_dir_all(&ws);
     }
 
     #[test]
@@ -559,5 +569,72 @@ mod tests {
         let mcp: Vec<serde_json::Value> =
             serde_json::from_str(SusiConfig::leading_mcp_registry_json()).unwrap();
         assert!((50..=120).contains(&mcp.len()), "mcp {}", mcp.len());
+    }
+
+    /// Regression for the scratch-dir class: every test scratch dir must be
+    /// absolute. A bare literal resolves against whatever working directory
+    /// the runner picked — under a linked worktree that was the *primary*
+    /// checkout's root, where the suite left `test_cfg/` and
+    /// `test_hot_reload_cfg/` behind and blocked the local watcher.
+    #[test]
+    fn scratch_dirs_are_never_relative() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        collect_rust_files(&src, &mut files);
+        assert!(!files.is_empty(), "no sources under {src:?}");
+        let mut offenders = Vec::new();
+        for file in files {
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            // Production may legitimately name a bare path (`Path::new(".")`
+            // as a parent fallback); only test code is bound by this rule.
+            let test_code = text
+                .split_once("#[cfg(test)]")
+                .map_or("", |(_, after)| after);
+            for line in test_code.lines() {
+                if let Some(literal) = bare_path_literal(line) {
+                    offenders.push(format!("{}: Path::new(\"{literal}\")", file.display()));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "test scratch dirs must be absolute so they cannot depend on the runner's CWD; \
+             use the `scratch` helper. Offenders: {offenders:?}"
+        );
+    }
+
+    /// The literal of a scratch-dir binding `let x = Path::new("<literal>")`
+    /// when it is bare (no path separator) and therefore resolved against the
+    /// current directory. Comments are prose. The binding shape is the one a
+    /// scratch dir is introduced with, and matching it keeps this scanner from
+    /// reading its own pattern strings as offenders.
+    fn bare_path_literal(line: &str) -> Option<&str> {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") {
+            return None;
+        }
+        let marker = "= Path::new(\"";
+        let start = line.find(marker)? + marker.len();
+        let rest = &line[start..];
+        let literal = &rest[..rest.find('"')?];
+        if literal.is_empty() || literal.contains('/') {
+            None
+        } else {
+            Some(literal)
+        }
+    }
+
+    fn collect_rust_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rust_files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                out.push(path);
+            }
+        }
     }
 }
