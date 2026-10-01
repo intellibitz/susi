@@ -27,7 +27,8 @@ fn test_substrate_bootstrap_and_config() {
     // The offset env outranks the config: assert the canonical contract port
     // even when launched from a dev/second instance (SUSI_PORT_OFFSET set).
     let _env = susi_paths::test_env::EnvGuard::isolated();
-    let test_dir = std::env::temp_dir().join("susi_integration_test");
+    let test_dir =
+        std::env::temp_dir().join(format!("susi_integration_test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&test_dir);
     let _ = fs::create_dir_all(&test_dir);
 

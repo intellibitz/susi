@@ -449,7 +449,8 @@ mod tests {
 
     #[test]
     fn checks_every_write_claim_including_quoted_and_extensionless_paths() {
-        let tmp = std::env::temp_dir().join("susi_truth_write_claims");
+        let tmp =
+            std::env::temp_dir().join(format!("susi_truth_write_claims-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(tmp.join("Makefile"), b"").unwrap();
         std::fs::write(tmp.join("with spaces.txt"), b"content").unwrap();
@@ -553,7 +554,8 @@ mod tests {
 
     #[test]
     fn test_verify_evidence_pipeline() {
-        let tmp = std::env::temp_dir().join("susi_test_verify_evidence");
+        let tmp =
+            std::env::temp_dir().join(format!("susi_test_verify_evidence-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp);
         let file_path = tmp.join("evidence.txt");
         let content = b"verified reality";
@@ -606,7 +608,8 @@ mod tests {
 
     #[test]
     fn test_mcp_empty_claim_is_rejected_deterministically() {
-        let tmp = std::env::temp_dir().join("susi_test_mcp_reality");
+        let tmp =
+            std::env::temp_dir().join(format!("susi_test_mcp_reality-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp);
 
         // An agent hallucinates that it fetched a web page but actually got an MCP error
@@ -683,7 +686,7 @@ mod tests {
             verdict: "VERIFIED",
         });
 
-        let tmp = std::env::temp_dir().join("susi_test_semantic");
+        let tmp = std::env::temp_dir().join(format!("susi_test_semantic-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp);
 
         let hallucinated_record = EvidenceRecord::new(
@@ -868,7 +871,10 @@ mod tests {
 
     #[test]
     fn test_verify_mission_with_cross_examine_rejects_without_providers() {
-        let tmp = std::env::temp_dir().join("susi_test_dual_pipeline_no_provider");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_test_dual_pipeline_no_provider-{}",
+            std::process::id()
+        ));
         let _ = std::fs::create_dir_all(&tmp);
         // Under the "always present answers" policy, missing citations
         // produce an Ok with a warning prefix, not an Err.
@@ -886,7 +892,10 @@ mod tests {
     #[test]
     fn test_cross_examine_blocking_flags_hallucination() {
         let registry = CapabilityRegistry::new();
-        let tmp = std::env::temp_dir().join("susi_test_cross_examine_blocking");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_test_cross_examine_blocking-{}",
+            std::process::id()
+        ));
         let _ = std::fs::create_dir_all(&tmp);
         let record = TruthTransformer::mission_evidence_record(
             "prove P=NP",

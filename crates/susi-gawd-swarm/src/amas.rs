@@ -1795,7 +1795,8 @@ mod tests {
         use susi_gawd_agents::agents::{
             GawdAgent, HighDensityContextStore, SafetyAgent, SecurityAgent,
         };
-        let tmp_dir = std::env::temp_dir().join("susi_swarm_test_asp23");
+        let tmp_dir =
+            std::env::temp_dir().join(format!("susi_swarm_test_asp23-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp_dir);
         let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
 

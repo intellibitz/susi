@@ -172,7 +172,10 @@ mod tests {
 
     #[test]
     fn scan_empty_dir_returns_empty() {
-        let tmp = std::env::temp_dir().join("susi-cell-watcher-test-empty");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi-cell-watcher-test-empty-{}",
+            std::process::id()
+        ));
         let _ = fs::create_dir_all(&tmp);
         let files = scan_cell_files(&tmp);
         assert!(files.is_empty());
@@ -181,7 +184,10 @@ mod tests {
 
     #[test]
     fn scan_finds_cell_files() {
-        let tmp = std::env::temp_dir().join("susi-cell-watcher-test-scan");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi-cell-watcher-test-scan-{}",
+            std::process::id()
+        ));
         let _ = fs::create_dir_all(&tmp);
         fs::write(tmp.join("susi-cell-infer"), "").unwrap();
         fs::write(tmp.join("my-agent.cell"), "").unwrap();
@@ -202,7 +208,10 @@ mod tests {
 
     #[test]
     fn watcher_handle_stops_cleanly() {
-        let tmp = std::env::temp_dir().join("susi-cell-watcher-test-stop");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi-cell-watcher-test-stop-{}",
+            std::process::id()
+        ));
         let _ = fs::create_dir_all(&tmp);
         let config = CellWatcherConfig {
             cells_dir: tmp.clone(),

@@ -703,7 +703,8 @@ mod tests {
             )]
         });
         std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
-        let tmp = std::env::temp_dir().join("susi_test_dispatch_dag");
+        let tmp =
+            std::env::temp_dir().join(format!("susi_test_dispatch_dag-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp);
         let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(1024));
 
@@ -1334,7 +1335,10 @@ mod tests {
 
     #[test]
     fn test_detect_project_markers_finds_real_markers_ignores_absent_ones() {
-        let tmp = std::env::temp_dir().join("susi_context_agent_test_markers");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_context_agent_test_markers-{}",
+            std::process::id()
+        ));
         let _ = std::fs::create_dir_all(&tmp);
         std::fs::write(tmp.join("Cargo.toml"), "[package]").unwrap();
 
@@ -1347,7 +1351,10 @@ mod tests {
 
     #[test]
     fn test_scan_workspace_top_level_counts_real_entries() {
-        let tmp = std::env::temp_dir().join("susi_context_agent_test_scan");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_context_agent_test_scan-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join("subdir")).unwrap();
         std::fs::write(tmp.join("a.txt"), "x").unwrap();
@@ -1362,7 +1369,10 @@ mod tests {
 
     #[test]
     fn test_context_agent_execute_reports_real_workspace_state() {
-        let tmp = std::env::temp_dir().join("susi_context_agent_test_execute");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_context_agent_test_execute-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(tmp.join("Cargo.toml"), "[package]").unwrap();
