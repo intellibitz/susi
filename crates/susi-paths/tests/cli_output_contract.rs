@@ -2,59 +2,35 @@
 //!
 //! Regression for `susi status | head -1`, which exited 134 (SIGABRT): Rust
 //! turns the write's `EPIPE` into a panic, and the release profile aborts on
-//! panic. The guard under test ends the process from the panic hook, so the
-//! check cannot run on a test-harness thread — this file is `harness = false`
-//! (see Cargo.toml) and owns `main`.
-//!
-//! `main` is both halves of the experiment: it spawns itself with the read end
-//! of the child's stdout closed before the child writes, which is the state a
-//! `| head -1` consumer leaves behind.
+//! panic. The guard ends the process from the panic hook, so the check cannot
+//! run on a test-harness thread. It spawns `stdio_guard_probe` instead — a
+//! separate binary that installs the guard and writes to a stdout whose reader
+//! this test has already closed.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
-/// Set in the child. Unset in the parent, which runs the assertions.
-const CHILD: &str = "SUSI_STDIO_GUARD_CHILD";
-
-/// Exit status meaning "stdout accepted the write". Reaching it means the run
-/// never reproduced the closed reader, so it must not count as a pass.
+/// Exit status the probe uses when it never saw a closed reader. Reaching it
+/// means the run proved nothing, so it must not count as a pass.
 const NO_EPIPE: i32 = 3;
 
-fn main() {
-    if std::env::var_os(CHILD).is_some() {
-        child();
-    }
-    parent();
-}
-
-/// Install the guard, then write to a stdout whose reader is already gone.
-/// With the guard, the write's panic ends the process with status 0; without
-/// it, the panic unwinds out of `main` and the process fails with 101.
-fn child() {
-    susi_paths::stdio::install_broken_pipe_guard();
-    println!("{}", "x".repeat(64));
-    // Only reachable when the write succeeded — the pipe was not closed.
-    std::process::exit(NO_EPIPE);
-}
-
-fn parent() {
-    let exe = std::env::current_exe().expect("current_exe");
-    let mut spawned = std::process::Command::new(exe)
-        .env(CHILD, "1")
+#[test]
+fn cli_output_contract_guard_exits_cleanly_on_a_closed_stdout() {
+    let mut spawned = std::process::Command::new(env!("CARGO_BIN_EXE_stdio_guard_probe"))
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("spawn the guard child");
-    // Close the read end before the child writes: its first stdout write then
-    // has no reader at all and returns EPIPE.
+        .expect("spawn the stdio guard probe");
+    // Close the read end so the probe's writes have no reader at all.
     drop(spawned.stdout.take());
     let out = spawned
         .wait_with_output()
-        .expect("wait for the guard child");
+        .expect("wait for the guard probe");
     let code = out.status.code();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_ne!(
         code,
         Some(NO_EPIPE),
-        "stdout accepted the write, so this run never saw EPIPE and proved nothing"
+        "stdout accepted every write, so this run never saw EPIPE and proved nothing"
     );
     assert_eq!(
         code,
