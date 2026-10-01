@@ -88,7 +88,7 @@
       "id": "VC-201-006",
       "mastery_target": "Compare baseline and candidate over repeated paired trials with configured confidence and minimum sample counts; noisy or undersampled results return inconclusive rather than improved.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: paired-trial regression decisions at a configured confidence with a minimum sample count; a noisy pair or an undersampled run returns inconclusive rather than improved. Verified by `crates/susi-gawd/src/tests/vc_201_006.rs`: clear_improvement_decides_improved, noisy_pair_is_inconclusive, undersampled_is_inconclusive. Evidence: T-CLAUDE-354.",
       "type": "RSI_EVALUATION",
       "vector": "Add paired statistical regression decisions"
     },
@@ -112,7 +112,7 @@
       "id": "VC-201-008",
       "mastery_target": "Attach independently reviewed invariants to eligible pure reflexes and state machines using proptest; minimized counterexamples reproduce against the exact failing artifact.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: eligible pure reflexes and state machines carry allowlisted property and metamorphic invariants, and a minimized counterexample reproduces against the exact failing artifact. Verified by `crates/susi-gawd/src/tests/vc_201_008.rs`: allowlist_rejects_unknown, counterexample_reproduces, metamorphic_whitespace_holds. Evidence: T-CLAUDE-355.",
       "type": "RSI_EVALUATION",
       "vector": "Generate property and metamorphic intent checks"
     },
@@ -124,7 +124,7 @@
       "id": "VC-201-009",
       "mastery_target": "Track evaluation-data access and overlaps between training, memory, and held-out fixtures; a contaminated run is excluded from improvement evidence with an inspectable reason.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: evaluation-data overlap between training, memory and held-out fixtures is tracked, and a contaminated run is excluded from improvement evidence with an inspectable reason. Verified by `crates/susi-gawd/src/tests/vc_201_009.rs`: clean_run_not_contaminated, overlap_excludes_with_reason. Evidence: T-CLAUDE-356.",
       "type": "RSI_EVALUATION",
       "vector": "Detect evaluation contamination"
     },
@@ -138,7 +138,7 @@
       "id": "VC-201-010",
       "mastery_target": "Expose candidate-versus-baseline metrics and receipt links through CLI and machine-readable output; failed, inconclusive, and rejected trials remain visible alongside successful ones.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: candidate-versus-baseline comparisons publish every outcome, so failed, inconclusive and rejected trials stay visible alongside successful ones. Verified by `crates/susi-gawd/src/tests/vc_201_010.rs`: publishes_all_outcomes, with the evidence-ranking companion `crates/susi-gawd-agents/src/brain_ranking.rs` (powerful_cloud_brain_ranking_is_task_class_specific, powerful_cloud_brain_ranking_self_reported_never_counts, powerful_cloud_brain_ranking_current_failure_excludes_leadership). Evidence: T-CLAUDE-357, T-CODEX-25.",
       "type": "RSI_EVALUATION",
       "vector": "Publish evidence-backed RSI experiment comparisons"
     },
@@ -161,7 +161,7 @@
       "id": "VC-201-012",
       "mastery_target": "Turn recurring typed failures into deduplicated proposals ranked by measured frequency, user impact, and expected evaluation cost; one failure pattern produces one active proposal with receipt links.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: recurring typed failures become deduplicated proposals ranked by measured impact, with one active proposal per failure pattern and rejected repeats blocked. Verified by `crates/susi-gawd/src/tests/vc_201_012.rs`: dedupes_and_ranks_by_impact, with companions `crates/susi-gawd/src/brain_gap_dedup.rs` (recurrence_linked_followup, rejected_repeat_blocked, concurrent_no_duplicate, ranking_records_uncertainty), `brain_gap_tasks.rs` (gap_becomes_published_task, hypothesis_cannot_publish) and `cloud_rsi.rs` (proposals_dedups_existing_and_batch, proposals_fabricated_evidence_and_bad_vector_rejected). Evidence: T-CLAUDE-358, T-CODEX-16, T-CODEX-29, T-CODEX-30, T-CODEX-31.",
       "type": "RSI_EXECUTION",
       "vector": "Prioritize capability gaps by observed impact"
     },
@@ -209,7 +209,7 @@
       "id": "VC-201-016",
       "mastery_target": "Store source, compiler, Wasm digest, intent tests, and grants per reflex revision; pinned callers retain their revision while revocation blocks new execution and rollback restores a previously verified artifact.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: reflex revisions are versioned and revocable - a pinned caller keeps its revision across revocation, and rollback restores the previously verified artifact. Verified by `crates/susi-gawd/src/tests/vc_201_016.rs`: pin_survives_revoke_for_caller, rollback_restores_pin. Evidence: T-CLAUDE-359.",
       "type": "RSI_EXECUTION",
       "vector": "Version and revoke generated reflexes"
     },
@@ -222,7 +222,7 @@
       "id": "VC-201-017",
       "mastery_target": "Compare a candidate on ~/.susi-dev and ports 9190-9194 using an isolated evaluation workload; crossing a declared regression limit stops the trial without replacing the installed release.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: candidate canaries run on the isolated dev instance in the 9190-9194 port range; crossing the declared regression limit stops the trial and a within-limit run continues. Verified by `crates/susi-gawd/src/tests/vc_201_017.rs`: dev_ports_are_9190_range, regression_stops_trial, within_limit_continues. Evidence: T-CLAUDE-360.",
       "type": "RSI_EXECUTION",
       "vector": "Run candidate canaries on the dev instance"
     },
@@ -246,7 +246,7 @@
       "id": "VC-201-019",
       "mastery_target": "Store failure causes, counterexamples, and proposal lineage in scoped experiment memory; repeated proposals must address the previous rejection or explicitly declare new evidence.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: rejected experiments keep their causes and counterexamples in scoped experiment memory, and a repeated proposal is refused unless it addresses the earlier rejection or declares new evidence. Verified by `crates/susi-gawd/src/tests/vc_201_019.rs`: blocks_repeat_without_new_evidence, with companions `crates/susi-gawd/src/cloud_rsi_outcomes.rs` (rejected_earns_no_success_and_persists_counterexample, repeated_proposal_must_address_counterexamples, rejected_never_outranks_verified) and `brain_gap_triggers.rs` (closed_task_residual_publishes, transients_never_queue). Evidence: T-CLAUDE-361, T-CODEX-20, T-CODEX-32.",
       "type": "RSI_EXECUTION",
       "vector": "Learn from failed and rejected experiments"
     },
@@ -260,7 +260,7 @@
       "id": "VC-201-020",
       "mastery_target": "Run at least three successive candidate generations on a fixed held-out suite with unchanged gates; publish each generation's deltas, budget, and rejection history and stop on non-improvement or regression.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: successive generations are validated on a fixed held-out suite with unchanged gates - at least three generations are required before a stop is allowed, and a regression stops the run. Verified by `crates/susi-gawd/src/tests/vc_201_020.rs`: requires_three_generations_then_can_stop, regression_stops, with companions `crates/susi-gawd/src/cloud_rsi_e2e.rs` (successive_generations_measured_improvement, report_never_counts_suggestions_as_progress, unverified_generation_claims_no_improvement) and `brain_gap_e2e.rs` (observable_gap_mints_executable_roadmap_task, concurrent_discovery_single_record). Evidence: T-CLAUDE-362, T-CODEX-22, T-CODEX-34, T-DEVIN-3.",
       "type": "RSI_EXECUTION",
       "vector": "Validate multiple generations of recursive improvement"
     },
@@ -303,7 +303,7 @@
       "id": "VC-201-024",
       "mastery_target": "Use measured CPU, GPU memory, model readiness, and tool grants to admit runnable DAG nodes; oversubscribed fixtures queue work and never exceed declared resource reservations.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: DAG admission uses measured CPU, GPU memory and model readiness, with oversubscribed work queued and the declared reservation never exceeded. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_024.rs`: queues_when_oversubscribed, never_exceeds_reservation, plus the resource_schedule_dispatch_wiring check, the measured-capacity admission in `crates/susi-gawd-swarm/src/capacity_admission.rs` (measures_real_host, model_readiness_is_measured, unmeasured_gpu_fails_closed), and parallel_working_models_* (bounded_concurrency_queues_fairly, shared_account_is_one_quota_pool). Evidence: T-CLAUDE-363, T-CODEX-9, T-INTELLIBITZ-8.",
       "type": "SWARM_EXECUTION",
       "vector": "Schedule by live resource and capability constraints"
     },
@@ -315,7 +315,7 @@
       "id": "VC-201-025",
       "mastery_target": "Apply configurable per-workspace concurrency and queue limits with aging or weighted fairness; sustained load from one mission cannot indefinitely starve another admitted mission.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: bounded fair queues apply configurable concurrency and queue limits - aging prevents starvation and an over-full queue is rejected rather than growing without bound. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_025.rs`: aging_prevents_starvation, rejects_when_queue_full, plus the fair_queue_dispatch_wiring check and parallel_model_admission_* (fifo_queue_no_starvation, bounded_queue_rejects_overflow, exhausted_account_never_blocks_others). Evidence: T-CLAUDE-364, T-CODEX-10, T-INTELLIBITZ-18.",
       "type": "SWARM_EXECUTION",
       "vector": "Add bounded fair queues for concurrent missions"
     },
@@ -340,7 +340,7 @@
       "id": "VC-201-027",
       "mastery_target": "Choose implementer, verifier, and specialist roles using measured task suitability and granted capabilities; controlled benchmarks report when extra agents improve outcomes and when single-agent execution is cheaper.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: implementer, verifier and specialist roles are selected from the native fleet by measured task suitability, an independent verifier is required, and the case where a single agent is cheaper is reported rather than hidden. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_027.rs`: picks_independent_verifier_and_specialist, requires_independent_verifier, reports_when_single_agent_cheaper, plus native_role_select_wiring, parallel_roadmap_e2e_* and `crates/susi-gawd-swarm/src/brain_coordination.rs` (powerful_cloud_brain_parallel_*). Evidence: T-CLAUDE-365, T-CODEX-15, T-CODEX-24, T-CODEX-27, T-INTELLIBITZ-10.",
       "type": "SWARM_EXECUTION",
       "vector": "Select complementary swarm roles from evidence"
     },
@@ -365,7 +365,7 @@
       "id": "VC-201-029",
       "mastery_target": "Stage agent patches against a known base and detect overlapping changes before applying them; conflicting edits produce a reviewable conflict while unrelated user modifications are preserved.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: patches are staged against a known base - non-overlapping edits apply, overlapping edits become a reviewable conflict, and a stale base is rejected while unrelated user modifications are preserved. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_029.rs`: applies_non_overlapping_and_conflicts_overlap, rejects_stale_base, plus `crates/susi-gawd-swarm/src/agent_integration.rs` (parallel_agent_integration_overlapping_edits_become_conflicts, clean_merge_finishes_task, independent_verifier_can_reject). Evidence: T-CLAUDE-366, T-CODEX-13.",
       "type": "SWARM_EXECUTION",
       "vector": "Resolve concurrent workspace edits transactionally"
     },
@@ -379,7 +379,7 @@
       "id": "VC-201-030",
       "mastery_target": "Provide CLI and API views of blocked, running, cancelled, uncertain, and completed DAG nodes with recovery actions; a restart drill resumes only supported work and never reports partial success as full completion.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: mission resume exposes blocked, running, cancelled, uncertain and completed node views with recovery actions, and a partial run is never reported as full completion. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_030.rs`: all_completed_is_full_success, partial_never_reports_full_success, cancelled_uncertain_views, plus the mission_resume_cli_wiring check, `crates/susi-gawd-swarm/src/jobs_status.rs` (parallel_jobs_status_partial_never_reports_success) and `worker_recovery.rs`. Evidence: T-CLAUDE-367, T-CODEX-12, T-CODEX-14, T-CODEX-28, T-CODEX-33, T-INTELLIBITZ-12.",
       "type": "SWARM_EXECUTION",
       "vector": "Expose durable mission resume and partial outcomes"
     },
@@ -422,7 +422,7 @@
       "id": "VC-201-034",
       "mastery_target": "Advertise supported wire and ledger versions with explicit minimum security requirements; mixed-version tests accept compatible peers and reject unsupported or insecure downgrades with actionable errors.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: federation advertisement negotiates supported wire and ledger versions against explicit minimum security requirements - a compatible peer is accepted and an unsupported or insecure downgrade is rejected. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_034.rs`: accepts_compatible_peer, rejects_unsupported_and_insecure_downgrade. Evidence: T-CLAUDE-368.",
       "type": "FEDERATION",
       "vector": "Negotiate federation protocol compatibility"
     },
