@@ -146,7 +146,7 @@ impl ModelManager {
             return p;
         }
         if cfg!(test) {
-            let p = std::env::temp_dir().join("susi_test_models");
+            let p = std::env::temp_dir().join(format!("susi_test_models-{}", std::process::id()));
             let _ = fs::create_dir_all(&p);
             return p;
         }
@@ -586,7 +586,8 @@ mod tests {
 
     #[test]
     fn test_universal_format_recognition() {
-        let tmp_dir = std::env::temp_dir().join("susi_model_test_v2");
+        let tmp_dir =
+            std::env::temp_dir().join(format!("susi_model_test_v2-{}", std::process::id()));
         let _ = fs::create_dir_all(&tmp_dir);
         let sf_path = tmp_dir.join("test.safetensors");
         let _ = fs::write(&sf_path, vec![0u8; 2_000_000]);
@@ -608,7 +609,8 @@ mod tests {
     #[test]
     fn test_downloads_expert_audit() {
         std::env::set_var("SUSI_USE_DOWNLOADS_DIR", "1");
-        let tmp_dir = std::env::temp_dir().join("susi_downloads_audit_test");
+        let tmp_dir =
+            std::env::temp_dir().join(format!("susi_downloads_audit_test-{}", std::process::id()));
         let _ = fs::create_dir_all(&tmp_dir);
         let audit = ModelManager::run_downloads_expert_audit(&tmp_dir);
         assert!(audit.contains("SUSI MODEL DOWNLOADING EXPERT AUDIT"));

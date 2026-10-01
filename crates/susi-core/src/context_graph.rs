@@ -1123,7 +1123,7 @@ mod tests {
     #[test]
     fn graph_records_mission_and_tool_call() {
         let g = ContextGraph::new();
-        let ws = std::env::temp_dir().join("susi-cg-test");
+        let ws = std::env::temp_dir().join(format!("susi-cg-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&ws);
         let mission = g.record_mission("m-1", "refactor auth", &ws, Some("dev"));
         let call = g.record_tool_call(
@@ -1200,7 +1200,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("context_graph.jsonl");
         let g = ContextGraph::with_storage(path.clone());
-        let ws = std::env::temp_dir().join("susi-cg-replay-ws");
+        let ws = std::env::temp_dir().join(format!("susi-cg-replay-ws-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&ws);
         g.record_mission("m-replay", "test roundtrip", &ws, None);
 
@@ -1221,7 +1221,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("context_graph.jsonl");
         let g = ContextGraph::with_storage(path.clone());
-        let ws = std::env::temp_dir().join("susi-cg-compact-ws");
+        let ws = std::env::temp_dir().join(format!("susi-cg-compact-ws-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&ws);
         // Record the same mission twice; duplicates are ignored but two events
         // are appended.
@@ -1359,7 +1359,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("context_graph.jsonl");
         let g = ContextGraph::with_storage(path.clone());
-        let ws = std::env::temp_dir().join("susi-cg-incr-ws");
+        let ws = std::env::temp_dir().join(format!("susi-cg-incr-ws-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&ws);
         g.record_mission("m-incr", "incremental", &ws, None);
 

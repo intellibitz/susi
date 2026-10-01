@@ -745,7 +745,10 @@ mod tests {
         // Purely structural: a "draft" the same size as (or bigger than)
         // the target model can never pay for itself, and must never be
         // selected even if it happens to satisfy every other filter.
-        let tmp = std::env::temp_dir().join("susi_test_speculative_select_draft_size");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_test_speculative_select_draft_size-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let target_path = tmp.join("target.gguf");
@@ -766,7 +769,10 @@ mod tests {
         // llama.cpp's ggml-vocab-*.gguf test fixtures are a few KB and are
         // not real models; even though the size filter alone would let a
         // small-enough real model through, these must stay excluded.
-        let tmp = std::env::temp_dir().join("susi_test_speculative_select_draft_tiny");
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_test_speculative_select_draft_tiny-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let target_path = tmp.join("target.gguf");

@@ -1,0 +1,34 @@
+{
+  "id": "T-DEEPSEEK-5",
+  "title": "Test scratch dirs use fixed names in the shared temp dir, so concurrent agents collide on them",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-core",
+      "-p",
+      "susi-gawd-agents",
+      "-p",
+      "susi-gemi-models",
+      "-p",
+      "susi-daemon",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-gawd-swarm",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790855534,
+  "closed": {
+    "at_unix": 1790856611,
+    "commit": "b9ffb9933d3758ff8821c9b0b6a675030cea3cf0",
+    "by": "DEEPSEEK"
+  }
+}
