@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-25",
+  "title": "The release workflow publishes on any v*.*.* tag and verifies neither the version nor that the tag is on main",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(release_tag_provenance)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790880407,
+  "closed": {
+    "at_unix": 1790880572,
+    "commit": "7c923468b4140b36dac8f5e7ccfb674dac4fe494",
+    "by": "DEEPSEEK"
+  }
+}

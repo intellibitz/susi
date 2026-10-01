@@ -267,8 +267,12 @@ are three layers):
    at different code is exactly what pinning a version is for, and Mandate 53's
    "fix forward with a new tag" already forbids the legitimate case. Tag
    *creation* stays open, because the release flow pushes its own tag; the
-   provenance of a new tag (on `main`, matching the workspace version) is the
-   release job's own check. Also applied.
+   provenance of a new tag is enforced instead by `scripts/check-release-tag.sh`
+   in the `Release Binaries` workflow — the tag must be `v` + the workspace
+   version in `Cargo.toml` **and** the tagged commit must be an ancestor of
+   `origin/main`, checked before any build job starts (a name mismatching the
+   code it points at, or a tag on a side branch, is refused rather than
+   published). Tag rulesets were applied too.
    The escape hatch is deliberate and audited, not a bypass:
    `--relax` disables the rulesets (GitHub records it), `--apply` restores them,
    `--status` (add `--tags`) shows where they stand.
