@@ -152,6 +152,14 @@ jobs:
             echo "cmd=cargo check$(printf ' -p %s' $pkgs) --locked" >> "$GITHUB_OUTPUT"
           fi
 
+      # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
+      # retry of its own, so one hiccup reddens this job (it did: main's
+      # vendor-cells shard). Build it up front with bounded retries - only the
+      # build is retried, never the tests.
+      - name: Pre-fetch ONNX Runtime (bounded retries)
+        if: steps.affected.outputs.pkgs == 'ALL' || contains(steps.affected.outputs.pkgs, 'susi-gmcp') || contains(steps.affected.outputs.pkgs, 'susi-vendor-fastembed')
+        run: scripts/ci-prefetch-onnxruntime.sh
+
       - name: cargo check
         if: steps.affected.outputs.cmd != ''
         run: ${{ steps.affected.outputs.cmd }}
@@ -242,6 +250,14 @@ jobs:
       # excluded here — it needs a running susi-native leaf service and runs
       # in the parallel `e2e` job so its ~4min service build is off the
       # critical path.
+      # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
+      # retry of its own, so one hiccup reddens this job (it did: main's
+      # vendor-cells shard). Build it up front with bounded retries - only the
+      # build is retried, never the tests.
+      - name: Pre-fetch ONNX Runtime (bounded retries)
+        if: contains(matrix.shard.pkgs, 'susi-gmcp') || contains(matrix.shard.pkgs, 'susi-vendor-fastembed') || matrix.shard.name == 'root-cli'
+        run: scripts/ci-prefetch-onnxruntime.sh
+
       - name: cargo nextest
         run: cargo nextest run --locked ${{ matrix.shard.pkgs }} -E 'not binary(capability_gap_e2e)'
 
@@ -292,6 +308,13 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
+      # retry of its own, so one hiccup reddens this job (it did: main's
+      # vendor-cells shard). Build it up front with bounded retries - only the
+      # build is retried, never the tests.
+      - name: Pre-fetch ONNX Runtime (bounded retries)
+        run: scripts/ci-prefetch-onnxruntime.sh
+
       - name: Coverage ratchet
         run: scripts/coverage-ratchet.sh
 
@@ -317,6 +340,13 @@ jobs:
       # nextest does not run doc-tests; keep the door open for them.
       - name: cargo test --doc
         run: cargo test --workspace --locked --doc
+
+      # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
+      # retry of its own, so one hiccup reddens this job (it did: main's
+      # vendor-cells shard). Build it up front with bounded retries - only the
+      # build is retried, never the tests.
+      - name: Pre-fetch ONNX Runtime (bounded retries)
+        run: scripts/ci-prefetch-onnxruntime.sh
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -361,6 +391,13 @@ jobs:
             sleep 1
           done
           echo "susi-native failed to start" && exit 1
+
+      # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
+      # retry of its own, so one hiccup reddens this job (it did: main's
+      # vendor-cells shard). Build it up front with bounded retries - only the
+      # build is retried, never the tests.
+      - name: Pre-fetch ONNX Runtime (bounded retries)
+        run: scripts/ci-prefetch-onnxruntime.sh
 
       - name: cargo nextest (e2e only)
         run: cargo nextest run -p susi-daemon --test capability_gap_e2e --locked

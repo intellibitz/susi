@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-10",
+  "title": "Make CI survive the unretried ONNX Runtime CDN fetch that reddened the vendor-cells shard",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/ci-prefetch-onnxruntime.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790864468
+}

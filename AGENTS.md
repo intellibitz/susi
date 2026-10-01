@@ -306,7 +306,11 @@ convergent:
   `Atomic::fetch_update`, which failed the clippy job on unchanged code), and
   local gates use the same pinned compiler instead of whatever the host
   happens to have. Bump the pin deliberately, with the fixes the new compiler
-  needs. On `main` and manual dispatch the
+  needs. **Build-time downloads are retried**: `ort-sys` fetches ONNX Runtime
+  from pyke's CDN once, unretried, for `susi-vendor-fastembed`, so a cold
+  build plus one CDN hiccup reddened a shard; the jobs that build it pre-fetch
+  with bounded retries (`scripts/ci-prefetch-onnxruntime.sh`, build only —
+  never the tests). On `main` and manual dispatch the
   suite runs as six parallel nextest shards (foundation, daemon, gawd,
   gemi, vendor-cells, root-cli) plus a lint job and the live susi-native
   e2e job — the gate is the slowest shard, not one serial workspace build.
