@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-9",
+  "title": "Pin the Rust toolchain: CI tracks stable, so a compiler roll reddens main with no code change",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-toolchain-pin.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790863475
+}

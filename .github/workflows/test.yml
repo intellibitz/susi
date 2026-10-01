@@ -39,6 +39,24 @@ jobs:
       - name: cargo fmt --all --check
         run: cargo fmt --all --check
 
+  # The compiler is pinned in rust-toolchain.toml. Every other job installs
+  # `stable` first, so this asserts the file actually wins — a toolchain roll
+  # reddened main once already, when 1.99.0 deprecated `Atomic::fetch_update`
+  # and failed clippy on unchanged code (T-DEEPSEEK-8). No `if`: every push and
+  # main. It costs one toolchain resolution, no cargo build.
+  toolchain:
+    name: Toolchain Pin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: rustc, cargo and clippy resolve to the pinned channel
+        run: scripts/check-toolchain-pin.sh
+
   # Mandates 49-51, server side: every commit on a pushed branch names a
   # claimed or closed task (`Task: T-<AGENT>-<n>` trailer). The local hooks can
   # be skipped with --no-verify; this job cannot.
