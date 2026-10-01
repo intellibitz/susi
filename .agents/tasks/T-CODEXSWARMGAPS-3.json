@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXSWARMGAPS-3",
+  "title": "Persist swarm ownership epochs and fence side effects before execution",
+  "goal": "P1: LeaseTable and next_fence live only in memory; PersistedMission omits ownership epochs and leases; live DAG checks completion fences after executing shell commands. Persist monotonic mission/coordinator epochs, leases, renewal and recovery state atomically. Reject stale, expired and wrong-owner authority at each mutating tool/write boundary before any side effect, not only when accepting output. Prevent old worker processes from writing after takeover; reconcile or stop them before redispatch. Add nonzero hermetic production-entry integration tests named swarm_gap_durable_fencing_* for coordinator kill/restart, worker takeover, delayed old writes, expired leases and duplicate completion; assert old workers produce no side effects and restart cannot reuse an earlier authority token. Preserve existing tests and acceptance records; add regression tests that fail before the repair and execute at least one test. Do not close this task merely because a helper exists or a test filter runs zero tests.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_durable_fencing",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-022",
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798617
+}

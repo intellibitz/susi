@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXSWARMGAPS-8",
+  "title": "Gate swarm task closure on bound acceptance and independent evidence",
+  "goal": "P1: roadmap_agents::run_round calls queue.finish whenever output is Some without mandatory agent_integration::Gate; verification_satisfied trusts differing names and arbitrary unique nonempty digest strings, and the DAG accept helper has only test callers. Make every native worker completion pass one mandatory gate: declared acceptance actually executes nonzero tests against the exact task/branch SHA, dependencies are complete, independent reviewer identity is authenticated and stored receipts bind tool, arguments, result, commit and review. Worker text or fabricated digests cannot close tasks. Retain ownership until verified integration reaches origin/main. Add nonzero hermetic production-entry tests named swarm_gap_verified_closure_* returning false success, zero-test acceptance, forged receipts, self-review under another name, changed SHA after review and failing merged-base acceptance; prove tasks stay open and only genuine verified integration closes them. Preserve existing tests and acceptance records; add regression tests that fail before the repair and execute at least one test. Do not close this task merely because a helper exists or a test filter runs zero tests.",
+  "size": "l",
+  "deps": [
+    "T-CODEXSWARMGAPS-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_verified_closure",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-028",
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798617
+}

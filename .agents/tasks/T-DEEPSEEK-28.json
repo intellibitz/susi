@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-28",
+  "title": "Land the reviewed swarm-gap backlog on current main: 9 gap tasks, roadmap OPEN GAP status, and the queue checker",
+  "goal": "The 2026-10-01 swarm source review produced eight size-l gap tasks (T-CODEXSWARMGAPS-2..9) plus the queue checker, but they were never pushed: the branch is 138 commits behind, absent from origin, and conflicts with main in .agents/roadmap.json. Re-apply the review's own contribution (the OPEN GAP paragraphs naming each task) onto current main without reverting main's newer progress text, land the task files and checker verbatim, and prove the queue is claimable so the five waiting agents have real scope-disjoint work.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-swarm-gap-roadmap.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790895380
+}

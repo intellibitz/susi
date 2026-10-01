@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXSWARMGAPS-5",
+  "title": "Require durable quorum decisions and bounded peer collection",
+  "goal": "P1: SusiSupervisor logs local commit_log::append failures yet returns QUORUM_COMMIT, uses detached best-effort replication, and launches peer reasoning without awaiting a bounded collection phase. Specify honest commit durability and acknowledgement semantics; refuse committed success when sealing or durable local append fails, and require acknowledgements if replicated durability is promised. Await dispatched peer responses under a bounded deadline and distinguish agreed text from verified correctness. Keep transport/address labels out of canonical vote values and reject errors, nonmembers and stale authority. Add nonzero hermetic production-supervisor tests named swarm_gap_durable_quorum_* with an unwritable ledger, coordinator crash after agreement, lost replication ack, delayed valid peers, identical answers from distinct addresses and differing member views; prove truthful committed/uncommitted outcomes and restart recovery. Preserve existing tests and acceptance records; add regression tests that fail before the repair and execute at least one test. Do not close this task merely because a helper exists or a test filter runs zero tests.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_durable_quorum",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-200-001",
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798617
+}
