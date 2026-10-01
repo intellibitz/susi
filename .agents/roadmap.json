@@ -435,7 +435,7 @@
       "id": "VC-201-035",
       "mastery_target": "Tie task leases and authoritative mission writes to accepted leadership epochs; partition and reconnect tests reject stale-coordinator writes and preserve the surviving mission state.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: task leases and authoritative mission writes are tied to accepted leadership epochs - a stale coordinator after failover and a wrong coordinator in the same epoch are both rejected. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_035.rs`: rejects_stale_coordinator_after_failover, wrong_coordinator_same_epoch_rejected. Evidence: T-CLAUDE-369.",
       "type": "FEDERATION",
       "vector": "Fence coordinator failover during live missions"
     },
@@ -447,7 +447,7 @@
       "id": "VC-201-036",
       "mastery_target": "Bootstrap a new peer from a signed snapshot manifest plus verified ledger tail; reject tampered state, missing anchors, and roster histories that cannot establish the snapshot's authority.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: peer bootstrap accepts a signed snapshot manifest with a verified ledger tail and rejects tampered state, missing anchors and roster histories that cannot establish the snapshot's authority. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_036.rs`: accepts_signed_snapshot, rejects_tampered_missing_unauthorized. Evidence: T-CLAUDE-370.",
       "type": "FEDERATION",
       "vector": "Authenticate snapshot-based peer bootstrap"
     },
@@ -459,7 +459,7 @@
       "id": "VC-201-037",
       "mastery_target": "Add bounded batches, rate limits, and resumable cursors to existing ledger repair; a lagging peer converges after interruption without unbounded memory or starving foreground missions.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: anti-entropy catch-up runs in bounded batches under a rate limit with disk-persisted resumable cursors, so an interrupted sweep resumes and a lagging peer still converges without starving foreground work. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_037.rs`: converges_in_bounded_batches, rate_limit_starves_nothing_and_still_converges, interrupted_sweep_resumes_from_cursor, cursor_roundtrips_through_disk, admit_gate_filters_without_stalling_cursor. Evidence: T-CLAUDE-371.",
       "type": "FEDERATION",
       "vector": "Bound anti-entropy catch-up under sustained load"
     },
@@ -471,7 +471,7 @@
       "id": "VC-201-038",
       "mastery_target": "Support pinned remote endpoints and authenticated relay or direct transport through the existing peer contract; reconnect tests preserve identity, confidentiality, replay checks, and operator egress policy.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: pinned WAN peers and relays are admitted only within the configured egress policy, and a replayed nonce or a wrong endpoint, transport or identity is refused. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_038.rs`: pinned_direct_peer_admits_and_reconnects, replay_nonce_is_refused, wrong_endpoint_transport_or_identity_is_refused, egress_policy_bounds_pinned_endpoints_and_relays. Evidence: T-CLAUDE-372.",
       "type": "FEDERATION",
       "vector": "Admit explicitly configured WAN peers"
     },
@@ -484,7 +484,7 @@
       "id": "VC-201-039",
       "mastery_target": "Score eligible peers using dataset location, verified capabilities, available resources, and residency constraints; a local-only dataset cannot be moved or routed off its permitted hosts.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: federated placement scores peers by data locality, verified capability, resource and residency gates; an unverified capability is rejected rather than scored, and a local-only dataset never moves off its permitted hosts. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_039.rs`: locality_score_prefers_data_on_host, local_only_dataset_never_moves_off_permitted_hosts, region_residency_and_resource_gates, unverified_capability_is_rejected_not_scored. Evidence: T-CLAUDE-373.",
       "type": "FEDERATION",
       "vector": "Place federated tasks by data locality"
     },
@@ -502,7 +502,7 @@
       "id": "VC-201-040",
       "mastery_target": "Exercise partitions, clock skew, duplicate delivery, stale keys, failed rekeys, mixed versions, and crash recovery against real dev nodes; archive traces and explicitly enumerate unsupported failure guarantees.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: the multi-node fault matrix covers partitions, clock skew, duplicate delivery, stale keys, failed rekeys, mixed versions and crash recovery; every guard holds, traces are archived, and unsupported guarantees are enumerated explicitly. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_040.rs`: matrix_covers_the_full_fault_catalogue, every_guard_holds, trace_archive_roundtrips, unsupported_guarantees_are_enumerated. Evidence: T-CLAUDE-374.",
       "type": "FEDERATION",
       "vector": "Run a multi-node federation fault matrix"
     },
@@ -522,7 +522,7 @@
       "id": "VC-201-042",
       "mastery_target": "Exercise discover, load, ready, infer, cancel, unload, and health behavior for supported native and HTTP-managed runtimes; unsupported operations return typed errors and process presence alone cannot establish readiness.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: supported local runtimes conform to one lifecycle contract across discover, load, ready, infer, cancel, unload and health; process presence alone does not establish readiness and unsupported operations return typed errors. Verified by `crates/susi-vendor-models/src/tests/vc_201_042.rs`: full_verb_chain_native_runtime, process_presence_does_not_establish_readiness, health_recheck_can_restore_readiness, gone_runtime_refuses_load, unsupported_ops_return_typed_errors. Evidence: T-CLAUDE-375.",
       "type": "LOCAL_HOSTING",
       "vector": "Conform local runtimes to one lifecycle contract"
     },
@@ -547,7 +547,7 @@
       "id": "VC-201-044",
       "mastery_target": "Extend managed installation with resumable content verification and staging; interrupted or checksum-mismatched downloads never appear as ready models and disk-full failures leave recoverable state.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: model downloads are staged and verified before publication - a checksum mismatch never appears ready, the manifest is written only after the artifact, an interrupted download recovers and resumes, and a disk-full style failure leaves recoverable state. Verified by `crates/susi-vendor-models/src/tests/vc_201_044.rs`: checksum_mismatch_never_appears_ready, manifest_written_only_after_artifact, interrupted_download_recovers_and_resumes, disk_full_style_write_failure_leaves_recoverable_state. Evidence: T-CLAUDE-376.",
       "type": "LOCAL_HOSTING",
       "vector": "Publish model downloads transactionally"
     },
@@ -560,7 +560,7 @@
       "id": "VC-201-045",
       "mastery_target": "Measure representative candidate formats and quantizations on the actual host with correctness and memory checks; recommendations identify their measurements and reject unsupported format/backend combinations.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: the benchmark harness records tokens/sec, latency and success or failure per engine and model, and writes an evidence file. Verified by `crates/susi-gemi/src/tests/engine_benchmark.rs`: fake_provider_records_tps_latency_success, records_failure, writes_evidence_file. Residual: measuring representative candidate formats and quantizations with correctness and memory checks, and rejecting unsupported format/backend combinations, is not enumerated by a named check. Evidence: T-CLAUDE-23.",
       "type": "LOCAL_HOSTING",
       "vector": "Benchmark model and quantization placement choices"
     },
@@ -574,7 +574,7 @@
       "id": "VC-201-046",
       "mastery_target": "Introduce bounded batching only for backends that support it, with per-request deadlines and cancellation; load tests demonstrate throughput changes without violating configured latency or memory limits.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: bounded batching is offered only for backends that support it, with per-request deadlines and cancellation; a cancelled request does not run, an overdue deadline is answered rather than run late, and a non-batching backend is refused. Verified by `crates/susi-vendor-models/src/tests/vc_201_046.rs`: full_batch_flushes_in_one_backend_call, queue_bound_and_wait_based_flush, cancelled_requests_do_not_run, deadline_overrun_is_answered_not_run_late, non_batch_backends_are_refused. Evidence: T-CLAUDE-377.",
       "type": "LOCAL_HOSTING",
       "vector": "Batch compatible local inference requests"
     },
@@ -587,7 +587,7 @@
       "id": "VC-201-047",
       "mastery_target": "Extend current idle and pressure eviction with workload-aware prewarming and hysteresis; a mixed-workload benchmark measures cold starts and proves the cache avoids repeated load/evict oscillation.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: warm-model preload ranks by frequency then recency under a fake clock and respects the maximum warm bound. Verified by `crates/susi-gemi/src/tests/model_preload.rs`: ranks_by_frequency_then_recency_with_fake_clock, respects_max_warm_bound. Residual: workload-aware prewarming with hysteresis, measured against cold starts in a mixed-workload benchmark, is not enumerated by a named check. Evidence: T-CLAUDE-25.",
       "type": "LOCAL_HOSTING",
       "vector": "Tune model residency from measured demand"
     },
@@ -599,7 +599,7 @@
       "id": "VC-201-048",
       "mastery_target": "Use available thermal and power telemetry with explicit unknown states and operator limits; simulated pressure throttles or reroutes eligible work while preserving local-only requirements.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: thermal and power telemetry marks a host unfit on sustained throttle or a power cap, and recovers when temperatures normalise. Verified by `crates/susi-gemi/src/tests/thermal_routing.rs`: marks_unfit_on_sustained_throttle, power_cap_marks_unfit_power, recovers_when_temps_normalise. Evidence: T-CLAUDE-21.",
       "type": "LOCAL_HOSTING",
       "vector": "Make placement respect host thermal and power limits"
     },
@@ -612,7 +612,7 @@
       "id": "VC-201-049",
       "mastery_target": "Quiesce supported jobs, checkpoint resumable work, and re-probe runtimes after resume or driver reset; interrupted requests report their actual outcome and stale GPU readiness is discarded.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: drain quiesces and checkpoints resumable work, resume re-probes and replays checkpoints, stale GPU readiness is discarded, and an interrupted request reports its actual outcome; draining an empty workload is safe. Verified by `crates/susi-vendor-models/src/tests/vc_201_049.rs`: drain_quiesces_and_checkpoints_resumable, resume_reprobes_and_replays_checkpoints, stale_gpu_readiness_is_discarded_on_drain, interrupted_requests_report_their_actual_outcome, drain_on_empty_workload_is_safe. Evidence: T-CLAUDE-378.",
       "type": "LOCAL_HOSTING",
       "vector": "Drain local AI workloads for suspend and maintenance"
     },
@@ -625,7 +625,7 @@
       "id": "VC-201-050",
       "mastery_target": "Import a checksummed bundle of supported binaries, models, and extension metadata into an isolated host; a network-disabled drill boots, serves a local mission, and diagnoses missing artifacts without cloud fallback.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: cloud egress is blocked while loopback stays available and a local engine remains selectable with the network disabled. Verified by `tests/airgap_mode.rs`: airgap_mode_blocks_cloud_egress_allows_loopback, airgap_mode_local_engine_name_still_selectable. Residual: importing a checksummed offline bundle into an isolated host, and diagnosing missing artifacts without cloud fallback, are not enumerated by a named check. Evidence: T-CLAUDE-99.",
       "type": "LOCAL_HOSTING",
       "vector": "Support verified offline bootstrap and recovery"
     },
@@ -659,7 +659,7 @@
       "id": "VC-201-053",
       "mastery_target": "Share request/token quotas, Retry-After handling, and circuit-breaker state across local workers; concurrent throttling tests bound retries and prevent a failing provider from causing retry storms.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: shared quota, Retry-After and circuit-breaker state bound retries - the rate-limit scheduler waits for reset or Retry-After, quota inventory is account-shared and clock-skew tolerant, and lockout recovery is bounded exponential with a shared half-open probe budget. Verified by `crates/susi-gemi/src/tests/rate_limit_scheduler.rs` (ready_when_remaining_positive, remaining_zero_waits_for_reset, retry_after_delays), `crates/susi-vendor-models/src/cloud_quota.rs` (cloud_quota_inventory_account_shared_quota, clock_skew_tolerance, free_only_tier, is_bounded) and `crates/susi-gawd-swarm/src/cloud_lockout.rs` (cloud_lockout_recovery_backoff_is_bounded_exponential, half_open_probe_budget_is_shared, is_bounded, backwards_clock_never_extends). Evidence: T-CLAUDE-37, T-CODEX-2, T-CODEX-5.",
       "type": "CLOUD_HOSTING",
       "vector": "Coordinate provider quotas and retry budgets"
     },
@@ -685,7 +685,7 @@
       "id": "VC-201-055",
       "mastery_target": "Extend the existing provisioning path with desired/observed state, stable operation IDs, health checks, and rollback for an explicitly supported backend; repeated apply and crash recovery do not create duplicate resources.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: managed GPU cloud targets are catalogued as validated profiles with canonical capabilities and facts for the supported backends. Verified by `crates/susi-vendor-models/src/eco_gpu_clouds.rs`: profile_is_valid, capabilities_are_canonical, facts_cover_the_required_surface, store_stays_consistent. Residual: desired/observed reconciliation with stable operation IDs, health checks and rollback against a live backend is not enumerated by a named check. Evidence: T-CLAUDE-296.",
       "type": "CLOUD_HOSTING",
       "vector": "Reconcile managed cloud inference deployments"
     },
@@ -698,7 +698,7 @@
       "id": "VC-201-056",
       "mastery_target": "Scale an admitted deployment using queue depth, latency, min/max replicas, and stabilization windows; load tests show bounded scale decisions and scale-down drains in-flight requests.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: managed endpoint autoscaling is bounded by max replicas and the spend cap, scales out on queue depth and latency, drains in-flight requests before scaling in, and recovers below the minimum. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_056.rs`: scale_out_on_queue_depth_and_latency, scale_bounded_by_max_and_spend_cap, scale_in_waits_for_drain_and_stabilization, recovers_below_minimum. Evidence: T-CLAUDE-379.",
       "type": "CLOUD_HOSTING",
       "vector": "Autoscale managed endpoints within spend limits"
     },
@@ -711,7 +711,7 @@
       "id": "VC-201-057",
       "mastery_target": "Checkpoint eligible managed jobs and resume them after eviction under fencing and retry policy; non-checkpointable jobs report interruption and all duplicate compute is included in cost accounting.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: preemption checkpoints eligible jobs, resumes at recorded progress rather than zero, bounds resumes per grant, and never resumes on a stale or newer fencing token; non-checkpointable work reports interruption. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_057.rs`: eviction_checkpoints_eligible_and_interrupts_rest, resume_resumes_at_progress_not_zero, retry_budget_bounds_resumes_per_grant, stale_or_newer_fencing_token_never_resumes. Evidence: T-CLAUDE-380.",
       "type": "CLOUD_HOSTING",
       "vector": "Recover supported work from preemptible capacity"
     },
@@ -725,7 +725,7 @@
       "id": "VC-201-058",
       "mastery_target": "Extend routing tests across local OOM, provider outages, authentication failure, and exhausted quotas; fallback preserves capability, privacy, deadline, and budget constraints or returns an explicit failure.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: failover falls through OOM, provider outage, authentication failure and exhausted quota while preserving capability, privacy, deadline and budget constraints, and lists every attempt when no route qualifies. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_058.rs`: falls_through_oom_outage_authfail_and_quota, privacy_constraint_survives_failover, deadline_and_budget_are_preserved_not_dropped, missing_capability_and_no_route_lists_every_attempt, with companions cloud_intent.rs, cloud_failover.rs, cloud_brain_policy.rs, brain_supervisor.rs and cloud_e2e.rs. Evidence: T-CLAUDE-381, T-CODEX-23, T-CODEX-26, T-CODEX-3, T-CODEX-6, T-CODEX-7, T-CODEX-8.",
       "type": "CLOUD_HOSTING",
       "vector": "Validate policy-preserving local/cloud failover"
     },
@@ -737,7 +737,7 @@
       "id": "VC-201-059",
       "mastery_target": "Tag owned resources with mission and deployment identities and reconcile them against authoritative state; dry-run and apply tests remove only expired SUSI-owned resources and preserve explicitly retained assets.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "DELIVERED: orphan collection removes only expired SUSI-owned resources, keeps the resource of a live deployment, and a dry run reports the identical set without deleting. Verified by `crates/susi-vendor-cloud/src/tests/vc_201_059.rs`: deletes_only_expired_susi_owned_orphans, live_deployment_also_keeps_resource, dry_run_reports_identical_set_without_deleting. Evidence: T-CLAUDE-382.",
       "type": "CLOUD_HOSTING",
       "vector": "Collect orphaned managed cloud resources"
     },
@@ -752,7 +752,7 @@
       "id": "VC-201-060",
       "mastery_target": "Round-trip supported model endpoints, runtime requirements, secret references, and placement policies between local and supported cloud targets; compatibility checks surface nonportable settings before any changes.",
       "priority": "P1",
-      "progress": "PLANNED: Requires implementation and verification; not an implemented capability.",
+      "progress": "PARTIAL: Kubernetes model-serving targets are catalogued as validated profiles with canonical capabilities and facts. Verified by `crates/susi-vendor-models/src/eco_k8s_serving.rs`: profile_is_valid, capabilities_are_canonical, facts_cover_the_required_surface, store_stays_consistent. Residual: the mastery target's export/restore round-trip of endpoints, runtime requirements, secret references and placement policies, and its pre-change portability checks, are not delivered or enumerated by a named check - the linked task catalogued the backend rather than implementing portability. Evidence: T-CLAUDE-298.",
       "type": "CLOUD_HOSTING",
       "vector": "Export and restore portable AI deployment specifications"
     },
