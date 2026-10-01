@@ -239,6 +239,20 @@ pub fn add(ws: &Path, agent: &str, new: NewTask) -> EaiResult<Task> {
              (a task file is not a shell)",
         ));
     }
+    // The command runs as argv, never through a shell, so a shell-quoted
+    // argument reaches the program with its quote characters still attached.
+    // That used to be discovered only when `close` ran it — after the whole
+    // gate — as an opaque exit code.
+    if let Some(quoted) = accept_cmd
+        .iter()
+        .find(|a| a.contains('\'') || a.contains('"'))
+    {
+        return Err(EaiError::config(format!(
+            "acceptance commands are executed as argv, not through a shell: `{quoted}` still \
+             carries its quotes. Drop them — `--accept \"cargo nextest run -E binary(tasks_cli)\"` \
+             rather than `-E 'binary(tasks_cli)'`"
+        )));
+    }
     let known: std::collections::HashSet<String> = list_open(ws)
         .into_iter()
         .chain(list_done(ws))
@@ -761,6 +775,7 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
         Ok(())
     };
     verify_owner()?;
+    ensure_open_on_main(ws, id)?;
     if !accept_allowed(&task.accept.cmd) {
         return Err(EaiError::config("task acceptance command is not allowed"));
     }
@@ -819,6 +834,40 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // allowed another current agent to reclaim the still-open remote task.
 
     Ok(task)
+}
+
+/// Refuse to close a task `origin/main` already has in `done/`.
+///
+/// The queue is shared state, but `close` only ever read the worktree. An agent
+/// that claimed a task before another branch's close merged, and closed it
+/// afterwards without re-syncing, wrote a second `done/<id>.json` on divergent
+/// history: this repository has four such ids (T-CLAUDE-17, T-CODEX-35,
+/// T-INTELLIBITZ-14, T-INTELLIBITZ-15), and `.agents/tasks/**` has no merge
+/// driver, so each is a hand-resolved add/delete conflict in which one record
+/// silently wins. Fails closed — an unreachable origin refuses the close rather
+/// than risking a second one.
+fn ensure_open_on_main(ws: &Path, id: &str) -> EaiResult<()> {
+    git(ws, &["fetch", "--quiet", "origin"]).map_err(|_| {
+        EaiError::config(format!(
+            "close refused: cannot reach origin to check whether {id} is already closed elsewhere"
+        ))
+    })?;
+    if git(
+        ws,
+        &[
+            "cat-file",
+            "-e",
+            &format!("origin/main:.agents/tasks/done/{id}.json"),
+        ],
+    )
+    .is_ok()
+    {
+        return Err(EaiError::config(format!(
+            "{id} is already closed on origin/main — merge origin/main instead of closing it \
+             twice (if your work is still needed, open a new task)"
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1378,5 +1427,40 @@ mod tests {
         let err = close(&b, &t.id, "devin").unwrap_err().to_string();
         assert!(err.contains("claimed by CLAUDE"), "{err}");
         drop(r);
+    }
+
+    #[test]
+    fn a_shell_quoted_acceptance_command_is_refused_when_the_task_is_added() {
+        let (_r, a, _b) = Repos::new("accept-quotes");
+        let task = |accept: Vec<String>| NewTask {
+            title: "check something".into(),
+            goal: String::new(),
+            size: "s".into(),
+            deps: Vec::new(),
+            accept,
+            roadmap: None,
+        };
+        // Quotes are not shell syntax here: they reach the program literally, so
+        // the failure only surfaced at `close`, as an opaque exit code.
+        let quoted = task(vec![
+            "cargo".into(),
+            "nextest".into(),
+            "run".into(),
+            "-E".into(),
+            "'binary(x)'".into(),
+        ]);
+        let err = add(&a, "test", quoted).unwrap_err().to_string();
+        assert!(
+            err.contains("executed as argv, not through a shell"),
+            "{err}"
+        );
+        let plain = task(vec![
+            "cargo".into(),
+            "nextest".into(),
+            "run".into(),
+            "-E".into(),
+            "binary(x)".into(),
+        ]);
+        assert!(add(&a, "test", plain).is_ok());
     }
 }

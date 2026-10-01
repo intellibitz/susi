@@ -122,3 +122,67 @@ fn add_claim_race_and_gated_close_through_the_binary() {
     assert!(!listing.contains("CLAUDE\""), "{listing}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Closing is judged against `origin/main`, not only the worktree. An agent that
+/// claimed a task before another branch's close merged, and closed it afterwards
+/// without re-syncing, wrote a second `done/<id>.json` on divergent history —
+/// four ids in this repo's history were closed twice that way, and there is no
+/// merge driver for `.agents/tasks/**`, so the conflict is resolved by hand and
+/// one record silently wins.
+#[test]
+fn a_task_already_closed_on_main_cannot_be_closed_again() {
+    let root = std::env::temp_dir().join(format!("susi-tasks-double-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let bare = root.join("server.git");
+    std::fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "--bare", "--quiet"]);
+    let a = clone_of(&bare, &root, "a");
+    let b = clone_of(&bare, &root, "b");
+    git(&a, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&b, &["fetch", "--quiet", "origin"]);
+    git(&b, &["reset", "--hard", "origin/main"]);
+
+    // `a` publishes the task; `b` syncs and takes the claim.
+    let (code, out, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &["tasks", "add", "shared", "--accept", "cargo --version"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("T-CLAUDE-1"), "{out}");
+    git(&a, &["add", "-A"]);
+    git(&a, &["commit", "--quiet", "-m", "add task"]);
+    git(&a, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&b, &["fetch", "--quiet", "origin"]);
+    git(&b, &["merge", "--quiet", "--no-edit", "origin/main"]);
+    let (code, _, err) = susi(&b, &home, "devin", &["tasks", "claim", "T-CLAUDE-1"]);
+    assert_eq!(code, 0, "{err}");
+
+    // Meanwhile the task is closed on main by another route and `b` has not
+    // re-synced, so its worktree still shows the task open and it holds a live
+    // claim — precisely the window that produced the duplicate closes.
+    git(&a, &["fetch", "--quiet", "origin"]);
+    std::fs::create_dir_all(a.join(".agents/tasks/done")).unwrap();
+    git(
+        &a,
+        &[
+            "mv",
+            ".agents/tasks/T-CLAUDE-1.json",
+            ".agents/tasks/done/T-CLAUDE-1.json",
+        ],
+    );
+    git(&a, &["commit", "--quiet", "-m", "close the task elsewhere"]);
+    git(&a, &["push", "--quiet", "origin", "HEAD:main"]);
+
+    assert!(b.join(".agents/tasks/T-CLAUDE-1.json").exists());
+    let (code, _, err) = susi(&b, &home, "devin", &["tasks", "close", "T-CLAUDE-1"]);
+    assert_ne!(code, 0, "a second close must be refused: {err}");
+    assert!(err.contains("already closed on origin/main"), "{err}");
+    // Refused before any second record was written.
+    assert!(b.join(".agents/tasks/T-CLAUDE-1.json").exists());
+    assert!(!b.join(".agents/tasks/done/T-CLAUDE-1.json").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}

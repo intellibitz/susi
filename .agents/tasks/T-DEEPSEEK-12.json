@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-12",
+  "title": "Closing a task must be checked against origin/main: two agents could close the same task on divergent branches (4 historical cases)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(tasks_cli)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790867740
+}
