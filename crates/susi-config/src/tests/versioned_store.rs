@@ -33,6 +33,10 @@ impl Drop for TestDir {
 #[test]
 fn config_defaults_are_consistent_and_independent() {
     use crate::SusiConfig;
+    // `gmcp_port()` resolves through the public port contract, which reads
+    // SUSI_PORT_OFFSET from the process env; hold the env lock like every
+    // other reader so a concurrent mutator cannot land between two calls.
+    let _env = crate::env_test_lock();
     let mut direct = SusiConfig::default();
     let generic: SusiConfig = Default::default();
     assert_eq!(direct.settings, generic.settings);
@@ -47,6 +51,10 @@ fn config_defaults_are_consistent_and_independent() {
 #[test]
 fn config_reload_bypasses_unchanged_mtime_without_rewriting() {
     use crate::SusiConfig;
+    // Readers of env-derived values hold env_test_lock(); another test in this
+    // binary sets SUSI_PORT_OFFSET=42 inside that lock, and without it here the
+    // assertion below saw 9090 + 42 (9132 != 9090) under load.
+    let _env = crate::env_test_lock();
     let dir = TestDir::new();
     let nested = dir.0.join("new/config");
     SusiConfig::default().save(&nested).unwrap();

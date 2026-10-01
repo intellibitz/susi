@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-7",
+  "title": "Serialize the susi-config tests that mutate or read process env (SUSI_PORT_OFFSET race: 9132 != 9090)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-config",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790858487
+}
