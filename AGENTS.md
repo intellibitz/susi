@@ -346,7 +346,13 @@ convergent:
   change is exactly where a lint break hides). Running the affected crates' tests
   here is deliberate: the failures that reach `main` are runtime ones — races,
   flakes, cross-test interference — that a compile check cannot see and the
-  shards below would only catch after the merge. Clippy is here because the
+  shards below would only catch after the merge. The same job then runs
+  `scripts/check-hermetic-tests.sh` for those crates — Mandate 52 had no
+  mechanical enforcement at all, because the only check was a whole-workspace
+  sweep that ran nowhere; scoped, it runs on every branch push, with a throwaway
+  `HOME`/`XDG`/`SUSI_HOME` and a failure if anything is written into the
+  instance it was handed. A workspace-wide diff (`ALL`) keeps the existing gate
+  only, since a second full suite is exactly what this job exists to avoid. Clippy is here because the
   `lint` job is main-only: 1.99.0 deprecated `Atomic::fetch_update` and it
   failed on code nobody had touched. **The compiler is pinned** in
   `rust-toolchain.toml`, and the `Toolchain Pin` job asserts that a runner

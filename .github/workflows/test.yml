@@ -196,6 +196,17 @@ jobs:
         if: steps.affected.outputs.pkgs != '' && steps.affected.outputs.pkgs != 'ALL'
         run: cargo nextest run --locked $(printf ' -p %s' ${{ steps.affected.outputs.pkgs }}) -E 'not binary(capability_gap_e2e)'
 
+      # Mandate 52 (hermetic tests) had no mechanical enforcement at all: the
+      # only check was a whole-workspace sweep, which is why it ran nowhere.
+      # Scoped to the crates the diff touches, the same rule now runs on every
+      # branch push — with a throwaway HOME/XDG/SUSI_HOME, and failing if
+      # anything is written into the instance it was handed. A workspace-wide
+      # diff ('ALL') keeps the existing gate only: one full suite here is what
+      # this job exists to avoid.
+      - name: hermetic tests (affected crates)
+        if: steps.affected.outputs.pkgs != '' && steps.affected.outputs.pkgs != 'ALL'
+        run: scripts/check-hermetic-tests.sh $(printf ' -p %s' ${{ steps.affected.outputs.pkgs }})
+
   # The suite is sharded by area so each runner compiles only its dep
   # closure; the gate is the slowest shard (~4min warm) rather than one
   # serial workspace build. Keep shards roughly balanced: gemi pulls the

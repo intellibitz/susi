@@ -29,7 +29,13 @@ export SUSI_HOME="$home"
 export SUSI_HERMETIC_FORBIDDEN="$home"
 # Drop a launch-time port offset the same way a real inherited env might set it.
 unset SUSI_PORT_OFFSET || true
-cargo test --workspace --locked --no-fail-fast
+# Scope it when arguments are given (`-p susi-gawd`), so the rule can be enforced
+# per affected crate instead of only as a whole-workspace sweep nobody runs.
+if [ $# -gt 0 ]; then
+    cargo test --locked --no-fail-fast "$@"
+else
+    cargo test --workspace --locked --no-fail-fast
+fi
 if [ -n "$(ls -A "$home")" ]; then
     echo "tests wrote into the inherited SUSI_HOME: $(ls -A "$home" | tr '\n' ' ')" >&2
     exit 1

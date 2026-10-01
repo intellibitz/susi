@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-26",
+  "title": "Mandate 52 has no mechanical enforcement: the hermetic check runs the whole workspace, so it is wired into nothing",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(hermetic_scope)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790880924,
+  "closed": {
+    "at_unix": 1790882417,
+    "commit": "3c0ce9aef7e11666aff509210024376d5340dfaf",
+    "by": "DEEPSEEK"
+  }
+}
