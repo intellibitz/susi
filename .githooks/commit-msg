@@ -15,7 +15,7 @@ fi
 
 task=$(sed -n 's/^Task: \(T-[A-Z0-9][A-Z0-9]*-[0-9][0-9]*\)[[:space:]]*$/\1/p' "$msg_file" | head -1)
 if [ -z "$task" ]; then
-    cat >&2 <<MSG
+    cat >&2 <<'MSG'
 ❌ Mandate 50: this commit has no task.
    Work comes from the queue:   susi tasks add '<title>' --accept '<cmd>'
                                 susi tasks claim <id>

@@ -24,7 +24,7 @@ primary_checkout() {
 case "$stage" in
 commit | merge)
     if primary_checkout && [ -z "${SUSI_ALLOW_PRIMARY:-}" ]; then
-        cat >&2 <<MSG
+        cat >&2 <<'MSG'
 ❌ Mandate 49: do not commit in the primary checkout.
    Every agent/user works in its own worktree on its own branch:
        scripts/susi-worktree.sh             # no name needed; prints `cd <path>` — or: susi workflow start

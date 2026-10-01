@@ -453,3 +453,65 @@ fn a_hand_moved_done_file_does_not_excuse_an_unclaimed_task() {
     assert_eq!(code, 1, "a hand-moved done file must not excuse it: {err}");
     assert!(err.contains("nobody holds a claim on it"), "{err}");
 }
+
+/// The gate fails closed. An unresolvable base used to make the commit loop
+/// iterate zero commits and print the ✅ line, certifying a range it never read.
+#[test]
+fn a_range_that_cannot_be_resolved_is_refused_instead_of_certified() {
+    let e = Env::new("badbase");
+    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
+    e.install_rule("T-TEST-1");
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    assert_eq!(code, 0, "{err}");
+    e.commit("a", "feat: a", Some("T-TEST-1"));
+
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh");
+    let (code, _, err) = run(
+        &e.repo,
+        script.to_str().unwrap(),
+        &["no-such-ref", "HEAD"],
+        &[],
+    );
+    assert_eq!(code, 1, "an unknown range must not be certified: {err}");
+    assert!(err.contains("cannot resolve base"), "{err}");
+    assert!(!err.contains('✅'), "{err}");
+}
+
+/// Deleting the gate does not reset the rule. The cutover is the commit that
+/// *added* the script, so a branch cannot drop it and have its earlier commits
+/// exempted as "history before the rule" — they are still judged.
+#[test]
+fn deleting_the_compliance_script_does_not_exempt_earlier_commits() {
+    let e = Env::new("nogate");
+    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
+    e.install_rule("T-TEST-1");
+    // Publish it, so the base really does carry the rule.
+    git(&e.repo, &["push", "--quiet", "origin", "HEAD:main"]);
+
+    // Work nobody claimed, then the gate is deleted to try to escape judgement.
+    e.commit("a", "feat: unclaimed", Some("T-TEST-1"));
+    git(
+        &e.repo,
+        &["rm", "--quiet", "scripts/check-workflow-compliance.sh"],
+    );
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "drop the gate",
+            "-m",
+            "Task: T-TEST-1",
+        ],
+    );
+    let (code, err) = e.check("origin/main");
+    assert_eq!(code, 1, "the earlier commit is still judged: {err}");
+    assert!(err.contains("nobody holds a claim on it"), "{err}");
+}
