@@ -117,6 +117,73 @@ fn agent_from_branch(root: &Path) -> Option<String> {
         .and_then(|o| agent_from_branch_name(String::from_utf8_lossy(&o.stdout).trim()))
 }
 
+/// The agent named by the tool this process runs inside, or `None`.
+///
+/// `susi.agent` is set only in worktrees `workflow start` created, and the
+/// branch-name rule needs `<agent>-<yyyymmdd>-<hhmmss>`. A worktree with
+/// neither — `codex/worktree-20260930`, `claude/load-worktree-e2a385` — fell
+/// through to the clone-wide `user.name`, so the primary checkout, a codex
+/// worker and a claude worker all resolved to `INTELLIBITZ`: one
+/// `refs/claim-agents/INTELLIBITZ`, one `T-INTELLIBITZ-<n>` namespace, and
+/// (before release was bound to its branch) the ability to free each other's
+/// live claims. The process tree is where the tool actually is, so ask it.
+fn agent_from_tool_process() -> Option<String> {
+    susi_gawd::zc_agent_identity::detect_agent_from_chain(&process_chain())
+}
+
+/// Ancestor command lines, from this process up a bounded number of levels.
+/// Empty where `/proc` does not exist (macOS), which just restores the old
+/// fallback rather than inventing an identity.
+fn process_chain() -> String {
+    const MAX_DEPTH: u32 = 6;
+    let mut chain = String::new();
+    let mut pid = std::process::id();
+    for _ in 0..MAX_DEPTH {
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            break;
+        };
+        // `comm` may contain spaces and parentheses, so take the fields after
+        // its closing paren: state, then ppid.
+        let Some(after_comm) = stat.rsplit_once(')').map(|(_, rest)| rest) else {
+            break;
+        };
+        let Some(parent) = after_comm.split_whitespace().nth(1) else {
+            break;
+        };
+        let Ok(ppid) = parent.parse::<u32>() else {
+            break;
+        };
+        if ppid == 0 || ppid == pid {
+            break;
+        }
+        if let Ok(cmdline) = std::fs::read(format!("/proc/{ppid}/cmdline")) {
+            chain.push_str(&argv_head(&cmdline));
+            chain.push('\n');
+        }
+        pid = ppid;
+    }
+    chain
+}
+
+/// The first two argv fields of a NUL-separated `/proc/<pid>/cmdline`: the
+/// program, plus the script for an interpreted CLI (`node …/claude`).
+///
+/// Later fields are arguments, and a shell's argument is the script it runs —
+/// searching those mislabelled a run as `CURSOR` purely because the command
+/// text happened to mention `cursor-agent`. The tool is named by what runs,
+/// not by what is said.
+fn argv_head(cmdline: &[u8]) -> String {
+    String::from_utf8_lossy(cmdline)
+        .split('\0')
+        .filter(|field| !field.is_empty())
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The agent this command acts as, most explicit signal first: `--agent`,
+/// `SUSI_AGENT`, the worktree's `susi.agent`, the `<agent>-<date>-<time>`
+/// branch, the tool in the process tree, then the clone-wide `user.name`.
 pub(crate) fn who(agent: Option<String>, root: &Path) -> String {
     agent
         .or_else(|| std::env::var("SUSI_AGENT").ok())
@@ -132,6 +199,7 @@ pub(crate) fn who(agent: Option<String>, root: &Path) -> String {
                 .filter(|s| !s.is_empty())
         })
         .or_else(|| agent_from_branch(root))
+        .or_else(agent_from_tool_process)
         .or_else(|| {
             std::process::Command::new("git")
                 .args(["config", "user.name"])
@@ -288,7 +356,29 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::agent_from_branch_name;
+    use super::{agent_from_branch_name, argv_head};
+
+    /// Only the program and an interpreter's script are searched. A shell's
+    /// script is an argument, and searching it labelled a real run `CURSOR`
+    /// because the command text merely mentioned `cursor-agent`.
+    #[test]
+    fn only_the_program_names_the_tool() {
+        assert_eq!(
+            argv_head(b"/usr/bin/cursor-agent\0--force\0"),
+            "/usr/bin/cursor-agent --force"
+        );
+        assert_eq!(
+            argv_head(b"node\0/opt/claude-code/cli.js\0--resume\0"),
+            "node /opt/claude-code/cli.js"
+        );
+        // The false positive that motivated this: the marker is in the script.
+        assert_eq!(
+            argv_head(b"/bin/bash\0-c\0ls /tmp/cursor-agent\0"),
+            "/bin/bash -c"
+        );
+        assert_eq!(argv_head(b""), "");
+        assert_eq!(argv_head(b"bash\0"), "bash");
+    }
 
     #[test]
     fn worktree_branch_names_its_agent() {
