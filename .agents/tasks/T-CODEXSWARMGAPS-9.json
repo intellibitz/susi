@@ -1,0 +1,28 @@
+{
+  "id": "T-CODEXSWARMGAPS-9",
+  "title": "Wire the production swarm lifecycle through the complete guarded task loop",
+  "goal": "P1: Repository review at 702e1daddfb0 found test-only callers for brain_coordination::Coordinator, roadmap_agents::run_round and agent_integration::Gate; native missions follow fleet dispatch then MissionDag instead of one combined guarded lifecycle. After the safeguard dependencies land, wire a real released-CLI/daemon entry point to production adapters for task queue, isolated workspaces, strongest eligible brain, bounded parallel workers, failure/restore, verified integration and publication. The atomic worker loop is sync latest main -> claim one task and scopes -> execute -> verify -> sync and push -> wait merge -> sync own and primary checkout -> release claim -> next task. Persist context and expose truthful blocked/partial/uncertain states. Add nonzero hermetic integration tests named swarm_gap_production_lifecycle_* invoking the actual entry point with deterministic injected provider failures, two independent workers, conflicting scopes, cancellation, coordinator restart and remote merge; assert real task records and Git state, not direct calls to isolated helpers. Keep tests offline and never modify the installed release or user state. Preserve existing tests and acceptance records; add regression tests that fail before the repair and execute at least one test. Do not close this task merely because a helper exists or a test filter runs zero tests.",
+  "size": "l",
+  "deps": [
+    "T-CODEXSWARMGAPS-2",
+    "T-CODEXSWARMGAPS-3",
+    "T-CODEXSWARMGAPS-4",
+    "T-CODEXSWARMGAPS-5",
+    "T-CODEXSWARMGAPS-6",
+    "T-CODEXSWARMGAPS-7",
+    "T-CODEXSWARMGAPS-8"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_production_lifecycle",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-058",
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798617
+}

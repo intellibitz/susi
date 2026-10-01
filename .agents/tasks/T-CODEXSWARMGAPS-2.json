@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXSWARMGAPS-2",
+  "title": "Isolate mutating swarm DAG workers in synced claimed worktrees",
+  "goal": "P1: Live MissionDag sends concurrent generated shell commands into one workspace (dag.rs:640-680); WorkspaceTxn is not consumed by production dispatch. Provision one worktree and branch per mutating node from latest origin/main, atomically claim its task and normalized write scopes, enforce file and Git operations inside that workspace, and integrate verified branches against current main. Preserve read-only sharing where safe. Honor sync-before-claim/push, retain claims through merge and sync primary main after integration. Add nonzero hermetic integration tests named swarm_gap_workspace_isolation_* driving the actual CLI/daemon-to-DAG path: conflicting writers, concurrent index operations, unrelated edits, stale bases, dirty primary preservation and shared evidence; assert no overwrites and no writes to primary. Reserve actual modified paths through --scope; do not claim the entire swarm crate unnecessarily. Preserve existing tests and acceptance records; add regression tests that fail before the repair and execute at least one test. Do not close this task merely because a helper exists or a test filter runs zero tests.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_workspace_isolation",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-029",
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798617
+}

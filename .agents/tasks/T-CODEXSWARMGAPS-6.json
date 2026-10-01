@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXSWARMGAPS-6",
+  "title": "Schedule swarm work using measured resources and a draining fair queue",
+  "goal": "P2: execute_dag_inner admits against fixed cpu=8, gpu_mem_gb=16 and model_ready=true; fleet scheduling logs required specialists beyond its cap as deferred but never drains them in that dispatch. Use measured host/model readiness, per-node CPU/RAM/VRAM/subprocess demands and atomic shared reservations across simultaneous missions. Queue rather than drop deferred required work, preserve dependency ordering, release reservations on failure/cancel and prevent starvation. Add nonzero hermetic production-entry tests named swarm_gap_live_admission_* using injected small-host inventory, unavailable GPU/model, competing missions and required specialists beyond cap; prove resource caps, eventual execution, fairness and released reservations. Never assume fixed capacity or call a skipped required specialist complete. Preserve existing tests and acceptance records; add regression tests that fail before the repair and execute at least one test. Do not close this task merely because a helper exists or a test filter runs zero tests.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_live_admission",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-024",
+  "created_by": "CODEXSWARMGAPS",
+  "created_unix": 1790798617
+}
