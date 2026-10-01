@@ -527,6 +527,14 @@ fn global() -> &'static Mutex<Option<Store>> {
 
 /// Evidence as persisted (fresh read; CLI and daemon share the file).
 pub fn load() -> Store {
+    // Under test, never seed the process-global store from the host's real
+    // evidence file: routing assertions would then depend on the developer's
+    // machine, and Mandate 52 forbids touching it. Tests that exercise
+    // persistence point `SUSI_BRAIN_EVIDENCE_FILE` at their own file, exactly
+    // as `persist` already requires to write.
+    if cfg!(test) && std::env::var_os("SUSI_BRAIN_EVIDENCE_FILE").is_none() {
+        return Store::default();
+    }
     std::fs::read_to_string(store_path())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -893,6 +901,10 @@ mod tests {
 
     #[test]
     fn failure_streaks_count_and_a_success_clears_them() {
+        // The store is process-global and its path comes from a
+        // process-global env var that other tests set and clear, so readers
+        // take the same lock the writers do.
+        let _env = crate::engines::env_test_lock();
         let mut s = Store::default();
         assert_eq!(s.note_failure("vendor:acme", FailureKind::Funds, 100), 1);
         assert_eq!(s.note_failure("vendor:acme", FailureKind::Funds, 200), 2);
@@ -903,6 +915,10 @@ mod tests {
 
     #[test]
     fn a_dry_provider_is_unfit_only_with_poor_evidence_and_a_recent_failure() {
+        // The store is process-global and its path comes from a
+        // process-global env var that other tests set and clear, so readers
+        // take the same lock the writers do.
+        let _env = crate::engines::env_test_lock();
         let mut s = Store::default();
         let p = "acme-big-model";
         let now = unix_now();

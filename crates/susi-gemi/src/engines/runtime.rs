@@ -1179,6 +1179,10 @@ mod tests {
 
     #[test]
     fn test_try_providers_fails_over_after_provider_error() {
+        // The store is process-global and its path comes from a
+        // process-global env var that other tests set and clear, so readers
+        // take the same lock the writers do.
+        let _env = crate::engines::env_test_lock();
         let registry = crate::susi_core::registry::CapabilityRegistry::new();
         registry.register_provider(MockRouteProvider {
             name: "openai-primary",
@@ -1195,6 +1199,10 @@ mod tests {
 
     #[test]
     fn test_try_providers_records_outcomes_that_reorder_the_brain() {
+        // The store is process-global and its path comes from a
+        // process-global env var that other tests set and clear, so readers
+        // take the same lock the writers do.
+        let _env = crate::engines::env_test_lock();
         use crate::engines::brain::{rank, TaskClass};
         let registry = crate::susi_core::registry::CapabilityRegistry::new();
         // Same static rank; name order would try `brainlearn-a` first.
@@ -1221,6 +1229,10 @@ mod tests {
 
     #[test]
     fn test_try_providers_treats_flattened_error_text_as_failure() {
+        // The store is process-global and its path comes from a
+        // process-global env var that other tests set and clear, so readers
+        // take the same lock the writers do.
+        let _env = crate::engines::env_test_lock();
         use crate::engines::brain::{rank, TaskClass};
         let registry = crate::susi_core::registry::CapabilityRegistry::new();
         registry.register_provider(MockRouteProvider {
@@ -1245,6 +1257,10 @@ mod tests {
 
     #[test]
     fn test_try_providers_never_lets_a_failing_provider_lead() {
+        // The store is process-global and its path comes from a
+        // process-global env var that other tests set and clear, so readers
+        // take the same lock the writers do.
+        let _env = crate::engines::env_test_lock();
         use crate::engines::brain::{note_failure, record_outcome, FailureKind, TaskClass};
         let registry = crate::susi_core::registry::CapabilityRegistry::new();
         // Name order would try `ollama-dry-a` first.
@@ -1268,6 +1284,10 @@ mod tests {
 
     #[test]
     fn test_try_providers_prefers_ollama_over_generic_and_skips_candle() {
+        // The store is process-global and its path comes from a
+        // process-global env var that other tests set and clear, so readers
+        // take the same lock the writers do.
+        let _env = crate::engines::env_test_lock();
         let registry = crate::susi_core::registry::CapabilityRegistry::new();
         registry.register_provider(MockRouteProvider {
             name: "Candle (Local)",
@@ -1288,6 +1308,10 @@ mod tests {
 
     #[test]
     fn test_try_providers_honors_requested_model_name_match() {
+        // The store is process-global and its path comes from a
+        // process-global env var that other tests set and clear, so readers
+        // take the same lock the writers do.
+        let _env = crate::engines::env_test_lock();
         let registry = crate::susi_core::registry::CapabilityRegistry::new();
         registry.register_provider(MockRouteProvider {
             name: "ollama-llama3",
