@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-4",
+  "title": "Fix parallel dispatch pool race: selection and marking were separate lock scopes, starving an idle provider",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-gawd-swarm",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790853649
+}

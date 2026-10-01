@@ -164,6 +164,25 @@ fn pick_next(
     first_active
 }
 
+/// Holds a pool's in-flight mark for one attempt.
+///
+/// Taken under the same lock that chooses the pool (see `run_job`), so two
+/// workers cannot both pick a pool that a third leaves idle, and released on
+/// every path out of that iteration.
+struct PoolMark<'a, 's> {
+    shared: &'a Shared<'s>,
+    pool: &'a str,
+}
+
+impl Drop for PoolMark<'_, '_> {
+    fn drop(&mut self) {
+        let mut act = self.shared.active();
+        if let Some(n) = act.get_mut(self.pool) {
+            *n = n.saturating_sub(1);
+        }
+    }
+}
+
 /// Run `jobs` over `candidates` with bounded worker concurrency.
 /// `make_runner` is invoked on the worker thread, once per job.
 #[must_use]
@@ -270,11 +289,22 @@ fn run_job<R: Runner>(
     let mut attempted: Vec<usize> = Vec::new();
     let mut saw_lockout = false;
     loop {
-        let ranked: Option<Ranked> = {
-            let act = shared.active();
-            pick_next(&selection, &attempted, &act, candidates)
+        // Choose the pool and mark it in use under one lock. These were two
+        // steps, so two workers could both see a pool idle and take it while a
+        // third pool sat unused: under load the "three jobs, three pools"
+        // dispatch became non-deterministic and a free provider was starved.
+        let selected: Option<(Ranked, String)> = {
+            let mut act = shared.active();
+            match pick_next(&selection, &attempted, &act, candidates) {
+                Some(ranked) => {
+                    let pool = pool_of(&candidates[ranked.index]);
+                    *act.entry(pool.clone()).or_insert(0) += 1;
+                    Some((ranked, pool))
+                }
+                None => None,
+            }
         };
-        let Some(ranked) = ranked else {
+        let Some((ranked, pool)) = selected else {
             out.stop = Some(if saw_lockout {
                 FailoverStop::AllLockedOut
             } else {
@@ -296,8 +326,11 @@ fn run_job<R: Runner>(
                 return out;
             }
         }
+        let mark = PoolMark {
+            shared,
+            pool: pool.as_str(),
+        };
         let c = &candidates[ranked.index];
-        let pool = pool_of(c);
         let scope = ranked.candidate.clone();
         // Lockout gate (scoped lock, released before the reservation wait).
         {
@@ -380,22 +413,13 @@ fn run_job<R: Runner>(
                 }
             };
         attempted.push(ranked.index);
-        {
-            let mut act = shared.active();
-            *act.entry(pool.clone()).or_insert(0) += 1;
-        }
         let remaining = budget
             .deadline_ms
             .map(|dl| dl.saturating_sub(now_ms))
             .unwrap_or(u64::MAX);
         // The actual call — no shared lock held, so workers overlap here.
         let outcome = runner.attempt(ranked.index, remaining);
-        {
-            let mut act = shared.active();
-            if let Some(n) = act.get_mut(&pool) {
-                *n = n.saturating_sub(1);
-            }
-        }
+        drop(mark);
         match outcome {
             AttemptOutcome::Success(text) => {
                 {
