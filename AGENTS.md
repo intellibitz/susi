@@ -2,8 +2,9 @@
 tells you whether you are in your own worktree, current with `origin/main`,
 have the hooks installed and hold a claim — and whether you can actually act on
 that: nothing uncommitted and no merge left half-resolved, a claim whose lease
-is not about to lapse, and a live primary-checkout watcher. It prints the
-command that fixes each ❌, and warnings (a work in progress, a stale watcher)
+is not about to lapse, a live primary-checkout watcher, and how many of your
+finished worktrees are still lying around. It prints the command that fixes each
+❌, and warnings (a work in progress, a stale watcher, reclaimable worktrees)
 never block work. (No installed susi? `cargo run -q -- workflow check`.)
 
 The agent loop is **atomic per task** (own worktree, always synced with
@@ -301,6 +302,14 @@ convergent:
   `git commit` sweeps up files another agent staged — and retry on
   `index.lock`. Verified: 8 clones, 6 worktrees of one clone, and 4 agents in
   one directory pushed 5 commits each concurrently with nothing lost.
+  `scripts/susi-worktree.sh` now refuses to reuse a directory whose
+  `susi.agent` belongs to a different worker — two workers in one tree share one
+  token and one branch, so they could renew, close and release each other's
+  claim. Finished worktrees are reclaimed with `scripts/prune-worktrees.sh`:
+  report-only by default, `--apply` for your own (clean and already merged into
+  `origin/main` — anything with uncommitted or unmerged work is kept), `--all`
+  for a human cleaning a shared clone. `susi workflow check` reports how many of
+  yours are reclaimable.
 - **`.agents/evidence.json` appends merge automatically** via the `ledger`
   merge driver (`scripts/setup-dev.sh`, run by `cargo xb build`). Any other
   same-line edit conflicts; resolve by hand, never by force-push.

@@ -71,6 +71,10 @@ pub struct Facts {
     pub merging: bool,
     /// Seconds since the primary-checkout watcher last wrote its heartbeat.
     pub watcher_age: Option<u64>,
+    /// Finished worktrees in this clone this agent could reclaim, and how many
+    /// belong to other agents. See [`finished_worktrees`].
+    pub stale_mine: u64,
+    pub stale_others: u64,
     pub now: u64,
 }
 
@@ -279,6 +283,38 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         ),
     });
 
+    // 8. Finished worktrees accumulate in a clone — one per task, and nothing
+    //    ever reclaimed them (14 here, twelve of them dozens of commits stale).
+    //    Advisory: housekeeping must never block the loop, and another agent's
+    //    worktree is not this agent's to remove.
+    out.push(if f.stale_mine > 0 {
+        let mut detail = format!(
+            "{} of your finished worktree(s) can be reclaimed",
+            f.stale_mine
+        );
+        if f.stale_others > 0 {
+            detail.push_str(&format!(
+                " ({} more belong to other agents)",
+                f.stale_others
+            ));
+        }
+        warn(
+            "stale worktrees",
+            detail,
+            "scripts/prune-worktrees.sh --apply",
+        )
+    } else if f.stale_others > 0 {
+        pass(
+            "stale worktrees",
+            format!(
+                "{} finished worktree(s) belong to other agents",
+                f.stale_others
+            ),
+        )
+    } else {
+        pass("stale worktrees", "none to reclaim")
+    });
+
     out
 }
 
@@ -429,6 +465,19 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         .and_then(|s| s.trim().parse::<u64>().ok())
         .map(|stamp| now.saturating_sub(stamp));
 
+    // Finished worktrees pile up: one per task, and nothing reclaims them.
+    let common_dir = abs("--git-common-dir");
+    let (stale_mine, stale_others) = match &common_dir {
+        Some(dir) => {
+            let primary_dir = Path::new(dir)
+                .parent()
+                .unwrap_or(Path::new("/"))
+                .to_path_buf();
+            finished_worktrees(&root, &primary_dir, agent)
+        }
+        None => (0, 0),
+    };
+
     Facts {
         root,
         primary,
@@ -444,8 +493,59 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         porcelain,
         merging,
         watcher_age,
+        stale_mine,
+        stale_others,
         now,
     }
+}
+
+/// Counts worktrees in this clone that are *finished* — not the primary, not
+/// this one, clean, and already contained in `origin/main`: the same invariants
+/// `scripts/prune-worktrees.sh` reclaims on. Returns `(mine, other agents')`.
+///
+/// A stale worktree is not only disk. It is a directory an agent can be
+/// resurrected into, holding a branch that no longer means anything; anything
+/// with uncommitted or unmerged work is deliberately not counted.
+fn finished_worktrees(root: &Path, primary: &Path, me: &str) -> (u64, u64) {
+    let Some(listed) = git(root, &["worktree", "list", "--porcelain"]) else {
+        return (0, 0);
+    };
+    let here = canonical(root);
+    let primary = canonical(primary);
+    let mut mine = 0;
+    let mut others = 0;
+    for path in listed
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(PathBuf::from)
+    {
+        let resolved = canonical(&path);
+        if resolved == primary || resolved == here {
+            continue;
+        }
+        if !git(&path, &["status", "--porcelain"]).is_some_and(|s| s.trim().is_empty()) {
+            continue;
+        }
+        let Some(head) = git(&path, &["rev-parse", "HEAD"]) else {
+            continue;
+        };
+        // `--is-ancestor` succeeds only when the commit is contained.
+        if git(
+            &path,
+            &["merge-base", "--is-ancestor", &head, "origin/main"],
+        )
+        .is_none()
+        {
+            continue;
+        }
+        let owner = git(&path, &["config", "--get", "susi.agent"]).unwrap_or_default();
+        if !me.is_empty() && owner.eq_ignore_ascii_case(me) {
+            mine += 1;
+        } else {
+            others += 1;
+        }
+    }
+    (mine, others)
 }
 
 #[cfg(test)]
@@ -476,6 +576,8 @@ mod tests {
             porcelain: Some(String::new()),
             merging: false,
             watcher_age: Some(4),
+            stale_mine: 0,
+            stale_others: 0,
             now: 500,
         }
     }
@@ -673,5 +775,41 @@ mod tests {
         assert_eq!(state(&c, "primary watcher"), State::Warn);
         assert!(c.iter().any(|x| x.fix.contains("susi workflow watch")));
         assert!(ok(&c), "a dead watcher warns; it does not block work");
+    }
+
+    #[test]
+    fn finished_worktrees_are_reported_but_never_block() {
+        // Yours: a warning with the command that reclaims them.
+        let mine = Facts {
+            stale_mine: 3,
+            stale_others: 1,
+            ..good()
+        };
+        let c = evaluate(&mine);
+        assert_eq!(state(&c, "stale worktrees"), State::Warn);
+        assert!(ok(&c), "housekeeping must not block the loop");
+        assert!(
+            c.iter()
+                .any(|x| x.fix == "scripts/prune-worktrees.sh --apply"),
+            "{c:?}"
+        );
+        assert!(
+            c.iter()
+                .any(|x| x.detail.contains("3 of your finished worktree(s)")),
+            "{c:?}"
+        );
+        // Only someone else's: informational, not a warning.
+        let theirs = Facts {
+            stale_mine: 0,
+            stale_others: 4,
+            ..good()
+        };
+        let c = evaluate(&theirs);
+        assert_eq!(state(&c, "stale worktrees"), State::Pass);
+        assert!(c
+            .iter()
+            .any(|x| x.detail.contains("belong to other agents")));
+        // None at all.
+        assert_eq!(state(&evaluate(&good()), "stale worktrees"), State::Pass);
     }
 }

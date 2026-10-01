@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-17",
+  "title": "Worktrees accumulate and nothing reclaims them; reuse does not check who owns the directory",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(worktree_hygiene)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790871742,
+  "closed": {
+    "at_unix": 1790872116,
+    "commit": "a5a5d067ccd1f8398d769fdf9238ef2fbf9a46aa",
+    "by": "DEEPSEEK"
+  }
+}

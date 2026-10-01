@@ -47,7 +47,15 @@ struct World {
 impl World {
     /// bare server + a primary clone with `.githooks` on main + a worktree.
     fn new(tag: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("susi-wfc-{tag}-{}", std::process::id()));
+        // Unique per call, not just per process: libtest runs the tests of one
+        // binary as threads, so two tests that happen to pick the same tag would
+        // otherwise share a directory and delete each other's fixture.
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let root =
+            std::env::temp_dir().join(format!("susi-wfc-{tag}-{}-{unique}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let bare = root.join("server.git");
         let primary = root.join("primary");
@@ -405,4 +413,42 @@ fn a_primary_watcher_without_a_heartbeat_is_reported() {
     .unwrap();
     let (_, out) = w.check(&w.wt);
     assert!(out.contains("✅ primary watcher"), "{out}");
+}
+
+/// A clone accumulates one worktree per task and nothing reclaims them (this
+/// repository reached 14). The check counts the ones that are finished — clean
+/// and already contained in `origin/main` — per agent, and never blocks on it.
+#[test]
+fn finished_worktrees_are_reported_by_the_check() {
+    let w = World::new("stale-trees");
+    w.claim_a_task();
+    git(&w.primary, &["config", "extensions.worktreeConfig", "true"]);
+    let spare = w.root.join("spare");
+    git(
+        &w.primary,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "spare",
+            spare.to_str().unwrap(),
+            "origin/main",
+        ],
+    );
+    git(&spare, &["config", "--worktree", "susi.agent", "TEST"]);
+
+    let (code, out) = w.check(&w.wt);
+    assert!(out.contains("stale worktrees"), "{out}");
+    assert!(
+        out.contains("1 of your finished worktree(s) can be reclaimed"),
+        "{out}"
+    );
+    assert!(out.contains("scripts/prune-worktrees.sh --apply"), "{out}");
+    assert_eq!(code, 0, "housekeeping must never block the loop: {out}");
+
+    // Uncommitted work in that worktree takes it off the list.
+    std::fs::write(spare.join("scratch.txt"), "wip").unwrap();
+    let (_, out) = w.check(&w.wt);
+    assert!(out.contains("✅ stale worktrees"), "{out}");
 }
