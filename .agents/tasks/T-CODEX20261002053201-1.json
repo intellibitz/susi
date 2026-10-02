@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEX20261002053201-1",
+  "title": "Apply untrusted-content policy on production tool and swarm paths",
+  "goal": "VC-201-074 remains not delivered: route tool output, retrieved bodies, MCP/A2A replies, and file/URL content through a typed untrusted boundary before consequential actions; reject embedded permission or command instructions and redact credential requests from result, trace, and error sinks. The current wrap_tool_output/policy_allows helper has no production call sites.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "--locked"
+    ]
+  },
+  "created_by": "CODEX20261002053201",
+  "created_unix": 1790959464
+}
