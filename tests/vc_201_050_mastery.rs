@@ -52,6 +52,7 @@ fn vc_201_050_mastery_checksummed_bundle_import_missing() {
     // models, and extension metadata into an isolated host.
     // In current implementation, offline bundle format, checksum verification manifest,
     // and unpack/staging procedures do not exist.
+    #[allow(dead_code)]
     struct OfflineBundleManifest {
         pub binaries: Vec<String>,
         pub models: Vec<String>,
@@ -67,6 +68,9 @@ fn vc_201_050_mastery_checksummed_bundle_import_missing() {
     };
 
     assert_eq!(manifest.binaries.len(), 2);
+    assert_eq!(manifest.models.len(), 1);
+    assert!(manifest.extensions.is_empty());
+    assert!(!manifest.checksum_sha256.is_empty());
     // Verifies that no production bundle loader or offline unpacker exists in susi
 }
 
