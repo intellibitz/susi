@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-207",
+  "title": "Evidence must be a test that can run, not a name in a file",
+  "goal": "Claude recorded a delivered verdict for VC-201-042 whose evidence names vc_201_042_mastery test functions in crates/susi-gemi/src/tests/vc_201_042_mastery.rs - and that file is declared as a module nowhere in the crate, so it never compiles and the tests never run. The checker accepted it because it only proves the evidence string resolves to something real, not that it executes. Coverage is not mastery applies to evidence too: a delivered verdict whose named test cannot run is a false claim about the code. Require a unit test cited under src/ to be declared as a module by its crate (integration tests under tests/ are auto-discovered and need no declaration), pin the cases in --self-test, and word the failure so the agent knows to declare the module and add that path to its claim scopes.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "--self-test"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790966343,
+  "closed": {
+    "at_unix": 1790966749,
+    "commit": "4c4113d8f0c9c656b0bc061b35ddc8fd9c63c1f8",
+    "by": "DEEPSEEK"
+  }
+}
