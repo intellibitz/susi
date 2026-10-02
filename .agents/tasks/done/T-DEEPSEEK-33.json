@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-33",
+  "title": "Onboard the five waiting agents on fresh worktrees, with swarm readiness checkable",
+  "goal": "cursor, claude, devin, codex and antigravity are waiting, but every worktree they could resume in is 107-319 commits behind origin/main (claim refuses from a stale tree), two of them resolve their identity to the shared INTELLIBITZ token, and codex's holds 7 unpushed commits plus 8 dirty files. Verify and provision what a ready swarm needs: one fresh worktree per agent off latest origin/main with a unique susi.agent, hooks installed, a clean tree; at least one dependency-ready unclaimed task for each; and nothing lost from the old trees. Write scripts/check-swarm-readiness.py so this is repeatable: per-agent readiness, the claimable queue, and a warning for any worktree still holding unlanded work. Acceptance: the checker reports every roster agent ready.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-swarm-readiness.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790899041,
+  "closed": {
+    "at_unix": 1790899543,
+    "commit": "bfbf04e5baeb2a131e0258a2dbd0cf51c79f8209",
+    "by": "DEEPSEEK"
+  }
+}

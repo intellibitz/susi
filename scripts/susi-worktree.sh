@@ -50,10 +50,21 @@ fi
 echo "worktree: $dest (branch $name)" >&2
 
 # Persist a unique worker identity, even when all tools share one Git login.
+#
+# `git worktree add` copies the *creating* worktree's worktree-config, so a new
+# worktree silently inherits that agent's identity and Git author: three
+# worktrees provisioned from a DEEPSEEK tree all came out as DEEPSEEK, and the
+# guard below then declined to overwrite a value that was never theirs. Clear
+# what was inherited first, then state this worker's own — one token per worker
+# is what keeps two agents from renewing, closing or releasing each other's
+# claim (Mandate 50).
 git -C "$root" config extensions.worktreeConfig true
-if ! git -C "$dest" config --worktree --get susi.agent >/dev/null; then
-    git -C "$dest" config --worktree susi.agent "$worker"
-fi
+for key in susi.agent user.name user.email; do
+    git -C "$dest" config --worktree --unset-all "$key" 2>/dev/null || true
+done
+git -C "$dest" config --worktree susi.agent "$worker"
+git -C "$dest" config --worktree user.name "$worker"
+git -C "$dest" config --worktree user.email "$(printf '%s' "$worker" | tr '[:upper:]' '[:lower:]')@localhost"
 
 # Hooks + ledger merge driver for the clone (shared by every worktree of it).
 (cd "$dest" && scripts/setup-dev.sh) >&2
