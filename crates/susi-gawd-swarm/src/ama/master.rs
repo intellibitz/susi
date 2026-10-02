@@ -2,6 +2,7 @@
 
 use super::report::SusiMissionReport;
 use crate::amas::{A2AMessage, SusiSupervisor};
+use crate::susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 use crate::susi_error::EaiResult;
 use serde_json::Value;
 use std::io::Write;
@@ -9,8 +10,15 @@ use std::path::Path;
 use susi_gawd_agents::AxiomSubstrate;
 
 fn bus_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
-    crate::susi_core::plane_bus::tools::execute_tool(name, args, workspace)
-        .unwrap_or_else(|e| format!("[Error] {e}"))
+    let source = format!("tool:{name}");
+    match crate::susi_core::plane_bus::tools::execute_tool(name, args, workspace) {
+        Ok(output) => enforce_action(
+            &wrap_tool_output(&source, &output),
+            ActionClass::Consequential,
+        )
+        .unwrap_or_else(|reason| reason),
+        Err(error) => wrap_tool_output(&source, &error.to_string()).redacted_for_sink(),
+    }
 }
 
 fn mission_plan_goals(plan: &Value) -> Vec<String> {
@@ -44,18 +52,23 @@ impl SusiMasterAgent {
     /// instead of feeding a raw, unbounded, unchecked prompt straight to the model.
     pub fn sanitize_input(input: &str) -> EaiResult<String> {
         let trimmed = input.trim();
+        // User intent is an untrusted read-side payload at this boundary. Keep
+        // the established, typed governance detectors below authoritative for
+        // front-door errors; consequential tool/retrieval content is screened
+        // with `enforce_action` at each action sink.
+        let screened = wrap_tool_output("mission-input", trimmed).body;
 
         let hardware = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let max_len = (hardware.available_ram_gb * 1024 * 1024).max(4096); // Scale with RAM, min 4KB
 
-        if trimmed.len() > max_len {
+        if screened.len() > max_len {
             return Err(crate::susi_error::EaiError::governance(format!(
                 "Input exceeds hardware-scaled limit ({} characters).",
                 max_len
             )));
         }
 
-        if trimmed.is_empty() {
+        if screened.is_empty() {
             return Err(crate::susi_error::EaiError::governance(
                 "Input goal cannot be empty.",
             ));
@@ -64,12 +77,12 @@ impl SusiMasterAgent {
         // 2. Block high-risk shell/injection patterns
         let risk_patterns = ["$(", "> /dev/", "| nc ", "| netcat ", "0xCC", "\\x"];
         for pattern in risk_patterns {
-            if trimmed.contains(pattern) {
+            if screened.contains(pattern) {
                 return Err(crate::susi_error::EaiError::governance(format!("High-risk sequence '{}' detected in input. Potential injection attempt blocked.", pattern)));
             }
         }
 
-        Ok(trimmed.to_string())
+        Ok(screened)
     }
 
     /// Primary entry point for all natural language intents.
@@ -114,8 +127,12 @@ impl SusiMasterAgent {
         _version: &str,
         model: Option<&str>,
     ) -> String {
+        let goal = match Self::sanitize_input(goal) {
+            Ok(goal) => goal,
+            Err(error) => return format!("[GOVERNANCE_BLOCK] {error}"),
+        };
         let session = crate::susi_core::capture::EvidenceSession::new(
-            goal,
+            &goal,
             workspace,
             susi_gawd_agents::security::SecurityDetector::redact,
         )
@@ -205,11 +222,24 @@ impl SusiMasterAgent {
         model_hint: Option<&str>,
         _callback: &dyn Fn(String),
     ) -> SusiMissionReport {
+        let goal = match Self::sanitize_input(goal) {
+            Ok(goal) => goal,
+            Err(error) => {
+                return SusiMissionReport {
+                    goal: wrap_tool_output("mission-input", goal).redacted_for_sink(),
+                    status: "BLOCKED".to_string(),
+                    agents: Vec::new(),
+                    interactions: Vec::new(),
+                    plan: None,
+                    final_answer: format!("[GOVERNANCE_BLOCK] {error}"),
+                };
+            }
+        };
         // Mission-scoped evidence ledger (same contract as `solve`): tool
         // dispatches record receipts here, and citation answers resolve from
         // them at verification and during cloud recovery.
         let session = crate::susi_core::capture::EvidenceSession::new(
-            goal,
+            &goal,
             workspace,
             susi_gawd_agents::security::SecurityDetector::redact,
         )
@@ -221,7 +251,7 @@ impl SusiMasterAgent {
 
         let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) = {
-            let intent = crate::susi_core::plane_bus::gemi::IntentClassifier::classify(goal);
+            let intent = crate::susi_core::plane_bus::gemi::IntentClassifier::classify(&goal);
             let resolved =
                 crate::susi_core::plane_bus::gemi::ModelManager::get_active_engine_and_model(Some(
                     &intent,
@@ -320,7 +350,7 @@ impl SusiMasterAgent {
         }
 
         // 1. Continuous Intent Manifold Routing
-        let manifold = crate::susi_core::manifold::IntentManifold::analyze(goal);
+        let manifold = crate::susi_core::manifold::IntentManifold::analyze(&goal);
         eprintln!(
             "\n[INTENT MANIFOLD ROUTING: {:?} (Risk: {:?})]",
             manifold.scope_of_impact, manifold.risk_profile
@@ -336,13 +366,13 @@ impl SusiMasterAgent {
             eprintln!("- [Substrate Operation] Validating with SafetyAgent...");
             let safety_result = susi_gawd_agents::safety::SafetyDetector::audit_action(
                 "SUSI_SOLVE",
-                goal,
+                &goal,
                 workspace,
             );
             eprintln!("- [Substrate Operation] Validating with SecurityAgent...");
             let security_result = susi_gawd_agents::security::SecurityDetector::audit_action(
                 "SUSI_SOLVE",
-                goal,
+                &goal,
                 workspace,
             );
 
@@ -369,10 +399,14 @@ impl SusiMasterAgent {
 
             let lower_goal = goal.trim().to_lowercase();
             let system_read =
-                susi_gawd_agents::system_observe::capture_verified_read(goal, workspace);
+                susi_gawd_agents::system_observe::capture_verified_read(&goal, workspace);
             let final_answer = if let Some(read) = &system_read {
                 match read {
-                    Ok(read) => read.answer().to_string(),
+                    Ok(read) => enforce_action(
+                        &wrap_tool_output("file-or-url-read", read.answer()),
+                        ActionClass::Consequential,
+                    )
+                    .unwrap_or_else(|reason| reason),
                     Err(error) => format!("TRUTH_UNVERIFIED: {error}"),
                 }
             } else if lower_goal.contains("identity") {
@@ -396,7 +430,7 @@ impl SusiMasterAgent {
                 || lower_goal == "list files"
             {
                 let cmd = if lower_goal.starts_with("ls ") {
-                    goal
+                    goal.as_str()
                 } else {
                     "ls -la"
                 };
@@ -405,8 +439,8 @@ impl SusiMasterAgent {
                     &serde_json::Value::String(cmd.to_string()),
                     workspace,
                 )
-            } else if susi_gawd_agents::system_observe::looks_like_system_observe_goal(goal) {
-                susi_gawd_agents::system_observe::observe_system(goal, workspace).unwrap_or_else(
+            } else if susi_gawd_agents::system_observe::looks_like_system_observe_goal(&goal) {
+                susi_gawd_agents::system_observe::observe_system(&goal, workspace).unwrap_or_else(
                     || {
                         bus_tool(
                             "exec_command",
@@ -488,15 +522,15 @@ impl SusiMasterAgent {
             // completion contract here. Incidental keywords must not turn an
             // unrelated request into a successful identity or version response.
             let native_verification = match &system_read {
-                Some(Ok(read)) => Some(read.verify(goal, &final_answer, workspace)),
+                Some(Ok(read)) => Some(read.verify(&goal, &final_answer, workspace)),
                 Some(Err(error)) => Some(Err(crate::susi_error::EaiError::governance(format!(
                     "TRUTH_UNVERIFIED: {error}"
                 )))),
-                None => verify_compiled_read(goal, &final_answer),
+                None => verify_compiled_read(&goal, &final_answer),
             };
             let verification = native_verification.unwrap_or_else(|| {
                 crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
-                    goal,
+                    &goal,
                     "SUSI_SOLVE",
                     &final_answer,
                     workspace,
@@ -564,7 +598,7 @@ impl SusiMasterAgent {
         }
 
         let start = std::time::Instant::now();
-        let res = self.solve_with_streaming_trace(goal, workspace, version, &|_| {});
+        let res = self.solve_with_streaming_trace(&goal, workspace, version, &|_| {});
         let elapsed = start.elapsed();
 
         eprintln!("\n- [Swarm Execution Latency] {:?}", elapsed);
