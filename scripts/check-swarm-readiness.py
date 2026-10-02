@@ -17,6 +17,7 @@ claimable; 1 otherwise, with the command that fixes each line.
 import json
 import re
 import subprocess
+import time
 import sys
 from pathlib import Path
 
@@ -122,7 +123,88 @@ def ready_worktree(agent, tokens):
     )
 
 
-def check_worktree(agent, path, branch):
+def now_unix():
+    return int(time.time())
+
+
+def is_live(lease_until, now):
+    """A lease is live until its deadline; zero or missing means not live."""
+    try:
+        return int(lease_until) > int(now)
+    except (TypeError, ValueError):
+        return False
+
+
+def attribution(live_claim, named_by):
+    """How to report a worktree that holds unlanded work.
+
+    A live claim *is* the record: the task owns this work, it is being done right
+    now, and uncommitted changes are what doing it looks like. Prose that names
+    the tree is weaker but still tracking. Neither is a failure.
+    """
+    if live_claim:
+        return "in-progress"
+    if named_by:
+        return "named"
+    return "unattributed"
+
+
+def claim_is_here(claim, branch, now):
+    """Does this claim belong to a worktree on `branch`?
+
+    Claim refs are clone-wide — every worktree of a clone shares one `.git`, so
+    each sees every live claim — which means the ref cannot say who holds it.
+    The branch the claim was taken on can: a claim records it, and one branch is
+    one worker.
+    """
+    return bool(branch) and claim.get("branch") == branch and is_live(
+        claim.get("lease_until_unix"), now
+    )
+
+
+def claims_here(path, branch, now):
+    """The live claims held by the worktree that is on `branch`."""
+    held = []
+    refs = git("-C", str(path), "for-each-ref", "--format=%(refname)", "refs/claims/*") or ""
+    for ref in refs.splitlines():
+        try:
+            claim = json.loads(git("-C", str(path), "cat-file", "-p", ref))
+        except ValueError:
+            continue
+        if claim_is_here(claim, branch, now):
+            held.append(ref.rsplit("/", 1)[-1])
+    return held
+
+
+def self_test():
+    """Pin the attribution decision and the lease rule."""
+    cases = [
+        ("a live claim owns the work", attribution(True, None), "in-progress", None),
+        ("a claim on another branch is not this tree's",
+         claim_is_here({"branch": "someone-else", "lease_until_unix": 200}, "mine", 100), False, None),
+        ("a live claim on this branch is this tree's",
+         claim_is_here({"branch": "mine", "lease_until_unix": 200}, "mine", 100), True, None),
+        ("an expired claim on this branch is nobody's",
+         claim_is_here({"branch": "mine", "lease_until_unix": 100}, "mine", 200), False, None),
+        ("no claim, but a task names it", attribution(False, "T-X-1"), "named", None),
+        ("no claim and nothing names it", attribution(False, None), "unattributed", None),
+        ("an expired lease is not a claim", is_live(100, 200), False, None),
+        ("a future lease is live", is_live(200, 100), True, None),
+        ("a missing lease is not live", is_live(None, 100), False, None),
+    ]
+    failures = 0
+    for name, got, want, _ in cases:
+        ok = got == want
+        failures += 0 if ok else 1
+        print(f"  self-test: {name} → {got!r} (expected {want!r}) {'ok' if ok else 'WRONG'}")
+    if failures:
+        print(f"self-test FAILED: {failures} case(s) wrong")
+        return 1
+    print("PASS: a live claim is the record; only genuinely unattributed work fails")
+    return 0
+
+
+def check_worktree(agent, path, branch, now=None):
     """Everything a worker needs before its first claim: (blockers, steps)."""
     problems, steps = [], []
     behind = (git("-C", str(path), "rev-list", "--count", "HEAD..origin/main") or "").strip()
@@ -141,7 +223,11 @@ def check_worktree(agent, path, branch):
     elif missing:
         problems.append(f"hooks missing or not executable: {', '.join(missing)} — scripts/setup-dev.sh")
     if (git("-C", str(path), "status", "--porcelain") or "").strip():
-        problems.append("worktree is dirty — commit or stash before the loop starts")
+        held = claims_here(path, branch, now) if now is not None else []
+        if held:
+            steps.append(f"in progress on {held[0]} — uncommitted changes are expected while a claim is live")
+        else:
+            problems.append("worktree is dirty — commit or stash before the loop starts")
     return problems, steps
 
 
@@ -243,6 +329,9 @@ def tracks(records, path, branch):
 
 
 def main():
+    if "--self-test" in sys.argv:
+        return self_test()
+    now = now_unix()
     argv = sys.argv[1:]
     roster = ROSTER
     if "--agent" in argv:
@@ -286,7 +375,7 @@ def main():
             failures += 1
             continue
         fresh_paths.append(path)
-        problems, steps = check_worktree(agent, path, branch)
+        problems, steps = check_worktree(agent, path, branch, now)
         if problems:
             failures += 1
             for problem in problems:
@@ -313,10 +402,13 @@ def main():
             held.append(f"{ahead_n} unpushed commit(s)")
         if dirty:
             held.append("uncommitted changes")
+        held_claims = claims_here(path, branch, now)
         owner = tracks(records, path, branch)
-        if owner:
-            print(f"⚠️  {NAME}: {path} ({branch}) holds {' and '.join(held)} — not on origin/main, "
-                  f"tracked by {owner}")
+        kind = attribution(bool(held_claims), owner)
+        if kind != "unattributed":
+            how = (f"its live claim on {held_claims[0]}" if kind == "in-progress"
+                   else f"tracked by {owner}")
+            print(f"⚠️  {NAME}: {path} ({branch}) holds {' and '.join(held)} — not on origin/main, {how}")
         else:
             failures += 1
             print(f"❌ {NAME}: {path} ({branch}) holds {' and '.join(held)} and NO open task names it — "
