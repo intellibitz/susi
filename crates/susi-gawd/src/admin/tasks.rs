@@ -544,6 +544,54 @@ pub fn claim_scoped(
     agent: &str,
     options: ClaimOptions<'_>,
 ) -> EaiResult<Claim> {
+    // The generation ref is one global ref, so two agents claiming *different*
+    // tasks at the same instant collide there: one push wins, the other loses
+    // the compare-and-swap and is told to refresh and retry. Six agents
+    // starting together is the normal case, not an edge — a live six-way test
+    // saw five of six fail that way, for conflicts that were nobody's. The
+    // retry belongs here, where the race is understood, not in every caller.
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        match claim_once(
+            ws,
+            id,
+            agent,
+            ClaimOptions {
+                hours: options.hours,
+                now: options.now,
+                scopes: options.scopes,
+            },
+        ) {
+            Err(err) if attempt < CAS_ATTEMPTS && is_cas_race(&err) => cas_backoff(attempt, agent),
+            other => return other,
+        }
+    }
+}
+
+/// How many times a lost compare-and-swap is retried before the caller is told.
+const CAS_ATTEMPTS: u32 = 8;
+/// Both messages below carry a phrase from here, so the retry matcher and the
+/// text a user reads can never drift apart.
+const CAS_PHRASE: &str = "concurrently with another agent";
+const CAS_RENEW_PHRASE: &str = "concurrently with another claim";
+
+fn is_cas_race(err: &EaiError) -> bool {
+    let text = err.to_string();
+    text.contains(CAS_PHRASE) || text.contains(CAS_RENEW_PHRASE)
+}
+
+/// Spread the retries across processes: identical sleeps would keep the swarm
+/// in lockstep, and the point is that they stop colliding.
+fn cas_backoff(attempt: u32, agent: &str) {
+    let seed = u64::from(std::process::id()) + agent.bytes().map(u64::from).sum::<u64>();
+    let jitter = (seed % 97) + 11;
+    std::thread::sleep(std::time::Duration::from_millis(
+        u64::from(attempt) * 25 + jitter,
+    ));
+}
+
+fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> EaiResult<Claim> {
     let ClaimOptions { hours, now, scopes } = options;
     for scope in scopes {
         if scope.is_empty()
@@ -665,7 +713,7 @@ pub fn claim_scoped(
     let argv: Vec<&str> = args.iter().map(String::as_str).collect();
     git(ws, &argv).map_err(|_| {
         EaiError::config(format!(
-            "{id} or agent {} was claimed concurrently; refresh the queue and retry",
+            "{id} or agent {} was claimed {CAS_PHRASE}; refresh the queue and retry",
             mine.agent
         ))
     })?;
@@ -699,6 +747,19 @@ fn claim_blob(ws: &Path, claim: &Claim) -> EaiResult<String> {
 
 /// Extend an owned live lease without relinquishing its task or scope locks.
 pub fn renew(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResult<Claim> {
+    // Every agent renews at the same sync boundary, so renewals collide on the
+    // global generation ref exactly as claims do.
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        match renew_once(ws, id, agent, hours, now) {
+            Err(err) if attempt < CAS_ATTEMPTS && is_cas_race(&err) => cas_backoff(attempt, agent),
+            other => return other,
+        }
+    }
+}
+
+fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResult<Claim> {
     if !valid_id(id) {
         return Err(EaiError::config("invalid task id"));
     }
@@ -746,7 +807,8 @@ pub fn renew(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResul
             &format!("{blob}:{agent_ref}"),
             &format!("{blob}:{generation_ref}"),
         ],
-    )?;
+    )
+    .map_err(|_| EaiError::config(format!("renewal of {id} raced {CAS_RENEW_PHRASE}; retry")))?;
     git(ws, &["update-ref", &claim_ref(id), &blob])?;
     Ok(claim)
 }
@@ -1415,6 +1477,88 @@ mod tests {
         assert!(!checked());
         release(&a, &first.id, "claude", false).unwrap();
         release(&b, &second.id, "devin", false).unwrap();
+    }
+
+    /// A live six-way test on the real remote found this: the generation ref is
+    /// one global ref, so six agents claiming six *different* tasks at the same
+    /// instant collided on it — one won, five were told to refresh and retry for
+    /// a conflict that was nobody's. Six starting together is the normal case.
+    #[test]
+    fn six_agents_claiming_six_different_tasks_at_once_all_win() {
+        let (_r, a, _b) = Repos::new("six-way");
+        let ids: Vec<String> = (1..=6)
+            .map(|_| {
+                addt!(&a, "claude", "task", "", "s", &[], true_cmd())
+                    .unwrap()
+                    .id
+            })
+            .collect();
+        let now = now_unix();
+        let ws: &Path = &a;
+        let results: Vec<EaiResult<Claim>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| {
+                    let agent = format!("AGENT{i}");
+                    scope.spawn(move || {
+                        claim_scoped(
+                            ws,
+                            id,
+                            &agent,
+                            ClaimOptions {
+                                hours: 1,
+                                now,
+                                scopes: &[],
+                            },
+                        )
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let failures: Vec<String> = results
+            .iter()
+            .filter_map(|r| r.as_ref().err().map(std::string::ToString::to_string))
+            .collect();
+        assert!(
+            failures.is_empty(),
+            "six disjoint claims must all win, nothing else was claimed: {failures:?}"
+        );
+        assert_eq!(claims(&a).unwrap().len(), 6);
+    }
+
+    /// The same race for *one* task must still have exactly one winner, with the
+    /// retry in place: mutual exclusion is the property, not speed.
+    #[test]
+    fn six_agents_racing_for_one_task_still_produce_one_winner() {
+        let (_r, a, _b) = Repos::new("six-race");
+        let task = addt!(&a, "claude", "one", "", "s", &[], true_cmd()).unwrap();
+        let now = now_unix();
+        let ws: &Path = &a;
+        let results: Vec<EaiResult<Claim>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..6)
+                .map(|i| {
+                    let agent = format!("AGENT{i}");
+                    let id = task.id.clone();
+                    scope.spawn(move || {
+                        claim_scoped(
+                            ws,
+                            &id,
+                            &agent,
+                            ClaimOptions {
+                                hours: 1,
+                                now,
+                                scopes: &[],
+                            },
+                        )
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let winners = results.iter().filter(|r| r.is_ok()).count();
+        assert_eq!(winners, 1, "exactly one agent wins one task");
     }
 
     #[test]

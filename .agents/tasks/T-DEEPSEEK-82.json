@@ -1,0 +1,20 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "test(six)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790949173,
+  "deps": [],
+  "goal": "A live six-way test on the real remote found it: refs/claim-generation/current is a single global ref that every claim pushes to, so when six agents claim six DIFFERENT tasks at the same instant, one wins the compare-and-swap and the other five are told 'was claimed concurrently; refresh the queue and retry'. Nothing was actually claimed by anyone else - the failure is an artifact of the global arbiter that makes overlapping-scope decisions atomic. Six agents starting together is the normal case, and a spurious fatal error at claim time is exactly what makes a swarm look broken. Retry inside the tool, boundedly and with jitter that differs per process, so a caller sees either its claim or an honest conflict; do the same for renew, which every agent runs at the same sync boundary and can lose the same race. Regression test: six concurrent claims on six different tasks all win, and six racing for one task still yields exactly one.",
+  "id": "T-DEEPSEEK-82",
+  "size": "m",
+  "title": "Six agents claiming at once must not fail on each other's CAS"
+}
