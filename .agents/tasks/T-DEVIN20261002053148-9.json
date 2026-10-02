@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-9",
+  "title": "Make env profiles reachable and fix multi-parent precedence (VC-201-067)",
+  "goal": "VC-201-067 refuted: ProfileSet/env_profiles has zero production callers — no config source loads profiles and no mission path resolves through them, so the claimed 'dev mission cannot resolve production endpoints from ambient configuration' never executes. Also the documented 'earlier wins ties among parents' is inverted: apply inserts parents in extends order so the later parent's value wins (vc_201_067_mastery_later_parent_wins_despite_documented_earlier_wins). Wire profiles into config loading/mission resolution and make parent precedence match the documented order.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_067",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790982435
+}

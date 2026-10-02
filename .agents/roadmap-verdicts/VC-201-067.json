@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-067",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Two refutations. (1) env_profiles/ProfileSet has no production caller — nothing loads profiles from any config source and no mission or resolver consumes them, so the claimed guarantee that a dev mission cannot resolve production endpoints from ambient configuration never executes. (2) The documented precedence is inverted: extends is documented as 'parents applied in order, earlier wins ties', but apply inserts parents sequentially so the later parent's value overwrites the earlier — proven by vc_201_067_mastery_later_parent_wins_despite_documented_earlier_wins. What holds: dev cannot extend production directly or transitively (whole-graph validation precedes resolution), cycles and unknown parents are refused, the child wins over every parent, and per-key provenance/chain are recorded (vc_201_067_mastery_transitive_route_to_production_is_refused, vc_201_067_mastery_child_overrides_provenance_cycles_and_unknown).",
+  "tracked_by": ["T-DEVIN20261002053148-9"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790982435
+}
