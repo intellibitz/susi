@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-074",
+  "verdict": "not-delivered",
+  "evidence": "vc_201_074_mastery_production_paths_do_not_apply_untrusted_policy (crates/susi-core/src/tests/vc_201_074_mastery.rs)",
+  "missing": "The wrap_tool_output/policy_allows boundary has no production call site in the fleet or swarm orchestrators, so retrieved content and tool output are not uniformly marked before consequential actions; the adversarial command/permission-widening fixture is allowed, and integration still needs to guarantee credential requests are absent from result, trace, and error sinks across file, URL, MCP, and A2A inputs.",
+  "tracked_by": ["T-CODEX20261002053201-1"],
+  "recorded_by": "CODEX20261002053201",
+  "recorded_unix": 1790960599
+}
