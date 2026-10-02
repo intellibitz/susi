@@ -5,6 +5,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-daemon",
       "-E",
       "test(vc_201_041_production_profile_uses_inventory)"
     ]
