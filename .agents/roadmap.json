@@ -511,7 +511,7 @@
       "id": "VC-201-041",
       "mastery_target": "Unify actual CPU, RAM, GPU, VRAM, disk, model, and runtime observations with timestamps and provenance; unavailable probes are unknown rather than zero or fabricated readiness.",
       "priority": "P0",
-      "progress": "DELIVERED: one observed local resource inventory across CPU, RAM, GPU, VRAM, disk, models and runtimes with provenance, where unavailable probes report unknown rather than zero or fabricated readiness. Verified by `crates/susi-vendor-models/src/tests/resource_inventory.rs`: full_observation_reports_ready_fields, provenance_distinguishes_observed_vs_unavailable, unknown_probes_are_not_fabricated_zeros. Evidence: T-CLAUDE-132.",
+      "progress": "PARTIAL: ResourceInventory models observations with timestamps and provenance, but is unintegrated into production host profiling; actual GPU probes report 0 VRAM when absent and CPU/RAM observations carry no timestamp or provenance. Refuted on record; follow-up tracked by T-ANTIGRAVITY20261002053216-1.",
       "type": "LOCAL_HOSTING",
       "vector": "Publish an observed local AI resource inventory"
     },
