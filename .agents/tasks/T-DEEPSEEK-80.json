@@ -1,0 +1,15 @@
+{
+  "accept": {
+    "cmd": [
+      "scripts/swarm-status.sh",
+      "--self-test"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790947614,
+  "deps": [],
+  "goal": "Two agents working in harmony need to see each other, and to not contend over one file. (1) The board block at every sync reports counts but not who is working on what, so an agent cannot tell at a glance whether the fix it is about to make is already being made: add a live in-flight line naming each claimed task and its holder, before the cached board summary. (2) The 30 verification tasks each add a test, and if several land in one crate test file their claim scopes overlap and serialize; tell each task to put its test in its own file named after the vector and to reserve that file, so verification of different vectors proceeds in parallel.",
+  "id": "T-DEEPSEEK-80",
+  "size": "s",
+  "title": "Show what is in flight, and keep one vector's verification out of another's file"
+}
