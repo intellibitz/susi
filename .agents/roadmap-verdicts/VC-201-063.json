@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-063",
-  "verdict": "not-delivered",
-  "evidence": "crates/susi-config/src/tests/vc_201_063_mastery.rs vc_201_063_mastery_stale_insertion_plan_overwrites_concurrent_write vc_201_063_mastery_second_change_to_same_key_is_silently_skipped",
-  "missing": "stale plans do not fail safely for insertions: ConfigStore::plan records a precondition only for keys already present, so a plan that adds a key applies after a concurrent write set it, overwriting the interleaved change. Operation IDs are op-<key>, naming the key rather than the change: a second plan changing the same key is skipped as an already-applied replay, so the mutation never happens. Determinism, existing-key preconditions and literal replay idempotency do hold.",
-  "tracked_by": ["T-DEVIN20261002053148-4"],
+  "verdict": "delivered",
+  "evidence": "crates/susi-config/src/tests/vc_201_063_mastery.rs vc_201_063_mastery_stale_insertion_plan_fails_safely vc_201_063_mastery_second_change_to_same_key_applies vc_201_063_mastery_literal_replay_repeats_no_side_effects",
+  "missing": "",
+  "tracked_by": [],
   "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790986600
+  "recorded_unix": 1790990800
 }

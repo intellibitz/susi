@@ -3,10 +3,11 @@
 //! applying a stale plan fails safely and replaying a successful apply does
 //! not repeat side effects.
 //!
-//! The cited `vc_201_063` tests cover the happy path. The distinguishing
-//! properties probed here: a stale plan must *fail* for every class of drift
-//! (not just changed existing keys), and operation IDs must identify a
-//! change, not just a key.
+//! Falsification found two real gaps, now fixed: keys absent at plan time
+//! carried no precondition (a stale insert overwrote a concurrent write),
+//! and op IDs named the key (`op-<key>`) rather than the change (a second,
+//! distinct change to a key was skipped as a replay). These tests pin the
+//! invariants, not the bugs.
 
 use crate::plan_apply::ConfigStore;
 use std::collections::BTreeMap;
@@ -18,64 +19,59 @@ fn desired(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// Falsification 1: keys absent from the store carry NO precondition. A plan
-/// that inserts `new.key` applies even after a concurrent writer sets
-/// `new.key`, silently overwriting the interleaved change — a stale plan
-/// does not fail safely for insertions.
+/// Absence is a precondition: a plan that inserts `new.key` must refuse to
+/// apply after a concurrent writer set `new.key`.
 #[test]
-fn vc_201_063_mastery_stale_insertion_plan_overwrites_concurrent_write() {
+fn vc_201_063_mastery_stale_insertion_plan_fails_safely() {
     let mut store = ConfigStore::default();
     let plan = store.plan(&desired(&[("new.key", "planned")]));
-    assert!(
-        plan.preconditions.is_empty(),
-        "an insertion records no precondition"
+    assert_eq!(
+        plan.preconditions.get("new.key"),
+        Some(&None),
+        "an insertion records a must-stay-absent precondition"
     );
 
     // Concurrent mutation after the plan was produced.
     store.values.insert("new.key".into(), "concurrent".into());
 
-    let applied = store.apply(&plan);
     assert!(
-        applied.is_ok(),
-        "the stale plan was refused" // documents actual (unsafe) behavior
+        store.apply(&plan).is_err(),
+        "a stale plan must fail, not overwrite the interleaved write"
     );
     assert_eq!(
         store.values.get("new.key").map(String::as_str),
-        Some("planned"),
-        "the interleaved write was overwritten by the stale plan"
+        Some("concurrent"),
+        "the interleaved write survives the refused apply"
     );
 }
 
-/// Falsification 2: operation IDs are `op-<key>` — they name the key, not the
-/// change. A second plan that changes the same key is recorded with the same
-/// op ID, so apply treats it as a replay and never performs the mutation.
+/// Operation IDs name the change: a second plan changing the same key gets a
+/// different ID and actually applies — it is not mistaken for a replay.
 #[test]
-fn vc_201_063_mastery_second_change_to_same_key_is_silently_skipped() {
+fn vc_201_063_mastery_second_change_to_same_key_applies() {
     let mut store = ConfigStore::default();
 
     let plan_a = store.plan(&desired(&[("k", "a")]));
     assert!(store.apply(&plan_a).is_ok());
     assert_eq!(store.values.get("k").map(String::as_str), Some("a"));
 
-    // A distinct change to the same key produces the same op ID.
+    // A distinct change to the same key gets a distinct op ID.
     let plan_b = store.plan(&desired(&[("k", "b")]));
-    assert_eq!(plan_b.ops[0].id, plan_a.ops[0].id, "op-id is only op-<key>");
+    assert_ne!(
+        plan_b.ops[0].id, plan_a.ops[0].id,
+        "op-id must differ for a different (from, to) pair"
+    );
 
     let done = store.apply(&plan_b).unwrap();
-    assert_eq!(
-        done,
-        vec!["skip op-k".to_string()],
-        "apply treated the distinct change as a replay"
+    assert!(
+        done.iter().any(|l| l.starts_with("applied")),
+        "the second change applied, it was not skipped: {done:?}"
     );
-    assert_eq!(
-        store.values.get("k").map(String::as_str),
-        Some("a"),
-        "the second plan's change never took effect"
-    );
+    assert_eq!(store.values.get("k").map(String::as_str), Some("b"));
 }
 
-/// What the claim does get right: plan output is deterministic for a given
-/// (values, desired) pair — same ops in sorted key order, same IDs.
+/// Plan output is deterministic for a given (values, desired) pair — same
+/// ops in sorted key order, same content-derived IDs.
 #[test]
 fn vc_201_063_mastery_plan_is_deterministic_for_identical_inputs() {
     let mut store = ConfigStore::default();
@@ -86,18 +82,25 @@ fn vc_201_063_mastery_plan_is_deterministic_for_identical_inputs() {
     assert_eq!(p1, p2);
     let keys: Vec<&str> = p1.ops.iter().map(|o| o.key.as_str()).collect();
     assert_eq!(keys, ["a", "b", "c"], "ops iterate the BTreeMap in order");
-    let ids: Vec<&str> = p1.ops.iter().map(|o| o.id.as_str()).collect();
-    assert_eq!(ids, ["op-a", "op-b", "op-c"]);
+    assert!(
+        p1.ops
+            .iter()
+            .all(|o| o.id.starts_with("op-") && o.id.len() > 3),
+        "ids are stable and non-empty"
+    );
 }
 
-/// Precondition safety where preconditions exist: an existing key changed
-/// after planning makes apply fail before any mutation.
+/// Precondition safety for existing keys: a value changed after planning
+/// makes apply fail before any mutation.
 #[test]
 fn vc_201_063_mastery_changed_key_precondition_fails_safely() {
     let mut store = ConfigStore::default();
     store.values.insert("k".into(), "v0".into());
     let plan = store.plan(&desired(&[("k", "v1"), ("other", "x")]));
-    assert_eq!(plan.preconditions.get("k").map(String::as_str), Some("v0"));
+    assert_eq!(
+        plan.preconditions.get("k").and_then(|o| o.as_deref()),
+        Some("v0")
+    );
 
     store.values.insert("k".into(), "concurrent".into());
     assert!(
@@ -115,16 +118,15 @@ fn vc_201_063_mastery_changed_key_precondition_fails_safely() {
     );
 }
 
-/// Replaying the same plan is a no-op (idempotent) — this part of the claim
-/// holds for literal replays of one plan.
+/// Replaying the same plan is a no-op (idempotent).
 #[test]
 fn vc_201_063_mastery_literal_replay_repeats_no_side_effects() {
     let mut store = ConfigStore::default();
     let plan = store.plan(&desired(&[("k", "v1")]));
     let first = store.apply(&plan).unwrap();
     let second = store.apply(&plan).unwrap();
-    assert_eq!(first, vec!["applied op-k".to_string()]);
-    assert_eq!(second, vec!["skip op-k".to_string()]);
+    assert!(first.iter().all(|l| l.starts_with("applied")));
+    assert!(second.iter().all(|l| l.starts_with("skip")));
     assert_eq!(store.values.get("k").map(String::as_str), Some("v1"));
     assert_eq!(store.values.len(), 1, "replay introduced no extra state");
 }
