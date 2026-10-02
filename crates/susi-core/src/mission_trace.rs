@@ -95,7 +95,11 @@ impl MissionTrace {
         Self {
             schema_version: SCHEMA_VERSION,
             mission_id: mission_id.into(),
-            goal: susi_config::redact_credentials(&bound_chars(goal, MAX_GOAL_CHARS)),
+            goal: crate::untrusted_content::wrap_tool_output(
+                "mission-trace-goal",
+                &bound_chars(goal, MAX_GOAL_CHARS),
+            )
+            .redacted_for_sink(),
             outcome: bound_chars(outcome, MAX_FIELD_CHARS),
             route: bound_chars(route, MAX_FIELD_CHARS),
             tools: Vec::new(),
