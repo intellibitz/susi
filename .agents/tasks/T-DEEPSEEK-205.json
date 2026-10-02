@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-205",
+  "title": "Link the extension-pack schema where people look for it",
+  "goal": "docs/extension-pack.md documents the extension pack manifest schema with a table of required fields, and nothing links to it: config/README.md names the bundled pack and README explains extension packs, but neither points at the schema, so the one document that answers what a manifest needs is invisible. Link it from both places. Deleting it would have destroyed accurate documentation of a live feature - the gap was discoverability, not obsolescence.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(architecture_tests)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790958191
+}
