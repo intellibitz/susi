@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-75",
+  "title": "A claim must reserve paths, and a large task must outlive its own lease",
+  "goal": "Two ways the swarm can lose work before it starts. A claim that reserves no paths is refused by the commit hook and CI, but the claim itself still succeeds, so the mistake surfaces only when the agent tries to commit its work; refuse it at claim time with a deliberate --unscoped override. And a size-l task is integration work that will not finish inside the default 4h lease, while nothing renews a claim during work: an expired lease is taken over by compare-and-swap, so a second agent can start the same task while the first still holds uncommitted work. Give large tasks a lease that outlives the work and renew owned claims at the sync boundary, which agents cross mid-task.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(tasks_cli)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790943293,
+  "closed": {
+    "at_unix": 1790943877,
+    "commit": "48f883d011cfadf70452ce18505e69a739a08673",
+    "by": "DEEPSEEK"
+  }
+}

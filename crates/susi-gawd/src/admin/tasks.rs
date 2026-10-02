@@ -20,6 +20,22 @@ use std::process::Command;
 pub const DEFAULT_REMOTE: &str = "origin";
 /// Lease a claim holds by default.
 pub const DEFAULT_LEASE_HOURS: u64 = 4;
+/// Lease a size-`l` claim holds. Large tasks are integration work — the swarm
+/// gap tasks demand nonzero tests through the real CLI/daemon path — and an
+/// agent at work does not renew: `renew` runs at the loop's boundaries, and an
+/// expired lease is taken over by compare-and-swap, which would let a second
+/// agent start the task while the first still holds uncommitted work.
+pub const LARGE_TASK_LEASE_HOURS: u64 = 12;
+
+/// The lease a task of this size should start with.
+#[must_use]
+pub fn lease_hours_for_size(size: &str) -> u64 {
+    if size == "l" {
+        LARGE_TASK_LEASE_HOURS
+    } else {
+        DEFAULT_LEASE_HOURS
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Accept {

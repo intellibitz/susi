@@ -52,11 +52,16 @@ pub enum TaskCommands {
         /// Reserve a repo-relative file/directory (repeatable); overlapping claims fail.
         #[arg(long = "scope")]
         scopes: Vec<String>,
+        /// Claim with no reservation at all (deliberate: the commit hook and CI
+        /// then refuse any code under it)
+        #[arg(long)]
+        unscoped: bool,
         #[arg(long)]
         agent: Option<String>,
-        /// Lease length; an expired claim can be taken over
-        #[arg(long, default_value_t = tasks::DEFAULT_LEASE_HOURS)]
-        hours: u64,
+        /// Lease length; an expired claim can be taken over. Defaults to 4h, or
+        /// 12h for a size-l task, which will not finish inside a shorter one.
+        #[arg(long)]
+        hours: Option<u64>,
     },
     /// Renew an owned live task lease, retaining its scopes.
     Renew {
@@ -332,8 +337,32 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             agent,
             hours,
             scopes,
+            unscoped,
         } => {
             tasks::ensure_synced(&root)?;
+            // A claim that reserves no paths cannot be enforced: the commit hook
+            // and CI refuse code under it, so the mistake would surface only
+            // when the agent tries to commit its work. Refuse it here instead,
+            // with the deliberate override.
+            if scopes.is_empty() && !unscoped {
+                bail!(
+                    "{id} would reserve no paths, so nothing about it could be checked: an agent \
+                     could rewrite a file another agent holds. Pass --scope <path> for each area \
+                     you will change (repeatable), or --unscoped to claim it deliberately \
+                     (Mandate 50)."
+                );
+            }
+            // Size-l work is integration, and an agent at work does not renew:
+            // an expired lease is taken over, which would hand the same task to
+            // a second agent mid-flight.
+            let hours = hours.unwrap_or_else(|| {
+                tasks::list_open(&root)
+                    .iter()
+                    .find(|t| t.id == id)
+                    .map_or(tasks::DEFAULT_LEASE_HOURS, |t| {
+                        tasks::lease_hours_for_size(&t.size)
+                    })
+            });
             let c = tasks::claim_scoped(
                 &root,
                 &id,

@@ -406,8 +406,9 @@ fn code_under_a_claim_that_reserves_no_paths_is_refused() {
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
     e.install_rule("T-TEST-1");
     let base = e.head();
-    // Claiming is still allowed without a scope — it just reserves nothing.
-    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1"]);
+    // A scopeless claim now takes the deliberate override; what it buys is the
+    // refusal below, because nothing about such a claim can be checked.
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1", "--unscoped"]);
     assert_eq!(code, 0, "{err}");
 
     e.commit("work/a", "feat: a", Some("T-TEST-1"));
