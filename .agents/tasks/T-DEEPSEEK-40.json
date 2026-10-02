@@ -1,0 +1,14 @@
+{
+  "accept": {
+    "cmd": [
+      "scripts/check-swarm-readiness.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790913581,
+  "deps": [],
+  "goal": "Five artifacts held work that never reached main and nothing in the queue named them. Triaged against current main, with the evidence: (1) the codex cloud-budget module is UNIQUE \u2014 crates/susi-vendor-models/src/cloud_budget.rs (593 lines, atomic spending reservations) has no counterpart on main (no CloudBudget, no window_nanousd anywhere), so it is preserved at refs/preserve/codex-cloud-budget and filed as T-DEEPSEEK-38 with its worktree /home/ramadoss/github.com/intellibitz/susi-codex/worktree-20260930 kept in place. (2) the cloud RSI outcomes extension is SUPERSEDED: main's cloud_rsi_outcomes.rs is a rewrite whose scenario set matches the local one (availability distinct from quality, counterexample blocks a repeat proposal, rejected earns no success, self-reported success refused, verified promotion raises ranking), so it is preserved at refs/preserve/cloud-rsi-outcomes and its checkout reclaimed. (3) the intellibitz roadmap-agents e2e tests are SUPERSEDED by main's consolidated parallel_roadmap_e2e.rs (same lockout, shared-pool ceiling, dependency-chain, overlap and acceptance-failure scenarios): preserved at refs/preserve/intellibitz-roadmap-agents, checkout reclaimed. (4) the swarm-gap branch's content landed re-applied under T-DEEPSEEK-28: preserved, reclaimed. (5) the v0.20.1 release commit's pull request was closed and it must never merge into a 0.21.2 main: preserved at refs/preserve/intellibitz-release-0.20.1, its remote branch deleted, checkout reclaimed. The readiness check warned about all of these but still passed, so a prune would have discarded them silently: make unlanded work a failure unless an open task names the worktree or its preserved ref, ignore a worktree's own in-flight commit and stale task-record copies, and keep every preserved ref.",
+  "id": "T-DEEPSEEK-40",
+  "size": "s",
+  "title": "Track every piece of unlanded work so no worktree can be pruned with work still in it"
+}

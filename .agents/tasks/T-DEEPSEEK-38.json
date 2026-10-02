@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-38",
+  "title": "Land the preserved cloud budget work from the abandoned codex worktree",
+  "goal": "The abandoned worktree /home/ramadoss/github.com/intellibitz/susi-codex/worktree-20260930 (branch codex/worktree-20260930) holds work that never reached main and is preserved on the remote as refs/preserve/codex-cloud-budget (4505fa38), covering 7 unpushed commits plus 8 uncommitted files: a new crates/susi-vendor-models/src/cloud_budget.rs (593 lines, atomic local spending/allowance reservations with cumulative limits per accounting window, integer nanodollar cost parsing) and edits to cloud_contracts.rs, cloud_inference.rs, lib.rs and src/cli/brain_cli.rs. main already has cloud_eligibility.rs but no cloud_budget.rs or cloud_contracts.rs, so this is unique capability, not a duplicate. Recover it (git fetch origin refs/preserve/codex-cloud-budget:preserve/codex-cloud-budget, then rebase onto current main), finish the integration, and prove the reservation semantics with nonzero tests covering concurrent reservations, an exhausted window, an uncertain request staying charged, and key rotation not resetting a limit. Preserve the existing tests.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(cloud_budget)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790913571
+}
