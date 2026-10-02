@@ -433,3 +433,115 @@ fn a_large_task_is_claimed_with_a_lease_that_outlives_the_work() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The 30 verification tasks accept `scripts/check-roadmap-verdict.py <VC-id>`
+/// — a script with an argument, which nothing had exercised end to end: the
+/// argv split, the cwd, the exit-code reading and the zero-evidence guard were
+/// all assumed. If it were wrong, all 30 would be unclosable.
+#[test]
+fn a_script_acceptance_with_arguments_closes_a_task() {
+    let root = std::env::temp_dir().join(format!("susi-tasks-script-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let bare = root.join("server.git");
+    std::fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "--bare", "--quiet"]);
+    let a = clone_of(&bare, &root, "a");
+    git(&a, &["push", "--quiet", "origin", "HEAD:main"]);
+    // The checker must exist in the checkout the acceptance runs from.
+    std::fs::create_dir_all(a.join("scripts")).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-roadmap-verdict.py"),
+        a.join("scripts/check-roadmap-verdict.py"),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            a.join("scripts/check-roadmap-verdict.py"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
+
+    // It passes (its own self-test), so the task closes with a done/ record.
+    let (code, out, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &[
+            "tasks",
+            "add",
+            "verify a vector",
+            "--accept",
+            "scripts/check-roadmap-verdict.py --self-test",
+            "--size",
+            "l",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("T-CLAUDE-1"), "{out}");
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &[
+            "tasks",
+            "claim",
+            "T-CLAUDE-1",
+            "--scope",
+            "crates/susi-gawd/src",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let (code, out, err) = susi(&a, &home, "claude", &["tasks", "close", "T-CLAUDE-1"]);
+    assert_eq!(
+        code, 0,
+        "a passing script acceptance must close the task: {err}"
+    );
+    assert!(out.contains("closed T-CLAUDE-1"), "{out}");
+    assert!(a.join(".agents/tasks/done/T-CLAUDE-1.json").exists());
+
+    // An unrecorded vector exits 1, so the task stays open with its claim.
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "devin",
+        &[
+            "tasks",
+            "add",
+            "verify another",
+            "--accept",
+            "scripts/check-roadmap-verdict.py VC-201-999",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "devin",
+        &[
+            "tasks",
+            "claim",
+            "T-DEVIN-1",
+            "--scope",
+            "crates/susi-gemi/src",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let (code, out, err) = susi(&a, &home, "devin", &["tasks", "close", "T-DEVIN-1"]);
+    assert_ne!(code, 0, "an unrecorded verdict must not close the task");
+    // The closer sees the acceptance's own output, so a refusal explains itself
+    // rather than leaving the agent to guess what the check wanted.
+    assert!(
+        out.contains("no verdict recorded"),
+        "stdout={out} stderr={err}"
+    );
+    assert!(
+        a.join(".agents/tasks/T-DEVIN-1.json").exists(),
+        "a failed acceptance must leave the task open"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

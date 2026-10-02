@@ -54,7 +54,11 @@ run_check() {
     case "$code" in
     0) ;; # passed: its own line already carries the ✅ and the checker's name
     124) summary="⚠️  ${label}: timed out after ${timeout_s}s" ;;
-    *) failed=1 ;;
+    *)
+        failed=1
+        # Show the first line that says what broke, not the trailing fix hint.
+        summary=$(printf '%s\n' "$result" | grep -m1 '^❌' || printf '%s' "$summary")
+        ;;
     esac
     out="$out
   ${summary}"
