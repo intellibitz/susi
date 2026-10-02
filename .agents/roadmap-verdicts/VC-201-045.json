@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-045",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Benchmark harness only measures word-count token rates against fake providers; real host execution across candidate formats (GGUF, Safetensors, AWQ) and quantizations with memory and correctness checks is not implemented; recommendations do not draw from measured host benchmark data.",
+  "tracked_by": [
+    "T-ANTIGRAVITY20261002053216-4"
+  ],
+  "recorded_by": "ANTIGRAVITY20261002053216",
+  "recorded_unix": 1790966000
+}
