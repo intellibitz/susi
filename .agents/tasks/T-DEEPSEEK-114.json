@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-114",
+  "title": "Roadmap: audit every action, without logging payloads",
+  "goal": "Record the telemetry requirement as vectors a swarm can execute, after checking what already exists: SusiAuditLogger with an HMAC key, daily-rotated JSON logs, a receipt archive, a capability audit and a signature-verified quorum ledger. What is missing is coverage, correlation, policy and verification - not another log file. The design is two tiers: an audit tier that records every state-changing action (actor, kind, target, outcome, duration, cost, correlation) through one choke point with an exhaustive action enum so coverage is checkable, and a trace tier that is levelled, opt-in, rotated and TTL'd under a measured budget. Payloads never enter the audit tier, retention prunes, the chain verifies, and the history is interrogable.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py"
+    ]
+  },
+  "roadmap": "VC-202-017",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954211
+}

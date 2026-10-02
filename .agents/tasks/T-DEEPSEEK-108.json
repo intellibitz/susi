@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-108",
+  "title": "Every state-changing action emits one audit record through one choke point",
+  "goal": "Route every action that changes state or spends money - task and claim transitions, commits, pushes and merges, model calls, tool executions, file writes, egress attempts, approvals, secret access - through one dispatch point that emits exactly one structured record: actor, action kind, target, outcome, duration, cost, correlation id and a redaction marker. Reuse SusiAuditLogger and the gawd.audit.action topic instead of adding a second log, and reference the task, claim and evidence artifacts rather than duplicating them. Payloads never enter this tier: record what happened, not what was said or read.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(audit_action_choke_point)"
+    ]
+  },
+  "roadmap": "VC-202-017",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954195
+}

@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(audit_action_completeness)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954195,
+  "deps": [
+    "T-DEEPSEEK-108"
+  ],
+  "goal": "Make the audited action set an exhaustive enum and prove it: every kind is recorded, and an architecture test fails when any other path mutates state, so a new subsystem that forgets to emit is a CI failure rather than a gap someone notices later. Include the refutation: mutate state from outside the choke point in a fixture and show the test catches it.",
+  "id": "T-DEEPSEEK-109",
+  "roadmap": "VC-202-017",
+  "size": "l",
+  "title": "Enumerate every action kind and prove none escapes"
+}

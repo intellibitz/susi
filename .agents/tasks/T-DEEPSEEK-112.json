@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(audit_chain_verifies)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954195,
+  "deps": [
+    "T-DEEPSEEK-108"
+  ],
+  "goal": "Chain each audit record to its predecessor under the existing HMAC audit key, add a verification command (susi audit verify, optionally since a point in time) that detects a mutated, removed or reordered record, and anchor the chain head periodically so the history is evidence rather than a file the system could rewrite at will. Pin it with a test that mutating one line is detected.",
+  "id": "T-DEEPSEEK-112",
+  "roadmap": "VC-202-019",
+  "size": "l",
+  "title": "Hash-chain the audit records and verify them"
+}
