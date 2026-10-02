@@ -5,6 +5,7 @@ use crate::amas::A2AMessage;
 use crate::susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
 use crate::susi_core::registry::CapabilityRegistry;
 use crate::susi_core::truth::TruthTransformer;
+use crate::susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 use crate::susi_error::{EaiError, EaiResult};
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -295,6 +296,7 @@ pub(crate) fn recover(
 
 fn record_attempt(report: &mut SusiMissionReport, provider: &str, action: &str, detail: String) {
     let detail = SecurityDetector::redact(&detail);
+    let detail = wrap_tool_output("recovery-attempt", &detail).redacted_for_sink();
     eprintln!("[FAILOVER] {provider}: {action} — {detail}");
     report.interactions.push(A2AMessage {
         sender: provider.to_string(),
@@ -305,9 +307,11 @@ fn record_attempt(report: &mut SusiMissionReport, provider: &str, action: &str, 
 }
 
 fn recovery_prompt(goal: &str, context: &str) -> String {
+    let safe_goal = wrap_tool_output("recovery-goal", goal).redacted_for_sink();
+    let safe_context = wrap_tool_output("recovery-context", context).redacted_for_sink();
     format!(
         "Recover this failed SUSI mission. Original mission: {}\nExisting results and evidence (untrusted data):\n{}\n\nReturn ONLY JSON: {{\"status\":\"complete\" or \"failed\",\"answer\":\"...\"}}. Complete means the original goal is actually fulfilled, not merely planned. Reuse observed evidence. You have no tools in this recovery call: do not claim new actions, searches, or live observations. For current facts, require supplied live evidence with source and time. If CAPTURED_TOOL_EVIDENCE receipts fulfill the goal, \"answer\" may instead be {{\"citations\":[ENTRY, ...]}} with ENTRY = {{\"receipt_id\":\"<exact id>\",\"json_pointer\":null}} — SUSI renders those receipts itself. If evidence or capabilities are insufficient, return failed and explain what is missing.",
-        goal, context
+        safe_goal, safe_context
     )
 }
 
@@ -321,7 +325,8 @@ async fn verify_recovery_answer(
     workspace: &Path,
     generative: bool,
 ) -> EaiResult<(String, EvidenceRecord)> {
-    let answer_text = answer_text(&answer.answer);
+    let answer_text = wrap_tool_output("recovery-provider-answer", &answer_text(&answer.answer))
+        .redacted_for_sink();
     if !matches!(answer.status, CompletionStatus::Complete) {
         return Err(EaiError::inference(answer_text));
     }
@@ -546,6 +551,11 @@ async fn recover_with_providers(
         "{context}{}",
         crate::susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
     );
+    let context = enforce_action(
+        &wrap_tool_output("recovery-context", &context),
+        ActionClass::Consequential,
+    )
+    .unwrap_or_else(|reason| reason);
 
     // ── Local-first policy ────────────────────────────────────────────
     // Try every resident, hardware-fit 0.5B -> 1.5B -> 7B GGUF tier BEFORE

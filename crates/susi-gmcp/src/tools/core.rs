@@ -969,8 +969,13 @@ impl CoreTools {
             .get("message")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("a2a_delegate requires 'message'".to_string()))?;
+        let message = crate::susi_core::untrusted_content::enforce_action(
+            &crate::susi_core::untrusted_content::wrap_tool_output("a2a:delegate-request", message),
+            crate::susi_core::untrusted_content::ActionClass::Consequential,
+        )
+        .map_err(EaiError::governance)?;
         let url = Self::a2a_peer_url(peer)?;
-        let body = crate::susi_core::a2a_wire::message_send_request(message);
+        let body = crate::susi_core::a2a_wire::message_send_request(&message);
         let body_bytes = serde_json::to_vec(&body)
             .map_err(|e| EaiError::protocol(format!("a2a_delegate: encode: {e}")))?;
         let endpoint = format!("{url}/");
@@ -1033,8 +1038,24 @@ impl CoreTools {
             .map_err(|e| EaiError::network(format!("a2a_delegate read {url}: {e}")))?;
         let doc: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| EaiError::protocol(format!("a2a_delegate: bad JSON-RPC reply: {e}")))?;
-        crate::susi_core::a2a_wire::reply_summary(&doc)
-            .map_err(|e| EaiError::network(format!("a2a_delegate {e}")))
+        match crate::susi_core::a2a_wire::reply_summary(&doc) {
+            Ok(reply) => crate::susi_core::untrusted_content::enforce_action(
+                &crate::susi_core::untrusted_content::wrap_tool_output(
+                    "a2a:delegate-reply",
+                    &reply,
+                ),
+                crate::susi_core::untrusted_content::ActionClass::Consequential,
+            )
+            .map_err(EaiError::governance),
+            Err(error) => {
+                let safe = crate::susi_core::untrusted_content::wrap_tool_output(
+                    "a2a:delegate-error",
+                    &error,
+                )
+                .redacted_for_sink();
+                Err(EaiError::network(format!("a2a_delegate {safe}")))
+            }
+        }
     }
 
     #[tool(
