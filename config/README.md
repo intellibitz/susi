@@ -18,7 +18,7 @@ opinions; see `ARCHITECTURE.md` plugin triad.
 | `execution-agents.json` / `agent-engines.json` | External executor / framework adapter catalogs |
 | `execution-peers.legacy.json` | Migration-only peer list |
 | `prompts.default.json` / `messages.default.json` / `chat_templates.default.json` | Prompt / message templates |
-| `extensions/default/*` | Default extension pack (`manifest.json`, `cloud-vendors.json`, catalog pointers) |
+| `extensions/default/*` | Default extension pack (`manifest.json`, `cloud-vendors.json`, catalog pointers) — manifest schema: [`docs/extension-pack.md`](../docs/extension-pack.md) |
 
 ## Do not confuse
 

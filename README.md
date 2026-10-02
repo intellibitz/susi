@@ -576,7 +576,7 @@ Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opin
 - **Auto-seed** — first run creates `~/.susi/extensions/default/` from the bundled pack (never overwrites host edits)
 - **Auto-load** — packs with `manifest.json` under `~/.susi/extensions/<id>/` are discovered and marked loaded; `state.json` tracks active id
 - **CLI** — `susi extensions` / `susi ext` (`list`, `status`, `seed`, `create <id>`, `load <id>`, `unload <id>`)
-- Bundled source: `config/extensions/default/`
+- Bundled source: `config/extensions/default/`; manifest schema: [`docs/extension-pack.md`](docs/extension-pack.md)
 - Force active pack: `SUSI_EXTENSION_PACK=<id>`
 
 Catalog loaders still embed bundled JSON via `include_str!` for offline boot; host pack files win when present. See [`config/README.md`](config/README.md) for which file is authoritative (bootstrap MCP ≠ leading MCP ≠ scout registry).
