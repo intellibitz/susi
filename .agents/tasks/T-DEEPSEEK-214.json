@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-214",
+  "title": "Run the opt-in credentialed provider contract checks from a command",
+  "goal": "VC-201-051's mastery target begins with 'Execute opt-in credentialed and fixture-backed checks for authentication, streaming, tool calls, embeddings, usage and errors'. The checks exist: probe_credentialed_opt_in is public in crates/susi-gemi/src/provider_contract.rs and the module is exported from lib.rs. But the only two references to it anywhere in the tree are its own definition and that module declaration - no CLI command, no admin path, no daemon path calls it, so nothing executes the checks and no operator can run them.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_051_checks_run_from_a_command)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790979833
+}

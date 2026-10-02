@@ -634,7 +634,7 @@
       "id": "VC-201-051",
       "mastery_target": "Execute opt-in credentialed and fixture-backed checks for authentication, streaming, tool calls, embeddings, usage, and errors; capability claims include provider/model/version, observation time, and unsupported cases.",
       "priority": "P0",
-      "progress": "DELIVERED: opt-in credentialed and fixture-backed provider contract checks covering authentication, streaming, tool calls, embeddings, usage and errors, with unsupported cases recorded and credentialed probing off by default. Verified by `crates/susi-gemi/src/tests/vc_201_051.rs`: fixture_auth_streaming_tools_embeddings_usage_errors, credentialed_opt_in_off_by_default, unsupported_cases_recorded; companions eco_live_probe and cloud_eligibility_state. Evidence: T-CLAUDE-134, T-CLAUDE-336, T-CODEX-1.",
+      "progress": "PARTIAL: the credentialed and fixture-backed provider checks are implemented and public in susi-gemi's provider_contract, but nothing executes them - no command, admin or daemon path calls probe_credentialed_opt_in - tracked by T-DEEPSEEK-214.",
       "type": "CLOUD_HOSTING",
       "vector": "Probe cloud provider contracts reproducibly"
     },
