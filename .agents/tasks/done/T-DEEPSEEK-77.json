@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-77",
+  "title": "Let a verdict record commit under any claim, and prove the close path end to end",
+  "goal": "Two pre-flight defects of my own. (1) .agents/roadmap-verdicts/<VC-id>.json is task metadata exactly like .agents/tasks/, but only .agents/tasks/ is exempt from the claim scope check: every one of the 30 verification tasks would be refused when it commits its verdict, and would have to re-claim with an extra scope to say what it found. Exempt the verdict directory in both checkers, as the task records are, and prove it with a commit that adds a verdict under a claim that does not reserve it. (2) Nobody has exercised the close path for the acceptance shape the 30 tasks now use - a script with arguments (scripts/check-roadmap-verdict.py <VC-id>): the zero-evidence guard, the argv split and the cwd are all assumed. Cover it end to end, including the failing case keeping the task open.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(tasks_cli)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790945632,
+  "closed": {
+    "at_unix": 1790946001,
+    "commit": "8af3c15cecb79c294e65fcd9239865bd54abb79f",
+    "by": "DEEPSEEK"
+  }
+}

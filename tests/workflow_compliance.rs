@@ -590,3 +590,66 @@ fn deleting_the_compliance_script_does_not_exempt_earlier_commits() {
     assert_eq!(code, 1, "the earlier commit is still judged: {err}");
     assert!(err.contains("nobody holds a claim on it"), "{err}");
 }
+
+/// A verification verdict is the record of the work, not the work: it lives in
+/// `.agents/roadmap-verdicts/<VC-id>.json` and must commit under the very claim
+/// that produced it, which reserves source paths, not that directory. Requiring
+/// a reservation for it would make all 30 verification tasks uncommittable.
+#[test]
+fn a_verdict_record_commits_under_any_claim() {
+    let e = Env::new("verdict");
+    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
+    e.install_rule("T-TEST-1");
+    let base = e.head();
+    // A claim that reserves source, and nothing under .agents/.
+    let (code, _, err) = e.susi(&["tasks", "claim", "T-TEST-1", "--scope", "work"]);
+    assert_eq!(code, 0, "{err}");
+
+    std::fs::create_dir_all(e.repo.join(".agents/roadmap-verdicts")).unwrap();
+    std::fs::write(
+        e.repo.join(".agents/roadmap-verdicts/VC-201-001.json"),
+        "{\"vector\":\"VC-201-001\",\"verdict\":\"not-delivered\",\"missing\":\"x\",\
+         \"tracked_by\":[\"T-TEST-2\"],\"recorded_by\":\"TEST\",\"recorded_unix\":1}\n",
+    )
+    .unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "record a verdict",
+            "-m",
+            "Task: T-TEST-1",
+        ],
+    );
+    let (code, err) = e.check(&base);
+    assert_eq!(
+        code, 0,
+        "a verdict record must not need its own reservation: {err}"
+    );
+
+    // It is still work: without the trailer, it is refused like anything else.
+    std::fs::write(
+        e.repo.join(".agents/roadmap-verdicts/VC-201-002.json"),
+        "{\"vector\":\"VC-201-002\",\"verdict\":\"delivered\",\"evidence\":\"x\",\
+         \"recorded_by\":\"TEST\",\"recorded_unix\":1}\n",
+    )
+    .unwrap();
+    let before = e.head();
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &["commit", "--quiet", "-m", "record another verdict"],
+    );
+    let (code, err) = e.check(&before);
+    assert_eq!(
+        code, 1,
+        "a verdict commit is work and needs its task: {err}"
+    );
+    assert!(err.contains("no 'Task:"), "{err}");
+}

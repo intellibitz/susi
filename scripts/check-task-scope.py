@@ -23,10 +23,13 @@ def main():
         return 1
     scopes = claim.get("scopes", [])
     paths = git("diff", "--cached", "--name-only", "--no-renames", "-z").decode().split("\0")
-    # Task records are exempt everywhere: creating and closing a task touches
-    # only .agents/tasks/, so a legacy claim that reserved nothing can still be
-    # closed rather than becoming unclosable.
-    code = [p for p in paths if p and not p.startswith(".agents/tasks/")]
+    # Queue metadata is exempt everywhere: creating or closing a task touches
+    # only .agents/tasks/, and recording a verification verdict touches only
+    # .agents/roadmap-verdicts/ — both are the record of the work, not the work,
+    # and requiring a reservation for them would make a verdict uncommittable
+    # under the very claim that produced it.
+    exempt = (".agents/tasks/", ".agents/roadmap-verdicts/")
+    code = [p for p in paths if p and not p.startswith(exempt)]
     if not scopes:
         # An empty scope list used to skip the test entirely, which made the
         # path reservation optional in practice: claim without --scope and

@@ -27,8 +27,10 @@
 #   (c) any code at all under a claim that declared NO scopes. That used to
 #       skip the test entirely, so the reservation was optional in practice —
 #       claim without `--scope` and every path was fair game. Task records
-#       (.agents/tasks/) stay exempt, so an unscoped legacy claim can still be
-#       created and closed.
+#       (.agents/tasks/) and verdict records (.agents/roadmap-verdicts/) stay
+#       exempt, so an unscoped legacy claim can still be created and closed, and
+#       a verification verdict commits under the claim that produced it. A
+#       verdict-only commit is still work: it keeps its `Task:` trailer.
 # Both are checked here, server-side, because the same scope check in
 # .githooks/pre-commit (scripts/check-task-scope.py) is local and skippable
 # with `--no-verify`, and because it can only see claims this worktree has
@@ -100,7 +102,7 @@ check_claim_owner() {
         local unreserved="" uf
         while IFS= read -r uf; do
             [ -n "$uf" ] || continue
-            case "$uf" in .agents/tasks/*) continue ;; esac
+            case "$uf" in .agents/tasks/* | .agents/roadmap-verdicts/*) continue ;; esac
             unreserved="$unreserved $uf"
         done < <(git diff-tree --no-commit-id --name-only -r "$commit")
         [ -z "$unreserved" ] || err "commit $short works on $id, whose claim reserves no paths:$unreserved — re-claim it with a scope that covers this change (susi tasks release $id, then susi tasks claim $id --scope <path>)"
@@ -109,7 +111,7 @@ check_claim_owner() {
     local outside="" f s ok
     while IFS= read -r f; do
         [ -n "$f" ] || continue
-        case "$f" in .agents/tasks/*) continue ;; esac
+        case "$f" in .agents/tasks/* | .agents/roadmap-verdicts/*) continue ;; esac
         ok=0
         while IFS= read -r s; do
             [ -n "$s" ] || continue
