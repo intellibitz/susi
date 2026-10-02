@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-8",
+  "title": "Route deployment credentials through scoped secret references (VC-201-066)",
+  "goal": "VC-201-066 refuted: SecretRef/SecretVault/redact_for_export and KeyRef/resolve_key_ref have zero production callers — real provider credentials flow through cloud.env/plaintext api_key fields; plan/export/tracing never invoke redaction. Also redact_for_export only masks a whitespace-delimited resolved= token (JSON fields and space-containing values leak), and the scope guard is a caller-asserted string, not an enforced boundary. Evidence: crates/susi-config/src/tests/vc_201_066_mastery.rs.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_066",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790981792
+}
