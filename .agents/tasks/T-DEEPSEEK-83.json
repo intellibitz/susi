@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-83",
+  "title": "A vector's narrative must not contradict its recorded verdict",
+  "goal": "check-roadmap-progress.sh catches one placeholder contradiction, for vectors with closed tasks. Now that outcomes are recorded per vector in .agents/roadmap-verdicts/, the stronger consistency is checkable and ought to fail CI: a vector with a delivered verdict whose narrative does not claim delivery, or a vector refuted on record whose narrative still claims it. Coverage is not completion in both directions, and the roadmap is the artifact a human reads. Add the rule to the queue checker, which already reads both files, with a --self-test pinning all four combinations.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py",
+      "--self-test"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790951716
+}
