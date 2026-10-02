@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN20261002053148-1",
+  "title": "Fix env-sensitive tasks_cli test on tool-named worktree paths",
+  "goal": "tests/tasks_cli.rs::the_tool_in_the_process_tree_names_the_agent fails whenever the checkout path contains a tool marker (devin/codex/cursor/...): the spawned susi sees the test-runner argv0 (<worktree>/target/debug/deps/tasks_cli-*) and the gate script path, both carrying the marker, so detect_agent resolves DEVIN instead of the SHAREDTOKEN fallback. Blocks cargo test --workspace and susi workflow finish for every tool-named worktree. Fix by matching markers on process basenames only, not full path text.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "tasks_cli",
+      "the_tool_in_the_process_tree_names_the_agent",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790963972
+}
