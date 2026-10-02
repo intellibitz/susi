@@ -27,12 +27,35 @@ branch for a day).
     scripts/check-roadmap-verdict.py --self-test     # pin all four cases
 """
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 VERDICTS = ROOT / ".agents/roadmap-verdicts"
+
+
+def evidence_exists(evidence):
+    """Does this evidence name something real?
+
+    A verdict is the acceptance now, so a bare string would be a formality: an
+    agent could close a verification task by asserting success. Requiring the
+    evidence to name a path that exists, or an identifier that appears in the
+    checkout, raises the bar from typing to showing — and the diff then shows
+    whether what it names actually proves anything.
+    """
+    first = evidence.split()[0] if evidence.split() else evidence
+    if "/" in first:
+        return (ROOT / first).exists()
+    # Not the verdict records themselves (the identifier would match its own
+    # record) and not this checker (a self-test names the string it is testing).
+    found = subprocess.run(
+        ["git", "grep", "-l", "-F", "--", evidence, "--", ".",
+         ":(exclude).agents/roadmap-verdicts", ":(exclude)scripts/check-roadmap-verdict.py"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    return bool(found.stdout.strip())
 
 
 def validate(record, vector):
@@ -44,8 +67,14 @@ def validate(record, vector):
     if verdict not in ("delivered", "not-delivered"):
         problems.append("verdict must be 'delivered' or 'not-delivered'")
     elif verdict == "delivered":
-        if not str(record.get("evidence") or "").strip():
+        evidence = str(record.get("evidence") or "").strip()
+        if not evidence:
             problems.append("a delivered verdict needs evidence: the test or record that proves it")
+        elif not evidence_exists(evidence):
+            problems.append(
+                f"evidence `{evidence}` names nothing in this checkout (a path that does not "
+                f"exist, or an identifier no file contains)"
+            )
     else:
         if not str(record.get("missing") or "").strip():
             problems.append("a not-delivered verdict needs 'missing': what the vector still lacks")
@@ -94,7 +123,7 @@ def self_test():
         base = Path(tmp)
         good_delivered = {
             "vector": "VC-201-001", "verdict": "delivered",
-            "evidence": "vc_201_001_mastery_corpus", "recorded_by": "TEST", "recorded_unix": 1,
+            "evidence": "scripts/check-roadmap-verdict.py", "recorded_by": "TEST", "recorded_unix": 1,
         }
         good_refuted = {
             "vector": "VC-201-002", "verdict": "not-delivered", "missing": "no egress check",
@@ -105,6 +134,7 @@ def self_test():
             ("delivered, complete", good_delivered, 0),
             ("refuted, complete", good_refuted, 0),
             ("delivered with no evidence", {**good_delivered, "evidence": ""}, 1),
+            ("delivered naming nothing real", {**good_delivered, "evidence": "surely_it_works"}, 1),
             ("refuted with nothing tracking it", {**good_refuted, "tracked_by": []}, 1),
         ]
         failures = 0
