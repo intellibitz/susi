@@ -52,11 +52,11 @@ impl SusiMasterAgent {
     /// instead of feeding a raw, unbounded, unchecked prompt straight to the model.
     pub fn sanitize_input(input: &str) -> EaiResult<String> {
         let trimmed = input.trim();
-        let screened = enforce_action(
-            &wrap_tool_output("mission-input", trimmed),
-            ActionClass::Consequential,
-        )
-        .map_err(crate::susi_error::EaiError::governance)?;
+        // User intent is an untrusted read-side payload at this boundary. Keep
+        // the established, typed governance detectors below authoritative for
+        // front-door errors; consequential tool/retrieval content is screened
+        // with `enforce_action` at each action sink.
+        let screened = wrap_tool_output("mission-input", trimmed).body;
 
         let hardware = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let max_len = (hardware.available_ram_gb * 1024 * 1024).max(4096); // Scale with RAM, min 4KB
