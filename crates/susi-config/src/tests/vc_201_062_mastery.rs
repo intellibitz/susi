@@ -1,13 +1,14 @@
 //! Mastery verification for VC-201-062: explain the resolved value and origin
-//! of each setting across bundled defaults, packs, host config, workspace
-//! overrides and environment — secret-shaped values redacted, and precedence
-//! fixtures matching *runtime* resolution.
+//! of each setting across the layers runtime actually resolves — bundled
+//! defaults, host config, environment — with secret-shaped values redacted.
 //!
 //! The claim under test is not "explain_key renders a layer stack" — the
 //! cited `zc_config_explain` tests already show the stack. The distinguishing
 //! property is that the stack explain reports is the stack the runtime
 //! actually resolves. These tests compare `explain_key` against the real
-//! resolver (`SusiConfig::load` + accessors) on the same fixture.
+//! resolver (`SusiConfig::load` + accessors) on the same fixture. Extension
+//! pack and workspace `config.default.json`/`config.json` files exist on
+//! disk but are not runtime config layers, so explain must not report them.
 
 use crate::explain::{explain_key, ConfigOrigin};
 use crate::json_util::DynamicValue;
@@ -73,12 +74,12 @@ impl Drop for TempHome {
     }
 }
 
-/// Pack layer: explain reports the active pack's `config.default.json` as
-/// the origin, but `SusiConfig::load` resolves defaults from the compile-time
-/// bundled copy and never reads `<extensions>/<id>/config.default.json` for
-/// settings. The explained "effective" value is one runtime never produces.
+/// A pack's `config.default.json` is not a runtime config layer:
+/// `SusiConfig::load` never reads it, so explain must not report it. With a
+/// pack file on disk, the explained value and origin equal the bundled
+/// default the runtime resolves.
 #[test]
-fn vc_201_062_mastery_pack_layer_value_never_reaches_runtime() {
+fn vc_201_062_mastery_pack_file_is_not_reported_as_a_layer() {
     let t = TempHome::new("pack");
     let pack_root = t.global.join("extensions/default");
     fs::create_dir_all(&pack_root).unwrap();
@@ -96,36 +97,26 @@ fn vc_201_062_mastery_pack_layer_value_never_reaches_runtime() {
     )
     .unwrap();
 
-    let explained = explain_key("default_engine", &t.global, None);
+    let explained = explain_key("default_engine", &t.global);
     assert_eq!(
-        explained.origin,
-        ConfigOrigin::Pack {
-            pack_id: "default".into()
-        }
+        explained.layers.len(),
+        2,
+        "pack is not a runtime layer — only bundled and host are reported"
     );
-    assert_eq!(explained.value, DynamicValue::String("pack-engine".into()));
+    assert_eq!(explained.origin, ConfigOrigin::BundledDefault);
 
-    // Runtime resolver on the same fixture: no pack layer exists.
     let runtime = SusiConfig::load(&t.global).unwrap();
-    let runtime_value: String = runtime.get("default_engine").unwrap();
-    assert_ne!(
-        runtime_value, "pack-engine",
-        "runtime resolved the pack-layer value explain reports as effective"
-    );
     assert_eq!(
-        runtime_value,
-        SusiConfig::default()
-            .get::<String>("default_engine")
-            .unwrap(),
-        "runtime falls back to the compile-time bundled default"
+        explained.value,
+        DynamicValue::String(runtime.get::<String>("default_engine").unwrap()),
+        "explained effective value equals the runtime resolution"
     );
 }
 
-/// Workspace layer: explain lets `<ws>/.susi/config.json` beat the host file,
-/// but no runtime accessor or load path consumes a workspace config — the
-/// layer exists only inside `explain_key`.
+/// A workspace `<ws>/.susi/config.json` is not a runtime config layer either:
+/// nothing reads it, so explain must not let it beat the host file.
 #[test]
-fn vc_201_062_mastery_workspace_layer_value_never_reaches_runtime() {
+fn vc_201_062_mastery_workspace_config_is_not_reported_as_a_layer() {
     let t = TempHome::new("ws");
     t.write_host("trust_level", DynamicValue::String("host".into()));
     let ws = t.home.join("project");
@@ -144,48 +135,46 @@ fn vc_201_062_mastery_workspace_layer_value_never_reaches_runtime() {
     )
     .unwrap();
 
-    let explained = explain_key("trust_level", &t.global, Some(&ws));
-    assert_eq!(explained.origin, ConfigOrigin::Workspace);
-    assert_eq!(explained.value, DynamicValue::String("workspace".into()));
+    let explained = explain_key("trust_level", &t.global);
+    assert_eq!(explained.origin, ConfigOrigin::Host);
+    assert_eq!(explained.value, DynamicValue::String("host".into()));
 
     let runtime = SusiConfig::load(&t.global).unwrap();
-    assert_eq!(
-        runtime.trust_level(),
-        "host",
-        "runtime resolves host, not the workspace value explain claims wins"
-    );
+    assert_eq!(runtime.trust_level(), "host");
 }
 
-/// Environment layer is not uniformly applied either: explain reports any
-/// non-empty `SUSI_PORT_OFFSET` as the effective value, while the runtime
-/// accessor discards values that fail `u16` parsing.
+/// An env override the accessor cannot parse is reported (for debugging) but
+/// marked ineffective and never wins — matching the accessor that discards it.
 #[test]
-fn vc_201_062_mastery_unparseable_env_value_wins_in_explain_but_not_runtime() {
+fn vc_201_062_mastery_unparseable_env_value_is_reported_but_never_wins() {
     let t = TempHome::new("env-bad");
     t.write_host("port_offset", DynamicValue::from(7));
     unsafe {
         std::env::set_var("SUSI_PORT_OFFSET", "not-a-port");
     }
 
-    let explained = explain_key("port_offset", &t.global, None);
+    let explained = explain_key("port_offset", &t.global);
+    assert_eq!(explained.origin, ConfigOrigin::Host);
+    assert_eq!(explained.value, DynamicValue::from(7));
+    let env_layer = explained
+        .layers
+        .iter()
+        .find(|l| {
+            l.origin
+                == ConfigOrigin::Environment {
+                    var: "SUSI_PORT_OFFSET".into(),
+                }
+        })
+        .expect("set-but-rejected env override is still listed");
+    assert!(!env_layer.effective, "unparseable env value cannot win");
     assert_eq!(
-        explained.origin,
-        ConfigOrigin::Environment {
-            var: "SUSI_PORT_OFFSET".into()
-        }
-    );
-    assert_eq!(
-        explained.value,
-        DynamicValue::String("not-a-port".into()),
-        "explain reports the unparseable env value as effective"
+        env_layer.value,
+        Some(DynamicValue::String("not-a-port".into())),
+        "the raw rejected text stays visible for debugging"
     );
 
     let runtime = SusiConfig::load(&t.global).unwrap();
-    assert_eq!(
-        runtime.port_offset(),
-        7,
-        "runtime ignores the unparseable env value and uses the host value"
-    );
+    assert_eq!(runtime.port_offset(), 7);
 }
 
 /// Where runtime does apply a layer, explain must agree with it — the
@@ -195,7 +184,7 @@ fn vc_201_062_mastery_implemented_layers_agree_with_runtime() {
     let t = TempHome::new("layers-ok");
 
     // Bundled default.
-    let explained = explain_key("trust_level", &t.global, None);
+    let explained = explain_key("trust_level", &t.global);
     let runtime = SusiConfig::load(&t.global).unwrap();
     assert_eq!(explained.origin, ConfigOrigin::BundledDefault);
     assert_eq!(
@@ -206,7 +195,7 @@ fn vc_201_062_mastery_implemented_layers_agree_with_runtime() {
 
     // Host wins over bundled, matching runtime.
     t.write_host("trust_level", DynamicValue::String("host".into()));
-    let explained = explain_key("trust_level", &t.global, None);
+    let explained = explain_key("trust_level", &t.global);
     let runtime = SusiConfig::load(&t.global).unwrap();
     assert_eq!(explained.origin, ConfigOrigin::Host);
     assert_eq!(explained.value, DynamicValue::String("host".into()));
@@ -216,7 +205,7 @@ fn vc_201_062_mastery_implemented_layers_agree_with_runtime() {
     unsafe {
         std::env::set_var("SUSI_PORT_OFFSET", "9");
     }
-    let explained = explain_key("port_offset", &t.global, None);
+    let explained = explain_key("port_offset", &t.global);
     let runtime = SusiConfig::load(&t.global).unwrap();
     assert_eq!(
         explained.origin,
@@ -240,7 +229,7 @@ fn vc_201_062_mastery_secret_values_redacted_in_value_layers_and_render() {
         "api_auth_token",
         DynamicValue::String("super-secret-token".into()),
     );
-    let explained = explain_key("api_auth_token", &t.global, None);
+    let explained = explain_key("api_auth_token", &t.global);
     assert_eq!(explained.value, DynamicValue::String("[redacted]".into()));
     for layer in &explained.layers {
         if let Some(v) = &layer.value {
