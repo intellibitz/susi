@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-86",
+  "title": "Scout every configured provider key and classify its liveness",
+  "goal": "Enumerate every configured provider credential from the sources susi already reads, probe each with the cheapest possible call (a models list or a one-token completion), and classify it live, expired, unauthorized, rate-limited or unknown with the evidence kept. Never delete a key (Mandate 56): a dead key is marked, not removed. The probe must cost effectively nothing and be safe to run on a schedule, including when many keys are dead.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "provider_key_liveness"
+    ]
+  },
+  "roadmap": "VC-202-001",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357,
+  "closed": {
+    "at_unix": 1790966169,
+    "commit": "4a78f73d3d102e3c52c9c22cd6022a808e76e9c4",
+    "by": "INTELLIBITZ202610022328512135392"
+  }
+}

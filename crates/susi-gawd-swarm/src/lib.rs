@@ -121,6 +121,9 @@ mod native_role_select_wiring_tests;
 #[path = "tests/parallel_roadmap_e2e.rs"]
 mod parallel_roadmap_e2e_tests;
 #[cfg(test)]
+#[path = "tests/provider_key_liveness.rs"]
+mod provider_key_liveness_tests;
+#[cfg(test)]
 #[path = "tests/resource_schedule_dispatch_wiring.rs"]
 mod resource_schedule_dispatch_wiring_tests;
 #[cfg(test)]
