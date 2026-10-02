@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(quota_window_accounting)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862,
+  "deps": [
+    "T-DEEPSEEK-118"
+  ],
+  "goal": "Track each key's quota windows - rolling hours, daily, weekly - with remaining allowance, reset time and refusal when exhausted, and reflect the remaining allowance in routing so a nearly-spent cap is treated as scarce rather than free. Reset semantics must be testable without waiting hours: the clock is injected.",
+  "id": "T-DEEPSEEK-119",
+  "roadmap": "VC-202-021",
+  "size": "m",
+  "title": "Track quota windows, remaining allowance and resets"
+}
