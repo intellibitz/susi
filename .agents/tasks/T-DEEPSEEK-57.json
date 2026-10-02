@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-57",
+  "title": "Verify mastery: Back up and restore ecosystem configuration",
+  "goal": "VC-201-070 (P1) claims mastery of: Export versioned configuration, artifact references, and encrypted secret material only when explicitly included; restore to a clean dev instance verifies references and reports unavailable external resources.. Its own narrative does not claim delivery: PARTIAL: backup and restore is version-checked, has a dry run, and encrypts its sections on round-trip. Verified by `crates/susi-config/src/tests/state_backup.rs`: state_backup_dry_run_and_version_checks, state_backup_roundtrip_encrypts_sections. Residual: restoring to a clean dev instance, verifying artifact references there, and reporting unavailable external resources, are not enumerated by a n. Prove or refute it: add a nonzero test named vc_201_070_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_070_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-070",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916197
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-71",
+  "title": "Verify mastery: Qualify a complete RSI swarm AI operating-layer release",
+  "goal": "VC-201-100 (P1) claims mastery of: On isolated local and explicitly configured cloud environments, configure the ecosystem, run and recover a swarm mission, evaluate a self-patch, and promote only through the tagged release path; publish reproducible scorecard deltas and remaining limitations, including a 2x improvement claim only if its predeclared metric and evidence support it.. Its own narrative does not claim delivery: PARTIAL: qualification covers the tagged release path and gates a 2x improvement claim on its evidence. Verified by `crates/susi-gawd/src/tests/vc_201_100.rs`: qualifies_tagged_path_and_gates_2x_claim. Residual: the full multi-stage qualification - configuring the ecosystem, running and recovering a swarm mission, evaluating a self-patch on isolated local and explicitly configured cloud environmen. Prove or refute it: add a nonzero test named vc_201_100_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_100_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-100",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916199
+}

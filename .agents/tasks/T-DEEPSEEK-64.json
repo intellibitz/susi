@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-64",
+  "title": "Verify mastery: Exercise disaster recovery from authoritative backups",
+  "goal": "VC-201-093 (P1) claims mastery of: Restore configuration, workflow state, keys under explicit policy, and required ledger history to isolated nodes; verify audit continuity and report measured recovery time and data loss against declared targets.. Its own narrative does not claim delivery: PARTIAL: restore completes with audit continuity and key policy applied. Verified by `crates/susi-gawd/src/tests/vc_201_093.rs`: restores_with_audit_continuity_and_key_policy. Residual: restoring to isolated nodes and reporting measured recovery time and data loss against declared targets are not enumerated by a named check. Evidence: T-CLAUDE-394.. Prove or refute it: add a nonzero test named vc_201_093_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_093_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-093",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916198
+}

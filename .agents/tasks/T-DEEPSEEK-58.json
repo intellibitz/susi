@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-58",
+  "title": "Verify mastery: Verify extension and adapter supply-chain provenance",
+  "goal": "VC-201-076 (P1) claims mastery of: Bind admitted extension manifests and managed adapter artifacts to checksums, signatures where available, and explicit trust policy; a changed artifact is quarantined until re-admitted.. Its own narrative does not claim delivery: PARTIAL: an ML-BOM target is catalogued with canonical capabilities and validated facts. Verified by `crates/susi-vendor-models/src/eco_ml_bom.rs`: profile_is_valid, capabilities_are_canonical, facts_cover_the_required_surface, store_stays_consistent. Residual: the mastery target's supply-chain binding - checksums and signatures on admitted extension manifests and managed adapter artifacts, explic. Prove or refute it: add a nonzero test named vc_201_076_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_076_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-076",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916197
+}

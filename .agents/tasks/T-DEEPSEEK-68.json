@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-68",
+  "title": "Verify mastery: Ratchet dependency unsafe exposure and provenance",
+  "goal": "VC-201-097 (P1) claims mastery of: Run cargo-geiger and software-bill-of-materials generation for pinned feature sets, recording first-party exceptions and transitive changes; CI flags new exposure with an auditable review path.. Its own narrative does not claim delivery: PARTIAL: first-party unsafe exceptions are allowed and newly introduced unsafe is flagged for review. Verified by `crates/susi-gawd/src/tests/vc_201_097.rs`: allows_first_party_exceptions, flags_new_unsafe_for_review. Residual: running cargo-geiger and SBOM generation for pinned feature sets, recording transitive changes, and gating new exposure in CI with an auditable review path, are not enumera. Prove or refute it: add a nonzero test named vc_201_097_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_097_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-097",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916198
+}

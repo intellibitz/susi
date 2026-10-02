@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-52",
+  "title": "Verify mastery: Tune model residency from measured demand",
+  "goal": "VC-201-047 (P1) claims mastery of: Extend current idle and pressure eviction with workload-aware prewarming and hysteresis; a mixed-workload benchmark measures cold starts and proves the cache avoids repeated load/evict oscillation.. Its own narrative does not claim delivery: PARTIAL: warm-model preload ranks by frequency then recency under a fake clock and respects the maximum warm bound. Verified by `crates/susi-gemi/src/tests/model_preload.rs`: ranks_by_frequency_then_recency_with_fake_clock, respects_max_warm_bound. Residual: workload-aware prewarming with hysteresis, measured against cold starts in a mixed-workload benchmark, is not enumerated by a named check. Ev. Prove or refute it: add a nonzero test named vc_201_047_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_047_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-047",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916197
+}

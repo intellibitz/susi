@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-63",
+  "title": "Verify mastery: Define and measure operating-layer service objectives",
+  "goal": "VC-201-092 (P1) claims mastery of: Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient.. Its own narrative does not claim delivery: PARTIAL: the service-objective view publishes values with an explicit denominator and marks a metric unknown when samples are insufficient. Verified by `crates/susi-gawd/src/tests/vc_201_092.rs`: publishes_values_with_denominator, marks_unknown_when_samples_insufficient. Residual: measuring each of availability, task success, queue delay, inference latency and recovery duration from actual events,. Prove or refute it: add a nonzero test named vc_201_092_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_092_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-092",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916198
+}

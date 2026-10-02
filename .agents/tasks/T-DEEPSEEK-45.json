@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-45",
+  "title": "Verify mastery: Attenuate grants for generated Wasm capabilities",
+  "goal": "VC-201-075 (P0) claims mastery of: Derive each reflex's filesystem, network, memory, fuel, and time grants from its parent mission; malicious generated code is contained and cannot acquire permissions through registration or delegation.. Its own narrative does not claim delivery: PARTIAL: generated Wasm capabilities cannot gain host filesystem, network or write access. Verified by `crates/susi-core/src/tests/vc_201_075.rs`: wasm_cannot_gain_host_network_or_write. Residual: derivation of memory, fuel and time grants from the parent mission is not enumerated by a named check. Evidence: T-CLAUDE-142.. Prove or refute it: add a nonzero test named vc_201_075_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_075_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-075",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916196
+}
