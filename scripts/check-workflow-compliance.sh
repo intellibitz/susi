@@ -102,7 +102,7 @@ check_claim_owner() {
         local unreserved="" uf
         while IFS= read -r uf; do
             [ -n "$uf" ] || continue
-            case "$uf" in .agents/tasks/* | .agents/roadmap-verdicts/*) continue ;; esac
+            case "$uf" in .agents/tasks/* | .agents/roadmap-verdicts/* | .agents/roadmap.json) continue ;; esac
             unreserved="$unreserved $uf"
         done < <(git diff-tree --no-commit-id --name-only -r "$commit")
         [ -z "$unreserved" ] || err "commit $short works on $id, whose claim reserves no paths:$unreserved — re-claim it with a scope that covers this change (susi tasks release $id, then susi tasks claim $id --scope <path>)"
@@ -111,7 +111,7 @@ check_claim_owner() {
     local outside="" f s ok
     while IFS= read -r f; do
         [ -n "$f" ] || continue
-        case "$f" in .agents/tasks/* | .agents/roadmap-verdicts/*) continue ;; esac
+        case "$f" in .agents/tasks/* | .agents/roadmap-verdicts/* | .agents/roadmap.json) continue ;; esac
         ok=0
         while IFS= read -r s; do
             [ -n "$s" ] || continue
