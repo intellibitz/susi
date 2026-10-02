@@ -535,7 +535,7 @@
       "id": "VC-201-043",
       "mastery_target": "Coordinate model loads and inference reservations using measured memory headroom; concurrent load and out-of-memory tests release reservations and preserve a responsive control plane.",
       "priority": "P0",
-      "progress": "DELIVERED: model admission reserves accelerator memory from measured headroom and rejects a load that does not fit. Verified by `crates/susi-vendor-models/src/tests/vc_201_043.rs`: reserves_before_admission, rejects_when_insufficient; concurrent admission and reservation release are verified by the parallel_model_admission_* checks listed under VC-201-024 rather than by this vector's own module. Evidence: T-CLAUDE-133.",
+      "progress": "PARTIAL: model admission mock reserves accelerator memory in isolated AccelPool struct, but live measured headroom is not integrated, and concurrent load / OOM release on the production runtime path remains unverified. Tracked by T-ANTIGRAVITY20261002053216-2.",
       "type": "LOCAL_HOSTING",
       "vector": "Reserve accelerator memory before model admission"
     },

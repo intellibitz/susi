@@ -1,0 +1,22 @@
+{
+  "id": "T-ANTIGRAVITY20261002053216-2",
+  "title": "Coordinate live accelerator memory headroom with model admission and control plane responsiveness",
+  "goal": "Model admission uses an isolated AccelPool mock and hardcoded limits; lacks integration with measured accelerator headroom, out-of-memory reservation release on the production runtime path, and control plane responsiveness guarantees under concurrent load.",
+  "size": "l",
+  "deps": [
+    "T-ANTIGRAVITY20261002053216-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_043_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-043",
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790964500
+}
