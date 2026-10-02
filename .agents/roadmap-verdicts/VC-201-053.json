@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-053",
+  "verdict": "delivered",
+  "evidence": "ready_when_remaining_positive (crates/susi-gemi/src/tests/rate_limit_scheduler.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790983377
+}
