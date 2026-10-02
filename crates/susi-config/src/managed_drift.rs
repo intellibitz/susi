@@ -121,24 +121,29 @@ pub struct RepairReport {
     pub repaired: Value,
 }
 
-fn set_leaf(doc: &mut Value, path: &str, value: &Value) {
+/// Write `value` at `path`. Returns false — writing nothing — when an
+/// existing non-object node blocks descent: replacing a foreign scalar or
+/// array to reach an owned leaf would overwrite external state, which repair
+/// must never do. Missing intermediate keys are still created as objects.
+fn set_leaf(doc: &mut Value, path: &str, value: &Value) -> bool {
     let mut node = &mut *doc;
     let mut parts = path.split('.').peekable();
     while let Some(part) = parts.next() {
-        if !node.is_object() {
-            *node = Value::Object(serde_json::Map::new());
-        }
         let Value::Object(map) = node else {
-            return;
+            return false;
         };
-        node = if parts.peek().is_none() {
+        if parts.peek().is_none() {
             map.insert(part.to_string(), value.clone());
-            return;
-        } else {
-            map.entry(part.to_string())
-                .or_insert_with(|| Value::Object(serde_json::Map::new()))
-        };
+            return true;
+        }
+        node = map
+            .entry(part.to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if !node.is_object() {
+            return false;
+        }
     }
+    true
 }
 
 /// Apply the operator's selected drift items to a copy of `observed`.
@@ -160,8 +165,13 @@ pub fn reconcile(
                 match item.kind {
                     DriftKind::Missing | DriftKind::Changed => {
                         if let Some(v) = &item.desired {
-                            set_leaf(&mut repaired, sel, v);
-                            applied.push(sel.clone());
+                            if set_leaf(&mut repaired, sel, v) {
+                                applied.push(sel.clone());
+                            } else {
+                                // A foreign scalar/array blocks the path —
+                                // report it rather than overwrite it.
+                                conflicts.push(item.clone());
+                            }
                         }
                     }
                     DriftKind::Extra => {

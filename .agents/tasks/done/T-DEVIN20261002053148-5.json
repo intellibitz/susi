@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "DEVIN20261002053148",
-  "created_unix": 1790971615
+  "created_unix": 1790971615,
+  "closed": {
+    "at_unix": 1790976613,
+    "commit": "dc9499f4dbb0b54652effff6c79197178c2a5f4f",
+    "by": "DEVIN20261002053148"
+  }
 }
