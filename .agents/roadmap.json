@@ -992,7 +992,7 @@
       "id": "VC-201-079",
       "mastery_target": "Provide redacted exports with chain anchors, signature metadata, and a verification command; truncation, tampering, missing segments, and unknown keys produce distinct failures without exposing secrets.",
       "priority": "P1",
-      "progress": "DELIVERED: audit exports verify and redact, and truncation, tampering, missing segments and unknown keys produce distinct failures. Verified by `crates/susi-gawd/src/tests/vc_201_079.rs`: export_verifies_and_redacts, distinct_failures. Evidence: T-CLAUDE-387.",
+      "progress": "PARTIAL: audit evidence exports and verifies in-process, and the four failure modes are distinct (truncation, tampering, a missing segment, an unknown key), but no command serializes an export, reads one back, or verifies it, so a third party cannot verify independently - tracked by T-DEEPSEEK-208.",
       "type": "GOVERNANCE",
       "vector": "Export independently verifiable audit evidence"
     },
