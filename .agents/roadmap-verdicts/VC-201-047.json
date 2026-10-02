@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-047",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "model_preload is an isolated in-memory scoring function that is not connected to engine process eviction or accelerator memory residency; workload-aware prewarming with hysteresis is not implemented to prevent load/evict thrashing, and mixed-workload cold-start benchmarks do not exist.",
+  "tracked_by": [
+    "T-ANTIGRAVITY20261002053216-5"
+  ],
+  "recorded_by": "ANTIGRAVITY20261002053216",
+  "recorded_unix": 1790967000
+}

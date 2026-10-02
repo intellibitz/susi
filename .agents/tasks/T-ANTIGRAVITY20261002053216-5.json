@@ -1,0 +1,20 @@
+{
+  "id": "T-ANTIGRAVITY20261002053216-5",
+  "title": "Implement workload-aware prewarming with hysteresis and oscillation-free eviction",
+  "goal": "model_preload provides isolated frequency/recency scoring over in-memory events; lacks integration with idle/pressure memory eviction, hysteresis damping against load/evict oscillation, and mixed-workload benchmark measuring cold starts.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_047_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-047",
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790967000
+}
