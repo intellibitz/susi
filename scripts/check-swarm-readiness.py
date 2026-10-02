@@ -86,14 +86,16 @@ def ready_worktree(agent, tokens):
 
 
 def check_worktree(agent, path, branch):
-    """Everything a worker needs before its first claim."""
-    problems = []
-    behind = git("-C", str(path), "rev-list", "--count", "HEAD..origin/main")
+    """Everything a worker needs before its first claim: (blockers, steps)."""
+    problems, steps = [], []
+    behind = (git("-C", str(path), "rev-list", "--count", "HEAD..origin/main") or "").strip()
     try:
         if int(behind or 0) > 0:
-            problems.append(f"{behind} commit(s) behind origin/main — git fetch origin && git merge origin/main")
+            # Not a blocker: syncing a clean tree is the loop's own first step,
+            # and every merge makes every other worktree behind by design.
+            steps.append(f"{behind} commit(s) behind origin/main — git fetch origin && git merge origin/main")
     except ValueError:
-        problems.append("cannot count its distance from origin/main — git fetch origin")
+        steps.append("distance from origin/main unknown — git fetch origin")
     hooks = (git("-C", str(path), "config", "--get", "core.hooksPath") or "").strip()
     resolved = Path(hooks) if hooks.startswith("/") else path / hooks
     missing = [h for h in HOOKS if not (resolved / h).is_file()]
@@ -103,7 +105,7 @@ def check_worktree(agent, path, branch):
         problems.append(f"hooks missing or not executable: {', '.join(missing)} — scripts/setup-dev.sh")
     if (git("-C", str(path), "status", "--porcelain") or "").strip():
         problems.append("worktree is dirty — commit or stash before the loop starts")
-    return problems
+    return problems, steps
 
 
 def origin_tasks():
@@ -197,13 +199,15 @@ def main():
             failures += 1
             continue
         fresh_paths.append(path)
-        problems = check_worktree(agent, path, branch)
+        problems, steps = check_worktree(agent, path, branch)
         if problems:
             failures += 1
             for problem in problems:
                 print(f"❌ {NAME}: {agent} ({path}): {problem}")
         else:
             print(f"✅ {NAME}: {agent} ready in {path} (branch {branch}, {tokens.get(path)})")
+        for step in steps:
+            print(f"   → {agent}: {step}   # the loop's first step")
 
     if not ready:
         print(f"❌ {NAME}: no claimable task — every open task is claimed or dependency-blocked "

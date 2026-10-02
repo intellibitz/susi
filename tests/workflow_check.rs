@@ -300,10 +300,12 @@ fn advance_origin(w: &World) {
         );
     }
     git(&other, &["pull", "--quiet", "origin", "main"]);
-    git(
-        &other,
-        &["commit", "--allow-empty", "--quiet", "-m", "newer"],
-    );
+    // A real change, not an empty commit: "main moved ahead" has to mean main
+    // gained content, since the release check counts only commits that changed
+    // files outside .agents/tasks/.
+    std::fs::write(other.join("newer.txt"), "newer\n").unwrap();
+    git(&other, &["add", "-A"]);
+    git(&other, &["commit", "--quiet", "-m", "newer"]);
     git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
 }
 
@@ -545,6 +547,26 @@ fn landing_the_release_on_main_is_not_drift() {
     assert!(
         out.contains("✅ installed susi"),
         "a merge that adds no content is not drift: {out}"
+    );
+
+    // Closing a task moves one record under .agents/tasks/ and adds no code,
+    // so the very next task close must not resurrect the warning either.
+    git(&other, &["switch", "--quiet", "-c", "close-task"]);
+    std::fs::create_dir_all(other.join(".agents/tasks")).unwrap();
+    std::fs::write(other.join(".agents/tasks/T-TEST-9.json"), "{}\n").unwrap();
+    git(&other, &["add", "-A"]);
+    git(
+        &other,
+        &["commit", "--quiet", "-m", "Close T-TEST-9 after acceptance"],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&w.wt, &["fetch", "--quiet", "origin"]);
+    git(&w.wt, &["merge", "--no-edit", "--quiet", "origin/main"]);
+    let (code, out) = w.check(&w.wt);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("✅ installed susi"),
+        "a task record is not a workflow fix: {out}"
     );
 }
 
