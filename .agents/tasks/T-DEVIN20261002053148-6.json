@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-6",
+  "title": "Wire migrate_state_dir into a real upgrade/startup path",
+  "goal": "VC-201-065 refuted: migrate_state_dir has zero callers — no CLI subcommand, daemon startup, or release hook invokes it, and state.schema.json is never consulted at runtime, so the claimed durable-backup migration never runs on upgrade. Give it a real invocation point (or mark the surface test-only).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_065",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790981046
+}
