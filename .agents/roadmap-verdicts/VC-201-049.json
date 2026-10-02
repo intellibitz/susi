@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-049",
+  "verdict": "delivered",
+  "evidence": "vc_201_049_drain_quiesces_and_checkpoints_resumable (crates/susi-vendor-models/src/tests/vc_201_049.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790982840
+}
