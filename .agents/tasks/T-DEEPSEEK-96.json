@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-96",
+  "title": "Trace every mission from intent to cost to outcome",
+  "goal": "Record a trace per mission linking intent to plan to node to model to tokens to cost to outcome, queryable per agent and per task, append-only and durable across restarts. Cost is controllable only when attributable: a spend figure nobody can break down per mission governs nothing.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(cost_ledger_trace)"
+    ]
+  },
+  "roadmap": "VC-202-013",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357
+}

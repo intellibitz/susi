@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-91",
+  "title": "Enforce a per-mission egress allow-list",
+  "goal": "Enforce a per-mission egress allow-list: a mission reaches only the hosts its policy names, and every refused attempt is recorded with the mission and the reason. Provider traffic must stay possible under the default policy, so the allow-list is data a mission declares, not a global switch nobody dares turn on.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(egress_allow_list)"
+    ]
+  },
+  "roadmap": "VC-202-014",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357
+}

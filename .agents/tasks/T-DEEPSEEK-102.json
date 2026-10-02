@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(budget_ceiling)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953358,
+  "deps": [
+    "T-DEEPSEEK-88"
+  ],
+  "goal": "Enforce hourly, daily, per-mission and per-task spend ceilings before a call is made rather than after; over-budget work degrades to a cheaper rung or stops with a typed refusal, and every unit of spend is attributable to an agent, mission and task. Cost is paramount, so a governor that only reports overspend is useless.",
+  "id": "T-DEEPSEEK-102",
+  "roadmap": "VC-202-005",
+  "size": "l",
+  "title": "Ceilings that refuse before spending"
+}

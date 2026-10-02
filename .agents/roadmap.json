@@ -1297,6 +1297,173 @@
       "progress": "PARTIAL: qualification covers the tagged release path and gates a 2x improvement claim on its evidence. Verified by `crates/susi-gawd/src/tests/vc_201_100.rs`: qualifies_tagged_path_and_gates_2x_claim. Residual: the full multi-stage qualification - configuring the ecosystem, running and recovering a swarm mission, evaluating a self-patch on isolated local and explicitly configured cloud environments, and publishing reproducible scorecard deltas with remaining limitations - is not enumerated by a named check. Evidence: T-CLAUDE-397.",
       "type": "OPERATIONS",
       "vector": "Qualify a complete RSI swarm AI operating-layer release"
+    },
+    {
+      "depends_on": [],
+      "id": "VC-202-001",
+      "mastery_target": "Every configured provider credential is enumerated, probed with the cheapest possible call, and classified live / expired / unauthorized / rate-limited / unknown with the evidence recorded; keys are never deleted, and one report answers which credentials work today without spending meaningfully to find out.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "CONFIGURATION",
+      "vector": "Provider credential inventory and liveness scouting"
+    },
+    {
+      "depends_on": [],
+      "id": "VC-202-002",
+      "mastery_target": "Per-model input, output, cache-hit and cache-miss rates plus measured latency and throughput; the expected cost of a call and of a whole task is computed from token counts and the realised cache hit rate, so two models are comparable in the only currency that matters here - cost per verified useful outcome.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "OPERATIONS",
+      "vector": "Model and provider cost model with cache accounting"
+    },
+    {
+      "depends_on": [
+        "VC-202-001",
+        "VC-202-002"
+      ],
+      "id": "VC-202-003",
+      "mastery_target": "A scheduled scout probes candidate models with a deterministic micro-benchmark, ranks them per task class by expected cost per verified useful outcome rather than by reputation, promotes the leader automatically, and records the decision with its evidence; a failed or unfunded model never leads.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "RSI_EVALUATION",
+      "vector": "The brain scouts and ranks itself by cost per verified outcome"
+    },
+    {
+      "depends_on": [
+        "VC-202-002",
+        "VC-202-003"
+      ],
+      "id": "VC-202-004",
+      "mastery_target": "Each task class declares the minimum capability its work needs; routing selects the cheapest model above that floor, falls back model then provider then local, and records the reason for every step down the ladder - so cost pressure can never quietly send hard work to a weak model.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "CLOUD_HOSTING",
+      "vector": "Capability floors and a routing ladder per task class"
+    },
+    {
+      "depends_on": [
+        "VC-202-002"
+      ],
+      "id": "VC-202-005",
+      "mastery_target": "Hourly, daily, per-mission and per-task spend ceilings are enforced before a call is made, over-budget work degrades to a cheaper rung or stops with a typed refusal, and every unit of spend is attributable to an agent, mission and task.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "GOVERNANCE",
+      "vector": "A budget governor with ceilings that refuse before spending"
+    },
+    {
+      "depends_on": [
+        "VC-202-002"
+      ],
+      "id": "VC-202-006",
+      "mastery_target": "Agent context is assembled with stable prefixes and cache-safe ordering so repeated turns hit the provider's prompt cache; the hit rate and the realised saving are measured and reported, and a context shape that defeats caching is a defect with evidence rather than an accident.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "CLOUD_HOSTING",
+      "vector": "Cache-first context assembly"
+    },
+    {
+      "depends_on": [],
+      "id": "VC-202-007",
+      "mastery_target": "A natural-language intent is turned into a typed DAG whose nodes are real susi leaf operations with declared inputs, outputs and costs, executed with per-node provenance; an intent the system cannot serve is refused with what is missing, never approximated silently.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "CORE",
+      "vector": "Intent becomes a typed, executable DAG"
+    },
+    {
+      "depends_on": [
+        "VC-202-003",
+        "VC-202-007"
+      ],
+      "id": "VC-202-008",
+      "mastery_target": "susi writes new roadmap vectors and queue tasks - scopes, acceptance, dependencies and rationale included - from its own analysis of failures and gaps, and those artifacts pass the same schema and queue gates as human-authored ones, under a reviewed rate limit.",
+      "priority": "P1",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "RSI_EXECUTION",
+      "vector": "The system authors its own backlog"
+    },
+    {
+      "depends_on": [
+        "VC-202-007"
+      ],
+      "id": "VC-202-009",
+      "mastery_target": "Missions and their leaf workers are admitted under CPU, GPU, memory and disk quotas, scheduled without starvation or oversubscription, and queued or preempted with observable reasons - so six agents plus their builds cannot starve the machine or each other.",
+      "priority": "P1",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "OPERATIONS",
+      "vector": "Mission admission and resource arbitration"
+    },
+    {
+      "depends_on": [],
+      "id": "VC-202-010",
+      "mastery_target": "Daemon, watcher, brain scout and every other long-lived process runs under supervision with health checks, bounded restart, logs and a status surface; a killed component recovers without a human, and no unsupervised background process remains.",
+      "priority": "P1",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "OPERATIONS",
+      "vector": "Every long-lived component is supervised"
+    },
+    {
+      "depends_on": [],
+      "id": "VC-202-011",
+      "mastery_target": "Workspace and mission state survives process restart and host reboot; a mission's state can be snapshotted and restored, and a failed mission rolls back to a known-good state without touching another mission's state.",
+      "priority": "P1",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "CORE",
+      "vector": "Durable state, snapshot and rollback"
+    },
+    {
+      "depends_on": [],
+      "id": "VC-202-012",
+      "mastery_target": "A2A, MCP, HTTP and adapter capabilities are reachable through one typed interface with discovery, permissions, timeouts and cost attribution, so a new capability is added as data rather than as code in a new place.",
+      "priority": "P1",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "FEDERATION",
+      "vector": "One capability bus for every external surface"
+    },
+    {
+      "depends_on": [
+        "VC-202-002"
+      ],
+      "id": "VC-202-013",
+      "mastery_target": "Each mission yields a trace linking intent to plan to node to model to tokens to cost to outcome, queryable per agent and per task, and the audit trail is append-only and survives restarts.",
+      "priority": "P1",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "OPERATIONS",
+      "vector": "Every decision is observable and costed"
+    },
+    {
+      "depends_on": [],
+      "id": "VC-202-014",
+      "mastery_target": "Secrets never appear in logs, traces or evidence; egress is allow-listed per mission; and each agent acts only within the authority of its own token, with every refusal recorded.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "GOVERNANCE",
+      "vector": "Secrets, egress and per-agent authority"
+    },
+    {
+      "depends_on": [
+        "VC-202-008",
+        "VC-202-013"
+      ],
+      "id": "VC-202-015",
+      "mastery_target": "A task the system proposed for itself is implemented, gated, merged, released and promoted by the workflow, with the whole loop measured - elapsed time, cost, defects - in a reproducible scorecard a human can read and stop.",
+      "priority": "P1",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "RSI_EXECUTION",
+      "vector": "The self-build loop closes end to end"
+    },
+    {
+      "depends_on": [
+        "VC-202-007",
+        "VC-202-013"
+      ],
+      "id": "VC-202-016",
+      "mastery_target": "A single surface exposes missions, the queue, brain status, cost and approvals on local and configured cloud environments, so an intent enters and returns a result or a typed refusal without the user choosing a subsystem first.",
+      "priority": "P2",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "CORE",
+      "vector": "One entry point over the whole OS"
     }
   ],
   "version": "0.21.6"
