@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-11",
+  "title": "Wire retrieval promotion gate into promotion path and harden it (VC-201-082)",
+  "goal": "VC-201-082 refuted: evaluate_promotion is library-only — no production caller consults the verdict before promoting memory/index changes; the versioned-suite claim is unenforced (a stale candidate version promotes) and NaN metrics bypass both regression checks (an unmeasured suite reads as no regression). Evidence: crates/susi-core/src/tests/vc_201_082_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_082",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790983935
+}
