@@ -10,7 +10,7 @@
 //! destroying that scalar.
 
 use crate::managed_drift::{drift, reconcile, DriftKind};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::BTreeSet;
 
 fn owned(paths: &[&str]) -> BTreeSet<String> {
