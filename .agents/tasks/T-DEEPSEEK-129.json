@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(worker_may_be_an_agent)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790955420,
+  "deps": [
+    "T-DEEPSEEK-118"
+  ],
+  "goal": "Generalise the candidate from a model API to a worker that may be an agent seat - claude, codex, cursor, devin, antigravity or deepseek - reachable through the existing delegation and capability-bus path. One worker descriptor carries kind, billing mode (a seat is a subscription: zero marginal cost until its cap), rate and concurrency limits, health, capability evidence and cost attribution, and election, ranking, the capability matrix and the budget all treat a worker uniformly. Prove that a seat and a model with the same measured capability are ranked by marginal cost, and that a seat which has reached its cap steps down the ladder rather than being hammered.",
+  "id": "T-DEEPSEEK-129",
+  "roadmap": "VC-202-022",
+  "size": "l",
+  "title": "A candidate may be an agent seat, not only a model"
+}

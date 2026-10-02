@@ -1322,7 +1322,7 @@
         "VC-202-002"
       ],
       "id": "VC-202-003",
-      "mastery_target": "A scheduled scout probes candidate models with a deterministic micro-benchmark, ranks them per task class by expected cost per verified useful outcome rather than by reputation, promotes the leader automatically, and records the decision with its evidence; a failed or unfunded model never leads.",
+      "mastery_target": "A scheduled scout probes candidate models with a deterministic micro-benchmark, ranks them per task class by expected cost per verified useful outcome rather than by reputation, promotes the leader automatically, and records the decision with its evidence; a failed or unfunded model never leads, and the candidate set keeps itself current: a model that appeared since the last scout is discovered and probed rather than waiting for a human to add it, and one that was retired stops being preferred.",
       "priority": "P0",
       "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
       "type": "RSI_EVALUATION",
@@ -1515,7 +1515,7 @@
         "VC-202-002"
       ],
       "id": "VC-202-021",
-      "mastery_target": "Every key carries its billing mode - pay-as-you-go, subscription, free tier or prepaid balance - with the marginal cost semantics that follow: zero until the cap for a subscription, a depleting stock for prepaid, price per token for pay-as-you-go, and data plus rate cost for a free tier. Quota windows (rolling hours, daily, weekly) are tracked with remaining allowance and reset time, so ranking uses the expected marginal cost of the next call plus the scarcity of a nearly-exhausted cap rather than a naive price per token.",
+      "mastery_target": "Every key - and every agent seat, which is a subscription rather than a token meter - carries its billing mode - pay-as-you-go, subscription, free tier or prepaid balance - with the marginal cost semantics that follow: zero until the cap for a subscription, a depleting stock for prepaid, price per token for pay-as-you-go, and data plus rate cost for a free tier. Quota windows (rolling hours, daily, weekly) are tracked with remaining allowance and reset time, so ranking uses the expected marginal cost of the next call plus the scarcity of a nearly-exhausted cap rather than a naive price per token.",
       "priority": "P0",
       "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
       "type": "OPERATIONS",
@@ -1527,7 +1527,7 @@
         "VC-202-004"
       ],
       "id": "VC-202-022",
-      "mastery_target": "The primary brain is elected from the fully-working, available candidates by expected cost per verified outcome, with the evidence recorded and re-election on health or price change. The primary then uses the other working models as secondaries - chosen per task class, with bounded fan-out, per-result provenance and synthesis by the primary - and when no secondary is available or worth its cost, the primary does the work itself as a first-class, tested path rather than a degraded one. A primary that times out mid-mission fails over and resumes from durable state instead of restarting.",
+      "mastery_target": "The primary brain is elected from the fully-working, available candidates by expected cost per verified outcome, with the evidence recorded and re-election on health or price change. The primary then uses the other working workers - model APIs or agent seats, whichever the ranking prefers on marginal cost - as secondaries - chosen per task class, with bounded fan-out, per-result provenance and synthesis by the primary - and when no secondary is available or worth its cost, the primary does the work itself as a first-class, tested path rather than a degraded one. A primary that times out mid-mission fails over and resumes from durable state instead of restarting.",
       "priority": "P0",
       "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
       "type": "CLOUD_HOSTING",
