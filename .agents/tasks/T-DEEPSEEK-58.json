@@ -1,20 +1,16 @@
 {
-  "id": "T-DEEPSEEK-58",
-  "title": "Verify mastery: Verify extension and adapter supply-chain provenance",
-  "goal": "VC-201-076 (P1) claims mastery of: Bind admitted extension manifests and managed adapter artifacts to checksums, signatures where available, and explicit trust policy; a changed artifact is quarantined until re-admitted.. Its own narrative does not claim delivery: PARTIAL: an ML-BOM target is catalogued with canonical capabilities and validated facts. Verified by `crates/susi-vendor-models/src/eco_ml_bom.rs`: profile_is_valid, capabilities_are_canonical, facts_cover_the_required_surface, store_stays_consistent. Residual: the mastery target's supply-chain binding - checksums and signatures on admitted extension manifests and managed adapter artifacts, explic. Prove or refute it: add a nonzero test named vc_201_076_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
-  "size": "m",
-  "deps": [],
   "accept": {
     "cmd": [
-      "cargo",
-      "nextest",
-      "run",
-      "--locked",
-      "-E",
-      "test(vc_201_076_mastery)"
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-076"
     ]
   },
-  "roadmap": "VC-201-076",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790916197
+  "created_unix": 1790916197,
+  "deps": [],
+  "goal": "VC-201-076 (P1) claims mastery of: Bind admitted extension manifests and managed adapter artifacts to checksums, signatures where available, and explicit trust policy; a changed artifact is quarantined until re-admitted.. Its own narrative does not claim delivery: PARTIAL: an ML-BOM target is catalogued with canonical capabilities and validated facts. Verified by `crates/susi-vendor-models/src/eco_ml_bom.rs`: profile_is_valid, capabilities_are_canonical, facts_cover_the_required_surface, store_stays_consistent. Residual: the mastery target's supply-chain binding - checksums and signatures on admitted extension manifests and managed adapter artifacts, explic. Prove or refute it: add a nonzero test named vc_201_076_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence. Closing this task records the outcome, not a passing test: write .agents/roadmap-verdicts/<the vector>.json with verdict 'delivered' (and the test or record that proves it) or 'not-delivered' (with what is missing and the task ids that track the follow-up work), then run scripts/check-roadmap-verdict.py <the vector> \u2014 which is this task's acceptance. A refutation therefore closes the task and files the work, instead of stalling on a test that cannot pass; the roadmap and the queue both understand the record.",
+  "id": "T-DEEPSEEK-58",
+  "roadmap": "VC-201-076",
+  "size": "m",
+  "title": "Verify mastery: Verify extension and adapter supply-chain provenance"
 }

@@ -1,20 +1,16 @@
 {
-  "id": "T-DEEPSEEK-46",
-  "title": "Verify mastery: Apply an operator emergency stop across the fleet",
-  "goal": "VC-201-080 (P0) claims mastery of: Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled.. Its own narrative does not claim delivery: PARTIAL: the operator emergency stop persists across restart, rejects new work and cancels eligible running tasks. Verified by `crates/susi-core/src/tests/vc_201_080.rs`: persists_across_restart, stop_rejects_new_work_and_cancels_eligible. Residual: status reporting of unreachable peers and of external actions that cannot be recalled is not enumerated by a named check. Evidence: T-CLAUDE-143.. Prove or refute it: add a nonzero test named vc_201_080_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
-  "size": "l",
-  "deps": [],
   "accept": {
     "cmd": [
-      "cargo",
-      "nextest",
-      "run",
-      "--locked",
-      "-E",
-      "test(vc_201_080_mastery)"
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-080"
     ]
   },
-  "roadmap": "VC-201-080",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790916196
+  "created_unix": 1790916196,
+  "deps": [],
+  "goal": "VC-201-080 (P0) claims mastery of: Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled.. Its own narrative does not claim delivery: PARTIAL: the operator emergency stop persists across restart, rejects new work and cancels eligible running tasks. Verified by `crates/susi-core/src/tests/vc_201_080.rs`: persists_across_restart, stop_rejects_new_work_and_cancels_eligible. Residual: status reporting of unreachable peers and of external actions that cannot be recalled is not enumerated by a named check. Evidence: T-CLAUDE-143.. Prove or refute it: add a nonzero test named vc_201_080_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence. Closing this task records the outcome, not a passing test: write .agents/roadmap-verdicts/<the vector>.json with verdict 'delivered' (and the test or record that proves it) or 'not-delivered' (with what is missing and the task ids that track the follow-up work), then run scripts/check-roadmap-verdict.py <the vector> \u2014 which is this task's acceptance. A refutation therefore closes the task and files the work, instead of stalling on a test that cannot pass; the roadmap and the queue both understand the record.",
+  "id": "T-DEEPSEEK-46",
+  "roadmap": "VC-201-080",
+  "size": "l",
+  "title": "Verify mastery: Apply an operator emergency stop across the fleet"
 }

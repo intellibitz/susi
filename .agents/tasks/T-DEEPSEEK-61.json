@@ -1,20 +1,16 @@
 {
-  "id": "T-DEEPSEEK-61",
-  "title": "Verify mastery: Publish executable MCP lifecycle conformance",
-  "goal": "VC-201-086 (P1) claims mastery of: Probe admitted MCP servers for initialization, discovery, cancellation, timeouts, malformed responses, and credential isolation; compatibility status records tested behavior rather than catalog membership.. Its own narrative does not claim delivery: PARTIAL: MCP spec versions, transports and server/client features are documented with provenance, and initialize negotiation picks the common revision. Verified by `crates/susi-gmcp/src/mcp_profile.rs` (eco_mcp_versions_fixture_lists_revisions_with_provenance, eco_mcp_versions_negotiate_initialize_picks_common, eco_mcp_transports_documents_stdio_http_and_legacy_sse, eco_mcp_features_lists_server_a. Prove or refute it: add a nonzero test named vc_201_086_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
-  "size": "m",
-  "deps": [],
   "accept": {
     "cmd": [
-      "cargo",
-      "nextest",
-      "run",
-      "--locked",
-      "-E",
-      "test(vc_201_086_mastery)"
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-086"
     ]
   },
-  "roadmap": "VC-201-086",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790916198
+  "created_unix": 1790916198,
+  "deps": [],
+  "goal": "VC-201-086 (P1) claims mastery of: Probe admitted MCP servers for initialization, discovery, cancellation, timeouts, malformed responses, and credential isolation; compatibility status records tested behavior rather than catalog membership.. Its own narrative does not claim delivery: PARTIAL: MCP spec versions, transports and server/client features are documented with provenance, and initialize negotiation picks the common revision. Verified by `crates/susi-gmcp/src/mcp_profile.rs` (eco_mcp_versions_fixture_lists_revisions_with_provenance, eco_mcp_versions_negotiate_initialize_picks_common, eco_mcp_transports_documents_stdio_http_and_legacy_sse, eco_mcp_features_lists_server_a. Prove or refute it: add a nonzero test named vc_201_086_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence. Closing this task records the outcome, not a passing test: write .agents/roadmap-verdicts/<the vector>.json with verdict 'delivered' (and the test or record that proves it) or 'not-delivered' (with what is missing and the task ids that track the follow-up work), then run scripts/check-roadmap-verdict.py <the vector> \u2014 which is this task's acceptance. A refutation therefore closes the task and files the work, instead of stalling on a test that cannot pass; the roadmap and the queue both understand the record.",
+  "id": "T-DEEPSEEK-61",
+  "roadmap": "VC-201-086",
+  "size": "m",
+  "title": "Verify mastery: Publish executable MCP lifecycle conformance"
 }
