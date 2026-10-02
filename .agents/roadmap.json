@@ -809,7 +809,7 @@
       "id": "VC-201-065",
       "mastery_target": "Version migrations with durable backups and validation before activation; termination between each write either restores the previous usable configuration or resumes a verifiable migration.",
       "priority": "P0",
-      "progress": "DELIVERED: configuration migrations keep a durable pre-upgrade backup and are re-runnable, so an interrupted migration retains the previous usable configuration or resumes a verifiable one. Verified by `crates/susi-config/src/tests/vc_201_065.rs`: backup_exists_after_upgrade_from_v0, rerun_after_success_is_noop; companion zc_state_migration. Evidence: T-CLAUDE-138, T-CLAUDE-248.",
+      "progress": "PARTIAL: migrate_state_dir preserves the pre-migration config byte-for-byte, writes the version marker only after a successful run, reruns as a noop, and rolls back byte-for-byte on failure — verified by `crates/susi-config/src/tests/vc_201_065_mastery.rs`. Refuted on record 2026-10-03: migrate_state_dir has no production caller (no CLI, daemon startup, or upgrade hook invokes it; state.schema.json is never consulted at runtime), and the backup dir is named .migrate-bak-<epoch-seconds> so a same-second retry overwrites the preserved original with mid-migration state (vc_201_065_mastery_rerun_in_same_second_clobbers_durable_backup). Verdict `.agents/roadmap-verdicts/VC-201-065.json`. Follow-ups tracked by T-DEVIN20261002053148-6, T-DEVIN20261002053148-7.",
       "type": "CONFIGURATION",
       "vector": "Migrate configuration with crash recovery"
     },
