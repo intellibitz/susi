@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-79",
+  "title": "Thirty agents edit one roadmap.json with no merge driver",
+  "goal": "Recording a verdict means updating a vector's narrative in .agents/roadmap.json, a single JSON file with no merge driver: two agents on different vectors usually touch different lines, but any reformat (an LLM rewriting the file, or a different serializer) makes it a whole-file conflict, and that is what stranded the swarm-gap branch for a day. Mirror the evidence ledger's approach: a JSON-aware merge driver that merges per vector id (take the side that changed, keep both vectors' independent edits, fail loudly and only on a genuine same-vector double edit), registered in .gitattributes and by scripts/setup-dev.sh, with a self-test covering ours-only, theirs-only, an added vector, a non-vector field, and the deliberate failure. The readiness check should say when a clone has not installed the drivers, since a missing driver conflicts silently.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/merge-roadmap.py",
+      "--self-test"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790947043
+}

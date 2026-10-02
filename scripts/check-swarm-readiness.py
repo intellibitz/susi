@@ -51,6 +51,21 @@ def worker_tokens():
     return {path: agent_of(path) for path, _ in worktrees()}
 
 
+def missing_merge_drivers():
+    """Merge drivers the clone must have installed (scripts/setup-dev.sh).
+
+    A missing driver does not block work — it makes a merge *conflict* where the
+    driver would have merged: two agents appending evidence entries, or editing
+    different roadmap vectors, would meet a whole-file conflict instead. The
+    ledger and the roadmap each carry one.
+    """
+    missing = []
+    for name in ("ledger", "roadmap"):
+        if not (git("config", "--get", f"merge.{name}.driver") or "").strip():
+            missing.append(name)
+    return missing
+
+
 def shared_tokens(tokens):
     """Tokens carried by more than one worktree — the collision itself.
 
@@ -245,6 +260,12 @@ def main():
         print(f"❌ {NAME}: {path} carries no susi.agent — it would share the clone-wide "
               f"token with every other such worktree: "
               f"git -C {path} config --worktree susi.agent <TOKEN>")
+
+    drivers = missing_merge_drivers()
+    if drivers:
+        print(f"⚠️  {NAME}: merge drivers not installed ({', '.join(drivers)}) — a merge of "
+              f".agents/evidence.json or .agents/roadmap.json would conflict instead of merging: "
+              f"scripts/setup-dev.sh")
 
     fresh_paths = []
     for agent in roster:

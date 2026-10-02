@@ -1,2 +1,5 @@
 # Append-only ledger: union entries added by parallel agents (scripts/merge-ledger.py).
 .agents/evidence.json merge=ledger
+# Roadmap narratives: merged per vector id, so two agents editing
+# different vectors never conflict (scripts/merge-roadmap.py).
+.agents/roadmap.json merge=roadmap
