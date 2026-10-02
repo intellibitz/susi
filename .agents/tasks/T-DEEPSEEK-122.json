@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(orchestration_topology)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862,
+  "deps": [
+    "T-DEEPSEEK-121"
+  ],
+  "goal": "Let the primary use the other working models as secondaries: choose each secondary per task class, bound fan-out by both rate limits and cost so delegation cannot cost more than doing the work, keep provenance per delegated result, and synthesise the final answer as the primary's own. The topology - who did what, on which model, at what cost - must be reconstructible from the trace.",
+  "id": "T-DEEPSEEK-122",
+  "roadmap": "VC-202-022",
+  "size": "l",
+  "title": "Primary orchestrates secondaries with bounded fan-out"
+}

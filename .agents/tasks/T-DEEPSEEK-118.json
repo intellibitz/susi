@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-118",
+  "title": "Record each key's billing mode and what a call actually costs",
+  "goal": "Give every key its billing mode - pay-as-you-go, subscription, free tier, prepaid balance - and derive the marginal cost of the next call from it: price per token for pay-as-you-go, zero until the cap for a subscription, a depleting balance for prepaid, and data plus rate cost for a free tier. A subscription must not appear infinitely cheap, and a prepaid balance must count down, or the router optimises the wrong quantity.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(billing_mode_marginal_cost)"
+    ]
+  },
+  "roadmap": "VC-202-021",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862
+}

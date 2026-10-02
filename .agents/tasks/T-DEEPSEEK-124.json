@@ -1,0 +1,23 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(primary_failover_resume)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862,
+  "deps": [
+    "T-DEEPSEEK-121",
+    "T-DEEPSEEK-93"
+  ],
+  "goal": "When the primary times out or dies mid-mission, elect the next candidate and resume the mission from its durable state rather than restarting it, recording the switch, the work already done and the cost incurred on each model. Redoing completed work because a provider hiccuped is the most expensive failure this system can have.",
+  "id": "T-DEEPSEEK-124",
+  "roadmap": "VC-202-022",
+  "size": "l",
+  "title": "Primary timeout mid-mission fails over and resumes"
+}

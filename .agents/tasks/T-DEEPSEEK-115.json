@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-115",
+  "title": "Model health as a state machine with typed failure classes",
+  "goal": "Classify every provider response and transport failure into a typed class - auth rejected, rate limited, timeout, server error, context overflow, content filtered, malformed - and drive a per-model and per-key health state through it: healthy, cooling until a deadline that honours Retry-After, degraded, key-dead, out of quota. A timeout or a rate limit must never be recorded as a capability failure (that is the whole point of the split); a genuine wrong answer must never be recorded as unavailability. The state is observable and survives a restart.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(model_health_failure_classes)"
+    ]
+  },
+  "roadmap": "VC-202-020",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862
+}

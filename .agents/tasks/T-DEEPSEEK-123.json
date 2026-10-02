@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(primary_without_secondaries)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862,
+  "deps": [
+    "T-DEEPSEEK-121"
+  ],
+  "goal": "Make the no-secondary case normal rather than degraded: with no other model available, healthy or worth its cost, the primary does the work itself, the mission records why it worked alone, and nothing in the routing, budget or trace paths treats that as an error. This is the path most missions will take on a bad day, so it is tested as carefully as delegation.",
+  "id": "T-DEEPSEEK-123",
+  "roadmap": "VC-202-022",
+  "size": "m",
+  "title": "The primary working alone is a first-class path"
+}
