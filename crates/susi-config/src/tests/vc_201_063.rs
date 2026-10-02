@@ -9,7 +9,10 @@ fn vc_201_063_deterministic_diff_with_op_ids() {
     let plan = s.plan(&desired);
     assert_eq!(plan.ops.len(), 2);
     assert!(plan.ops.iter().all(|o| !o.id.is_empty()));
-    assert_eq!(plan.preconditions.get("a").map(String::as_str), Some("1"));
+    assert_eq!(
+        plan.preconditions.get("a").and_then(|o| o.as_deref()),
+        Some("1")
+    );
 }
 
 #[test]
