@@ -1,0 +1,20 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_044_download_publish_called_by_production)"
+    ]
+  },
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790965000,
+  "deps": [],
+  "goal": "Model download publishing in transactional_download::Store is uncalled by production commands; finish() reads full artifacts into memory via std::fs::read risking OOM on multi-GB weights; production managed installation lacks streaming checksum verification, staged-to-ready atomic transition, and disk-full recovery. Acceptance requires a test that exercises the production path, not the module in isolation: this task was filed with the vector's mastery test as its acceptance, and that test passes today because the module already satisfies its own semantics - which is why the task could be closed without the integration it asks for. The named test does not exist yet, and is the work.",
+  "id": "T-ANTIGRAVITY20261002053216-3",
+  "roadmap": "VC-201-044",
+  "size": "l",
+  "title": "Integrate streaming transactional model verification and staging into production installation"
+}

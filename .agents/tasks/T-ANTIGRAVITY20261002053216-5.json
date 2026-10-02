@@ -1,9 +1,4 @@
 {
-  "id": "T-ANTIGRAVITY20261002053216-5",
-  "title": "Implement workload-aware prewarming with hysteresis and oscillation-free eviction",
-  "goal": "model_preload provides isolated frequency/recency scoring over in-memory events; lacks integration with idle/pressure memory eviction, hysteresis damping against load/evict oscillation, and mixed-workload benchmark measuring cold starts.",
-  "size": "l",
-  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -11,10 +6,15 @@
       "run",
       "--locked",
       "-E",
-      "test(vc_201_047_mastery)"
+      "test(vc_201_047_preload_eviction_with_hysteresis)"
     ]
   },
-  "roadmap": "VC-201-047",
   "created_by": "ANTIGRAVITY20261002053216",
-  "created_unix": 1790967000
+  "created_unix": 1790967000,
+  "deps": [],
+  "goal": "model_preload provides isolated frequency/recency scoring over in-memory events; lacks integration with idle/pressure memory eviction, hysteresis damping against load/evict oscillation, and mixed-workload benchmark measuring cold starts. Acceptance requires a test that exercises the production path, not the module in isolation: this task was filed with the vector's mastery test as its acceptance, and that test passes today because the module already satisfies its own semantics - which is why the task could be closed without the integration it asks for. The named test does not exist yet, and is the work.",
+  "id": "T-ANTIGRAVITY20261002053216-5",
+  "roadmap": "VC-201-047",
+  "size": "l",
+  "title": "Implement workload-aware prewarming with hysteresis and oscillation-free eviction"
 }
