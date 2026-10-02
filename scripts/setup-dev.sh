@@ -6,4 +6,6 @@ cd "$(git rev-parse --show-toplevel)"
 git config core.hooksPath .githooks
 git config merge.ledger.name "union of appended .agents/evidence.json entries"
 git config merge.ledger.driver "python3 scripts/merge-ledger.py %O %A %B"
-echo "hooks: $(git config core.hooksPath); merge driver: ledger"
+git config merge.roadmap.name "per-vector merge of .agents/roadmap.json"
+git config merge.roadmap.driver "python3 scripts/merge-roadmap.py %O %A %B"
+echo "hooks: $(git config core.hooksPath); merge drivers: ledger, roadmap"
