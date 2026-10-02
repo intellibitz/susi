@@ -785,7 +785,7 @@
       "id": "VC-201-063",
       "mastery_target": "Produce a deterministic diff with preconditions and operation IDs using the same resolver as execution; applying a stale plan fails safely and replaying a successful apply does not repeat side effects.",
       "priority": "P0",
-      "progress": "DELIVERED: a configuration plan produces a deterministic diff with operation IDs from the same resolver execution uses; applying a stale plan fails safely and replaying a successful apply does not repeat side effects. Verified by `crates/susi-config/src/tests/vc_201_063.rs`: deterministic_diff_with_op_ids, stale_plan_fails_safely, replay_is_idempotent. Evidence: T-CLAUDE-137.",
+      "progress": "PARTIAL: `ConfigStore::plan` produces a deterministic diff (BTreeMap order, stable op IDs) and apply re-checks recorded preconditions and skips literal replays. Refuted on record 2026-10-03: keys absent from the store carry no precondition, so a stale plan still applies an insertion over a concurrent write instead of failing safely; and op IDs are `op-<key>` — a second, distinct change to the same key is skipped as an already-applied replay and never takes effect. Evidence: `crates/susi-config/src/tests/vc_201_063_mastery.rs` (stale_insertion_plan_overwrites_concurrent_write, second_change_to_same_key_is_silently_skipped); verdict `.agents/roadmap-verdicts/VC-201-063.json`. Follow-up tracked by T-DEVIN20261002053148-4.",
       "type": "CONFIGURATION",
       "vector": "Implement inspectable configuration plan and apply"
     },
