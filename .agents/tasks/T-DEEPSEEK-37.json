@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-37",
+  "title": "Give every worktree its own identity token, so no two workers share the fallback",
+  "goal": "Eleven worktrees carry no susi.agent: the primary checkout, the old codex/devin/cloud-rsi trees and four .claude trees. who() falls back to the clone-wide user.name for all of them, so any two that claim share one refs/claim-agents entry, one task-id namespace, and can renew, close or release each other's claims (Mandate 50). scripts/susi-worktree.sh now states a worker's own token, but a tree that predates it — or one created any other way — still inherits the shared one, and nothing fails when it does. Assign each existing worktree a unique token derived from its own path, and make scripts/check-swarm-readiness.py fail rather than warn when a worktree carries none.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-swarm-readiness.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790913173
+}

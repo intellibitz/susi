@@ -73,12 +73,23 @@ def tokenless(tokens):
 
 
 def ready_worktree(agent, tokens):
-    """The worktree carrying this agent's identity, or the reason there is none."""
+    """The worktree this agent should start in, or the reason there is none.
+
+    Several trees can carry a token starting with the agent's name when an
+    agent has been provisioned more than once; the one closest to
+    `origin/main` is the handoff, not whichever happens to be listed first.
+    """
     want = agent.upper()
+    matches = []
     for path, branch in worktrees():
         token = tokens.get(path, "")
-        if token and token.startswith(want):
-            return path, branch, None
+        if not token or not token.startswith(want):
+            continue
+        behind = (git("-C", str(path), "rev-list", "--count", "HEAD..origin/main") or "").strip()
+        matches.append((int(behind) if behind.isdigit() else 10**6, path, branch))
+    if matches:
+        _, path, branch = min(matches)
+        return path, branch, None
     return None, None, (
         f"no worktree carries a susi.agent starting {want} — "
         f"scripts/susi-worktree.sh {agent}-$(date +%Y%m%d-%H%M%S)"
@@ -181,15 +192,15 @@ def main():
               f"({', '.join(str(p) for p in paths)}) — one token per worker: "
               f"re-provision the extras with a distinct name")
 
-    # Not a failure: retired trees are allowed to carry nothing, but a worker
-    # that claims from one silently shares the clone-wide fallback token with
-    # every other such tree.
-    silent = tokenless(tokens)
-    if silent:
-        print(f"⚠️  {NAME}: {len(silent)} worktree(s) carry no susi.agent and would share the "
-              f"clone-wide token if they claimed — give each worker its own: "
-              f"scripts/susi-worktree.sh <agent>-$(date +%Y%m%d-%H%M%S) "
-              f"({', '.join(str(p) for p in silent[:3])}{', …' if len(silent) > 3 else ''})")
+    # A worktree with no identity of its own falls back to the clone-wide
+    # `user.name` when it claims, which is one token for every such tree. That
+    # is the collision itself, so it fails rather than warns: a tree created any
+    # other way than `susi-worktree.sh` must still be given a token.
+    for path in tokenless(tokens):
+        failures += 1
+        print(f"❌ {NAME}: {path} carries no susi.agent — it would share the clone-wide "
+              f"token with every other such worktree: "
+              f"git -C {path} config --worktree susi.agent <TOKEN>")
 
     fresh_paths = []
     for agent in roster:
