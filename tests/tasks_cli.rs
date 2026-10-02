@@ -85,9 +85,21 @@ fn add_claim_race_and_gated_close_through_the_binary() {
     )
     .unwrap();
 
-    let (code, _, err) = susi(&a, &home, "claude", &["tasks", "claim", "T-CLAUDE-1"]);
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &["tasks", "claim", "T-CLAUDE-1", "--scope", "work"],
+    );
     assert_eq!(code, 0, "{err}");
-    let (code, _, err) = susi(&b, &home, "devin", &["tasks", "claim", "T-CLAUDE-1"]);
+    let (code, _, err) = susi(
+        &b,
+        &home,
+        "devin",
+        // Disjoint from claude's reservation, so what fails is the ownership of
+        // the task itself — the point of this test — rather than the overlap.
+        &["tasks", "claim", "T-CLAUDE-1", "--scope", "devin-area"],
+    );
     assert_ne!(code, 0);
     assert!(err.contains("claimed by CLAUDE"), "{err}");
 
@@ -158,7 +170,12 @@ fn a_task_already_closed_on_main_cannot_be_closed_again() {
     git(&a, &["push", "--quiet", "origin", "HEAD:main"]);
     git(&b, &["fetch", "--quiet", "origin"]);
     git(&b, &["merge", "--quiet", "--no-edit", "origin/main"]);
-    let (code, _, err) = susi(&b, &home, "devin", &["tasks", "claim", "T-CLAUDE-1"]);
+    let (code, _, err) = susi(
+        &b,
+        &home,
+        "devin",
+        &["tasks", "claim", "T-CLAUDE-1", "--scope", "work"],
+    );
     assert_eq!(code, 0, "{err}");
 
     // Meanwhile the task is closed on main by another route and `b` has not
@@ -276,5 +293,143 @@ fn the_tool_in_the_process_tree_names_the_agent() {
     );
     assert!(out.contains("(agent SHAREDTOKEN)"), "{out}");
 
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A claim that reserves no paths cannot be enforced — the commit hook and CI
+/// refuse any code under it — so refusing it at claim time is the difference
+/// between an immediate, obvious error and one that appears when the agent
+/// tries to commit its work.
+#[test]
+fn a_claim_without_reserved_paths_is_refused_unless_deliberate() {
+    let root = std::env::temp_dir().join(format!("susi-tasks-scope-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let bare = root.join("server.git");
+    std::fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "--bare", "--quiet"]);
+    let a = clone_of(&bare, &root, "a");
+    git(&a, &["push", "--quiet", "origin", "HEAD:main"]);
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &["tasks", "add", "job", "--accept", "cargo --version"],
+    );
+    assert_eq!(code, 0, "{err}");
+
+    let (code, _, err) = susi(&a, &home, "claude", &["tasks", "claim", "T-CLAUDE-1"]);
+    assert_ne!(code, 0, "a scopeless claim must be refused");
+    assert!(err.contains("would reserve no paths"), "{err}");
+    assert!(err.contains("--scope"), "{err}");
+    assert!(err.contains("--unscoped"), "{err}");
+    // Refused before anything was reserved.
+    let (_, listing, _) = susi(&a, &home, "claude", &["tasks"]);
+    assert!(!listing.contains("claimed_by\": \"CLAUDE"), "{listing}");
+
+    // The deliberate override still claims it.
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &["tasks", "claim", "T-CLAUDE-1", "--unscoped"],
+    );
+    assert_eq!(code, 0, "{err}");
+    let (code, _, err) = susi(&a, &home, "claude", &["tasks", "release", "T-CLAUDE-1"]);
+    assert_eq!(code, 0, "{err}");
+
+    // And with a scope, as the loop intends.
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &["tasks", "claim", "T-CLAUDE-1", "--scope", "src/cli"],
+    );
+    assert_eq!(code, 0, "{err}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A size-l task is integration work that will not finish inside the default
+/// lease, and nothing renews a claim while an agent is at work — an expired
+/// lease is taken over, handing the same task to a second agent mid-flight.
+#[test]
+fn a_large_task_is_claimed_with_a_lease_that_outlives_the_work() {
+    let root = std::env::temp_dir().join(format!("susi-tasks-lease-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let bare = root.join("server.git");
+    std::fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "--bare", "--quiet"]);
+    let a = clone_of(&bare, &root, "a");
+    git(&a, &["push", "--quiet", "origin", "HEAD:main"]);
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &[
+            "tasks",
+            "add",
+            "big",
+            "--accept",
+            "cargo --version",
+            "--size",
+            "l",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let (code, out, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &["tasks", "claim", "T-CLAUDE-1", "--scope", "src"],
+    );
+    assert_eq!(code, 0, "{err}");
+    let lease: u64 = out
+        .rsplit("until unix ")
+        .next()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no lease in {out}"));
+    let hours = (lease - now) / 3600;
+    assert!(
+        (11..=12).contains(&hours),
+        "a size-l claim should hold ~12h, got {hours}h ({out})"
+    );
+
+    // An explicit --hours still wins.
+    let (code, _, err) = susi(&a, &home, "claude", &["tasks", "release", "T-CLAUDE-1"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, out, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &[
+            "tasks",
+            "claim",
+            "T-CLAUDE-1",
+            "--scope",
+            "src",
+            "--hours",
+            "2",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    let lease: u64 = out
+        .rsplit("until unix ")
+        .next()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        (lease - now) < 3 * 3600,
+        "an explicit --hours must win: {out}"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

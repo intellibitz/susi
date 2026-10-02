@@ -3,10 +3,10 @@
 
 Every guarantee the workflow claims — one claim per task, one branch per claim,
 disjoint path reservations — is worth nothing if a worker cannot get as far as
-claiming: `susi tasks claim` refuses from a worktree behind `origin/main`, the
-hooks must be installed where the worker is, and the queue must actually hold a
-task that is dependency-ready and unclaimed. This checks all of that per agent,
-and reports unlanded work it must not lose.
+claiming: `susi tasks claim <id> --scope <path>` refuses from a worktree behind
+`origin/main`, the hooks must be installed where the worker is, and the queue
+must actually hold a task that is dependency-ready and unclaimed. This checks
+all of that per agent, and reports unlanded work it must not lose.
 
 Usage:
     scripts/check-swarm-readiness.py [--agent NAME ...]

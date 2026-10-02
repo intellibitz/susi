@@ -15,6 +15,6 @@ fi
 cat <<'MSG'
 
 Not ready? In the primary checkout or on main: scripts/susi-worktree.sh   (no name needed; it prints `cd <path>`)
-Then: susi tasks list && susi tasks claim <id>, and end every commit with `Task: <id>`. Rules: AGENTS.md (START HERE).
+Then: susi tasks list && susi tasks claim <id> --scope <path>, and end every commit with `Task: <id>`. Rules: AGENTS.md (START HERE).
 MSG
 exit 0

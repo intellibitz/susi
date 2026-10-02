@@ -87,7 +87,7 @@ check_claim_owner() {
     owner_branch=$(jq -r '.branch // ""' <<<"$body" 2>/dev/null || true)
     owner_agent=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
     if [ -n "$owner_branch" ] && [ -n "$branch" ] && [ "$owner_branch" != "$branch" ]; then
-        err "commit $short works on $id, which $owner_agent holds on branch '$owner_branch', not '$branch' — one task belongs to one branch. Move it deliberately (release refuses a claim taken on another branch): susi tasks release $id --force, then susi tasks claim $id from your own branch"
+        err "commit $short works on $id, which $owner_agent holds on branch '$owner_branch', not '$branch' — one task belongs to one branch. Move it deliberately (release refuses a claim taken on another branch): susi tasks release $id --force, then susi tasks claim $id --scope <path> from your own branch"
         return
     fi
     scopes=$(jq -r '.scopes[]?' <<<"$body" 2>/dev/null || true)
@@ -190,8 +190,8 @@ while read -r c; do
         # arrived by merging main.
         case "$(claim_state "$task")" in
         live) check_claim_owner "$c" "$task" "$short" ;;
-        expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task)" ;;
-        *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task first (Mandate 50)" ;;
+        expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task --scope <the paths this commit changes>)" ;;
+        *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task --scope <path> first (Mandate 50)" ;;
         esac
     else
         err "commit $short names $task, which is not a task in this branch (add or merge the task file first)"

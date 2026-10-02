@@ -23,6 +23,8 @@ sync() {
     # primary then stops converging until someone notices. Every agent crosses
     # this boundary, so the loop heals it here. Non-fatal either way.
     "$root/scripts/ensure-watcher.sh" || true
+    # A working agent crosses this boundary but not `finish`, so top the lease up.
+    renew_owned_claims
     # The board checks were only as reliable as the habit of running them.
     "$root/scripts/swarm-status.sh" || true
     flock -u 9
@@ -40,7 +42,31 @@ renew_or_readopt() {
     while IFS= read -r s; do
         [ -n "$s" ] && scopes+=(--scope "$s")
     done < <(git cat-file -p "refs/claims/$task" 2>/dev/null | jq -r '.scopes[]?' 2>/dev/null || true)
-    "$susi_bin" tasks claim "$task" ${scopes[@]+"${scopes[@]}"}
+    # A legacy claim may have reserved nothing; re-claiming it deliberately is
+    # what --unscoped is for, since a scopeless claim cannot be enforced.
+    [ "${#scopes[@]}" -gt 0 ] || scopes=(--unscoped)
+    "$susi_bin" tasks claim "$task" "${scopes[@]}"
+}
+
+# Renew the claims this agent holds. A size-l task runs past its lease, and an
+# agent at work never reaches `finish`, where renewal otherwise happens; `sync`
+# is the boundary a working agent does cross, so the lease is topped up here.
+# Without it a lapsed lease is taken over and the same task is handed to a
+# second agent while this one still holds the work.
+renew_owned_claims() {
+    local token id out
+    # `git config --get` exits 1 when the key is unset, and under `pipefail`
+    # that killed the whole sync for any worktree without an identity.
+    token=$( { git config --get susi.agent 2>/dev/null || true; } | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z0-9')
+    [ -n "$token" ] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    out=$("$susi_bin" tasks list 2>/dev/null | jq -r --arg a "$token" \
+        '.open[] | select(.claimed_by == $a) | .id' 2>/dev/null || true)
+    for id in $out; do
+        [ -n "$id" ] || continue
+        "$susi_bin" tasks renew "$id" >/dev/null 2>&1 &&
+            echo "claim $id renewed (this worktree's lease)"
+    done
 }
 
 # The state of the pull request for this branch, when `gh` can answer. A closed
