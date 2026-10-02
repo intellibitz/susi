@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-064",
-  "verdict": "not-delivered",
-  "evidence": "crates/susi-config/src/tests/vc_201_064_mastery.rs vc_201_064_mastery_owned_leaf_under_foreign_scalar_clobbers_it vc_201_064_mastery_owned_leaf_under_foreign_array_clobbers_it",
-  "missing": "repair does overwrite foreign state in a reachable case: an owned leaf beneath a foreign non-object ancestor (desired {a:{b:1}} vs observed {a:'foreign-scalar'} or {a:[...]}, owned={a.b}) is repaired by set_leaf converting the foreign scalar/array at 'a' into an object, destroying the external value; drift() also never reports the foreign leaf at 'a', so the operator does not see what repair destroys. Foreign-leaf reporting, refuse-on-select conflicts, owned missing/changed/extra repair in both directions, and the no-drift case all do hold.",
-  "tracked_by": ["T-DEVIN20261002053148-5"],
+  "verdict": "delivered",
+  "evidence": "crates/susi-config/src/tests/vc_201_064_mastery.rs vc_201_064_mastery_owned_leaf_under_foreign_scalar_is_refused vc_201_064_mastery_owned_leaf_under_foreign_array_is_refused",
+  "missing": "",
+  "tracked_by": [],
   "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790988400
+  "recorded_unix": 1790976578
 }
