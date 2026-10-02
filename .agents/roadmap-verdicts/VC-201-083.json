@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-083",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Three refutations. (1) Derived stores are not protected after propagation: insert() never consults the tombstone set, so a late write after delete_resume permanently repopulates authoritative, semantic index, cache and replica — the tombstone only shields get(), and nothing re-purges since the id is no longer pending (vc_201_083_mastery_late_write_repopulates_derived_stores_after_delete, vc_201_083_mastery_replica_only_content_survives_resume). (2) Tombstones are not durable: they are volatile in-memory state; a restart forgets every deletion and replayed cached content becomes retrievable (vc_201_083_mastery_tombstones_do_not_survive_restart). (3) MemoryStores has no production caller — no memory/deletion path outside tests uses it. Holds: in-process tombstone read-blocking, pending-resume propagation draining (vc_201_083_mastery_in_process_guarantees_hold).",
+  "tracked_by": ["T-DEVIN20261002053148-12"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790984485
+}
