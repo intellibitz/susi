@@ -522,7 +522,7 @@
       "id": "VC-201-042",
       "mastery_target": "Exercise discover, load, ready, infer, cancel, unload, and health behavior for supported native and HTTP-managed runtimes; unsupported operations return typed errors and process presence alone cannot establish readiness.",
       "priority": "P1",
-      "progress": "DELIVERED: supported local runtimes conform to one lifecycle contract across discover, load, ready, infer, cancel, unload and health; process presence alone does not establish readiness and unsupported operations return typed errors. Verified by `crates/susi-vendor-models/src/tests/vc_201_042.rs`: full_verb_chain_native_runtime, process_presence_does_not_establish_readiness, health_recheck_can_restore_readiness, gone_runtime_refuses_load, unsupported_ops_return_typed_errors. Evidence: T-CLAUDE-375.",
+      "progress": "PARTIAL: NativeInferenceEngine and a RuntimeSubstrate::unload exist, but no single lifecycle contract spans discover, load, ready, infer, cancel, unload and health, and readiness beyond process presence is not established - tracked by T-DEEPSEEK-212.",
       "type": "LOCAL_HOSTING",
       "vector": "Conform local runtimes to one lifecycle contract"
     },

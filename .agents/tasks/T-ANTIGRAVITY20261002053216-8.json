@@ -1,9 +1,4 @@
 {
-  "id": "T-ANTIGRAVITY20261002053216-8",
-  "title": "Implement checksummed offline bundle packaging, staging, and missing artifact diagnosis",
-  "goal": "Offline bootstrap requires packaging and importing checksummed bundles containing supported binaries, models, and extension metadata into isolated hosts, booting under network-disabled conditions, and diagnosing missing local artifacts without cloud fallback.",
-  "size": "l",
-  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -11,10 +6,15 @@
       "run",
       "--locked",
       "-E",
-      "test(vc_201_050_mastery)"
+      "test(vc_201_050_offline_bundle_pack_and_import_checksummed)"
     ]
   },
-  "roadmap": "VC-201-050",
   "created_by": "ANTIGRAVITY20261002053216",
-  "created_unix": 1790974000
+  "created_unix": 1790974000,
+  "deps": [],
+  "goal": "Offline bootstrap requires packaging and importing checksummed bundles containing supported binaries, models, and extension metadata into isolated hosts, booting under network-disabled conditions, and diagnosing missing local artifacts without cloud fallback. Acceptance requires a test that exercises the production path, not the module in isolation: this task was filed with the vector's mastery test as its acceptance, and that test passes today because the module already satisfies its own semantics - which is why the task could be closed without the integration it asks for. The named test does not exist yet, and is the work.",
+  "id": "T-ANTIGRAVITY20261002053216-8",
+  "roadmap": "VC-201-050",
+  "size": "l",
+  "title": "Implement checksummed offline bundle packaging, staging, and missing artifact diagnosis"
 }
