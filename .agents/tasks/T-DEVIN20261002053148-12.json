@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-12",
+  "title": "Make deletion durable and resurrection-proof in memory stores (VC-201-083)",
+  "goal": "VC-201-083 refuted: insert() never consults the tombstone set, so a late write after delete_resume permanently repopulates authoritative/index/cache/replica while the tombstone only shields get(); tombstones are volatile in-memory state with no persistence, so a restart forgets every deletion; and MemoryStores has no production caller. Evidence: crates/susi-core/src/tests/vc_201_083_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_083",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790984485
+}
