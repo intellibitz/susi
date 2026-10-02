@@ -53,6 +53,21 @@ renew_or_readopt() {
 # is the boundary a working agent does cross, so the lease is topped up here.
 # Without it a lapsed lease is taken over and the same task is handed to a
 # second agent while this one still holds the work.
+# Evidence is a convention, not a gate: the ledger is what ranks providers by
+# recorded outcomes, so an entry minted to satisfy a check is noise. Ask once,
+# only for work that touched code, and only when no entry names the task.
+evidence_prompt() {
+    local task=$1 agent scopes
+    command -v jq >/dev/null 2>&1 || return 0
+    scopes=$(git cat-file -p "refs/claims/$task" 2>/dev/null | jq -r '.scopes[]?' 2>/dev/null || true)
+    printf '%s\n' "$scopes" | grep -q '^crates/' || return 0
+    grep -q "\"$task\"" .agents/evidence.json 2>/dev/null && return 0
+    agent=$(git config --get susi.agent 2>/dev/null || echo AGENT)
+    echo "ℹ️  $task changed crates/ but no evidence entry names it — if it changed a design decision"
+    echo "   or produced a measurement, record it as EV-$agent-<n> in .agents/evidence.json."
+    echo "   Not required: an entry minted to satisfy a check is worse than none."
+}
+
 renew_owned_claims() {
     local token id out
     # `git config --get` exits 1 when the key is unset, and under `pipefail`
@@ -99,6 +114,7 @@ finish)
     # Retain ownership through publication; close records acceptance in the tree.
     if [ -f ".agents/tasks/$task.json" ]; then
         "$susi_bin" tasks close "$task"
+        evidence_prompt "$task"
         git add -- ".agents/tasks/$task.json" ".agents/tasks/done/$task.json"
         git commit -m "Close $task after acceptance" -m "Task: $task"
     fi

@@ -653,3 +653,70 @@ fn a_verdict_record_commits_under_any_claim() {
     );
     assert!(err.contains("no 'Task:"), "{err}");
 }
+
+/// A task that changes the CLI surface but not the README leaves the front door
+/// describing a tool that no longer exists. It is an advisory, not a gate: the
+/// README is prose, and a check that forces prose produces worse prose than a
+/// task that lags.
+#[test]
+fn a_cli_change_without_the_readme_is_warned_about() {
+    let e = Env::new("docs");
+    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    assert_eq!(code, 0, "{err}");
+    e.install_rule("T-TEST-1");
+    let base = e.head();
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "claim",
+        "T-TEST-1",
+        "--scope",
+        "src/cli",
+        "--scope",
+        "README.md",
+    ]);
+    assert_eq!(code, 0, "{err}");
+
+    // A CLI file changes; the README does not.
+    std::fs::create_dir_all(e.repo.join("src/cli")).unwrap();
+    std::fs::write(e.repo.join("src/cli/new_command.rs"), "// a command\n").unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "feat: a command",
+            "-m",
+            "Task: T-TEST-1",
+        ],
+    );
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 0, "the docs warning must never fail the gate: {err}");
+    assert!(
+        err.contains("src/cli/ changed without README.md"),
+        "the CLI change must be reported: {err}"
+    );
+
+    // Touching the README in the same range settles it.
+    let after = e.head();
+    std::fs::write(e.repo.join("README.md"), "# front door\n").unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "docs: describe it",
+            "-m",
+            "Task: T-TEST-1",
+        ],
+    );
+    let (code, err) = e.check(&after);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        !err.contains("changed without README.md"),
+        "a documented CLI change must not warn: {err}"
+    );
+}
