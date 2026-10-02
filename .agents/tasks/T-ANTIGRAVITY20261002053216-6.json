@@ -1,0 +1,20 @@
+{
+  "id": "T-ANTIGRAVITY20261002053216-6",
+  "title": "Implement production batching backends and load test throughput vs latency bounds",
+  "goal": "infer_batch::Batcher and BatchBackend trait are uncalled mock structures implemented only by test Echo struct; no production engine (vLLM, llama.cpp, Ollama) implements BatchBackend, and load tests demonstrating throughput changes under latency and memory limits do not exist.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_046_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-046",
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790968000
+}
