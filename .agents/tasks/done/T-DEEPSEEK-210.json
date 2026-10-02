@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-210",
+  "title": "Only a workspace member may be retried after a gate failure",
+  "goal": "The gate retry collects every 'to rerun pass -p <name>' line in the log, and an end-to-end fixture (brain_gap_e2e.rs) deliberately runs a failing cargo test inside its own throwaway workspace, so a nested cargo line can name a crate that does not exist here. The retry then retires that name, reports cargo's complaint about it as a real failure, and mislabels whatever the first run actually hit - a flake becomes a false alarm, and a real failure gets the wrong name. Filter candidates against this workspace's members and fail honestly when none of them is one, so the retry can only ever rerun something that exists.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(parallel_workflow)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790973686,
+  "closed": {
+    "at_unix": 1790975014,
+    "commit": "dbf40772df0f81bba6a0e3ac48a9a11c83b242ef",
+    "by": "DEEPSEEK"
+  }
+}
