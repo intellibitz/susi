@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-36",
+  "title": "Make the drift and readiness signals stable, then release them",
+  "goal": "Three signals the new checks emit are wrong in ways that would erode them. (1) The readiness check fails every agent worktree that is merely behind origin/main (9 commits after a few merges), but syncing is the loop's own first step on a clean tree, so that is a step to report, not a blocker. (2) Its 'behind' line prints a bare number with a stray newline because the git output is not stripped. (3) Release drift counts task-close commits, which move one file under .agents/tasks and add no code: after a release lands, the very next task close makes the installed release read as behind. Count only non-merge commits that touched files outside .agents/tasks, in both scripts/check-release-sync.sh and susi workflow check, then cut and promote the release that carries the fix so every signal is green and stays green.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-release-sync.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790901168
+}

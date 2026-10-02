@@ -39,10 +39,11 @@ if ! git merge-base --is-ancestor "$commit" origin/main 2>/dev/null; then
     exit 1
 fi
 
-# Only commits that changed the tree count: the merge that lands the release
-# branch on main adds no content, and counting it made every release read as one
-# commit stale the moment it landed.
-behind=$(git rev-list --no-merges --count "${commit}..origin/main")
+# Only commits that changed the *code* count. The merge that lands a release
+# adds no content, and a task close moves one file under .agents/tasks/ and adds
+# none either — counting either made a release read as stale the moment it
+# landed, or as soon as the next agent closed a task.
+behind=$(git rev-list --no-merges --count "${commit}..origin/main" -- . ':(exclude).agents/tasks/*')
 if [ "$behind" -gt 0 ]; then
     echo "❌ the installed release ${version} (${commit:0:8}) is ${behind} commit(s) behind origin/main"
     echo "   the workflow fixes merged since are not active for agents that run it"
