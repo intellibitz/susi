@@ -599,7 +599,7 @@
       "id": "VC-201-048",
       "mastery_target": "Use available thermal and power telemetry with explicit unknown states and operator limits; simulated pressure throttles or reroutes eligible work while preserving local-only requirements.",
       "priority": "P1",
-      "progress": "DELIVERED: thermal and power telemetry marks a host unfit on sustained throttle or a power cap, and recovers when temperatures normalise. Verified by `crates/susi-gemi/src/tests/thermal_routing.rs`: marks_unfit_on_sustained_throttle, power_cap_marks_unfit_power, recovers_when_temps_normalise. Evidence: T-CLAUDE-21.",
+      "progress": "PARTIAL: thermal and power telemetry marks a host unfit on sustained throttle or a power cap, and recovers when temperatures normalise in isolated susi-gemi unit tests (T-CLAUDE-21); lacks explicit unknown telemetry states, operator limit overrides, placement integration, and local-only work throttling.",
       "type": "LOCAL_HOSTING",
       "vector": "Make placement respect host thermal and power limits"
     },
