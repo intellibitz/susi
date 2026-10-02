@@ -54,7 +54,7 @@ impl Drop for TempHome {
 #[test]
 fn zc_config_explain_bundled_default_when_no_overrides() {
     let t = TempHome::new("bundled");
-    let explained = explain_key("trust_level", &t.global, None);
+    let explained = explain_key("trust_level", &t.global);
     assert_eq!(explained.origin, ConfigOrigin::BundledDefault);
     assert!(explained.value != DynamicValue::Null);
     assert!(explained.render().contains("from bundled default"));
@@ -73,13 +73,13 @@ fn zc_config_explain_host_wins_over_bundled() {
         serde_json::to_string_pretty(&SusiConfig { settings }).unwrap(),
     )
     .unwrap();
-    let explained = explain_key("trust_level", &t.global, None);
+    let explained = explain_key("trust_level", &t.global);
     assert_eq!(explained.origin, ConfigOrigin::Host);
     assert_eq!(explained.value, DynamicValue::String("paranoid".into()));
 }
 
 #[test]
-fn zc_config_explain_workspace_wins_over_host() {
+fn zc_config_explain_workspace_config_file_is_not_a_layer() {
     let t = TempHome::new("ws");
     let ws = t.home.join("project");
     fs::create_dir_all(ws.join(".susi")).unwrap();
@@ -103,9 +103,9 @@ fn zc_config_explain_workspace_wins_over_host() {
         .unwrap(),
     )
     .unwrap();
-    let explained = explain_key("trust_level", &t.global, Some(&ws));
-    assert_eq!(explained.origin, ConfigOrigin::Workspace);
-    assert_eq!(explained.value, DynamicValue::String("workspace".into()));
+    let explained = explain_key("trust_level", &t.global);
+    assert_eq!(explained.origin, ConfigOrigin::Host);
+    assert_eq!(explained.value, DynamicValue::String("host".into()));
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn zc_config_explain_env_wins_and_redacts_secrets() {
     unsafe {
         std::env::set_var("SUSI_PORT_OFFSET", "42");
     }
-    let explained = explain_key("port_offset", &t.global, None);
+    let explained = explain_key("port_offset", &t.global);
     assert_eq!(
         explained.origin,
         ConfigOrigin::Environment {
@@ -136,13 +136,13 @@ fn zc_config_explain_env_wins_and_redacts_secrets() {
         serde_json::to_string_pretty(&SusiConfig { settings }).unwrap(),
     )
     .unwrap();
-    let secret = explain_key("api_auth_token", &t.global, None);
+    let secret = explain_key("api_auth_token", &t.global);
     assert!(!secret.render().contains("super-secret-token"));
     assert_eq!(secret.value, DynamicValue::String("[redacted]".into()));
 }
 
 #[test]
-fn zc_config_explain_pack_layer_between_bundled_and_host() {
+fn zc_config_explain_pack_config_file_is_not_a_layer() {
     let t = TempHome::new("pack");
     let pack_root = t.global.join("extensions/default");
     fs::create_dir_all(&pack_root).unwrap();
@@ -159,12 +159,11 @@ fn zc_config_explain_pack_layer_between_bundled_and_host() {
         .unwrap(),
     )
     .unwrap();
-    let explained = explain_key("default_engine", &t.global, None);
-    assert_eq!(
-        explained.origin,
-        ConfigOrigin::Pack {
-            pack_id: "default".into()
-        }
+    let explained = explain_key("default_engine", &t.global);
+    assert_eq!(explained.origin, ConfigOrigin::BundledDefault);
+    assert_ne!(
+        explained.value,
+        DynamicValue::String("pack-engine".into()),
+        "the pack file is not a runtime config layer"
     );
-    assert_eq!(explained.value, DynamicValue::String("pack-engine".into()));
 }
