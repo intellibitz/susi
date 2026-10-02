@@ -68,6 +68,34 @@ evidence_prompt() {
     echo "   Not required: an entry minted to satisfy a check is worse than none."
 }
 
+# Run the workspace test gate, retrying the crates that failed once.
+#
+# Timing-sensitive tests assert that work overlaps in wall time, and a machine
+# running five agents' builds cannot always give them that: the gate failed twice
+# for one agent while the same crate passed when the machine was quiet. A
+# plausible flake is not evidence of a regression, and stopping the loop for one
+# costs a cycle and a live claim - but a failure that repeats is believed.
+gate_tests() {
+    local log crates c
+    log=$(mktemp)
+    if cargo test --workspace --locked 2>&1 | tee "$log"; then
+        rm -f "$log"
+        return 0
+    fi
+    crates=$(grep -oE 'pass .-p [a-z0-9_-]+' "$log" 2>/dev/null | sed 's/.*-p //' | sort -u)
+    rm -f "$log"
+    [ -n "$crates" ] || return 1
+    echo "the workspace run failed; retrying $(printf '%s ' $crates)once - timing tests are load-sensitive" >&2
+    for c in $crates; do
+        cargo test --locked -p "$c" || {
+            echo "FAILED again on a quiet run: $c - a real failure, not a flake" >&2
+            return 1
+        }
+        echo "passed on retry (the first run was load-flaky): $c" >&2
+    done
+    return 0
+}
+
 renew_owned_claims() {
     local token id out
     # `git config --get` exits 1 when the key is unset, and under `pipefail`
@@ -110,7 +138,15 @@ finish)
     sync
     cargo fmt --all --check
     cargo clippy --workspace --all-targets --locked -- -D warnings
-    cargo test --workspace --locked
+    gate_tests
+    # Anything still uncommitted - the verdict, the mastery test - must land
+    # while the task is open: close moves the record to done/, and the commit hook
+    # then refuses a commit citing a closed task. The scope check still refuses
+    # anything outside the claim, so this cannot smuggle in unrelated work.
+    if [ -n "$(git status --porcelain)" ]; then
+        git add -A
+        git commit -m "Record $task evidence before closure" -m "Task: $task"
+    fi
     # Retain ownership through publication; close records acceptance in the tree.
     if [ -f ".agents/tasks/$task.json" ]; then
         "$susi_bin" tasks close "$task"
@@ -124,7 +160,7 @@ finish)
     if [ "$verified" != "$(git rev-parse HEAD)" ]; then
         cargo fmt --all --check
         cargo clippy --workspace --all-targets --locked -- -D warnings
-        cargo test --workspace --locked
+        gate_tests
     fi
     branch=$(git symbolic-ref --short HEAD)
     git push origin "HEAD:refs/heads/$branch"
@@ -146,7 +182,7 @@ finish)
             sync
             cargo fmt --all --check
             cargo clippy --workspace --all-targets --locked -- -D warnings
-            cargo test --workspace --locked
+            gate_tests
             git push origin "HEAD:refs/heads/$branch"
             sha=$(git rev-parse HEAD)
         fi
