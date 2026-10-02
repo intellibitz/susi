@@ -28,6 +28,13 @@ fn executable(path: &Path, text: &str) {
     }
 }
 
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 struct World {
     root: PathBuf,
     primary: PathBuf,
@@ -56,7 +63,12 @@ impl World {
         );
         let scripts = primary.join("scripts");
         std::fs::create_dir_all(&scripts).unwrap();
-        for name in ["parallel-workflow.sh", "park-primary.sh"] {
+        for name in [
+            "parallel-workflow.sh",
+            "park-primary.sh",
+            "ensure-watcher.sh",
+            "swarm-status.sh",
+        ] {
             std::fs::copy(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("scripts")
@@ -65,6 +77,13 @@ impl World {
             )
             .unwrap();
         }
+        // A fresh heartbeat, so `sync`'s watcher heal is a no-op here: these
+        // tests must never spawn a background watcher into the temp fixture.
+        std::fs::write(
+            primary.join(".git/susi-primary-watch.stamp"),
+            format!("{}\n", now_unix()),
+        )
+        .unwrap();
         executable(&scripts.join("accept.sh"), "#!/bin/sh\nexit 0\n");
         std::fs::create_dir_all(primary.join(".agents/tasks")).unwrap();
         std::fs::write(
@@ -336,5 +355,115 @@ fn finish_stops_when_its_own_run_has_failed() {
     assert!(
         claims.contains("refs/claims/T-WORKER-1"),
         "the claim must be retained: {claims}"
+    );
+}
+
+/// The watcher is a background process that dies with its session, and the
+/// primary checkout then stops converging until someone notices — the audit
+/// found it five hours stale. `sync` is the boundary every agent crosses, so
+/// the loop heals it there: this pins the decision and the restart itself,
+/// with a stub in place of the watcher so no process outlives the test.
+#[test]
+fn the_sync_boundary_heals_a_dead_watcher() {
+    let w = World::new("watcher");
+    let stamp = w.primary.join(".git/susi-primary-watch.stamp");
+    let script = w.primary.join("scripts/ensure-watcher.sh");
+
+    // A stale heartbeat: the decision is to restart, and nothing else happens.
+    std::fs::write(&stamp, "1\n").unwrap();
+    let out = Command::new(&script)
+        .arg("--dry-run")
+        .current_dir(&w.work)
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "a stale watcher must be reported");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("would restart"), "{text}");
+
+    // No heartbeat at all reads the same way.
+    std::fs::remove_file(&stamp).unwrap();
+    let out = Command::new(&script)
+        .arg("--dry-run")
+        .current_dir(&w.work)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("never started"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+
+    // The restart: the stub stands in for the watcher and writes the heartbeat
+    // a real one would, so the heal is proven without leaving a process behind.
+    let stub = w.root.join("bins/watcher-stub.sh");
+    executable(
+        &stub,
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$(date +%s)\" > \"{}\"\n",
+            stamp.display()
+        ),
+    );
+    let out = Command::new(&script)
+        .current_dir(&w.work)
+        .env("SUSI_WATCH_CMD", stub.to_str().unwrap())
+        .env("SUSI_WATCH_STALE", "1")
+        .env("SUSI_WATCH_WAIT", "5")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("restarted"), "the heal must say so: {text}");
+    let fresh: u64 = std::fs::read_to_string(&stamp)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        now_unix().saturating_sub(fresh) <= 5,
+        "the heartbeat must be fresh after the heal"
+    );
+
+    // A live watcher is left alone.
+    let out = Command::new(&script).current_dir(&w.work).output().unwrap();
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("alive"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+/// The board checks were only as reliable as the habit of running them, and two
+/// of the three cost ~5s because they read the remote. So the verdict is cached
+/// briefly: the first sync in a window pays, the rest read it — visible, and
+/// never in the way.
+#[test]
+fn the_board_summary_is_cached_between_syncs() {
+    let w = World::new("boardcache");
+    let script = w.primary.join("scripts/swarm-status.sh");
+    let run = || {
+        let out = Command::new(&script).current_dir(&w.work).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    let first = run();
+    assert!(first.contains("swarm board:"), "{first}");
+    let second = run();
+    assert!(
+        second.contains("board checked"),
+        "the second sync must read the cache: {second}"
+    );
+    // A forced run checks again rather than reading the cache.
+    let forced = Command::new(&script)
+        .arg("--force")
+        .current_dir(&w.work)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&forced.stdout);
+    assert!(text.contains("swarm board:"), "{text}");
+    assert!(
+        !text.contains("board checked"),
+        "a forced run must not serve the cache: {text}"
     );
 }

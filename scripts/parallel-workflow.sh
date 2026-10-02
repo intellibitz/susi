@@ -16,6 +16,15 @@ sync() {
     git fetch --quiet origin
     git merge --no-edit origin/main
     "$root/scripts/park-primary.sh" --sync-only
+    # Inside the lock: the watcher heal is cheap, and the board block is cached,
+    # so one sync pays for the checks and the rest read the verdict.
+    #
+    # The watcher is a background process that dies with its session, and the
+    # primary then stops converging until someone notices. Every agent crosses
+    # this boundary, so the loop heals it here. Non-fatal either way.
+    "$root/scripts/ensure-watcher.sh" || true
+    # The board checks were only as reliable as the habit of running them.
+    "$root/scripts/swarm-status.sh" || true
     flock -u 9
 }
 

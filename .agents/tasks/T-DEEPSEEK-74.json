@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-74",
+  "title": "Keep the primary-checkout watcher alive, and surface the board checks at every sync",
+  "goal": "Two gaps from the verification. (1) The watcher is required while agents run (Mandate 49) and dies with whatever session started it; nothing restarts it, so the primary checkout quietly stopped converging for five hours and only the check noticed. Make the loop boundaries heal it: a shared ensure-watcher.sh that decides from the heartbeat stamp and restarts it when stale, called from sync (and therefore from finish). (2) The board checkers only run when someone remembers: wire a compact, non-fatal board summary (hygiene, swarm readiness, roadmap queue) into sync, so they run continuously at the boundary every agent already crosses. Both must be cheap, timeout-bounded and never block the loop.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(parallel_workflow)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790942145
+}
