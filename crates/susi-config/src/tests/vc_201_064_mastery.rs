@@ -17,13 +17,12 @@ fn owned(paths: &[&str]) -> BTreeSet<String> {
     paths.iter().map(|s| s.to_string()).collect()
 }
 
-/// Falsification: an owned leaf beneath a foreign scalar. Desired says
-/// `a.b = 1`; observed has `a` as an external scalar. `a.b` is reported
-/// Missing and owned, so repair is allowed — but `set_leaf` turns `a` into
-/// an object, silently destroying the foreign value at `a`. The claim says
-/// repair "never overwrites foreign state"; it does exactly that here.
+/// An owned leaf beneath a foreign scalar: desired says `a.b = 1`, observed
+/// has `a` as an external scalar. `a.b` is reported Missing and owned, but
+/// repairing it must refuse — reaching the leaf would require destroying the
+/// foreign value at `a`, and the conflict is recorded instead.
 #[test]
-fn vc_201_064_mastery_owned_leaf_under_foreign_scalar_clobbers_it() {
+fn vc_201_064_mastery_owned_leaf_under_foreign_scalar_is_refused() {
     let desired = json!({"a": {"b": 1}});
     let observed = json!({"a": "foreign-scalar"});
     let owned = owned(&["a.b"]);
@@ -31,28 +30,34 @@ fn vc_201_064_mastery_owned_leaf_under_foreign_scalar_clobbers_it() {
     let report = drift(&desired, &observed, &owned);
     let item = report.iter().find(|i| i.key == "a.b").unwrap();
     assert_eq!(item.kind, DriftKind::Missing);
-    assert!(item.owned, "a.b is owned, so repair is permitted");
-    // Nothing in the report even mentions the foreign leaf at `a` —
-    // the scalar isn't a leaf in `desired`, so it never becomes an item.
+    assert!(item.owned, "a.b is owned, so the selection is legitimate");
+    // The foreign scalar is visible too: `a` appears as an unowned Extra.
+    let ancestor = report.iter().find(|i| i.key == "a").unwrap();
+    assert_eq!(ancestor.kind, DriftKind::Extra);
+    assert!(!ancestor.owned);
 
     let res = reconcile(&desired, &observed, &owned, &["a.b".to_string()]);
-    assert_eq!(res.applied, vec!["a.b".to_string()]);
+    assert!(res.applied.is_empty(), "the repair is refused");
+    assert_eq!(res.conflicts.len(), 1);
+    assert_eq!(res.conflicts[0].key, "a.b");
     assert_eq!(
         res.repaired["a"],
-        json!({"b": 1}),
-        "the foreign scalar at a was overwritten by the repair"
+        json!("foreign-scalar"),
+        "foreign state is never overwritten"
     );
 }
 
-/// Same clobber when the foreign ancestor is an array (arrays are leaves).
+/// Same refusal when the foreign ancestor is an array (arrays are leaves).
 #[test]
-fn vc_201_064_mastery_owned_leaf_under_foreign_array_clobbers_it() {
+fn vc_201_064_mastery_owned_leaf_under_foreign_array_is_refused() {
     let desired = json!({"a": {"b": 1}});
     let observed = json!({"a": [1, 2, 3]});
     let owned = owned(&["a.b"]);
 
     let res = reconcile(&desired, &observed, &owned, &["a.b".to_string()]);
-    assert_eq!(res.repaired["a"], json!({"b": 1}));
+    assert!(res.applied.is_empty());
+    assert_eq!(res.conflicts.len(), 1);
+    assert_eq!(res.repaired, observed, "foreign array untouched");
 }
 
 /// Foreign drift is reported and refused: an external extra field shows up
