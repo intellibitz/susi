@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-054",
+  "verdict": "delivered",
+  "evidence": "vc_201_054_rejects_unknown_region_before_payload (crates/susi-gemi/src/tests/vc_201_054.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790984208
+}
