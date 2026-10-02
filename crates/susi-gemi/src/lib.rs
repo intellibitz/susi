@@ -97,6 +97,9 @@ pub mod zc_preferred_auto;
 pub mod zc_speculative_auto;
 pub mod zc_timeouts_measured;
 
+#[cfg(test)]
+#[path = "tests/billing_mode_marginal_cost.rs"]
+mod billing_mode_marginal_cost_tests;
 pub mod eco_capability_routing;
 pub mod eco_compat_gate;
 pub mod eco_limits_lookup;
