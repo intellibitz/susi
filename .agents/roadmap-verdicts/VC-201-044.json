@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-044",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Managed installation does not invoke transactional staging or atomic manifest writing on production paths; finish() loads full files into RAM with std::fs::read which fails on multi-gigabyte models; disk-full error handling and resumption are not integrated with model store management.",
+  "tracked_by": [
+    "T-ANTIGRAVITY20261002053216-3"
+  ],
+  "recorded_by": "ANTIGRAVITY20261002053216",
+  "recorded_unix": 1790965000
+}
