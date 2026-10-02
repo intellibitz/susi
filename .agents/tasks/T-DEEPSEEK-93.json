@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-93",
+  "title": "Mission state survives restart and reboot",
+  "goal": "Make mission and workspace state survive process restart and host reboot, with the resume point explicit. A mission that was mid-DAG must continue or fail cleanly on restart - never silently restart from the beginning, and never lose the record of what it already did.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(durable_mission_state)"
+    ]
+  },
+  "roadmap": "VC-202-011",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357
+}

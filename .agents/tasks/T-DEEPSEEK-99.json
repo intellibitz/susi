@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(brain_scout_probe)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357,
+  "deps": [
+    "T-DEEPSEEK-98"
+  ],
+  "goal": "Give the scout a deterministic micro-benchmark for probing a candidate model at negligible cost: fixed prompts whose correct answers are checkable offline, so a probe measures the model and not the network. The same probe must be safe to run daily and comparable across models.",
+  "id": "T-DEEPSEEK-99",
+  "roadmap": "VC-202-003",
+  "size": "m",
+  "title": "A deterministic micro-benchmark the scout can run daily"
+}

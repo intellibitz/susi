@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-95",
+  "title": "One capability bus over A2A, MCP, HTTP and adapters",
+  "goal": "Expose A2A, MCP, HTTP and adapter capabilities through one typed interface with discovery, permissions, timeouts and cost attribution, so adding a capability is data rather than code in a new place. The bus is what makes susi an OS rather than a collection of tools: one table of what can be done, who may do it, and what it costs.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(capability_bus)"
+    ]
+  },
+  "roadmap": "VC-202-012",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357
+}

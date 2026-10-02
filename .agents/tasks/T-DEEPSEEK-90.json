@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-90",
+  "title": "Prove secrets cannot reach logs, traces or evidence",
+  "goal": "Prove that provider keys, tokens and secret material never reach logs, traces, evidence records, task files or error messages, including through panic and Debug paths. Redaction must be structural - types that cannot print a secret - not a filter bolted on at the end. Cover the paths a brain scout and a delegated agent actually use.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(secrets_never_logged)"
+    ]
+  },
+  "roadmap": "VC-202-014",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357
+}

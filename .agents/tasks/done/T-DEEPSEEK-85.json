@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-85",
+  "title": "Roadmap: the brain scouts itself, and susi becomes the OS for it",
+  "goal": "Record the product direction as vectors a swarm can execute: susi must not encode every intent in source - the intelligence is the model, chosen per task by expected cost per verified useful outcome, with prompt caching counted, many configured keys scouted for liveness (dead ones marked, never deleted), capability floors that keep hard work off weak models, a budget governor that refuses before it overspends, and cache-first context assembly. Then the OS layer that lets a chosen brain act: intent to executable DAG, self-authored backlog, scheduling and resource arbitration, supervised services, durable state and rollback, one capability bus, per-decision cost observability, governance over secrets and egress, a unified entry point, and the closed self-build loop. Every vector gets at least one queued task with a real acceptance so the queue gate stays green.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953288,
+  "closed": {
+    "at_unix": 1790953617,
+    "commit": "a7d5cf7d3ab2823cf3b4619b990ec0651e9abed2",
+    "by": "DEEPSEEK"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-97",
+  "title": "One surface for missions, queue, brain and spend",
+  "goal": "Expose one surface - CLI first, then TUI or web - reporting missions in flight, queue state, brain status and the chosen model, spend against budget, and pending approvals. A user must see what the OS is doing and why it chose that model without reading logs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(unified_surface_status)"
+    ]
+  },
+  "roadmap": "VC-202-016",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357
+}

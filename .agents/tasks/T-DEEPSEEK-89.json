@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-89",
+  "title": "Turn an intent into a typed DAG of real operations",
+  "goal": "Turn a natural-language intent into a typed DAG whose nodes are real susi leaf operations with declared inputs, outputs and a cost estimate, and execute it with per-node provenance. An intent the system cannot serve is refused with what is missing (Mandate 55 command shapes are refused, never run). Never approximate silently: an unplannable intent is a typed failure.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(intent_to_executable_dag)"
+    ]
+  },
+  "roadmap": "VC-202-007",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357
+}

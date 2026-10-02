@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-92",
+  "title": "Supervise every long-lived component",
+  "goal": "Bring every long-lived component - daemon, primary-checkout watcher, brain scout, any worker outliving a command - under supervision with health checks, bounded restart, logs and one status surface. A killed component must recover with no human action and no unsupervised background process may remain: today the watcher recovers only because a sync happens to notice it.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(service_supervision)"
+    ]
+  },
+  "roadmap": "VC-202-010",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357
+}
