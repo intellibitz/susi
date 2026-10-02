@@ -7,7 +7,7 @@
 //! against a local server that cuts connections mid-stream; `ureq` wires the
 //! real HTTPS path at the call site.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult};
 
@@ -123,8 +123,7 @@ pub fn download(
 
 fn finish(plan: &DownloadPlan, have: u64, requests: u32) -> EaiResult<DownloadReport> {
     if let Some(expected) = &plan.sha256 {
-        let data = std::fs::read(&plan.dest).map_err(|e| EaiError::io(e.to_string()))?;
-        let actual = sha256_hex(&data);
+        let actual = sha256_file(&plan.dest)?;
         if !actual.eq_ignore_ascii_case(expected) {
             let q = plan.dest.with_extension("corrupt");
             std::fs::rename(&plan.dest, &q).map_err(|e| EaiError::io(e.to_string()))?;
@@ -148,6 +147,39 @@ fn finish(plan: &DownloadPlan, have: u64, requests: u32) -> EaiResult<DownloadRe
         verified: false,
         quarantined_to: None,
     })
+}
+
+/// Hash a completed artifact without materialising the artifact in memory.
+///
+/// Model weights can be multi-gigabyte files.  Verification is deliberately
+/// a bounded-buffer stream so a checksum check cannot turn into an OOM at the
+/// end of an otherwise successful download.
+fn sha256_file(path: &Path) -> EaiResult<String> {
+    use sha2::Digest;
+
+    let mut file = std::fs::File::open(path).map_err(|e| EaiError::io(e.to_string()))?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buffer = [0_u8; 1024 * 1024];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|e| EaiError::io(e.to_string()))?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+/// Verify an already-staged artifact with the same bounded checksum path used
+/// by the downloader's completion step.
+pub fn verify_file(path: &Path, expected: &str) -> EaiResult<bool> {
+    Ok(sha256_file(path)?.eq_ignore_ascii_case(expected))
 }
 
 fn existing_len(dest: &Path) -> u64 {
@@ -250,7 +282,6 @@ pub fn http_transport(req: &RangeRequest) -> EaiResult<RangeResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read as _;
     use std::net::TcpListener;
 
     const DATA: &[u8] = b"model-weights-pretend-binary-0123456789abcdef";

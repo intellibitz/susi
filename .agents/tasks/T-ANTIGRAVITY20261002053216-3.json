@@ -5,6 +5,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gemi-models",
       "-E",
       "test(vc_201_044_download_publish_called_by_production)"
     ]
