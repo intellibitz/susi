@@ -74,6 +74,7 @@ pub mod changelog_from_tasks;
 pub mod cloud_rsi;
 pub mod cloud_rsi_delivery;
 pub mod cloud_rsi_lifecycle;
+pub mod cloud_rsi_outcomes;
 pub mod dev_canary;
 pub mod disaster_recovery;
 pub mod eval_contamination;
