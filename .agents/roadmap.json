@@ -821,7 +821,7 @@
       "id": "VC-201-066",
       "mastery_target": "Replace plaintext deployment credentials with secret references resolved only at the authorized execution boundary; plan, export, tracing, and errors never disclose resolved values.",
       "priority": "P0",
-      "progress": "DELIVERED: deployment credentials are secret references resolved only at the authorized execution boundary; display, plan and export never disclose the resolved value. Verified by `crates/susi-config/src/tests/vc_201_066.rs`: display_is_reference_not_value, plan_export_never_discloses, parse_and_scope_guard; companions zc_jit_credentials and zc_key_scope. Evidence: T-CLAUDE-139, T-CLAUDE-176, T-CLAUDE-188.",
+      "progress": "PARTIAL: secret:// references parse, display as URIs, and refuse wrong-scope resolution — verified by `crates/susi-config/src/tests/vc_201_066_mastery.rs`. Refuted on record 2026-10-03: the reference mechanism has no production callers (credentials flow through cloud.env and plaintext api_key fields; config returns plaintext verbatim), redact_for_export masks only a whitespace-delimited resolved= token so JSON/quoted exports and space-containing values leak, and the scope guard is a caller-asserted string rather than an enforced boundary. Verdict `.agents/roadmap-verdicts/VC-201-066.json`. Follow-up tracked by T-DEVIN20261002053148-8.",
       "type": "CONFIGURATION",
       "vector": "Resolve secrets through scoped references"
     },
