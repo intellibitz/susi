@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-34",
+  "title": "Install the release agents actually run, so the merged workflow fixes are active",
+  "goal": "Agents drive the loop through ~/.susi/bin/susi, which changes only when a release is cut and promoted. The installed 0.21.0 was built from ee0f8269, 92 commits behind main: it released a claim taken on another branch (which main refuses), missed the fail-closed gate, the closure check against origin/main, the worktree-drift report, the installed-release drift report, the agent identity from the process tree, and the refusal of code under a claim that reserves no paths. Cut v0.21.1 with the fixes, merge it, publish the tag, promote it with scripts/susi-release-sync.sh, and verify with scripts/check-release-sync.sh that the installed release commit is on origin/main.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-release-sync.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790899714
+}
