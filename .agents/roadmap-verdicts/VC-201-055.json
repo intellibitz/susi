@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-055",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "GPU clouds profile only defines static taxonomy entries; desired/observed state reconciliation, stable operation IDs, health check probing, rollback, and crash recovery deduplication for managed cloud inference backends are absent.",
+  "tracked_by": [
+    "T-ANTIGRAVITY20261002053216-9"
+  ],
+  "recorded_by": "ANTIGRAVITY20261002053216",
+  "recorded_unix": 1790976000
+}
