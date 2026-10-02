@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-78",
+  "title": "A delivered verdict must name evidence that exists",
+  "goal": "Making the verdict record the acceptance traded a test gate for a signature: an agent could close a verification task by typing any string as evidence, and nobody would know until review. Require the evidence to name something real - a path that exists, or an identifier that appears in the checkout, excluding the verdict records themselves and the checker (a self-test names the string it tests). Update the 30 tasks' goals to say what evidence must be, and pin the fabricated case in --self-test. Evidence must name something real: a path that exists in the checkout, or an identifier (a test name) that appears in it. The checker verifies this, so a verdict cannot be closed by typing a claim.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "--self-test"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790946256,
+  "closed": {
+    "at_unix": 1790946422,
+    "commit": "d73302946fa00bd43bae4c5e734e63f5fbcb8af0",
+    "by": "DEEPSEEK"
+  }
+}
