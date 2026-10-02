@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-048",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "ThermalRouter in susi-gemi is an isolated in-memory tracker unintegrated with host telemetry or model placement, lacks explicit unknown telemetry states and operator limit ingestion, and lacks mechanisms to throttle or queue local-only requests rather than rerouting to cloud.",
+  "tracked_by": [
+    "T-ANTIGRAVITY20261002053216-7"
+  ],
+  "recorded_by": "ANTIGRAVITY20261002053216",
+  "recorded_unix": 1790972000
+}
