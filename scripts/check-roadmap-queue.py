@@ -50,6 +50,49 @@ def tasks(kind):
     return out
 
 
+def verdict_records():
+    """The recorded verdict for each vector, by id (see check-roadmap-verdict.py)."""
+    records = {}
+    directory = ROOT / ".agents/roadmap-verdicts"
+    if not directory.is_dir():
+        return records
+    for path in sorted(directory.glob("*.json")):
+        try:
+            record = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if record.get("verdict") in ("delivered", "not-delivered"):
+            records[record.get("vector") or path.stem] = record
+    return records
+
+
+def consistency_problems(roadmap, records):
+    """Narrative claims that contradict the verdict recorded for that vector.
+
+    Coverage is not completion in both directions: a delivered verdict that the
+    narrative still calls unbuilt, and a refutation the narrative still presents
+    as delivered, are each a roadmap a human cannot trust.
+    """
+    problems = []
+    for vector in roadmap:
+        record = records.get(vector["id"])
+        if not record:
+            continue
+        verdict = record.get("verdict")
+        claims = claims_delivery(vector)
+        if verdict == "delivered" and not claims:
+            problems.append(
+                f"{vector['id']} has a delivered verdict on record, but its narrative does "
+                f"not claim delivery: {(vector.get('progress') or '').strip()[:80]}"
+            )
+        elif verdict == "not-delivered" and claims:
+            problems.append(
+                f"{vector['id']} is refuted on record, but its narrative still claims "
+                f"delivery: {(vector.get('progress') or '').strip()[:80]}"
+            )
+    return problems
+
+
 def recorded_verdicts():
     """Vectors whose mastery verdict is on file (see check-roadmap-verdict.py).
 
@@ -57,18 +100,7 @@ def recorded_verdicts():
     with the follow-up tracked. Counting only *open* tasks would report a
     refuted vector as unqueued forever.
     """
-    out = set()
-    directory = ROOT / ".agents/roadmap-verdicts"
-    if not directory.is_dir():
-        return out
-    for path in sorted(directory.glob("*.json")):
-        try:
-            record = json.loads(path.read_text())
-        except ValueError:
-            continue
-        if record.get("verdict") in ("delivered", "not-delivered"):
-            out.add(record.get("vector") or path.stem)
-    return out
+    return set(verdict_records())
 
 
 def claims_delivery(vector):
@@ -104,7 +136,49 @@ def mint(vector):
     return (out.returncode == 0, line[-1] if line else "")
 
 
+def self_test():
+    """Pin the four narrative/verdict combinations."""
+    cases = [
+        ("delivered, narrative agrees", {"progress": "DELIVERED: proof"}, "delivered", 0),
+        ("delivered, narrative disagrees", {"progress": "PARTIAL: half"}, "delivered", 1),
+        ("refuted, narrative agrees", {"progress": "PARTIAL: half"}, "not-delivered", 0),
+        ("refuted, narrative disagrees", {"progress": "DELIVERED: claimed"}, "not-delivered", 1),
+    ]
+    failures = 0
+    for name, vector, verdict, expected in cases:
+        vector = {"id": "VC-0-1", **vector}
+        problems = consistency_problems([vector], {"VC-0-1": {"verdict": verdict}})
+        got = 1 if problems else 0
+        ok = got == expected
+        failures += 0 if ok else 1
+        print(f"  self-test: {name} → {got} problem(s) (expected {expected}) {'ok' if ok else 'WRONG'}")
+    # No verdict on record is not a contradiction: nothing was claimed about it.
+    extra = consistency_problems([{"id": "VC-0-1", "progress": "PARTIAL"}], {})
+    if extra:
+        failures += 1
+        print("  self-test: no verdict recorded → WRONG (must not be a contradiction)")
+    if failures:
+        print(f"self-test FAILED: {failures} case(s) wrong")
+        return 1
+    print("PASS: a narrative that contradicts its recorded verdict is a failure")
+    return 0
+
+
 def main():
+    if "--self-test" in sys.argv:
+        return self_test()
+    # CI runs this form: a narrative that contradicts a recorded verdict is a
+    # false claim about the repo, which must not merge. "A vector still has no
+    # work queued" is a backlog state, visible at every sync, and does not block.
+    if "--consistency-only" in sys.argv:
+        roadmap = json.loads((ROOT / ".agents/roadmap.json").read_text())["vectors"]
+        problems = consistency_problems(roadmap, verdict_records())
+        for problem in problems:
+            print(f"❌ {NAME}: {problem}")
+        if problems:
+            return 1
+        print(f"✅ {NAME}: every recorded verdict agrees with its vector's narrative")
+        return 0
     queue = "--queue" in sys.argv
     roadmap = json.loads((ROOT / ".agents/roadmap.json").read_text())["vectors"]
     open_tasks = tasks("")
@@ -115,6 +189,14 @@ def main():
     covered = [v for v in roadmap if v["id"] in linked_any]
     claimed = [v for v in roadmap if claims_delivery(v)]
     unverified = [v for v in roadmap if not claims_delivery(v)]
+    problems = consistency_problems(roadmap, verdict_records())
+    for problem in problems:
+        print(f"❌ {NAME}: {problem}")
+    if problems:
+        print(f"\n{len(problems)} vector(s) contradict their recorded verdict; fix the narrative "
+              f"(the verdict is the evidence, the narrative is the claim)")
+        return 1
+
     recorded = recorded_verdicts()
     unqueued = [
         v for v in unverified if v["id"] not in linked_open and v["id"] not in recorded

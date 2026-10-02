@@ -89,6 +89,9 @@ jobs:
       - name: Every vector with closed linked tasks states what verifies it
         run: scripts/check-roadmap-progress.sh
 
+      - name: No vector's narrative contradicts its recorded verdict
+        run: scripts/check-roadmap-queue.py --consistency-only
+
   deny:
     name: cargo deny (licenses + advisories)
     runs-on: ubuntu-latest
