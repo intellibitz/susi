@@ -113,6 +113,12 @@ mod engine_benchmark_tests;
 #[path = "tests/model_preload.rs"]
 mod model_preload_tests;
 #[cfg(test)]
+#[path = "tests/quota_window_accounting.rs"]
+mod quota_window_accounting_tests;
+#[cfg(test)]
+#[path = "tests/ranking_by_marginal_cost.rs"]
+mod ranking_by_marginal_cost_tests;
+#[cfg(test)]
 #[path = "tests/rate_limit_scheduler.rs"]
 mod rate_limit_scheduler_tests;
 #[cfg(test)]
