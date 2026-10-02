@@ -101,6 +101,7 @@ jobs:
       # build. Cheap to check, expensive to discover later.
       - name: No build output is tracked
         run: scripts/check-tracked-artifacts.sh
+          scripts/check-unregistered-tests.py
 
       - name: No vector's narrative contradicts its recorded verdict
         run: scripts/check-roadmap-queue.py --consistency-only
