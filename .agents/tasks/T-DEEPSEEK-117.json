@@ -1,0 +1,22 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(availability_not_capability)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862,
+  "deps": [
+    "T-DEEPSEEK-115"
+  ],
+  "goal": "Prove the axis separation by refutation: subject a model to a storm of rate limits, timeouts and 5xx responses, and show that its capability ranking for every task class is unchanged while the health axis absorbs the failures. Then show the inverse - a genuinely wrong answer does move the capability ranking - so the test cannot pass by ignoring all outcomes.",
+  "id": "T-DEEPSEEK-117",
+  "roadmap": "VC-202-020",
+  "size": "m",
+  "title": "Prove availability never poisons the capability ranking"
+}

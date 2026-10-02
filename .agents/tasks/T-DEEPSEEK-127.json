@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-127",
+  "title": "Roadmap: primary and secondary brains, with health kept out of capability",
+  "goal": "Record the orchestration requirement: susi must know which cloud models are working right now, when each works better, whether a model is cooling from a rate limit or genuinely failing, and whether a key is pay-as-you-go, subscription, free tier or prepaid - then elect the best available model as primary by cost per verified outcome and let it use the other working models to get things done, falling back to doing the work itself when no secondary is available or worth its cost. The design keeps availability and capability on separate axes so a 429 never poisons the ranking, makes billing mode change the arithmetic (marginal cost, not price per token), bounds fan-out by rate and cost, and verifies delegated work proportionally to risk.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py"
+    ]
+  },
+  "roadmap": "VC-202-020",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954878
+}

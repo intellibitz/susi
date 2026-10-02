@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-116",
+  "title": "Arbitrate per-key rate and concurrency across everything running",
+  "goal": "Enforce each key's requests-per-minute, tokens-per-minute and concurrency limits through an arbiter shared by all agents, the scout and delegated fan-out, queueing work instead of hammering a cooling key, and respecting Retry-After exactly. Six agents plus fan-out on one set of keys is the load this exists for; a 429 must cost a queue position, not a mission.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(model_rate_arbitration)"
+    ]
+  },
+  "roadmap": "VC-202-020",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862
+}

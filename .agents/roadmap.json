@@ -1498,6 +1498,51 @@
       "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
       "type": "OPERATIONS",
       "vector": "The action history is tamper-evident and interrogable"
+    },
+    {
+      "depends_on": [
+        "VC-202-001"
+      ],
+      "id": "VC-202-020",
+      "mastery_target": "Availability is tracked as its own axis: each model and key is healthy, cooling after a rate limit with Retry-After respected, degraded after timeouts or 5xx, key-dead, or out of quota - while capability is measured only from task outcomes. Per-key rate and concurrency limits are arbitrated across all agents and delegated fan-out, and a refutation test proves that a storm of 429s and timeouts leaves the capability ranking untouched.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "OPERATIONS",
+      "vector": "Model health is a separate axis from model capability"
+    },
+    {
+      "depends_on": [
+        "VC-202-002"
+      ],
+      "id": "VC-202-021",
+      "mastery_target": "Every key carries its billing mode - pay-as-you-go, subscription, free tier or prepaid balance - with the marginal cost semantics that follow: zero until the cap for a subscription, a depleting stock for prepaid, price per token for pay-as-you-go, and data plus rate cost for a free tier. Quota windows (rolling hours, daily, weekly) are tracked with remaining allowance and reset time, so ranking uses the expected marginal cost of the next call plus the scarcity of a nearly-exhausted cap rather than a naive price per token.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "OPERATIONS",
+      "vector": "Billing mode and quota windows enter the cost model"
+    },
+    {
+      "depends_on": [
+        "VC-202-003",
+        "VC-202-004"
+      ],
+      "id": "VC-202-022",
+      "mastery_target": "The primary brain is elected from the fully-working, available candidates by expected cost per verified outcome, with the evidence recorded and re-election on health or price change. The primary then uses the other working models as secondaries - chosen per task class, with bounded fan-out, per-result provenance and synthesis by the primary - and when no secondary is available or worth its cost, the primary does the work itself as a first-class, tested path rather than a degraded one. A primary that times out mid-mission fails over and resumes from durable state instead of restarting.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "CLOUD_HOSTING",
+      "vector": "Primary election and orchestration topology"
+    },
+    {
+      "depends_on": [
+        "VC-202-022"
+      ],
+      "id": "VC-202-023",
+      "mastery_target": "Work a secondary produced is verified to a depth set by its risk, the cost of that verification enters the routing decision, and an unverified delegation is never presented as though the primary had done it. Verification is where a cheap secondary stops being a quality leak: the mission's result is only as good as what the primary checked.",
+      "priority": "P1",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "RSI_EVALUATION",
+      "vector": "Delegated work is verified proportionally to risk"
     }
   ],
   "version": "0.21.6"
