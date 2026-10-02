@@ -630,12 +630,13 @@ fn release_drift(root: &Path) -> ReleaseDrift {
         &["merge-base", "--is-ancestor", &commit, "origin/main"],
     )
     .is_none();
-    // Only commits that changed the *code* count: the merge that lands a
-    // release adds no content, and a task close moves one file under
-    // .agents/tasks/ and adds none either. Counting either made a release read
-    // as stale the moment it landed, or as soon as the next agent closed a
-    // task — and a warning that is wrong the day it appears is one agents learn
-    // to ignore.
+    // Only commits that changed what the *binary* is built from count. A merge
+    // adds no content; a task close moves one record under .agents/tasks/; a
+    // test-only or docs commit cannot change what this tool does; and hooks and
+    // scripts are read from the checkout, so they are live without a release.
+    // Counting any of them made a release read as stale while the tool lacked
+    // nothing, and a warning that fires when nothing is wrong is one agents
+    // learn to ignore.
     let behind = (!off_main)
         .then(|| {
             git(
@@ -646,8 +647,12 @@ fn release_drift(root: &Path) -> ReleaseDrift {
                     "--count",
                     &format!("{commit}..origin/main"),
                     "--",
-                    ".",
-                    ":(exclude).agents/tasks/*",
+                    "src",
+                    "crates",
+                    "Cargo.toml",
+                    "Cargo.lock",
+                    "rust-toolchain.toml",
+                    "build.rs",
                 ],
             )
         })
