@@ -99,6 +99,9 @@ pub mod zc_scan_paths;
 #[path = "tests/resource_inventory.rs"]
 mod resource_inventory_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_041_mastery.rs"]
+mod vc_201_041_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_042.rs"]
 mod vc_201_042_tests;
 #[cfg(test)]

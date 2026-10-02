@@ -150,6 +150,9 @@ pub use telemetry::{BatteryInfo, TelemetrySnapshot, ThermalZone};
 pub use truth::TruthTransformer;
 
 #[cfg(test)]
+#[path = "tests/audit_action_choke_point.rs"]
+mod audit_action_choke_point_tests;
+#[cfg(test)]
 #[path = "tests/vc_200_001.rs"]
 mod vc_200_001_tests;
 #[cfg(test)]
@@ -188,6 +191,3 @@ mod vc_201_089_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_090.rs"]
 mod vc_201_090_tests;
-#[cfg(test)]
-#[path = "tests/audit_action_choke_point.rs"]
-mod audit_action_choke_point_tests;
