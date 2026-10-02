@@ -28,6 +28,52 @@ cache="$common/susi-board-status.txt"
 cache_exit="$common/susi-board-status.exit"
 [ "${1:-}" = "--force" ] && max_age=0
 
+# Who is working on what, live (not cached: a claim is news, not a verdict).
+# Without it an agent cannot tell whether the fix it is about to make is already
+# being made — the one kind of duplication claims cannot prevent, because two
+# agents only conflict once they reserve the same paths.
+format_in_flight() {
+    local out line
+    out=$(jq -r '.open[] | select(.claimed_by) | "\(.id) by \(.claimed_by)"' 2>/dev/null || true)
+    if [ -z "$out" ]; then
+        echo "  in flight: nothing claimed right now"
+        return 0
+    fi
+    line=$(printf '%s\n' "$out" | paste -sd, - | sed 's/,/, /g')
+    echo "  in flight: ${line}"
+}
+
+in_flight() {
+    command -v jq >/dev/null 2>&1 || return 0
+    susi tasks list 2>/dev/null | format_in_flight
+}
+
+# The in-flight line is judged on its own, so its acceptance tests the script
+# and not whether the board happened to be clean when it ran.
+self_test() {
+    local failures=0 got
+    check() {
+        got=$(printf '%s' "$2" | format_in_flight)
+        if [ "$got" = "$3" ]; then
+            echo "  self-test: $1 → ok"
+        else
+            echo "  self-test: $1 → WRONG ($got)"
+            failures=$((failures + 1))
+        fi
+    }
+    check "no claims" '{"open":[{"id":"T-A-1","claimed_by":null}]}' "  in flight: nothing claimed right now"
+    check "one claim" '{"open":[{"id":"T-A-1","claimed_by":"AGENTA"},{"id":"T-B-2","claimed_by":null}]}' "  in flight: T-A-1 by AGENTA"
+    check "several" '{"open":[{"id":"T-A-1","claimed_by":"A"},{"id":"T-B-1","claimed_by":"B"}]}' "  in flight: T-A-1 by A, T-B-1 by B"
+    if [ "$failures" != 0 ]; then
+        echo "self-test FAILED: $failures case(s) wrong"
+        exit 1
+    fi
+    echo "PASS: the in-flight line names every holder, and says so when there are none"
+    exit 0
+}
+
+[ "${1:-}" = "--self-test" ] && self_test
+
 age=""
 if [ -f "$stamp" ]; then
     age=$(( $(date +%s) - $(cat "$stamp" 2>/dev/null || echo 0) ))
@@ -36,6 +82,7 @@ fi
 if [ -n "$age" ] && [ "$age" -lt "$max_age" ] && [ -f "$cache" ]; then
     cat "$cache"
     echo "  (board checked ${age}s ago; scripts/swarm-status.sh --force to re-check)"
+    in_flight
     exit "$(cat "$cache_exit" 2>/dev/null || echo 0)"
 fi
 
@@ -77,4 +124,5 @@ printf '%s\n' "$out" >"$cache.tmp" && mv "$cache.tmp" "$cache"
 date +%s >"$stamp"
 echo "$failed" >"$cache_exit"
 printf '%s\n' "$out"
+in_flight
 exit "$failed"
