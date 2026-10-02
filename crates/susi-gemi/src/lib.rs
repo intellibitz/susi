@@ -113,6 +113,9 @@ mod engine_benchmark_tests;
 #[path = "tests/model_preload.rs"]
 mod model_preload_tests;
 #[cfg(test)]
+#[path = "tests/model_pricing_cache_rates.rs"]
+mod model_pricing_cache_rates_tests;
+#[cfg(test)]
 #[path = "tests/quota_window_accounting.rs"]
 mod quota_window_accounting_tests;
 #[cfg(test)]
