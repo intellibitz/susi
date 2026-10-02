@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-202",
+  "title": "Canaries that must fail, proving the scorer can detect failure",
+  "goal": "Include intents whose correct outcome is a typed refusal - a command-shaped input that Mandate 55 requires susi to refuse - and intents that must fail, then assert the scorer reports them as failures. A ladder that cannot fail is a dashboard; this task is the difference between measuring the system and decorating it, and it is the cheapest guard against an acceptance that proves nothing.",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-200"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(intent_ladder_canaries)"
+    ]
+  },
+  "roadmap": "VC-201-017",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790957049
+}

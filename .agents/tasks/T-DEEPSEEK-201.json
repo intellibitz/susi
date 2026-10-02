@@ -1,0 +1,23 @@
+{
+  "id": "T-DEEPSEEK-201",
+  "title": "A gap becomes a task whose acceptance is the failing intent",
+  "goal": "Turn each ladder failure into a specific, evidence-backed task rather than an adjective: the task names the intent, its trace, what was expected against what happened, the scopes it will touch and the dependencies it needs, and it is deduplicated against existing vectors and tasks, triaged by observed impact and rate-limited so the loop cannot flood the queue faster than agents can drain it. Closing such a task requires the failing intent to pass - which makes the corpus a growing regression suite and every fix a proven one.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-104",
+    "T-DEEPSEEK-200"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(gap_task_from_failure)"
+    ]
+  },
+  "roadmap": "VC-201-012",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790957049
+}
