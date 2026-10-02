@@ -772,7 +772,7 @@
       "id": "VC-201-062",
       "mastery_target": "Expose the resolved value and origin of each setting across defaults, packs, host overrides, workspace overrides, and environment; secret values are redacted and precedence fixtures match runtime behavior.",
       "priority": "P0",
-      "progress": "DELIVERED: effective configuration reports the resolved value and origin of each setting across bundled defaults, packs, host, workspace and environment layers, with secret values redacted. Verified by `crates/susi-config/src/tests/zc_config_explain.rs`: bundled_default_when_no_overrides, pack_layer_between_bundled_and_host, host_wins_over_bundled, workspace_wins_over_host, env_wins_and_redacts_secrets; validation companion `crates/susi-config/src/tests/config_validate.rs`. Evidence: T-CLAUDE-158, T-CLAUDE-87.",
+      "progress": "PARTIAL: `explain_key` renders a layer stack (bundled, pack, host, workspace, environment) with secret-shaped values redacted, and the layers runtime actually implements agree with it (env > host > bundled). Refuted on record 2026-10-03: the Pack and Workspace layers exist only inside explain — `SusiConfig::load`/`get_or_bundled_default` resolve env > host > compile-time bundled and never consult the active pack's `config.default.json` or a workspace `.susi/config.json`, and explain reports unparseable env values (e.g. `SUSI_PORT_OFFSET=not-a-port`) as the effective value where runtime accessors parse-fail to the host value, so explained effective values and origins diverge from runtime resolution. Evidence: `crates/susi-config/src/tests/vc_201_062_mastery.rs` (pack_layer_value_never_reaches_runtime, workspace_layer_value_never_reaches_runtime, unparseable_env_value_wins_in_explain_but_not_runtime); verdict `.agents/roadmap-verdicts/VC-201-062.json`. Follow-up tracked by T-DEVIN20261002053148-3.",
       "type": "CONFIGURATION",
       "vector": "Explain effective configuration and provenance"
     },
@@ -785,7 +785,7 @@
       "id": "VC-201-063",
       "mastery_target": "Produce a deterministic diff with preconditions and operation IDs using the same resolver as execution; applying a stale plan fails safely and replaying a successful apply does not repeat side effects.",
       "priority": "P0",
-      "progress": "DELIVERED: a configuration plan produces a deterministic diff with operation IDs from the same resolver execution uses; applying a stale plan fails safely and replaying a successful apply does not repeat side effects. Verified by `crates/susi-config/src/tests/vc_201_063.rs`: deterministic_diff_with_op_ids, stale_plan_fails_safely, replay_is_idempotent. Evidence: T-CLAUDE-137.",
+      "progress": "PARTIAL: `ConfigStore::plan` produces a deterministic diff (BTreeMap order, stable op IDs) and apply re-checks recorded preconditions and skips literal replays. Refuted on record 2026-10-03: keys absent from the store carry no precondition, so a stale plan still applies an insertion over a concurrent write instead of failing safely; and op IDs are `op-<key>` — a second, distinct change to the same key is skipped as an already-applied replay and never takes effect. Evidence: `crates/susi-config/src/tests/vc_201_063_mastery.rs` (stale_insertion_plan_overwrites_concurrent_write, second_change_to_same_key_is_silently_skipped); verdict `.agents/roadmap-verdicts/VC-201-063.json`. Follow-up tracked by T-DEVIN20261002053148-4.",
       "type": "CONFIGURATION",
       "vector": "Implement inspectable configuration plan and apply"
     },
@@ -926,7 +926,7 @@
       "id": "VC-201-074",
       "mastery_target": "Mark retrieved content and tool output as untrusted data and require policy checks for consequential actions; adversarial fixtures cannot turn embedded instructions into new permissions or secret disclosure.",
       "priority": "P0",
-      "progress": "DELIVERED: retrieved tool output is marked untrusted, consequential actions still pass a policy check, and an adversarial fixture cannot turn embedded instructions into permissions or secret disclosure. Verified by `crates/susi-core/src/tests/vc_201_074.rs`: marks_tool_output_untrusted, adversarial_fixture_cannot_grant_permissions, benign_content_allows_consequential_after_policy. Evidence: T-CLAUDE-141.",
+      "progress": "NOT DELIVERED: the helper and adversarial fixture tests cover untrusted-content detection, but production tool and swarm paths do not consistently apply the helper or policy check before consequential actions; secret redaction is only proven in MissionTrace. Follow-up: T-CODEX20261002053201-1.",
       "type": "GOVERNANCE",
       "vector": "Test resistance to tool-output prompt injection"
     },
@@ -992,7 +992,7 @@
       "id": "VC-201-079",
       "mastery_target": "Provide redacted exports with chain anchors, signature metadata, and a verification command; truncation, tampering, missing segments, and unknown keys produce distinct failures without exposing secrets.",
       "priority": "P1",
-      "progress": "DELIVERED: audit exports verify and redact, and truncation, tampering, missing segments and unknown keys produce distinct failures. Verified by `crates/susi-gawd/src/tests/vc_201_079.rs`: export_verifies_and_redacts, distinct_failures. Evidence: T-CLAUDE-387.",
+      "progress": "PARTIAL: audit evidence exports and verifies in-process, and the four failure modes are distinct (truncation, tampering, a missing segment, an unknown key), but no command serializes an export, reads one back, or verifies it, so a third party cannot verify independently - tracked by T-DEEPSEEK-208.",
       "type": "GOVERNANCE",
       "vector": "Export independently verifiable audit evidence"
     },

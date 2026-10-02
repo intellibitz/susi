@@ -196,6 +196,15 @@ mod state_backup_tests;
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_061_mastery.rs"]
+mod vc_201_061_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_062_mastery.rs"]
+mod vc_201_062_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_063_mastery.rs"]
+mod vc_201_063_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_063.rs"]
 mod vc_201_063_tests;
 #[cfg(test)]

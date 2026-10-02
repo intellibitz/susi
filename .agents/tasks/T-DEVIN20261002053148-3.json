@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-3",
+  "title": "Make explain layer stack match runtime resolution (VC-201-062)",
+  "goal": "explain_key reports Pack and Workspace layers (env > workspace > host > pack > bundled) but SusiConfig::load/get_or_bundled_default only resolve env > host > compile-time bundled: the active pack's config.default.json is never consulted for settings, no <ws>/.susi/config.json reader exists at runtime, and explain reports unparseable env values (e.g. SUSI_PORT_OFFSET=not-a-port) as effective where accessors parse-fail to the host value. Either implement the pack/workspace layers in the runtime resolver or strip them from explain so the reported origin is honest. Verified by crates/susi-config/src/tests/vc_201_062_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_062",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790969121
+}

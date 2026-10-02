@@ -28,7 +28,11 @@ def main():
     # .agents/roadmap-verdicts/ — both are the record of the work, not the work,
     # and requiring a reservation for them would make a verdict uncommittable
     # under the very claim that produced it.
-    exempt = (".agents/tasks/", ".agents/roadmap-verdicts/")
+    # `.agents/roadmap.json` is shared on purpose: a merge driver merges it per
+    # vector, and the consistency rule requires a narrative correction with every
+    # verdict - so a claim on it would serialize verdicts against each other.
+    # The merge driver, not the scope, is what keeps concurrent edits safe.
+    exempt = (".agents/tasks/", ".agents/roadmap-verdicts/", ".agents/roadmap.json")
     code = [p for p in paths if p and not p.startswith(exempt)]
     if not scopes:
         # An empty scope list used to skip the test entirely, which made the

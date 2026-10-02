@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-4",
+  "title": "Fix plan/apply staleness and op-id collisions (VC-201-063)",
+  "goal": "ConfigStore::plan records no precondition for keys absent from values, so a plan inserting a new key still applies after a concurrent write set that key — a stale plan overwrites instead of failing safely (vc_201_063_mastery_stale_insertion_plan_overwrites_concurrent_write). Op IDs are op-<key>, so a second plan changing the same key reuses the applied ID and its mutation is skipped as a replay (vc_201_063_mastery_second_change_to_same_key_is_silently_skipped). Fix: record presence preconditions (absent => must-stay-absent) for every op, and derive op IDs from change content (key+from+to), not the key alone.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_063",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790970899
+}
