@@ -82,7 +82,9 @@ gate_tests() {
         rm -f "$log"
         return 0
     fi
-    crates=$(grep -oE 'pass .-p [a-z0-9_-]+' "$log" 2>/dev/null | sed 's/.*-p //' | sort -u)
+    # Anchor on cargo's own phrase: a loose pattern matched a stray '-p gapfix'
+    # from the failure output and retired a package that does not exist.
+    crates=$(grep -oE 'to rerun pass .-p [a-z0-9_-]+' "$log" 2>/dev/null | sed 's/.*-p //' | sort -u)
     rm -f "$log"
     [ -n "$crates" ] || return 1
     echo "the workspace run failed; retrying $(printf '%s ' $crates)once - timing tests are load-sensitive" >&2
