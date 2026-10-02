@@ -1,0 +1,20 @@
+{
+  "id": "T-ANTIGRAVITY20261002053216-7",
+  "title": "Integrate thermal and power limits into placement with unknown states and local-only throttling",
+  "goal": "ThermalRouter in susi-gemi is an isolated in-memory state tracker with no explicit unknown telemetry state handling or operator limits, unintegrated with host telemetry or model placement, and lacks mechanisms to throttle or queue local-only work under simulated pressure instead of rerouting to cloud.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_048_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-048",
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790972000
+}
