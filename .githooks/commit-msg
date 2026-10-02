@@ -33,5 +33,7 @@ if [ ! -f "$root/.agents/tasks/$task.json" ]; then
     echo "❌ Mandate 50: $task is not an open task in this checkout (merge origin/main or commit the task file first)." >&2
     exit 1
 fi
+# One token per worker: two worktrees sharing an identity can renew, close
+"$root/scripts/check-worker-identity.sh" || exit 1
 python3 "$root/scripts/check-task-scope.py" "$task" || exit 1
 exit 0
