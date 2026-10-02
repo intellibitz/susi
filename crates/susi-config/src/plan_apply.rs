@@ -1,6 +1,7 @@
 //! Inspectable configuration plan and apply (VC-201-063).
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,13 +15,35 @@ pub struct PlanOp {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigPlan {
     pub ops: Vec<PlanOp>,
-    pub preconditions: BTreeMap<String, String>,
+    /// Expected state for every key the plan touches: `Some(v)` requires the
+    /// key still hold `v`; `None` requires it still be absent — an insert
+    /// must not clobber a value that appeared after the plan was produced.
+    pub preconditions: BTreeMap<String, Option<String>>,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct ConfigStore {
     pub values: BTreeMap<String, String>,
     pub applied_ops: BTreeMap<String, bool>,
+}
+
+/// An operation id names the *change*, not just the key: two plans touching
+/// the same key with different (from, to) pairs get different ids, so a
+/// distinct later change is never mistaken for a replay. Values are hashed
+/// rather than inlined — a value may be secret-shaped.
+fn op_id(key: &str, from: Option<&str>, to: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(key.as_bytes());
+    match from {
+        Some(f) => {
+            h.update([1u8]);
+            h.update(f.as_bytes());
+        }
+        None => h.update([0u8]),
+    }
+    h.update(to.as_bytes());
+    let digest = h.finalize();
+    format!("op-{key}-{}", hex::encode(&digest[..4]))
 }
 
 impl ConfigStore {
@@ -30,26 +53,33 @@ impl ConfigStore {
         for (k, v) in desired {
             let cur = self.values.get(k).cloned();
             if cur.as_deref() != Some(v.as_str()) {
-                let id = format!("op-{k}");
+                let id = op_id(k, cur.as_deref(), v);
                 ops.push(PlanOp {
                     id: id.clone(),
                     key: k.clone(),
                     from: cur.clone(),
                     to: v.clone(),
                 });
-                if let Some(c) = cur {
-                    preconditions.insert(k.clone(), c);
-                }
+                preconditions.insert(k.clone(), cur);
             }
         }
         ConfigPlan { ops, preconditions }
     }
 
     pub fn apply(&mut self, plan: &ConfigPlan) -> Result<Vec<String>, String> {
-        // Stale plan: precondition mismatch.
-        for (k, expected) in &plan.preconditions {
-            if self.values.get(k) != Some(expected) {
-                return Err(format!("stale plan: {k} changed"));
+        // Stale plan: a pending op's precondition no longer holds — a value
+        // changed after planning, or a key absent at plan time now exists.
+        // Replayed ops are exempt: their post-state is the precondition's
+        // successor, so re-checking them would refuse every replay.
+        for op in &plan.ops {
+            if self.applied_ops.get(&op.id) == Some(&true) {
+                continue;
+            }
+            let Some(expected) = plan.preconditions.get(&op.key) else {
+                return Err(format!("stale plan: {} has no precondition", op.key));
+            };
+            if self.values.get(&op.key).map(String::as_str) != expected.as_deref() {
+                return Err(format!("stale plan: {} changed", op.key));
             }
         }
         let mut done = Vec::new();
