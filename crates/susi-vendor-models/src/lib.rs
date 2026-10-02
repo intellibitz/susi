@@ -99,20 +99,35 @@ pub mod zc_scan_paths;
 #[path = "tests/resource_inventory.rs"]
 mod resource_inventory_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_041_mastery.rs"]
+mod vc_201_041_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_042.rs"]
 mod vc_201_042_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_043_mastery.rs"]
+mod vc_201_043_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_043.rs"]
 mod vc_201_043_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_044_mastery.rs"]
+mod vc_201_044_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_044.rs"]
 mod vc_201_044_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_046_mastery.rs"]
+mod vc_201_046_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_046.rs"]
 mod vc_201_046_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_049.rs"]
 mod vc_201_049_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_055_mastery.rs"]
+mod vc_201_055_mastery_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries
