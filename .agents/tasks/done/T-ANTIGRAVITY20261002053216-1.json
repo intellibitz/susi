@@ -1,0 +1,26 @@
+{
+  "id": "T-ANTIGRAVITY20261002053216-1",
+  "title": "Unify host resource probes with timestamps, provenance, and unknown-not-zero semantics",
+  "goal": "The GPU probe reports 0 VRAM when the device is absent; CPU/RAM observations carry no timestamp or provenance; ResourceInventory is not integrated into production host profiling.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "vc_201_041_mastery"
+    ]
+  },
+  "roadmap": "VC-201-041",
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790959789,
+  "closed": {
+    "at_unix": 1790967820,
+    "commit": "85f6be35aca495ca56a9d0091b0b274f00240384",
+    "by": "INTELLIBITZ202610030009552643365"
+  }
+}
