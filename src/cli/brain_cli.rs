@@ -10,6 +10,25 @@ use susi_gemi::engines::brain::{self, TaskClass};
 pub enum BrainCommands {
     /// Show the evidence-ranked providers for every task class (default)
     Status,
+    /// Set shared cloud spending and request limits (USD expressed in microdollars)
+    Budget {
+        #[arg(long, conflicts_with = "allow_paid")]
+        free_only: bool,
+        /// Authorize paid inference within the configured limits
+        #[arg(long)]
+        allow_paid: bool,
+        #[arg(long)]
+        max_spend_microusd: Option<u64>,
+        #[arg(long)]
+        max_tokens: Option<u64>,
+        #[arg(long)]
+        max_requests: Option<u64>,
+        #[arg(long)]
+        max_parallel: Option<u64>,
+        /// Explicitly start a new accounting window; unresolved calls forbid reset
+        #[arg(long)]
+        new_window: bool,
+    },
     /// Show which task class a prompt is routed as
     Classify {
         #[arg(trailing_var_arg = true)]
@@ -44,6 +63,7 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
             print_json(&serde_json::json!({
                 "principle": "local is the floor, cloud is the ceiling; evidence beats priors",
                 "budget": susi_gemi::engines::cost::Budget::from_env().label(),
+                "shared_cloud_budget": susi_gemi_models::cloud_budget::status()?,
                 "failure_streaks": store
                     .failure_streaks()
                     .into_iter()
@@ -61,6 +81,26 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
                 "auto_switched_from": pref.auto_switched_from,
                 "cooled_providers": cooled_providers,
             }))?;
+        }
+        BrainCommands::Budget {
+            free_only,
+            allow_paid,
+            max_spend_microusd,
+            max_tokens,
+            max_requests,
+            max_parallel,
+            new_window,
+        } => {
+            use susi_gemi_models::cloud_budget;
+            let mut policy = cloud_budget::status()?.policy;
+            if free_only { policy.allow_paid = false; }
+            if allow_paid { policy.allow_paid = true; }
+            if let Some(limit) = max_spend_microusd { policy.max_spend_microusd = Some(limit); }
+            if let Some(limit) = max_tokens { policy.max_tokens = Some(limit); }
+            if let Some(limit) = max_requests { policy.max_requests = Some(limit); }
+            if let Some(limit) = max_parallel { policy.max_parallel = limit; }
+            cloud_budget::configure(policy, new_window)?;
+            print_json(&cloud_budget::status()?)?;
         }
         BrainCommands::Classify { prompt } => {
             let text = prompt.join(" ");

@@ -25,6 +25,7 @@ pub mod accel_reserve;
 pub mod azure_openai_provider;
 pub mod bedrock_provider;
 pub mod cloud;
+pub mod cloud_budget;
 pub mod cloud_cli_auth;
 pub mod cloud_contracts;
 pub mod cloud_credentials;

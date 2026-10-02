@@ -73,6 +73,13 @@ impl Target {
         }
     }
 
+    pub fn account_id(&self) -> &str {
+        &self.account
+    }
+    pub fn credential_id(&self) -> &str {
+        &self.credential
+    }
+
     fn matches(&self, other: &Self, scope: Scope) -> bool {
         self.provider == other.provider
             && match scope {
@@ -101,7 +108,7 @@ pub struct Observation {
     pub quota: Option<crate::cloud_quota::Quota>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum EvidenceSource {
     InferenceResponse,
     KeyMetadata,
@@ -122,6 +129,7 @@ impl Eligibility {
         }
         self.records.retain(|r| {
             !(r.target.matches(&observation.target, r.scope)
+                && r.source == observation.source
                 && (r.scope == observation.scope
                     || (observation.state == Availability::Working
                         && r.observed_at <= observation.observed_at)))
@@ -144,6 +152,75 @@ impl Eligibility {
             target.account = observation.target.account.clone();
         }
         target
+    }
+
+    pub fn budget_allowances(
+        &self,
+        target: &Target,
+        now: u64,
+        estimate: &crate::cloud_budget::Usage,
+        spend: Option<u64>,
+    ) -> Vec<crate::cloud_budget::Allowance> {
+        use crate::cloud_quota::Amount;
+        let mut allowances = Vec::new();
+        for r in self.records.iter().filter(|r| {
+            r.observed_at <= now && now < r.expires_at && r.target.matches(target, r.scope)
+        }) {
+            let Some(q) = &r.quota else {
+                continue;
+            };
+            for (name, amount, reset, cost, identity) in [
+                (
+                    "requests",
+                    &q.requests,
+                    q.request_reset_at,
+                    Some(1),
+                    target.account_id(),
+                ),
+                (
+                    "input",
+                    &q.input_tokens,
+                    q.input_reset_at,
+                    Some(estimate.input_tokens),
+                    target.account_id(),
+                ),
+                (
+                    "output",
+                    &q.output_tokens,
+                    q.output_reset_at,
+                    Some(estimate.output_tokens),
+                    target.account_id(),
+                ),
+                ("free", &q.free_requests, None, Some(1), target.account_id()),
+                (
+                    "credit",
+                    &q.credit_microusd,
+                    None,
+                    Some(spend.unwrap_or(1)),
+                    target.account_id(),
+                ),
+                (
+                    "key-spend",
+                    &q.key_spend_remaining_microusd,
+                    None,
+                    Some(spend.unwrap_or(1)),
+                    target.credential_id(),
+                ),
+            ] {
+                if reset.is_some_and(|t| t <= now) {
+                    continue;
+                }
+                if let (Amount::Limited(remaining), Some(cost)) = (amount, cost) {
+                    allowances.push(crate::cloud_budget::Allowance {
+                        id: format!("{identity}:{name}"),
+                        remaining: *remaining,
+                        cost,
+                        reset_at: reset,
+                    });
+                }
+            }
+        }
+        allowances
     }
 
     pub fn state(&self, target: &Target, now: u64) -> Availability {

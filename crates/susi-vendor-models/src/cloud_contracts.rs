@@ -7,6 +7,8 @@ use susi_error::{EaiError, EaiResult};
 pub struct Contract {
     pub model: String,
     pub context_tokens: Option<u64>,
+    #[serde(default)]
+    pub price: Option<crate::cloud_budget::Price>,
     pub input_modalities: Vec<String>,
     pub supported_parameters: Vec<String>,
     pub observed_at: u64,
@@ -100,6 +102,7 @@ pub fn observe_catalog(
             Some(Contract {
                 model,
                 context_tokens: v["context_length"].as_u64(),
+                price: crate::cloud_budget::Price::from_catalog(&v["pricing"]),
                 input_modalities: strings(&v["architecture"]["input_modalities"]),
                 supported_parameters: strings(&v["supported_parameters"]),
                 observed_at: now,
