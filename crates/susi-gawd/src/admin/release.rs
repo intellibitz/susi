@@ -3,6 +3,112 @@ use crate::susi_error::{EaiError, EaiResult};
 use std::env;
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, Instant};
+
+/// What happened to the release tag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagPublish {
+    /// Pushed: its commit is on `origin/main`, so CI will build and publish it.
+    Published,
+    /// Created locally only: the merge has not landed, so publishing it now
+    /// would be refused by CI and could never be repaired.
+    Deferred,
+}
+
+/// Seconds to wait for the release branch's own pull request to merge before
+/// the tag is published (`SUSI_RELEASE_MERGE_WAIT`, default 30 minutes).
+fn merge_wait_budget() -> Duration {
+    env::var("SUSI_RELEASE_MERGE_WAIT")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map_or(Duration::from_secs(1800), Duration::from_secs)
+}
+
+/// Is `sha` contained in `origin/main` yet? Fetches first: the branch is
+/// pushed, not merged, at this point in the cut.
+fn await_merged(workspace: &Path, sha: &str, budget: Duration) -> bool {
+    let started = Instant::now();
+    loop {
+        let _ = Command::new("git")
+            .args(["fetch", "--quiet", "origin"])
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .current_dir(workspace)
+            .output();
+        let contained = Command::new("git")
+            .args(["merge-base", "--is-ancestor", sha, "origin/main"])
+            .current_dir(workspace)
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if contained {
+            return true;
+        }
+        if started.elapsed() >= budget {
+            return false;
+        }
+        std::thread::sleep(Duration::from_secs(15));
+    }
+}
+
+/// Tag the cut release and publish it once its commit is on `origin/main`.
+///
+/// CI refuses — before any build job starts — a tag whose commit is not an
+/// ancestor of `origin/main` (`scripts/check-release-tag.sh`), and the tag
+/// ruleset forbids moving a published tag, so a tag pushed while its branch is
+/// only *pushed* can never be repaired: the release would have to be cut again
+/// under a new version. `--cut` pushes the branch, not the merge, so this waits
+/// for the merge the loop's own automation performs, and leaves the tag local —
+/// never published, never broken — when it does not arrive in time.
+fn publish_release_tag(workspace: &Path, tag: &str, budget: Duration) -> EaiResult<TagPublish> {
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(workspace)
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .ok_or_else(|| EaiError::process("cannot resolve HEAD to tag the release"))?;
+
+    let exists = Command::new("git")
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/tags/{tag}"),
+        ])
+        .current_dir(workspace)
+        .output()
+        .is_ok_and(|out| out.status.success());
+    if !exists {
+        let tagged = Command::new("git")
+            .args(["tag", "-a", tag, "-m", &format!("Release {tag}")])
+            .current_dir(workspace)
+            .output()?;
+        if !tagged.status.success() {
+            return Err(EaiError::process(format!(
+                "creating tag {tag} failed: {}",
+                String::from_utf8_lossy(&tagged.stderr)
+            )));
+        }
+    }
+
+    if !await_merged(workspace, &head, budget) {
+        return Ok(TagPublish::Deferred);
+    }
+
+    let pushed = Command::new("git")
+        .args(["push", "origin", tag])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(workspace)
+        .output()?;
+    if !pushed.status.success() {
+        return Err(EaiError::process(format!(
+            "tag {tag} was created but pushing it failed (release.yml only triggers on a pushed \
+             tag — push it manually with `git push origin {tag}`):\n{}",
+            String::from_utf8_lossy(&pushed.stderr)
+        )));
+    }
+    Ok(TagPublish::Published)
+}
 
 impl SusiAdmin {
     pub fn execute_release(workspace: &Path, cut: Option<VersionBump>) -> EaiResult<String> {
@@ -294,53 +400,51 @@ impl SusiAdmin {
         );
 
         if let Some((version, _)) = new_version {
-            eprintln!("[Release Gatekeeper] 8. Tagging Release (v{})...", version);
             let tag_name = format!("v{}", version);
-            let tag = Command::new("git")
-                .args([
-                    "tag",
-                    "-a",
-                    &tag_name,
-                    "-m",
-                    &format!("Release {}", tag_name),
-                ])
-                .current_dir(workspace)
-                .output()?;
-            if !tag.status.success() {
-                return Err(EaiError::process(format!(
-                    "Release, tests, sync, and push succeeded, but creating tag {} failed:\n{}",
-                    tag_name,
-                    String::from_utf8_lossy(&tag.stderr)
-                )));
-            }
-            let push_tag = Command::new("git")
-                .args(["push", "origin", &tag_name])
-                .env("GIT_TERMINAL_PROMPT", "0")
-                .current_dir(workspace)
-                .output()?;
-            if !push_tag.status.success() {
-                return Err(EaiError::process(format!(
-                    "Release, tests, sync, and push succeeded, and tag {} was created locally, \
-                     but pushing it failed (release.yml only triggers on a pushed tag - push it \
-                     manually with `git push origin {}`):\n{}",
-                    tag_name,
-                    tag_name,
-                    String::from_utf8_lossy(&push_tag.stderr)
-                )));
-            }
-            crate::susi_sandbox::manager::SusiAuditLogger::log(
-                &global_dir,
-                crate::susi_sandbox::manager::LogLevel::Axiomatic,
-                "RELEASE_CUT",
-                &format!("Cut and pushed release {}.", tag_name),
-            );
-            return Ok(format!(
-                "Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, push, and \
-                 tag all succeeded. Release {} is live - release.yml will build and publish its \
-                 binaries now.\n{}",
+            let budget = merge_wait_budget();
+            eprintln!(
+                "[Release Gatekeeper] 8. Tagging Release ({}) — publishing once its commit is on \
+                 origin/main (waiting up to {}s)...",
                 tag_name,
-                Self::promote_release_locally()
-            ));
+                budget.as_secs()
+            );
+            match publish_release_tag(workspace, &tag_name, budget)? {
+                TagPublish::Published => {
+                    crate::susi_sandbox::manager::SusiAuditLogger::log(
+                        &global_dir,
+                        crate::susi_sandbox::manager::LogLevel::Axiomatic,
+                        "RELEASE_CUT",
+                        &format!("Cut and pushed release {}.", tag_name),
+                    );
+                    return Ok(format!(
+                        "Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, push, \
+                         and tag all succeeded. Release {} is live - release.yml will build and \
+                         publish its binaries now.\n{}",
+                        tag_name,
+                        Self::promote_release_locally()
+                    ));
+                }
+                TagPublish::Deferred => {
+                    crate::susi_sandbox::manager::SusiAuditLogger::log(
+                        &global_dir,
+                        crate::susi_sandbox::manager::LogLevel::Axiomatic,
+                        "RELEASE_CUT_DEFERRED",
+                        &format!("Cut {tag_name}; tag not published (commit not on origin/main)."),
+                    );
+                    // Publishing here would hand CI a tag it refuses before
+                    // building anything, and the tag ruleset forbids moving a
+                    // published tag, so the release would need another version.
+                    // Leaving it local keeps the cut recoverable with one push.
+                    return Err(EaiError::process(format!(
+                        "Release {tag_name} is cut, tested and pushed, and the tag exists locally, \
+                         but it is NOT published: its commit did not reach origin/main within {}s, \
+                         and CI refuses a tag whose commit main does not contain (it checks before \
+                         building, and a published tag cannot be moved). Merge the release branch, \
+                         then publish it: git push origin {tag_name}",
+                        budget.as_secs()
+                    )));
+                }
+            }
         }
 
         Ok("Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, and push all succeeded. Substrate deployed.".into())
@@ -538,6 +642,166 @@ fn scrub_instance_env(cmd: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A clone with a bare `origin`, for the tag-publishing path.
+    fn repo(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("susi-release-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let bare = root.join("server.git");
+        let work = root.join("work");
+        std::fs::create_dir_all(&bare).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        let run = |dir: &Path, args: &[&str]| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+        };
+        run(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
+        run(&work, &["init", "--quiet", "-b", "main"]);
+        // Annotated tags need a committer identity, and a CI runner has none:
+        // the first version of these tests passed here and failed there with
+        // "Committer identity unknown". The fixture owns its identity.
+        for dir in [&bare, &work] {
+            run(dir, &["config", "user.name", "t"]);
+            run(dir, &["config", "user.email", "t@t"]);
+        }
+        run(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        run(&work, &["commit", "--allow-empty", "--quiet", "-m", "init"]);
+        run(&work, &["push", "--quiet", "origin", "HEAD:main"]);
+        work
+    }
+
+    fn remote_tags(work: &Path) -> String {
+        let out = Command::new("git")
+            .args(["ls-remote", "--tags", "origin"])
+            .current_dir(work)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    fn commit_on_branch(work: &Path) -> String {
+        let out = Command::new("git")
+            .args(["checkout", "--quiet", "-b", "release"])
+            .current_dir(work)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let out = Command::new("git")
+            .args([
+                "commit",
+                "--allow-empty",
+                "--quiet",
+                "-m",
+                "chore: release v9.9.9",
+            ])
+            .current_dir(work)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let out = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(work)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// The defect this guards: `--cut` pushed the tag immediately, while its
+    /// commit was on a branch main did not contain yet, so CI refused it before
+    /// building anything and — because a published tag may not be moved — the
+    /// only repair was another version. A release that has not merged must
+    /// therefore publish NO tag at all.
+    #[test]
+    fn an_unmerged_release_publishes_no_tag() {
+        let work = repo("defer");
+        let sha = commit_on_branch(&work);
+        let outcome = publish_release_tag(&work, "v9.9.9", Duration::from_secs(0)).unwrap();
+        assert_eq!(outcome, TagPublish::Deferred);
+        assert_eq!(
+            remote_tags(&work),
+            "",
+            "no tag may be published before its commit is on main"
+        );
+        // The tag exists locally, so the cut is recoverable with one push.
+        // `^{commit}`: release tags are annotated, so the ref names a tag object.
+        let local = Command::new("git")
+            .args([
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "refs/tags/v9.9.9^{commit}",
+            ])
+            .current_dir(&work)
+            .output()
+            .unwrap();
+        assert!(local.status.success(), "the tag must be created locally");
+        assert_eq!(
+            String::from_utf8_lossy(&local.stdout).trim(),
+            sha,
+            "the local tag must name the cut commit"
+        );
+    }
+
+    #[test]
+    fn a_merged_release_is_published() {
+        let work = repo("publish");
+        let sha = commit_on_branch(&work);
+        let push = Command::new("git")
+            .args(["push", "--quiet", "origin", "HEAD:main"])
+            .current_dir(&work)
+            .output()
+            .unwrap();
+        assert!(push.status.success(), "{push:?}");
+        let outcome = publish_release_tag(&work, "v9.9.9", Duration::from_secs(0)).unwrap();
+        assert_eq!(outcome, TagPublish::Published);
+        assert!(
+            remote_tags(&work).contains("refs/tags/v9.9.9"),
+            "{}",
+            remote_tags(&work)
+        );
+        let _ = sha;
+    }
+
+    #[test]
+    fn await_merged_returns_true_once_the_commit_lands() {
+        let work = repo("await");
+        let sha = commit_on_branch(&work);
+        // A merge arriving while the wait is in flight, as auto-merge does.
+        let from_thread = work.clone();
+        let merge = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let out = Command::new("git")
+                .args(["push", "--quiet", "origin", "HEAD:main"])
+                .current_dir(&from_thread)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{out:?}");
+        });
+        assert!(
+            await_merged(&work, &sha, Duration::from_secs(30)),
+            "a merge that lands inside the budget must publish the tag"
+        );
+        merge.join().unwrap();
+    }
+
+    #[test]
+    fn await_merged_gives_up_when_the_merge_never_comes() {
+        let work = repo("timeout");
+        let sha = commit_on_branch(&work);
+        assert!(!await_merged(&work, &sha, Duration::from_secs(0)));
+    }
 
     fn sample() -> E2eCheck {
         E2eCheck {

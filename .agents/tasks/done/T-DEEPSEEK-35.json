@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-35",
+  "title": "A release cut publishes its tag before the merge that makes it valid, so the publish run always fails first",
+  "goal": "susi admin release --cut commits the version bump, pushes the branch, then creates and pushes the tag in the same run (crates/susi-gawd/src/admin/release.rs). Since 2026-10-01 the Release Binaries workflow verifies the tag before building anything: the tagged commit must be an ancestor of origin/main (scripts/check-release-tag.sh). At cut time the branch is only pushed, not merged, so the verification fails: v0.21.1 was refused with 'not an ancestor of origin/main' at 00:13:34 and the identical run passed only after a manual gh run rerun once PR #224 merged at 00:20. Because the tag ruleset forbids moving a release tag, a failed publish cannot be repaired by re-pointing it — only by re-running the workflow or cutting another version. Make the cut publish the tag after the merge (or make the pipeline push the tag once the branch lands), and prove it with the existing provenance tests: a tag whose commit is not yet on main must not start a build, and the documented cut-then-merge sequence must end with a published release without manual intervention. FIXED 2026-10-02: --cut now waits (bounded, SUSI_RELEASE_MERGE_WAIT, default 1800s) for the pushed release commit to reach origin/main before publishing the tag, and leaves the tag local — never published, never refused — when the merge has not landed, telling the operator to push it after merging. A release that published a tag CI refuses could never be repaired, because the tag ruleset forbids moving a published tag.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "admin::release",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790900304,
+  "closed": {
+    "at_unix": 1790915569,
+    "commit": "683b81dda935b63377bfb5e7276c75a7eaedf557",
+    "by": "DEEPSEEK"
+  }
+}
