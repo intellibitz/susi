@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-84",
+  "title": "Keep the front door and the ledger honest at the boundary",
+  "goal": "Two advisories, neither a gate, because prose and evidence forced by a check become rubber stamps. (1) A task that changes the CLI surface but not README.md leaves the front door describing a tool that no longer exists: warn at push (Workflow Compliance) when the pushed range touches src/cli/ without touching README.md, and prove the warning fires and stays silent otherwise. (2) Evidence is a convention: the ledger is what ranks providers by recorded outcomes, so an entry minted to satisfy a check is noise. Prompt once at close - only when the task's claim reserved crates/ and no entry names the task - that if it changed a design decision or produced a measurement it should be recorded, and say plainly that a rubber-stamp entry is worse than none.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(workflow_compliance)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790952161,
+  "closed": {
+    "at_unix": 1790952418,
+    "commit": "356253be8c0f5d85af01ec64c83d72a4a64f8344",
+    "by": "DEEPSEEK"
+  }
+}

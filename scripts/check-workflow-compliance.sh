@@ -200,6 +200,18 @@ while read -r c; do
     fi
 done <<<"$commits"
 
+# Docs currency (advisory, never fatal): a task that changes the CLI surface but
+# not the README leaves the front door describing a tool that no longer exists.
+# It only warns — the README is prose, and a gate that forces prose produces
+# worse prose than a task that lags.
+range_files=$(git diff --name-only "$base_commit" "$head_commit" 2>/dev/null || true)
+cli_files=$(printf '%s\n' "$range_files" | grep -c '^src/cli/' || true)
+readme_files=$(printf '%s\n' "$range_files" | grep -c '^README\.md$' || true)
+if [ "$cli_files" -gt 0 ] && [ "$readme_files" -eq 0 ]; then
+    echo "⚠️  docs: $cli_files file(s) under src/cli/ changed without README.md — if a command, flag or" >&2
+    echo "   output changed, document it in the same task (advisory: docs may lag a task, not a release)" >&2
+fi
+
 if [ "$fail" = 0 ]; then
     echo "✅ workflow compliance: every commit in $base..$head belongs to a claimed or closed task"
 fi
