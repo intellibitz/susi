@@ -7,6 +7,8 @@ use crate::susi_sandbox::manager::DynamicModelInfo;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use susi_vendor_models::resumable_downloads::DownloadPlan;
+use susi_vendor_models::transactional_download::Store;
 
 #[derive(Debug, Clone)]
 /// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan
@@ -224,10 +226,27 @@ impl ModelManager {
             task_handle.mark_completed("Simulated download for test");
             return Ok(());
         }
-        let models_dir = Self::get_models_dir();
-        fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
+        Self::execute_download_stream_in(target, task_handle, &Self::get_models_dir())
+    }
+
+    fn execute_download_stream_in(
+        target: &str,
+        task_handle: &TaskHandle,
+        models_dir: &Path,
+    ) -> Result<(), String> {
+        fs::create_dir_all(models_dir).map_err(|e| e.to_string())?;
         let file_name = crate::download::artifact_name(target)?;
         let path = models_dir.join(&file_name);
+        let store = Self::transactional_store(models_dir);
+        fs::create_dir_all(
+            store
+                .staging_target(&file_name)
+                .parent()
+                .ok_or("transactional staging path has no parent directory")?,
+        )
+        .map_err(|e| e.to_string())?;
+        Self::migrate_legacy_download_state(models_dir, &store, &file_name)?;
+        let staging_target = store.staging_target(&file_name);
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let trusted_origin = url::Url::parse(target)
             .ok()
@@ -250,7 +269,7 @@ impl ModelManager {
             );
             let result = crate::download::transfer(
                 target,
-                &path,
+                &staging_target,
                 policy.download_timeout_secs,
                 token.as_deref(),
                 &|| {
@@ -277,6 +296,13 @@ impl ModelManager {
             );
             match result {
                 Ok(()) => {
+                    let _published = Self::publish_download(
+                        models_dir,
+                        &file_name,
+                        target,
+                        expected_sha256.as_deref(),
+                        &|candidate| Self::valid_download_artifact(&file_name, candidate),
+                    )?;
                     let size = path.metadata().map(|m| m.len()).unwrap_or(0);
                     Self::save_download_progress(&file_name, target, size, size, "COMPLETED");
                     MODEL_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
@@ -323,6 +349,65 @@ impl ModelManager {
             },
         );
         Err(last_error)
+    }
+
+    fn transactional_store(models_dir: &Path) -> Store {
+        Store::new(models_dir.parent().unwrap_or(models_dir))
+    }
+
+    fn migrate_legacy_download_state(
+        models_dir: &Path,
+        store: &Store,
+        file_name: &str,
+    ) -> Result<(), String> {
+        let staged_target = store.staging_target(file_name);
+        let legacy_part = models_dir.join(format!("{file_name}.part"));
+        let staged_part = PathBuf::from(format!("{}.part", staged_target.display()));
+        if legacy_part.is_file() && !staged_part.exists() {
+            fs::rename(&legacy_part, &staged_part).map_err(|e| e.to_string())?;
+        }
+        let legacy_checkpoint = models_dir.join(format!("{file_name}.download.json"));
+        let staged_checkpoint = PathBuf::from(format!("{}.download.json", staged_target.display()));
+        if legacy_checkpoint.is_file() && !staged_checkpoint.exists() {
+            fs::rename(legacy_checkpoint, staged_checkpoint).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn valid_download_artifact(file_name: &str, path: &Path) -> bool {
+        if file_name.ends_with(".gguf") {
+            Self::valid_gguf_payload(path)
+        } else if file_name.ends_with(".json") {
+            susi_vendor_candle::tokenizers::Tokenizer::from_file(path).is_ok()
+        } else {
+            path.metadata().is_ok_and(|metadata| metadata.len() > 0)
+        }
+    }
+
+    /// Complete the production download transition after the streaming
+    /// transport has written its validated payload to staging.
+    fn publish_download(
+        models_dir: &Path,
+        file_name: &str,
+        target: &str,
+        expected_sha256: Option<&str>,
+        validate: &dyn Fn(&Path) -> bool,
+    ) -> Result<PathBuf, String> {
+        let store = Self::transactional_store(models_dir);
+        let plan = DownloadPlan {
+            url: target.to_string(),
+            dest: store.staging_target(file_name),
+            sha256: expected_sha256.map(str::to_owned),
+            size: None,
+            max_retries: 1,
+        };
+        let report = store
+            .commit_staged(file_name, &plan, validate)
+            .map_err(|error| error.to_string())?;
+        report
+            .path
+            .filter(|_| report.published)
+            .ok_or_else(|| "staged model was not published after verification".to_string())
     }
 
     /// The furthest-along active download's completion percentage, if any
@@ -403,6 +488,40 @@ impl ModelManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vc_201_044_download_publish_called_by_production() {
+        let root =
+            std::env::temp_dir().join(format!("susi-vc-201-044-production-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let models_dir = root.join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+
+        let file_name = "production-model.bin";
+        let payload = b"streamed model payload";
+        let store = ModelManager::transactional_store(&models_dir);
+        let staged = store.staging_target(file_name);
+        fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        fs::write(&staged, payload).unwrap();
+        let checksum = susi_vendor_models::resumable_downloads::sha256_hex(payload);
+
+        let final_path = ModelManager::publish_download(
+            &models_dir,
+            file_name,
+            "https://models.example.test/production-model.bin",
+            Some(&checksum),
+            &|path| path.metadata().is_ok_and(|metadata| metadata.len() > 0),
+        )
+        .unwrap();
+
+        assert_eq!(final_path, models_dir.join(file_name));
+        assert_eq!(fs::read(&final_path).unwrap(), payload);
+        assert!(store.is_ready(file_name));
+        assert!(!staged.exists());
+        assert!(store.recover().is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn test_automatic_admission_is_a_hard_gate() {
         assert!(!ModelManager::fits_memory(32.0, 8.0, 2.0, 1.25));
