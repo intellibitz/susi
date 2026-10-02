@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-72",
+  "title": "A test fixture depends on the developer's global git identity, and it is reddening main",
+  "goal": "main is red on 7912ced8 in two jobs - Test (root-cli) and Coverage Ratchet - for one cause: tests/workflow_check.rs::an_unresolved_merge_fails_the_check_and_says_how_to_get_out invokes git merge through a raw Command::new(git) that bypasses the file's run() helper, so on a runner with no git identity the merge fails immediately with 'Committer identity unknown' and never writes MERGE_HEAD. The check then reports 'uncommitted change(s)' instead of 'a merge is in progress', and the test fails. Reproduced locally with GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null: 1 failed. This is the third instance of the same trap (645c7095 was the first, and the release fixture hit it today), so the fixture itself should own an identity rather than depending on machine config.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(workflow_check)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790935990,
+  "closed": {
+    "at_unix": 1790936207,
+    "commit": "acc3b5c51e9ae10b8c198b83777b823cd4e9680e",
+    "by": "DEEPSEEK"
+  }
+}

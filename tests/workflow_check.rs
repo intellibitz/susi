@@ -65,6 +65,16 @@ impl World {
         }
         git(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
         git(&primary, &["init", "--quiet", "-b", "main"]);
+        // The fixture owns its identity. A test that lets git fall back to the
+        // *machine's* global config passes only where a developer has one: on a
+        // CI runner `git merge` then fails with "Committer identity unknown"
+        // before it ever writes MERGE_HEAD, which silently turns the
+        // unresolved-merge case into an ordinary dirty tree. `wt` is a linked
+        // worktree, so it shares this config.
+        for repo in [&bare, &primary] {
+            git(repo, &["config", "user.name", "t"]);
+            git(repo, &["config", "user.email", "t@t"]);
+        }
         git(
             &primary,
             &["remote", "add", "origin", bare.to_str().unwrap()],
@@ -375,12 +385,10 @@ fn an_unresolved_merge_fails_the_check_and_says_how_to_get_out() {
     git(&w.primary, &["commit", "--quiet", "-m", "main side"]);
     git(&w.primary, &["push", "--quiet", "origin", "HEAD:main"]);
     git(&w.wt, &["fetch", "--quiet", "origin"]);
-    // Conflicts, and leaves MERGE_HEAD behind.
-    let _ = Command::new("git")
-        .args(["merge", "--no-edit", "origin/main"])
-        .current_dir(&w.wt)
-        .output()
-        .unwrap();
+    // Conflicts, and leaves MERGE_HEAD behind. Through the helper, so the
+    // fixture's identity is used rather than whatever the machine happens to
+    // have configured — a raw `git` here is what let this test depend on it.
+    let _ = run(&w.wt, "git", &["merge", "--no-edit", "origin/main"], &[]);
     let (code, out) = w.check(&w.wt);
     assert_ne!(code, 0, "an unresolved merge must fail the check: {out}");
     assert!(out.contains("❌ tree clean"), "{out}");
