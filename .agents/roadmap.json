@@ -574,7 +574,7 @@
       "id": "VC-201-046",
       "mastery_target": "Introduce bounded batching only for backends that support it, with per-request deadlines and cancellation; load tests demonstrate throughput changes without violating configured latency or memory limits.",
       "priority": "P1",
-      "progress": "DELIVERED: bounded batching is offered only for backends that support it, with per-request deadlines and cancellation; a cancelled request does not run, an overdue deadline is answered rather than run late, and a non-batching backend is refused. Verified by `crates/susi-vendor-models/src/tests/vc_201_046.rs`: full_batch_flushes_in_one_backend_call, queue_bound_and_wait_based_flush, cancelled_requests_do_not_run, deadline_overrun_is_answered_not_run_late, non_batch_backends_are_refused. Evidence: T-CLAUDE-377.",
+      "progress": "PARTIAL: bounded inference batching is implemented as an uncalled library in infer_batch::Batcher, but no production engine implements BatchBackend, and load tests under latency/memory limits are absent. Tracked by T-ANTIGRAVITY20261002053216-6.",
       "type": "LOCAL_HOSTING",
       "vector": "Batch compatible local inference requests"
     },
