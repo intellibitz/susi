@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-81",
+  "title": "The readiness roster is five agents; six will work",
+  "goal": "deepseek joins cursor, claude, devin, codex and antigravity, but scripts/check-swarm-readiness.py lists only the five: its ROSTER omits deepseek, so the check would report the sixth agent as absent (or silently ignore it) while the swarm is six strong. Add deepseek, keep the roster the single place the working set is declared, and check all six.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-swarm-readiness.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790948430
+}

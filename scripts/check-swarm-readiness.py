@@ -15,12 +15,15 @@ Exit 0 when every agent in the roster is ready and at least one task is
 claimable; 1 otherwise, with the command that fixes each line.
 """
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 NAME = "swarm readiness"
-ROSTER = ["cursor", "claude", "devin", "codex", "antigravity"]
+# Every worker expected to run beside the others. One place: the check, the
+# provisioned worktrees and the report all read it as the working set.
+ROSTER = ["deepseek", "cursor", "claude", "devin", "codex", "antigravity"]
 HOOKS = ["commit-msg", "pre-commit", "pre-push", "workflow-guard"]
 
 
@@ -101,9 +104,17 @@ def ready_worktree(agent, tokens):
         if not token or not token.startswith(want):
             continue
         behind = (git("-C", str(path), "rev-list", "--count", "HEAD..origin/main") or "").strip()
-        matches.append((int(behind) if behind.isdigit() else 10**6, path, branch))
+        # Prefer the tree this agent was provisioned in — `<agent>-<yyyymmdd>-<hhmmss>`,
+        # what scripts/susi-worktree.sh creates — over a retired tree that merely
+        # carries the agent's name in its token. Closeness to main is the
+        # tie-break, not the rule: an old review worktree happened to be nearer
+        # main than the handover tree, so the check offered that one instead.
+        conventional = re.match(rf"^{re.escape(agent)}-\d{{8}}-\d{{6}}", branch) is not None
+        matches.append(
+            (0 if conventional else 1, int(behind) if behind.isdigit() else 10**6, path, branch)
+        )
     if matches:
-        _, path, branch = min(matches)
+        _, _, path, branch = min(matches)
         return path, branch, None
     return None, None, (
         f"no worktree carries a susi.agent starting {want} — "
