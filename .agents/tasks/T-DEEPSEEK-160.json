@@ -1,0 +1,23 @@
+{
+  "id": "T-DEEPSEEK-160",
+  "title": "Run the estate reconciliation loop unattended",
+  "goal": "Observe the local and cloud AI estate on susi's own schedule - no command, no session - diff it against the declared desired state, and act within policy: warm or evict a model, start or drain a runtime, rotate away from a dead key, collect an orphaned resource. The loop resumes after a restart rather than restarting its work, and every pass is audited. This is the difference between a toolbox a user must drive and an OS that manages the estate: the mechanisms for inventory, plan and drift are already claimed (see the VC-201 LOCAL_HOSTING/CLOUD_HOSTING/CONFIGURATION vectors) - what is missing is the loop that runs without being asked.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-93",
+    "T-DEEPSEEK-108"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(estate_loop_unattended)"
+    ]
+  },
+  "roadmap": "VC-202-024",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790956284
+}

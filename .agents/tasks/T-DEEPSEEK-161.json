@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-161",
+  "title": "Autonomy tiers: act, dry-run, and ask before a costly or irreversible change",
+  "goal": "Classify every estate action by reversibility, cost and blast radius, and enforce the tiers: observe always; act automatically only for reversible low-blast-radius changes; dry-run and require approval for irreversible or costly ones, with the diff shown before consent. Snapshot before any change and roll back automatically when the canary mission regresses, so the OS can undo its own management. Acceptance is the user-facing guarantee made testable: every autonomous change has an audit record and a rollback, and every change outside the tier produced an approval request.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-94",
+    "T-DEEPSEEK-97",
+    "T-DEEPSEEK-108"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(estate_autonomy_tiers)"
+    ]
+  },
+  "roadmap": "VC-202-024",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790956284
+}

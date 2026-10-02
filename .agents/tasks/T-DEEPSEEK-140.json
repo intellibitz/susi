@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-140",
+  "title": "Verify mastery: Coordinate provider quotas and retry budgets",
+  "goal": "VC-201-053 (P1) claims mastery of: Share request/token quotas, Retry-After handling, and circuit-breaker state across local workers; concurrent throttling tests bound retries and prevent a failing provider from causing retry storms. Its own narrative claims delivery: DELIVERED: shared quota, Retry-After and circuit-breaker state bound retries - the rate-limit scheduler waits for reset or Retry-After, quota inventory is account-shared and clock-skew tolerant, and lockout recovery is bounded exponential with a shared half-open probe budget. Verified by `crates/susi-gemi/src/tests/rate_limit_scheduler.rs` (ready_when_remaining_positive, remaining_zero_waits_for_reset, retry_after_delays), `crates/susi-vendor-models/src/cloud_quota.rs` (cloud_quota_inventory_account_shared_quota, clock_skew_tolerance, free_only_tier, is_bounded) and `crates/susi-gawd-swarm/src/cloud_lockout.rs` (cloud_lockout_recovery_backoff_is_bounded_exponential, half_open_probe_budget_is_shared, is_bounded, backwards_clock_never_extends). Evidence: T-CLAUDE-37, T-CODEX-2, T-CODEX-5. Prove or refute it: add a nonzero test named vc_201_053_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence. Closing this task records the outcome, not a passing test: write .agents/roadmap-verdicts/<the vector>.json with verdict 'delivered' (and the test or record that proves it) or 'not-delivered' (with what is missing and the task ids that track the follow-up work), then run scripts/check-roadmap-verdict.py <the vector> — which is this task's acceptance. A refutation therefore closes the task and files the work, instead of stalling on a test that cannot pass; the roadmap and the queue both understand the record. Do not reserve .agents/roadmap-verdicts in your claim: the directory is exempt from the scope check precisely so a verdict commits under your source claim, and reserving it would overlap every other verification task and serialize them all. Reserve the source paths you will touch, and add a scope if the verdict needs to change the vector's narrative in .agents/roadmap.json. Evidence must name something real: a path that exists in the checkout, or an identifier (a test name) that appears in it. The checker verifies this, so a verdict cannot be closed by typing a claim. Put the test in its own file named after the vector (for example crates/<crate>/src/tests/<vc_id>_mastery.rs) and reserve that file with --scope: if several vectors' tests land in one crate test file, their claim scopes overlap and the verifications serialize, so one file per vector is what lets them run at the same time.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-053"
+    ]
+  },
+  "roadmap": "VC-201-053",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790956282
+}

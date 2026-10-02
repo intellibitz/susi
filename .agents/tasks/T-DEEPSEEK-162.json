@@ -1,0 +1,23 @@
+{
+  "id": "T-DEEPSEEK-162",
+  "title": "A reasoning-grade capability floor for estate operations",
+  "goal": "Declare the capability floor for the estate-operations task class: planning a multi-step change to a live ecosystem - ordering restarts, preserving a warm cache, not spending the last of a quota - is reasoning work, so the cheapest model is not eligible however cheap it is. Cost still decides which qualified brain runs it, and the floor itself is data that the routing ladder reads.",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-100",
+    "T-DEEPSEEK-160"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(estate_operations_capability_floor)"
+    ]
+  },
+  "roadmap": "VC-202-024",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790956284
+}

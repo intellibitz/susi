@@ -1543,6 +1543,18 @@
       "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
       "type": "RSI_EVALUATION",
       "vector": "Delegated work is verified proportionally to risk"
+    },
+    {
+      "depends_on": [
+        "VC-202-011",
+        "VC-202-017"
+      ],
+      "id": "VC-202-024",
+      "mastery_target": "After susi starts it observes the local and cloud AI estate on its own schedule, diffs it against declared desired state and acts - inside declared autonomy tiers, where reversible low-blast-radius changes are automatic and irreversible or costly ones are dry-run, approved and reversible - so the user declares outcomes and never runs a procedure. The loop runs above a reasoning-grade capability floor for estate operations, every autonomous change is audited and can be rolled back, and a failure the OS could have fixed never reaches the user.",
+      "priority": "P0",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "type": "OPERATIONS",
+      "vector": "The estate is observed, reconciled and managed unattended"
     }
   ],
   "version": "0.21.6"
