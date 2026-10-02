@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-043",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Model admission does not observe or coordinate live accelerator headroom; AccelPool is an uncalled mock struct in susi-vendor-models; swarm AdmissionController uses hardcoded default capacity rather than measured accelerator headroom; concurrent load and out-of-memory tests do not exercise live reservation release on the production runtime path.",
+  "tracked_by": [
+    "T-ANTIGRAVITY20261002053216-2"
+  ],
+  "recorded_by": "ANTIGRAVITY20261002053216",
+  "recorded_unix": 1790964500
+}
