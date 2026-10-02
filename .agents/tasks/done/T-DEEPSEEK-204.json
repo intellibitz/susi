@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-204",
+  "title": "Untrack the build output that was committed by accident",
+  "goal": "Three thousand three hundred and ninety files under debug/ (92 MB tracked, 886 MB on disk) plus .rustc_info.json were committed by an unrelated workflow fix on 2026-09-30 - a git add -A that swept up a stray cargo target directory. debug/ is not in .gitignore, so every build mutates tracked files and every worktree goes dirty; it is also 92 MB in every clone. Untrack both, ignore them at the root, and add a check that fails when build output is tracked at all, so the accident cannot recur.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-tracked-artifacts.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790957548,
+  "closed": {
+    "at_unix": 1790957762,
+    "commit": "55c1dbefe073eaab762a0bc8a2ae3d011e11b845",
+    "by": "DEEPSEEK"
+  }
+}

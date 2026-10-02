@@ -60,3 +60,7 @@ Thumbs.db
 
 # Agent worktrees live here; never track them.
 .claude/worktrees/
+
+# Build output: never tracked (see scripts/check-tracked-artifacts.sh).
+/debug/
+/.rustc_info.json

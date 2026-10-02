@@ -1,1 +1,0 @@
-{"rustc":1625334936438085654,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[2485766724028222710,"build_script_build",false,11675773762343335293]],"local":[{"RerunIfChanged":{"output":"debug/build/zerocopy-db519189e7dd0d17/output","paths":["build.rs","Cargo.toml"]}}],"rustflags":["-Clinker-features=-lld"],"config":0,"compile_kind":0}
