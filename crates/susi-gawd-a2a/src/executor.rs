@@ -9,6 +9,7 @@ use ra2a::types::{Message, Part, Task, TaskState, TaskStatus};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 
 /// Concurrent fleet executions are bounded: each task owns a dedicated OS
 /// thread while the fleet runs (see `run_fleet`), and unbounded thread growth
@@ -199,13 +200,38 @@ impl AgentExecutor for GawdA2AExecutor {
                 return Ok(());
             }
 
+            // An authenticated A2A transport does not make the message body
+            // trusted. Gate it before the mission can dispatch consequential
+            // tools, and never echo a rejected body into the task result.
+            let content = match enforce_action(
+                &wrap_tool_output("a2a:request", &content),
+                ActionClass::Consequential,
+            ) {
+                Ok(content) => content,
+                Err(reason) => {
+                    let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+                    task.status = TaskStatus::with_message(
+                        TaskState::Failed,
+                        Message::agent(vec![Part::text(reason)]),
+                    );
+                    queue.send(Event::Task(task))?;
+                    return Ok(());
+                }
+            };
+
             // The mission must not run on this executor's tokio worker —
             // see `run_mission`.
             let permit = InflightPermit::try_acquire();
             let (state, response_content) = match permit {
                 Some(_) => match run_mission(Arc::clone(&self.runner), content).await {
-                    Ok(response) => (TaskState::Completed, response),
-                    Err(error) => (TaskState::Failed, error),
+                    Ok(response) => (
+                        TaskState::Completed,
+                        wrap_tool_output("a2a:mission-reply", &response).redacted_for_sink(),
+                    ),
+                    Err(error) => (
+                        TaskState::Failed,
+                        wrap_tool_output("a2a:mission-error", &error).redacted_for_sink(),
+                    ),
                 },
                 None => (
                     TaskState::Rejected,
