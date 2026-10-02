@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-130",
+  "title": "Roadmap: a candidate may be an agent seat, and the catalogue keeps itself current",
+  "goal": "Close the two holes found when checking that the three capability claims had tasks: nothing noticed a model that appeared or was retired since the last scout, and the selection layer treated a brain as only a model - while the six agent seats are subscription-billed workers that, under marginal-cost ranking, would often be the cheapest secondaries available. Widen the candidate to a worker of either kind, keep the catalogue self-refreshing, and queue the two tasks that implement it.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py"
+    ]
+  },
+  "roadmap": "VC-202-022",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790955429
+}
