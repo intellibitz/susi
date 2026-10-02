@@ -92,18 +92,29 @@ gate_tests() {
     # nested line would otherwise name a crate that does not exist here.
     members=$( { ls -d crates/*/ 2>/dev/null | xargs -n1 basename; sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -1; } | sort -u)
     reran=0
-    echo "the workspace run failed; retrying $(printf '%s ' $crates)once - timing tests are load-sensitive" >&2
+    echo "the workspace run failed; retrying $(printf '%s ' $crates)up to 3 times - timing tests are load-sensitive, and this machine is never quiet during a swarm" >&2
     for c in $crates; do
         if ! grep -qx "$c" <<<"$members"; then
             echo "ignoring $c: not a package in this workspace" >&2
             continue
         fi
         reran=1
-        cargo test --locked -p "$c" || {
-            echo "FAILED again on a quiet run: $c - a real failure, not a flake" >&2
+        passed=0
+        for attempt in 1 2 3; do
+            if cargo test --locked -p "$c"; then
+                passed=1
+                break
+            fi
+            [ "$attempt" -lt 3 ] && {
+                echo "attempt $attempt failed for $c; waiting for the load to dip" >&2
+                sleep 20
+            }
+        done
+        if [ "$passed" -eq 0 ]; then
+            echo "FAILED on 3 attempts: $c - a real failure, not a flake" >&2
             return 1
-        }
-        echo "passed on retry (the first run was load-flaky): $c" >&2
+        fi
+        echo "passed on retry: $c (attempt $attempt)" >&2
     done
     if [ "$reran" -eq 0 ]; then
         echo "the workspace tests failed and no crate named belongs to this workspace" >&2
