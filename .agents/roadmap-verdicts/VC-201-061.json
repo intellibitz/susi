@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-061",
+  "verdict": "delivered",
+  "evidence": "crates/susi-config/src/tests/vc_201_061_mastery.rs — vc_201_061_mastery_invalid_relationships_fail_before_mutation and vc_201_061_mastery_unknown_keys_survive_stable_round_trip",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790959966
+}
