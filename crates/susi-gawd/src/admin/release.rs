@@ -665,6 +665,13 @@ mod tests {
         };
         run(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
         run(&work, &["init", "--quiet", "-b", "main"]);
+        // Annotated tags need a committer identity, and a CI runner has none:
+        // the first version of these tests passed here and failed there with
+        // "Committer identity unknown". The fixture owns its identity.
+        for dir in [&bare, &work] {
+            run(dir, &["config", "user.name", "t"]);
+            run(dir, &["config", "user.email", "t@t"]);
+        }
         run(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
         run(&work, &["commit", "--allow-empty", "--quiet", "-m", "init"]);
         run(&work, &["push", "--quiet", "origin", "HEAD:main"]);
