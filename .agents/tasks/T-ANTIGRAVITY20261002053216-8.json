@@ -1,0 +1,20 @@
+{
+  "id": "T-ANTIGRAVITY20261002053216-8",
+  "title": "Implement checksummed offline bundle packaging, staging, and missing artifact diagnosis",
+  "goal": "Offline bootstrap requires packaging and importing checksummed bundles containing supported binaries, models, and extension metadata into isolated hosts, booting under network-disabled conditions, and diagnosing missing local artifacts without cloud fallback.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_050_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-050",
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790974000
+}
