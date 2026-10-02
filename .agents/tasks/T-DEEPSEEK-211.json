@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-211",
+  "title": "No test file may sit uncompiled under a crate's src",
+  "goal": "A .rs file under crates/*/src/tests that no mod declares is never compiled: it looks like coverage and provides none. Found by hand three times - the VC-201-041 and VC-201-042 mastery tests that had never run, and a preserved change that was nothing but a registration - each one a test written to protect something and protecting nothing. Check it mechanically: every test file under a crate's src must be declared by that crate, in either the mod <stem>; form or the #[path = \"...\"] form the crates actually use, and the check runs in CI so a new dead test cannot land.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-unregistered-tests.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790976186
+}
