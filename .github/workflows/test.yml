@@ -105,6 +105,12 @@ jobs:
       - name: No vector's narrative contradicts its recorded verdict
         run: scripts/check-roadmap-queue.py --consistency-only
 
+      # A verdict is the acceptance of a verification task, so it has to hold on
+      # main and not only in the worktree that wrote it. This is where a
+      # `delivered` verdict citing a test no module declares is refused.
+      - name: Every recorded verdict cites evidence that can run
+        run: scripts/check-roadmap-verdict.py --all
+
   deny:
     name: cargo deny (licenses + advisories)
     runs-on: ubuntu-latest
