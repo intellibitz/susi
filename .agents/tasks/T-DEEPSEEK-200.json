@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-200",
+  "title": "A graded user-intent corpus, run at start-up within a budget",
+  "goal": "Author and version a ladder of real user intents from trivial to extreme, each with an independently checkable outcome and a cost and latency budget, and run a bounded slice of it after susi starts: a small number of intents, a spend ceiling and a wall-clock ceiling, with the full ladder available on demand and on a schedule. Every intent runs hermetically - throwaway workspace, scratch HOME, no live estate, no real egress - because an automatic run of extreme intents that touches the user's environment is a foot-gun, not a self-test. The result is a reproducible scorecard: per intent pass, fail or partial, what it cost, which worker ran it and where it stopped.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-89"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(intent_ladder_startup)"
+    ]
+  },
+  "roadmap": "VC-201-001",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790957049
+}

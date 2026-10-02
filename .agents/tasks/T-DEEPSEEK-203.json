@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-203",
+  "title": "Roadmap: verify every remaining claim, and ladder real user intents at start-up",
+  "goal": "Close the last of the unverified DELIVERED claims (all 20 RSI evaluation and execution vectors, the federation set, the swarm execution ones and the two governance ones) and queue the one genuinely missing piece of the self-discovery loop: a graded ladder of real user intents run hermetically at start-up within a budget, gaps filed as tasks whose acceptance is the failing intent, and canaries that must fail so the scorer is proven able to detect failure.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py"
+    ]
+  },
+  "roadmap": "VC-201-001",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790957064
+}
