@@ -102,7 +102,7 @@ impl Fixture {
         git(&other, &["fetch", "--quiet", "origin"]);
         git(&other, &["reset", "--hard", "--quiet", "origin/main"]);
 
-        // The real hooks, and the scope checker commit-msg calls.
+        // The real hooks, and every script they call.
         let src = Path::new(env!("CARGO_MANIFEST_DIR"));
         std::fs::create_dir_all(work.join(".githooks")).unwrap();
         for name in ["commit-msg", "pre-commit", "pre-push", "workflow-guard"] {
@@ -113,11 +113,13 @@ impl Fixture {
             .unwrap();
         }
         std::fs::create_dir_all(work.join("scripts")).unwrap();
-        std::fs::copy(
-            src.join("scripts/check-task-scope.py"),
-            work.join("scripts/check-task-scope.py"),
-        )
-        .unwrap();
+        for name in ["check-task-scope.py", "check-worker-identity.sh"] {
+            std::fs::copy(
+                src.join("scripts").join(name),
+                work.join("scripts").join(name),
+            )
+            .unwrap();
+        }
         // After the setup commit, so the hook does not judge it.
         git(&work, &["config", "core.hooksPath", ".githooks"]);
         Self { root, work, other }

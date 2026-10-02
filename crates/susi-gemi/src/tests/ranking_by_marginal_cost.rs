@@ -47,7 +47,7 @@ impl Eq for RankingScore {}
 
 impl PartialOrd for RankingScore {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.effective_cost().partial_cmp(&other.effective_cost())
+        Some(self.cmp(other))
     }
 }
 
@@ -60,7 +60,7 @@ pub struct RankedProvider {
 
 impl PartialOrd for RankedProvider {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.score.partial_cmp(&other.score)
+        Some(self.cmp(other))
     }
 }
 
