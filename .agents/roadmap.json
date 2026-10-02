@@ -646,7 +646,7 @@
       "id": "VC-201-052",
       "mastery_target": "Reserve estimated spend before requests and reconcile provider-reported usage afterward across parallel agents and retries; unknown prices or missing usage follow explicit policy and cannot silently bypass a hard budget.",
       "priority": "P0",
-      "progress": "DELIVERED: spend is reserved before the request and reconciled against provider-reported usage; parallelism, retries, unknown prices and missing usage each follow explicit policy and cannot bypass the hard cap. Verified by `crates/susi-gawd-agents/src/cloud_budget.rs` (cloud_free_paid_budget_unknown_price_reserves_the_remaining_cap, missing_usage_charges_the_estimate, retries_never_double_charge, concurrent_workers_cannot_overrun, shared_keys_share_the_account_cap, free_only_never_spends, ask_first_surfaces_consent) and `crates/susi-gemi/src/tests/spend_tracker.rs` (enforces_daily_hard_cap, resets_per_day_and_unknown_vendor_unlimited). Evidence: T-CLAUDE-36, T-CODEX-4.",
+      "progress": "PARTIAL: the spend ledger reserves atomically and is tested, but reserve_dispatch is called from nowhere, so no dispatch reserves before it runs and nothing reconciles provider-reported usage - tracked by T-DEEPSEEK-213.",
       "type": "CLOUD_HOSTING",
       "vector": "Reserve and reconcile cloud inference spend"
     },
