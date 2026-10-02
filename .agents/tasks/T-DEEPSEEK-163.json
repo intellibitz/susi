@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-163",
+  "title": "Roadmap: verify the ecosystem claims, then manage the estate unattended",
+  "goal": "Record the AI-ecosystem management requirement without duplicating it: the local/cloud inventory, desired-state config, plan/apply, drift reconciliation, quota and spend coordination, orphan collection and adapter rollback were all already claimed DELIVERED with no verification task, so the first move is to find out whether the claims are true (29 verification tasks in the pattern the queue already understands), and the only genuinely missing piece is the unattended loop plus autonomy tiers and a reasoning-grade floor for estate operations.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py"
+    ]
+  },
+  "roadmap": "VC-202-024",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790956294
+}
