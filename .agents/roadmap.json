@@ -848,7 +848,7 @@
       "id": "VC-201-068",
       "mastery_target": "Apply a pinned configuration revision to selected canary nodes, verify health, then advance bounded waves; a failing wave pauses rollout and exposes rollback state per node.",
       "priority": "P1",
-      "progress": "DELIVERED: a pinned configuration revision opens on canary nodes first, an unhealthy node pauses the rollout and blocks later waves, and resume requires every node healthy before completion, with per-node rollback state exposed. Verified by `crates/susi-config/src/tests/vc_201_068.rs`: canary_wave_opens_first, unhealthy_node_pauses_and_blocks_later_waves, resume_requires_all_healthy_then_completes, pinned_revision_is_enforced_and_rollback_state_exposed. Evidence: T-CLAUDE-385.",
+      "progress": "PARTIAL: the pinned revision is enforced on apply, an unhealthy report pauses the rollout and empties pending, per-node rollback state is exposed, and a fully pinned+healthy fleet completes — verified by `crates/susi-config/src/tests/vc_201_068_mastery.rs`. Refuted on record 2026-10-03: the wave bound is advisory (mark_applied accepts later-wave nodes while the canary wave is open), rollback marks a node healthy with no evidence and resume accepts it, an empty canary reports Running with pending() permanently empty, and no production caller drives the rollout. Verdict `.agents/roadmap-verdicts/VC-201-068.json`. Follow-up tracked by T-DEVIN20261002053148-10.",
       "type": "CONFIGURATION",
       "vector": "Roll configuration changes across a fleet in stages"
     },
