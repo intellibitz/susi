@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-76",
+  "title": "Make every roadmap verification task closable, on evidence or on a refutation",
+  "goal": "The 30 verification tasks I minted demand a test that proves the vector, so a vector that turns out NOT to be delivered leaves its agent unable to close and holding a dead claim - a stall I created. Record the outcome instead, one file per vector, so refutation is a result: .agents/roadmap-verdicts/<VC-id>.json with verdict delivered (requires the test or evidence that proves it) or not-delivered (requires what is missing and the follow-up task ids that track it), plus who recorded it and when. The acceptance becomes scripts/check-roadmap-verdict.py <VC-id>, which passes on either complete verdict and says what a incomplete one lacks; its --self-test pins all four cases. The roadmap queue checker counts a recorded verdict as resolved, so the queue cannot look dry while a verdict is on file, and one file per vector keeps 30 concurrent agents off a single roadmap.json (hand-resolved conflicts are what stranded the swarm-gap branch).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "--self-test"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790944096,
+  "closed": {
+    "at_unix": 1790944347,
+    "commit": "7b847be1b42c77cb63f10b6840339ea03ce47204",
+    "by": "DEEPSEEK"
+  }
+}

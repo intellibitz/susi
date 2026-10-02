@@ -50,6 +50,27 @@ def tasks(kind):
     return out
 
 
+def recorded_verdicts():
+    """Vectors whose mastery verdict is on file (see check-roadmap-verdict.py).
+
+    A recorded verdict is a resolution: the capability was proven, or refuted
+    with the follow-up tracked. Counting only *open* tasks would report a
+    refuted vector as unqueued forever.
+    """
+    out = set()
+    directory = ROOT / ".agents/roadmap-verdicts"
+    if not directory.is_dir():
+        return out
+    for path in sorted(directory.glob("*.json")):
+        try:
+            record = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if record.get("verdict") in ("delivered", "not-delivered"):
+            out.add(record.get("vector") or path.stem)
+    return out
+
+
 def claims_delivery(vector):
     """The vector's own narrative says the capability is delivered."""
     return (vector.get("progress") or "").strip().startswith("DELIVERED")
@@ -94,14 +115,18 @@ def main():
     covered = [v for v in roadmap if v["id"] in linked_any]
     claimed = [v for v in roadmap if claims_delivery(v)]
     unverified = [v for v in roadmap if not claims_delivery(v)]
-    unqueued = [v for v in unverified if v["id"] not in linked_open]
+    recorded = recorded_verdicts()
+    unqueued = [
+        v for v in unverified if v["id"] not in linked_open and v["id"] not in recorded
+    ]
 
     print(f"{NAME}: {len(roadmap)} vectors — coverage {len(covered)} linked to a task, "
           f"mastery {len(claimed)} claim delivery, {len(unverified)} do not "
-          f"({len(unqueued)} of those unqueued)")
+          f"({len(recorded)} verified or refuted on record, {len(unqueued)} unqueued)")
 
     if not unqueued:
-        print(f"✅ {NAME}: every vector either claims delivery or has work in the queue")
+        print(f"✅ {NAME}: every vector claims delivery, is verified or refuted on record, "
+              f"or has work in the queue")
         return 0
 
     if not queue:

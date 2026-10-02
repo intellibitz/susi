@@ -1,20 +1,16 @@
 {
-  "id": "T-DEEPSEEK-56",
-  "title": "Verify mastery: Provide an end-to-end ecosystem setup workflow",
-  "goal": "VC-201-069 (P1) claims mastery of: Guide discovery and configuration of an available local runtime, an optional cloud provider, tools, and policy through validated plans; the completion check runs a real mission and reports missing prerequisites.. Its own narrative does not claim delivery: PARTIAL: the setup workflow detects the ecosystem, takes consent and applies, then summarises - verified by `tests/zc_setup_workflow.rs`: zc_setup_workflow_detect_consent_apply_summary. Residual: guiding discovery and configuration of a local runtime, an optional cloud provider, tools and policy through validated plans, and a completion check that runs a real mission and reports missing prerequisi. Prove or refute it: add a nonzero test named vc_201_069_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
-  "size": "m",
-  "deps": [],
   "accept": {
     "cmd": [
-      "cargo",
-      "nextest",
-      "run",
-      "--locked",
-      "-E",
-      "test(vc_201_069_mastery)"
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-069"
     ]
   },
-  "roadmap": "VC-201-069",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790916197
+  "created_unix": 1790916197,
+  "deps": [],
+  "goal": "VC-201-069 (P1) claims mastery of: Guide discovery and configuration of an available local runtime, an optional cloud provider, tools, and policy through validated plans; the completion check runs a real mission and reports missing prerequisites.. Its own narrative does not claim delivery: PARTIAL: the setup workflow detects the ecosystem, takes consent and applies, then summarises - verified by `tests/zc_setup_workflow.rs`: zc_setup_workflow_detect_consent_apply_summary. Residual: guiding discovery and configuration of a local runtime, an optional cloud provider, tools and policy through validated plans, and a completion check that runs a real mission and reports missing prerequisi. Prove or refute it: add a nonzero test named vc_201_069_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence. Closing this task records the outcome, not a passing test: write .agents/roadmap-verdicts/<the vector>.json with verdict 'delivered' (and the test or record that proves it) or 'not-delivered' (with what is missing and the task ids that track the follow-up work), then run scripts/check-roadmap-verdict.py <the vector> \u2014 which is this task's acceptance. A refutation therefore closes the task and files the work, instead of stalling on a test that cannot pass; the roadmap and the queue both understand the record.",
+  "id": "T-DEEPSEEK-56",
+  "roadmap": "VC-201-069",
+  "size": "m",
+  "title": "Verify mastery: Provide an end-to-end ecosystem setup workflow"
 }
