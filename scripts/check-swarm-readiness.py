@@ -156,20 +156,64 @@ def claimable(open_ids, closed_ids):
 
 
 def unlanded(fresh_paths):
-    """Worktrees holding work that is not on origin/main — must not be lost."""
+    """Worktrees holding work that is not on origin/main — must not be lost.
+
+    Skips the worktree this runs in: its commit is in flight (the loop pushes
+    it moments later) and counting it would fail the check that guards the push.
+    Task records are not work either — a stale copy of a closed task is
+    reconciled through the queue, not preserved as an artifact.
+    """
+    here = Path((git("rev-parse", "--show-toplevel") or ".").strip()).resolve()
     rows = []
     for path, branch in worktrees():
-        if path in fresh_paths:
+        if path in fresh_paths or path.resolve() == here:
             continue
-        dirty = bool((git("-C", str(path), "status", "--porcelain") or "").strip())
+        porcelain = (git("-C", str(path), "status", "--porcelain") or "").splitlines()
+        work = [
+            line
+            for line in porcelain
+            if line[3:].strip() and not line[3:].strip().startswith(".agents/tasks/")
+        ]
         ahead = git("-C", str(path), "rev-list", "--count", "origin/main..HEAD") or "0"
         try:
             ahead_n = int(ahead)
         except ValueError:
             ahead_n = 0
-        if dirty or ahead_n > 0:
-            rows.append((path, branch, ahead_n, dirty))
+        if work or ahead_n > 0:
+            rows.append((path, branch, ahead_n, bool(work)))
     return rows
+
+
+def open_task_text():
+    """Every open task in this branch and its text, for judging whether work is tracked.
+
+    Read from HEAD, not origin/main: a task that records preserved work is
+    committed here before it is merged, and demanding it already be on main
+    would make the check fail exactly while the record is being written.
+    """
+    records = []
+    for name in sorted((git("ls-tree", "--name-only", "HEAD:.agents/tasks/") or "").split()):
+        if not name.endswith(".json"):
+            continue
+        try:
+            task = json.loads(git("show", f"HEAD:.agents/tasks/{name}"))
+        except ValueError:
+            continue
+        records.append((task.get("id", name), json.dumps(task)))
+    return records
+
+
+def tracks(records, path, branch):
+    """An open task that names this worktree, or nothing.
+
+    Unlanded work has to be visible where the next worker looks — the queue —
+    or it is one `prune-worktrees.sh --all` away from being lost. Naming the
+    worktree (or its preserved ref) in the task's own text is the record.
+    """
+    for tid, text in records:
+        if str(path) in text or branch in text or f"preserve/{path.name}" in text:
+            return tid
+    return None
 
 
 def main():
@@ -230,14 +274,22 @@ def main():
         if len(ready) < len(roster):
             print(f"⚠️  {NAME}: fewer claimable tasks than agents — the rest will wait rather than collide")
 
+    records = open_task_text()
     for path, branch, ahead_n, dirty in unlanded(fresh_paths):
         held = []
         if ahead_n:
             held.append(f"{ahead_n} unpushed commit(s)")
         if dirty:
             held.append("uncommitted changes")
-        print(f"⚠️  {NAME}: {path} ({branch}) holds {' and '.join(held)} — not on origin/main; "
-              f"land it as a task or discard it deliberately")
+        owner = tracks(records, path, branch)
+        if owner:
+            print(f"⚠️  {NAME}: {path} ({branch}) holds {' and '.join(held)} — not on origin/main, "
+                  f"tracked by {owner}")
+        else:
+            failures += 1
+            print(f"❌ {NAME}: {path} ({branch}) holds {' and '.join(held)} and NO open task names it — "
+                  f"record it before it is pruned: susi tasks add \"…\" --accept \"cargo test …\" "
+                  f"(and preserve the work: git push origin <sha>:refs/preserve/<name>)")
 
     return 1 if failures else 0
 
