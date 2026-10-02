@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-209",
+  "title": "One token per worker, enforced at commit time",
+  "goal": "A worktree created outside scripts/susi-worktree.sh inherits the creating tree's susi.agent, so two worktrees answer to one identity and can renew, close and release each other's claims. It is live here: the primary checkout and a hand-made worktree under .claude/worktrees both carry PRIMARY, and a claim taken in one was attributable to both. The readiness board reports it but does not block it, and a report is not a guard. Refuse a commit from a worktree whose token another worktree also carries, name the offenders, and print the ordered fix - the claim has to be released and re-claimed because a claim travels with its token.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-worker-identity.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790971340
+}
