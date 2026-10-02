@@ -493,6 +493,61 @@ fn a_stale_installed_release_is_reported_without_blocking_the_loop() {
     assert!(out.contains("susi-release-sync.sh"), "{out}");
 }
 
+/// Landing the release on main adds a merge commit and no content, so counting
+/// merge commits made every release read as one commit stale the moment it
+/// landed. A warning that is wrong the day it appears is one agents learn to
+/// ignore, which is the opposite of the point.
+#[test]
+fn landing_the_release_on_main_is_not_drift() {
+    let w = World::new("release-merge");
+    w.claim_a_task();
+    let other = w.root.join("other");
+    git(
+        &w.root,
+        &[
+            "clone",
+            "--quiet",
+            w.root.join("server.git").to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    // The release commit lives on its branch, and this host installed it...
+    git(&other, &["switch", "--quiet", "-c", "release"]);
+    git(
+        &other,
+        &[
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "chore: release v0.0.1",
+        ],
+    );
+    let released = git_out(&other, &["rev-parse", "release"]);
+    git(
+        &other,
+        &["push", "--quiet", "origin", "HEAD:refs/heads/release"],
+    );
+    install_release(&w, &released);
+
+    // ...then its pull request landed: a merge commit and nothing else.
+    git(&other, &["switch", "--quiet", "main"]);
+    git(
+        &other,
+        &["merge", "--no-ff", "--no-edit", "--quiet", "release"],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+
+    git(&w.wt, &["fetch", "--quiet", "origin"]);
+    git(&w.wt, &["merge", "--no-edit", "--quiet", "origin/main"]);
+    let (code, out) = w.check(&w.wt);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("✅ installed susi"),
+        "a merge that adds no content is not drift: {out}"
+    );
+}
+
 /// A release built from the tip of main is what the loop assumes, and a host
 /// with no marker at all (a dev build, or the first run here) says so instead
 /// of implying drift that cannot be measured.

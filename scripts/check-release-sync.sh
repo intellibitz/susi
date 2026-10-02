@@ -39,7 +39,10 @@ if ! git merge-base --is-ancestor "$commit" origin/main 2>/dev/null; then
     exit 1
 fi
 
-behind=$(git rev-list --count "${commit}..origin/main")
+# Only commits that changed the tree count: the merge that lands the release
+# branch on main adds no content, and counting it made every release read as one
+# commit stale the moment it landed.
+behind=$(git rev-list --no-merges --count "${commit}..origin/main")
 if [ "$behind" -gt 0 ]; then
     echo "❌ the installed release ${version} (${commit:0:8}) is ${behind} commit(s) behind origin/main"
     echo "   the workflow fixes merged since are not active for agents that run it"

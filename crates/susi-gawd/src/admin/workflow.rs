@@ -630,11 +630,20 @@ fn release_drift(root: &Path) -> ReleaseDrift {
         &["merge-base", "--is-ancestor", &commit, "origin/main"],
     )
     .is_none();
+    // Only commits that changed the tree count. The merge that lands the
+    // release branch on main adds no content, and counting it made every
+    // release read as one commit stale the moment it landed — a warning that
+    // is wrong the day it appears is one agents learn to ignore.
     let behind = (!off_main)
         .then(|| {
             git(
                 root,
-                &["rev-list", "--count", &format!("{commit}..origin/main")],
+                &[
+                    "rev-list",
+                    "--no-merges",
+                    "--count",
+                    &format!("{commit}..origin/main"),
+                ],
             )
         })
         .flatten()
