@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-110",
+  "title": "Payload-free audit, opt-in bounded trace",
+  "goal": "State and enforce what is recorded at which fidelity: the audit tier durable, signed and payload-free; the trace tier levelled, opt-in per subsystem, rotated and TTL'd under a measured bytes-per-day budget. Prove it with canaries - a secret, a prompt and a tool output must not reach the audit tier - and make trace redaction structural (types that cannot print a secret) rather than a filter someone must remember to apply.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(audit_payload_free_policy)"
+    ]
+  },
+  "roadmap": "VC-202-018",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954195
+}
