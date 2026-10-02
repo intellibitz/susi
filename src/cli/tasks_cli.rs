@@ -36,11 +36,15 @@ pub enum TaskCommands {
         #[arg(long)]
         agent: Option<String>,
     },
-    /// Roadmap coverage: which vectors have tasks, and how many are closed
+    /// Roadmap coverage and mastery: which vectors have tasks, and which of
+    /// them claim delivery in their own narrative
     Roadmap {
         /// Only vectors no task is linked to
         #[arg(long)]
         uncovered: bool,
+        /// Only vectors that do not claim delivery and have nothing queued
+        #[arg(long)]
+        unqueued: bool,
     },
     /// Claim a task (atomic; fails if someone else holds a live claim)
     Claim {
@@ -249,7 +253,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             }
             print_json(&out)?;
         }
-        TaskCommands::Roadmap { uncovered } => {
+        TaskCommands::Roadmap { uncovered, unqueued } => {
             let vectors = tasks::roadmap_vectors(&root)?;
             let cov = tasks::roadmap_coverage(
                 &vectors,
@@ -269,14 +273,18 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                         serde_json::json!({
                             "vectors": count(p, &|_| true),
                             "uncovered": count(p, &|c| c.uncovered()),
+                            // Coverage: every linked task is closed.
                             "delivered": count(p, &|c| c.delivered()),
+                            // Mastery: the vector's own narrative claims delivery.
+                            "mastery_claimed": count(p, &|c| c.mastery_claimed()),
+                            "unqueued": count(p, &|c| c.unqueued()),
                         }),
                     )
                 })
                 .collect();
             let rows: Vec<_> = cov
                 .iter()
-                .filter(|c| !uncovered || c.uncovered())
+                .filter(|c| (!uncovered || c.uncovered()) && (!unqueued || c.unqueued()))
                 .map(|c| {
                     serde_json::json!({
                         "id": c.vector.id,
@@ -285,6 +293,8 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                         "open": c.open,
                         "closed": c.closed,
                         "uncovered": c.uncovered(),
+                        "mastery": if c.mastery_claimed() { "claimed" } else { "unverified" },
+                        "unqueued": c.unqueued(),
                     })
                 })
                 .collect();

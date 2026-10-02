@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-67",
+  "title": "Verify mastery: Add targeted Kani verification harnesses",
+  "goal": "VC-201-096 (P1) claims mastery of: Verify bounded critical primitives for lease fencing, budget transitions, and policy precedence with documented assumptions; CI retains counterexamples and reports proof bounds instead of claiming whole-system correctness.. Its own narrative does not claim delivery: PARTIAL: bounded critical primitives are model-checked over exhaustive three-agent schedules - lease expiry is monotonic, the quarantine ladder is capped and graded, and two claimants never both win. Verified by `crates/susi-gawd/src/tests/formal_invariants.rs`: exhaustive_three_agent_schedules, leases_expire_monotonically, quarantine_ladder_cap_and_rungs, two_claimants_never_both_win. Residual: t. Prove or refute it: add a nonzero test named vc_201_096_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_096_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-096",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916198
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-66",
+  "title": "Verify mastery: Run repeatable ecosystem chaos drills",
+  "goal": "VC-201-095 (P1) claims mastery of: Inject network loss, disk-full, runtime crashes, corrupt state, and revoked credentials in isolated dev deployments; verify bounded recovery, explicit degraded states, and preservation of privacy and budget constraints.. Its own narrative does not claim delivery: PARTIAL: the chaos drills cover election determinism, duplicated-message idempotence, a partition that delays then avoids split brain, and rejection of a same-term foreign leader commit. Verified by `crates/susi-gawd-swarm/src/tests/swarm_chaos.rs`: election_is_deterministic, duplicated_messages_are_idempotent, partition_delays_then_no_split_brain, rejects_same_term_foreign_leader_commit. Residual. Prove or refute it: add a nonzero test named vc_201_095_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_095_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-095",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916198
+}

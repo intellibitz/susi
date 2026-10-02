@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-69",
+  "title": "Verify mastery: Verify host-platform lifecycle compatibility",
+  "goal": "VC-201-098 (P1) claims mastery of: Run supported Linux, macOS, and Windows install, start, stop, upgrade, and local-runtime smoke cases in isolated environments; the published matrix distinguishes tested features from unsupported GPU or sandbox paths.. Its own narrative does not claim delivery: PARTIAL: platform installers share one zero-config plan, read the installers, and do not require hand-edited configuration. Verified by `tests/zc_platform_installers.rs`: zero_config_plan, read_installers, zc_platform_installers_share_zero_config_plan, zc_platform_installers_do_not_require_hand_edited_config. Residual: running install, start, stop, upgrade and local-runtime smoke cases on Linux, m. Prove or refute it: add a nonzero test named vc_201_098_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_098_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-098",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916199
+}

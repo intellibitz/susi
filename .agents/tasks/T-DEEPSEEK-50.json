@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-50",
+  "title": "Verify mastery: Neural Self-Repair & Hot-Reload",
+  "goal": "VC-200-002 (P1) claims mastery of: Autonomous Trait Patching. Its own narrative does not claim delivery: PARTIAL, reinterpreted: literal runtime Rust trait patching isn't achievable in safe Rust. Delivered the mechanism, not yet the capability — `resolve_capability_gap` now falls back to `ReflexSynthesizer::synthesize_wasm_reflex`, which generates and compiles an input-dependent WASI reflex and hot-loads it via the existing `reflex_<name>` convention with **no daemon restart** (`src/gawd/reflex_synth. Prove or refute it: add a nonzero test named vc_200_002_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_200_002_mastery)"
+    ]
+  },
+  "roadmap": "VC-200-002",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916197
+}

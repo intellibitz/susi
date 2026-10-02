@@ -298,6 +298,9 @@ pub struct Vector {
     pub id: String,
     pub priority: String,
     pub title: String,
+    /// The vector's own status narrative — where it says whether the
+    /// capability is delivered ("DELIVERED: …", "PARTIAL: …").
+    pub progress: String,
 }
 
 /// Vectors from `.agents/roadmap.json` (`/vectors`), in file order.
@@ -318,6 +321,7 @@ pub fn roadmap_vectors(ws: &Path) -> EaiResult<Vec<Vector>> {
                             .or_else(|| x["mastery_target"].as_str())
                             .unwrap_or("")
                             .to_string(),
+                        progress: x["progress"].as_str().unwrap_or("").to_string(),
                     })
                 })
                 .collect()
@@ -351,9 +355,21 @@ impl Coverage {
     pub fn uncovered(&self) -> bool {
         self.open.is_empty() && self.closed.is_empty()
     }
-    /// Every linked task is closed (and there is at least one).
+    /// Every linked task is closed (and there is at least one). This is
+    /// *coverage*, not mastery: it says the vector was worked on and the work
+    /// was closed, which is how all 102 vectors read as delivered on 2026-10-02
+    /// while a source review still found open gaps in ten of them.
     pub fn delivered(&self) -> bool {
         self.open.is_empty() && !self.closed.is_empty()
+    }
+    /// The vector's own narrative claims the capability is delivered.
+    pub fn mastery_claimed(&self) -> bool {
+        self.vector.progress.trim_start().starts_with("DELIVERED")
+    }
+    /// Not claimed delivered and nothing queued to change that: the work the
+    /// queue would lose once the tasks already in it close.
+    pub fn unqueued(&self) -> bool {
+        !self.mastery_claimed() && self.open.is_empty()
     }
 }
 
@@ -1012,6 +1028,64 @@ mod tests {
             serde_json::json!({"vectors": vectors}).to_string(),
         )
         .unwrap();
+    }
+
+    /// The same helper, with each vector's own status narrative — which is
+    /// where a vector says whether it is delivered.
+    fn write_roadmap_with_progress(ws: &Path, ids: &[(&str, &str, &str)]) {
+        std::fs::create_dir_all(ws.join(".agents")).unwrap();
+        let vectors: Vec<serde_json::Value> = ids
+            .iter()
+            .map(|(id, p, progress)| {
+                serde_json::json!({"id": id, "priority": p, "vector": format!("v {id}"),
+                                   "progress": progress})
+            })
+            .collect();
+        std::fs::write(
+            ws.join(".agents/roadmap.json"),
+            serde_json::json!({"vectors": vectors}).to_string(),
+        )
+        .unwrap();
+    }
+
+    /// Coverage says the vector was worked on and the work was closed; mastery
+    /// says the capability is proven. They were the same number until this:
+    /// all 102 vectors read as delivered while ten still had open gaps.
+    #[test]
+    fn roadmap_coverage_is_not_mastery() {
+        let (r, a, _) = Repos::new("rmmastery");
+        write_roadmap_with_progress(
+            &a,
+            &[
+                ("VC-201-001", "P0", "DELIVERED: verified by a real test"),
+                (
+                    "VC-201-002",
+                    "P1",
+                    "PARTIAL: the mechanism landed, the capability did not",
+                ),
+            ],
+        );
+        let claimed = linked(&a, "VC-201-001").unwrap();
+        let partial = linked(&a, "VC-201-002").unwrap();
+        claim(&a, &claimed.id, "claude", 1, now_unix()).unwrap();
+        close(&a, &claimed.id, "claude").unwrap();
+        release(&a, &claimed.id, "claude", false).unwrap();
+        claim(&a, &partial.id, "claude", 1, now_unix()).unwrap();
+        close(&a, &partial.id, "claude").unwrap();
+        release(&a, &partial.id, "claude", false).unwrap();
+
+        let cov = roadmap_coverage(
+            &roadmap_vectors(&a).unwrap(),
+            &list_open(&a),
+            &list_done(&a),
+        );
+        // Both are "delivered" by coverage: every linked task is closed.
+        assert!(cov[0].delivered() && cov[1].delivered());
+        // Only one of them claims the capability.
+        assert!(cov[0].mastery_claimed() && !cov[1].mastery_claimed());
+        // And the unclaimed one is the queue gap: nothing is left to close it.
+        assert!(!cov[0].unqueued() && cov[1].unqueued());
+        drop(r);
     }
 
     fn linked(ws: &Path, vector: &str) -> EaiResult<Task> {

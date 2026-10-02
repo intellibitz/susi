@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-49",
+  "title": "Verify mastery: Federated Cross-Node Consensus",
+  "goal": "VC-200-001 (P1) claims mastery of: P2P Non-blocking Swarm. Its own narrative does not claim delivery: PARTIAL: UDP LAN discovery, TCP JSON-RPC peer dispatch, and trust-score ranking already worked. Closed the routing gap the code itself flagged (\"bloom-filters of peer registries for perfect routing\"): peers now exchange a real 256-bit `CapabilityBloom` of their registered tool names during ping/pong, and `rank_peers_for_goal` scores peers by goal/capability overlap instead of trust alone (`src/gaw. Prove or refute it: add a nonzero test named vc_200_001_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_200_001_mastery)"
+    ]
+  },
+  "roadmap": "VC-200-001",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916197
+}

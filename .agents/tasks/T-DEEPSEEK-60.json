@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-60",
+  "title": "Verify mastery: Isolate tenant resource and data access",
+  "goal": "VC-201-078 (P1) claims mastery of: Enforce per-tenant workspace paths, memory namespaces, tool grants, queues, and budgets in the supported isolation mode; cross-tenant read and resource-exhaustion tests establish the documented boundary.. Its own narrative does not claim delivery: PARTIAL: cross-tenant workspace paths and memory namespaces are denied and the quota-exhaustion boundary holds. Verified by `crates/susi-gawd/src/tests/vc_201_078.rs`: cross_tenant_path_and_memory_denied, quota_exhaustion_boundary. Residual: per-tenant tool grants and queue isolation are not enumerated by a named check. Evidence: T-CLAUDE-386.. Prove or refute it: add a nonzero test named vc_201_078_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_078_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-078",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916198
+}

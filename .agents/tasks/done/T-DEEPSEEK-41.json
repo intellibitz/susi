@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-41",
+  "title": "Stop reporting task coverage as a delivered roadmap, and queue what is left",
+  "goal": "susi tasks roadmap reports coverage: every one of the 102 vectors has a linked task and delivered means every linked task is closed. That reads as a finished roadmap while 30 vectors do not claim delivery in their own narrative (72 start DELIVERED:) and 29 of those have nothing queued, so once the eight swarm-gap tasks close the queue is empty with the work still outstanding. Report mastery separately from coverage (mastery_claimed and unqueued per vector, plus a --unqueued view), and make scripts/check-roadmap-queue.py fail while a vector that does not claim delivery has no open task, with --queue to file the verification task for each: prove the mastery target with a nonzero test or record what is missing.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790915983,
+  "closed": {
+    "at_unix": 1790916483,
+    "commit": "970bb95d27dbcebd6cbe902f80284aa299cbfd15",
+    "by": "DEEPSEEK"
+  }
+}
