@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-7",
+  "title": "Make migration backup dirs unique per attempt, not per second",
+  "goal": "VC-201-065 refuted: backup_tree names the durable backup .migrate-bak-<epoch-seconds>, so an interrupted migration re-run within the same second overwrites the preserved pre-migration config.json with mid-migration state; rollback then cannot restore the previous usable configuration. Use a unique-per-attempt name (nanos/pid/counter) or refuse to reuse a non-empty backup dir. Evidence: vc_201_065_mastery_rerun_in_same_second_clobbers_durable_backup.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_065",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790981049
+}
