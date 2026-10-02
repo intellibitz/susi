@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-206",
+  "title": "Attribute unlanded work to a live claim, not only to prose",
+  "goal": "With five workers running, the readiness board reports two false alarms at every sync: a roster tree mid-task is flagged as dirty (expected while working) and a tree holding unlanded work is flagged as untracked even though its token holds a live claim on a task (Claude's load-worktree case). The check reads a tree's unlanded work against open task text only, so it cannot see that a claim is already the tracking. Attribute a worktree that holds a live, unexpired claim in its own local claim refs as in-progress, and keep failing genuinely unattributed work, which is the hazard the check exists for.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-swarm-readiness.py",
+      "--self-test"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790965153
+}
