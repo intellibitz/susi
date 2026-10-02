@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-73",
+  "title": "Release drift counts commits that cannot change the tool, so it warns when nothing is missing",
+  "goal": "susi workflow check and scripts/check-release-sync.sh both count every non-merge commit outside .agents/tasks. That over-counts: a test-only commit, a docs edit or a CI workflow change cannot alter what ~/.susi/bin/susi does, and hooks and scripts are read from the checkout rather than the release, so they are live either way. After the test-only fix for T-DEEPSEEK-72 merged, the installed 0.21.3 read as '1 commit behind origin/main' while the tool itself lacked nothing — the third false positive in this signal (merges and task records were the first two), and a warning that fires when nothing is wrong teaches agents to ignore it. Count only commits that changed what the binary is built from: src, crates, Cargo.toml, Cargo.lock, rust-toolchain.toml, build.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(workflow_check)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790936642,
+  "closed": {
+    "at_unix": 1790936857,
+    "commit": "14219656d93c013d20c294c3ac0a3ff62b979d27",
+    "by": "DEEPSEEK"
+  }
+}

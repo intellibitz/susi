@@ -39,11 +39,13 @@ if ! git merge-base --is-ancestor "$commit" origin/main 2>/dev/null; then
     exit 1
 fi
 
-# Only commits that changed the *code* count. The merge that lands a release
-# adds no content, and a task close moves one file under .agents/tasks/ and adds
-# none either — counting either made a release read as stale the moment it
-# landed, or as soon as the next agent closed a task.
-behind=$(git rev-list --no-merges --count "${commit}..origin/main" -- . ':(exclude).agents/tasks/*')
+# Only commits that changed what the *binary* is built from count. A merge adds
+# no content; a task close moves one record under .agents/tasks/; a test-only or
+# docs commit cannot change what the tool does; and hooks and scripts are read
+# from the checkout, so they are live without a release. Counting any of them
+# made a release read as stale while the tool lacked nothing.
+behind=$(git rev-list --no-merges --count "${commit}..origin/main" -- \
+    src crates Cargo.toml Cargo.lock rust-toolchain.toml build.rs)
 if [ "$behind" -gt 0 ]; then
     echo "❌ the installed release ${version} (${commit:0:8}) is ${behind} commit(s) behind origin/main"
     echo "   the workflow fixes merged since are not active for agents that run it"

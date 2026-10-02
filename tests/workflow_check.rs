@@ -310,10 +310,11 @@ fn advance_origin(w: &World) {
         );
     }
     git(&other, &["pull", "--quiet", "origin", "main"]);
-    // A real change, not an empty commit: "main moved ahead" has to mean main
-    // gained content, since the release check counts only commits that changed
-    // files outside .agents/tasks/.
-    std::fs::write(other.join("newer.txt"), "newer\n").unwrap();
+    // A real, binary-affecting change: "main moved ahead" has to mean main
+    // gained something the installed tool lacks, which the release check judges
+    // by the paths the binary is built from (src, crates, Cargo.*, build.rs).
+    std::fs::create_dir_all(other.join("src")).unwrap();
+    std::fs::write(other.join("src/newer.rs"), "// newer\n").unwrap();
     git(&other, &["add", "-A"]);
     git(&other, &["commit", "--quiet", "-m", "newer"]);
     git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
@@ -575,6 +576,50 @@ fn landing_the_release_on_main_is_not_drift() {
     assert!(
         out.contains("✅ installed susi"),
         "a task record is not a workflow fix: {out}"
+    );
+
+    // Nor is a test-only commit: it cannot change what the installed tool does,
+    // and warning about it made every test fix look like a missing release.
+    git(&other, &["switch", "--quiet", "-c", "worker-test"]);
+    std::fs::create_dir_all(other.join("tests")).unwrap();
+    std::fs::write(other.join("tests/newer_test.rs"), "// newer\n").unwrap();
+    git(&other, &["add", "-A"]);
+    git(
+        &other,
+        &["commit", "--quiet", "-m", "fix(test): a fixture detail"],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&w.wt, &["fetch", "--quiet", "origin"]);
+    git(&w.wt, &["merge", "--no-edit", "--quiet", "origin/main"]);
+    let (code, out) = w.check(&w.wt);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("✅ installed susi"),
+        "a test-only commit is not a workflow fix: {out}"
+    );
+
+    // A change the binary is built from IS drift, so the rule still bites.
+    git(&other, &["switch", "--quiet", "-c", "worker-code"]);
+    std::fs::create_dir_all(other.join("src")).unwrap();
+    std::fs::write(other.join("src/behavior.rs"), "// behavior\n").unwrap();
+    git(&other, &["add", "-A"]);
+    git(
+        &other,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "fix(workflow): a real behavior fix",
+        ],
+    );
+    git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&w.wt, &["fetch", "--quiet", "origin"]);
+    git(&w.wt, &["merge", "--no-edit", "--quiet", "origin/main"]);
+    let (code, out) = w.check(&w.wt);
+    assert_eq!(code, 0, "a stale release warns, it does not block: {out}");
+    assert!(
+        out.contains("⚠️  installed susi"),
+        "a src change is exactly what a release must carry: {out}"
     );
 }
 
