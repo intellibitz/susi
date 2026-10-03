@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-020",
+  "verdict": "delivered",
+  "evidence": "requires_three_generations_then_can_stop and regression_stops (crates/susi-gawd/src/tests/vc_201_020.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790993004
+}
