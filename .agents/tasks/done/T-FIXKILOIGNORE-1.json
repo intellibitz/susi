@@ -10,5 +10,10 @@
     ]
   },
   "created_by": "FIXKILOIGNORE",
-  "created_unix": 1791052843
+  "created_unix": 1791052843,
+  "closed": {
+    "at_unix": 1791054028,
+    "commit": "f4cc5916f7bb9c87214b601d7544cf80523c861e",
+    "by": "FIXKILOIGNORE"
+  }
 }
