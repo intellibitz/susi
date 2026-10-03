@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-018",
+  "verdict": "delivered",
+  "evidence": "passing_experiment_yields_reviewable_rc and rejects_target_bin_install_into_susi_home (crates/susi-gawd/src/tests/vc_201_018.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790992330
+}
