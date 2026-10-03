@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-010",
+  "verdict": "delivered",
+  "evidence": "publishes_all_outcomes (crates/susi-gawd/src/tests/vc_201_010.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790989854
+}
