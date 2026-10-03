@@ -172,7 +172,7 @@
       "id": "VC-201-013",
       "mastery_target": "Create a candidate checkout with explicit path and command scope for each experiment; concurrent experiments preserve user changes and cannot write the installed release or another experiment's workspace.",
       "priority": "P0",
-      "progress": "DELIVERED: patches apply only inside an isolated experiment workspace, and a workspace escape is refused, so concurrent experiments cannot write the installed release or each other. Verified by `crates/susi-gawd/src/tests/vc_201_013.rs`: patches_apply_only_in_isolated_workspace, with companions in `crates/susi-gawd/src/cloud_rsi.rs` (workspace_escape_is_refused, parallel_tasks_each_apply_locally). Evidence: T-CLAUDE-120, T-CODEX-17.",
+      "progress": "PARTIAL: well-formed patch ids nest under root/patches and a missing workspace refuses apply, but the fence is not a fence: unsanitized patch ids escape the root or collide with sibling workspaces, is_inside_fence is lexical so '..' paths report inside, apply_in_isolation applies nothing and checks no target, and no caller exists. Refuted on record; tracked by T-DEVIN20261002053148-22.",
       "type": "RSI_EXECUTION",
       "vector": "Fence autonomous patches into isolated workspaces"
     },
