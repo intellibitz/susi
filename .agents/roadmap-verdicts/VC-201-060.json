@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-060",
+  "verdict": "not-delivered",
+  "evidence": "crates/susi-vendor-models/src/tests/vc_201_060_mastery.rs",
+  "missing": "No export/restore round-trip exists: eco_k8s_serving exposes only profile() (a knowledge-base load) and the crate has no export_spec/restore_spec/roundtrip surface (vc_201_060_mastery_no_export_restore_surface). Profile \u2014 the closest spec record \u2014 carries no runtime-requirements, secret-reference, or placement fields (vc_201_060_mastery_profile_has_no_portability_fields). Restore drops those fields silently: no deny_unknown_fields, no error, no diagnostic (vc_201_060_mastery_restore_drops_spec_fields_silently). validate() checks document shape only \u2014 nonportable settings validate clean (vc_201_060_mastery_validate_ignores_nonportable_settings). Holds: serde round-trip is faithful for modeled fields (vc_201_060_mastery_serde_roundtrip_is_faithful_for_modeled_fields).",
+  "tracked_by": [
+    "T-DEVIN20261002053148-33"
+  ],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790997652
+}

@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-33",
+  "title": "Portable deployment-spec export/restore with portability checks (VC-201-060)",
+  "goal": "VC-201-060 refuted: no export/restore round-trip for deployment specs exists anywhere in susi-vendor-models; Profile \u2014 the only spec-like record \u2014 has no runtime-requirements, secret-reference, or placement-policy fields; a doc carrying those fields parses with no error and drops them silently (no deny_unknown_fields); validate() checks document shape only and never surfaces nonportable settings. Evidence: crates/susi-vendor-models/src/tests/vc_201_060_mastery.rs.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models",
+      "vc_201_060",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790997652
+}
