@@ -101,7 +101,7 @@ jobs:
         run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
 
       - name: Upload Artifacts
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v4
         with:
           files: |
             ${{ matrix.artifact }}
@@ -192,7 +192,7 @@ jobs:
         run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Upload Artifacts
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v4
         with:
           files: |
             susi-linux-x86_64-cuda.tar.gz
