@@ -1,0 +1,26 @@
+{
+  "id": "T-DSHENFORCE-1",
+  "title": "Refuse a branch whose agent still owes an earlier merge, server-side",
+  "goal": "The owed-merge debt is enforced by the agent's own binary today; CI must enforce it too, so a stale client or a hand-pushed claim cannot start a second task while an accepted one is unmerged. Also document the new subcommands in the README.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "workflow_compliance"
+    ]
+  },
+  "created_by": "DSHENFORCE",
+  "created_unix": 1791028763,
+  "closed": {
+    "at_unix": 1791029723,
+    "commit": "8c7fc963b3d62ab5c25ed8cba81b16c0e27441db",
+    "by": "DSHENFORCE"
+  }
+}

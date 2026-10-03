@@ -31,6 +31,16 @@
 #       exempt, so an unscoped legacy claim can still be created and closed, and
 #       a verification verdict commits under the claim that produced it. A
 #       verdict-only commit is still work: it keeps its `Task:` trailer.
+#
+# It also refuses work on a SECOND task by an agent that still owes the first
+# one's merge. `susi tasks close` publishes a receipt (`refs/closed/<id>`) for
+# the accepted-but-unmerged state, and the client refuses a new claim while one
+# is outstanding — but that client is the agent's own binary, so a stale
+# installed release, `--no-verify`, or a hand-pushed `refs/claims/<id>` all skip
+# it. The rule can only fire where the client already refuses: a receipt whose
+# close is on `origin/main` is published work, not debt, so the normal
+# close -> merge -> next-task path never trips it.
+#
 # Both are checked here, server-side, because the same scope check in
 # .githooks/pre-commit (scripts/check-task-scope.py) is local and skippable
 # with `--no-verify`, and because it can only see claims this worktree has
@@ -68,6 +78,58 @@ claim_blob() {
     fetch_claims
     sha=$(git rev-parse --verify --quiet "refs/claims/$id" 2>/dev/null) || return 0
     git cat-file -p "$sha" 2>/dev/null || true
+}
+
+closed_fetched=0
+
+# Close receipts (`susi tasks close` pushes `refs/closed/<id>`) and a fresh
+# `origin/main`: the two facts the owed-merge rule reasons over. Fetched once
+# per run, and only when a live claim is actually examined.
+fetch_closed() {
+    [ "$closed_fetched" = 1 ] && return
+    closed_fetched=1
+    git fetch --quiet --prune "$remote" '+refs/closed/*:refs/closed/*' 2>/dev/null || true
+    git fetch --quiet "$remote" 2>/dev/null || true
+}
+
+# The tasks this agent accepted and never published: a close receipt naming it,
+# for a task other than the one in hand, whose close is not on `origin/main`.
+# Prints nothing when the agent owes nothing.
+owed_merges_of() {
+    local agent=$1 exclude=$2 name id body owner
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        id=${name#refs/closed/}
+        [ "$id" != "$exclude" ] || continue
+        body=$(git cat-file -p "$name" 2>/dev/null || true)
+        owner=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
+        [ "$owner" = "$agent" ] || continue
+        # A receipt whose close reached main is published work whose record has
+        # simply not been cleaned up yet — never a reason to refuse a push.
+        git cat-file -e "origin/main:.agents/tasks/done/$id.json" 2>/dev/null && continue
+        printf '%s\n' "$id"
+    done < <(git for-each-ref --format='%(refname)' refs/closed/ 2>/dev/null || true)
+}
+
+owed_reported=" "
+# The server-side half of the claim gate in `susi tasks claim`: while an agent
+# owes an earlier merge it may not start another task.
+check_no_owed_merge() {
+    local task=$1 short=$2 agent owed id
+    fetch_closed
+    if ! git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+        echo "⚠️  workflow: origin/main is unresolvable; the owed-merge check is skipped" >&2
+        return 0
+    fi
+    agent=$(jq -r '.agent // ""' <<<"$(claim_blob "$task")" 2>/dev/null || true)
+    [ -n "$agent" ] || return 0
+    owed=$(owed_merges_of "$agent" "$task")
+    for id in $owed; do
+        [ -n "$id" ] || continue
+        case "$owed_reported" in *" $agent:$id "*) continue ;; esac
+        owed_reported="$owed_reported$agent:$id "
+        err "commit $short works on $task while $agent still owes the merge of $id — an accepted task is not done until its close is on origin/main. Publish it (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
+    done
 }
 
 # Prints "live" / "expired" / "none" for a task's claim.
@@ -191,7 +253,10 @@ while read -r c; do
         # into done/ without ever claiming the task, and a done-file that
         # arrived by merging main.
         case "$(claim_state "$task")" in
-        live) check_claim_owner "$c" "$task" "$short" ;;
+        live)
+            check_claim_owner "$c" "$task" "$short"
+            check_no_owed_merge "$task" "$short"
+            ;;
         expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task --scope <the paths this commit changes>)" ;;
         *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task --scope <path> first (Mandate 50)" ;;
         esac
