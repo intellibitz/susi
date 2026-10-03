@@ -14,38 +14,32 @@
     )
 )]
 
-use susi_core::mac_policy::{egress_permitted, MacPolicy, PrivacyMode};
+use susi_core::mac_policy::{MacPolicy, PrivacyMode};
 
 #[test]
 fn airgap_mode_blocks_cloud_egress_allows_loopback() {
-    let policy = MacPolicy::global();
-    let prev = policy.mode();
-    policy
-        .set_mode(PrivacyMode::LocalOnly)
-        .expect("set local_only");
+    let policy = MacPolicy::new([11; 32], PrivacyMode::LocalOnly, true);
 
     assert!(
-        !egress_permitted("https://api.openai.com/v1/chat/completions"),
+        !policy.egress_permitted("https://api.openai.com/v1/chat/completions"),
         "cloud egress must be blocked in airgap"
     );
     assert!(
-        !egress_permitted("https://openrouter.ai/api/v1/models"),
+        !policy.egress_permitted("https://openrouter.ai/api/v1/models"),
         "openrouter blocked"
     );
     assert!(
-        egress_permitted("http://127.0.0.1:9091/v1/models"),
+        policy.egress_permitted("http://127.0.0.1:9091/v1/models"),
         "loopback host-contract must still work"
     );
     assert!(
-        egress_permitted("http://localhost:9090/health"),
+        policy.egress_permitted("http://localhost:9090/health"),
         "localhost allowed"
     );
 
     // Document what degrades: cloud inference grants are gone.
     assert!(policy.blocks_cloud_inference());
     assert!(policy.blocks_network_by_default());
-
-    let _ = policy.set_mode(prev);
 }
 
 #[test]
@@ -53,10 +47,4 @@ fn airgap_mode_local_engine_name_still_selectable() {
     // Offline routing still names the local engine; no network required.
     let engine = "susi-offline";
     assert_eq!(engine, "susi-offline");
-    assert!(
-        !egress_permitted("https://api.anthropic.com/v1/messages")
-            || MacPolicy::global().mode() != PrivacyMode::LocalOnly
-            || true,
-        "placeholder: cloud URL check is covered by the posture test"
-    );
 }
