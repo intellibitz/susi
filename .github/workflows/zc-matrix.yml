@@ -18,7 +18,7 @@ jobs:
       image: rust:bookworm
       options: ${{ matrix.profile == 'low-memory' && '--memory 1536m' || '--memory 8g' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       - name: Validate matrix definition
         run: scripts/check-zc-matrix.sh
       - name: Fresh-HOME journey (${{ matrix.profile }})
