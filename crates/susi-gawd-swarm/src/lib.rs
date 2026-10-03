@@ -94,6 +94,9 @@ pub use dag::{MissionDag, SwarmDag};
 #[path = "tests/audit_action_choke_point.rs"]
 mod audit_action_choke_point_tests;
 #[cfg(test)]
+#[path = "tests/audit_payload_free_policy.rs"]
+mod audit_payload_free_policy_tests;
+#[cfg(test)]
 #[path = "tests/cancel_propagate_dispatch_wiring.rs"]
 mod cancel_propagate_dispatch_wiring_tests;
 #[cfg(test)]
