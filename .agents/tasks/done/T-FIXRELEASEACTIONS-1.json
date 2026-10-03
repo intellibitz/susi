@@ -1,0 +1,19 @@
+{
+  "id": "T-FIXRELEASEACTIONS-1",
+  "title": "Restore a resolvable action version in the release workflow and guard it",
+  "goal": "245ad77d bumped softprops/action-gh-release to v4, which does not exist, so every release build dies at setup and v0.21.7 published no assets. Pin v3 and add a check that resolves every workflow action reference against GitHub so a bogus major cannot land silently again.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-release-actions.sh"
+    ]
+  },
+  "created_by": "FIXRELEASEACTIONS",
+  "created_unix": 1791033928,
+  "closed": {
+    "at_unix": 1791034903,
+    "commit": "e6b246fbf8d7ce740277eb991fb0a68293348ac2",
+    "by": "FIXRELEASEACTIONS"
+  }
+}

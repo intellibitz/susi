@@ -96,6 +96,17 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v6
 
+      # An action version that does not exist kills the job at "Set up job",
+      # before a single step runs. A bump of softprops/action-gh-release to a
+      # non-existent `@v4` (245ad77d) did exactly that to release.yml and
+      # dev-release.yml, and the failure surfaced only when v0.21.7 was tagged:
+      # the tag published no binaries at all. Resolve the pins here, on the push
+      # that changes them.
+      - name: Every action a workflow pins actually resolves
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/check-release-actions.sh
+
       # 3390 files of cargo output were committed by a stray `git add -A`; a
       # tracked target directory rewrites itself into every worktree on the next
       # build. Cheap to check, expensive to discover later.
