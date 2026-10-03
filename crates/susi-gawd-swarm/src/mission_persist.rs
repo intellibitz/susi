@@ -4,6 +4,7 @@
 //! unfinished nodes stay unfinished so resume only dispatches ready work.
 
 use crate::susi_error::{EaiError, EaiResult};
+use crate::task_lease::{LeaseRecovery, OwnershipEpoch};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -30,10 +31,22 @@ pub struct PersistedNode {
 pub struct PersistedMission {
     pub mission_id: String,
     pub nodes: BTreeMap<String, PersistedNode>,
+    /// Monotonic mission and coordinator authority.  A restart advances this
+    /// before any worker is redispatched, so an old token cannot be reused.
+    #[serde(default)]
+    pub ownership: OwnershipEpoch,
+    /// Stable coordinator identity for audit and recovery diagnostics.
+    #[serde(default)]
+    pub coordinator: String,
     /// Durable lease/fence state (T-DEVIN-9): survives restart so stale
     /// workers can't collide with freshly issued fences.
     #[serde(default)]
     pub leases: crate::task_lease::LeaseTable,
+    /// Recovery state is kept beside leases and written in the same mission
+    /// transaction.  The field is explicit in the mission schema so callers
+    /// do not accidentally persist nodes without authority state.
+    #[serde(default)]
+    pub recovery: LeaseRecovery,
     /// Durable side-effect intent journal (T-DEVIN-10): intents recorded
     /// before dispatch survive the crash so replay reconciles them.
     #[serde(default)]
@@ -46,13 +59,102 @@ impl PersistedMission {
         Self {
             mission_id: mission_id.into(),
             nodes: BTreeMap::new(),
+            ownership: OwnershipEpoch::default(),
+            coordinator: String::new(),
             leases: crate::task_lease::LeaseTable::new(),
+            recovery: LeaseRecovery::default(),
             side_effect_journal: crate::side_effect_journal::IntentJournal::new(),
         }
     }
 
     pub fn upsert_node(&mut self, node: PersistedNode) {
         self.nodes.insert(node.id.clone(), node);
+    }
+
+    /// Advance authority for a coordinator restart and invalidate every
+    /// previous worker lease.  The returned scopes are the scopes that must
+    /// be cancelled or quarantined before new workers are dispatched.
+    pub fn begin_recovery(&mut self, coordinator: &str, now: u64) -> Vec<String> {
+        let stale_scopes: Vec<String> =
+            self.leases.recovery.active_scopes.iter().cloned().collect();
+        self.ownership = self.ownership.next();
+        self.coordinator = coordinator.to_string();
+        self.leases.begin_recovery(self.ownership, now);
+        self.leases.recovery.active_scopes.clear();
+        self.recovery = self.leases.recovery.clone();
+        self.side_effect_journal.reconcile_after_crash();
+        stale_scopes
+    }
+
+    /// Atomically publish the recovery transition before the caller cancels
+    /// old scopes or redispatches any node.
+    pub fn begin_recovery_atomic(
+        &mut self,
+        dir: &Path,
+        coordinator: &str,
+        now: u64,
+    ) -> EaiResult<Vec<String>> {
+        let mut candidate = self.clone();
+        let stale_scopes = candidate.begin_recovery(coordinator, now);
+        candidate.save(dir)?;
+        *self = candidate;
+        Ok(stale_scopes)
+    }
+
+    /// Record that a worker scope is live before it can issue a side effect.
+    pub fn set_active_scope(&mut self, scope: &str) {
+        self.leases.recovery.active_scopes.insert(scope.to_string());
+        self.recovery = self.leases.recovery.clone();
+    }
+
+    /// Remove a scope after its batch has been reconciled and folded.
+    pub fn clear_active_scope(&mut self, scope: &str) {
+        self.leases.recovery.active_scopes.remove(scope);
+        self.recovery = self.leases.recovery.clone();
+    }
+
+    /// Apply a mission mutation and publish the complete candidate in one
+    /// atomic file replacement.  If the callback or write fails, the caller's
+    /// in-memory state is unchanged and no partial authority state is
+    /// visible to a recovering coordinator.
+    pub fn transaction<F>(&mut self, dir: &Path, update: F) -> EaiResult<()>
+    where
+        F: FnOnce(&mut Self) -> EaiResult<()>,
+    {
+        let mut candidate = self.clone();
+        update(&mut candidate)?;
+        candidate.save(dir)?;
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Current persisted authority token for a live lease.
+    #[must_use]
+    pub fn authority_for(&self, task_id: &str) -> Option<crate::task_lease::AuthorityToken> {
+        self.leases.authority_for(task_id)
+    }
+
+    /// Renew a lease and publish the renewal timestamp with the same atomic
+    /// mission replacement as the lease deadline.
+    #[allow(clippy::too_many_arguments)] // persistence path plus lease identity, authority, clock and TTL are the complete boundary
+    pub fn renew_lease(
+        &mut self,
+        dir: &Path,
+        task_id: &str,
+        owner: &str,
+        token: crate::task_lease::AuthorityToken,
+        now: u64,
+        ttl: u64,
+    ) -> EaiResult<crate::task_lease::CompleteVerdict> {
+        let mut candidate = self.clone();
+        let verdict = candidate.leases.renew(task_id, owner, token, now, ttl);
+        if verdict != crate::task_lease::CompleteVerdict::Accepted {
+            return Ok(verdict);
+        }
+        candidate.recovery = candidate.leases.recovery.clone();
+        candidate.save(dir)?;
+        *self = candidate;
+        Ok(verdict)
     }
 
     /// Nodes whose dependencies are all `Completed` and that are still `Pending`.
@@ -128,7 +230,19 @@ impl PersistedMission {
     pub fn load(path: &Path) -> EaiResult<Self> {
         let raw = std::fs::read_to_string(path)
             .map_err(|e| EaiError::filesystem(format!("read {}: {e}", path.display())))?;
-        serde_json::from_str(&raw).map_err(|e| EaiError::internal(format!("parse mission: {e}")))
+        let mut mission: Self = serde_json::from_str(&raw)
+            .map_err(|e| EaiError::internal(format!("parse mission: {e}")))?;
+        // Older mission records stored leases before the explicit mission
+        // ownership fields existed.  Preserve the stronger state and union
+        // recovery markers when loading either schema.
+        mission.ownership = mission.ownership.max(mission.leases.epoch);
+        mission
+            .leases
+            .recovery
+            .active_scopes
+            .extend(mission.recovery.active_scopes.iter().cloned());
+        mission.recovery = mission.leases.recovery.clone();
+        Ok(mission)
     }
 
     /// Workspace-local missions directory (`<workspace>/.susi/missions`).

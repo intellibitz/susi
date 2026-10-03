@@ -186,6 +186,44 @@ impl WriterIsolation {
         })
     }
 
+    /// Retire private scopes from an earlier coordinator generation before
+    /// redispatch.  Renaming, rather than reusing, the directory prevents a
+    /// delayed old process from writing into a replacement worker's scope;
+    /// the retired tree is never eligible for [`Self::fold`].
+    pub fn retire_stale_scopes(&self, generation: &str) -> EaiResult<Vec<PathBuf>> {
+        let mut retired = Vec::new();
+        let entries = std::fs::read_dir(&self.scopes_root).map_err(|e| {
+            EaiError::io(format!(
+                "writer isolation: list {}: {e}",
+                self.scopes_root.display()
+            ))
+        })?;
+        for entry in entries {
+            let entry = entry
+                .map_err(|e| EaiError::io(format!("writer isolation: read scope entry: {e}")))?;
+            let path = entry.path();
+            if !entry
+                .file_type()
+                .map_err(|e| EaiError::io(format!("writer isolation: stat scope: {e}")))?
+                .is_dir()
+            {
+                continue;
+            }
+            let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            if name.starts_with("stale-") {
+                continue;
+            }
+            let retired_path = self.scopes_root.join(format!("stale-{generation}-{name}"));
+            std::fs::rename(&path, &retired_path).map_err(|e| {
+                EaiError::io(format!("writer isolation: retire {}: {e}", path.display()))
+            })?;
+            retired.push(retired_path);
+        }
+        Ok(retired)
+    }
+
     /// Create a synced private scope for `owner`: a full copy of the
     /// workspace minus exclusions, with a signature manifest.
     pub fn scope(&self, owner: &str) -> EaiResult<WorkerScope> {
@@ -226,6 +264,20 @@ impl WriterIsolation {
     /// into the shared workspace. Same-path writes that diverged are
     /// refused (never overwritten) and reported as conflicts.
     pub fn fold(&self, scope: &WorkerScope) -> EaiResult<FoldOutcome> {
+        if scope
+            .dir
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("stale-"))
+        {
+            return Err(EaiError::governance(
+                "writer isolation: stale worker scope cannot be folded",
+            ));
+        }
+        if !scope.dir.is_dir() {
+            return Err(EaiError::governance(
+                "writer isolation: missing worker scope cannot be folded",
+            ));
+        }
         let now = manifest_of(&scope.dir)?;
         let mut created_or_modified: Vec<(String, Sig)> = Vec::new();
         let mut deleted: Vec<String> = Vec::new();
