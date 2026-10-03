@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "DSHONECLAIM",
-  "created_unix": 1791030561
+  "created_unix": 1791030561,
+  "closed": {
+    "at_unix": 1791031549,
+    "commit": "1f7c4183e8c536af7976d89279068d635d43ac39",
+    "by": "DSHONECLAIM"
+  }
 }
