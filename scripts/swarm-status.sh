@@ -114,6 +114,10 @@ run_check() {
 run_check "board hygiene" scripts/check-board-hygiene.py
 run_check "roadmap queue" scripts/check-roadmap-queue.py
 run_check "swarm readiness" scripts/check-swarm-readiness.py
+# The one check that is about other agents rather than this checkout: who
+# accepted work that never reached main. Visibility is the point — the debt
+# already blocks its own agent's next claim.
+run_check "owed merges" scripts/check-owed-merges.sh
 if [ "$failed" != 0 ]; then
     out="$out
   (a ❌ here never blocks the loop — fix it under a claim, not instead of working)"

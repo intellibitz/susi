@@ -12,6 +12,37 @@ set -uo pipefail
 repo=${1:?repo} branch=${2:?branch} sha=${3:?sha}
 marker='<!-- susi-auto-merge -->'
 
+# Attest the merge on the shared remote: for every task the pull request named,
+# push refs/merged/<task> = {task, head, merge, pr, merged_unix}. This job is
+# the only party that observes the merge, so it is the only one that can say
+# "the tested head is on main" without taking the agent's word for it — and
+# `susi tasks audit` re-derives every claim from origin/main rather than
+# trusting the ref. Best effort: the merge has already happened, and a missing
+# attestation costs one audit line, never a merge.
+attest_merge() {
+    local pr=$1 messages merge_sha task body blob
+    messages=$(gh api "repos/$repo/pulls/$pr/commits" --paginate \
+        --jq '.[].commit.message' 2>/dev/null) || return 0
+    merge_sha=$(gh pr view "$pr" --repo "$repo" --json mergeCommit \
+        --jq '.mergeCommit.oid' 2>/dev/null) || return 0
+    [ -n "${merge_sha:-}" ] || return 0
+    for task in $(printf '%s\n' "$messages" \
+        | sed -n 's/^Task: *\(T-[A-Z0-9]*-[0-9]*\)$/\1/p' | sort -u); do
+        body=$(printf '{"task":"%s","head":"%s","merge":"%s","pr":%s,"merged_unix":%s}' \
+            "$task" "$sha" "$merge_sha" "$pr" "$(date +%s)")
+        blob=$(printf '%s' "$body" | git hash-object -w --stdin) || continue
+        # The empty lease expects the ref to be absent: one task merges once,
+        # and a ref already there belongs to an earlier merge of the same id.
+        if git push --quiet "--force-with-lease=refs/merged/$task:" \
+            origin "$blob:refs/merged/$task" 2>/dev/null; then
+            echo "attested $task merged as $merge_sha"
+        else
+            echo "note: could not attest $task on refs/merged/$task" >&2
+        fi
+    done
+    return 0
+}
+
 pr=$(gh pr list --repo "$repo" --head "$branch" --base main --state open \
     --json number,headRefOid --jq ".[] | select(.headRefOid==\"$sha\") | .number" | head -1)
 if [ -z "$pr" ]; then
@@ -30,6 +61,7 @@ case "$comparison" in
  ahead|identical)
     if gh pr merge "$pr" --repo "$repo" --merge --match-head-commit "$sha"; then
         echo "merged #$pr"
+        attest_merge "$pr"
         # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
         gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
         exit 0
