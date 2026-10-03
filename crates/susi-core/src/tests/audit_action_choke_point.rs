@@ -46,7 +46,8 @@ fn audit_action_choke_point_unified_interface() {
 
     // Each line is a valid JSON record.
     for (i, line) in lines.iter().enumerate() {
-        let parsed = parse_ndjson_line(line).expect(&format!("Line {} failed to parse", i));
+        let parsed =
+            parse_ndjson_line(line).unwrap_or_else(|_| panic!("Line {} failed to parse", i));
         assert!(
             !parsed["action"].is_null(),
             "Line {} missing action field",
