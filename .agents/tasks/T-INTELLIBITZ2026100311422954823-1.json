@@ -1,0 +1,18 @@
+{
+  "id": "T-INTELLIBITZ2026100311422954823-1",
+  "title": "Auto-merge: re-sync green-but-behind PRs via update-branch instead of failing the run",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "auto_merge"
+    ]
+  },
+  "created_by": "INTELLIBITZ2026100311422954823",
+  "created_unix": 1791008051
+}
