@@ -58,7 +58,21 @@ impl Env {
         git(&bare, &["init", "--bare", "--quiet"]);
         git(&repo, &["init", "--quiet", "-b", "main"]);
         git(&repo, &["remote", "add", "origin", bare.to_str().unwrap()]);
-        git(&repo, &["commit", "--allow-empty", "-m", "init", "--quiet"]);
+        // A checker that already exists on main: the fixture acceptance these
+        // tests declare, so their tasks are re-runnable (and `close`, which
+        // executes it, succeeds in a repo with no Cargo.toml).
+        let check = repo.join("scripts/fixture-check.sh");
+        std::fs::create_dir_all(check.parent().unwrap()).unwrap();
+        std::fs::write(&check, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&check).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&check, perms).unwrap();
+        }
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "--quiet", "-m", "init"]);
         git(&repo, &["push", "--quiet", "origin", "HEAD:main"]);
         git(&repo, &["fetch", "--quiet", "origin"]);
         Self { root, repo, home }
@@ -132,7 +146,13 @@ impl Drop for Env {
 fn a_commit_must_name_a_claimed_or_closed_task() {
     let e = Env::new("main");
     // Install the rule (the script's own commit is the cutover and must comply).
-    let (code, out, err) = e.susi(&["tasks", "add", "first", "--accept", "cargo --version"]);
+    let (code, out, err) = e.susi(&[
+        "tasks",
+        "add",
+        "first",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     assert!(out.contains("T-TEST-1"), "{out}");
     git(&e.repo, &["add", "-A"]);
@@ -183,7 +203,13 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     assert!(err.contains("not a task in this branch"), "{err}");
 
     // 4. A real task nobody has claimed: refused; claiming it makes it pass.
-    let (code, _, err) = e.susi(&["tasks", "add", "second", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "second",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add second task"]);
@@ -192,7 +218,13 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     let (code, err) = e.check(&before);
     assert_eq!(code, 1);
     assert!(err.contains("nobody holds a claim"), "{err}");
-    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "release",
+        "T-TEST-1",
+        "--abandon",
+        "fixture: moving to the second task",
+    ]);
     assert_eq!(code, 0, "{err}");
     let (code, _, err) = e.susi(&[
         "tasks", "claim", "T-TEST-2", "--scope", "work", "--scope", "scripts",
@@ -203,7 +235,13 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
 
     // 5. Work then close on the same branch passes: the task was open at the
     //    work commit and the branch closed it (ownership remains until merge).
-    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-2"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "release",
+        "T-TEST-2",
+        "--abandon",
+        "fixture: returning to the first task",
+    ]);
     assert_eq!(code, 0, "{err}");
     let (code, _, err) = e.susi(&[
         "tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts",
@@ -236,7 +274,13 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
 #[test]
 fn a_closed_task_cannot_be_cited_again() {
     let e = Env::new("closed");
-    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
     std::fs::copy(
@@ -306,7 +350,13 @@ impl Env {
 #[test]
 fn a_claim_held_on_another_branch_is_refused() {
     let e = Env::new("owner");
-    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
@@ -351,7 +401,13 @@ fn a_claim_held_on_another_branch_is_refused() {
 #[test]
 fn files_outside_the_claims_scopes_are_refused() {
     let e = Env::new("scopes");
-    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
@@ -376,7 +432,9 @@ fn files_outside_the_claims_scopes_are_refused() {
     );
 
     // Re-claiming with a scope that covers it makes the same commit compliant.
-    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1"]);
+    // Re-scoping a claim that carries work: the explicit override, since a
+    // plain release of unpublished work now needs a recorded reason.
+    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1", "--force"]);
     assert_eq!(code, 0, "{err}");
     let (code, _, err) = e.susi(&[
         "tasks",
@@ -400,7 +458,13 @@ fn files_outside_the_claims_scopes_are_refused() {
 #[test]
 fn code_under_a_claim_that_reserves_no_paths_is_refused() {
     let e = Env::new("noscope");
-    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
@@ -453,7 +517,7 @@ fn history_before_the_rule_is_not_judged() {
         e.repo.join("scripts/check-workflow-compliance.sh"),
     )
     .unwrap();
-    let (code, _, err) = e.susi(&["tasks", "add", "t", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&["tasks", "add", "t", "--accept", "scripts/fixture-check.sh"]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(
@@ -488,9 +552,21 @@ fn history_before_the_rule_is_not_judged() {
 #[test]
 fn a_hand_moved_done_file_does_not_excuse_an_unclaimed_task() {
     let e = Env::new("handclosed");
-    let (code, _, err) = e.susi(&["tasks", "add", "target", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "target",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
-    let (code, _, err) = e.susi(&["tasks", "add", "rule", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "rule",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add tasks"]); // task-only: exempt
@@ -532,7 +608,13 @@ fn a_hand_moved_done_file_does_not_excuse_an_unclaimed_task() {
 #[test]
 fn a_range_that_cannot_be_resolved_is_refused_instead_of_certified() {
     let e = Env::new("badbase");
-    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
@@ -561,7 +643,13 @@ fn a_range_that_cannot_be_resolved_is_refused_instead_of_certified() {
 #[test]
 fn deleting_the_compliance_script_does_not_exempt_earlier_commits() {
     let e = Env::new("nogate");
-    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
@@ -598,7 +686,13 @@ fn deleting_the_compliance_script_does_not_exempt_earlier_commits() {
 #[test]
 fn a_verdict_record_commits_under_any_claim() {
     let e = Env::new("verdict");
-    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     git(&e.repo, &["add", "-A"]);
     git(&e.repo, &["commit", "--quiet", "-m", "add task"]); // task-only: exempt
@@ -661,7 +755,13 @@ fn a_verdict_record_commits_under_any_claim() {
 #[test]
 fn a_cli_change_without_the_readme_is_warned_about() {
     let e = Env::new("docs");
-    let (code, _, err) = e.susi(&["tasks", "add", "one", "--accept", "cargo --version"]);
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "one",
+        "--accept",
+        "scripts/fixture-check.sh",
+    ]);
     assert_eq!(code, 0, "{err}");
     e.install_rule("T-TEST-1");
     let base = e.head();
@@ -807,13 +907,25 @@ fn delete_ref(repo: &Path, name: &str) {
 fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
     let e = Env::new("owed");
     assert_eq!(
-        e.susi(&["tasks", "add", "first", "--accept", "cargo --version"])
-            .0,
+        e.susi(&[
+            "tasks",
+            "add",
+            "first",
+            "--accept",
+            "scripts/fixture-check.sh"
+        ])
+        .0,
         0
     );
     assert_eq!(
-        e.susi(&["tasks", "add", "second", "--accept", "cargo --version"])
-            .0,
+        e.susi(&[
+            "tasks",
+            "add",
+            "second",
+            "--accept",
+            "scripts/fixture-check.sh"
+        ])
+        .0,
         0
     );
     std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
@@ -907,13 +1019,25 @@ fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
 fn an_agent_holding_two_live_claims_is_refused_at_the_server() {
     let e = Env::new("oneclaim");
     assert_eq!(
-        e.susi(&["tasks", "add", "first", "--accept", "cargo --version"])
-            .0,
+        e.susi(&[
+            "tasks",
+            "add",
+            "first",
+            "--accept",
+            "scripts/fixture-check.sh"
+        ])
+        .0,
         0
     );
     assert_eq!(
-        e.susi(&["tasks", "add", "second", "--accept", "cargo --version"])
-            .0,
+        e.susi(&[
+            "tasks",
+            "add",
+            "second",
+            "--accept",
+            "scripts/fixture-check.sh"
+        ])
+        .0,
         0
     );
     std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
@@ -962,4 +1086,121 @@ fn an_agent_holding_two_live_claims_is_refused_at_the_server() {
     );
     let (code, err) = e.check(&base);
     assert_eq!(code, 0, "another agent's claim is not this agent's: {err}");
+}
+
+/// A task's acceptance is its definition of done, so the acceptance a task
+/// DECLARES must be one the merged tree can re-run: a test, or a checker that
+/// already exists on `origin/main`. A task that writes the script declaring it
+/// done, or that verifies the host instead of the change, is refused — while
+/// the queue that already exists stays closable (only added task files are
+/// judged).
+#[test]
+fn a_declared_acceptance_that_cannot_be_re_run_is_refused() {
+    let e = Env::new("declare");
+
+    // A checker that already exists on main is a legitimate declaration, and so
+    // is a named test.
+    std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
+    std::fs::write(
+        e.repo.join("scripts/committed-check.sh"),
+        "#!/bin/sh\nexit 0\n",
+    )
+    .unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &["commit", "--quiet", "-m", "add a committed checker"],
+    );
+    git(&e.repo, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&e.repo, &["fetch", "--quiet", "origin"]);
+
+    let (code, out, err) = e.susi(&[
+        "tasks",
+        "add",
+        "good",
+        "--accept",
+        "cargo nextest run --locked -p susi-gawd -E test(ids_and_acceptance_commands_are_validated)",
+    ]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("T-TEST-1"), "{out}");
+    let (code, _, err) = e.susi(&[
+        "tasks",
+        "add",
+        "also good",
+        "--accept",
+        "scripts/committed-check.sh",
+    ]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        e.susi(&["tasks", "claim", "T-TEST-1", "--scope", "work", "--scope", "scripts"])
+            .0,
+        0
+    );
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh"),
+        e.repo.join("scripts/check-workflow-compliance.sh"),
+    )
+    .unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "install the rule",
+            "-m",
+            "Task: T-TEST-1",
+        ],
+    );
+    let base = e.head();
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 0, "re-runnable declarations must pass: {err}");
+
+    // A task may not write the script that declares it done.
+    assert_eq!(
+        e.susi(&[
+            "tasks",
+            "add",
+            "self-certifying",
+            "--accept",
+            "scripts/not-a-checker.sh"
+        ])
+        .0,
+        0,
+        "the client still lets it through; CI is the gate"
+    );
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "declare a task that writes its own checker",
+        ],
+    );
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 1, "{err}");
+    assert!(err.contains("not a checker on origin/main"), "{err}");
+
+    // Nor a command that verifies the host rather than the change.
+    assert_eq!(
+        e.susi(&["tasks", "add", "lazy", "--accept", "cargo --version"])
+            .0,
+        0
+    );
+    git(&e.repo, &["add", "-A"]);
+    git(
+        &e.repo,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "declare an acceptance that proves nothing",
+        ],
+    );
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 1, "{err}");
+    assert!(err.contains("test-shaped"), "{err}");
 }

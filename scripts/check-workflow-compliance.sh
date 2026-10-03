@@ -47,6 +47,12 @@
 # count — letting a lease lapse and claiming something else is the takeover
 # path, not a second task.
 #
+# And it refuses a task DECLARED with an acceptance nobody else can re-run: a
+# `scripts/` checker that is not on `origin/main` yet (the task would be writing
+# the thing that declares it done), or a command that is not test-shaped. Only
+# task files added in the pushed range are judged, so the existing queue stays
+# closable.
+#
 # Both are checked here, server-side, because the same scope check in
 # .githooks/pre-commit (scripts/check-task-scope.py) is local and skippable
 # with `--no-verify`, and because it can only see claims this worktree has
@@ -202,7 +208,7 @@ check_claim_owner() {
             case "$uf" in .agents/tasks/* | .agents/roadmap-verdicts/* | .agents/roadmap.json) continue ;; esac
             unreserved="$unreserved $uf"
         done < <(git diff-tree --no-commit-id --name-only -r "$commit")
-        [ -z "$unreserved" ] || err "commit $short works on $id, whose claim reserves no paths:$unreserved — re-claim it with a scope that covers this change (susi tasks release $id, then susi tasks claim $id --scope <path>)"
+        [ -z "$unreserved" ] || err "commit $short works on $id, whose claim reserves no paths:$unreserved — re-claim it with a scope that covers this change (susi tasks release $id --force, then susi tasks claim $id --scope <path>)"
         return
     fi
     local outside="" f s ok
@@ -221,7 +227,7 @@ check_claim_owner() {
         done <<<"$scopes"
         [ "$ok" = 1 ] || outside="$outside $f"
     done < <(git diff-tree --no-commit-id --name-only -r "$commit")
-    [ -z "$outside" ] || err "commit $short touches files outside $id's claimed scopes:$outside — re-claim with a scope that covers them (susi tasks release $id, then susi tasks claim $id --scope <path>), or split the work into a task per area"
+    [ -z "$outside" ] || err "commit $short touches files outside $id's claimed scopes:$outside — re-claim with a scope that covers them (susi tasks release $id --force, then susi tasks claim $id --scope <path>), or split the work into a task per area"
 }
 
 # The rule binds commits made after it was introduced: history that predates
@@ -300,6 +306,44 @@ while read -r c; do
     else
         err "commit $short names $task, which is not a task in this branch (add or merge the task file first)"
     fi
+done <<<"$commits"
+
+# A task's acceptance IS its definition of done, so the acceptance a task
+# DECLARES has to be one somebody else can re-run. Otherwise a task can be
+# declared done by a script written in the same branch, or by a command that
+# verifies the host rather than the change — and no later gate can see it,
+# because every later gate re-runs the same command. Judged on the task files
+# ADDED in this range only: the queue that already exists, written by clients
+# that predate this rule, stays closable.
+while read -r c; do
+    [ -n "$c" ] || continue
+    short=${c:0:8}
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        id=${file#.agents/tasks/}
+        id=${id%.json}
+        cmd=$(git show "$c:$file" 2>/dev/null | jq -r '.accept.cmd // [] | join(" ")' 2>/dev/null || true)
+        if [ -z "$cmd" ]; then
+            err "commit $short declares $id with no acceptance command — a task is not done without one (susi tasks add --accept \"<cmd>\")"
+            continue
+        fi
+        case "$cmd" in
+        "cargo test"* | "cargo nextest run"*) continue ;;
+        esac
+        program=${cmd%% *}
+        case "$program" in
+        scripts/*)
+            # Unknown freshness is not a reason to refuse: an unreachable
+            # origin/main only means this check cannot tell.
+            git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || continue
+            git cat-file -e "origin/main:$program" 2>/dev/null && continue
+            err "commit $short declares $id with acceptance \`$program\`, which is not a checker on origin/main — a task may not write the script that declares it done. Use a test (\`cargo test <filter>\`) or a checker already merged"
+            ;;
+        *)
+            err "commit $short declares $id with acceptance \`$cmd\` — a new task must declare a test-shaped acceptance (\`cargo test <filter>\` / \`cargo nextest run -E test(<name>)\`) or a scripts/ checker already on origin/main, so the merged tree can re-run it"
+            ;;
+        esac
+    done < <(git diff-tree --no-commit-id --diff-filter=A --name-only -r "$c" | grep -E '^\.agents/tasks/[^/]+\.json$' || true)
 done <<<"$commits"
 
 # Docs currency (advisory, never fatal): a task that changes the CLI surface but
