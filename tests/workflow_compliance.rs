@@ -735,6 +735,20 @@ fn claim_json(task: &str, agent: &str, branch: &str, scopes: &[&str]) -> String 
     .to_string()
 }
 
+/// A claim whose lease has already lapsed: the takeover path, and never a
+/// second live task for its agent.
+fn expired_claim_json(task: &str, agent: &str, branch: &str, scopes: &[&str]) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    serde_json::json!({
+        "task": task, "agent": agent, "branch": branch, "scopes": scopes,
+        "claimed_unix": now - 7200, "lease_until_unix": now - 3600
+    })
+    .to_string()
+}
+
 /// A close receipt as `susi tasks close` pushes it.
 fn receipt_json(task: &str, agent: &str) -> String {
     serde_json::json!({
@@ -826,35 +840,44 @@ fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
         &receipt_json("T-TEST-1", "TEST"),
     );
     e.commit("a", "feat: a", Some("T-TEST-2"));
+    let after_a = e.head();
     let (code, err) = e.check(&base);
     assert_eq!(code, 1, "the owed merge must refuse the second task: {err}");
     assert!(err.contains("owes the merge of T-TEST-1"), "{err}");
 
-    // The task in hand is the repair path, not a second task.
+    // The task in hand is the repair path, not a second task. The agent went
+    // back to it, so it holds one live claim again — the queue's own invariant.
+    delete_ref(&e.repo, "refs/claims/T-TEST-2");
     push_ref(
         &e.repo,
         "refs/claims/T-TEST-1",
         &claim_json("T-TEST-1", "TEST", "main", &["work"]),
     );
-    let before = e.head();
     e.commit("b", "fix: b", Some("T-TEST-1"));
-    let (code, err) = e.check(&before);
+    let (code, err) = e.check(&after_a);
     assert_eq!(code, 0, "repairing the owed task must pass: {err}");
 
-    // Another agent's receipt is not this branch's business.
+    // Another agent's receipt is not this branch's business: TEST still holds
+    // T-TEST-1 alone, and the debt on the remote is somebody else's.
     delete_ref(&e.repo, "refs/closed/T-TEST-1");
     push_ref(
         &e.repo,
         "refs/closed/T-TEST-1",
         &receipt_json("T-TEST-1", "OTHER"),
     );
-    let (code, err) = e.check(&base);
+    let (code, err) = e.check(&after_a);
     assert_eq!(
         code, 0,
         "another agent's debt must not refuse this push: {err}"
     );
 
     // The same receipt, once its close is on origin/main, is published work.
+    delete_ref(&e.repo, "refs/claims/T-TEST-1");
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-2",
+        &claim_json("T-TEST-2", "TEST", "main", &["work"]),
+    );
     push_ref(
         &e.repo,
         "refs/closed/T-TEST-1",
@@ -874,4 +897,69 @@ fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
     e.commit("c", "feat: c", Some("T-TEST-2"));
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "a published close is not debt: {err}");
+}
+
+/// One task at a time: the client refuses a second live claim for one agent,
+/// but a hand-pushed claim ref can create one, and then two branches share one
+/// worker. An expired claim is a lease the agent let lapse and moved on from —
+/// the takeover path — so it must never read as a second task.
+#[test]
+fn an_agent_holding_two_live_claims_is_refused_at_the_server() {
+    let e = Env::new("oneclaim");
+    assert_eq!(
+        e.susi(&["tasks", "add", "first", "--accept", "cargo --version"])
+            .0,
+        0
+    );
+    assert_eq!(
+        e.susi(&["tasks", "add", "second", "--accept", "cargo --version"])
+            .0,
+        0
+    );
+    std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh"),
+        e.repo.join("scripts/check-workflow-compliance.sh"),
+    )
+    .unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "install rule"]); // task-only: exempt
+    let base = e.head();
+
+    // Two live claims for TEST, which `susi tasks claim` would never create.
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-1",
+        &claim_json("T-TEST-1", "TEST", "main", &["work"]),
+    );
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-2",
+        &claim_json("T-TEST-2", "TEST", "main", &["work"]),
+    );
+    e.commit("a", "feat: a", Some("T-TEST-2"));
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 1, "two live claims must be refused: {err}");
+    assert!(err.contains("holds 2 live claims"), "{err}");
+
+    // The first claim lapsing is not a second task: it is how a crashed agent's
+    // work is taken over, and the agent may have moved on legitimately.
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-1",
+        &expired_claim_json("T-TEST-1", "TEST", "main", &["work"]),
+    );
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 0, "an expired claim is not a second task: {err}");
+
+    // It is the *agent* that may hold only one claim, not the branch: another
+    // agent's live claim must not refuse this push.
+    delete_ref(&e.repo, "refs/claims/T-TEST-1");
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-1",
+        &claim_json("T-TEST-1", "OTHER", "other-branch", &["work"]),
+    );
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 0, "another agent's claim is not this agent's: {err}");
 }

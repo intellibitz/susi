@@ -273,7 +273,11 @@ are three layers):
    a second task by an agent that still owes the first one's merge
    (`refs/closed/<id>` whose close is not on `origin/main`) — only where the
    client already refuses, since a receipt whose close *is* on main is published
-   work whose record has simply not been cleaned up. Closing the task does
+   work whose record has simply not been cleaned up. For the same reason it
+   refuses an agent holding two live claims at once — `susi tasks claim` never
+   creates that, but a hand-pushed claim ref can, and two live claims are two
+   branches sharing one worker; only non-expired claims count, so a lease the
+   agent let lapse and moved on from is never read as a second task. Closing the task does
    not skip the claim rule either: `susi tasks close` keeps the lease until the
    closing commit reaches main, so work → close → push passes, while a task file
    hand-moved into `done/` (never claimed) is refused.

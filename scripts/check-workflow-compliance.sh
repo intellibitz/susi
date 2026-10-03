@@ -41,6 +41,12 @@
 # close is on `origin/main` is published work, not debt, so the normal
 # close -> merge -> next-task path never trips it.
 #
+# For the same reason it refuses an agent holding two live claims at once:
+# `susi tasks claim` never creates that, but a hand-pushed claim ref can, and
+# two live claims are two branches sharing one worker. Expired claims do not
+# count — letting a lease lapse and claiming something else is the takeover
+# path, not a second task.
+#
 # Both are checked here, server-side, because the same scope check in
 # .githooks/pre-commit (scripts/check-task-scope.py) is local and skippable
 # with `--no-verify`, and because it can only see claims this worktree has
@@ -115,14 +121,13 @@ owed_reported=" "
 # The server-side half of the claim gate in `susi tasks claim`: while an agent
 # owes an earlier merge it may not start another task.
 check_no_owed_merge() {
-    local task=$1 short=$2 agent owed id
+    local task=$1 short=$2 agent=$3 owed id
+    [ -n "$agent" ] || return 0
     fetch_closed
     if ! git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
         echo "⚠️  workflow: origin/main is unresolvable; the owed-merge check is skipped" >&2
         return 0
     fi
-    agent=$(jq -r '.agent // ""' <<<"$(claim_blob "$task")" 2>/dev/null || true)
-    [ -n "$agent" ] || return 0
     owed=$(owed_merges_of "$agent" "$task")
     for id in $owed; do
         [ -n "$id" ] || continue
@@ -130,6 +135,36 @@ check_no_owed_merge() {
         owed_reported="$owed_reported$agent:$id "
         err "commit $short works on $task while $agent still owes the merge of $id — an accepted task is not done until its close is on origin/main. Publish it (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
     done
+}
+
+agents_checked=" "
+# One task at a time, per agent. `susi tasks claim` refuses to create a second
+# live claim for one agent (an atomic `refs/claim-agents/<AGENT>` lease plus the
+# live-claim scan), but a hand-pushed `refs/claims/<id>` can, and then two
+# branches believe they own the same worker — the duplicate work the queue
+# exists to prevent, and the reason one claim may not be renewed while another
+# is live. Only NON-EXPIRED claims count: an agent that let a lease lapse and
+# claimed something else is a legitimate state the takeover path exists for.
+check_one_live_claim() {
+    local agent=$1 short=$2 task=$3 name id body owner lease held n
+    [ -n "$agent" ] || return 0
+    case "$agents_checked" in *" $agent "*) return 0 ;; esac
+    agents_checked="$agents_checked$agent "
+    held=""
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        id=${name#refs/claims/}
+        body=$(git cat-file -p "$name" 2>/dev/null || true)
+        owner=$(jq -r '.agent // ""' <<<"$body" 2>/dev/null || true)
+        [ "$owner" = "$agent" ] || continue
+        lease=$(jq -r '.lease_until_unix // 0' <<<"$body" 2>/dev/null || echo 0)
+        [ "${lease:-0}" -gt "$now" ] || continue
+        held="$held $id"
+    done < <(git for-each-ref --format='%(refname)' refs/claims/ 2>/dev/null || true)
+    n=0
+    for _ in $held; do n=$((n + 1)); done
+    [ "$n" -gt 1 ] && err "commit $short works on $task, but $agent holds $n live claims:$held — one task at a time: finish each with susi workflow finish <id> (or give it up with susi tasks release <id> --abandon <reason>) before claiming another"
+    return 0
 }
 
 # Prints "live" / "expired" / "none" for a task's claim.
@@ -255,7 +290,9 @@ while read -r c; do
         case "$(claim_state "$task")" in
         live)
             check_claim_owner "$c" "$task" "$short"
-            check_no_owed_merge "$task" "$short"
+            agent=$(jq -r '.agent // ""' <<<"$(claim_blob "$task")" 2>/dev/null || true)
+            check_no_owed_merge "$task" "$short" "$agent"
+            check_one_live_claim "$agent" "$short" "$task"
             ;;
         expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task --scope <the paths this commit changes>)" ;;
         *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task --scope <path> first (Mandate 50)" ;;
