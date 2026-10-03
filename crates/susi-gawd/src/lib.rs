@@ -143,6 +143,9 @@ mod rsi_corpus_tests;
 #[path = "tests/vc_200_002.rs"]
 mod vc_200_002_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_001_mastery.rs"]
+mod vc_201_001_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_002.rs"]
 mod vc_201_002_tests;
 #[cfg(test)]
