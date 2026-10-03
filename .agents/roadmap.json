@@ -76,7 +76,7 @@
       "id": "VC-201-005",
       "mastery_target": "Run the evaluator with held-out inputs and write permissions unavailable to the candidate; demonstrate that a patch altering its own expected results cannot satisfy the promotion gate.",
       "priority": "P0",
-      "progress": "DELIVERED: judging is separated from generation - the candidate has no write access to evaluator expectations, a patch that alters its own expected results fails the promotion gate, and an honest candidate still passes. Verified by `crates/susi-gawd/src/tests/vc_201_005.rs`: write_permissions_unavailable_to_candidate, self_altered_expectations_fail_gate, honest_candidate_passes. Evidence: T-CLAUDE-117.",
+      "progress": "PARTIAL: invented expectations fail and the write flag fails closed — verified by `crates/susi-gawd/src/tests/vc_201_005_mastery.rs`. Refuted on record 2026-10-03: the gate judges declared expectations not candidate output (no output field exists), an empty candidate passes, the write-permission boundary is a caller-supplied bool, and eval_separation has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-005.json`. Follow-up tracked by T-DEVIN20261002053148-18.",
       "type": "RSI_EVALUATION",
       "vector": "Separate candidate generation from judging"
     },
