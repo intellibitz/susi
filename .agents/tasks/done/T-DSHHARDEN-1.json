@@ -19,5 +19,10 @@
     ]
   },
   "created_by": "DSHHARDEN",
-  "created_unix": 1791040463
+  "created_unix": 1791040463,
+  "closed": {
+    "at_unix": 1791041946,
+    "commit": "88f6bd142897d5b65884b4dce3318f0089416898",
+    "by": "DSHHARDEN"
+  }
 }
