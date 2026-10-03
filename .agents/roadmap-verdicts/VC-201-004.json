@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-004",
+  "verdict": "delivered",
+  "evidence": "receipt_identifies_revision_digest_suite_env_exit (crates/susi-gawd/src/tests/vc_201_004.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790988146
+}
