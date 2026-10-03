@@ -121,6 +121,9 @@ mod otel_export_tests;
 #[cfg(test)]
 #[path = "tests/prompt_secret_scan.rs"]
 mod prompt_secret_scan_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_091_mastery.rs"]
+mod vc_201_091_mastery_tests;
 
 // Top-level exports for the fundamental susi-core types
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
