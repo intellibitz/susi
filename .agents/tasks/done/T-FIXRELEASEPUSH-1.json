@@ -1,0 +1,26 @@
+{
+  "id": "T-FIXRELEASEPUSH-1",
+  "title": "Push the release branch explicitly instead of relying on upstream",
+  "goal": "susi admin release --cut runs a bare git push; a susi-worktree.sh branch tracks origin/main, so under push.default=simple the push fails after the version bump is committed. Push the current branch explicitly, refuse main and a detached HEAD, and test both.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(release_push)"
+    ]
+  },
+  "created_by": "FIXRELEASEPUSH",
+  "created_unix": 1791046345,
+  "closed": {
+    "at_unix": 1791047764,
+    "commit": "738eda24a9462a75eb9d7cc1391508fcceb226a5",
+    "by": "FIXRELEASEPUSH"
+  }
+}
