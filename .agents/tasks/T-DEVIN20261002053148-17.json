@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-17",
+  "title": "Gate all five scorecard dimensions and require sample size (VC-201-003)",
+  "goal": "VC-201-003 refuted: summary_ok consults only quality/reliability/latency — resource and operator_effort regressions are invisible to the verdict; task_count is never consulted so a zero-task scorecard declares improvement ('undersampled cannot claim' has no mechanism); thresholds are carried on the judged record itself so 'predeclared' is unenforced (post-hoc edits flip the verdict); refuses_task_count_as_percent is a constant true; and ImprovementScorecard has no production caller. Evidence: crates/susi-gawd/src/tests/vc_201_003_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_003",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790987957
+}
