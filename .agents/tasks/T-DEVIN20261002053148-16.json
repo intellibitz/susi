@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-16",
+  "title": "Enforce corpus integrity: verify input hashes, typed splits, revision-bound replay (VC-201-001)",
+  "goal": "VC-201-001 refuted: input_hash is never verified — a deserialized corpus carries tampered input+stale hash undetected (no validation API exists); split is a free-form string so a mislabeled held-out fixture escapes held_out() into the train side; replay_seeds ignores revision so 'replay the same revision' cannot be told from replaying another; and RsiCorpus has no production caller. Evidence: crates/susi-gawd/src/tests/vc_201_001_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_001",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790987352
+}
