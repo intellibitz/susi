@@ -23,7 +23,7 @@ fn vc_201_066_mastery_export_redaction_covers_every_shape() {
         !json_out.contains(secret),
         "a resolved value inside a JSON export must be redacted: {json_out:?}"
     );
-    assert!(json_out.contains(r#""api_key": "<redacted>""#));
+    assert!(json_out.contains(r#""api_key": "[REDACTED]""#));
     // A resolved value containing spaces loses the whole body, not just
     // the first whitespace-delimited token.
     let out = redact_for_export("resolved=sk live-9f3e");
@@ -78,7 +78,7 @@ fn vc_201_066_mastery_reference_display_and_wrong_scope_hold() {
     assert!(vault.issue_boundary("other").resolve(&r).is_err());
     let out = redact_for_export("using secret://deploy/api_key resolved=s3cr3t-body");
     assert!(!out.contains("s3cr3t-body"));
-    assert!(out.contains("resolved=<redacted>"));
+    assert!(out.contains("resolved=[REDACTED]"));
     assert!(out.contains("secret://deploy/api_key"));
 }
 

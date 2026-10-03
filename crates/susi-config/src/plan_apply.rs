@@ -37,7 +37,7 @@ impl PlanOp {
 
 fn export_value(key: &str, value: &str) -> String {
     if crate::secret_ref::credential_field(key) {
-        "<redacted>".to_string()
+        "[REDACTED]".to_string()
     } else {
         crate::secret_ref::redact_for_export(value)
     }

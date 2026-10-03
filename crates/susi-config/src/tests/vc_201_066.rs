@@ -18,7 +18,7 @@ fn vc_201_066_parse_and_scope_guard() {
 fn vc_201_066_plan_export_never_discloses() {
     let out = redact_for_export("using secret://deploy/api_key resolved=super-secret");
     assert!(!out.contains("super-secret"));
-    assert!(out.contains("<redacted>"));
+    assert!(out.contains("[REDACTED]"));
 }
 
 #[test]
