@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "DSHATTEST",
-  "created_unix": 1791026145
+  "created_unix": 1791026145,
+  "closed": {
+    "at_unix": 1791027375,
+    "commit": "478672a546094a9d2739eaa145426757ed3feef1",
+    "by": "DSHATTEST"
+  }
 }
