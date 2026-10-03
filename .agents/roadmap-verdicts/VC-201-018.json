@@ -1,8 +1,8 @@
 {
   "vector": "VC-201-018",
   "verdict": "not-delivered",
-  "evidence": "crates/susi-gawd/src/tests/vc_201_018_mastery.rs",
-  "missing": "Four refutations. (1) A 'passing experiment' is never checked \u2014 any id mints a reviewable candidate that promotes (vc_201_018_mastery_failed_experiment_promotes). (2) The target/-install guard is substring matching: staging through /tmp or a cwd-relative dest installs into the release home anyway (vc_201_018_mastery_staged_install_evades_guard). (3) Whitespace-only evidence/digest satisfy the non-empty check (vc_201_018_mastery_empty_evidence_promotes). (4) promote_via passes caller-fabricated evidence to the boundary unverified (vc_201_018_mastery_promote_via_trusts_callers_evidence). Holds: the DirectTargetInstall enum path is refused and a verbatim target->~/.susi/bin pair is caught (vc_201_018_mastery_nominal_refusals_hold).",
+  "evidence": "passing_experiment_yields_reviewable_rc and rejects_target_bin_install_into_susi_home (crates/susi-gawd/src/tests/vc_201_018.rs); refutations (crates/susi-gawd/src/tests/vc_201_018_mastery.rs)",
+  "missing": "The mastery refutations show failed experiments can promote, install guards can be evaded, whitespace evidence is accepted, and promote_via trusts caller-fabricated evidence. Nominal direct-target refusals still hold.",
   "tracked_by": [
     "T-DEVIN20261002053148-25"
   ],
