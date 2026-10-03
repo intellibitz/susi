@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-216",
+  "title": "Fix process-tree agent detection to match the executable basename, not the build directory",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--bin",
+      "susi",
+      "argv_head_uses_the_executable_basename",
+      "--locked"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791068742,
+  "closed": {
+    "at_unix": 1791069385,
+    "commit": "be0b54b099c146a5b1999daed0053f627f327a34",
+    "by": "DEEPSEEK"
+  }
+}
