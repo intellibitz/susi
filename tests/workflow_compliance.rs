@@ -720,3 +720,158 @@ fn a_cli_change_without_the_readme_is_warned_about() {
         "a documented CLI change must not warn: {err}"
     );
 }
+
+/// A claim blob as `susi tasks claim` writes it: live for an hour, owned by
+/// `agent` on `branch`, reserving `scopes`.
+fn claim_json(task: &str, agent: &str, branch: &str, scopes: &[&str]) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    serde_json::json!({
+        "task": task, "agent": agent, "branch": branch, "scopes": scopes,
+        "claimed_unix": now, "lease_until_unix": now + 3600
+    })
+    .to_string()
+}
+
+/// A close receipt as `susi tasks close` pushes it.
+fn receipt_json(task: &str, agent: &str) -> String {
+    serde_json::json!({
+        "task": task, "agent": agent, "head": "0".repeat(40), "closed_unix": 1
+    })
+    .to_string()
+}
+
+fn push_ref(repo: &Path, name: &str, body: &str) {
+    use std::io::Write;
+    let mut child = Command::new("git")
+        .args(["hash-object", "-w", "--stdin"])
+        .current_dir(repo)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(body.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "hash-object: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let blob = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // Production writes these refs with a compare-and-swap lease (`put_record`);
+    // a test wants the new value, so it forces.
+    git(
+        repo,
+        &[
+            "push",
+            "--quiet",
+            "--force",
+            "origin",
+            &format!("{blob}:{name}"),
+        ],
+    );
+}
+
+fn delete_ref(repo: &Path, name: &str) {
+    git(repo, &["push", "--quiet", "origin", &format!(":{name}")]);
+}
+
+/// The debt is enforced by the agent's own binary, so a stale client or a
+/// hand-pushed claim ref can skip it. The server must refuse the second task
+/// too — and only the second task: a receipt for the task in hand is the repair
+/// path, another agent's receipt is not this branch's business, and a receipt
+/// whose close already reached `origin/main` is published work.
+#[test]
+fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
+    let e = Env::new("owed");
+    assert_eq!(
+        e.susi(&["tasks", "add", "first", "--accept", "cargo --version"])
+            .0,
+        0
+    );
+    assert_eq!(
+        e.susi(&["tasks", "add", "second", "--accept", "cargo --version"])
+            .0,
+        0
+    );
+    std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh"),
+        e.repo.join("scripts/check-workflow-compliance.sh"),
+    )
+    .unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "install rule"]); // task-only: exempt
+    let base = e.head();
+
+    // TEST accepted T-TEST-1 and never published it; it is now working
+    // T-TEST-2. `susi tasks claim` would refuse that second claim, so the state
+    // is built the way a bypassing or stale client leaves it: refs by hand.
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-2",
+        &claim_json("T-TEST-2", "TEST", "main", &["work"]),
+    );
+    push_ref(
+        &e.repo,
+        "refs/closed/T-TEST-1",
+        &receipt_json("T-TEST-1", "TEST"),
+    );
+    e.commit("a", "feat: a", Some("T-TEST-2"));
+    let (code, err) = e.check(&base);
+    assert_eq!(code, 1, "the owed merge must refuse the second task: {err}");
+    assert!(err.contains("owes the merge of T-TEST-1"), "{err}");
+
+    // The task in hand is the repair path, not a second task.
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-1",
+        &claim_json("T-TEST-1", "TEST", "main", &["work"]),
+    );
+    let before = e.head();
+    e.commit("b", "fix: b", Some("T-TEST-1"));
+    let (code, err) = e.check(&before);
+    assert_eq!(code, 0, "repairing the owed task must pass: {err}");
+
+    // Another agent's receipt is not this branch's business.
+    delete_ref(&e.repo, "refs/closed/T-TEST-1");
+    push_ref(
+        &e.repo,
+        "refs/closed/T-TEST-1",
+        &receipt_json("T-TEST-1", "OTHER"),
+    );
+    let (code, err) = e.check(&base);
+    assert_eq!(
+        code, 0,
+        "another agent's debt must not refuse this push: {err}"
+    );
+
+    // The same receipt, once its close is on origin/main, is published work.
+    push_ref(
+        &e.repo,
+        "refs/closed/T-TEST-1",
+        &receipt_json("T-TEST-1", "TEST"),
+    );
+    std::fs::create_dir_all(e.repo.join(".agents/tasks/done")).unwrap();
+    std::fs::write(
+        e.repo.join(".agents/tasks/done/T-TEST-1.json"),
+        "{\"id\":\"T-TEST-1\"}\n",
+    )
+    .unwrap();
+    git(&e.repo, &["add", "-A"]);
+    git(&e.repo, &["commit", "--quiet", "-m", "close first task"]); // task-only: exempt
+    git(&e.repo, &["push", "--quiet", "origin", "HEAD:main"]);
+    git(&e.repo, &["fetch", "--quiet", "origin"]);
+    let before = e.head();
+    e.commit("c", "feat: c", Some("T-TEST-2"));
+    let (code, err) = e.check(&before);
+    assert_eq!(code, 0, "a published close is not debt: {err}");
+}

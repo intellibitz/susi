@@ -352,9 +352,16 @@ is the START HERE block at the top of [`AGENTS.md`](AGENTS.md):
    commit with `Task: T-<AGENT>-<n>`, sync again, push, then sync before the
    next claim — so parallel agents always build on latest main.
 4. **Done means the acceptance check passes:** `susi tasks close <id>` runs it,
-   and a `cargo test` filter that ran zero tests does not count. Tasks may link
+   and a `cargo test` filter that ran zero tests does not count. Closing
+   publishes a receipt (`refs/closed/<id>`) that blocks the next claim until the
+   close is *observed* on `origin/main` — so a crash, a Ctrl-C or a report of
+   success nobody published cannot start a second task, and CI refuses it
+   server-side too. Giving the task up is deliberate and recorded:
+   `susi tasks release <id> --abandon <reason>`. After the merge, the merge is
+   attested (`refs/merged/<id>`) and a main-only job re-runs the task's own
+   acceptance on the merged tree, recording `refs/verified/<id>`. Tasks may link
    to a roadmap vector (`--roadmap VC-201-0NN`); `susi tasks roadmap` reports
-   coverage.
+   coverage, and `susi tasks audit` reports who still owes a merge.
 5. **Push the branch; the rest is automatic.** The branch-push `Test` run is
    the gate, a PR opens itself and merges itself when green, and a 15-minute
    reconciler merges green PRs that events missed, comments once on red or
@@ -428,6 +435,8 @@ susi workflow start           # your own worktree, ready to work in
 susi tasks list               # the shared queue
 susi tasks claim T-CLAUDE-42  # atomic; nobody else can take it
 susi tasks roadmap --uncovered
+susi tasks audit              # who accepted work that never reached origin/main
+susi tasks release T-CLAUDE-42 --abandon "superseded"  # give an accepted task up, on the record
 
 # Automation (evidence-gated swarm mission)
 susi automate "refactor the auth module and verify with tests"
