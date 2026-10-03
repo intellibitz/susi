@@ -2,7 +2,7 @@
 //! carrying mission/task/placement/experiment/deployment ids end to end
 //! without recording credentials.
 
-use crate::otel_export::{export_spans, mission_span, OtelExportTarget, OtelKeyValue, OtelSpan};
+use crate::otel_export::{export_spans, mission_span, OtelExportTarget, OtelKeyValue};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn scratch(tag: &str) -> std::path::PathBuf {
@@ -66,7 +66,6 @@ fn vc_201_091_mastery_http_export_is_a_labeled_noop() {
 /// 'followed' at all.
 #[test]
 fn vc_201_091_mastery_no_failure_can_be_recorded() {
-    let ok = mission_span("t", "m", "g");
     let mut failed = mission_span("t", "m", "g");
     failed.attributes.push(OtelKeyValue {
         key: "status".into(),
