@@ -42,6 +42,10 @@ case "$comparison" in
     ;;
  *)
     if gh pr update-branch "$pr" --repo "$repo"; then
+        # A token-made branch update raises no push event, so the gate would
+        # never see the new head. Dispatch it explicitly; the next reconcile
+        # pass (or a workflow_run hook) merges it once green.
+        gh workflow run test.yml --repo "$repo" --ref "$branch" || true
         echo "PR #$pr was behind main; branch updated — its retest merges it."
         exit 0
     fi

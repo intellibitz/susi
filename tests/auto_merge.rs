@@ -305,6 +305,14 @@ fn a_tested_branch_missing_current_main_is_resynced_not_merged_or_failed() {
             "{}",
             f.calls()
         );
+        // A token-made update fires no push event — the gate must be
+        // dispatched or the resynced head is never tested.
+        assert!(
+            f.calls()
+                .contains("workflow run test.yml --repo o/r --ref feat"),
+            "{}",
+            f.calls()
+        );
     }
 }
 
@@ -349,6 +357,12 @@ fn the_reconciler_resyncs_a_green_but_behind_pr_without_failing() {
     assert_eq!(code, 0, "{out}");
     assert!(
         f.calls().contains("pr update-branch 9 --repo o/r"),
+        "{}",
+        f.calls()
+    );
+    assert!(
+        f.calls()
+            .contains("workflow run test.yml --repo o/r --ref feat-behind"),
         "{}",
         f.calls()
     );

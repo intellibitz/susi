@@ -7,7 +7,7 @@
 #   reconcile-prs.sh <owner/repo>
 #
 # Per open PR (skipping wip/ nopr/ dependabot/ branches and drafts), judged on
-# the branch-push Test run of its exact head sha:
+# the latest Test run of its exact head sha (push- or dispatch-triggered):
 #   green          -> merge it (auto-merge-pr.sh)
 #   red            -> comment once with the run link; leave it open for a fix
 #   running/none   -> wait
@@ -25,7 +25,7 @@ while IFS=$'\t' read -r num branch sha updated draft; do
     case "$branch" in wip/* | nopr/* | dependabot/*) continue ;; esac
     [ "$draft" = true ] && continue
 
-    run=$(gh run list --repo "$repo" --workflow test.yml --commit "$sha" --event push \
+    run=$(gh run list --repo "$repo" --workflow test.yml --commit "$sha" \
         --json status,conclusion,url --jq '.[0] // empty | [.status, .conclusion, .url] | @tsv' 2>/dev/null || true)
     status=$(printf '%s' "$run" | cut -f1)
     conclusion=$(printf '%s' "$run" | cut -f2)
