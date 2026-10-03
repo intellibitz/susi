@@ -9,13 +9,16 @@
 //! 2. it is up to date with `origin/main`,
 //! 3. this worktree's git hooks are installed and are its own,
 //! 4. the agent holds a live claim on a task,
-//! 5. the tree can actually be synced (no merge in progress, nothing
+//! 5. nothing it already accepted is still waiting on `origin/main` (the close
+//!    receipt — an agent that reported success it never published cannot slip
+//!    into the next task),
+//! 6. the tree can actually be synced (no merge in progress, nothing
 //!    uncommitted — `sync` and `finish` both refuse a dirty tree, but nothing
 //!    used to say so before they did),
-//! 6. that claim's lease is not about to lapse,
-//! 7. the primary-checkout watcher is alive (it is what keeps the primary
+//! 7. that claim's lease is not about to lapse,
+//! 8. the primary-checkout watcher is alive (it is what keeps the primary
 //!    parked at `origin/main`),
-//! 8. the release installed on this host is not older than the fixes merged
+//! 9. the release installed on this host is not older than the fixes merged
 //!    into `main` (the binary every worker runs only changes at a release).
 //!
 //! Evaluation is pure ([`evaluate`]) so every combination is unit-tested;
@@ -92,6 +95,9 @@ pub struct Facts {
     pub agent: String,
     /// Claims on the remote, or why they could not be read.
     pub claims: Result<Vec<Claim>, String>,
+    /// Accepted tasks of this agent whose close is not on `origin/main` yet, or
+    /// why they could not be read. See [`super::tasks::CloseRecord`].
+    pub owed: Result<Vec<String>, String>,
     /// `git status --porcelain`: empty = clean, `None` = could not be read.
     pub porcelain: Option<String>,
     /// A merge, rebase, cherry-pick or revert is in progress.
@@ -242,7 +248,40 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         }
     });
 
-    // 5. Can this tree be synced at all? `sync` refuses a dirty tree and the
+    // 5. Accepted work that is not on origin/main yet. `finish` waits for the
+    //    merge, but it waits *inside a process*: Ctrl-C, a crash or a suspend
+    //    used to leave an accepted task releasable and the next task claimable,
+    //    which looks exactly like an agent reporting success it never
+    //    published. The close receipt makes that state visible here, before the
+    //    next unit of work starts, and `claim` refuses regardless of what this
+    //    checklist says.
+    out.push(match &f.owed {
+        Err(why) => fail(
+            "merge published",
+            format!("could not read the accepted-task receipts: {why}"),
+            "git fetch origin   # then: susi workflow check",
+        ),
+        Ok(owed) if owed.is_empty() => pass(
+            "merge published",
+            "nothing accepted is waiting on origin/main",
+        ),
+        Ok(owed) => {
+            let first = owed.first().map(String::as_str).unwrap_or_default();
+            fail(
+                "merge published",
+                format!(
+                    "{} was accepted and its close is not on origin/main; an accepted task is not \
+                     done until it is merged, and no other task may be claimed until then",
+                    owed.join(", ")
+                ),
+                format!(
+                    "susi workflow finish {first}   # or: susi tasks release {first} --abandon <reason>"
+                ),
+            )
+        }
+    });
+
+    // 6. Can this tree be synced at all? `sync` refuses a dirty tree and the
     //    gate refuses an unresolved merge, but `check` called both "ready", so
     //    the first symptom was a failed finish. A work in progress is a warning
     //    (agents edit constantly); an unresolved merge is a failure.
@@ -270,7 +309,7 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         ),
     });
 
-    // 6. A claim that is close to lapsing: finish renews while it waits, but a
+    // 7. A claim that is close to lapsing: finish renews while it waits, but a
     //    lapse frees the task for another agent, so say so before it happens.
     if let Ok(claims) = &f.claims {
         let mine = claims.iter().find(|c| {
@@ -301,7 +340,7 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         }
     }
 
-    // 7. The primary checkout only converges while this clone's watcher runs
+    // 8. The primary checkout only converges while this clone's watcher runs
     //    (AGENTS.md requires it), and nothing noticed when it died.
     out.push(match f.watcher_age {
         Some(age) if age <= 120 => pass("primary watcher", format!("heartbeat {age}s ago")),
@@ -317,7 +356,7 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         ),
     });
 
-    // 8. The binary the agent is running. `~/.susi/bin/susi` changes only when
+    // 9. The binary the agent is running. `~/.susi/bin/susi` changes only when
     //    a release is cut and promoted, so a merged fix can be documented as
     //    active while the tool every worker runs still enforces the old rules
     //    (0.21.0 released another agent's claim across branches, which main
@@ -378,7 +417,7 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
         },
     });
 
-    // 9. Finished worktrees accumulate in a clone — one per task, and nothing
+    // 10. Finished worktrees accumulate in a clone — one per task, and nothing
     //    ever reclaimed them (14 here, twelve of them dozens of commits stale).
     //    Advisory: housekeeping must never block the loop, and another agent's
     //    worktree is not this agent's to remove.
@@ -537,6 +576,12 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         .collect();
 
     let claims = tasks::claims(&root).map_err(|e| e.to_string());
+    // Accepted but unpublished work: the close receipt `tasks close` pushes.
+    // Read-only here — clearing it is the claim path's job, so the checklist
+    // never changes state behind the agent's back.
+    let owed = tasks::unpublished_closes(&root, agent)
+        .map(|v| v.into_iter().map(|r| r.task).collect::<Vec<_>>())
+        .map_err(|e| e.to_string());
 
     // What blocks `sync` and the gate, which used to be invisible here.
     let porcelain = git(&root, &["status", "--porcelain"]);
@@ -589,6 +634,7 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         },
         agent: agent.to_string(),
         claims,
+        owed,
         porcelain,
         merging,
         watcher_age,
@@ -738,6 +784,7 @@ mod tests {
             },
             agent: "CLAUDE".into(),
             release: ReleaseDrift::default(),
+            owed: Ok(vec![]),
             claims: Ok(vec![Claim {
                 branch: None,
                 scopes: vec![],
@@ -877,6 +924,33 @@ mod tests {
             }
         }
         assert!(c.iter().any(|check| check.state == State::Fail));
+    }
+
+    #[test]
+    fn an_accepted_task_that_did_not_merge_fails_and_says_how_to_get_out() {
+        let f = Facts {
+            owed: Ok(vec!["T-CLAUDE-7".into()]),
+            ..good()
+        };
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "merge published"), State::Fail);
+        assert!(
+            !ok(&c),
+            "an acceptance nobody published is not a finished task: {c:?}"
+        );
+        assert!(
+            c.iter()
+                .any(|x| x.fix.contains("susi workflow finish T-CLAUDE-7")
+                    && x.fix.contains("--abandon")),
+            "{c:?}"
+        );
+        // A receipt that cannot be read is a failure, never a silent pass:
+        // "unknown" must not be mistaken for "merged".
+        let offline = Facts {
+            owed: Err("offline".into()),
+            ..good()
+        };
+        assert_eq!(state(&evaluate(&offline), "merge published"), State::Fail);
     }
 
     #[test]

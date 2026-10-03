@@ -79,6 +79,10 @@ pub enum TaskCommands {
         /// Release a claim held by someone else
         #[arg(long)]
         force: bool,
+        /// Give up an accepted task whose work is not merged yet, recording why.
+        /// Without it a close that is not on origin/main is held, not dropped.
+        #[arg(long)]
+        abandon: Option<String>,
     },
     /// Run the acceptance check and, only if it passes, close the task
     Close {
@@ -283,7 +287,10 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             }
             print_json(&out)?;
         }
-        TaskCommands::Roadmap { uncovered, unqueued } => {
+        TaskCommands::Roadmap {
+            uncovered,
+            unqueued,
+        } => {
             let vectors = tasks::roadmap_vectors(&root)?;
             let cov = tasks::roadmap_coverage(
                 &vectors,
@@ -364,7 +371,9 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             scopes,
             unscoped,
         } => {
-            tasks::ensure_synced(&root)?;
+            // Re-adopting the task being claimed is the one case where its own
+            // close is legitimately in this branch and not yet on main.
+            tasks::ensure_synced_for(&root, Some(&id))?;
             // A claim that reserves no paths cannot be enforced: the commit hook
             // and CI refuse code under it, so the mistake would surface only
             // when the agent tries to commit its work. Refuse it here instead,
@@ -392,7 +401,11 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                 &root,
                 &id,
                 &who(agent, &root),
-                tasks::ClaimOptions { hours, now: tasks::now_unix(), scopes: &scopes },
+                tasks::ClaimOptions {
+                    hours,
+                    now: tasks::now_unix(),
+                    scopes: &scopes,
+                },
             )?;
             println!(
                 "{} claimed {} until unix {}",
@@ -403,14 +416,25 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             let claim = tasks::renew(&root, &id, &who(agent, &root), hours, tasks::now_unix())?;
             println!("renewed {id} until unix {}", claim.lease_until_unix);
         }
-        TaskCommands::Release { id, agent, force } => {
-            tasks::release(&root, &id, &who(agent, &root), force)?;
-            println!("released {id}");
+        TaskCommands::Release {
+            id,
+            agent,
+            force,
+            abandon,
+        } => {
+            if let Some(reason) = abandon {
+                tasks::abandon(&root, &id, &who(agent, &root), &reason)?;
+                println!("abandoned {id} — the reason is recorded on refs/abandoned/{id}");
+            } else {
+                tasks::release(&root, &id, &who(agent, &root), force)?;
+                println!("released {id}");
+            }
         }
         TaskCommands::Close { id, agent } => match tasks::close(&root, &id, &who(agent, &root)) {
             Ok(t) => println!(
-                "closed {} — moved to .agents/tasks/done/; commit and merge, then release the claim",
-                t.id
+                "closed {} — publish it (`susi workflow finish {}`): the close receipt is on the \
+                 remote and blocks another task until it is on origin/main",
+                t.id, t.id
             ),
             Err(e) => bail!("{e}"),
         },

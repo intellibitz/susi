@@ -235,7 +235,9 @@ MSG
             case "$(pr_state)" in
             CLOSED)
                 echo "❌ the pull request for $branch is closed; it will not merge." >&2
-                echo "   The task is closed and the claim is retained — push a fix and reopen it, or release the claim." >&2
+                echo "   The task is closed and its receipt keeps the claim (and this agent) held." >&2
+                echo "   Fix it and reopen, or give it up deliberately and on the record:" >&2
+                echo "   susi tasks release $task --abandon <reason>" >&2
                 exit 1
                 ;;
             esac
@@ -247,7 +249,8 @@ MSG
    The task is closed and the claim is retained, so nothing is lost and no other
    agent will start it. Fix the failure, commit the repair, and run finish again
    (if the acceptance was already published, revert the close and fix under the
-   same claim — citing a closed task is refused).
+   same claim — citing a closed task is refused). To give the task up instead:
+   susi tasks release $task --abandon <reason>
 MSG
                 exit 1
                 ;;

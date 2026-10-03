@@ -1,0 +1,26 @@
+{
+  "id": "T-DSHMERGEGATE-1",
+  "title": "Publish close receipts so an accepted-but-unmerged task blocks the next claim",
+  "goal": "Catch a lying or interrupted agent from the first task: close pushes a durable refs/closed/<id> receipt; release refuses a closed-unpublished task; a published receipt is cleared only by observing origin/main; workflow check says so.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(admin)"
+    ]
+  },
+  "created_by": "DSHMERGEGATE",
+  "created_unix": 1791023855,
+  "closed": {
+    "at_unix": 1791025386,
+    "commit": "649593a60ec463805b994ba4029ed8bb38f41120",
+    "by": "DSHMERGEGATE"
+  }
+}

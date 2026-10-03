@@ -50,6 +50,34 @@ pub struct Closed {
     pub by: String,
 }
 
+/// A durable "accepted, not yet on `origin/main`".
+///
+/// `close` pushes this to `refs/closed/<id>` the moment acceptance passes, so
+/// the fact is on the shared remote instead of only in the working tree that
+/// happened to run the check. `release` deletes the claim; this outlives it,
+/// which is what stops an agent that crashed, gave up, or simply reported
+/// success from claiming the next task while the accepted work is unmerged.
+/// The receipt is cleared only by *observing* the close on `origin/main`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseRecord {
+    pub task: String,
+    pub agent: String,
+    /// Branch head whose acceptance check passed.
+    pub head: String,
+    pub closed_unix: u64,
+}
+
+/// A task given up deliberately, pushed to `refs/abandoned/<id>`: the reason is
+/// a remote record, so "we stopped working on this accepted task" is visible
+/// rather than an agent quietly dropping it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Abandoned {
+    pub task: String,
+    pub agent: String,
+    pub reason: String,
+    pub at_unix: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
@@ -428,19 +456,27 @@ fn claim_ref(id: &str) -> String {
     format!("refs/claims/{id}")
 }
 
-/// Mirror the remote's claims into local `refs/claims/*`, dropping local
-/// claims the remote no longer has — a released claim must not linger in
-/// other clones and make a free task look taken.
+/// The close receipt for `id`; see [`CloseRecord`].
+fn closed_ref(id: &str) -> String {
+    format!("refs/closed/{id}")
+}
+
+/// The record that `id` was given up deliberately; see [`Abandoned`].
+fn abandoned_ref(id: &str) -> String {
+    format!("refs/abandoned/{id}")
+}
+
+/// Mirror the remote's claims — and the close receipts and abandonments that
+/// ride with them — into local refs, dropping whatever the remote no longer
+/// has: a released claim must not linger in other clones and make a free task
+/// look taken, and a published receipt must not linger either, or an agent
+/// would be blocked by work that has already merged.
+///
+/// Receipts are read by every boundary that reads claims, so they are fetched
+/// together: a *released* claim must not hide the accepted-but-unmerged work
+/// it left behind.
 fn sync_claims(ws: &Path) -> EaiResult<()> {
     let r = remote();
-    let listed = git(ws, &["ls-remote", &r, "refs/claims/*"])?;
-    if listed.is_empty() {
-        let stale = git(ws, &["for-each-ref", "--format=%(refname)", "refs/claims/"])?;
-        for name in stale.lines() {
-            let _ = git(ws, &["update-ref", "-d", name]);
-        }
-        return Ok(());
-    }
     git(
         ws,
         &[
@@ -449,15 +485,225 @@ fn sync_claims(ws: &Path) -> EaiResult<()> {
             "--prune",
             &r,
             "+refs/claims/*:refs/claims/*",
+            "+refs/closed/*:refs/closed/*",
+            "+refs/abandoned/*:refs/abandoned/*",
         ],
     )
     .map(|_| ())
+}
+
+/// Generic so claim blobs, close receipts and abandonments share one writer.
+fn blob_of<T: Serialize>(ws: &Path, value: &T) -> EaiResult<String> {
+    let body = serde_json::to_string(value)?;
+    let mut child = Command::new("git")
+        .args(["hash-object", "-w", "--stdin"])
+        .current_dir(ws)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| EaiError::process("git hash-object stdin"))?
+            .write_all(body.as_bytes())?;
+    }
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        return Err(EaiError::process("git hash-object failed"));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 fn read_claim(ws: &Path, id: &str) -> Option<(String, Claim)> {
     let sha = git(ws, &["rev-parse", "--verify", "--quiet", &claim_ref(id)]).ok()?;
     let body = git(ws, &["cat-file", "-p", &sha]).ok()?;
     Some((sha, serde_json::from_str(&body).ok()?))
+}
+
+/// The close receipt for `id`, if the remote has one.
+fn read_closed(ws: &Path, id: &str) -> EaiResult<Option<CloseRecord>> {
+    let Ok(sha) = git(ws, &["rev-parse", "--verify", "--quiet", &closed_ref(id)]) else {
+        return Ok(None);
+    };
+    let body = git(ws, &["cat-file", "-p", &sha])?;
+    Ok(serde_json::from_str(&body).ok())
+}
+
+/// Whether the close of `id` is on `origin/main` — the only proof that the
+/// accepted work is actually done. An unreachable origin is an error, never a
+/// silent "published": the caller must not treat an unknown as a merge.
+fn published_on_main(ws: &Path, id: &str) -> EaiResult<bool> {
+    git(ws, &["fetch", "--quiet", "origin"])?;
+    Ok(git(
+        ws,
+        &[
+            "cat-file",
+            "-e",
+            &format!("origin/main:.agents/tasks/done/{id}.json"),
+        ],
+    )
+    .is_ok())
+}
+
+/// Drop a receipt whose work is on `origin/main` (or that was abandoned), on the
+/// remote and locally. Compare-and-swap: a receipt re-pushed since we read it
+/// belongs to a newer close and must survive.
+fn clear_closed(ws: &Path, id: &str) -> EaiResult<()> {
+    let r = remote();
+    let listed = git(ws, &["ls-remote", &r, &closed_ref(id)])?;
+    let old = listed.split_whitespace().next().unwrap_or("");
+    if !old.is_empty() {
+        git(
+            ws,
+            &[
+                "push",
+                "--quiet",
+                &format!("--force-with-lease={}:{old}", closed_ref(id)),
+                &r,
+                &format!(":{}", closed_ref(id)),
+            ],
+        )?;
+    }
+    let _ = git(ws, &["update-ref", "-d", &closed_ref(id)]);
+    Ok(())
+}
+
+/// Publish `refs/closed/<id>` before the task record moves: from here on the
+/// task is accepted, and nothing may claim it — or let its agent claim anything
+/// else — until this head is on `origin/main`. Pushing first means a failed push
+/// leaves the task open and `close` is simply retried.
+fn push_close_receipt(ws: &Path, id: &str, agent: &str) -> EaiResult<()> {
+    let record = CloseRecord {
+        task: id.to_string(),
+        agent: agent.to_string(),
+        head: git(ws, &["rev-parse", "HEAD"])?,
+        closed_unix: now_unix(),
+    };
+    let blob = blob_of(ws, &record)?;
+    let r = remote();
+    let listed = git(ws, &["ls-remote", &r, &closed_ref(id)])?;
+    let old = listed.split_whitespace().next().unwrap_or("");
+    git(
+        ws,
+        &[
+            "push",
+            "--quiet",
+            &format!("--force-with-lease={}:{old}", closed_ref(id)),
+            &r,
+            &format!("{blob}:{}", closed_ref(id)),
+        ],
+    )
+    .map_err(|_| {
+        EaiError::config(format!(
+            "{id} was accepted and published by another worker concurrently; refresh the queue \
+             and re-run the acceptance check"
+        ))
+    })?;
+    git(ws, &["update-ref", &closed_ref(id), &blob])?;
+    Ok(())
+}
+
+/// Record that an accepted task was given up, on the shared remote.
+fn push_abandoned(ws: &Path, id: &str, agent: &str, reason: &str) -> EaiResult<()> {
+    let record = Abandoned {
+        task: id.to_string(),
+        agent: agent.to_string(),
+        reason: reason.trim().to_string(),
+        at_unix: now_unix(),
+    };
+    let blob = blob_of(ws, &record)?;
+    let r = remote();
+    let listed = git(ws, &["ls-remote", &r, &abandoned_ref(id)])?;
+    let old = listed.split_whitespace().next().unwrap_or("");
+    git(
+        ws,
+        &[
+            "push",
+            "--quiet",
+            &format!("--force-with-lease={}:{old}", abandoned_ref(id)),
+            &r,
+            &format!("{blob}:{}", abandoned_ref(id)),
+        ],
+    )?;
+    git(ws, &["update-ref", &abandoned_ref(id), &blob])?;
+    Ok(())
+}
+
+/// A commit for a message: short when it looks like a sha.
+fn short_head(head: &str) -> &str {
+    head.get(..8).unwrap_or(head)
+}
+
+/// Whether `agent` accepted `id` and the close is still not on `origin/main`:
+/// the "keep waiting on a merge" state, in which an expired lease may be
+/// re-adopted instead of taken over. Requires a synchronized receipt ref.
+fn accepted_unpublished(ws: &Path, id: &str, agent: &str) -> EaiResult<bool> {
+    match read_closed(ws, id)? {
+        Some(record) if record.agent == agent => Ok(!published_on_main(ws, id)?),
+        _ => Ok(false),
+    }
+}
+
+/// Accepted tasks this agent has not published, clearing the receipts whose
+/// close has since appeared on `origin/main`. The debt ends exactly where the
+/// merge is observed, so no separate cleanup can be forgotten.
+///
+/// `except` is the task being (re)claimed: re-adopting your *own* accepted
+/// task is how `finish` keeps waiting after a lease lapsed, and that must not
+/// be read as "start something new" — the debt still blocks every other task.
+///
+/// The caller must have synchronized first ([`sync_claims`], which [`claims`]
+/// does): the local receipt refs are what this reads.
+fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<String>> {
+    let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/closed/"])?;
+    let mut owed = Vec::new();
+    for name in refs.lines() {
+        let Some(id) = name.strip_prefix("refs/closed/") else {
+            continue;
+        };
+        if except == Some(id) {
+            continue;
+        }
+        let Some(record) = read_closed(ws, id)? else {
+            continue;
+        };
+        if record.agent != agent {
+            continue;
+        }
+        if published_on_main(ws, id)? {
+            clear_closed(ws, id)?;
+        } else {
+            owed.push(id.to_string());
+        }
+    }
+    owed.sort();
+    Ok(owed)
+}
+
+/// Accepted tasks this agent has not published — read-only, for `workflow
+/// check`. Unlike [`owed_closes`] it mutates nothing, so the checklist can
+/// report a debt without clearing it behind the agent's back.
+pub fn unpublished_closes(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
+    let by = agent_token(agent)?;
+    sync_claims(ws)?;
+    let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/closed/"])?;
+    let mut out = Vec::new();
+    for name in refs.lines() {
+        let Some(id) = name.strip_prefix("refs/closed/") else {
+            continue;
+        };
+        let Some(record) = read_closed(ws, id)? else {
+            continue;
+        };
+        if record.agent == by && !published_on_main(ws, id)? {
+            out.push(record);
+        }
+    }
+    out.sort_by(|a, b| a.task.cmp(&b.task));
+    Ok(out)
 }
 
 /// Claims currently on the remote, keyed by task id.
@@ -475,6 +721,17 @@ pub fn claims(ws: &Path) -> EaiResult<Vec<Claim>> {
 /// `origin/main` before claiming, so it starts from current rules and a current
 /// queue. Unreachable remotes and missing integration refs fail closed.
 pub fn ensure_synced(ws: &Path) -> EaiResult<()> {
+    ensure_synced_for(ws, None)
+}
+
+/// [`ensure_synced`] with the task being claimed exempted from the
+/// "unpublished completion" rule.
+///
+/// Re-adopting *your own* accepted task after a lease lapsed is the one case
+/// where the close is legitimately in this branch and not yet on main: `finish`
+/// re-adopts it to keep waiting. Exempting exactly that id keeps the rule for
+/// every other claim, and keeps a lapsed lease from stranding the work.
+pub fn ensure_synced_for(ws: &Path, claiming: Option<&str>) -> EaiResult<()> {
     git(ws, &["fetch", "--quiet", "origin"])?;
     // The dependency gate below reads task files from this checkout, so an
     // uncommitted edit to a *tracked* one — deleting the task you depend on,
@@ -501,7 +758,12 @@ pub fn ensure_synced(ws: &Path) -> EaiResult<()> {
             ".agents/tasks/done/",
         ],
     )?;
-    if !unpublished.is_empty() {
+    let reassuming = claiming.map(|id| format!(".agents/tasks/done/{id}.json"));
+    let pending: Vec<&str> = unpublished
+        .lines()
+        .filter(|path| reassuming.as_deref() != Some(*path))
+        .collect();
+    if !pending.is_empty() {
         return Err(EaiError::config(
             "claim refused: publish and merge the completed task before starting another",
         ));
@@ -619,6 +881,24 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     }
     let agent = agent_token(agent)?;
     let live = claims(ws)?;
+    // An accepted task whose close is not yet on origin/main is still owned by
+    // whoever accepted it, whatever happened to the claim: it may have been
+    // released, or lapsed hours ago. The receipt on the shared remote is the
+    // debt, and it blocks the *agent*, not the worktree — a fresh clone cannot
+    // launder it, which is what a claim lease alone could not express. The task
+    // being claimed here is exempt: re-adopting your own accepted task is how
+    // `finish` keeps waiting, not a way to start something new.
+    let owed = owed_closes(ws, &agent, Some(id))?;
+    if !owed.is_empty() {
+        let list = owed.join(", ");
+        let first = owed.first().map(String::as_str).unwrap_or("");
+        return Err(EaiError::config(format!(
+            "{agent} owes a merge for {list} — an accepted task is not done until its close is \
+             on origin/main, and the claim is what stops another agent redoing it. Publish it: \
+             `susi workflow finish {first}` (or, to give it up deliberately: \
+             `susi tasks release {first} --abandon <reason>`)"
+        )));
+    }
     for other in live.iter().filter(|c| !c.expired(now)) {
         if scopes.iter().any(|a| {
             other.scopes.iter().any(|b| {
@@ -722,27 +1002,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
 }
 
 fn claim_blob(ws: &Path, claim: &Claim) -> EaiResult<String> {
-    let body = serde_json::to_string(claim)?;
-    let mut child = Command::new("git")
-        .args(["hash-object", "-w", "--stdin"])
-        .current_dir(ws)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    {
-        use std::io::Write;
-        child
-            .stdin
-            .take()
-            .ok_or_else(|| EaiError::process("git hash-object stdin"))?
-            .write_all(body.as_bytes())?;
-    }
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        return Err(EaiError::process("git hash-object failed"));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    blob_of(ws, claim)
 }
 
 /// Extend an owned live lease without relinquishing its task or scope locks.
@@ -772,12 +1032,22 @@ fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResu
         read_claim(ws, id).ok_or_else(|| EaiError::config("no claim to renew"))?;
     let branch = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
     if claim.agent != agent_token(agent)?
-        || claim.expired(now)
         || claim
             .branch
             .as_ref()
             .is_some_and(|b| Some(b) != branch.as_ref())
     {
+        return Err(EaiError::config(
+            "renewal requires your live claim on this branch",
+        ));
+    }
+    // A lapsed lease is normally fatal for renewal — the task is free for
+    // another agent to take over, and it should be. The exception is an
+    // accepted task whose close is still unpublished: `finish` is waiting on a
+    // merge, the receipt on the shared remote already stops this agent from
+    // starting anything else, and re-adopting the lease is the difference
+    // between waiting it out and stranding the work for nobody to finish.
+    if claim.expired(now) && !accepted_unpublished(ws, id, &claim.agent)? {
         return Err(EaiError::config(
             "renewal requires your live claim on this branch",
         ));
@@ -814,15 +1084,74 @@ fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResu
 }
 
 /// Give up a claim (only your own unless `force`).
+///
+/// A task that was accepted but whose close is not yet on `origin/main` cannot
+/// be released by accident: the claim is what keeps the unmerged work from
+/// being redone. `--force` still frees the claim — that is the deliberate "move
+/// my claim to another checkout" path — but it does *not* clear the debt, which
+/// keeps blocking that agent's next claim until the merge lands. Only
+/// [`abandon`] gives the obligation up, and it says why.
 pub fn release(ws: &Path, id: &str, agent: &str, force: bool) -> EaiResult<()> {
+    release_claim(ws, id, agent, force, None)
+}
+
+/// Give up an accepted task deliberately, recording why.
+///
+/// The receipt is replaced by an [`Abandoned`] record on `refs/abandoned/<id>`,
+/// so the task stops blocking its agent *and* the decision stays visible on the
+/// remote: a task dropped silently is indistinguishable from one still in
+/// flight, which is the whole failure mode this closes.
+pub fn abandon(ws: &Path, id: &str, agent: &str, reason: &str) -> EaiResult<()> {
+    if reason.trim().is_empty() {
+        return Err(EaiError::config(
+            "abandoning a task needs a reason — it is recorded on the remote",
+        ));
+    }
+    release_claim(ws, id, agent, false, Some(reason))
+}
+
+fn release_claim(
+    ws: &Path,
+    id: &str,
+    agent: &str,
+    force: bool,
+    abandon_reason: Option<&str>,
+) -> EaiResult<()> {
     if !valid_id(id) {
         return Err(EaiError::config(format!("invalid task id `{id}`")));
     }
     sync_claims(ws)?;
+    let by = agent_token(agent)?;
+    // The receipt outlives the claim on purpose: a released or lapsed claim
+    // must not erase the fact that the accepted work is still unmerged. Only
+    // observing the merge, or an explicit abandonment, clears it.
+    if let Some(record) = read_closed(ws, id)? {
+        if published_on_main(ws, id)? {
+            clear_closed(ws, id)?;
+        } else if let Some(reason) = abandon_reason {
+            if record.agent != by && !force {
+                return Err(EaiError::config(format!(
+                    "{id} was accepted by {}, not {by} — only its agent can abandon it",
+                    record.agent
+                )));
+            }
+            push_abandoned(ws, id, &record.agent, reason)?;
+            clear_closed(ws, id)?;
+        } else if !force {
+            return Err(EaiError::config(format!(
+                "{id} was accepted by {} (head {}) and its close is not on origin/main, so the \
+                 accepted work is not done anywhere but this branch. Publish it: \
+                 `susi workflow finish {id}` — or give it up deliberately: \
+                 `susi tasks release {id} --abandon <reason>`",
+                record.agent,
+                short_head(&record.head)
+            )));
+        }
+    }
     let Some((sha, c)) = read_claim(ws, id) else {
         return Ok(());
     };
-    if !force && c.agent != agent_token(agent)? {
+    if !force && c.agent != by {
         return Err(EaiError::config(format!(
             "{id} is claimed by {}, not you",
             c.agent
@@ -961,6 +1290,11 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     }
     // Acceptance may outlive a lease; re-check before mutating the queue.
     verify_owner()?;
+    // Publish the receipt before the record moves. From here the task is
+    // accepted and its agent may not claim anything else until this head is on
+    // origin/main; a failed push leaves the task open, so close is retried
+    // rather than leaving an acceptance nobody can see.
+    push_close_receipt(ws, id, &by)?;
     task.closed = Some(Closed {
         at_unix: now_unix(),
         commit: git(ws, &["rev-parse", "HEAD"]).unwrap_or_default(),
@@ -1093,6 +1427,15 @@ mod tests {
         vec!["cargo".into(), "--version".into()]
     }
 
+    /// Publish this clone's commits on `origin/main`, the way a merge would:
+    /// `published_on_main` looks for the close record in that tree.
+    fn publish(ws: &Path) {
+        git(ws, &["add", "-A"]).unwrap();
+        git(ws, &["commit", "--quiet", "-m", "merge the branch"]).unwrap();
+        git(ws, &["push", "--quiet", "origin", "HEAD:main"]).unwrap();
+        git(ws, &["fetch", "--quiet", "origin"]).unwrap();
+    }
+
     fn write_roadmap(ws: &Path, ids: &[(&str, &str)]) {
         std::fs::create_dir_all(ws.join(".agents")).unwrap();
         let vectors: Vec<serde_json::Value> = ids
@@ -1147,10 +1490,12 @@ mod tests {
         let partial = linked(&a, "VC-201-002").unwrap();
         claim(&a, &claimed.id, "claude", 1, now_unix()).unwrap();
         close(&a, &claimed.id, "claude").unwrap();
-        release(&a, &claimed.id, "claude", false).unwrap();
+        // The vector's coverage is what this test reads, not the merge: give the
+        // accepted tasks up explicitly rather than pretending they published.
+        abandon(&a, &claimed.id, "claude", "coverage fixture").unwrap();
         claim(&a, &partial.id, "claude", 1, now_unix()).unwrap();
         close(&a, &partial.id, "claude").unwrap();
-        release(&a, &partial.id, "claude", false).unwrap();
+        abandon(&a, &partial.id, "claude", "coverage fixture").unwrap();
 
         let cov = roadmap_coverage(
             &roadmap_vectors(&a).unwrap(),
@@ -1220,7 +1565,7 @@ mod tests {
         let t3 = linked(&a, "VC-201-002").unwrap();
         claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();
         close(&a, &t2.id, "claude").unwrap();
-        release(&a, &t2.id, "claude", false).unwrap();
+        abandon(&a, &t2.id, "claude", "coverage fixture").unwrap();
         let cov = roadmap_coverage(
             &roadmap_vectors(&a).unwrap(),
             &list_open(&a),
@@ -1808,10 +2153,150 @@ mod tests {
         assert!(!done.closed.unwrap().commit.is_empty());
         assert_eq!(list_open(&a).len(), 1);
         assert_eq!(list_done(&a).len(), 1);
-        // Publication retains ownership until the closing commit is merged.
+        // Publication retains ownership until the closing commit is merged:
+        // releasing by accident is refused while the close is unpublished.
         assert!(claims(&a).unwrap().iter().any(|c| c.task == passing.id));
+        let err = release(&a, &passing.id, "claude", false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("--abandon"), "{err}");
+        assert!(
+            claims(&a).unwrap().iter().any(|c| c.task == passing.id),
+            "a refused release must leave the claim alone"
+        );
+        publish(&a);
         release(&a, &passing.id, "claude", false).unwrap();
         assert!(claims(&a).unwrap().is_empty());
+        drop(r);
+    }
+
+    /// The lie this closes: an agent accepts a task, never publishes the merge,
+    /// and starts the next one. Neither releasing the claim nor moving to a
+    /// fresh clone may launder that — the receipt is on the shared remote.
+    #[test]
+    fn an_unpublished_acceptance_blocks_the_next_claim_across_clones() {
+        let (r, a, b) = Repos::new("owed-clone");
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &first.id, "claude", 4, now_unix()).unwrap();
+        close(&a, &first.id, "claude").unwrap();
+
+        // The acceptance is a fact on the remote: who, and which head.
+        let listed = git(&a, &["ls-remote", "origin", "refs/closed/*"]).unwrap();
+        assert!(
+            listed.contains(&format!("refs/closed/{}", first.id)),
+            "{listed}"
+        );
+        let owed = unpublished_closes(&b, "claude").unwrap();
+        assert_eq!(owed.len(), 1, "a fresh clone sees the debt");
+        assert_eq!(owed[0].agent, "CLAUDE");
+
+        // Freeing the claim does not free the agent.
+        release(&b, &first.id, "claude", true).unwrap();
+        assert!(claims(&b).unwrap().is_empty());
+        assert_eq!(
+            unpublished_closes(&b, "claude").unwrap().len(),
+            1,
+            "the receipt must outlive the claim"
+        );
+
+        // `next_id` counts the queue this clone can see; give it the close
+        // record so the next task is a different id (as a sync would).
+        std::fs::create_dir_all(done_dir(&b)).unwrap();
+        std::fs::copy(
+            done_dir(&a).join(format!("{}.json", first.id)),
+            done_dir(&b).join(format!("{}.json", first.id)),
+        )
+        .unwrap();
+
+        let second = addt!(&b, "claude", "second", "", "s", &[], true_cmd()).unwrap();
+        let err = claim(&b, &second.id, "claude", 4, now_unix())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("owes a merge"), "{err}");
+        assert!(err.contains(&first.id), "{err}");
+
+        // The merge lands: the receipt clears itself at the next boundary.
+        publish(&a);
+        let got = claim(&b, &second.id, "claude", 4, now_unix()).unwrap();
+        assert_eq!(got.task, second.id);
+        assert!(
+            git(&b, &["ls-remote", "origin", "refs/closed/*"])
+                .unwrap()
+                .is_empty(),
+            "observing the merge clears the receipt"
+        );
+        drop(r);
+    }
+
+    /// A lease that lapsed on your own accepted task must not strand the work:
+    /// `finish` re-adopts it to keep waiting. The debt still blocks every
+    /// *other* task, so re-adoption is not a way to start something new.
+    #[test]
+    fn a_lapsed_lease_can_readopt_its_own_accepted_task() {
+        let (r, a, _b) = Repos::new("readopt");
+        let t = addt!(&a, "claude", "job", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
+        close(&a, &t.id, "claude").unwrap();
+
+        // The lease lapses while the pull request waits: renew re-adopts it,
+        // because the task is accepted and its receipt still has not merged.
+        let later = now_unix() + 3_601;
+        let again = renew(&a, &t.id, "claude", 1, later).unwrap();
+        assert_eq!(
+            again.task, t.id,
+            "finish must be able to readopt its own task"
+        );
+        assert!(again.lease_until_unix > later);
+
+        let other = addt!(&a, "claude", "other", "", "s", &[], true_cmd()).unwrap();
+        let err = claim(&a, &other.id, "claude", 1, later)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("owes a merge"), "{err}");
+        drop(r);
+    }
+
+    /// Giving an accepted task up is allowed, but never silent: the refusal
+    /// names the way out, `--force` frees the claim without clearing the debt,
+    /// and abandoning records why on the remote.
+    #[test]
+    fn abandoning_an_unpublished_acceptance_is_explicit_and_recorded() {
+        let (r, a, _b) = Repos::new("abandon");
+        let t = addt!(&a, "claude", "job", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t.id, "claude", 4, now_unix()).unwrap();
+        close(&a, &t.id, "claude").unwrap();
+
+        let err = release(&a, &t.id, "claude", false).unwrap_err().to_string();
+        assert!(err.contains("--abandon"), "{err}");
+        assert!(claims(&a).unwrap().iter().any(|c| c.task == t.id));
+
+        // `--force` frees the claim (the recovery path), not the obligation.
+        release(&a, &t.id, "claude", true).unwrap();
+        assert!(claims(&a).unwrap().is_empty());
+        assert_eq!(unpublished_closes(&a, "claude").unwrap().len(), 1);
+
+        assert!(
+            abandon(&a, &t.id, "claude", "   ").is_err(),
+            "a reason is required"
+        );
+        // Another agent cannot abandon work it did not accept.
+        let err = abandon(&a, &t.id, "devin", "not mine")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("only its agent"), "{err}");
+        abandon(&a, &t.id, "claude", "superseded by T-CLAUDE-2").unwrap();
+
+        assert!(unpublished_closes(&a, "claude").unwrap().is_empty());
+        let recorded = git(&a, &["ls-remote", "origin", "refs/abandoned/*"]).unwrap();
+        assert!(
+            recorded.contains(&format!("refs/abandoned/{}", t.id)),
+            "{recorded}"
+        );
+        let next = addt!(&a, "claude", "next", "", "s", &[], true_cmd()).unwrap();
+        assert_eq!(
+            claim(&a, &next.id, "claude", 4, now_unix()).unwrap().task,
+            next.id
+        );
         drop(r);
     }
 
