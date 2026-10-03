@@ -913,7 +913,7 @@
       "id": "VC-201-073",
       "mastery_target": "Propagate local-only, workspace-private, and approved-cloud labels through inference, MCP, A2A, generated tools, and artifacts; indirect delegation cannot strip a label to bypass an egress denial.",
       "priority": "P0",
-      "progress": "PARTIAL: secret detection and egress refusal are verified (`crates/susi-core/src/tests/prompt_secret_scan.rs`: positive_corpus_detects_vendor_prefixes, negative_corpus_keeps_benign_text, block_policy_refuses_egress, env_held_secret_is_detected) and A2A handler policy is checked (`crates/susi-gawd-a2a/src/lib.rs`: a2a_handler_module_policy). Residual: propagation of local-only / workspace-private / approved-cloud labels across every egress boundary, including indirect delegation, is not enumerated by a named check. Evidence: T-CLAUDE-95, T-INTELLIBITZ-17.",
+      "progress": "PARTIAL: verbatim known-secret blocking works, but no classification-label type exists to propagate, the env detector covers only *_API_KEY/_TOKEN/_SECRET names with >=8-char values, verbatim matching misses obfuscation, and the default policy ships scrubbed content instead of refusing. Refuted on record; tracked by T-DEVIN20261002053148-32.",
       "type": "GOVERNANCE",
       "vector": "Enforce data classifications at every egress boundary"
     },
