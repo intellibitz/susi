@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-038",
+  "verdict": "delivered",
+  "evidence": "vc_201_038_pinned_direct_peer_admits_and_reconnects, vc_201_038_replay_nonce_is_refused, vc_201_038_wrong_endpoint_transport_or_identity_is_refused, and vc_201_038_egress_policy_bounds_pinned_endpoints_and_relays (crates/susi-gawd-swarm/src/tests/vc_201_038.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790998498
+}
