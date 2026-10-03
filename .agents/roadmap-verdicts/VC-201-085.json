@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-085",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Three refutations. (1) The signature is forgeable: skill_sign is the public pure format '{signer}:{name}@{version}' with no key material — anyone produces a passing signature for any trusted signer (vc_201_085_mastery_signature_forgeable_without_any_key). (2) The signature does not bind content: it covers only name+version+signer, so signed reflexes/prompts/capabilities can be replaced wholesale under an unchanged signature and still verify (vc_201_085_mastery_signed_content_is_not_bound_to_the_signature). (3) Tests are never run: import trusts a caller-supplied fixture_pass flag, so an artifact with unparseable fixtures is Executable (vc_201_085_mastery_tests_are_a_caller_supplied_flag). Additionally import_skill has no production caller — nothing imports skill artifacts outside tests. Holds: untrusted signer rejected, mismatched signature string rejected (vc_201_085_mastery_trusted_signer_and_string_match_hold).",
+  "tracked_by": ["T-DEVIN20261002053148-14"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790986111
+}
