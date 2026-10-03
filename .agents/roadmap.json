@@ -100,7 +100,7 @@
       "id": "VC-201-007",
       "mastery_target": "Extend the existing compile-and-probe path with independent intent fixtures, malformed-input checks, and output assertions before registration; reject an executable signature-echo or semantically wrong reflex.",
       "priority": "P0",
-      "progress": "DELIVERED: synthesized reflexes are probed before registration with independent intent fixtures and malformed-input checks; a signature-echo or non-matching output is refused. Verified by `crates/susi-gawd/src/tests/vc_201_007.rs`: accepts_independent_fixture_match, rejects_malformed_input, rejects_signature_echo. Evidence: T-CLAUDE-118.",
+      "progress": "PARTIAL: a missing action token rejects and a literal echo_goal marker is caught — verified by `crates/susi-gawd/src/tests/vc_201_007_mastery.rs`. Refuted on record 2026-10-03: probing is substring matching (nothing is compiled or run; a comment naming the action accepts), the echo check is evaded by spelling 'return(input)', the malformed check rejects the fixture without probing the reflex, and reflex_intent has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-007.json`. Follow-up tracked by T-DEVIN20261002053148-19.",
       "type": "RSI_EVALUATION",
       "vector": "Verify synthesized reflex intent correctness"
     },
