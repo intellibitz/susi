@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-077",
+  "verdict": "not-delivered",
+  "evidence": "crates/susi-config/src/tests/vc_201_077_mastery.rs",
+  "missing": "evaluate_rekey_policy is advisory-only with no production callers and no overlap/revocation/cert surface (vc_201_077_mastery_decision_has_no_overlap_revocation_or_cert_surface). The rotated-out key persists indefinitely \u2014 overlap unbounded (vc_201_077_mastery_prev_key_never_expires). No expiry concept \u2014 stale staged key activates on fingerprint match (vc_201_077_mastery_expired_credential_concept_absent). A torn staged file wedges with no self-recovery (vc_201_077_mastery_torn_stage_wedges_until_outside_repair). No transport-certificate rotation exists. Holds: wrong-fingerprint refusal (vc_201_077_mastery_wrong_fingerprint_refuses_holds), honest trigger reporting (vc_201_077_mastery_triggers_report_holds).",
+  "tracked_by": [
+    "T-DEVIN20261002053148-37"
+  ],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1791000045
+}

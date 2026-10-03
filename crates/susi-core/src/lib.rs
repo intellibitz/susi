@@ -121,6 +121,12 @@ mod otel_export_tests;
 #[cfg(test)]
 #[path = "tests/prompt_secret_scan.rs"]
 mod prompt_secret_scan_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_073_mastery.rs"]
+mod vc_201_073_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_091_mastery.rs"]
+mod vc_201_091_mastery_tests;
 
 // Top-level exports for the fundamental susi-core types
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
@@ -153,6 +159,9 @@ pub use truth::TruthTransformer;
 #[path = "tests/vc_200_001.rs"]
 mod vc_200_001_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_071_mastery.rs"]
+mod vc_201_071_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_071.rs"]
 mod vc_201_071_tests;
 #[cfg(test)]
@@ -162,11 +171,20 @@ mod vc_201_074_mastery_tests;
 #[path = "tests/vc_201_074.rs"]
 mod vc_201_074_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_075_mastery.rs"]
+mod vc_201_075_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_075.rs"]
 mod vc_201_075_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_080_mastery.rs"]
+mod vc_201_080_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_080.rs"]
 mod vc_201_080_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_081_mastery.rs"]
+mod vc_201_081_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_081.rs"]
 mod vc_201_081_tests;

@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-033",
+  "verdict": "delivered",
+  "evidence": "rotation_requires_quorum, revoke_fails_after_restart_history_verifiable, and enrollment_requires_token_and_mtls (crates/susi-gawd-swarm/src/tests/vc_201_033.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790997212
+}

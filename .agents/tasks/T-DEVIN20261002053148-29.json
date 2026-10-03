@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-29",
+  "title": "Enforce the emergency stop at admission and scope it (VC-201-080)",
+  "goal": "VC-201-080 refuted: register_task never consults the stop \u2014 tasks registered after apply_stop run uncancelled while rejects_new_work reports the fleet stopped; scope is a stored label \u2014 a region-a stop cancels region-b work; the persisted stop file is unsigned JSON so flipping active:false silently lifts it; EmergencyStopBus has no production caller. Evidence: crates/susi-core/src/tests/vc_201_080_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_080",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790994870
+}

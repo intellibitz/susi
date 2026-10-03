@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-025",
+  "verdict": "delivered",
+  "evidence": "aging_prevents_starvation and rejects_when_queue_full (crates/susi-gawd-swarm/src/tests/vc_201_025.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790993995
+}

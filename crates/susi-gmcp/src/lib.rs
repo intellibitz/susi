@@ -65,3 +65,6 @@ mod eco_mcp_auth;
 mod eco_mcp_features;
 #[cfg(test)]
 mod protocol_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_086_mastery.rs"]
+mod vc_201_086_mastery_tests;

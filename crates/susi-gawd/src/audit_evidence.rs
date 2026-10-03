@@ -1,7 +1,16 @@
 //! Independently verifiable audit evidence exports (VC-201-079).
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+
+fn sign(secret: &str, chain_anchor: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(secret.as_bytes());
+    digest.update(b":");
+    digest.update(chain_anchor.as_bytes());
+    hex::encode(digest.finalize())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditSegment {
@@ -10,6 +19,17 @@ pub struct AuditSegment {
     pub chain_anchor: String,
     pub signature: String,
     pub key_id: String,
+}
+
+/// The file format for independently verifiable audit evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditExport {
+    /// Stable format identifier for operators and third-party verifiers.
+    pub format: String,
+    /// Number of segments in the complete export before any file damage.
+    pub expected_len: usize,
+    /// Redacted, chained, signed evidence segments.
+    pub segments: Vec<AuditSegment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +71,7 @@ impl AuditEvidence {
             .unwrap_or("genesis");
         let body = redacted_body.into();
         let chain_anchor = format!("{prev}:{index}:{body}");
-        let signature = format!("{secret}:{chain_anchor}");
+        let signature = sign(secret, &chain_anchor);
         let seg = AuditSegment {
             index,
             redacted_body: body,
@@ -66,6 +86,17 @@ impl AuditEvidence {
     #[must_use]
     pub fn export(&self) -> Vec<AuditSegment> {
         self.segments.clone()
+    }
+
+    /// Return a file-ready export with a length commitment so a verifier can
+    /// distinguish a truncated tail from a valid shorter chain.
+    #[must_use]
+    pub fn export_file(&self) -> AuditExport {
+        AuditExport {
+            format: "susi-audit-evidence/v1".to_string(),
+            expected_len: self.segments.len(),
+            segments: self.export(),
+        }
     }
 
     /// Verify an exported chain against known keys.
@@ -93,7 +124,7 @@ impl AuditEvidence {
                 export[i - 1].chain_anchor.as_str()
             };
             let expected_anchor = format!("{prev}:{}:{}", seg.index, seg.redacted_body);
-            let expected_sig = format!("{secret}:{expected_anchor}");
+            let expected_sig = sign(secret, &expected_anchor);
             if seg.chain_anchor != expected_anchor || seg.signature != expected_sig {
                 return Err(VerifyFailure::Tampering);
             }
@@ -115,5 +146,15 @@ impl AuditEvidence {
             return Err(VerifyFailure::Truncation);
         }
         Self::verify(export, keys)
+    }
+}
+
+impl AuditExport {
+    /// Verify the file envelope and every chained segment against known keys.
+    pub fn verify(&self, keys: &BTreeMap<String, String>) -> Result<(), VerifyFailure> {
+        if self.format != "susi-audit-evidence/v1" {
+            return Err(VerifyFailure::Tampering);
+        }
+        AuditEvidence::verify_against_length(&self.segments, keys, self.expected_len)
     }
 }

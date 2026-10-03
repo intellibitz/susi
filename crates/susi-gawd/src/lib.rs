@@ -143,8 +143,14 @@ mod rsi_corpus_tests;
 #[path = "tests/vc_200_002.rs"]
 mod vc_200_002_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_001_mastery.rs"]
+mod vc_201_001_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_002.rs"]
 mod vc_201_002_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_003_mastery.rs"]
+mod vc_201_003_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_003.rs"]
 mod vc_201_003_tests;
@@ -152,11 +158,17 @@ mod vc_201_003_tests;
 #[path = "tests/vc_201_004.rs"]
 mod vc_201_004_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_005_mastery.rs"]
+mod vc_201_005_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_005.rs"]
 mod vc_201_005_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_006.rs"]
 mod vc_201_006_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_007_mastery.rs"]
+mod vc_201_007_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_007.rs"]
 mod vc_201_007_tests;
@@ -164,11 +176,17 @@ mod vc_201_007_tests;
 #[path = "tests/vc_201_008.rs"]
 mod vc_201_008_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_009_mastery.rs"]
+mod vc_201_009_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_009.rs"]
 mod vc_201_009_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_010.rs"]
 mod vc_201_010_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_011_mastery.rs"]
+mod vc_201_011_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_011.rs"]
 mod vc_201_011_tests;
@@ -176,11 +194,17 @@ mod vc_201_011_tests;
 #[path = "tests/vc_201_012.rs"]
 mod vc_201_012_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_013_mastery.rs"]
+mod vc_201_013_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_013.rs"]
 mod vc_201_013_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_014.rs"]
 mod vc_201_014_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_015_mastery.rs"]
+mod vc_201_015_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_015.rs"]
 mod vc_201_015_tests;
@@ -188,17 +212,29 @@ mod vc_201_015_tests;
 #[path = "tests/vc_201_016.rs"]
 mod vc_201_016_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_017_mastery.rs"]
+mod vc_201_017_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_017.rs"]
 mod vc_201_017_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_018_mastery.rs"]
+mod vc_201_018_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_018.rs"]
 mod vc_201_018_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_019_mastery.rs"]
+mod vc_201_019_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_019.rs"]
 mod vc_201_019_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_020.rs"]
 mod vc_201_020_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_078_mastery.rs"]
+mod vc_201_078_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_078.rs"]
 mod vc_201_078_tests;

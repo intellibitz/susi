@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-086",
+  "verdict": "not-delivered",
+  "evidence": "crates/susi-gmcp/src/tests/vc_201_086_mastery.rs",
+  "missing": "Compatibility status is a hardcoded catalog claim \u2014 registry_metadata asserts supports_list_changed without any probe (vc_201_086_mastery_compatibility_is_static_catalog_claim). The catalog's version list is stale \u2014 misses the client's current 2025-11-25/2025-06-18 (vc_201_086_mastery_catalog_versions_miss_the_current_wire). No probe surface exists for init/discovery/cancel/timeout/malformed/credential isolation (vc_201_086_mastery_no_probe_surface_exists). negotiate() is pure list intersection over caller-supplied versions (vc_201_086_mastery_negotiate_is_pure_list_intersection). Holds: newest-common selection when lists overlap (vc_201_086_mastery_newest_common_wins_holds).",
+  "tracked_by": [
+    "T-DEVIN20261002053148-39"
+  ],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1791002078
+}

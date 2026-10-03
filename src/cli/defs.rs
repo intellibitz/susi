@@ -2,6 +2,7 @@
 //! and the daemon-requirement table. Dispatch lives in `control_plane_cli`
 //! (pre-boot) and `mission_cli` (post-boot).
 
+use std::path::PathBuf;
 use susi::SUSI_VERSION;
 
 use clap::{Parser, Subcommand};
@@ -480,6 +481,12 @@ pub(crate) enum AdminCommands {
     },
     /// Compliance audit
     Audit,
+    /// Export and independently verify redacted audit evidence
+    #[command(name = "audit-evidence", visible_alias = "evidence")]
+    AuditEvidence {
+        #[command(subcommand)]
+        action: AuditEvidenceCommands,
+    },
     /// Verify version alignment
     Verify,
     /// Full release orchestration. With --cut, also bumps the engine
@@ -498,6 +505,28 @@ pub(crate) enum AdminCommands {
     AuditDeps,
     /// Dynamic configuration hot-reload
     Reload,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum AuditEvidenceCommands {
+    /// Wrap a JSON segment list in the stable file format
+    Export {
+        /// JSON array of redacted audit segments (or an existing export)
+        #[arg(long, value_name = "FILE")]
+        input: PathBuf,
+        /// Destination for the independently verifiable export
+        #[arg(long, value_name = "FILE")]
+        output: PathBuf,
+    },
+    /// Verify a file against one or more key-id=secret pairs
+    Verify {
+        /// Export file to verify
+        #[arg(long, visible_alias = "file", value_name = "FILE")]
+        input: PathBuf,
+        /// Signing key in key-id=secret form; repeat for multiple keys
+        #[arg(long = "key", visible_alias = "keys", value_name = "KEY=SECRET")]
+        keys: Vec<String>,
+    },
 }
 
 /// Mandate 32: only ensure the daemon for commands that need the background

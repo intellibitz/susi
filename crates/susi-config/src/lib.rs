@@ -173,6 +173,9 @@ mod json_util_tests;
 #[cfg(test)]
 #[path = "tests/key_rotation.rs"]
 mod key_rotation_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_076_mastery.rs"]
+mod vc_201_076_mastery_tests;
 
 #[cfg(test)]
 #[path = "tests/key_scope.rs"]
@@ -237,6 +240,15 @@ mod vc_201_068_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_068.rs"]
 mod vc_201_068_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_069_mastery.rs"]
+mod vc_201_069_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_070_mastery.rs"]
+mod vc_201_070_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_077_mastery.rs"]
+mod vc_201_077_mastery_tests;
 #[cfg(test)]
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;

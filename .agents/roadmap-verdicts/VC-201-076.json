@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-076",
+  "verdict": "not-delivered",
+  "evidence": "crates/susi-config/src/tests/vc_201_076_mastery.rs",
+  "missing": "ExtensionManifest carries no checksum/digest/signature fields \u2014 a checksums entry under `extra` is ignored by validate_manifest (vc_201_076_mastery_manifest_has_no_checksum_or_signature_fields). A tampered admitted artifact reloads unchallenged \u2014 no content binding is checked at load (vc_201_076_mastery_tampered_artifact_still_loads). A tampered default-pack file is preserved as 'operator customization', not quarantined (vc_201_076_mastery_tampered_default_file_is_preserved_not_quarantined). State has only active/loaded/unloaded \u2014 no quarantine lane (vc_201_076_mastery_no_quarantine_state_exists). Holds: unknown-permission and absolute-path refusal (vc_201_076_mastery_unknown_permission_rejected_holds, vc_201_076_mastery_absolute_file_mapping_rejected_holds).",
+  "tracked_by": [
+    "T-DEVIN20261002053148-36"
+  ],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790999465
+}

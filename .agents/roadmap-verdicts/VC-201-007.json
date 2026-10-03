@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-007",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Three refutations. (1) Nothing is compiled or executed: probing is substring matching on source text, so a reflex that names the expected action only in a comment and panics on any input is Accepted (vc_201_007_mastery_comment_only_action_accepts). (2) The signature-echo check is string matching trivially evaded — 'return(input)' or an alias passes while embedding the action token (vc_201_007_mastery_signature_echo_evades_string_matching). (3) Malformed-input checking rejects the fixture before the reflex is examined; the reflex's behavior on malformed input is never probed (vc_201_007_mastery_malformed_check_never_reaches_the_reflex). Additionally reflex_intent has no production caller — no registration path invokes it. Holds: a missing action token rejects and a literal echo_goal marker is caught (vc_201_007_mastery_missing_token_and_literal_echo_reject).",
+  "tracked_by": ["T-DEVIN20261002053148-19"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790989143
+}
