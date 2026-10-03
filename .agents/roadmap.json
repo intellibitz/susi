@@ -222,7 +222,7 @@
       "id": "VC-201-017",
       "mastery_target": "Compare a candidate on ~/.susi-dev and ports 9190-9194 using an isolated evaluation workload; crossing a declared regression limit stops the trial without replacing the installed release.",
       "priority": "P1",
-      "progress": "DELIVERED: candidate canaries run on the isolated dev instance in the 9190-9194 port range; crossing the declared regression limit stops the trial and a within-limit run continues. Verified by `crates/susi-gawd/src/tests/vc_201_017.rs`: dev_ports_are_9190_range, regression_stops_trial, within_limit_continues. Evidence: T-CLAUDE-360.",
+      "progress": "PARTIAL: a caller-supplied delta over a finite limit stops the trial, but no canary executes \u2014 the inputs are pre-measured floats; NaN metrics or a NaN limit always continue; and the dev port range is unpinned arithmetic that panics on u16 overflow. Refuted on record; tracked by T-DEVIN20261002053148-24.",
       "type": "RSI_EXECUTION",
       "vector": "Run candidate canaries on the dev instance"
     },
@@ -234,7 +234,7 @@
       "id": "VC-201-018",
       "mastery_target": "A passing experiment produces a reviewable release candidate and evidence manifest; only susi release and scripts/susi-release-sync.sh promote tagged builds, and attempts to install target/ binaries into ~/.susi/bin are rejected.",
       "priority": "P0",
-      "progress": "DELIVERED: a passing experiment yields a reviewable release candidate and manifest, promotion is release-only, and installing target/ binaries into ~/.susi/bin is rejected. Verified by `crates/susi-gawd/src/tests/vc_201_018.rs`: passing_experiment_yields_reviewable_rc, rejects_target_bin_install_into_susi_home, with delivery companions in `crates/susi-gawd/src/cloud_rsi_delivery.rs` (rejects_dev_binary_hot_swap_and_directory, validated_candidate_merges_and_releases, unverified_candidate_cannot_promote, post_merge_gate_failure_blocks_close). Evidence: T-CLAUDE-123, T-CODEX-21, T-INTELLIBITZ-22, T-INTELLIBITZ-23.",
+      "progress": "PARTIAL: the DirectTargetInstall path is refused and a verbatim target -> ~/.susi/bin pair is caught, but a 'passing experiment' is never verified before minting a reviewable RC, the path guard is substring matching evaded by staging, and whitespace evidence/digest promote. Refuted on record; tracked by T-DEVIN20261002053148-25.",
       "type": "RSI_EXECUTION",
       "vector": "Connect RSI promotion to release-only self-build"
     },

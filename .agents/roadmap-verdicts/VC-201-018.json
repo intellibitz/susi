@@ -1,9 +1,11 @@
 {
   "vector": "VC-201-018",
-  "verdict": "delivered",
-  "evidence": "passing_experiment_yields_reviewable_rc and rejects_target_bin_install_into_susi_home (crates/susi-gawd/src/tests/vc_201_018.rs)",
-  "missing": "",
-  "tracked_by": [],
-  "recorded_by": "INTELLIBITZ202610030140553714905",
-  "recorded_unix": 1790992330
+  "verdict": "not-delivered",
+  "evidence": "passing_experiment_yields_reviewable_rc and rejects_target_bin_install_into_susi_home (crates/susi-gawd/src/tests/vc_201_018.rs); refutations (crates/susi-gawd/src/tests/vc_201_018_mastery.rs)",
+  "missing": "The mastery refutations show failed experiments can promote, install guards can be evaded, whitespace evidence is accepted, and promote_via trusts caller-fabricated evidence. Nominal direct-target refusals still hold.",
+  "tracked_by": [
+    "T-DEVIN20261002053148-25"
+  ],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790992223
 }
