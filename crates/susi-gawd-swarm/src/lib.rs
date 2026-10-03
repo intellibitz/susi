@@ -142,6 +142,9 @@ mod side_effects_dispatch_wiring_tests;
 #[path = "tests/swarm_chaos.rs"]
 mod swarm_chaos_tests;
 #[cfg(test)]
+#[path = "tests/swarm_gap_durable_fencing.rs"]
+mod swarm_gap_durable_fencing_tests;
+#[cfg(test)]
 #[path = "tests/task_lease_dispatch_wiring.rs"]
 mod task_lease_dispatch_wiring_tests;
 #[cfg(test)]
