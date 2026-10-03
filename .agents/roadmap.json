@@ -246,7 +246,7 @@
       "id": "VC-201-019",
       "mastery_target": "Store failure causes, counterexamples, and proposal lineage in scoped experiment memory; repeated proposals must address the previous rejection or explicitly declare new evidence.",
       "priority": "P1",
-      "progress": "DELIVERED: rejected experiments keep their causes and counterexamples in scoped experiment memory, and a repeated proposal is refused unless it addresses the earlier rejection or declares new evidence. Verified by `crates/susi-gawd/src/tests/vc_201_019.rs`: blocks_repeat_without_new_evidence, with companions `crates/susi-gawd/src/cloud_rsi_outcomes.rs` (rejected_earns_no_success_and_persists_counterexample, repeated_proposal_must_address_counterexamples, rejected_never_outranks_verified) and `brain_gap_triggers.rs` (closed_task_residual_publishes, transients_never_queue). Evidence: T-CLAUDE-361, T-CODEX-20, T-CODEX-32.",
+      "progress": "PARTIAL: the OutcomeLedger half is real \u2014 scoped, persisted counterexamples that reject invented references \u2014 but the claimed refusal is not enforced (check_proposal has no production caller), an empty-string receipt counts as 'new evidence', and the counterexample cap discards the newest failures. The cited ExperimentMemory keys repeats by caller-chosen id and trusts caller booleans. Refuted on record; tracked by T-DEVIN20261002053148-26.",
       "type": "RSI_EXECUTION",
       "vector": "Learn from failed and rejected experiments"
     },
