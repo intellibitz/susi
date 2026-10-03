@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-014",
+  "verdict": "delivered",
+  "evidence": "reserve_and_debit_across_retries and exhaustion_stops_new_work_and_cancels_children (crates/susi-gawd/src/tests/vc_201_014.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790991201
+}
