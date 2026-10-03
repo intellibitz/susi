@@ -809,7 +809,7 @@
       "id": "VC-201-065",
       "mastery_target": "Version migrations with durable backups and validation before activation; termination between each write either restores the previous usable configuration or resumes a verifiable migration.",
       "priority": "P0",
-      "progress": "DELIVERED: configuration migrations keep a durable pre-upgrade backup and are re-runnable, so an interrupted migration retains the previous usable configuration or resumes a verifiable one. Verified by `crates/susi-config/src/tests/vc_201_065.rs`: backup_exists_after_upgrade_from_v0, rerun_after_success_is_noop; companion zc_state_migration. Evidence: T-CLAUDE-138, T-CLAUDE-248.",
+      "progress": "PARTIAL: migrate_state_dir preserves the pre-migration config byte-for-byte, writes the version marker only after a successful run, reruns as a noop, and rolls back byte-for-byte on failure — verified by `crates/susi-config/src/tests/vc_201_065_mastery.rs`. Refuted on record 2026-10-03: migrate_state_dir has no production caller (no CLI, daemon startup, or upgrade hook invokes it; state.schema.json is never consulted at runtime), and the backup dir is named .migrate-bak-<epoch-seconds> so a same-second retry overwrites the preserved original with mid-migration state (vc_201_065_mastery_rerun_in_same_second_clobbers_durable_backup). Verdict `.agents/roadmap-verdicts/VC-201-065.json`. Follow-ups tracked by T-DEVIN20261002053148-6, T-DEVIN20261002053148-7.",
       "type": "CONFIGURATION",
       "vector": "Migrate configuration with crash recovery"
     },
@@ -821,7 +821,7 @@
       "id": "VC-201-066",
       "mastery_target": "Replace plaintext deployment credentials with secret references resolved only at the authorized execution boundary; plan, export, tracing, and errors never disclose resolved values.",
       "priority": "P0",
-      "progress": "DELIVERED: deployment credentials are secret references resolved only at the authorized execution boundary; display, plan and export never disclose the resolved value. Verified by `crates/susi-config/src/tests/vc_201_066.rs`: display_is_reference_not_value, plan_export_never_discloses, parse_and_scope_guard; companions zc_jit_credentials and zc_key_scope. Evidence: T-CLAUDE-139, T-CLAUDE-176, T-CLAUDE-188.",
+      "progress": "PARTIAL: secret:// references parse, display as URIs, and refuse wrong-scope resolution — verified by `crates/susi-config/src/tests/vc_201_066_mastery.rs`. Refuted on record 2026-10-03: the reference mechanism has no production callers (credentials flow through cloud.env and plaintext api_key fields; config returns plaintext verbatim), redact_for_export masks only a whitespace-delimited resolved= token so JSON/quoted exports and space-containing values leak, and the scope guard is a caller-asserted string rather than an enforced boundary. Verdict `.agents/roadmap-verdicts/VC-201-066.json`. Follow-up tracked by T-DEVIN20261002053148-8.",
       "type": "CONFIGURATION",
       "vector": "Resolve secrets through scoped references"
     },
@@ -834,7 +834,7 @@
       "id": "VC-201-067",
       "mastery_target": "Support explicit development, staging, and production profiles with inspectable inheritance; a dev mission cannot accidentally resolve production endpoints or credentials from ambient configuration.",
       "priority": "P1",
-      "progress": "DELIVERED: explicit dev, staging and production profiles with inspectable inheritance - a dev mission resolves only dev and shared sources and cannot extend production, while production may consume shared and lower layers. Verified by `crates/susi-config/src/tests/vc_201_067.rs`: dev_cannot_extend_production, dev_resolves_only_dev_and_shared_sources, production_may_consume_shared_and_lower, shared_base_resolves_with_provenance, shared_profile_extending_production. Evidence: T-CLAUDE-384.",
+      "progress": "PARTIAL: ProfileSet validates the full graph before resolution, refuses dev→production inheritance (directly and transitively), cycles and unknown parents, and records per-key provenance and the resolution chain — verified by `crates/susi-config/src/tests/vc_201_067_mastery.rs`. Refuted on record 2026-10-03: no production path loads or resolves profiles (no config source produces a ProfileSet, no mission consumes one), and the documented 'earlier wins ties among parents' is inverted — the later parent's value wins (vc_201_067_mastery_later_parent_wins_despite_documented_earlier_wins). Verdict `.agents/roadmap-verdicts/VC-201-067.json`. Follow-up tracked by T-DEVIN20261002053148-9.",
       "type": "CONFIGURATION",
       "vector": "Separate workspace and environment configuration profiles"
     },
@@ -848,7 +848,7 @@
       "id": "VC-201-068",
       "mastery_target": "Apply a pinned configuration revision to selected canary nodes, verify health, then advance bounded waves; a failing wave pauses rollout and exposes rollback state per node.",
       "priority": "P1",
-      "progress": "DELIVERED: a pinned configuration revision opens on canary nodes first, an unhealthy node pauses the rollout and blocks later waves, and resume requires every node healthy before completion, with per-node rollback state exposed. Verified by `crates/susi-config/src/tests/vc_201_068.rs`: canary_wave_opens_first, unhealthy_node_pauses_and_blocks_later_waves, resume_requires_all_healthy_then_completes, pinned_revision_is_enforced_and_rollback_state_exposed. Evidence: T-CLAUDE-385.",
+      "progress": "PARTIAL: the pinned revision is enforced on apply, an unhealthy report pauses the rollout and empties pending, per-node rollback state is exposed, and a fully pinned+healthy fleet completes — verified by `crates/susi-config/src/tests/vc_201_068_mastery.rs`. Refuted on record 2026-10-03: the wave bound is advisory (mark_applied accepts later-wave nodes while the canary wave is open), rollback marks a node healthy with no evidence and resume accepts it, an empty canary reports Running with pending() permanently empty, and no production caller drives the rollout. Verdict `.agents/roadmap-verdicts/VC-201-068.json`. Follow-up tracked by T-DEVIN20261002053148-10.",
       "type": "CONFIGURATION",
       "vector": "Roll configuration changes across a fleet in stages"
     },
@@ -1030,7 +1030,7 @@
       "id": "VC-201-082",
       "mastery_target": "Use a versioned relevance and grounded-answer suite to compare retrieval/index revisions; a larger index or higher recall alone cannot hide regression in answer correctness or private-data isolation.",
       "priority": "P1",
-      "progress": "DELIVERED: retrieval and index revisions are compared on a versioned suite - a candidate promoting on quality is accepted, while a correctness regression is rejected despite higher recall and an isolation regression is rejected outright. Verified by `crates/susi-core/src/tests/vc_201_082.rs`: promotes_when_quality_holds, rejects_correctness_regression_despite_recall, rejects_isolation_regression. Evidence: T-CLAUDE-388.",
+      "progress": "PARTIAL: on finite metrics the gate holds — quality promotion accepted, correctness regression rejected despite higher recall, isolation regression rejected — verified by `crates/susi-core/src/tests/vc_201_082_mastery.rs`. Refuted on record 2026-10-03: evaluate_promotion has no production caller so no promotion path is actually gated, the versioned-suite claim is unenforced (a stale candidate version promotes), and NaN metrics bypass both regression checks. Verdict `.agents/roadmap-verdicts/VC-201-082.json`. Follow-up tracked by T-DEVIN20261002053148-11.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Evaluate retrieval quality before promoting memory changes"
     },
@@ -1042,7 +1042,7 @@
       "id": "VC-201-083",
       "mastery_target": "Delete selected records from authoritative memory, semantic indexes, caches, and supported replicas with durable tombstones; interrupted deletion resumes and retrieval cannot resurrect deleted content.",
       "priority": "P0",
-      "progress": "DELIVERED: deletion propagates into derived stores with durable tombstones, an interrupted delete resumes, and retrieval cannot resurrect deleted content. Verified by `crates/susi-core/src/tests/vc_201_083.rs`: delete_propagates_with_tombstone, interrupted_delete_resumes, retrieval_cannot_resurrect. Evidence: T-CLAUDE-145.",
+      "progress": "PARTIAL: in-process tombstone read-blocking and pending-resume propagation hold — verified by `crates/susi-core/src/tests/vc_201_083_mastery.rs`. Refuted on record 2026-10-03: insert() ignores tombstones so a late write after resume permanently repopulates all derived stores, tombstones are volatile in-memory state that a restart forgets, and MemoryStores has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-083.json`. Follow-up tracked by T-DEVIN20261002053148-12.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Propagate memory deletion into derived stores"
     },
@@ -1056,7 +1056,7 @@
       "id": "VC-201-084",
       "mastery_target": "Synchronize scoped records with provenance, conflict handling, and deletion semantics over authenticated peers; disconnected replicas converge without exporting local-only memory or reviving tombstoned records.",
       "priority": "P1",
-      "progress": "DELIVERED: memory replication skips local-only records and tombstoned records, and disconnected replicas converge. Verified by `crates/susi-core/src/tests/vc_201_084.rs`: skips_local_only_and_tombstones, disconnected_replicas_converge. Evidence: T-CLAUDE-389.",
+      "progress": "PARTIAL: converge() converges eligible records and tombstones, local_only records never export, tombstoned records never revive — verified by `crates/susi-core/src/tests/vc_201_084_mastery.rs`. Refuted on record 2026-10-03: provenance is compared lexically so a stale write outranks a newer one, deletion does not propagate via export_for_peers/merge_from_peer (only converge's tombstone sync carries it), no peer authentication exists, and no production caller drives the replication. Verdict `.agents/roadmap-verdicts/VC-201-084.json`. Follow-up tracked by T-DEVIN20261002053148-13.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Replicate only policy-eligible swarm memory"
     },
@@ -1069,7 +1069,7 @@
       "id": "VC-201-085",
       "mastery_target": "Package approved reflexes, prompts, fixtures, and capability requirements with immutable versions and signatures; importing a skill verifies provenance and tests before granting it executable status.",
       "priority": "P1",
-      "progress": "DELIVERED: a shared skill becomes executable only after provenance and its tests verify, and a bad provenance or a failing test is rejected. Verified by `crates/susi-core/src/tests/vc_201_085.rs`: executable_after_provenance_and_tests, rejects_bad_provenance_or_failed_tests. Evidence: T-CLAUDE-390.",
+      "progress": "PARTIAL: untrusted signers and mismatched signature strings are rejected — verified by `crates/susi-core/src/tests/vc_201_085_mastery.rs`. Refuted on record 2026-10-03: skill_sign is forgeable (no key material), the signature binds only name+version so signed content swaps freely, fixture tests are a caller-supplied flag never executed, and import_skill has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-085.json`. Follow-up tracked by T-DEVIN20261002053148-14.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Share verified skills as versioned artifacts"
     },

@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-13",
+  "title": "Fix replication conflict order, tombstone propagation and peer auth (VC-201-084)",
+  "goal": "VC-201-084 refuted: conflict resolution compares provenance strings lexically so a stale write outranks a newer one (p9 beats p10); export_for_peers drops tombstoned records and merge_from_peer never learns deletions — a peer that only merges exports keeps deleted content; no peer authentication exists anywhere in the path; memory_replicate has no production caller. Evidence: crates/susi-core/src/tests/vc_201_084_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_084",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790985395
+}

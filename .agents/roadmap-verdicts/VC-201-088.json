@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-088",
+  "verdict": "delivered",
+  "evidence": "eco_compat_gate_refuses_unknown_component (crates/susi-gemi/src/eco_compat_gate.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790986340
+}

@@ -308,20 +308,24 @@ fn init_repo(root: &Path) -> PathBuf {
 
 /// Bounded rendezvous: proves N executions were in flight simultaneously.
 /// Returns false instead of deadlocking if dispatch were serial.
-struct Rendezvous {
+pub(crate) struct Rendezvous {
     state: Mutex<usize>,
     cv: Condvar,
     want: usize,
 }
 impl Rendezvous {
-    fn new(want: usize) -> Self {
+    pub(crate) fn new(want: usize) -> Self {
         Self {
             state: Mutex::new(0),
             cv: Condvar::new(),
             want,
         }
     }
-    fn arrive(&self, timeout: Duration) -> bool {
+    /// Executions that reached the barrier.
+    pub(crate) fn arrivals(&self) -> usize {
+        *self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    pub(crate) fn arrive(&self, timeout: Duration) -> bool {
         let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
         *g += 1;
         if *g >= self.want {
@@ -639,7 +643,6 @@ fn parallel_roadmap_e2e_three_models_overlap_and_close() {
         cand("k2", "m2", "p2", "a2", 0.0),
         cand("k3", "m3", "p3", "a3", 0.0),
     ];
-    let started = Instant::now();
     let rep = run_round(
         &queue,
         &ws,
@@ -653,7 +656,6 @@ fn parallel_roadmap_e2e_three_models_overlap_and_close() {
         &crate::roadmap_agents::worker_mandates(),
         &ledger,
     );
-    let elapsed = started.elapsed();
     assert_eq!(
         rep.ran.len(),
         3,
@@ -663,11 +665,13 @@ fn parallel_roadmap_e2e_three_models_overlap_and_close() {
             .map(|o| (&o.job_id, &o.stop))
             .collect::<Vec<_>>()
     );
-    // Measured, not claimed: serial execution would take ≥3 sleeps AND the
-    // rendezvous itself would have failed. Assert only what was measured.
-    assert!(
-        elapsed < Duration::from_millis(300),
-        "measured {elapsed:?} — expected parallel, not serial"
+    // Parallelism proof is the rendezvous, not a wall-clock budget: a serial
+    // dispatch can never get all three executions to arrive (they would fail
+    // with "no overlap"), and a contended host must not flake a real proof.
+    assert_eq!(
+        rz.arrivals(),
+        3,
+        "all three executions reached the barrier — ran simultaneously"
     );
     // Distinct working models per task.
     let models: BTreeSet<String> = rep

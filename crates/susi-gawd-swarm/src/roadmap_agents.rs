@@ -357,6 +357,7 @@ fn clone_claimed(c: &ClaimedWork) -> ClaimedWork {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parallel_roadmap_e2e_tests::Rendezvous;
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
@@ -497,15 +498,23 @@ mod tests {
         }
     }
 
-    /// Executor recording overlap + the brief it received.
-    struct RecExec {
+    /// Executor recording overlap + the brief it received. An optional
+    /// rendezvous proves executions were in flight simultaneously — a serial
+    /// dispatch can never fill it and fails instead of deadlocking.
+    struct RecExec<'a> {
         spans: Mutex<Vec<(Instant, Instant, String)>>,
         briefs: Mutex<Vec<WorkerBrief>>,
         sleep: Duration,
         fail_tasks: BTreeSet<String>,
+        rendezvous: Option<&'a Rendezvous>,
     }
-    impl AgentExecutor for RecExec {
+    impl AgentExecutor for RecExec<'_> {
         fn execute(&self, brief: &WorkerBrief) -> ExecResult {
+            if let Some(rz) = self.rendezvous {
+                if !rz.arrive(Duration::from_secs(10)) {
+                    return ExecResult::Failed("no overlap — dispatch was serial".into());
+                }
+            }
             let start = Instant::now();
             std::thread::sleep(self.sleep);
             let end = Instant::now();
@@ -582,11 +591,13 @@ mod tests {
             dirs: Mutex::new(Vec::new()),
             root: root.clone(),
         };
+        let rz = Rendezvous::new(3);
         let exec = RecExec {
             spans: Mutex::new(Vec::new()),
             briefs: Mutex::new(Vec::new()),
             sleep: Duration::from_millis(60),
             fail_tasks: BTreeSet::new(),
+            rendezvous: Some(&rz),
         };
         let elig = Mutex::new(EligibilityStore::new());
         let quota = QuotaInventory::new();
@@ -601,7 +612,6 @@ mod tests {
             cand("k2", "m2", "p2"),
             cand("k3", "m3", "p3"),
         ];
-        let started = Instant::now();
         let jl = crate::worker_recovery::JobLedger::new();
         let rep = run_round(
             &queue,
@@ -617,10 +627,13 @@ mod tests {
             &jl,
         );
         assert_eq!(rep.ran.len(), 3);
-        assert!(
-            started.elapsed() < Duration::from_millis(150),
-            "serial? {:?}",
-            started.elapsed()
+        // Parallelism proof is the rendezvous, not a wall-clock budget: a
+        // serial dispatch leaves executions waiting at the barrier until they
+        // fail ("no overlap"), while real parallelism needs no timing slack.
+        assert_eq!(
+            rz.arrivals(),
+            3,
+            "all three executions reached the barrier — ran simultaneously"
         );
         // Distinct worktrees per task.
         let dirs = ws.dirs.lock().unwrap_or_else(|e| e.into_inner());
@@ -648,6 +661,7 @@ mod tests {
             briefs: Mutex::new(Vec::new()),
             sleep: Duration::from_millis(5),
             fail_tasks: BTreeSet::new(),
+            rendezvous: None,
         };
         let elig = Mutex::new(EligibilityStore::new());
         let quota = QuotaInventory::new();
@@ -705,6 +719,7 @@ mod tests {
             briefs: Mutex::new(Vec::new()),
             sleep: Duration::from_millis(1),
             fail_tasks: BTreeSet::new(),
+            rendezvous: None,
         };
         let elig = Mutex::new(EligibilityStore::new());
         let quota = QuotaInventory::new();
@@ -755,6 +770,7 @@ mod tests {
             briefs: Mutex::new(Vec::new()),
             sleep: Duration::from_millis(1),
             fail_tasks: fail,
+            rendezvous: None,
         };
         let elig = Mutex::new(EligibilityStore::new());
         let quota = QuotaInventory::new();

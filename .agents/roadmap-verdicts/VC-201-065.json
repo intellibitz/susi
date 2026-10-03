@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-065",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Two independent refutations. (1) migrate_state_dir has no production caller — no CLI subcommand, daemon startup, or release/upgrade path invokes it, and state.schema.json is never read at runtime, so the claimed migration-with-durable-backup never executes on upgrade. (2) The backup is not durable across interruption: backup_tree names it .migrate-bak-<epoch-seconds>, and a same-second retry (crash after backup, before manifest write) reuses the dir and overwrites the preserved pre-migration config.json with the mid-migration file — proven by vc_201_065_mastery_rerun_in_same_second_clobbers_durable_backup. What does hold: first-run backup preserves pre-migration bytes, v0->v1 writes the version marker, rerun is a noop, and a failed migration rolls back byte-for-byte with no marker (vc_201_065_mastery_success_path_preserves_backup_and_marks_version, vc_201_065_mastery_failed_migration_rolls_back_and_retries).",
+  "tracked_by": ["T-DEVIN20261002053148-6", "T-DEVIN20261002053148-7"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790981052
+}
