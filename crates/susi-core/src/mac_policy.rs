@@ -221,11 +221,7 @@ pub fn url_stays_local(url: &str) -> bool {
 /// paths that reach the network without going through `authorize_tool`
 /// (background downloads, provider calls).
 pub fn egress_permitted(url: &str) -> bool {
-    if url_stays_local(url) {
-        return true;
-    }
-    let policy = MacPolicy::global();
-    !policy.blocks_network_by_default() || policy.is_permitted("susi", actions::NETWORK_EGRESS, "*")
+    MacPolicy::global().egress_permitted(url)
 }
 
 /// Whether a grant on `granted` covers a request for `requested`.
@@ -460,6 +456,16 @@ impl MacPolicy {
     /// (`set_mode` then persists it); unwired copies keep it in memory.
     pub fn persists_mode(&self) -> bool {
         self.state_dir.is_some()
+    }
+
+    /// Whether host-initiated network traffic to `url` is allowed under this
+    /// policy instance. Local targets are always permitted; non-local targets
+    /// require an open posture or an explicit egress grant.
+    pub fn egress_permitted(&self, url: &str) -> bool {
+        if url_stays_local(url) {
+            return true;
+        }
+        !self.blocks_network_by_default() || self.is_permitted("susi", actions::NETWORK_EGRESS, "*")
     }
 
     pub fn mandatory_sandbox(&self) -> bool {

@@ -16,34 +16,28 @@
     )
 )]
 
-use susi_core::mac_policy::{egress_permitted, MacPolicy, PrivacyMode};
+use susi_core::mac_policy::{MacPolicy, PrivacyMode};
 
 #[test]
 fn vc_201_050_mastery_airgap_blocks_egress_and_permits_loopback() {
-    let policy = MacPolicy::global();
-    let prev = policy.mode();
-    policy
-        .set_mode(PrivacyMode::LocalOnly)
-        .expect("set local_only");
+    let policy = MacPolicy::new([7; 32], PrivacyMode::LocalOnly, true);
 
     assert!(
-        !egress_permitted("https://api.openai.com/v1/chat/completions"),
+        !policy.egress_permitted("https://api.openai.com/v1/chat/completions"),
         "cloud egress must be blocked in airgap"
     );
     assert!(
-        !egress_permitted("https://openrouter.ai/api/v1/models"),
+        !policy.egress_permitted("https://openrouter.ai/api/v1/models"),
         "openrouter blocked"
     );
     assert!(
-        egress_permitted("http://127.0.0.1:9091/v1/models"),
+        policy.egress_permitted("http://127.0.0.1:9091/v1/models"),
         "loopback host-contract must still work"
     );
     assert!(
-        egress_permitted("http://localhost:9090/health"),
+        policy.egress_permitted("http://localhost:9090/health"),
         "localhost allowed"
     );
-
-    let _ = policy.set_mode(prev);
 }
 
 #[test]
@@ -78,14 +72,9 @@ fn vc_201_050_mastery_checksummed_bundle_import_missing() {
 fn vc_201_050_mastery_diagnose_missing_artifacts_without_cloud_fallback() {
     // Mastery target requires that when artifacts are missing in a network-disabled drill,
     // the system diagnoses missing artifacts cleanly rather than attempting cloud fallback.
-    let policy = MacPolicy::global();
-    let prev = policy.mode();
-    policy
-        .set_mode(PrivacyMode::LocalOnly)
-        .expect("set local_only");
+    let policy = MacPolicy::new([7; 32], PrivacyMode::LocalOnly, true);
 
     // Under LocalOnly, attempting cloud resolution must fail immediately with diagnostic
     // rather than hanging or retrying cloud endpoints.
-    assert!(!egress_permitted("https://huggingface.co/models"));
-    let _ = policy.set_mode(prev);
+    assert!(!policy.egress_permitted("https://huggingface.co/models"));
 }
