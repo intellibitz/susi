@@ -10,7 +10,8 @@
       "test",
       "-p",
       "susi",
-      "--lib",
+      "--bin",
+      "susi",
       "argv_head_uses_the_executable_basename",
       "--locked"
     ]
