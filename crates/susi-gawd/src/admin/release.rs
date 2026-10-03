@@ -110,6 +110,61 @@ fn publish_release_tag(workspace: &Path, tag: &str, budget: Duration) -> EaiResu
     Ok(TagPublish::Published)
 }
 
+/// The branch `--cut` is allowed to push: the version commit travels to `main`
+/// through its own pull request, never by a direct push (Mandate 49).
+fn release_branch(workspace: &Path) -> EaiResult<String> {
+    let out = Command::new("git")
+        .args(["symbolic-ref", "-q", "--short", "HEAD"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(workspace)
+        .output()?;
+    let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || branch.is_empty() {
+        return Err(EaiError::config(
+            "release --cut must run on a branch: the version commit reaches main through its own \
+             pull request. Create a worktree first — scripts/susi-worktree.sh <name>",
+        ));
+    }
+    if branch == "main" {
+        return Err(EaiError::config(
+            "release --cut must not run on main: main only receives merged branches (Mandate 49). \
+             Cut the release from a worktree branch — scripts/susi-worktree.sh <name>",
+        ));
+    }
+    Ok(branch)
+}
+
+/// Push the release branch to the remote, naming the destination.
+///
+/// A bare `git push` follows the branch's upstream, and `scripts/susi-worktree.sh`
+/// creates the branch from `origin/main` — so its upstream IS `main`, and under
+/// `push.default=simple` the push is refused with "the upstream branch of your
+/// current branch does not match the name of your current branch". That
+/// happened *after* the version bump was committed, which is the worst moment:
+/// the tree was already changed and the release had to be restarted. Naming the
+/// destination removes the whole class of failure and makes it impossible to
+/// aim a release at main by accident.
+fn push_release_branch(workspace: &Path) -> EaiResult<()> {
+    let branch = release_branch(workspace)?;
+    let out = Command::new("git")
+        .args([
+            "push",
+            "--quiet",
+            "origin",
+            &format!("HEAD:refs/heads/{branch}"),
+        ])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(workspace)
+        .output()?;
+    if !out.status.success() {
+        return Err(EaiError::process(format!(
+            "could not push the release branch '{branch}':\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        )));
+    }
+    Ok(())
+}
+
 impl SusiAdmin {
     pub fn execute_release(workspace: &Path, cut: Option<VersionBump>) -> EaiResult<String> {
         // `cuda`, `mkl`, and `metal` are mutually exclusive hardware backends
@@ -370,25 +425,17 @@ impl SusiAdmin {
         }
 
         eprintln!("[Release Gatekeeper] 7. Pushing to Remote (git push)...");
-        let push = Command::new("git")
-            .arg("push")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .current_dir(workspace)
-            .output()?;
-
         let global_dir = Self::get_global_susi_dir();
 
-        if !push.status.success() {
-            let stderr = String::from_utf8_lossy(&push.stderr);
+        if let Err(push_failed) = push_release_branch(workspace) {
             crate::susi_sandbox::manager::SusiAuditLogger::log(
                 &global_dir,
                 crate::susi_sandbox::manager::LogLevel::Axiomatic,
                 "MOTION_RULE_PUSH_FAILED",
-                &format!("git push failed after a clean release/sync: {}", stderr),
+                &format!("git push failed after a clean release/sync: {push_failed}"),
             );
             return Err(EaiError::process(format!(
-                "Release, tests, and sync succeeded, but git push failed:\n{}",
-                stderr
+                "Release, tests, and sync succeeded, but the push failed:\n{push_failed}"
             )));
         }
 
@@ -832,6 +879,98 @@ mod tests {
         assert!(e2e_verdict(&c, Some(0), "ok", "warn", &files)
             .unwrap_err()
             .contains("files"));
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) -> std::process::Output {
+        Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .unwrap()
+    }
+
+    /// The defect this guards: `scripts/susi-worktree.sh` creates its branch
+    /// from `origin/main`, so the branch's upstream IS `main` and a bare
+    /// `git push` under `push.default=simple` is refused — after the version
+    /// bump was committed, which is the worst moment. Naming the destination
+    /// in the push removes the failure.
+    #[test]
+    fn a_release_push_names_its_branch_even_when_it_tracks_main() {
+        let work = repo("push-branch");
+        assert!(git_in(&work, &["fetch", "--quiet", "origin"])
+            .status
+            .success());
+        assert!(git_in(
+            &work,
+            &["checkout", "--quiet", "-b", "release-0.21.9", "origin/main"]
+        )
+        .status
+        .success());
+        assert!(git_in(&work, &["config", "push.default", "simple"])
+            .status
+            .success());
+        let upstream = String::from_utf8_lossy(
+            &git_in(&work, &["rev-parse", "--abbrev-ref", "@{upstream}"]).stdout,
+        )
+        .trim()
+        .to_string();
+        assert_eq!(
+            upstream, "origin/main",
+            "the fixture must reproduce the setup"
+        );
+
+        // The bug, reproduced: a bare push cannot resolve this branch.
+        let bare = git_in(&work, &["push", "--dry-run"]);
+        assert!(
+            !bare.status.success(),
+            "a bare push must fail here for this test to mean anything: {bare:?}"
+        );
+
+        assert!(git_in(
+            &work,
+            &[
+                "commit",
+                "--allow-empty",
+                "--quiet",
+                "-m",
+                "chore: release v0.21.9"
+            ]
+        )
+        .status
+        .success());
+        push_release_branch(&work).unwrap();
+
+        let listed = String::from_utf8_lossy(
+            &git_in(&work, &["ls-remote", "origin", "refs/heads/release-0.21.9"]).stdout,
+        )
+        .into_owned();
+        let head = String::from_utf8_lossy(&git_in(&work, &["rev-parse", "HEAD"]).stdout)
+            .trim()
+            .to_string();
+        assert!(
+            listed.contains(&head),
+            "the branch must be on the remote: {listed}"
+        );
+    }
+
+    /// A release is never pushed to main, and a detached HEAD has no branch to
+    /// push: both are refused as such, not as an opaque git error.
+    #[test]
+    fn a_release_push_refuses_main_and_a_detached_head() {
+        let work = repo("push-main");
+        let err = push_release_branch(&work).unwrap_err().to_string();
+        assert!(err.contains("must not run on main"), "{err}");
+
+        assert!(git_in(&work, &["checkout", "--quiet", "--detach", "HEAD"])
+            .status
+            .success());
+        let err = push_release_branch(&work).unwrap_err().to_string();
+        assert!(err.contains("must run on a branch"), "{err}");
     }
 
     #[test]
