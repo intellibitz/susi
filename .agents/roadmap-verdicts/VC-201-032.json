@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-032",
+  "verdict": "delivered",
+  "evidence": "joint_quorum_required_from_old_and_new, overlapping_disjoint_rosters_cannot_both_commit, and serialized_same_new_roster_ok (crates/susi-gawd-swarm/src/tests/vc_201_032.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790996548
+}
