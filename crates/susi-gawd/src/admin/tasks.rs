@@ -701,6 +701,17 @@ fn short_head(head: &str) -> &str {
     head.get(..8).unwrap_or(head)
 }
 
+/// Committed work for `id` that no merge has published: a commit on this branch
+/// whose message carries the task's trailer. An unreachable or missing
+/// `origin/main` answers "no" — this is a guard against walking away silently,
+/// not a freshness gate, and `ensure_synced` is what refuses a stale base.
+fn has_unpublished_work(ws: &Path, id: &str) -> bool {
+    let trailer = format!("Task: {id}");
+    git(ws, &["log", "--format=%B", "origin/main..HEAD"])
+        .map(|log| log.lines().any(|line| line.trim() == trailer))
+        .unwrap_or(false)
+}
+
 /// Whether `agent` accepted `id` and the close is still not on `origin/main`:
 /// the "keep waiting on a merge" state, in which an expired lease may be
 /// re-adopted instead of taken over. Requires a synchronized receipt ref.
@@ -1450,10 +1461,11 @@ fn release_claim(
     }
     sync_queue_refs(ws)?;
     let by = agent_token(agent)?;
+    let receipt = read_closed(ws, id)?;
     // The receipt outlives the claim on purpose: a released or lapsed claim
     // must not erase the fact that the accepted work is still unmerged. Only
     // observing the merge, or an explicit abandonment, clears it.
-    if let Some(record) = read_closed(ws, id)? {
+    if let Some(record) = &receipt {
         if published_on_main(ws, id)? {
             clear_record(ws, &closed_ref(id))?;
         } else if let Some(reason) = abandon_reason {
@@ -1501,8 +1513,30 @@ fn release_claim(
             }
         }
     }
+    // Work that was never accepted is still work. A claim whose branch carries
+    // commits for this task that no merge has published cannot be dropped
+    // silently, or "the agent moved on" and "the agent walked away" look the
+    // same on the board. Checked after ownership, so an agent from the wrong
+    // checkout sees the branch diagnostic; `--force` stays the explicit override
+    // for moving a claim (re-scoping, a recreated worktree).
+    if receipt.is_none() && abandon_reason.is_none() && !force && has_unpublished_work(ws, id) {
+        return Err(EaiError::config(format!(
+            "{id} has committed work on this branch that no merge has published — releasing the \
+             claim would drop it silently. Give it up deliberately: `susi tasks release {id} \
+             --abandon <reason>` (recorded on refs/abandoned/{id}), or publish it: \
+             `susi workflow finish {id}`"
+        )));
+    }
     let lease = format!("--force-with-lease={}:{sha}", claim_ref(id));
     let agent_ref = format!("refs/claim-agents/{}", c.agent);
+    // A reason given for work that was never accepted is still a fact worth
+    // keeping: without this, abandoning an unfinished task left no trace at
+    // all — only abandoning an *accepted* one did.
+    if receipt.is_none() {
+        if let Some(reason) = abandon_reason {
+            push_abandoned(ws, id, &c.agent, reason)?;
+        }
+    }
     let listed = git(ws, &["ls-remote", &remote(), &agent_ref])?;
     let agent_old = listed.split_whitespace().next().unwrap_or("");
     let deletion = format!(":{}", claim_ref(id));
@@ -2646,6 +2680,55 @@ mod tests {
         assert_eq!(
             claim(&a, &next.id, "claude", 4, now_unix()).unwrap().task,
             next.id
+        );
+        drop(r);
+    }
+
+    /// Walking away from committed work is allowed, but not silent: it needs a
+    /// reason and leaves an abandonment on the remote. A claim with nothing
+    /// behind it is still free to release.
+    #[test]
+    fn releasing_before_acceptance_requires_a_recorded_reason() {
+        let (r, a, _b) = Repos::new("release-wip");
+        // `origin/main` has to exist for "committed work, unmerged" to mean
+        // anything; the harness's clones do not push a main until asked.
+        git(&a, &["push", "--quiet", "origin", "HEAD:main"]).unwrap();
+        git(&a, &["fetch", "--quiet", "origin"]).unwrap();
+
+        let t = addt!(&a, "claude", "job", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t.id, "claude", 4, now_unix()).unwrap();
+        // Nothing committed for the task: freeing the claim is not walking away.
+        release(&a, &t.id, "claude", false).unwrap();
+        assert!(claims(&a).unwrap().is_empty());
+
+        claim(&a, &t.id, "claude", 4, now_unix()).unwrap();
+        git(&a, &["add", "-A"]).unwrap();
+        git(
+            &a,
+            &[
+                "commit",
+                "--quiet",
+                "-m",
+                "feat: wip",
+                "-m",
+                &format!("Task: {}", t.id),
+            ],
+        )
+        .unwrap();
+        let err = release(&a, &t.id, "claude", false).unwrap_err().to_string();
+        assert!(err.contains("--abandon"), "{err}");
+        assert!(
+            claims(&a).unwrap().iter().any(|c| c.task == t.id),
+            "a refused release must leave the claim alone"
+        );
+
+        // A reason records it on the remote and frees the claim.
+        abandon(&a, &t.id, "claude", "superseded before acceptance").unwrap();
+        assert!(claims(&a).unwrap().is_empty());
+        let recorded = git(&a, &["ls-remote", "origin", "refs/abandoned/*"]).unwrap();
+        assert!(
+            recorded.contains(&format!("refs/abandoned/{}", t.id)),
+            "{recorded}"
         );
         drop(r);
     }

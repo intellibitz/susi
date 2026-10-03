@@ -1,0 +1,28 @@
+{
+  "id": "T-DSHHARDEN-1",
+  "title": "Refuse an acceptance that cannot be re-run, and record why work is abandoned",
+  "goal": "Two holes from the lying-agent review: (1) a new task can declare an acceptance that proves nothing (a script written by the same task, or a command that verifies the host), and CI must refuse it server-side; (2) releasing a claim on unfinished, unmerged work is silent — make it a recorded abandonment with a reason.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-p",
+      "susi",
+      "-E",
+      "test(acceptance)"
+    ]
+  },
+  "created_by": "DSHHARDEN",
+  "created_unix": 1791040463,
+  "closed": {
+    "at_unix": 1791041946,
+    "commit": "88f6bd142897d5b65884b4dce3318f0089416898",
+    "by": "DSHHARDEN"
+  }
+}
