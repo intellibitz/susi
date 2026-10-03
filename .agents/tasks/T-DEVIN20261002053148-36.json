@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-36",
+  "title": "Bind extension artifacts to checksums/signatures + quarantine (VC-201-076)",
+  "goal": "VC-201-076 refuted: ExtensionManifest has no checksum/digest/signature fields \u2014 files map names to relative paths only; a declared `checksums` extra key is ignored by validate_manifest; a tampered admitted file reloads unchallenged (load_pack rechecks manifest shape only); tampering with a default-pack file is preserved as 'operator customization' and re-recorded as the new current digest rather than quarantined; ExtensionsState has only active/loaded/unloaded \u2014 no quarantine lane exists. Evidence: crates/susi-config/src/tests/vc_201_076_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_076",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790999465
+}
