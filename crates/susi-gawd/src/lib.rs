@@ -233,6 +233,9 @@ mod vc_201_019_tests;
 #[path = "tests/vc_201_020.rs"]
 mod vc_201_020_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_078_mastery.rs"]
+mod vc_201_078_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_078.rs"]
 mod vc_201_078_tests;
 #[cfg(test)]
