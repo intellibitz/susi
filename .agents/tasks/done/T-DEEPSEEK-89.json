@@ -9,6 +9,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-core",
       "--locked",
       "-E",
       "test(intent_to_executable_dag)"
@@ -16,5 +18,10 @@
   },
   "roadmap": "VC-202-007",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790953357
+  "created_unix": 1790953357,
+  "closed": {
+    "at_unix": 1791067211,
+    "commit": "2e6b83e48b3ec2e727b58da10e02ec3d40e3c619",
+    "by": "DEEPSEEK"
+  }
 }

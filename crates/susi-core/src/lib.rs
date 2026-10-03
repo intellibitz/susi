@@ -69,6 +69,7 @@ pub mod zc_redaction_default;
 pub mod zc_risk_patterns_update;
 pub use susi_adapters_llm::inference_wire;
 pub mod intent_bus;
+pub mod intent_plan;
 pub mod jit_credentials;
 pub mod mac_policy;
 pub mod manifold;

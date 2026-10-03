@@ -220,19 +220,26 @@ fn process_chain() -> String {
 }
 
 /// The first two argv fields of a NUL-separated `/proc/<pid>/cmdline`: the
-/// program, plus the script for an interpreted CLI (`node …/claude`).
+/// program's basename, plus the script for an interpreted CLI (`node …/claude`).
+///
+/// The program's directory is deliberately dropped: a test binary built under
+/// a worktree named `susi-claude1` lives at `…/susi-claude1/target/…/tasks_cli`,
+/// and matching `claude` against that full path mislabels the run as CLAUDE.
+/// The tool is named by the executable, not by where it was built.
 ///
 /// Later fields are arguments, and a shell's argument is the script it runs —
 /// searching those mislabelled a run as `CURSOR` purely because the command
 /// text happened to mention `cursor-agent`. The tool is named by what runs,
 /// not by what is said.
 fn argv_head(cmdline: &[u8]) -> String {
-    String::from_utf8_lossy(cmdline)
-        .split('\0')
-        .filter(|field| !field.is_empty())
-        .take(2)
-        .collect::<Vec<_>>()
-        .join(" ")
+    let text = String::from_utf8_lossy(cmdline);
+    let mut fields = text.split('\0').filter(|field| !field.is_empty()).take(2);
+    let program = fields.next().unwrap_or("");
+    let program = program.rsplit('/').next().unwrap_or(program);
+    match fields.next() {
+        Some(script) => format!("{program} {script}"),
+        None => program.to_string(),
+    }
 }
 
 /// The agent this command acts as, most explicit signal first: `--agent`,
@@ -542,7 +549,7 @@ mod tests {
     fn only_the_program_names_the_tool() {
         assert_eq!(
             argv_head(b"/usr/bin/cursor-agent\0--force\0"),
-            "/usr/bin/cursor-agent --force"
+            "cursor-agent --force"
         );
         assert_eq!(
             argv_head(b"node\0/opt/claude-code/cli.js\0--resume\0"),
@@ -551,10 +558,31 @@ mod tests {
         // The false positive that motivated this: the marker is in the script.
         assert_eq!(
             argv_head(b"/bin/bash\0-c\0ls /tmp/cursor-agent\0"),
-            "/bin/bash -c"
+            "bash -c"
         );
         assert_eq!(argv_head(b""), "");
         assert_eq!(argv_head(b"bash\0"), "bash");
+    }
+
+    /// A program's directory must not name the tool: a test binary built under
+    /// a worktree `susi-claude1` is `…/susi-claude1/target/…/tasks_cli`, and
+    /// matching `claude` against that path mislabelled the run as CLAUDE.
+    #[test]
+    fn argv_head_uses_the_executable_basename() {
+        assert_eq!(
+            argv_head(b"/home/me/susi-claude1/target/debug/deps/tasks_cli-abc\0a_test\0"),
+            "tasks_cli-abc a_test"
+        );
+        // A real tool binary still names the tool through its basename.
+        assert_eq!(
+            argv_head(b"/opt/claude/bin/claude\0-p\0prompt\0"),
+            "claude -p"
+        );
+        // An interpreter's script keeps its full path so `node …/claude` works.
+        assert_eq!(
+            argv_head(b"node\0/opt/claude-code/cli.js\0"),
+            "node /opt/claude-code/cli.js"
+        );
     }
 
     #[test]
