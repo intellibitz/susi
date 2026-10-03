@@ -1,7 +1,7 @@
 {
   "id": "T-CODEX-4",
   "title": "Enforce free-only and paid budgets across parallel model attempts",
-  "goal": "Make free-only, permitted paid fallback and hard spending limits explicit selection policies, using existing consent surfaces and asking only when a needed paid fallback lacks authorization. Reserve request/token allowance and estimated spend atomically across workers, fallback attempts and probes; reconcile actual usage, handle unknown prices and uncertain completion conservatively, and never bypass a budget via key rotation. Free quota exhaustion must not silently incur charges or trigger top-up. Wire reservations into actual dispatch. Hermetic concurrency tests cover shared-account keys, simultaneous free quota depletion, missing usage and retries. Implement tests named cloud_free_paid_budget_*; acceptance must execute at least one test.",
+  "goal": "Make free-only, permitted paid fallback and hard spending limits explicit selection policies, using existing consent surfaces and asking only when a needed paid fallback lacks authorization. Reserve request/token allowance and estimated spend atomically across workers, fallback attempts and probes; reconcile actual usage, handle unknown prices and uncertain completion conservatively, and never bypass a budget via key rotation. Free quota exhaustion must not silently incur charges or trigger top-up. Wire reservations into actual dispatch. Hermetic concurrency tests cover shared-account keys, simultaneous free quota depletion, missing usage and retries. Implement tests named cloud_free_paid_budget_*; acceptance must execute at least one test. Acceptance runs in susi-vendor-models, which owns actual provider dispatch and shared billing reservations; gawd-agents only contains orchestration snapshots.",
   "size": "l",
   "deps": [
     "T-CODEX-1",
@@ -12,7 +12,7 @@
       "cargo",
       "test",
       "-p",
-      "susi-gawd-agents",
+      "susi-vendor-models",
       "cloud_free_paid_budget",
       "--locked"
     ]
