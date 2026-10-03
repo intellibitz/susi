@@ -53,7 +53,7 @@
       "id": "VC-201-003",
       "mastery_target": "Publish separate quality, reliability, latency, resource, and operator-effort measures with predeclared comparison thresholds; report uncertainty and never equate task count with a percentage improvement.",
       "priority": "P0",
-      "progress": "DELIVERED: separate quality, reliability, latency, resource and operator-effort dimensions with predeclared thresholds and reported uncertainty; an undersampled result cannot claim an improvement. Verified by `crates/susi-gawd/src/tests/vc_201_003.rs`: separate_dimensions_with_thresholds_and_uncertainty, uncertainty_blocks_claim. Evidence: T-CLAUDE-115.",
+      "progress": "PARTIAL: caller-supplied uncertainty blocks marginal claims on gated dimensions — verified by `crates/susi-gawd/src/tests/vc_201_003_mastery.rs`. Refuted on record 2026-10-03: summary_ok gates only 3 of 5 dimensions (resource and operator_effort regressions invisible), task_count is never consulted so a zero-sample scorecard claims improvement, thresholds live on the judged record so 'predeclared' is unenforced, and ImprovementScorecard has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-003.json`. Follow-up tracked by T-DEVIN20261002053148-17.",
       "type": "RSI_EVALUATION",
       "vector": "Define a measurable improvement scorecard"
     },
