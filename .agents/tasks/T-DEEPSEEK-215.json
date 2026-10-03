@@ -1,0 +1,15 @@
+{
+  "id": "T-DEEPSEEK-215",
+  "title": "A verdict must be a check the machine can run",
+  "goal": "Verdicts are prose today, so they lie in both directions: the roadmap carried 13 false DELIVERED claims whose components exist but that no production path reaches, and in one hour I produced three confidently wrong refutations (77 phantom candidates from test names and module declarations, then a nextest filter artifact, then prose read as tests). Every one of those errors came from a grep that counted the wrong thing. The fix is to make each verdict carry the command that establishes it: check-reachability.py decides delivered vs refuted by production call sites of a distinctive symbol, stripping comments, strings, module declarations and #[cfg(test)] blocks so that only real code counts, and refusing common words that produce hundreds of meaningless hits. check-roadmap-verdict.py runs a verdict's declared check and requires it to pass, and audits existing delivered verdicts for reachability.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "--self-test"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790999966
+}
