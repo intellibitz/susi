@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-037",
+  "verdict": "delivered",
+  "evidence": "vc_201_037_converges_in_bounded_batches, vc_201_037_interrupted_sweep_resumes_from_cursor, vc_201_037_rate_limit_starves_nothing_and_still_converges, vc_201_037_admit_gate_filters_without_stalling_cursor, and vc_201_037_cursor_roundtrips_through_disk (crates/susi-gawd-swarm/src/tests/vc_201_037.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790998498
+}
