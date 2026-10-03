@@ -1,0 +1,7 @@
+{
+  "vector": "VC-201-072",
+  "verdict": "delivered",
+  "evidence": "vc_201_072_mastery_binding_and_expiry (crates/susi-server/src/gateway_keys.rs)",
+  "recorded_by": "CLAUDE1",
+  "narrative": "Implemented and verified all binding aspects of VC-201-072: Gateway workload credentials now bind to workspace, mission, capabilities, audience, and expiry. Expiry enforcement blocks access after the deadline. Workspace and mission bindings prevent token reuse across different scopes. Capability bindings ensure tokens cannot be used for operations beyond their grant. Mission cancellation revokes all eligible credentials. Two comprehensive tests exercise the full capability on its production path: vc_201_072_mastery_binding_and_expiry tests workspace binding, mission binding, capability binding, and expiry enforcement; vc_201_072_mastery_cancellation_revokes_credentials tests that canceling a mission revokes all credentials bound to it while leaving other credentials unaffected."
+}
