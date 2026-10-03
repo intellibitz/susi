@@ -4,6 +4,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-vendor-models",
       "--locked",
       "-E",
       "test(vc_201_043_accel_headroom_reserved_on_runtime_path)"
