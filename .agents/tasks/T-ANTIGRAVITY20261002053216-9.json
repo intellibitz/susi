@@ -1,0 +1,20 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_055_cloud_reconciler_desired_observed_state)"
+    ]
+  },
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790976000,
+  "deps": [],
+  "goal": "Managed cloud inference requires extending static GPU cloud profiles with an active provisioning reconciler that drives desired/observed state transitions, generates stable operation IDs for crash recovery deduplication, runs health checks, and supports safe rollback. Acceptance requires a test that exercises the production path, not the module in isolation: this task was filed with the vector's mastery test as its acceptance, and that test passes today because the module already satisfies its own semantics - which is why the task could be closed without the integration it asks for. The named test does not exist yet, and is the work.",
+  "id": "T-ANTIGRAVITY20261002053216-9",
+  "roadmap": "VC-201-055",
+  "size": "l",
+  "title": "Implement desired/observed state reconciliation, operation IDs, and rollback for cloud deployments"
+}

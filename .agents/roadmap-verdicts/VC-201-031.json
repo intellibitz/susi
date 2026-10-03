@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-031",
+  "verdict": "delivered",
+  "evidence": "exhaustive_message_schedules_preserve_sp3, reordered_claims_same_leader_no_term_inflation, partition_allows_divergent_terms_reconnect_adopts_higher, and leadership_change_bumps_term (crates/susi-gawd-swarm/src/tests/vc_201_031.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790995795
+}

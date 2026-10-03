@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-23",
+  "title": "Actually run the repository gate for self-patches (VC-201-015)",
+  "goal": "VC-201-015 refuted: the gate parses a caller-supplied transcript and never executes fmt/clippy/test, so a fabricated 'all pass' transcript promotes a candidate that ran nothing; duplicate keys are last-write-wins so a real failure followed by a forged 'pass' promotes; command_covers_full_gate is substring matching that accepts never-executed strings and 'cargo test --lib' as covering the workspace gate; repo_gate has no production caller. Evidence: crates/susi-gawd/src/tests/vc_201_015_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_015",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790991424
+}

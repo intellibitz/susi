@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-064",
+  "verdict": "delivered",
+  "evidence": "crates/susi-config/src/tests/vc_201_064_mastery.rs vc_201_064_mastery_owned_leaf_under_foreign_scalar_is_refused vc_201_064_mastery_owned_leaf_under_foreign_array_is_refused",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790976578
+}

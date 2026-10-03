@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-073",
+  "verdict": "not-delivered",
+  "evidence": "crates/susi-core/src/tests/vc_201_073_mastery.rs",
+  "missing": "Four refutations. (1) No classification labels exist \u2014 private non-secret content egresses regardless (vc_201_073_mastery_private_nonsecret_payload_egresses). (2) Env-secret detection only covers *_API_KEY/_TOKEN/_SECRET names and >=8-char values \u2014 DATABASE_PASSWORD and short tokens are invisible (vc_201_073_mastery_env_secret_outside_name_list_evades). (3) Verbatim matching \u2014 a spaced obfuscation of a held secret egresses (vc_201_073_mastery_obfuscated_secret_evades). (4) Default policy is Redact \u2014 a secret-bearing prompt ships scrubbed content rather than refusing, and the scan is opt-in (vc_201_073_mastery_default_policy_ships_content). Holds: verbatim known-secret under Block refuses (vc_201_073_mastery_verbatim_block_holds).",
+  "tracked_by": [
+    "T-DEVIN20261002053148-32"
+  ],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790997010
+}

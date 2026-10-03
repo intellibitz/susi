@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-19",
+  "title": "Implement real compile-and-probe for synthesized reflexes (VC-201-007)",
+  "goal": "VC-201-007 refuted: probe_reflex never compiles or executes the reflex — it substring-matches the source, so a reflex whose only mention of the expected action is a comment is accepted, a verbatim echo spelled 'return(input)' evades the echo check, and the malformed check rejects the fixture rather than probing the reflex's behavior. reflex_intent has no production caller. Evidence: crates/susi-gawd/src/tests/vc_201_007_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_007",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790989143
+}

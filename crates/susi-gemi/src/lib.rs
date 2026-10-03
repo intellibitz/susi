@@ -97,6 +97,12 @@ pub mod zc_preferred_auto;
 pub mod zc_speculative_auto;
 pub mod zc_timeouts_measured;
 
+#[cfg(test)]
+#[path = "tests/billing_mode_marginal_cost.rs"]
+mod billing_mode_marginal_cost_tests;
+#[cfg(test)]
+#[path = "tests/capability_floor.rs"]
+mod capability_floor_tests;
 pub mod eco_capability_routing;
 pub mod eco_compat_gate;
 pub mod eco_limits_lookup;
@@ -107,8 +113,20 @@ pub mod eco_qa_cited;
 #[path = "tests/engine_benchmark.rs"]
 mod engine_benchmark_tests;
 #[cfg(test)]
+#[path = "tests/expected_cost_with_cache.rs"]
+mod expected_cost_with_cache_tests;
+#[cfg(test)]
 #[path = "tests/model_preload.rs"]
 mod model_preload_tests;
+#[cfg(test)]
+#[path = "tests/model_pricing_cache_rates.rs"]
+mod model_pricing_cache_rates_tests;
+#[cfg(test)]
+#[path = "tests/quota_window_accounting.rs"]
+mod quota_window_accounting_tests;
+#[cfg(test)]
+#[path = "tests/ranking_by_marginal_cost.rs"]
+mod ranking_by_marginal_cost_tests;
 #[cfg(test)]
 #[path = "tests/rate_limit_scheduler.rs"]
 mod rate_limit_scheduler_tests;
@@ -118,6 +136,15 @@ mod spend_tracker_tests;
 #[cfg(test)]
 #[path = "tests/thermal_routing.rs"]
 mod thermal_routing_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_045_mastery.rs"]
+mod vc_201_045_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_047_mastery.rs"]
+mod vc_201_047_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_048_mastery.rs"]
+mod vc_201_048_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_051.rs"]
 mod vc_201_051_tests;

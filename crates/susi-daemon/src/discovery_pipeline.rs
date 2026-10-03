@@ -7,6 +7,8 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use susi_gemi::models::resource_inventory::{ProbeInputs, ResourceInventory};
+
 // Reached through susi-gemi's re-export: the same `susi-core` crate, and the
 // type susi_gemi's discovery entrypoints take.
 use susi_gemi::susi_core::registry::CapabilityRegistry;
@@ -94,15 +96,59 @@ pub async fn bootstrap_zero_config_substrate() {
 /// `~/.susi/local_ecosystem.json` so `susi ecosystem` and the UI see what the
 /// last startup found. Detection only: nothing is started or configured.
 pub fn local_ecosystem_report() -> serde_json::Value {
+    local_ecosystem_report_at(&susi_paths::SusiDirs::config_dir())
+}
+
+/// Build and persist the production local-host report at an explicit location.
+/// Keeping the destination injectable lets the production composition path be
+/// exercised hermetically without writing into the caller's SUSI instance.
+pub fn local_ecosystem_report_at(config_dir: &Path) -> serde_json::Value {
     let eco =
         susi_gemi::models::local_ecosystem::scan(&susi_gemi::models::local_ecosystem::HostProbe);
+    let profile = susi_gemi::models::hardware::HardwareProfiler::get_profile();
+    let models_dir = susi_gemi::models::ModelManager::get_models_dir();
+    let models = std::env::current_dir()
+        .ok()
+        .map(|workspace| susi_gemi::models::ModelManager::list_models(&workspace))
+        .map(|found| {
+            found
+                .into_iter()
+                .map(|model| model.model_id().to_string())
+                .collect()
+        });
+    let runtimes = Some(
+        eco.engines
+            .iter()
+            .filter(|engine| engine.installed)
+            .map(|engine| engine.id.clone())
+            .collect(),
+    );
+    let inventory = ResourceInventory::from_probes(ProbeInputs {
+        cpu_cores: (profile.cpus > 0).then_some(profile.cpus as u32),
+        ram_bytes: (profile.ram_gb > 0)
+            .then_some((profile.ram_gb as u64).saturating_mul(1024 * 1024 * 1024)),
+        gpu_name: profile
+            .acceleration_active
+            .then_some(profile.gpu_info.clone()),
+        vram_bytes: (profile.acceleration_active && profile.gpu_vram_gb > 0)
+            .then_some((profile.gpu_vram_gb as u64).saturating_mul(1024 * 1024 * 1024)),
+        disk_free_bytes: {
+            let free =
+                susi_gemi::models::hardware::HardwareProfiler::get_free_disk_bytes(&models_dir);
+            (free > 0).then_some(free)
+        },
+        models,
+        runtimes,
+        now_unix: None,
+    });
     let report = serde_json::json!({
         "kind": "local_ecosystem",
-        "hardware": susi_gemi::models::hardware::HardwareProfiler::get_profile(),
+        "hardware": profile,
+        "resource_inventory": inventory,
         "engines": eco.engines,
         "accelerators": eco.accelerators,
     });
-    let path = susi_paths::SusiDirs::config_dir().join("local_ecosystem.json");
+    let path = config_dir.join("local_ecosystem.json");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -120,6 +166,36 @@ pub fn local_ecosystem_report() -> serde_json::Value {
         eprintln!("[BOOTSTRAP] Local AI ecosystem: {found:?}");
     }
     report
+}
+
+#[cfg(test)]
+mod resource_inventory_tests {
+    use super::local_ecosystem_report_at;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn vc_201_041_production_profile_uses_inventory() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after epoch")
+            .as_nanos();
+        let config_dir = std::env::temp_dir().join(format!("susi-vc-201-041-{nonce}"));
+        std::fs::create_dir(&config_dir).expect("test config directory should be unique");
+
+        let report = local_ecosystem_report_at(&config_dir);
+        let inventory = report
+            .get("resource_inventory")
+            .and_then(serde_json::Value::as_object)
+            .expect("production report must publish resource inventory");
+        assert!(inventory.contains_key("captured_unix"));
+        assert!(inventory.contains_key("cpu_cores"));
+        assert!(inventory.contains_key("ram_bytes"));
+        assert!(inventory.contains_key("vram_bytes"));
+        assert!(inventory.contains_key("disk_free_bytes"));
+        assert!(config_dir.join("local_ecosystem.json").is_file());
+
+        std::fs::remove_dir_all(config_dir).expect("test report directory should be removable");
+    }
 }
 
 /// Auto-admit host-ready ecosystem components (MCP, coding models, peers).

@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-090",
+  "verdict": "delivered",
+  "evidence": "online_completes_with_mcp_and_delegate (crates/susi-core/src/tests/vc_201_090.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790986822
+}

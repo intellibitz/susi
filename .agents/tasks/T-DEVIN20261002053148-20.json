@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-20",
+  "title": "Track real access, dedupe by content, and enforce evidence exclusion (VC-201-009)",
+  "goal": "VC-201-009 refuted: detect() trusts caller-assembled access sets so an unrecorded held-out read reports clean; overlap is by fixture id only so identical content under another id is invisible; and 'excluded from improvement evidence' is an unconsumed flag — no caller, no gate. Evidence: crates/susi-gawd/src/tests/vc_201_009_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_009",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790989695
+}

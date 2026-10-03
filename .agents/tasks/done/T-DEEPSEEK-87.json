@@ -1,0 +1,25 @@
+{
+  "id": "T-DEEPSEEK-87",
+  "title": "Give every model a cost record, cache rates included",
+  "goal": "Give every candidate model a cost record: input, output, cache-hit and cache-miss rates, plus measured latency and throughput where known, with the source and date of each figure. Cache-hit pricing is the point - DeepSeek-class caching is what makes the cheapest model the best one, so a record without cache rates cannot rank anything. No new third-party dependency: this is data plus arithmetic.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(model_pricing_cache_rates)"
+    ]
+  },
+  "roadmap": "VC-202-002",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357,
+  "closed": {
+    "at_unix": 1791022400,
+    "commit": "83273b1e1e029f0ee74855d651367dfd13eafcd9",
+    "by": "CLAUDE"
+  }
+}

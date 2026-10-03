@@ -1,0 +1,25 @@
+{
+  "id": "T-DEEPSEEK-208",
+  "title": "Give exported audit evidence a file and a verification command",
+  "goal": "VC-201-079 is not delivered. AuditEvidence (crates/susi-gawd/src/audit_evidence.rs) exports an in-memory Vec<AuditSegment> and its verification is reachable only from Rust code: no CLI command writes an export to a file, reads one back, or verifies it, so a third party cannot independently verify evidence - which is the claim. The four distinct failures are real and well tested (vc_201_079_distinct_failures covers truncation, tampering, a missing segment and an unknown key), and redaction holds; what is missing is a serialized export (redacted body plus key ids and signature metadata), a command that verifies a file and reports each failure mode distinctly with a non-zero exit, and a test proving the file round-trip and every failure mode without exposing a secret.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_079_cli_verify)"
+    ]
+  },
+  "roadmap": "VC-201-079",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790967226,
+  "closed": {
+    "at_unix": 1791002499,
+    "commit": "2fa31918c3a754622ee65ebe1d55a912e5670687",
+    "by": "INTELLIBITZ202610030140553714905"
+  }
+}

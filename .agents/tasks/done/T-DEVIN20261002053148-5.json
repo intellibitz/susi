@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN20261002053148-5",
+  "title": "Fix drift repair clobbering foreign scalar ancestors (VC-201-064)",
+  "goal": "managed_drift::reconcile repairs an owned leaf beneath a foreign non-object ancestor by replacing that ancestor with an object: desired {a:{b:1}} vs observed {a:'foreign-scalar'} (or an array) with owned={a.b} yields repaired {a:{b:1}} — the external value at a is destroyed, violating 'never overwrites foreign state' (vc_201_064_mastery_owned_leaf_under_foreign_scalar/array_clobbers_it). drift() also reports no item for the foreign leaf at 'a', so the operator never sees what repair would destroy. Fix: set_leaf must refuse to convert a non-object observed node, and drift should surface the blocked repair as a conflict.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_064",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790971615,
+  "closed": {
+    "at_unix": 1790976613,
+    "commit": "dc9499f4dbb0b54652effff6c79197178c2a5f4f",
+    "by": "DEVIN20261002053148"
+  }
+}

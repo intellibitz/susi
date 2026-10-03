@@ -173,6 +173,9 @@ mod json_util_tests;
 #[cfg(test)]
 #[path = "tests/key_rotation.rs"]
 mod key_rotation_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_076_mastery.rs"]
+mod vc_201_076_mastery_tests;
 
 #[cfg(test)]
 #[path = "tests/key_scope.rs"]
@@ -196,23 +199,56 @@ mod state_backup_tests;
 #[path = "tests/state_migration.rs"]
 mod state_migration_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_061_mastery.rs"]
+mod vc_201_061_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_062_mastery.rs"]
+mod vc_201_062_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_063_mastery.rs"]
+mod vc_201_063_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_063.rs"]
 mod vc_201_063_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_064_mastery.rs"]
+mod vc_201_064_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_064.rs"]
 mod vc_201_064_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_065_mastery.rs"]
+mod vc_201_065_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_065.rs"]
 mod vc_201_065_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_066_mastery.rs"]
+mod vc_201_066_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_066.rs"]
 mod vc_201_066_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_067_mastery.rs"]
+mod vc_201_067_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_067.rs"]
 mod vc_201_067_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_068_mastery.rs"]
+mod vc_201_068_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_068.rs"]
 mod vc_201_068_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_069_mastery.rs"]
+mod vc_201_069_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_070_mastery.rs"]
+mod vc_201_070_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_077_mastery.rs"]
+mod vc_201_077_mastery_tests;
 #[cfg(test)]
 #[path = "tests/versioned_store.rs"]
 mod versioned_store_tests;

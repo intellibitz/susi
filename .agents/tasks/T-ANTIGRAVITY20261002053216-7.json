@@ -1,0 +1,20 @@
+{
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_048_thermal_router_unknown_telemetry_in_placement)"
+    ]
+  },
+  "created_by": "ANTIGRAVITY20261002053216",
+  "created_unix": 1790972000,
+  "deps": [],
+  "goal": "ThermalRouter in susi-gemi is an isolated in-memory state tracker with no explicit unknown telemetry state handling or operator limits, unintegrated with host telemetry or model placement, and lacks mechanisms to throttle or queue local-only work under simulated pressure instead of rerouting to cloud. Acceptance requires a test that exercises the production path, not the module in isolation: this task was filed with the vector's mastery test as its acceptance, and that test passes today because the module already satisfies its own semantics - which is why the task could be closed without the integration it asks for. The named test does not exist yet, and is the work.",
+  "id": "T-ANTIGRAVITY20261002053216-7",
+  "roadmap": "VC-201-048",
+  "size": "l",
+  "title": "Integrate thermal and power limits into placement with unknown states and local-only throttling"
+}

@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-062",
+  "verdict": "delivered",
+  "evidence": "crates/susi-config/src/tests/vc_201_062_mastery.rs vc_201_062_mastery_pack_file_is_not_reported_as_a_layer vc_201_062_mastery_workspace_config_is_not_reported_as_a_layer vc_201_062_mastery_unparseable_env_value_is_reported_but_never_wins vc_201_062_mastery_implemented_layers_agree_with_runtime",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790977757
+}

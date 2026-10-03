@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-063",
+  "verdict": "delivered",
+  "evidence": "crates/susi-config/src/tests/vc_201_063_mastery.rs vc_201_063_mastery_stale_insertion_plan_fails_safely vc_201_063_mastery_second_change_to_same_key_applies vc_201_063_mastery_literal_replay_repeats_no_side_effects",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790990800
+}

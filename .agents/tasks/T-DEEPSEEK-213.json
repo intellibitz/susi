@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-213",
+  "title": "Reserve spend before dispatch and reconcile provider-reported usage",
+  "goal": "VC-201-052 claims spend is reserved before the request and reconciled against provider-reported usage afterward, across parallel agents. The ledger itself is real, atomic and well tested: SpendPolicy, Reservation, BudgetLedger::reserve, commit(res, actual), release, global() and reserve_dispatch, whose own doc comment says it reserves 'right before dispatch'. But reserve_dispatch (crates/susi-gawd-agents/src/cloud_budget.rs:290) has no callers anywhere in the tree, commit and release are called only inside the module's own tests, and nothing consumes provider-reported usage - no reported_usage, provider_usage or actual_usage symbol exists outside tests. So no request reserves before it is made and none reconciles after.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_052_reserved_before_dispatch_and_reconciled_after)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790979069
+}

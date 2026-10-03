@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-068",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Three refutations. (1) Bounded waves are advisory: pending() lists the open wave but mark_applied accepts any node — a later-wave node takes the pinned revision while the canary wave is still open (vc_201_068_mastery_mark_applied_bypasses_wave_bound). (2) Health is fabricated on rollback: rollback() sets healthy=true with no health evidence and resume() accepts it, so 'resume requires every node healthy' is satisfied without verification (vc_201_068_mastery_rollback_fabricates_health_and_resume_accepts_it). (3) An empty canary leaves open_wave 0 with no members: pending() is empty while status reports Running (vc_201_068_mastery_no_canary_leaves_pending_empty_while_running). Additionally fleet_rollout has no production caller — no config driver applies pending nodes or reports health. Holds: pinned revision enforced on apply, unhealthy report pauses and empties pending, per-node rollback state exposed, full pinned+healthy fleet completes (vc_201_068_mastery_pin_pause_rollback_state_and_completion_hold).",
+  "tracked_by": ["T-DEVIN20261002053148-10"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790983333
+}

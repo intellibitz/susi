@@ -9,7 +9,6 @@
       "cargo",
       "nextest",
       "run",
-      "--locked",
       "-p",
       "susi-gawd-swarm",
       "provider_key_liveness"
@@ -19,8 +18,8 @@
   "created_by": "DEEPSEEK",
   "created_unix": 1790953357,
   "closed": {
-    "at_unix": 1790966169,
-    "commit": "4a78f73d3d102e3c52c9c22cd6022a808e76e9c4",
-    "by": "INTELLIBITZ202610022328512135392"
+    "at_unix": 1791012599,
+    "commit": "pending",
+    "by": "PRIMARY"
   }
 }

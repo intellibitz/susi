@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use crate::peer_registry;
 use crate::susi_core::plane_bus::gemi::HardwareProfiler;
+use crate::susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
 use susi_gawd_agents::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1138,6 +1139,11 @@ impl SusiSupervisor {
         let mut a2a_logs = Vec::new();
         let mut has_gap = false;
         for (name, output) in swarm_logs {
+            let output = enforce_action(
+                &wrap_tool_output("local-agent", &output),
+                ActionClass::Consequential,
+            )
+            .unwrap_or_else(|reason| reason);
             if output.contains("[CAPABILITY_GAP]") {
                 has_gap = true;
             }
@@ -1180,6 +1186,11 @@ impl SusiSupervisor {
                 Arc::clone(&blackboard),
             );
             for (name, output) in extra_swarm {
+                let output = enforce_action(
+                    &wrap_tool_output("reinforcement-agent", &output),
+                    ActionClass::Consequential,
+                )
+                .unwrap_or_else(|reason| reason);
                 a2a_logs.push(A2AMessage {
                     sender: format!("{}_Reinforcement", name),
                     recipient: "SUSI-Master".to_string(),
@@ -1195,10 +1206,15 @@ impl SusiSupervisor {
             let mut weighted_wisdom = String::new();
             for r in blackboard.iter() {
                 let agent_name = r.key();
-                let output = r.value();
+                let raw_output = r.value();
+                let output = enforce_action(
+                    &wrap_tool_output("mission-blackboard", raw_output),
+                    ActionClass::Consequential,
+                )
+                .unwrap_or_else(|reason| reason);
 
                 if let Some(info) = fleet_info.iter().find(|i| &i.name == agent_name) {
-                    if susi_gawd_agents::accountability::is_usable(output) {
+                    if susi_gawd_agents::accountability::is_usable(&output) {
                         weighted_wisdom.push_str(&format!(
                             "[AGENT: {} (Rank: {:.2})] {}\n",
                             agent_name, info.rank, output
@@ -1206,7 +1222,7 @@ impl SusiSupervisor {
                     }
 
                     // Empirical Expertise Ranking: reward success, penalize failure.
-                    let (delta, source) = Self::rank_delta_for_output(output);
+                    let (delta, source) = Self::rank_delta_for_output(&output);
                     if delta != 0.0 {
                         susi_gawd_agents::agents::AgentMetaRegistry::global()
                             .update_rank(agent_name, delta, source);
@@ -1221,7 +1237,13 @@ impl SusiSupervisor {
                 .iter()
                 .filter_map(|r| {
                     let agent_name = r.key().clone();
-                    let output = r.value().trim().to_string();
+                    let output = enforce_action(
+                        &wrap_tool_output("mission-blackboard", r.value()),
+                        ActionClass::Consequential,
+                    )
+                    .unwrap_or_else(|reason| reason)
+                    .trim()
+                    .to_string();
                     if susi_gawd_agents::accountability::is_usable(&output) {
                         Some((agent_name, output))
                     } else {
@@ -1599,12 +1621,23 @@ impl SusiSupervisor {
                 // labeled error would be inserted as a peer output and
                 // could vote in quorum.
                 if result.get("isError").and_then(|v| v.as_bool()) == Some(true) {
-                    format!("[A2A Error ({})]: {}", addr, text.trim())
+                    let safe = wrap_tool_output("mcp-peer-error", &text).redacted_for_sink();
+                    format!("[A2A Error ({})]: {}", addr, safe.trim())
                 } else {
-                    format!("[A2A Flux ({})]: {}", addr, text.trim())
+                    match enforce_action(
+                        &wrap_tool_output("mcp-peer-reply", &text),
+                        ActionClass::Consequential,
+                    ) {
+                        Ok(safe) => format!("[A2A Flux ({})]: {}", addr, safe.trim()),
+                        Err(reason) => format!("[A2A Error ({})]: {reason}", addr),
+                    }
                 }
             }
-            Err(e) => format!("[A2A Fallback]: Node '{}' unreachable ({e}).", addr),
+            Err(e) => {
+                let safe =
+                    wrap_tool_output("mcp-peer-transport", &e.to_string()).redacted_for_sink();
+                format!("[A2A Fallback]: Node '{}' unreachable ({}).", addr, safe)
+            }
         }
     }
 

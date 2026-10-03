@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-027",
+  "verdict": "delivered",
+  "evidence": "picks_independent_verifier_and_specialist, requires_independent_verifier, and reports_when_single_agent_cheaper (crates/susi-gawd-swarm/src/tests/vc_201_027.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790994631
+}

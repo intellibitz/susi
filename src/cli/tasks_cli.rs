@@ -137,7 +137,32 @@ fn agent_from_branch(root: &Path) -> Option<String> {
 /// (before release was bound to its branch) the ability to free each other's
 /// live claims. The process tree is where the tool actually is, so ask it.
 fn agent_from_tool_process() -> Option<String> {
-    susi_gawd::zc_agent_identity::detect_agent_from_chain(&process_chain())
+    susi_gawd::zc_agent_identity::detect_agent_from_chain(&tool_process_chain(&process_chain()))
+}
+
+/// Keep host tools from leaking into identities of binaries launched by Cargo.
+/// A test process inherits the developer's Codex/Claude shell, but that shell
+/// is not the wrapper the test is asking us to identify. Direct wrappers still
+/// appear before the Cargo boundary and remain detectable.
+fn tool_process_chain(chain: &str) -> String {
+    let mut direct = String::new();
+    for line in chain.lines() {
+        let executable = line
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .rsplit('/')
+            .next()
+            .unwrap_or_default();
+        if matches!(executable, "cargo" | "rustc" | "rustdoc") {
+            break;
+        }
+        if !direct.is_empty() {
+            direct.push('\n');
+        }
+        direct.push_str(line);
+    }
+    direct
 }
 
 /// Ancestor command lines, from this process up a bounded number of levels.
@@ -395,7 +420,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_from_branch_name, argv_head};
+    use super::{agent_from_branch_name, argv_head, tool_process_chain};
 
     /// Only the program and an interpreter's script are searched. A shell's
     /// script is an argument, and searching it labelled a real run `CURSOR`
@@ -417,6 +442,20 @@ mod tests {
         );
         assert_eq!(argv_head(b""), "");
         assert_eq!(argv_head(b"bash\0"), "bash");
+    }
+
+    #[test]
+    fn cargo_test_harness_does_not_inherit_the_host_tool_identity() {
+        let chain = "/bin/bash /tmp/cursor-agent\n/usr/bin/cargo test\n/usr/local/bin/codex exec";
+        assert_eq!(tool_process_chain(chain), "/bin/bash /tmp/cursor-agent");
+        assert_eq!(
+            susi_gawd::zc_agent_identity::detect_agent_from_chain(&tool_process_chain(chain)),
+            Some("CURSOR".to_string())
+        );
+        assert_eq!(
+            tool_process_chain("/usr/bin/cargo test\n/usr/local/bin/codex exec"),
+            ""
+        );
     }
 
     #[test]

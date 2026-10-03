@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-27",
+  "title": "Map real policy layers into the capability contract (VC-201-071)",
+  "goal": "VC-201-071 refuted: evaluate() consumes caller-fabricated LayerDecision values \u2014 nothing derives them from MacPolicy/CapabilityToken or the daemon CapabilityPolicy, so the 'unified' contract is never applied; a single invented Allow layer (or the omission of the real mac layer) permits; EntryPoint is ignored (`let _ = entry`). Evidence: crates/susi-core/src/tests/vc_201_071_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_071",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790993916
+}
