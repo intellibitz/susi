@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-059",
+  "verdict": "delivered",
+  "evidence": "deletes_only_expired_susi_owned_orphans (crates/susi-vendor-cloud/src/tests/vc_201_059.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790985660
+}
