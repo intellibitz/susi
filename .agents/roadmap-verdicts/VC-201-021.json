@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-021",
+  "verdict": "delivered",
+  "evidence": "persist_and_resume_runnable_after_restart, running_not_treated_as_complete_on_reload, and refuse_dispatch_before_deps (crates/susi-gawd-swarm/src/tests/vc_201_021.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790993424
+}
