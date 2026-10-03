@@ -10,5 +10,10 @@
     ]
   },
   "created_by": "FIXRELEASEACTIONS",
-  "created_unix": 1791033928
+  "created_unix": 1791033928,
+  "closed": {
+    "at_unix": 1791034903,
+    "commit": "e6b246fbf8d7ce740277eb991fb0a68293348ac2",
+    "by": "FIXRELEASEACTIONS"
+  }
 }
