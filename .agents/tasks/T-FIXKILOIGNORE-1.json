@@ -1,0 +1,14 @@
+{
+  "id": "T-FIXKILOIGNORE-1",
+  "title": "Ignore local agent-tool state (Kilo) and guard it from a stray git add",
+  "goal": "Kilo keeps skills and its own worktrees under .kilo/, which shows as untracked in the primary and could be swept into a commit by git add -A, exactly like the 3390 target files check-tracked-artifacts.sh exists for. Ignore .kilo/ and extend that checker to refuse tracked tool state.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-tracked-artifacts.sh"
+    ]
+  },
+  "created_by": "FIXKILOIGNORE",
+  "created_unix": 1791052843
+}

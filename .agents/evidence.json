@@ -4644,6 +4644,16 @@
       "milestone": "`susi admin release --cut` ended with a bare `git push`, which follows the branch's upstream — and `scripts/susi-worktree.sh` creates its branch from `origin/main`, so the upstream is `main`. Under `push.default=simple` git refuses that push (\"the upstream branch of your current branch does not match the name of your current branch\"), and the refusal lands *after* the version bump has been committed, so the release has to be restarted from a tree that is no longer clean. Every cut of v0.21.7, v0.21.8 and v0.21.9 worked around it with `git config --worktree push.default current`. The push is now explicit — `git push origin HEAD:refs/heads/<branch>` — and `release_branch` refuses `main` (a release reaches main through its pull request, Mandate 49) and a detached HEAD with a message that says so, instead of surfacing a git error. Fixing the release tool only helps releases cut *after* it is itself released, since the installed binary performs this push.",
       "proof": "Two tests in release.rs, both green: a_release_push_names_its_branch_even_when_it_tracks_main builds the exact failing setup (`checkout -b <branch> origin/main` plus `push.default=simple`), asserts the upstream resolves to origin/main, asserts a bare `git push --dry-run` FAILS there (so the fixture really reproduces the bug), then asserts push_release_branch succeeds and the branch is on the remote at HEAD; a_release_push_refuses_main_and_a_detached_head asserts both refusals carry their own message. 9 release tests green overall.",
       "type": "CORRECTION"
+    },
+    {
+      "anchor": {
+        "label": "local agent-tool state is not repo content",
+        "ref": "file://.gitignore"
+      },
+      "id": "EV-FIXKILOIGNORE-001",
+      "milestone": "Kilo keeps its skills and its own git worktrees under `.kilo/`, which the repo did not ignore: the primary checkout showed `?? .kilo/` and `git add -A` would have swept them in, exactly the way 3390 target files were committed on 2026-09-30. `.kilo/` is now ignored beside `.claude/worktrees/`, and `scripts/check-tracked-artifacts.sh` — the checker that exists for that earlier accident — refuses tracked tool state as well as build output, so the guard holds even when someone forces the add. Kilo's own `.gitignore` inside the directory covers its node_modules and locks, but not its skills, which is why the directory surfaced at all.",
+      "proof": "`git check-ignore -v .kilo/skills/jupyter-notebook/SKILL.md` resolves to `.gitignore:67:.kilo/`; the checker passes on the clean tree; and a deliberate `git add -f .kilo/leaked` makes it exit 1 with `tracked build output or tool state: 1 file(s)` naming the path, then passes again after `git rm --cached`. It is also harmless to the common path: the pattern only matches paths that are tracked, and nothing under `.kilo/` is.",
+      "type": "CORRECTION"
     }
   ],
   "epistemic_score": 1.0,

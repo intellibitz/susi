@@ -61,6 +61,11 @@ Thumbs.db
 # Agent worktrees live here; never track them.
 .claude/worktrees/
 
+# Local agent-tool state (Kilo keeps its skills and its own worktrees here).
+# A `git add -A` would otherwise sweep it in, the way it once swept 3390 target
+# files in; scripts/check-tracked-artifacts.sh refuses that after the fact.
+.kilo/
+
 # Build output: never tracked (see scripts/check-tracked-artifacts.sh).
 /debug/
 /.rustc_info.json
