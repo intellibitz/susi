@@ -889,7 +889,7 @@
       "id": "VC-201-071",
       "mastery_target": "Map existing MacPolicy and daemon CapabilityPolicy decisions into one authoritative evaluation contract while preserving layer responsibilities; conflicting rules deny consistently across tool, peer, and model entry points.",
       "priority": "P0",
-      "progress": "PARTIAL: the unified capability-policy evaluation contract is delivered and denies consistently on conflict or empty layers. Verified by `crates/susi-core/src/tests/vc_201_071.rs`: all_allow_permits, conflicting_rules_deny_consistently, empty_layers_deny. Residual: the mastery target's 'across tool, peer and model entry points' is not enumerated by a named per-entry-point check, so consistent behaviour at each of those three surfaces is not independently re-verified here. Evidence: T-CLAUDE-140.",
+      "progress": "PARTIAL: deny-wins and empty-denies hold across all entry points, but the claimed mapping is absent \u2014 evaluate() consumes caller-fabricated layer decisions, nothing derives them from MacPolicy or the daemon CapabilityPolicy, and it has no production callers; a fabricated Allow layer permits. Refuted on record; tracked by T-DEVIN20261002053148-27.",
       "type": "GOVERNANCE",
       "vector": "Unify capability-policy decision semantics"
     },
