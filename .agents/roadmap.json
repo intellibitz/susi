@@ -1006,7 +1006,7 @@
       "id": "VC-201-080",
       "mastery_target": "Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled.",
       "priority": "P0",
-      "progress": "PARTIAL: the operator emergency stop persists across restart, rejects new work and cancels eligible running tasks. Verified by `crates/susi-core/src/tests/vc_201_080.rs`: persists_across_restart, stop_rejects_new_work_and_cancels_eligible. Residual: status reporting of unreachable peers and of external actions that cannot be recalled is not enumerated by a named check. Evidence: T-CLAUDE-143.",
+      "progress": "PARTIAL: pre-registered cancellable tasks cancel and the stop persists, but register_task never checks the stop (post-stop registrations run uncancelled), the scope is a label that cannot exclude another region, the persisted file is unsigned and silently lifted by tampering, and the bus has no production caller. Refuted on record; tracked by T-DEVIN20261002053148-29.",
       "type": "GOVERNANCE",
       "vector": "Apply an operator emergency stop across the fleet"
     },
