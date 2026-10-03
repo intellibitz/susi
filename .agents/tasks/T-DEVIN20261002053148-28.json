@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-28",
+  "title": "Enforce reflex grant derivation and containment (VC-201-075)",
+  "goal": "VC-201-075 refuted: GrantSet.caps is a public BTreeSet \u2014 a reflex can grant itself any capability after attenuation; grants are intersected with a hardcoded list, not derived from the parent mission; there are no memory/fuel/time dimensions at all; GrantSet has no callers outside tests so nothing consults the grant set at run time. Evidence: crates/susi-core/src/tests/vc_201_075_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_075",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790994385
+}
