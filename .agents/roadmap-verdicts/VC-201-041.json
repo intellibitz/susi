@@ -1,9 +1,11 @@
 {
   "vector": "VC-201-041",
-  "verdict": "delivered",
-  "evidence": "vc_201_041_mastery_unknown_probe_is_not_zero, vc_201_041_mastery_provenance_and_timestamps_present (crates/susi-vendor-models/src/tests/vc_201_041_mastery.rs)",
-  "missing": "",
-  "tracked_by": [],
-  "recorded_by": "CLAUDE1790974037",
-  "delivered_unix": 1727894400
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "the GPU probe reports 0 VRAM when the device is absent; CPU/RAM observations carry no timestamp or provenance; ResourceInventory is unintegrated into production host profiling",
+  "tracked_by": [
+    "T-ANTIGRAVITY20261002053216-1"
+  ],
+  "recorded_by": "ANTIGRAVITY20261002053216",
+  "recorded_unix": 1790959850
 }

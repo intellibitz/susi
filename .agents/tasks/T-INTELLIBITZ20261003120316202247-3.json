@@ -1,0 +1,16 @@
+{
+  "id": "T-INTELLIBITZ20261003120316202247-3",
+  "title": "Correct VC-201-041 tracked verdict for PR 365",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py",
+      "--consistency-only"
+    ]
+  },
+  "roadmap": "VC-201-041",
+  "created_by": "INTELLIBITZ20261003120316202247",
+  "created_unix": 1791013368
+}
