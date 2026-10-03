@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ20261003120316202247-1",
+  "title": "Make airgap MAC coverage tests hermetic under parallel execution",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "vc_201_050_mastery",
+      "--test",
+      "airgap_mode"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261003120316202247",
+  "created_unix": 1791009267
+}
