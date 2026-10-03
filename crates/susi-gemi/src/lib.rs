@@ -100,6 +100,9 @@ pub mod zc_timeouts_measured;
 #[cfg(test)]
 #[path = "tests/billing_mode_marginal_cost.rs"]
 mod billing_mode_marginal_cost_tests;
+#[cfg(test)]
+#[path = "tests/capability_floor.rs"]
+mod capability_floor_tests;
 pub mod eco_capability_routing;
 pub mod eco_compat_gate;
 pub mod eco_limits_lookup;
