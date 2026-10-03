@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-016",
+  "verdict": "delivered",
+  "evidence": "pin_survives_revoke_for_caller and rollback_restores_pin (crates/susi-gawd/src/tests/vc_201_016.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790991729
+}
