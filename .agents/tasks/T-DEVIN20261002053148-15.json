@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-15",
+  "title": "Make adapter upgrade path real: contracts run, sandbox unbypassable (VC-201-089)",
+  "goal": "VC-201-089 refuted: contract checks are a caller-supplied bool (nothing runs); install_active installs any revision directly as live, bypassing stage+check+rollback entirely; a downgrade switches in as an upgrade (version never consulted); switching with nothing staged is indistinguishable from contract failure; and AdapterUpgrade has no production caller. Evidence: crates/susi-core/src/tests/vc_201_089_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_089",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790986670
+}
