@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "DSHENFORCE",
-  "created_unix": 1791028763
+  "created_unix": 1791028763,
+  "closed": {
+    "at_unix": 1791029723,
+    "commit": "8c7fc963b3d62ab5c25ed8cba81b16c0e27441db",
+    "by": "DSHENFORCE"
+  }
 }
