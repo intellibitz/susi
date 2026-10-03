@@ -38,6 +38,7 @@ case "$1 $2" in
 api\ *) cat "$D/comparison" 2>/dev/null || echo ahead ;;
 "pr list") jq -r "$(jqexpr "$@")" "$D/prs.json" ;;
 "pr merge") if [ -f "$D/merge_fail" ]; then echo "merge refused" >&2; exit 1; fi ;;
+"pr update-branch") if [ -f "$D/update_fail" ]; then echo "branch is not mergeable" >&2; exit 1; fi ;;
 "pr view")
   case "$*" in
   *"--json mergeable"*) echo "{\"mergeable\":\"$(cat "$D/mergeable" 2>/dev/null || echo MERGEABLE)\"}" | jq -r "$(jqexpr "$@")" ;;
@@ -288,19 +289,70 @@ fn the_workflow_wires_every_path_to_the_shared_scripts() {
 }
 
 #[test]
-fn a_tested_branch_missing_current_main_cannot_merge() {
+fn a_tested_branch_missing_current_main_is_resynced_not_merged_or_failed() {
     for status in ["behind", "diverged"] {
         let f = Fake::new(
-            status,
+            &format!("resync-{status}"),
             serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
             serde_json::json!({}),
         );
         f.flag("comparison", status);
         let (code, out) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
-        assert_eq!(code, 1, "{out}");
+        assert_eq!(code, 0, "{out}");
         assert!(!f.calls().contains("pr merge"), "{}", f.calls());
-        assert!(out.contains("sync and retest"));
+        assert!(
+            f.calls().contains("pr update-branch 5 --repo o/r"),
+            "{}",
+            f.calls()
+        );
     }
+}
+
+#[test]
+fn a_behind_pr_that_cannot_be_resynced_is_explained_once_and_fails() {
+    for status in ["behind", "diverged"] {
+        let f = Fake::new(
+            &format!("resyncfail-{status}"),
+            serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+            serde_json::json!({}),
+        );
+        f.flag("comparison", status);
+        f.flag("update_fail", "1");
+        let (code, _) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
+        assert_eq!(code, 1);
+        assert!(
+            f.comments().contains("<!-- susi-auto-merge --> aaa"),
+            "{}",
+            f.comments()
+        );
+        let (code, _) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
+        assert_eq!(code, 1);
+        assert_eq!(
+            f.comments()
+                .matches("Auto-merge could not complete")
+                .count(),
+            1,
+            "no comment spam"
+        );
+    }
+}
+
+#[test]
+fn the_reconciler_resyncs_a_green_but_behind_pr_without_failing() {
+    let f = Fake::new(
+        "rec-behind",
+        serde_json::json!([pr(9, "feat-behind", "s9", NOW, false)]),
+        serde_json::json!({"s9": green()}),
+    );
+    f.flag("comparison", "behind");
+    let (code, out) = f.script("reconcile-prs.sh", &["o/r"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        f.calls().contains("pr update-branch 9 --repo o/r"),
+        "{}",
+        f.calls()
+    );
+    assert!(!f.calls().contains("pr merge"), "{}", f.calls());
 }
 
 #[test]
