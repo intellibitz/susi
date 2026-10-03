@@ -29,6 +29,7 @@ branch for a day).
 import json
 import pathlib
 import re
+import shlex
 import subprocess
 from pathlib import PurePath
 import sys
@@ -117,6 +118,12 @@ def evidence_can_run(cited, root=None):
     return False
 
 
+# A verdict must be a check the machine can run. Off by default so verdicts
+# recorded before this rule keep working; `--require-check` is the migration
+# switch, and CI can flip it once every verdict carries one.
+REQUIRE_CHECK = "--require-check" in sys.argv
+
+
 def validate(record, vector):
     """What is missing from this verdict record, if anything."""
     problems = []
@@ -154,6 +161,27 @@ def validate(record, vector):
                     problems.append(f"tracked_by names {task}, which is not in the queue")
     if not str(record.get("recorded_by") or "").strip():
         problems.append("recorded_by is required")
+    check = record.get("check")
+    if check:
+        argv = check if isinstance(check, list) else shlex.split(str(check))
+        if not argv or not str(argv[0]).startswith("scripts/"):
+            problems.append(
+                "a verdict's check must be a repo-local scripts/... command, so it cannot run "
+                "anything the repository does not contain"
+            )
+        else:
+            proc = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
+            if proc.returncode != 0:
+                detail = (proc.stdout or proc.stderr or "").strip().splitlines()
+                problems.append(
+                    f"the verdict's check failed ({' '.join(argv)}): "
+                    f"{detail[0] if detail else 'no output'} — a verdict must be a check that passes"
+                )
+    elif REQUIRE_CHECK:
+        problems.append(
+            'this verdict carries no check: add "check": ["scripts/check-reachability.py", '
+            '"--delivered" or "--refuted", "DistinctiveSymbol"] so the claim is runnable'
+        )
     return problems
 
 
