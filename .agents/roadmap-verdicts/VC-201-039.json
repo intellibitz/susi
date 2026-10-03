@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-039",
+  "verdict": "delivered",
+  "evidence": "vc_201_039_locality_score_prefers_data_on_host, vc_201_039_local_only_dataset_never_moves_off_permitted_hosts, vc_201_039_region_residency_and_resource_gates, and vc_201_039_unverified_capability_is_rejected_not_scored (crates/susi-gawd-swarm/src/tests/vc_201_039.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790998498
+}
