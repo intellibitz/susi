@@ -30,7 +30,7 @@
       "id": "VC-201-001",
       "mastery_target": "Create versioned coding, repair, orchestration, and local/cloud operations fixtures with input hashes and held-out splits; replay the same revision with recorded seeds and no evaluator-data exposure to the candidate.",
       "priority": "P0",
-      "progress": "DELIVERED: versioned RSI evaluation corpus with input hashes, held-out splits and recorded-seed replay of the same revision, with evaluator data hidden from the candidate. Verified by `crates/susi-gawd/src/tests/rsi_corpus.rs`: input_hash_and_held_out_split, replay_seeds_cover_all_classes, candidate_view_hides_evaluator_expected. Evidence: T-CLAUDE-113.",
+      "progress": "PARTIAL: the candidate view strips evaluator_expected and keeps seeds — verified by `crates/susi-gawd/src/tests/vc_201_001_mastery.rs`. Refuted on record 2026-10-03: input hashes are never verified (tampered input accepted), split is a free-form string so mislabeled held-out fixtures leak to the train side, replay ignores the revision, and RsiCorpus has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-001.json`. Follow-up tracked by T-DEVIN20261002053148-16.",
       "type": "RSI_EVALUATION",
       "vector": "Version the RSI evaluation corpus"
     },
