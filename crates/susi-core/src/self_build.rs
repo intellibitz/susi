@@ -52,7 +52,11 @@ task: sync origin/main → claim one → work → commit → sync → push → s
 6. Work from the task queue (Mandate 50): `susi tasks add '<title>' --accept '<cmd>'`, \
 `susi tasks claim <id>` before starting (one live claim at a time; claim refuses if \
 behind origin/main), `susi tasks close <id>` only when its acceptance check passes. \
-Never start a task another agent has claimed. End EVERY commit message with the \
+An accepted task is not done until its merge is on `origin/main`: close publishes a \
+receipt on the shared remote, and while it is unpublished no further task can be \
+claimed — releasing the claim does not clear it, so `susi tasks release <id> --abandon \
+<reason>` is the deliberate way to give it up. Never report a task complete before \
+that merge. Never start a task another agent has claimed. End EVERY commit message with the \
 trailer `Task: T-<AGENT>-<n>`; the commit-msg hook, the pre-push hook and the CI \
 job 'Workflow Compliance' reject commits without it. Sync-before-claim and \
 sync-before-push are part of the atomic unit.
@@ -97,6 +101,8 @@ mod tests {
             "susi tasks claim",
             "susi tasks close",
             "acceptance check passes",
+            "not done until its merge is on `origin/main`",
+            "--abandon",
             "Task: T-<AGENT>-<n>",
             "Workflow Compliance",
             "EV-<AGENT>-<n>",
