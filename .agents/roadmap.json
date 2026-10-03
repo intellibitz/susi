@@ -222,7 +222,7 @@
       "id": "VC-201-017",
       "mastery_target": "Compare a candidate on ~/.susi-dev and ports 9190-9194 using an isolated evaluation workload; crossing a declared regression limit stops the trial without replacing the installed release.",
       "priority": "P1",
-      "progress": "DELIVERED: candidate canaries run on the isolated dev instance in the 9190-9194 port range; crossing the declared regression limit stops the trial and a within-limit run continues. Verified by `crates/susi-gawd/src/tests/vc_201_017.rs`: dev_ports_are_9190_range, regression_stops_trial, within_limit_continues. Evidence: T-CLAUDE-360.",
+      "progress": "PARTIAL: a caller-supplied delta over a finite limit stops the trial, but no canary executes \u2014 the inputs are pre-measured floats; NaN metrics or a NaN limit always continue; and the dev port range is unpinned arithmetic that panics on u16 overflow. Refuted on record; tracked by T-DEVIN20261002053148-24.",
       "type": "RSI_EXECUTION",
       "vector": "Run candidate canaries on the dev instance"
     },

@@ -1,0 +1,11 @@
+{
+  "vector": "VC-201-017",
+  "verdict": "not-delivered",
+  "evidence": "crates/susi-gawd/src/tests/vc_201_017_mastery.rs",
+  "missing": "Four refutations. (1) No canary runs: evaluate_canary compares caller-supplied floats \u2014 no dev instance, no workload, no measurement (vc_201_017_mastery_no_canary_runs). (2) NaN candidate metrics and NaN limits report Continue (vc_201_017_mastery_nan_candidate_continues, vc_201_017_mastery_nan_limit_never_stops). (3) The 9190-9194 range is not enforced \u2014 dev_instance_ports(base) returns base..base+4 for any base and panics on u16 overflow at 65533+ (vc_201_017_mastery_port_range_is_not_pinned). dev_canary has no callers outside tests. Holds: honest finite inputs cross the threshold correctly (vc_201_017_mastery_threshold_holds_for_finite_inputs).",
+  "tracked_by": [
+    "T-DEVIN20261002053148-24"
+  ],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790992134
+}
