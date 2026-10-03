@@ -124,7 +124,7 @@
       "id": "VC-201-009",
       "mastery_target": "Track evaluation-data access and overlaps between training, memory, and held-out fixtures; a contaminated run is excluded from improvement evidence with an inspectable reason.",
       "priority": "P1",
-      "progress": "DELIVERED: evaluation-data overlap between training, memory and held-out fixtures is tracked, and a contaminated run is excluded from improvement evidence with an inspectable reason. Verified by `crates/susi-gawd/src/tests/vc_201_009.rs`: clean_run_not_contaminated, overlap_excludes_with_reason. Evidence: T-CLAUDE-356.",
+      "progress": "PARTIAL: a recorded id overlap flags with an inspectable reason — verified by `crates/susi-gawd/src/tests/vc_201_009_mastery.rs`. Refuted on record 2026-10-03: detection trusts caller-assembled sets (unrecorded reads report clean), overlap is by id only (identical content under another id invisible), and 'excluded from evidence' is an unconsumed flag with no caller. Verdict `.agents/roadmap-verdicts/VC-201-009.json`. Follow-up tracked by T-DEVIN20261002053148-20.",
       "type": "RSI_EVALUATION",
       "vector": "Detect evaluation contamination"
     },
