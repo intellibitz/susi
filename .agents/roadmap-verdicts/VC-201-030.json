@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-030",
+  "verdict": "delivered",
+  "evidence": "all_completed_is_full_success, partial_never_reports_full_success, and cancelled_uncertain_views (crates/susi-gawd-swarm/src/tests/vc_201_030.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790995132
+}

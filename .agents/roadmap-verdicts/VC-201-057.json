@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-057",
+  "verdict": "delivered",
+  "evidence": "resume_resumes_at_progress_not_zero (crates/susi-vendor-cloud/src/tests/vc_201_057.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790985125
+}

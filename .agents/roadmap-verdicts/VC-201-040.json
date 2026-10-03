@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-040",
+  "verdict": "delivered",
+  "evidence": "vc_201_040_matrix_covers_the_full_fault_catalogue, vc_201_040_every_guard_holds, vc_201_040_trace_archive_roundtrips, and vc_201_040_unsupported_guarantees_are_enumerated (crates/susi-gawd-swarm/src/tests/vc_201_040.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790998498
+}

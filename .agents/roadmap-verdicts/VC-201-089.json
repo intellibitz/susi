@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-089",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Four refutations. (1) Contract checks never run — switch_if_contracts_pass takes a caller-supplied bool, so 'switch only after success' is 'switch when told' (vc_201_089_mastery_contract_checks_are_a_caller_supplied_flag). (2) The sandbox is bypassable: install_active installs any revision directly as live with no staging, no checks, no rollback point (vc_201_089_mastery_install_active_bypasses_the_sandbox). (3) A downgrade switches in as an upgrade — version is carried but never consulted (vc_201_089_mastery_downgrade_switches_in_as_an_upgrade). (4) Switching with nothing staged reports PreservedActive, indistinguishable from contract failure (vc_201_089_mastery_switch_with_nothing_staged_is_indistinguishable). Additionally AdapterUpgrade has no production caller. Holds: a failed contract flag preserves active revision, clears the staged candidate, and keeps session ownership (vc_201_089_mastery_failed_flag_preserves_active_and_sessions).",
+  "tracked_by": ["T-DEVIN20261002053148-15"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790986670
+}

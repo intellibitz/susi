@@ -1,9 +1,4 @@
 {
-  "id": "T-ANTIGRAVITY20261002053216-4",
-  "title": "Benchmark candidate model formats and quantizations on host with memory and correctness checks",
-  "goal": "Benchmark harness in susi-gemi only tests synthetic word-count TPS against fake providers; lacks automated candidate format (GGUF, Safetensors, EXL2, AWQ) and quantization (Q4, Q8, FP16) benchmarking on real host engines, memory consumption checks, and live feed into placement recommendations.",
-  "size": "l",
-  "deps": [],
   "accept": {
     "cmd": [
       "cargo",
@@ -11,10 +6,15 @@
       "run",
       "--locked",
       "-E",
-      "test(vc_201_045_mastery)"
+      "test(vc_201_045_format_and_quantization_benchmark_matrix)"
     ]
   },
-  "roadmap": "VC-201-045",
   "created_by": "ANTIGRAVITY20261002053216",
-  "created_unix": 1790966000
+  "created_unix": 1790966000,
+  "deps": [],
+  "goal": "Benchmark harness in susi-gemi only tests synthetic word-count TPS against fake providers; lacks automated candidate format (GGUF, Safetensors, EXL2, AWQ) and quantization (Q4, Q8, FP16) benchmarking on real host engines, memory consumption checks, and live feed into placement recommendations. Acceptance requires a test that exercises the production path, not the module in isolation: this task was filed with the vector's mastery test as its acceptance, and that test passes today because the module already satisfies its own semantics - which is why the task could be closed without the integration it asks for. The named test does not exist yet, and is the work.",
+  "id": "T-ANTIGRAVITY20261002053216-4",
+  "roadmap": "VC-201-045",
+  "size": "l",
+  "title": "Benchmark candidate model formats and quantizations on host with memory and correctness checks"
 }

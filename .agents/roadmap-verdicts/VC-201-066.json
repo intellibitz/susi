@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-066",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "The reference mechanism is library-only: SecretRef/SecretVault/redact_for_export and KeyRef/resolve_key_ref have zero production callers — deployment credentials actually flow through cloud.env and plaintext api_key fields, and config stores/returns plaintext secret material verbatim (vc_201_066_mastery_config_stores_and_returns_plaintext_secrets). The redaction that exists does not cover the claimed surface: redact_for_export masks only a whitespace-delimited `resolved=` token, so resolved values in JSON/quoted exports pass through verbatim and even a resolved= value containing spaces leaks its tail (vc_201_066_mastery_export_redaction_only_masks_the_resolved_token). The 'authorized execution boundary' is a caller-asserted scope string — any code naming the scope resolves the secret (vc_201_066_mastery_scope_guard_accepts_caller_asserted_scope). Holds: secret:// parse/display, wrong-scope refusal, canonical resolved= redaction (vc_201_066_mastery_reference_display_and_wrong_scope_hold).",
+  "tracked_by": ["T-DEVIN20261002053148-8"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790981792
+}

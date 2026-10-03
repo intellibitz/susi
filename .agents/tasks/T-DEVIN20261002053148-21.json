@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-21",
+  "title": "Persist experiment lifecycle and give failed legs an exit (VC-201-011)",
+  "goal": "VC-201-011 refuted: ExperimentLog is in-memory only \u2014 a restart forgets all experiments and applied_transitions, so 'durable transitions' and kill-and-resume are untestable; Isolated -> Rejected is impossible so a failed isolation wedges an experiment forever; propose() on an existing id silently resets state while applied_transitions survives, making it unrecoverable; nothing outside tests calls ExperimentLog. Evidence: crates/susi-gawd/src/tests/vc_201_011_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_011",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790990287
+}

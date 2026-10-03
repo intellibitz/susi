@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-14",
+  "title": "Make skill artifact signing real and bind it to content (VC-201-085)",
+  "goal": "VC-201-085 refuted: skill_sign is signer:name@version with no key material — forgeable by anyone for any trusted signer; the signature covers only name+version so signed reflexes/prompts/capabilities can be swapped wholesale and still verify; fixture tests are never run (verdict trusts a caller-supplied bool); and import_skill has no production caller. Evidence: crates/susi-core/src/tests/vc_201_085_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_085",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790986110
+}

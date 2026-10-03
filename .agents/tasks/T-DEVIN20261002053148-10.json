@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN20261002053148-10",
+  "title": "Enforce wave bound and verified health in fleet rollout (VC-201-068)",
+  "goal": "VC-201-068 refuted: mark_applied accepts any node regardless of the open wave — pending() is advisory, so bounded waves are not enforced; rollback() marks a node healthy with no health evidence and resume() accepts it, so resume does not require verified health; an empty canary leaves pending() empty while the rollout reports Running; and fleet_rollout has no production caller (no config driver applies pending nodes). Evidence: crates/susi-config/src/tests/vc_201_068_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_068",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790983333
+}

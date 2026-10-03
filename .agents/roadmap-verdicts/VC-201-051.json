@@ -1,0 +1,11 @@
+{
+  "evidence": "",
+  "missing": "the checks exist as library code - probe_credentialed_opt_in is public in crates/susi-gemi/src/provider_contract.rs:145 and exported from lib.rs:69 - but nothing executes them: the only two references to that function anywhere in the tree are its own definition and the module declaration. No CLI command, no admin path and no daemon path invokes it, so no operator can run the opt-in credentialed or fixture-backed checks the vector claims are executed.",
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1790979833,
+  "tracked_by": [
+    "T-DEEPSEEK-214"
+  ],
+  "vector": "VC-201-051",
+  "verdict": "not-delivered"
+}

@@ -43,6 +43,14 @@ impl Store {
         self.root.join("staging").join(format!("{name}.part"))
     }
 
+    /// Destination used by a streaming producer before the artifact is
+    /// promoted into `models/`.  The producer's own `.part` file therefore
+    /// lives under the same recoverable staging directory as `publish`.
+    #[must_use]
+    pub fn staging_target(&self, name: &str) -> PathBuf {
+        self.root.join("staging").join(name)
+    }
+
     fn final_path(&self, name: &str) -> PathBuf {
         self.root.join("models").join(name)
     }
@@ -104,6 +112,89 @@ impl Store {
             path: Some(final_path),
             resumed_from,
             verified: report.verified,
+        })
+    }
+
+    /// Promote an artifact downloaded by a streaming producer.
+    ///
+    /// `download_target` is the path returned by [`Self::staging_target`]; the
+    /// producer is expected to leave it there after streaming into its sibling
+    /// `.part` file.  Verification and the readiness manifest are completed
+    /// here so every managed installation has the same staged-to-ready
+    /// transition, regardless of which HTTP client performed the transfer.
+    pub fn commit_staged(
+        &self,
+        name: &str,
+        plan: &DownloadPlan,
+        validate: &dyn Fn(&Path) -> bool,
+    ) -> EaiResult<PublishReport> {
+        let staged = self.staging_target(name);
+        let resumed_from = self.staging(name).metadata().map(|m| m.len()).unwrap_or(0);
+        let size = std::fs::metadata(&staged)
+            .map_err(|e| EaiError::io(format!("staged model {}: {e}", staged.display())))?
+            .len();
+        if plan.size.is_some_and(|expected| expected != size) {
+            return Err(EaiError::io(format!(
+                "staged model size {size} does not match declared size {:?}",
+                plan.size
+            )));
+        }
+        if let Some(expected) = plan.sha256.as_deref() {
+            if !resumable_downloads::verify_file(&staged, expected)? {
+                let quarantine = staged.with_extension("corrupt");
+                std::fs::rename(&staged, &quarantine)
+                    .map_err(|e| EaiError::io(format!("quarantine staged model: {e}")))?;
+                return Ok(PublishReport {
+                    published: false,
+                    path: None,
+                    resumed_from,
+                    verified: false,
+                });
+            }
+        }
+        if !validate(&staged) {
+            return Err(EaiError::io(format!(
+                "staged model failed validation: {}",
+                staged.display()
+            )));
+        }
+
+        let final_path = self.final_path(name);
+        if let Some(parent) = final_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| EaiError::io(e.to_string()))?;
+        }
+        // Remove readiness metadata before replacing an existing artifact. A
+        // crash after this point is unready and recoverable, never a ready
+        // artifact paired with an old manifest.
+        let manifest_path = self.manifest(name);
+        let _ = std::fs::remove_file(&manifest_path);
+        let final_provenance = final_path.with_extension("provenance.json");
+        let staged_provenance = staged.with_extension("provenance.json");
+        let _ = std::fs::remove_file(&final_provenance);
+        std::fs::rename(&staged, &final_path)
+            .map_err(|e| EaiError::io(format!("publish staged model: {e}")))?;
+        if staged_provenance.is_file() {
+            std::fs::rename(&staged_provenance, &final_provenance)
+                .map_err(|e| EaiError::io(format!("publish model provenance: {e}")))?;
+        }
+        let manifest = serde_json::json!({
+            "name": name,
+            "source_url": plan.url,
+            "sha256": plan.sha256,
+            "size": size,
+        });
+        let bytes = serde_json::to_vec_pretty(&manifest)?;
+        if let Err(error) = crate::susi_config::atomic_write_bytes(&manifest_path, &bytes) {
+            // Keep a failed manifest write recoverable instead of leaving an
+            // untracked payload outside `recover`.
+            let _ = std::fs::rename(&final_path, &staged);
+            return Err(EaiError::io(error.to_string()));
+        }
+        Ok(PublishReport {
+            published: true,
+            path: Some(final_path),
+            resumed_from,
+            verified: plan.sha256.is_some(),
         })
     }
 

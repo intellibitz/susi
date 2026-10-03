@@ -1,9 +1,11 @@
 {
+  "evidence": "",
+  "missing": "the one contract covering all seven operations is not in the tree: susi-gemi defines NativeInferenceEngine (crates/susi-gemi/src/engines/runtime_native.rs) and a RuntimeSubstrate::unload (crates/susi-gemi/src/engines/runtime_substrate.rs), but discover, ready, cancel and health have no definition there, and nothing establishes readiness beyond process presence. The mastery test that asserted the vector (ff8d8713) exists only on an unmerged branch - zero files named vc_201_042_mastery are tracked on main - so the delivered narrative rested on evidence that was never landed.",
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1790977900,
+  "tracked_by": [
+    "T-DEEPSEEK-212"
+  ],
   "vector": "VC-201-042",
-  "verdict": "delivered",
-  "evidence": "vc_201_042 runtime lifecycle contract with discover, health, load, infer, unload (crates/susi-vendor-models/src/tests/vc_201_042.rs)",
-  "missing": "",
-  "tracked_by": [],
-  "recorded_by": "CLAUDE1790974037",
-  "delivered_unix": 1727894400
+  "verdict": "not-delivered"
 }

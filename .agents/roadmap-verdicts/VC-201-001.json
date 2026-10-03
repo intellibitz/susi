@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-001",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Three refutations. (1) Input hashes are never verified: no validation API exists, and a deserialized fixture whose input was changed while its hash stayed stale is served undetected (vc_201_001_mastery_tampered_input_hash_is_accepted). (2) Held-out membership is not enforced: split is a free-form string, and a fixture labeled 'held-out' escapes held_out() into the train side — the held-out split the evaluator believes isolated is contaminated (vc_201_001_mastery_mislabeled_split_escapes_held_out). (3) Replay is not bound to the revision: replay_seeds ignores revision entirely, so two different revisions yield identical replay plans (vc_201_001_mastery_replay_ignores_revision). Additionally RsiCorpus has no production caller. Holds: the candidate view strips evaluator_expected and keeps seeds (vc_201_001_mastery_candidate_view_hides_evaluator_data).",
+  "tracked_by": ["T-DEVIN20261002053148-16"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790987352
+}
