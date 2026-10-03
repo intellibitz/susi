@@ -128,7 +128,21 @@ fn add_claim_race_and_gated_close_through_the_binary() {
     // Ownership remains while the completion awaits publication.
     let (_, listing, _) = susi(&b, &home, "devin", &["tasks"]);
     assert!(listing.contains("CLAUDE\""), "{listing}");
+    // ...and an accidental release is refused until the close is on
+    // `origin/main`: the claim is what keeps the accepted work from being redone,
+    // and a released claim used to be the only memory that it was not done.
     let (code, _, err) = susi(&a, &home, "claude", &["tasks", "release", "T-CLAUDE-1"]);
+    assert_ne!(code, 0);
+    assert!(err.contains("--abandon"), "{err}");
+    let (_, listing, _) = susi(&b, &home, "devin", &["tasks"]);
+    assert!(listing.contains("CLAUDE\""), "{listing}");
+    // Giving it up deliberately is recorded, and does free the claim.
+    let (code, _, err) = susi(
+        &a,
+        &home,
+        "claude",
+        &["tasks", "release", "T-CLAUDE-1", "--abandon", "superseded"],
+    );
     assert_eq!(code, 0, "{err}");
     let (_, listing, _) = susi(&b, &home, "devin", &["tasks"]);
     assert!(!listing.contains("CLAUDE\""), "{listing}");
