@@ -4651,5 +4651,5 @@
   "last_verification": "2026-09-28",
   "schema": "susi/evidence/v1",
   "title": "SUSI Evidence Ledger",
-  "version": "0.21.9"
+  "version": "0.21.10"
 }
