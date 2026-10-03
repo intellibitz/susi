@@ -13,7 +13,7 @@ use crate::role_select::{select_roles, AgentEvidence, RoleAssignment, SelectErro
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
 use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
-use crate::task_lease::{CompleteVerdict, LeaseTable, TaskLease};
+use crate::task_lease::{AuthorityToken, CompleteVerdict, LeaseTable, OwnershipEpoch, TaskLease};
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -35,6 +35,9 @@ pub struct MissionDag {
     /// Per-dispatch ownership fences (VC-201-022). Completions without the
     /// live fence are refused so a recovered worker cannot publish.
     pub leases: LeaseTable,
+    /// Mission/coordinator authority generation.  It advances on every
+    /// persisted recovery before a worker can be redispatched.
+    pub ownership: OwnershipEpoch,
     /// Side-effect outcomes keyed by persist id (VC-201-023).
     pub side_effects: std::collections::BTreeMap<String, ActionOutcome>,
     /// Cancellation bus for workers/peers (VC-201-026).
@@ -103,6 +106,7 @@ impl MissionDag {
                 completed: false,
             }],
             leases: LeaseTable::new(),
+            ownership: OwnershipEpoch::default(),
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
             intent_journal: std::sync::Mutex::new(crate::side_effect_journal::IntentJournal::new()),
@@ -144,6 +148,8 @@ impl MissionDag {
     pub fn to_persisted(&self, mission_id: &str) -> PersistedMission {
         let mut mission = PersistedMission::new(mission_id);
         mission.leases = self.leases.clone();
+        mission.ownership = self.ownership;
+        mission.recovery = self.leases.recovery.clone();
         mission.side_effect_journal = self
             .intent_journal
             .lock()
@@ -206,6 +212,7 @@ impl MissionDag {
         let mut dag = Self {
             nodes,
             leases: LeaseTable::new(),
+            ownership: mission.ownership,
             side_effects: std::collections::BTreeMap::new(),
             cancel: CancelBus::default(),
             intent_journal: std::sync::Mutex::new(crate::side_effect_journal::IntentJournal::new()),
@@ -219,6 +226,7 @@ impl MissionDag {
         // pre-dispatch but never observed become Uncertain — replay is
         // refused until each is reconciled.
         dag.leases.adopt(&mission.leases);
+        dag.ownership = mission.ownership;
         {
             let mut journal = dag.intent_journal.lock().unwrap_or_else(|e| e.into_inner());
             journal.adopt(&mission.side_effect_journal);
@@ -578,7 +586,26 @@ impl MissionDag {
     /// Issue an expiring ownership fence for a ready DAG node (dispatch).
     pub fn lease_dispatch(&mut self, idx: usize, owner: &str, now: u64, ttl: u64) -> TaskLease {
         self.leases
-            .dispatch(&Self::persist_id(idx), owner, now, ttl)
+            .dispatch_in_epoch(&Self::persist_id(idx), owner, now, ttl, self.ownership)
+    }
+
+    /// Authority token for a currently leased node.
+    #[must_use]
+    pub fn lease_authority(&self, idx: usize) -> Option<AuthorityToken> {
+        self.leases.authority_for(&Self::persist_id(idx))
+    }
+
+    /// Check a worker's authority before a mutating boundary.
+    #[must_use]
+    pub fn check_mutation_authority(
+        &self,
+        idx: usize,
+        owner: &str,
+        token: AuthorityToken,
+        now: u64,
+    ) -> CompleteVerdict {
+        self.leases
+            .check_authority(&Self::persist_id(idx), owner, token, now)
     }
 
     /// Authoritative completion under the live fence. Stale/expired tokens
@@ -609,17 +636,20 @@ impl MissionDag {
         output: &str,
     ) -> EaiResult<()> {
         let id = Self::persist_id(idx);
-        let Some(node) = persist.nodes.get_mut(&id) else {
-            return Err(EaiError::governance(format!(
-                "persist missing node {id} on complete"
-            )));
-        };
-        // Force authoritative completion regardless of prior Pending/Running —
-        // resume must see Completed or it will re-dispatch.
-        node.output = Some(output.to_string());
-        node.state = NodeTerminal::Completed;
-        persist.save(persist_dir)?;
-        Ok(())
+        let output = output.to_string();
+        persist.transaction(persist_dir, |mission| {
+            let Some(node) = mission.nodes.get_mut(&id) else {
+                return Err(EaiError::governance(format!(
+                    "persist missing node {id} on complete"
+                )));
+            };
+            // Force authoritative completion regardless of prior Pending/Running —
+            // resume must see Completed or it will re-dispatch.
+            node.output = Some(output);
+            node.state = NodeTerminal::Completed;
+            mission.recovery = mission.leases.recovery.clone();
+            Ok(())
+        })
     }
 
     /// Seed persist from this DAG when the mission file has no nodes yet.
@@ -627,7 +657,10 @@ impl MissionDag {
         if !persist.nodes.is_empty() {
             return;
         }
-        *persist = self.to_persisted(&persist.mission_id);
+        // Seed only the graph.  Replacing the whole record here would erase
+        // leases, epochs, recovery scopes or an intent journal loaded from a
+        // crash-recovery file before the first node is added.
+        persist.nodes = self.to_persisted(&persist.mission_id).nodes;
     }
 
     /// Execute the DAG topologically using work-stealing parallel execution
@@ -649,10 +682,40 @@ impl MissionDag {
         persist: &mut MissionPersistCtx<'_>,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         self.seed_persist(persist.mission);
-        // Adopt durable fences: a fresh in-memory table restarts `next_fence`
-        // at 0, letting a stale worker's token collide with a new lease.
-        self.leases.adopt(&persist.mission.leases);
-        persist.mission.save(persist.dir)?;
+        // Recovery is an atomic authority transition.  It advances both
+        // epochs, records the restart, invalidates old leases and turns any
+        // in-flight scope into a cancellation/quarantine candidate before a
+        // new worker can be dispatched.
+        let stale_scopes: Vec<String> = persist
+            .mission
+            .leases
+            .recovery
+            .active_scopes
+            .iter()
+            .cloned()
+            .collect();
+        let coordinator = format!("coordinator-{}", std::process::id());
+        let now = now_unix();
+        let next_ownership = persist.mission.ownership.next();
+        persist.mission.transaction(persist.dir, |mission| {
+            mission.ownership = next_ownership;
+            mission.coordinator = coordinator.clone();
+            mission.leases.begin_recovery(next_ownership, now);
+            mission.leases.recovery.active_scopes.clear();
+            mission.recovery = mission.leases.recovery.clone();
+            mission.side_effect_journal.reconcile_after_crash();
+            Ok(())
+        })?;
+        for scope in stale_scopes {
+            crate::susi_core::task_manager::SwarmTaskManager::global().cancel_scope(&scope);
+        }
+        self.ownership = next_ownership;
+        self.leases = persist.mission.leases.clone();
+        let isolation = crate::writer_isolation::WriterIsolation::new(workspace)?;
+        isolation.retire_stale_scopes(&format!(
+            "{}-{}",
+            next_ownership.mission, next_ownership.coordinator
+        ))?;
         self.execute_dag_inner(workspace, blackboard, event_sender, Some(persist))
     }
 
@@ -723,15 +786,6 @@ impl MissionDag {
                 ));
             }
 
-            // Mark ready nodes Running in persist before the parallel batch.
-            if let Some(ctx) = persist_slot.as_mut() {
-                for &idx in &ready_indices {
-                    let id = Self::persist_id(idx);
-                    let _ = ctx.mission.dispatch(&id);
-                }
-                let _ = ctx.mission.save(ctx.dir);
-            }
-
             // Assign expiring ownership fences before workers run (VC-201-022).
             let now = now_unix();
             let lease_ttl = 3_600;
@@ -745,8 +799,10 @@ impl MissionDag {
             // `cancel_scope` kills every in-flight worker command at once,
             // and the shared signal aborts workers between steps.
             let mission_scope = format!(
-                "dag-exec-{}-{}",
+                "dag-exec-{}-{}-{}-{}",
                 std::process::id(),
+                self.ownership.mission,
+                self.ownership.coordinator,
                 DAG_EXEC_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             );
             let mut batch_leases: Vec<(usize, String, u64)> =
@@ -772,17 +828,32 @@ impl MissionDag {
                 batch_signals.push(signal);
             }
 
-            // Durable fences (T-DEVIN-9): the lease table rides mission
-            // state, so a crash + resume keeps `next_fence` monotonic — a
-            // stale worker token can never collide with a fresh lease.
+            // Publish node-running state, leases, recovery scope and intent
+            // journal together before any worker scope or tool can mutate.
             if let Some(ctx) = persist_slot.as_mut() {
-                ctx.mission.leases = self.leases.clone();
-                ctx.mission.side_effect_journal = self
+                let leases = self.leases.clone();
+                let journal = self
                     .intent_journal
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
-                let _ = ctx.mission.save(ctx.dir);
+                let ownership = self.ownership;
+                ctx.mission.transaction(ctx.dir, |mission| {
+                    for &idx in &ready_indices {
+                        mission.dispatch(&Self::persist_id(idx))?;
+                    }
+                    mission.ownership = ownership;
+                    mission.leases = leases;
+                    mission.recovery = mission.leases.recovery.clone();
+                    mission
+                        .leases
+                        .recovery
+                        .active_scopes
+                        .insert(mission_scope.clone());
+                    mission.recovery = mission.leases.recovery.clone();
+                    mission.side_effect_journal = journal;
+                    Ok(())
+                })?;
             }
 
             let ws = workspace.to_path_buf();
@@ -794,11 +865,15 @@ impl MissionDag {
             // one directory. Writes fold back sequentially below.
             let isolation = crate::writer_isolation::WriterIsolation::new(&ws)?;
             let mut batch_scopes = Vec::with_capacity(batch_leases.len());
-            for (_, owner, _) in &batch_leases {
-                batch_scopes.push(isolation.scope(owner)?);
+            for (_, owner, fence) in &batch_leases {
+                // Include the fence in the directory identity.  A delayed
+                // process from an earlier lease can therefore only write to
+                // its quarantined private scope, never the replacement's.
+                let scope_owner = format!("{owner}-f{fence}");
+                batch_scopes.push(isolation.scope(&scope_owner)?);
             }
 
-            let batch_results: Vec<NodeRun> = batch_leases
+            let mut batch_results: Vec<NodeRun> = batch_leases
                 .into_par_iter()
                 .zip(batch_scopes)
                 .zip(batch_signals)
@@ -822,7 +897,7 @@ impl MissionDag {
                     // (T-DEVIN-9): rejecting only at completion cannot undo
                     // writes the stale worker already made.
                     let node_id = Self::persist_id(idx);
-                    let mut stale = self.leases.check_fence(
+                    let stale = self.leases.check_fence(
                         &node_id, &owner, fence, now_unix(),
                     ) != CompleteVerdict::Accepted;
                     if cancelled() || stale {
@@ -858,70 +933,21 @@ impl MissionDag {
                     // write_file` with no ```bash block — the node would
                     // "complete" having executed nothing (Claude's measured
                     // 0.60–0.64 support on everyday intents).
-                    let mut res =
+                    let res =
                         crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
                             &prompt, &node_ws,
                         );
-
-                    let mut executed_scripts = String::new();
-                    // Receipt arguments this node produced (JSON of the
-                    // exec_command argument), for binding its own evidence.
-                    let mut node_calls = Vec::new();
-                    for block in res.split("```").skip(1).step_by(2) {
-                        // Recheck before each mutation — a fence displaced
-                        // mid-run stops further writes immediately.
-                        stale = stale
-                            || self.leases.check_fence(
-                                &node_id,
-                                &owner,
-                                fence,
-                                now_unix(),
-                            ) != CompleteVerdict::Accepted;
-                        if cancelled() || stale {
-                            break;
-                        }
-                        if let Some(cmd) = shell_block_command(block) {
-                            eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
-                            let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
-                            // cancel_scope binds the spawned process to this
-                            // mission's cancellation scope: propagate/kill
-                            // terminates the live child, not just the record.
-                            let call = serde_json::json!({
-                                "command": wrapped_cmd,
-                                "cancel_scope": mission_scope,
-                            });
-                            node_calls.push(call.to_string());
-                            // T-DEVIN-10: intent is durable BEFORE dispatch;
-                            // a crash between here and completion leaves the
-                            // entry Pending → Uncertain on resume, blocking
-                            // blind replay until reconciled.
-                            let intent_id = self.record_dispatch_intent(
-                                idx,
-                                "exec_command",
-                                &call.to_string(),
-                            );
-                            let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &call, &node_ws).unwrap_or_else(|e| format!("[Error] {e}"));
-                            if !result.starts_with("[Error]") {
-                                self.mark_intent_executed(&intent_id);
-                            }
-                            executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
-                        }
-                    }
-
-                    if !executed_scripts.is_empty() {
-                        res.push_str(&executed_scripts);
-                        if let Some(citations) = crate::susi_core::capture::EvidenceSession::auto_format_truth(&node_ws) {
-                            res.push_str("\n\n");
-                            res.push_str(&citations);
-                        }
-                    }
 
                     let elapsed = start.elapsed().as_millis() as u64;
                     NodeRun {
                         idx,
                         res: Ok(res),
                         elapsed_ms: elapsed,
-                        calls: node_calls,
+                        // Tool calls are intentionally executed after the
+                        // parallel model phase.  That keeps the durable
+                        // intent write, authority check and native tool call
+                        // in one sequential mutation boundary.
+                        calls: Vec::new(),
                         owner,
                         fence,
                         scope,
@@ -930,6 +956,131 @@ impl MissionDag {
                     }
                 })
                 .collect();
+
+            // Execute mutating tool calls only after the model phase has
+            // joined.  Each call now has a durable intent and an authority
+            // check immediately before the native tool boundary; a stale
+            // worker therefore cannot write and only its private scope can
+            // be discarded.
+            for run in &mut batch_results {
+                if run.cancelled || run.stale_fence {
+                    continue;
+                }
+                let generated = match &run.res {
+                    Ok(output) => output.clone(),
+                    Err(_) => continue,
+                };
+                let node_id = Self::persist_id(run.idx);
+                let node_ws = run.scope.dir.clone();
+                let mut executed_scripts = String::new();
+                let mut node_calls = Vec::new();
+                for block in generated.split("```").skip(1).step_by(2) {
+                    let manager = crate::susi_core::task_manager::SwarmTaskManager::global();
+                    if manager.is_scope_cancelled(&mission_scope) || self.is_cancelled(now_unix()) {
+                        run.cancelled = true;
+                        break;
+                    }
+                    let token = AuthorityToken {
+                        epoch: self.ownership,
+                        fence: run.fence,
+                    };
+                    if self
+                        .leases
+                        .check_authority(&node_id, &run.owner, token, now_unix())
+                        != CompleteVerdict::Accepted
+                    {
+                        run.stale_fence = true;
+                        break;
+                    }
+                    let Some(cmd) = shell_block_command(block) else {
+                        continue;
+                    };
+                    eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
+                    let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
+                    let call = serde_json::json!({
+                        "command": wrapped_cmd,
+                        "cancel_scope": mission_scope,
+                    });
+                    let call_text = call.to_string();
+                    if !self.may_retry_node(run.idx) {
+                        run.res = Err(EaiError::governance(format!(
+                            "refuse replay of uncertain side effect for {node_id}"
+                        )));
+                        break;
+                    }
+                    // Intent persistence is itself a mutating boundary: it
+                    // is published only after the same authority check and
+                    // before execute_tool is allowed to run.
+                    let intent_id =
+                        self.record_dispatch_intent(run.idx, "exec_command", &call_text);
+                    if let Some(ctx) = persist_slot.as_mut() {
+                        let leases = self.leases.clone();
+                        let journal = self
+                            .intent_journal
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clone();
+                        let ownership = self.ownership;
+                        ctx.mission.transaction(ctx.dir, |mission| {
+                            mission.ownership = ownership;
+                            mission.leases = leases;
+                            mission.recovery = mission.leases.recovery.clone();
+                            mission.side_effect_journal = journal;
+                            Ok(())
+                        })?;
+                    }
+                    let result = crate::susi_core::plane_bus::tools::execute_tool(
+                        "exec_command",
+                        &call,
+                        &node_ws,
+                    )
+                    .unwrap_or_else(|e| format!("[Error] {e}"));
+                    // A takeover that arrived while the tool was running
+                    // cannot be folded or acknowledged by the old worker.
+                    if self
+                        .leases
+                        .check_authority(&node_id, &run.owner, token, now_unix())
+                        != CompleteVerdict::Accepted
+                    {
+                        run.stale_fence = true;
+                        break;
+                    }
+                    if !result.starts_with("[Error]") {
+                        self.mark_intent_executed(&intent_id);
+                        if let Some(ctx) = persist_slot.as_mut() {
+                            let leases = self.leases.clone();
+                            let journal = self
+                                .intent_journal
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .clone();
+                            let ownership = self.ownership;
+                            ctx.mission.transaction(ctx.dir, |mission| {
+                                mission.ownership = ownership;
+                                mission.leases = leases;
+                                mission.recovery = mission.leases.recovery.clone();
+                                mission.side_effect_journal = journal;
+                                Ok(())
+                            })?;
+                        }
+                    }
+                    node_calls.push(call_text);
+                    executed_scripts
+                        .push_str(&format!("\n\nExecution Result for `{cmd}`:\n{result}\n"));
+                }
+                run.calls = node_calls;
+                if !executed_scripts.is_empty() {
+                    if let Ok(output) = &mut run.res {
+                        output.push_str(&executed_scripts);
+                        if let Some(citations) =
+                            crate::susi_core::capture::EvidenceSession::auto_format_truth(&node_ws)
+                        {
+                            output.push_str("\n\n");
+                            output.push_str(&citations);
+                        }
+                    }
+                }
+            }
 
             // Fold each scope's writes back into the shared workspace,
             // sequentially and in node order — deterministic, reviewable
@@ -1070,6 +1221,28 @@ impl MissionDag {
                 }
             }
 
+            // The batch is now reconciled and its scopes are no longer live.
+            // Clear the recovery marker atomically before publishing node
+            // completions so a later restart cancels only genuinely active
+            // workers.
+            if let Some(ctx) = persist_slot.as_mut() {
+                let leases = self.leases.clone();
+                let journal = self
+                    .intent_journal
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                let ownership = self.ownership;
+                ctx.mission.transaction(ctx.dir, |mission| {
+                    mission.ownership = ownership;
+                    mission.leases = leases;
+                    mission.clear_active_scope(&mission_scope);
+                    mission.recovery = mission.leases.recovery.clone();
+                    mission.side_effect_journal = journal;
+                    Ok(())
+                })?;
+            }
+
             for run in batch_results {
                 let NodeRun {
                     idx,
@@ -1125,11 +1298,13 @@ impl MissionDag {
                                 // Lease consumed by completion — persist the
                                 // table so resume sees it closed (T-DEVIN-9).
                                 ctx.mission.leases = self.leases.clone();
-                    ctx.mission.side_effect_journal = self
-                        .intent_journal
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .clone();
+                                ctx.mission.ownership = self.ownership;
+                                ctx.mission.recovery = self.leases.recovery.clone();
+                                ctx.mission.side_effect_journal = self
+                                    .intent_journal
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .clone();
                                 let _ = Self::persist_node_complete(
                                     ctx.mission,
                                     ctx.dir,
