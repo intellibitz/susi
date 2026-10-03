@@ -128,6 +128,9 @@ mod vc_201_049_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_055_mastery.rs"]
 mod vc_201_055_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_060_mastery.rs"]
+mod vc_201_060_mastery_tests;
 
 /// Write the selected-model override every inference path reads
 /// (`selected_model_override.txt` under the config dir). Vendor registries
