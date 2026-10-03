@@ -6,7 +6,7 @@
 //! that may resolve, so authority is a held capability, not a scope string
 //! a call site asserts per request. A [`ResolvedSecret`] cannot be
 //! displayed or serialized: plan/export/tracing output can only ever show
-//! `<redacted>`, and [`redact_for_export`] strips `resolved=` material and
+//! `[REDACTED]`, and [`redact_for_export`] strips `resolved=` material and
 //! credential-named fields from export text while
 //! `SecretVault::redact_for_export` additionally scrubs every stored body
 //! wherever it appears.
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
-const REDACTED: &str = "<redacted>";
+const REDACTED: &str = "[REDACTED]";
 
 /// `(scope, name) → body` shared between a vault and its issued boundaries.
 type VaultMap = Arc<RwLock<BTreeMap<(String, String), String>>>;
@@ -48,7 +48,7 @@ impl SecretRef {
 }
 
 /// A resolved secret body. Deliberately not `Display`, `Serialize`, or
-/// `Clone`: formatting or serializing it yields `<redacted>`, and the only
+/// `Clone`: formatting or serializing it yields `[REDACTED]`, and the only
 /// way to read the body is `expose()` at the call site that actually
 /// authenticates — so a resolved value can never leak into plan/export/
 /// tracing output by accident.
@@ -271,16 +271,17 @@ fn match_field(text: &str) -> Option<FieldMatch<'_>> {
         }
         (if j < b.len() { j + 1 } else { j }, Some(q))
     } else {
-        // Bare value: to the end of the field. Whitespace does not
-        // terminate it — a resolved body containing spaces must lose its
-        // whole tail, not just the first token.
+        // Bare value. `resolved=` names the whole resolved body, so its value
+        // extends through whitespace; every other credential field is a single
+        // whitespace-delimited token, so unrelated trailing text survives.
         let mut j = i;
-        while j < b.len()
-            && !matches!(
-                b[j],
+        let stop = |b: u8| {
+            matches!(
+                b,
                 b',' | b';' | b')' | b']' | b'}' | b'\n' | b'\r' | b'"' | b'\''
-            )
-        {
+            ) || (name != "resolved" && matches!(b, b' ' | b'\t'))
+        };
+        while j < b.len() && !stop(b[j]) {
             j += 1;
         }
         (j, None)
@@ -294,13 +295,13 @@ fn match_field(text: &str) -> Option<FieldMatch<'_>> {
 }
 
 /// `text` with every `resolved=…` token and credential-named field value
-/// replaced by `<redacted>` — covering `key=value`, `key: value`,
-/// `"key": "value"` (JSON), quoted values (`resolved="a b"`), bare values
-/// containing whitespace (`resolved=a b` loses the whole tail) and
-/// `Authorization: Bearer …` headers. Field names that merely contain
-/// credential substrings (`max_generation_tokens`, `api_key_env`,
-/// `unresolved`) are not fields and stay visible; `scheme://` URIs are
-/// never treated as fields.
+/// replaced by `[REDACTED]` — covering `key=value`, `key: value`,
+/// `"key": "value"` (JSON), quoted values (`resolved="a b"`) and
+/// `Authorization: Bearer …` headers. A bare value is a single
+/// whitespace-delimited token, so unrelated trailing text survives. Field
+/// names that merely contain credential substrings (`max_generation_tokens`,
+/// `api_key_env`, `unresolved`) are not fields and stay visible; `scheme://`
+/// URIs are never treated as fields.
 #[must_use]
 pub fn redact_for_export(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
