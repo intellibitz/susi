@@ -44,7 +44,7 @@ jobs:
     # lands on a branch + PR — never a direct push to main, never a tag.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
           # Same-repo PR: work on its head branch so the fix can be pushed
