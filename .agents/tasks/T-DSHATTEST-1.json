@@ -1,0 +1,21 @@
+{
+  "id": "T-DSHATTEST-1",
+  "title": "Attest merges on the remote, re-verify acceptance on main, and audit owed merges",
+  "goal": "Item 4-5: auto-merge records refs/merged/<id> after a successful merge; a main-only job re-runs the task's cargo acceptance on the merged tree and records refs/verified/<id>; susi tasks audit reconciles close receipts, abandonments and merge attestations against origin/main per agent, and the sync board shows owed merges swarm-wide.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(admin)"
+    ]
+  },
+  "created_by": "DSHATTEST",
+  "created_unix": 1791026145
+}

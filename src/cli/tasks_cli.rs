@@ -90,6 +90,22 @@ pub enum TaskCommands {
         #[arg(long)]
         agent: Option<String>,
     },
+    /// Reconcile what agents accepted against what actually reached origin/main
+    Audit {
+        /// Machine-readable report — the per-agent ranking input (Mandate 56)
+        #[arg(long)]
+        json: bool,
+        /// Exit non-zero when any accepted task is still unpublished
+        #[arg(long)]
+        strict: bool,
+    },
+    /// Re-run the acceptance of merged tasks against this tree (CI, main only)
+    #[command(hide = true)]
+    VerifyMerged {
+        /// How many unverified merges one run may check
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
 }
 
 pub(crate) fn repo_root(cwd: &Path) -> PathBuf {
@@ -438,6 +454,79 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             ),
             Err(e) => bail!("{e}"),
         },
+        TaskCommands::Audit { json, strict } => {
+            let report = tasks::audit(&root)?;
+            if json {
+                print_json(&report)?;
+            } else {
+                println!("queue audit — {} agent(s) on record", report.agents.len());
+                for record in &report.owed {
+                    println!(
+                        "❌ {} accepted by {} (head {}) is not on origin/main",
+                        record.task,
+                        record.agent,
+                        record.head.get(..8).unwrap_or(&record.head)
+                    );
+                }
+                for record in &report.abandoned {
+                    println!(
+                        "⏭️  {} accepted by {}, abandoned: {}",
+                        record.task, record.agent, record.reason
+                    );
+                }
+                for record in &report.forged {
+                    println!(
+                        "⚠️  {} claims a merge ({}) that origin/main does not contain — not counted",
+                        record.task,
+                        record.merge.get(..8).unwrap_or(&record.merge)
+                    );
+                }
+                println!(
+                    "✅ {} merge(s) attested, {} re-verified on main, {} awaiting verification",
+                    report.merged.len(),
+                    report.merged.len() - report.unverified.len(),
+                    report.unverified.len()
+                );
+            }
+            if strict && !report.clean() {
+                bail!(
+                    "{} accepted task(s) are not on origin/main: {}",
+                    report.owed.len(),
+                    report
+                        .owed
+                        .iter()
+                        .map(|r| r.task.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+        TaskCommands::VerifyMerged { limit } => {
+            let outcomes = tasks::verify_merged(&root, limit)?;
+            let mut failed = Vec::new();
+            for outcome in &outcomes {
+                match outcome.result.as_str() {
+                    "passed" => println!("✅ {} re-verified on main", outcome.task),
+                    result if result.starts_with("skipped") => {
+                        println!("⏭️  {} not re-run: {}", outcome.task, outcome.detail)
+                    }
+                    result => {
+                        eprintln!("❌ {} {result}: {}", outcome.task, outcome.detail);
+                        failed.push(outcome.task.clone());
+                    }
+                }
+            }
+            if outcomes.is_empty() {
+                println!("nothing to verify");
+            }
+            if !failed.is_empty() {
+                bail!(
+                    "the acceptance of {} no longer passes on the merged tree: {}",
+                    failed.join(", "),
+                    "fix forward — a merge that does not satisfy its own task is a defect"
+                );
+            }
+        }
     }
     Ok(())
 }

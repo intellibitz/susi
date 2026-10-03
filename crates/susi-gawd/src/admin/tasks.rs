@@ -78,6 +78,44 @@ pub struct Abandoned {
     pub at_unix: u64,
 }
 
+/// The merger's attestation that a task reached `main`, written to
+/// `refs/merged/<id>` by the auto-merge job — the one party that observes the
+/// merge — right after the pull request lands.
+///
+/// Unlike a [`CloseRecord`], which the accepting agent writes, this is written
+/// on the other side of the merge. It is still *checkable rather than trusted*:
+/// [`merged_is_real`] re-derives it from `origin/main`, so a forged ref would
+/// have to name a merge commit that is on `main` and actually contains the
+/// tested head.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MergedTask {
+    pub task: String,
+    /// Branch head whose acceptance passed, and which the merge contains.
+    pub head: String,
+    /// The merge commit on `main`.
+    pub merge: String,
+    /// Pull request number, when the merger knew it.
+    #[serde(default)]
+    pub pr: u64,
+    pub merged_unix: u64,
+}
+
+/// The re-run of a task's acceptance on the *merged* tree, written to
+/// `refs/verified/<id>` by the job that verifies `main`.
+///
+/// `result` is `passed`, or `skipped:<why>` when the acceptance cannot be
+/// re-run off its author's host (a host-specific `scripts/…` checker failing on
+/// a bare runner is not evidence about the merge). A failure writes nothing, so
+/// the next run retries it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VerifiedTask {
+    pub task: String,
+    pub head: String,
+    pub merge: String,
+    pub result: String,
+    pub verified_unix: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
@@ -466,16 +504,29 @@ fn abandoned_ref(id: &str) -> String {
     format!("refs/abandoned/{id}")
 }
 
-/// Mirror the remote's claims — and the close receipts and abandonments that
-/// ride with them — into local refs, dropping whatever the remote no longer
-/// has: a released claim must not linger in other clones and make a free task
-/// look taken, and a published receipt must not linger either, or an agent
-/// would be blocked by work that has already merged.
+/// The merger's attestation that `id`'s tested head reached `main` lives on
+/// `refs/merged/<id>`; see [`MergedTask`]. Rust only ever reads it — the
+/// auto-merge job (`scripts/auto-merge-pr.sh`) is its only writer — so there is
+/// no constructor here on purpose.
+const MERGED_NAMESPACE: &str = "refs/merged/";
+
+/// The record that `id`'s acceptance was re-run on the merged tree; see
+/// [`VerifiedTask`].
+fn verified_ref(id: &str) -> String {
+    format!("refs/verified/{id}")
+}
+
+/// Mirror the remote's queue refs — claims, close receipts, abandonments,
+/// merge attestations and their verifications — into local refs, dropping
+/// whatever the remote no longer has: a released claim must not linger in
+/// other clones and make a free task look taken, and a published receipt must
+/// not linger either, or an agent would be blocked by work that already merged.
 ///
-/// Receipts are read by every boundary that reads claims, so they are fetched
-/// together: a *released* claim must not hide the accepted-but-unmerged work
-/// it left behind.
-fn sync_claims(ws: &Path) -> EaiResult<()> {
+/// They are fetched together because every boundary that reads claims also
+/// needs the debt they leave behind: a *released* claim must not hide the
+/// accepted-but-unmerged work, and an owed merge must not hide the merge that
+/// already landed.
+fn sync_queue_refs(ws: &Path) -> EaiResult<()> {
     let r = remote();
     git(
         ws,
@@ -487,12 +538,15 @@ fn sync_claims(ws: &Path) -> EaiResult<()> {
             "+refs/claims/*:refs/claims/*",
             "+refs/closed/*:refs/closed/*",
             "+refs/abandoned/*:refs/abandoned/*",
+            "+refs/merged/*:refs/merged/*",
+            "+refs/verified/*:refs/verified/*",
         ],
     )
     .map(|_| ())
 }
 
-/// Generic so claim blobs, close receipts and abandonments share one writer.
+/// Generic so claim blobs, close receipts, abandonments, merge attestations and
+/// their verifications share one writer.
 fn blob_of<T: Serialize>(ws: &Path, value: &T) -> EaiResult<String> {
     let body = serde_json::to_string(value)?;
     let mut child = Command::new("git")
@@ -517,6 +571,61 @@ fn blob_of<T: Serialize>(ws: &Path, value: &T) -> EaiResult<String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Read one record ref, or `None` when the remote has none (or it is
+/// unreadable — a corrupt record is not a reason to crash the queue).
+fn read_record<T: serde::de::DeserializeOwned>(ws: &Path, name: &str) -> EaiResult<Option<T>> {
+    let Ok(sha) = git(ws, &["rev-parse", "--verify", "--quiet", name]) else {
+        return Ok(None);
+    };
+    let body = git(ws, &["cat-file", "-p", &sha])?;
+    Ok(serde_json::from_str(&body).ok())
+}
+
+/// Write one record to one ref, compare-and-swap so a writer that got there
+/// first is refused instead of silently overwritten. `raced` is what the caller
+/// says when it loses that race.
+fn put_record<T: Serialize>(ws: &Path, name: &str, value: &T, raced: &str) -> EaiResult<()> {
+    let blob = blob_of(ws, value)?;
+    let r = remote();
+    let listed = git(ws, &["ls-remote", &r, name])?;
+    let old = listed.split_whitespace().next().unwrap_or("");
+    git(
+        ws,
+        &[
+            "push",
+            "--quiet",
+            &format!("--force-with-lease={name}:{old}"),
+            &r,
+            &format!("{blob}:{name}"),
+        ],
+    )
+    .map_err(|_| EaiError::config(raced.to_string()))?;
+    git(ws, &["update-ref", name, &blob])?;
+    Ok(())
+}
+
+/// Drop a record ref on the remote and locally. Compare-and-swap: a record
+/// re-pushed since we read it belongs to a newer fact and must survive.
+fn clear_record(ws: &Path, name: &str) -> EaiResult<()> {
+    let r = remote();
+    let listed = git(ws, &["ls-remote", &r, name])?;
+    let old = listed.split_whitespace().next().unwrap_or("");
+    if !old.is_empty() {
+        git(
+            ws,
+            &[
+                "push",
+                "--quiet",
+                &format!("--force-with-lease={name}:{old}"),
+                &r,
+                &format!(":{name}"),
+            ],
+        )?;
+    }
+    let _ = git(ws, &["update-ref", "-d", name]);
+    Ok(())
+}
+
 fn read_claim(ws: &Path, id: &str) -> Option<(String, Claim)> {
     let sha = git(ws, &["rev-parse", "--verify", "--quiet", &claim_ref(id)]).ok()?;
     let body = git(ws, &["cat-file", "-p", &sha]).ok()?;
@@ -525,11 +634,7 @@ fn read_claim(ws: &Path, id: &str) -> Option<(String, Claim)> {
 
 /// The close receipt for `id`, if the remote has one.
 fn read_closed(ws: &Path, id: &str) -> EaiResult<Option<CloseRecord>> {
-    let Ok(sha) = git(ws, &["rev-parse", "--verify", "--quiet", &closed_ref(id)]) else {
-        return Ok(None);
-    };
-    let body = git(ws, &["cat-file", "-p", &sha])?;
-    Ok(serde_json::from_str(&body).ok())
+    read_record(ws, &closed_ref(id))
 }
 
 /// Whether the close of `id` is on `origin/main` — the only proof that the
@@ -537,7 +642,12 @@ fn read_closed(ws: &Path, id: &str) -> EaiResult<Option<CloseRecord>> {
 /// silent "published": the caller must not treat an unknown as a merge.
 fn published_on_main(ws: &Path, id: &str) -> EaiResult<bool> {
     git(ws, &["fetch", "--quiet", "origin"])?;
-    Ok(git(
+    Ok(done_on_main(ws, id))
+}
+
+/// [`published_on_main`] against the `origin/main` this clone already has.
+fn done_on_main(ws: &Path, id: &str) -> bool {
+    git(
         ws,
         &[
             "cat-file",
@@ -545,30 +655,7 @@ fn published_on_main(ws: &Path, id: &str) -> EaiResult<bool> {
             &format!("origin/main:.agents/tasks/done/{id}.json"),
         ],
     )
-    .is_ok())
-}
-
-/// Drop a receipt whose work is on `origin/main` (or that was abandoned), on the
-/// remote and locally. Compare-and-swap: a receipt re-pushed since we read it
-/// belongs to a newer close and must survive.
-fn clear_closed(ws: &Path, id: &str) -> EaiResult<()> {
-    let r = remote();
-    let listed = git(ws, &["ls-remote", &r, &closed_ref(id)])?;
-    let old = listed.split_whitespace().next().unwrap_or("");
-    if !old.is_empty() {
-        git(
-            ws,
-            &[
-                "push",
-                "--quiet",
-                &format!("--force-with-lease={}:{old}", closed_ref(id)),
-                &r,
-                &format!(":{}", closed_ref(id)),
-            ],
-        )?;
-    }
-    let _ = git(ws, &["update-ref", "-d", &closed_ref(id)]);
-    Ok(())
+    .is_ok()
 }
 
 /// Publish `refs/closed/<id>` before the task record moves: from here on the
@@ -582,28 +669,15 @@ fn push_close_receipt(ws: &Path, id: &str, agent: &str) -> EaiResult<()> {
         head: git(ws, &["rev-parse", "HEAD"])?,
         closed_unix: now_unix(),
     };
-    let blob = blob_of(ws, &record)?;
-    let r = remote();
-    let listed = git(ws, &["ls-remote", &r, &closed_ref(id)])?;
-    let old = listed.split_whitespace().next().unwrap_or("");
-    git(
+    put_record(
         ws,
-        &[
-            "push",
-            "--quiet",
-            &format!("--force-with-lease={}:{old}", closed_ref(id)),
-            &r,
-            &format!("{blob}:{}", closed_ref(id)),
-        ],
-    )
-    .map_err(|_| {
-        EaiError::config(format!(
+        &closed_ref(id),
+        &record,
+        &format!(
             "{id} was accepted and published by another worker concurrently; refresh the queue \
              and re-run the acceptance check"
-        ))
-    })?;
-    git(ws, &["update-ref", &closed_ref(id), &blob])?;
-    Ok(())
+        ),
+    )
 }
 
 /// Record that an accepted task was given up, on the shared remote.
@@ -614,22 +688,12 @@ fn push_abandoned(ws: &Path, id: &str, agent: &str, reason: &str) -> EaiResult<(
         reason: reason.trim().to_string(),
         at_unix: now_unix(),
     };
-    let blob = blob_of(ws, &record)?;
-    let r = remote();
-    let listed = git(ws, &["ls-remote", &r, &abandoned_ref(id)])?;
-    let old = listed.split_whitespace().next().unwrap_or("");
-    git(
+    put_record(
         ws,
-        &[
-            "push",
-            "--quiet",
-            &format!("--force-with-lease={}:{old}", abandoned_ref(id)),
-            &r,
-            &format!("{blob}:{}", abandoned_ref(id)),
-        ],
-    )?;
-    git(ws, &["update-ref", &abandoned_ref(id), &blob])?;
-    Ok(())
+        &abandoned_ref(id),
+        &record,
+        &format!("{id} was abandoned concurrently; refresh the queue and retry"),
+    )
 }
 
 /// A commit for a message: short when it looks like a sha.
@@ -655,7 +719,7 @@ fn accepted_unpublished(ws: &Path, id: &str, agent: &str) -> EaiResult<bool> {
 /// task is how `finish` keeps waiting after a lease lapsed, and that must not
 /// be read as "start something new" — the debt still blocks every other task.
 ///
-/// The caller must have synchronized first ([`sync_claims`], which [`claims`]
+/// The caller must have synchronized first ([`sync_queue_refs`], which [`claims`]
 /// does): the local receipt refs are what this reads.
 fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<String>> {
     let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/closed/"])?;
@@ -674,7 +738,7 @@ fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<St
             continue;
         }
         if published_on_main(ws, id)? {
-            clear_closed(ws, id)?;
+            clear_record(ws, &closed_ref(id))?;
         } else {
             owed.push(id.to_string());
         }
@@ -688,7 +752,7 @@ fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<St
 /// report a debt without clearing it behind the agent's back.
 pub fn unpublished_closes(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
     let by = agent_token(agent)?;
-    sync_claims(ws)?;
+    sync_queue_refs(ws)?;
     let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/closed/"])?;
     let mut out = Vec::new();
     for name in refs.lines() {
@@ -706,9 +770,273 @@ pub fn unpublished_closes(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>>
     Ok(out)
 }
 
+/// Every merge attestation on the remote, as the merger wrote it.
+pub fn merged_tasks(ws: &Path) -> EaiResult<Vec<MergedTask>> {
+    sync_queue_refs(ws)?;
+    records_under::<MergedTask>(ws, MERGED_NAMESPACE)
+}
+
+/// Every post-merge verification record on the remote.
+pub fn verified_tasks(ws: &Path) -> EaiResult<Vec<VerifiedTask>> {
+    sync_queue_refs(ws)?;
+    records_under::<VerifiedTask>(ws, "refs/verified/")
+}
+
+/// Read every record under one namespace, keyed by the id in its ref name.
+fn records_under<T: serde::de::DeserializeOwned>(ws: &Path, namespace: &str) -> EaiResult<Vec<T>> {
+    let refs = git(ws, &["for-each-ref", "--format=%(refname)", namespace])?;
+    let mut out = Vec::new();
+    for name in refs.lines() {
+        if let Some(record) = read_record::<T>(ws, name)? {
+            out.push(record);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether a merge attestation is real, re-derived from `origin/main` instead
+/// of believed: the named merge commit must be contained in `main`, and it must
+/// actually contain the tested head. A forged receipt would have to produce a
+/// merge commit on `main` that contains a head somebody accepted — which is the
+/// thing being attested.
+#[must_use]
+pub fn merged_is_real(ws: &Path, record: &MergedTask) -> bool {
+    let contains = |a: &str, b: &str| git(ws, &["merge-base", "--is-ancestor", a, b]).is_ok();
+    contains(&record.head, &record.merge) && contains(&record.merge, "origin/main")
+}
+
+/// One agent's standing in the queue: whoever accepted work still owes the
+/// merge that publishes it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentRecord {
+    pub agent: String,
+    /// Tasks it accepted whose merge is still not on `origin/main`.
+    pub owed: Vec<String>,
+    /// Tasks it accepted and then gave up, with the recorded reason.
+    pub abandoned: Vec<String>,
+}
+
+/// The swarm's reconciliation of what agents said against what the remote has.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AuditReport {
+    /// Closed, published, and still not on `origin/main` — the outstanding debt.
+    pub owed: Vec<CloseRecord>,
+    /// Accepted then given up, with the reason (a permanent record).
+    pub abandoned: Vec<Abandoned>,
+    /// Real merge attestations: the tested head is on `main`.
+    pub merged: Vec<MergedTask>,
+    /// Attestations no verification has covered yet.
+    pub unverified: Vec<MergedTask>,
+    /// Merge attestations that do not survive [`merged_is_real`].
+    pub forged: Vec<MergedTask>,
+    /// Per-agent totals, the ranking input (Mandate 56).
+    pub agents: Vec<AgentRecord>,
+}
+
+impl AuditReport {
+    /// Nothing accepted is still unpublished or unmerged.
+    #[must_use]
+    pub fn clean(&self) -> bool {
+        self.owed.is_empty()
+    }
+}
+
+/// Reconcile the queue's remote facts: what agents accepted and abandoned, what
+/// the merger attested, and what that means against `origin/main`.
+///
+/// This is the swarm-wide view `workflow check` cannot give — it answers "did
+/// every agent that reported success actually publish it?", not "may *I* start
+/// work?". Read-only: it reports, and the claim path is what clears.
+pub fn audit(ws: &Path) -> EaiResult<AuditReport> {
+    sync_queue_refs(ws)?;
+    // One fetch for the whole report: the per-task lookup below would otherwise
+    // hit the remote once per receipt.
+    git(ws, &["fetch", "--quiet", "origin"])?;
+
+    let merged = records_under::<MergedTask>(ws, MERGED_NAMESPACE)?;
+    let verified = records_under::<VerifiedTask>(ws, "refs/verified/")?;
+    let real: Vec<MergedTask> = merged
+        .iter()
+        .filter(|m| merged_is_real(ws, m))
+        .cloned()
+        .collect();
+    let forged: Vec<MergedTask> = merged
+        .iter()
+        .filter(|m| !merged_is_real(ws, m))
+        .cloned()
+        .collect();
+    let verified_ids: std::collections::HashSet<&str> =
+        verified.iter().map(|v| v.task.as_str()).collect();
+    let unverified: Vec<MergedTask> = real
+        .iter()
+        .filter(|m| !verified_ids.contains(m.task.as_str()))
+        .cloned()
+        .collect();
+
+    let mut owed = Vec::new();
+    for record in records_under::<CloseRecord>(ws, "refs/closed/")? {
+        let landed = done_on_main(ws, &record.task) || real.iter().any(|m| m.task == record.task);
+        if !landed {
+            owed.push(record);
+        }
+    }
+    owed.sort_by(|a, b| a.task.cmp(&b.task));
+
+    let abandoned = records_under::<Abandoned>(ws, "refs/abandoned/")?;
+
+    let mut agents: std::collections::BTreeMap<String, AgentRecord> = Default::default();
+    for record in &owed {
+        agents
+            .entry(record.agent.clone())
+            .or_insert_with(|| AgentRecord {
+                agent: record.agent.clone(),
+                owed: Vec::new(),
+                abandoned: Vec::new(),
+            })
+            .owed
+            .push(record.task.clone());
+    }
+    for record in &abandoned {
+        agents
+            .entry(record.agent.clone())
+            .or_insert_with(|| AgentRecord {
+                agent: record.agent.clone(),
+                owed: Vec::new(),
+                abandoned: Vec::new(),
+            })
+            .abandoned
+            .push(format!("{}: {}", record.task, record.reason));
+    }
+
+    Ok(AuditReport {
+        owed,
+        abandoned,
+        merged: real,
+        unverified,
+        forged,
+        agents: agents.into_values().collect(),
+    })
+}
+
+/// One acceptance re-run on the merged tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VerifyOutcome {
+    pub task: String,
+    /// `passed`, `skipped:<why>` or `failed:<code>`.
+    pub result: String,
+    pub detail: String,
+}
+
+/// Re-run, on this tree, the acceptance of merge attestations that have none.
+///
+/// This answers the question `close` cannot: the acceptance passed on the
+/// branch, but did the *merged* result still pass it, next to everyone else's
+/// changes? Only `cargo` acceptances are re-run — they are hermetic by mandate
+/// and availabile anywhere, while a host-specific `scripts/…` checker failing
+/// on a bare runner would say nothing about the merge — and a task whose
+/// acceptance cannot be re-run is recorded as skipped, with the reason.
+///
+/// `limit` bounds one run so a broken job cannot turn into an unbounded sweep.
+/// A failure writes no verification record, so the next run retries it.
+pub fn verify_merged(ws: &Path, limit: usize) -> EaiResult<Vec<VerifyOutcome>> {
+    let report = audit(ws)?;
+    let done = done_dir(ws);
+    let mut candidates: Vec<&MergedTask> = report
+        .unverified
+        .iter()
+        .filter(|m| done.join(format!("{}.json", m.task)).is_file())
+        .collect();
+    candidates.sort_by_key(|m| m.merged_unix);
+    candidates.truncate(limit);
+
+    let mut out = Vec::new();
+    for record in candidates {
+        let task: Task =
+            serde_json::from_slice(&std::fs::read(done.join(format!("{}.json", record.task)))?)?;
+        let result = verify_one(ws, &task);
+        // A failure is not recorded, so the next run retries it; a pass, and a
+        // skip with its reason, are facts worth keeping.
+        if result.result != "passed" && !result.result.starts_with("skipped") {
+            out.push(result);
+            continue;
+        }
+        let value = result.result.clone();
+        let detail = result.detail.clone();
+        let verified = VerifiedTask {
+            task: record.task.clone(),
+            head: record.head.clone(),
+            merge: record.merge.clone(),
+            result: value.clone(),
+            verified_unix: now_unix(),
+        };
+        let raced = format!(
+            "{} was verified concurrently; the record already on the remote stands",
+            record.task
+        );
+        // Losing this race is not a failure — someone else already recorded it.
+        if put_record(ws, &verified_ref(&record.task), &verified, &raced).is_err()
+            && read_record::<VerifiedTask>(ws, &verified_ref(&record.task))?.is_none()
+        {
+            return Err(EaiError::config(format!(
+                "could not record the verification of {}",
+                record.task
+            )));
+        }
+        out.push(VerifyOutcome {
+            task: record.task.clone(),
+            result: value,
+            detail,
+        });
+    }
+    Ok(out)
+}
+
+/// Run one task's acceptance against this tree.
+fn verify_one(ws: &Path, task: &Task) -> VerifyOutcome {
+    let outcome = |result: &str, detail: String| VerifyOutcome {
+        task: task.id.clone(),
+        result: result.to_string(),
+        detail,
+    };
+    if !accept_allowed(&task.accept.cmd) {
+        return outcome(
+            "skipped:not-allowed",
+            "acceptance command is not allowed".into(),
+        );
+    }
+    let program = task.accept.cmd.first().cloned().unwrap_or_default();
+    if program != "cargo" {
+        return outcome(
+            "skipped:not-cargo",
+            format!(
+                "`{program}` acceptance is host-specific; the merged tree cannot re-run it faithfully"
+            ),
+        );
+    }
+    match Command::new(&program)
+        .args(&task.accept.cmd[1..])
+        .current_dir(ws)
+        .output()
+    {
+        Ok(out) if out.status.success() => outcome("passed", task.accept.cmd.join(" ")),
+        Ok(out) => outcome(
+            &format!("failed:{}", out.status.code().unwrap_or(-1)),
+            format!(
+                "{} :: {}",
+                task.accept.cmd.join(" "),
+                String::from_utf8_lossy(&out.stderr)
+                    .lines()
+                    .last()
+                    .unwrap_or("")
+            ),
+        ),
+        Err(e) => outcome("failed:-1", format!("{} could not run: {e}", program)),
+    }
+}
+
 /// Claims currently on the remote, keyed by task id.
 pub fn claims(ws: &Path) -> EaiResult<Vec<Claim>> {
-    sync_claims(ws)?;
+    sync_queue_refs(ws)?;
     let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/claims/"])?;
     Ok(refs
         .lines()
@@ -1027,7 +1355,7 @@ fn renew_once(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResu
     let generation_ref = "refs/claim-generation/current";
     let generation = git(ws, &["ls-remote", &r, generation_ref])?;
     let generation_old = generation.split_whitespace().next().unwrap_or("");
-    sync_claims(ws)?;
+    sync_queue_refs(ws)?;
     let (old, mut claim) =
         read_claim(ws, id).ok_or_else(|| EaiError::config("no claim to renew"))?;
     let branch = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
@@ -1120,14 +1448,14 @@ fn release_claim(
     if !valid_id(id) {
         return Err(EaiError::config(format!("invalid task id `{id}`")));
     }
-    sync_claims(ws)?;
+    sync_queue_refs(ws)?;
     let by = agent_token(agent)?;
     // The receipt outlives the claim on purpose: a released or lapsed claim
     // must not erase the fact that the accepted work is still unmerged. Only
     // observing the merge, or an explicit abandonment, clears it.
     if let Some(record) = read_closed(ws, id)? {
         if published_on_main(ws, id)? {
-            clear_closed(ws, id)?;
+            clear_record(ws, &closed_ref(id))?;
         } else if let Some(reason) = abandon_reason {
             if record.agent != by && !force {
                 return Err(EaiError::config(format!(
@@ -1136,7 +1464,7 @@ fn release_claim(
                 )));
             }
             push_abandoned(ws, id, &record.agent, reason)?;
-            clear_closed(ws, id)?;
+            clear_record(ws, &closed_ref(id))?;
         } else if !force {
             return Err(EaiError::config(format!(
                 "{id} was accepted by {} (head {}) and its close is not on origin/main, so the \
@@ -1434,6 +1762,28 @@ mod tests {
         git(ws, &["commit", "--quiet", "-m", "merge the branch"]).unwrap();
         git(ws, &["push", "--quiet", "origin", "HEAD:main"]).unwrap();
         git(ws, &["fetch", "--quiet", "origin"]).unwrap();
+    }
+
+    /// Write one record ref the way the merger or the verifier would, so the
+    /// readers are exercised against what production pushes.
+    fn put_ref(ws: &Path, name: &str, value: &serde_json::Value) {
+        let blob = blob_of(ws, value).unwrap();
+        git(
+            ws,
+            &["push", "--quiet", "origin", &format!("{blob}:{name}")],
+        )
+        .unwrap();
+        git(ws, &["update-ref", name, &blob]).unwrap();
+    }
+
+    /// Rewrite the acceptance in a `done/` record: a task that passed on its
+    /// branch, and does (or cannot) run later on the merged tree.
+    fn rewrite_accept(ws: &Path, id: &str, argv: serde_json::Value) {
+        let path = done_dir(ws).join(format!("{id}.json"));
+        let mut doc: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        doc["accept"]["cmd"] = argv;
+        std::fs::write(&path, serde_json::to_vec(&doc).unwrap()).unwrap();
     }
 
     fn write_roadmap(ws: &Path, ids: &[(&str, &str)]) {
@@ -2297,6 +2647,171 @@ mod tests {
             claim(&a, &next.id, "claude", 4, now_unix()).unwrap().task,
             next.id
         );
+        drop(r);
+    }
+
+    /// A merge attestation is evidence only when `origin/main` agrees with it.
+    #[test]
+    fn a_merge_attestation_is_re_derived_from_main() {
+        let (r, a, _b) = Repos::new("attest-real");
+        git(&a, &["commit", "--allow-empty", "-m", "the tested head"]).unwrap();
+        let head = git(&a, &["rev-parse", "HEAD"]).unwrap();
+        git(&a, &["commit", "--allow-empty", "-m", "the merge on main"]).unwrap();
+        let merge = git(&a, &["rev-parse", "HEAD"]).unwrap();
+        git(&a, &["push", "--quiet", "origin", "HEAD:main"]).unwrap();
+        git(&a, &["fetch", "--quiet", "origin"]).unwrap();
+
+        let real = MergedTask {
+            task: "T-CLAUDE-1".into(),
+            head: head.clone(),
+            merge: merge.clone(),
+            pr: 7,
+            merged_unix: 1,
+        };
+        assert!(
+            merged_is_real(&a, &real),
+            "the head is on main through {merge}"
+        );
+
+        // A merge commit that never reached main proves nothing, however it
+        // reads.
+        git(&a, &["commit", "--allow-empty", "-m", "local only"]).unwrap();
+        let local = git(&a, &["rev-parse", "HEAD"]).unwrap();
+        let forged = MergedTask {
+            merge: local,
+            ..real.clone()
+        };
+        assert!(!merged_is_real(&a, &forged));
+
+        // Nor does a head the named merge does not contain.
+        let unrelated = MergedTask {
+            head: merge.clone(),
+            merge,
+            ..real
+        };
+        git(&a, &["commit", "--allow-empty", "-m", "after"]).unwrap();
+        let after = git(&a, &["rev-parse", "HEAD"]).unwrap();
+        git(&a, &["push", "--quiet", "origin", "HEAD:main"]).unwrap();
+        git(&a, &["fetch", "--quiet", "origin"]).unwrap();
+        let ahead = MergedTask {
+            head: after,
+            ..unrelated
+        };
+        assert!(
+            !merged_is_real(&a, &ahead),
+            "a later head is not in that merge"
+        );
+        drop(r);
+    }
+
+    /// The swarm-wide question: did every agent that reported success publish
+    /// it? The audit answers per agent, and a recorded abandonment is visible
+    /// rather than silent.
+    #[test]
+    fn the_audit_names_who_owes_a_merge_and_what_was_given_up() {
+        let (r, a, b) = Repos::new("audit");
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &first.id, "claude", 4, now_unix()).unwrap();
+        close(&a, &first.id, "claude").unwrap();
+
+        let second = addt!(&b, "devin", "second", "", "s", &[], true_cmd()).unwrap();
+        claim(&b, &second.id, "devin", 4, now_unix()).unwrap();
+        close(&b, &second.id, "devin").unwrap();
+        abandon(&b, &second.id, "devin", "superseded by T-DEVIN-2").unwrap();
+
+        let report = audit(&a).unwrap();
+        assert!(!report.clean(), "an unpublished acceptance is not clean");
+        assert_eq!(report.owed.len(), 1, "{report:?}");
+        assert_eq!(report.owed[0].task, first.id);
+        assert_eq!(report.abandoned.len(), 1, "{report:?}");
+        assert!(report.abandoned[0].reason.contains("superseded"));
+        let claude = report
+            .agents
+            .iter()
+            .find(|x| x.agent == "CLAUDE")
+            .expect("the audit must attribute the debt to its agent");
+        assert_eq!(claude.owed, vec![first.id.clone()]);
+        let devin = report
+            .agents
+            .iter()
+            .find(|x| x.agent == "DEVIN")
+            .expect("an abandonment is on the record too");
+        assert_eq!(devin.owed.len(), 0);
+        assert_eq!(devin.abandoned.len(), 1);
+
+        // The merge lands: the debt clears, the abandonment stays.
+        publish(&a);
+        let report = audit(&b).unwrap();
+        assert!(report.clean(), "{report:?}");
+        assert_eq!(report.abandoned.len(), 1);
+        drop(r);
+    }
+
+    /// Post-merge verification: the acceptance is re-run on the merged tree,
+    /// a pass is recorded, a host-specific command is skipped *with its
+    /// reason*, and a failure is recorded nowhere so the next run retries it.
+    #[test]
+    fn acceptance_is_re_verified_on_the_merged_tree() {
+        let (r, a, _b) = Repos::new("verify");
+        let mut ids = Vec::new();
+        for (agent, title) in [("claude", "ok"), ("devin", "broken"), ("gemini", "scripts")] {
+            let task = addt!(&a, agent, title, "", "s", &[], true_cmd()).unwrap();
+            claim(&a, &task.id, agent, 4, now_unix()).unwrap();
+            close(&a, &task.id, agent).unwrap();
+            ids.push(task.id);
+        }
+        let (ok, broken, scripts) = (&ids[0], &ids[1], &ids[2]);
+        rewrite_accept(
+            &a,
+            broken,
+            serde_json::json!(["cargo", "definitely-not-a-subcommand"]),
+        );
+        rewrite_accept(
+            &a,
+            scripts,
+            serde_json::json!(["scripts/check-roadmap-progress.sh"]),
+        );
+        publish(&a);
+        let head = git(&a, &["rev-parse", "HEAD"]).unwrap();
+        for (id, pr) in [(ok, 1u64), (broken, 2), (scripts, 3)] {
+            put_ref(
+                &a,
+                &format!("refs/merged/{id}"),
+                &serde_json::json!({
+                    "task": id, "head": head, "merge": head, "pr": pr, "merged_unix": 1
+                }),
+            );
+        }
+
+        let outcomes = verify_merged(&a, 5).unwrap();
+        assert_eq!(outcomes.len(), 3, "{outcomes:?}");
+        let result = |id: &str| {
+            outcomes
+                .iter()
+                .find(|o| o.task == id)
+                .map(|o| o.result.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(result(ok), "passed");
+        assert!(result(broken).starts_with("failed"), "{outcomes:?}");
+        assert_eq!(result(scripts), "skipped:not-cargo");
+
+        let recorded = verified_tasks(&a).unwrap();
+        assert_eq!(recorded.len(), 2, "a failure is not recorded: {recorded:?}");
+        assert!(recorded
+            .iter()
+            .any(|v| v.task == *ok && v.result == "passed"));
+        assert!(recorded
+            .iter()
+            .any(|v| v.task == *scripts && v.result == "skipped:not-cargo"));
+        assert!(!recorded.iter().any(|v| v.task == *broken));
+
+        // A recorded verification is not re-run; the failure is retried, which
+        // is what keeps a broken merge visible until it is fixed forward.
+        let retried = verify_merged(&a, 5).unwrap();
+        assert_eq!(retried.len(), 1, "{retried:?}");
+        assert_eq!(retried[0].task, *broken);
+        assert!(retried[0].result.starts_with("failed"));
         drop(r);
     }
 
