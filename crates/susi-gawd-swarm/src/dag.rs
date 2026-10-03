@@ -1,7 +1,9 @@
 // Dependency-ordered task graph: agents can spawn sub-tasks with
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
-use crate::cancel_propagate::{CancelBus, CancelToken, Descendant, WorkerKind};
+use crate::cancel_propagate::{
+    run_cancellable, CancelBus, CancelToken, CancellableResult, Descendant, WorkerKind,
+};
 use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
 use crate::independent_verify::{verification_satisfied, ReviewConclusion};
 use crate::joint_consensus::{overlapping_disjoint_blocked, Electorate, MembershipTransition};
@@ -332,7 +334,11 @@ impl MissionDag {
     #[must_use]
     pub fn is_cancelled(&self, now: u64) -> bool {
         match &self.cancel.token {
-            Some(t) => t.cancelled || t.remaining_secs(now).is_none(),
+            Some(t) => {
+                t.cancelled
+                    || self.cancel.handle().is_cancelled()
+                    || t.remaining_secs(now).is_none()
+            }
             None => false,
         }
     }
@@ -827,6 +833,8 @@ impl MissionDag {
                 batch_leases.push((idx, owner, lease.fence));
                 batch_signals.push(signal);
             }
+            let cancellation = self.cancel.handle();
+            cancellation.register_scope(&mission_scope);
 
             // Publish node-running state, leases, recovery scope and intent
             // journal together before any worker scope or tool can mutate.
@@ -888,9 +896,11 @@ impl MissionDag {
                     let manager =
                         crate::susi_core::task_manager::SwarmTaskManager::global();
                     let scope_for_check = mission_scope.clone();
+                    let cancellation_for_check = cancellation.clone();
                     let cancelled = move || {
                         signal.load(std::sync::atomic::Ordering::Acquire)
                             || manager.is_scope_cancelled(&scope_for_check)
+                            || cancellation_for_check.should_stop()
                             || now_unix() >= deadline
                     };
                     // Fence check BEFORE the first mutating operation
@@ -923,9 +933,11 @@ impl MissionDag {
 
                     // Mandate 48: in SUSI's own tree the node that turns model
                     // output into shell commands carries the self-build contract.
+                    let title = node.title.clone();
+                    let goal = node.goal.clone();
                     let prompt = crate::susi_core::self_build::brief_task(&node_ws, &format!(
                         "Execute task node '{}': {}. If you need to execute a shell command, provide it in a ```bash codeblock. The command must perform every requested side effect: printing intended file content is not file creation. For file writes, write the named workspace path and then verify that exact path and its contents.",
-                        node.title, node.goal
+                        title, goal
                     ));
                     // Deep path, same rule as plan_steps: the node template is
                     // full of capability words and clears Tier-0's support
@@ -933,15 +945,29 @@ impl MissionDag {
                     // write_file` with no ```bash block — the node would
                     // "complete" having executed nothing (Claude's measured
                     // 0.60–0.64 support on everyday intents).
-                    let res =
+                    let model_workspace = node_ws.clone();
+                    let model_cancel = cancellation.clone();
+                    let model_prompt = prompt.clone();
+                    let res = match run_cancellable(&model_cancel, move || {
                         crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
-                            &prompt, &node_ws,
-                        );
+                            &model_prompt,
+                            &model_workspace,
+                        )
+                    }) {
+                        Ok(CancellableResult::Completed(output)) => Ok(output),
+                        Ok(CancellableResult::Cancelled) => Err(EaiError::governance(
+                            "worker cancelled while waiting for model response",
+                        )),
+                        Ok(CancellableResult::DeadlineExceeded) => Err(EaiError::governance(
+                            "worker deadline expired while waiting for model response",
+                        )),
+                        Err(error) => Err(error),
+                    };
 
                     let elapsed = start.elapsed().as_millis() as u64;
                     NodeRun {
                         idx,
-                        res: Ok(res),
+                        res,
                         elapsed_ms: elapsed,
                         // Tool calls are intentionally executed after the
                         // parallel model phase.  That keeps the durable
@@ -951,7 +977,7 @@ impl MissionDag {
                         owner,
                         fence,
                         scope,
-                        cancelled: cancelled(),
+                        cancelled: cancelled() || cancellation.should_stop(),
                         stale_fence: stale,
                     }
                 })
@@ -1029,12 +1055,26 @@ impl MissionDag {
                             Ok(())
                         })?;
                     }
-                    let result = crate::susi_core::plane_bus::tools::execute_tool(
-                        "exec_command",
-                        &call,
-                        &node_ws,
-                    )
-                    .unwrap_or_else(|e| format!("[Error] {e}"));
+                    let tool_call = call.clone();
+                    let tool_workspace = node_ws.clone();
+                    let result = match run_cancellable(&cancellation, move || {
+                        crate::susi_core::plane_bus::tools::execute_tool(
+                            "exec_command",
+                            &tool_call,
+                            &tool_workspace,
+                        )
+                    }) {
+                        Ok(CancellableResult::Completed(Ok(output))) => output,
+                        Ok(CancellableResult::Completed(Err(error))) => {
+                            format!("[Error] {error}")
+                        }
+                        Ok(CancellableResult::Cancelled)
+                        | Ok(CancellableResult::DeadlineExceeded) => {
+                            run.cancelled = true;
+                            break;
+                        }
+                        Err(error) => format!("[Error] {error}"),
+                    };
                     // A takeover that arrived while the tool was running
                     // cannot be folded or acknowledged by the old worker.
                     if self
