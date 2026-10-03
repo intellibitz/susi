@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "DSHMERGEGATE",
-  "created_unix": 1791023855
+  "created_unix": 1791023855,
+  "closed": {
+    "at_unix": 1791025386,
+    "commit": "649593a60ec463805b994ba4029ed8bb38f41120",
+    "by": "DSHMERGEGATE"
+  }
 }
