@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "FIXRELEASEPUSH",
-  "created_unix": 1791046345
+  "created_unix": 1791046345,
+  "closed": {
+    "at_unix": 1791047764,
+    "commit": "738eda24a9462a75eb9d7cc1391508fcceb226a5",
+    "by": "FIXRELEASEPUSH"
+  }
 }
