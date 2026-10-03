@@ -1,0 +1,26 @@
+{
+  "id": "T-DSHONECLAIM-1",
+  "title": "Refuse a branch whose agent holds two live claims, server-side",
+  "goal": "One task at a time is enforced client-side by claim (atomic refs/claim-agents/<AGENT> plus the live-claim scan) but a hand-pushed refs/claims/<id> can give one agent two live claims. CI must refuse the push, counting only non-expired claims so a lapsed claim the agent moved on from is never mistaken for a second one.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "--test",
+      "workflow_compliance"
+    ]
+  },
+  "created_by": "DSHONECLAIM",
+  "created_unix": 1791030561,
+  "closed": {
+    "at_unix": 1791031549,
+    "commit": "1f7c4183e8c536af7976d89279068d635d43ac39",
+    "by": "DSHONECLAIM"
+  }
+}
