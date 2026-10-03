@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-003",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Four refutations. (1) The summary verdict gates only three of the five claimed dimensions — resource and operator_effort regressions are invisible to summary_ok (vc_201_003_mastery_regressed_dimensions_do_not_block_the_verdict). (2) 'Undersampled cannot claim' has no mechanism: task_count is never consulted and a zero-task scorecard declares improvement; uncertainty is caller-supplied, not measured (vc_201_003_mastery_zero_tasks_claims_improvement). (3) Thresholds are not predeclared in any enforceable sense — they are fields on the same record as the value they judge, so post-hoc edits flip the verdict (vc_201_003_mastery_thresholds_are_post_hoc_not_predeclared). (4) refuses_task_count_as_percent is a constant true — a tautology, not enforcement. Additionally ImprovementScorecard has no production caller. Holds: caller-supplied uncertainty blocks a marginal claim on a gated dimension (vc_201_003_mastery_uncertainty_blocks_gated_dimensions).",
+  "tracked_by": ["T-DEVIN20261002053148-17"],
+  "recorded_by": "DEVIN20261002053148",
+  "recorded_unix": 1790987957
+}
