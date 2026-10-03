@@ -153,6 +153,9 @@ pub use truth::TruthTransformer;
 #[path = "tests/vc_200_001.rs"]
 mod vc_200_001_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_071_mastery.rs"]
+mod vc_201_071_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_071.rs"]
 mod vc_201_071_tests;
 #[cfg(test)]
