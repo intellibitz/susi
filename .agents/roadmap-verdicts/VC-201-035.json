@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-035",
+  "verdict": "delivered",
+  "evidence": "vc_201_035_rejects_stale_coordinator_after_failover and vc_201_035_wrong_coordinator_same_epoch_rejected (crates/susi-gawd-swarm/src/tests/vc_201_035.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "INTELLIBITZ202610030140553714905",
+  "recorded_unix": 1790998498
+}
