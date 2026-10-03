@@ -1,0 +1,18 @@
+{
+  "id": "T-INTELLIBITZ20261003120316202247-2",
+  "title": "Auto-merge: dispatch the Test gate after a bot resync and let dispatch runs merge",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "auto_merge"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261003120316202247",
+  "created_unix": 1791010977
+}
