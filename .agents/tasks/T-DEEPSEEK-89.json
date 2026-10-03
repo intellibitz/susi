@@ -9,6 +9,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-core",
       "--locked",
       "-E",
       "test(intent_to_executable_dag)"
