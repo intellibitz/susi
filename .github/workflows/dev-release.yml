@@ -105,7 +105,7 @@ jobs:
         run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
 
       - name: Publish Dev Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v4
         with:
           tag_name: dev
           name: "Development Build (main)"
@@ -194,7 +194,7 @@ jobs:
         run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Publish Dev Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v4
         with:
           tag_name: dev
           name: "Development Build (main)"
