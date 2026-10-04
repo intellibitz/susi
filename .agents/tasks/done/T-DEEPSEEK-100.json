@@ -1,0 +1,28 @@
+{
+  "id": "T-DEEPSEEK-100",
+  "title": "A capability floor per task class",
+  "goal": "Let each task class declare the minimum capability its work needs, and encode that as data beside the class. Cost pressure must never be able to send hard work to a weak model: the floor is checked before the price is compared.",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-87"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "--workspace",
+      "-E",
+      "test(capability_floor)"
+    ]
+  },
+  "roadmap": "VC-202-004",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953358,
+  "closed": {
+    "at_unix": 1791138884,
+    "commit": "5026affd2c8808cfe2302f3ffe2574e61bdda1d5",
+    "by": "DEEPSEEK"
+  }
+}
