@@ -21,12 +21,17 @@ fn scratch(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!("susi-unified-status-{tag}-{}", std::process::id()))
 }
 
-/// Run `susi status` against `home`; extra_env carries per-test seeds
-/// (brain evidence file) that live under the same throwaway root.
+/// Run `susi status` against `home` from a *separate* cwd — running with
+/// cwd == HOME makes the binary's workspace-scoped state create `~/.susi`,
+/// which flips `SusiDirs` off the XDG layout this test seeds.
+/// Returns `(exit code, stdout)`: the report itself. stderr carries
+/// timestamped tracing lines and is not part of the surface.
 fn run_status(home: &Path, extra_env: &[(&str, PathBuf)]) -> (i32, String) {
+    let cwd = home.join("cwd");
+    std::fs::create_dir_all(&cwd).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_susi"));
     cmd.args(["status"])
-        .current_dir(home)
+        .current_dir(&cwd)
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("XDG_DATA_HOME", home.join("xdg-data"))
@@ -38,11 +43,7 @@ fn run_status(home: &Path, extra_env: &[(&str, PathBuf)]) -> (i32, String) {
     let out = cmd.output().unwrap();
     (
         out.status.code().unwrap_or(-1),
-        format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        ),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
     )
 }
 
