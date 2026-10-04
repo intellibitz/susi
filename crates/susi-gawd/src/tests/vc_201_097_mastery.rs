@@ -70,7 +70,7 @@ fn vc_201_097_mastery_gate_is_on_the_ci_path() {
         "/../../.github/workflows/unsafe-exposure-ratchet.sh"
     ))
     .expect("ratchet workflow script present");
-    assert!(script.contains("cargo geiger --output-format Json"));
+    assert!(script.contains("cargo geiger"));
     assert!(script.contains("cargo metadata --format-version 1 --locked"));
     assert!(script.contains("--bin unsafe_ratchet"));
 

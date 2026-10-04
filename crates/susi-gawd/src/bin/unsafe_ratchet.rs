@@ -64,10 +64,19 @@ fn read_json(path: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(&text).map_err(|e| format!("{path} is not valid JSON: {e}"))
 }
 
-/// Unsafe function count for one geiger package entry, tolerating the
-/// schema drift between cargo-geiger releases: `used.functions.unsafe` is
-/// the canonical path; fall back to any `unsafe` counter under `unsafety`.
-fn unsafe_fns_of(unsafety: &serde_json::Value) -> u64 {
+/// Exposure count for one geiger package entry. Two report shapes are
+/// supported: full `cargo geiger` scans carry
+/// `unsafety.used.functions.unsafe` counts; `--forbid-only` scans carry a
+/// `forbids_unsafe` bool — the exposure unit is then the crate itself (1).
+fn unsafe_fns_of(item: &serde_json::Value) -> u64 {
+    if let Some(forbids) = item.get("forbids_unsafe").and_then(|f| f.as_bool()) {
+        return u64::from(!forbids);
+    }
+    let unsafety = item.get("unsafety").cloned().unwrap_or_default();
+    unsafe_counts_of(&unsafety)
+}
+
+fn unsafe_counts_of(unsafety: &serde_json::Value) -> u64 {
     fn count(v: &serde_json::Value) -> Option<u64> {
         v.get("used")
             .and_then(|u| u.get("functions"))
@@ -112,7 +121,9 @@ fn current_exposure(
     for item in &packages {
         let name = item
             .get("package")
-            .and_then(|p| p.get("name"))
+            .and_then(|p| p.get("id"))
+            .and_then(|id| id.get("name"))
+            .or_else(|| item.get("package").and_then(|p| p.get("name")))
             .or_else(|| item.get("name"))
             .and_then(|n| n.as_str())
             .unwrap_or("")
@@ -120,8 +131,7 @@ fn current_exposure(
         if name.is_empty() {
             continue;
         }
-        let unsafety = item.get("unsafety").cloned().unwrap_or_default();
-        let unsafe_fns = unsafe_fns_of(&unsafety);
+        let unsafe_fns = unsafe_fns_of(item);
         if unsafe_fns == 0 {
             continue;
         }

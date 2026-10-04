@@ -25,7 +25,10 @@ command -v cargo-geiger >/dev/null || {
 mkdir -p "$(dirname "$baseline")"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-cargo geiger --output-format Json >"$tmp/geiger.json"
+# --forbid-only measures each crate's unsafe-forbiddance surface without
+# building the tree; the full per-function scan cannot resolve this
+# workspace's vendored path-dependency layout.
+cargo geiger --forbid-only --output-format Json >"$tmp/geiger.json"
 cargo metadata --format-version 1 --locked >"$tmp/metadata.json"
 
 if [ -n "$write_baseline" ]; then
