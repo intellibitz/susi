@@ -37,7 +37,7 @@ fn run_status(home: &Path, extra_env: &[(&str, PathBuf)]) -> (i32, String) {
         .env("XDG_DATA_HOME", home.join("xdg-data"))
         .env("XDG_CACHE_HOME", home.join("xdg-cache"))
         .env_remove("SUSI_HOME")
-        .env_remove("SUSI_XDG");
+        .env("SUSI_XDG", "1");
     for (k, v) in extra_env {
         cmd.env(k, v);
     }
