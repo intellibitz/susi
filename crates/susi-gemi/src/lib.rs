@@ -61,6 +61,7 @@ pub mod embedding_routing;
 pub mod engine_benchmark;
 pub mod eval;
 pub mod frontier_ext;
+pub mod key_arbitration;
 pub mod latency_slo;
 pub mod learned_classifier;
 pub mod model_preload;
@@ -155,3 +156,6 @@ mod vc_201_054_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_001_mastery.rs"]
 mod vc_202_001_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_202_020_rate_mastery.rs"]
+mod vc_202_020_rate_mastery_tests;
