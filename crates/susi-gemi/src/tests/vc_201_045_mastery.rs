@@ -5,7 +5,10 @@
 //! on the actual host with correctness and memory checks; recommendations
 //! identify their measurements and reject unsupported format/backend combinations.
 
-use crate::engine_benchmark::{run_engine_benchmark, BenchProvider};
+use crate::engine_benchmark::{
+    format_quantization_matrix, recommend_placement, run_candidate_benchmark, run_engine_benchmark,
+    BenchProvider, CandidateSpec, ModelFormat, Quantization,
+};
 use std::time::Duration;
 
 struct CandidateFormatProvider {
@@ -71,4 +74,77 @@ fn vc_201_045_mastery_unsupported_format_backend_combination_fails() {
     assert_eq!(samples.len(), 1);
     assert!(!samples[0].success);
     assert_eq!(samples[0].tokens_per_sec, 0.0);
+}
+
+/// A provider that only serves GGUF; every other format is refused, which is
+/// how an unsupported format/backend combination reaches the matrix.
+struct GgufOnlyProvider {
+    spec: CandidateSpec,
+}
+
+impl BenchProvider for GgufOnlyProvider {
+    fn engine_name(&self) -> &str {
+        &self.spec.engine
+    }
+
+    fn model_name(&self) -> &str {
+        &self.spec.model
+    }
+
+    fn complete(&self, _prompt: &str) -> Result<(String, Duration), String> {
+        if self.spec.format == ModelFormat::Gguf {
+            Ok((
+                "candidate benchmark output".into(),
+                Duration::from_millis(15),
+            ))
+        } else {
+            Err(format!("unsupported format {:?}", self.spec.format))
+        }
+    }
+}
+
+/// Acceptance: the format × quantization matrix is benchmarked through the
+/// production path with memory and correctness checks, unsupported
+/// format/backend combinations are rejected, and the placement
+/// recommendation is derived from the measurements.
+#[test]
+fn vc_201_045_format_and_quantization_benchmark_matrix() {
+    let matrix = format_quantization_matrix("llamacpp", "qwen-2.5-7b");
+    assert_eq!(
+        matrix.len(),
+        ModelFormat::ALL.len() * Quantization::ALL.len()
+    );
+    assert!(matrix
+        .iter()
+        .any(|c| c.format == ModelFormat::Gguf && c.quantization == Quantization::Q4));
+    assert!(matrix
+        .iter()
+        .any(|c| c.format == ModelFormat::Awq && c.quantization == Quantization::Fp16));
+
+    let prompts = ["test prompt"];
+    let results: Vec<_> = matrix
+        .into_iter()
+        .map(|spec| {
+            let provider = GgufOnlyProvider { spec: spec.clone() };
+            run_candidate_benchmark(&provider, spec, 1024.0, &prompts)
+        })
+        .collect();
+
+    // Memory and a correctness verdict are recorded on every candidate, and
+    // an unsupported format/backend combination is rejected rather than
+    // benchmarked into the recommendation.
+    for r in &results {
+        assert!(r.memory_mb > 0.0);
+        assert_eq!(r.correct, r.supported);
+        if r.spec.format != ModelFormat::Gguf {
+            assert!(!r.supported, "{:?}", r.spec);
+            assert!(!r.correct, "{:?}", r.spec);
+        }
+    }
+
+    // Placement is fed only supported, correct candidates — every GGUF
+    // quantization, none of the unsupported formats.
+    let recommendation = recommend_placement(&results);
+    assert_eq!(recommendation.len(), Quantization::ALL.len());
+    assert!(recommendation.iter().all(|c| c.format == ModelFormat::Gguf));
 }
