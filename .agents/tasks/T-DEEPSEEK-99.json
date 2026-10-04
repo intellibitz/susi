@@ -5,6 +5,7 @@
       "nextest",
       "run",
       "--locked",
+      "--workspace",
       "-E",
       "test(brain_scout_probe)"
     ]
