@@ -15,6 +15,28 @@ pub struct HeldOutSuite {
     pub expected: BTreeSet<String>,
 }
 
+impl HeldOutSuite {
+    /// Build the judge's suite from a corpus's held-out fixtures. The
+    /// corpus is verified first: a suite built from a tampered corpus
+    /// would judge against inputs the evaluator never approved, so
+    /// integrity failure means no suite at all. `evaluator_expected`
+    /// values become the expected set — this view stays evaluator-side
+    /// (`candidate_view` is what a candidate may see).
+    pub fn from_corpus(
+        corpus: &crate::rsi_corpus::RsiCorpus,
+    ) -> Result<Self, crate::rsi_corpus::CorpusIntegrityError> {
+        corpus.verify_integrity()?;
+        let held = corpus.held_out();
+        Ok(HeldOutSuite {
+            inputs: held.iter().map(|f| f.input.clone()).collect(),
+            expected: held
+                .iter()
+                .filter_map(|f| f.evaluator_expected.clone())
+                .collect(),
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromotionGate {
     Pass,
