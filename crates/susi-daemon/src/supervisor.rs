@@ -155,14 +155,22 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
         .stderr(err)
         .spawn()
         .ok()
-        .map(|mut child| {
+        .map(|child| {
             let pid = child.id();
             // The daemon parents every service child, and a Child that is
             // dropped without wait() leaves a permanent zombie — observed
             // live: susi-native stuck <defunct> under the daemon, port
-            // dead, no respawn possible. A detached waiter reaps it.
-            thread::spawn(move || {
-                let _ = child.wait();
+            // dead, no respawn possible. A supervised one-shot reaper
+            // waits it out — visible on the status surface like every
+            // other background worker.
+            let reaper = format!("reap:{}", svc.name);
+            let mut child = Some(child);
+            crate::service_supervision::Supervisor::global().spawn_oneshot(&reaper, 0, move || {
+                child.take().map(|mut child| {
+                    move || {
+                        let _ = child.wait();
+                    }
+                })
             });
             pid
         })
@@ -171,7 +179,9 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
 /// Supervisor decisions go to stderr AND `substrate_home/logs/
 /// supervisor.log` — the daemon detaches stderr, so without the file
 /// every spawn/respawn/hold-down decision is invisible after the fact.
-fn slog(msg: &str) {
+/// `pub(crate)`: the in-process supervision registry logs its restart and
+/// hang decisions through the same surface — one supervision log.
+pub(crate) fn slog(msg: &str) {
     eprintln!("{msg}");
     let path = susi_paths::SusiDirs::substrate_home()
         .join("logs")
@@ -796,6 +806,7 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 slog(&format!("[supervisor] persist process table: {e}"));
             }
         }
+        crate::service_supervision::heartbeat("leaf-service-monitor");
         // Interruptible sleep — a raised shutdown ends the wait promptly
         // so joining this thread doesn't block out the probe interval.
         for _ in 0..(PROBE_INTERVAL.as_millis() / 100) {
@@ -807,13 +818,23 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
     }
 }
 
-/// Start supervision: boot pass, then the monitor thread. Returns the
-/// join handle so the daemon can keep a reference.
-pub fn start(shutdown: Arc<AtomicBool>) -> thread::JoinHandle<()> {
+/// Start supervision: boot pass, then the monitor — spawned through the
+/// in-process supervision registry like every other long-lived worker,
+/// so a crashed monitor is itself restarted (bounded). The daemon joins
+/// it via `service_supervision::Supervisor::join` on shutdown.
+pub fn start(shutdown: Arc<AtomicBool>) {
     ensure_leaf_services();
-    thread::spawn(move || {
-        monitor_loop(shutdown);
-    })
+    // A monitor pass can block in wait_for_port for STARTUP_WAIT per
+    // recovering service — the heartbeat bound leaves that headroom.
+    crate::service_supervision::Supervisor::global().spawn(
+        "leaf-service-monitor",
+        5,
+        Some(Duration::from_secs(600)),
+        move || {
+            let shutdown = Arc::clone(&shutdown);
+            Some(move || monitor_loop(shutdown))
+        },
+    );
 }
 
 /// Graceful shutdown: SIGTERM every pid the daemon supervises, escalate to
