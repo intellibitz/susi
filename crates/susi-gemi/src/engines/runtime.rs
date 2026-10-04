@@ -624,7 +624,10 @@ impl GemiEngine {
         // The brain's rank position for this task class drives the cascade
         // order: it already folds in the capability floor, cost per
         // verified outcome (or evidence score when unpriced / Budget::Max)
-        // and the static-rank tiebreak (VC-202-003).
+        // and the static-rank tiebreak (VC-202-003). The rank call is fed
+        // the canonical static order first so a brain tie breaks
+        // deterministically — `names` arrives in registry (hash) order.
+        names.sort_by_key(|n| (Self::rank_provider_name(n), n.clone()));
         let ranked: std::collections::HashMap<String, (bool, usize)> =
             crate::engines::brain::rank(&names, class)
                 .into_iter()

@@ -916,7 +916,10 @@ impl InferenceRouter {
         // Order by the brain's ranking of this task class — its position
         // already folds in the capability floor, cost per verified outcome
         // (or evidence score when unpriced / Budget::Max), and the static
-        // rank as the tiebreaker (VC-202-003).
+        // rank as the tiebreaker (VC-202-003). The rank call is fed the
+        // canonical static order first so a brain tie breaks
+        // deterministically — `providers` arrives in registry (hash) order.
+        providers.sort_by_key(|name| (Self::cloud_rank(name), name.clone()));
         let ranked: std::collections::HashMap<String, (bool, usize)> =
             crate::engines::brain::rank(&providers, class)
                 .into_iter()
