@@ -1,0 +1,11 @@
+{
+  "vector": "VC-200-001",
+  "verdict": "delivered",
+  "evidence": "vc_200_001_overlapping_deltas_serialize_through_majority (crates/susi-core/src/tests/vc_200_001.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791109643,
+  "check": ["scripts/check-reachability.py", "--function", "--delivered", "quorum_majority"],
+  "notes": "Federated cross-node consensus runs on the production supervisor path: SusiSupervisor::quorum_majority is called from crates/susi-gawd-swarm/src/amas.rs with a pinned electorate and bounded collection; commits are sealed HMAC-signed CommitRecords replicated to voters through the governed commit_record tool, with term ordering, prev-epoch chain checks, idempotent append, equivocation refusal, anti-entropy gap repair, compaction and replay. Membership changes are committed deltas serialized by bound-majority Ed25519 endorsements over the committed ledger (vc_200_001_overlapping_deltas_serialize_through_majority, vc_200_001_backdated_record_still_needs_bound_majority and siblings, 4/4 passing), closing the joint-consensus residual the narrative documented. Durable-commit semantics (unwritable ledger never reports commit, lost replication ack is uncommitted, coordinator-crash recovery) hold under swarm_gap_durable_quorum_* tests, and elect_leader is deterministic bully election over the verified roster."
+}

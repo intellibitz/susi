@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-096",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "No Kani harness exists anywhere: zero occurrences of #[kani::proof], cfg(kani) or a kani dependency/toolchain pin in the repo, and no CI step runs model checking. What exists is an exhaustive three-agent model check (crates/susi-gawd/src/tests/formal_invariants.rs) proving lease-expiry monotonicity, quarantine-ladder bounds and single-winner claims over enumerated schedules — a bounded exhaustive test, not a Kani proof. Budget transitions and policy precedence are not covered by any model, proof bounds are not reported, and counterexamples are not retained as CI artifacts.",
+  "tracked_by": ["T-DEEPSEEK-221"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791107243
+}

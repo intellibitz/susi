@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-223",
+  "title": "Verify mastery: Provider credential inventory and liveness scouting",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--workspace",
+      "--locked",
+      "-E",
+      "test(vc_202_001_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-001",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791112370,
+  "closed": {
+    "at_unix": 1791113121,
+    "commit": "809279e35eb4bcd1321656532811e8e5ce7097dd",
+    "by": "DEEPSEEK"
+  }
+}

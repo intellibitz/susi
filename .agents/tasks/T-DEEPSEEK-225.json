@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-225",
+  "title": "Verify mastery: Intent becomes a typed, executable DAG",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--workspace",
+      "--locked",
+      "-E",
+      "test(vc_202_007_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-007",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791113768
+}

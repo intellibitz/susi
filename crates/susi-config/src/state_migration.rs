@@ -62,11 +62,11 @@ impl MigrationReport {
     }
 }
 
-fn stamp() -> u64 {
-    SystemTime::now()
+fn stamp() -> (u64, u128) {
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .unwrap_or_default();
+    (now.as_secs(), now.as_nanos())
 }
 
 fn manifest_path(dir: &Path) -> PathBuf {
@@ -90,7 +90,14 @@ fn write_version(dir: &Path, version: u32) -> EaiResult<()> {
 }
 
 fn backup_tree(dir: &Path) -> EaiResult<PathBuf> {
-    let bak = dir.join(format!(".migrate-bak-{}", stamp()));
+    // Unique per attempt (seconds + pid + nanos): an interrupted migration
+    // retried inside the same second must never overwrite the preserved
+    // pre-migration files of the previous attempt.
+    let (secs, nanos) = stamp();
+    let bak = dir.join(format!(
+        ".migrate-bak-{secs}-{}-{nanos}",
+        std::process::id()
+    ));
     fs::create_dir_all(&bak).map_err(|e| EaiError::config(e.to_string()))?;
     // Copy config.json and state.schema.json when present.
     for name in ["config.json", "state.schema.json"] {
