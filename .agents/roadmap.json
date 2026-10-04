@@ -1056,7 +1056,7 @@
       "id": "VC-201-084",
       "mastery_target": "Synchronize scoped records with provenance, conflict handling, and deletion semantics over authenticated peers; disconnected replicas converge without exporting local-only memory or reviving tombstoned records.",
       "priority": "P1",
-      "progress": "PARTIAL: converge() converges eligible records and tombstones, local_only records never export, tombstoned records never revive — verified by `crates/susi-core/src/tests/vc_201_084_mastery.rs`. Refuted on record 2026-10-03: provenance is compared lexically so a stale write outranks a newer one, deletion does not propagate via export_for_peers/merge_from_peer (only converge's tombstone sync carries it), no peer authentication exists, and no production caller drives the replication. Verdict `.agents/roadmap-verdicts/VC-201-084.json`. Follow-up tracked by T-DEVIN20261002053148-13.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-084.json, T-DEVIN20261002053148-13, 2026-10-04): scoped records synchronize with natural provenance ordering where newer writes outrank older writes; export_for_peers carries tombstone records so deletion propagates across peer export/merge; peer authentication is verified on export and merge; disconnected replicas converge without exporting local-only memory or reviving tombstoned records. Verified by crates/susi-core/src/tests/vc_201_084_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Replicate only policy-eligible swarm memory"
     },
