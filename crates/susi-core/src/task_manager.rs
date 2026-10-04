@@ -428,12 +428,22 @@ impl SwarmTaskManager {
             .unwrap_or(0);
         let idle_threshold = TelemetryHistoryStore::global().get_idle_threshold_ms(name);
 
-        let status = Arc::new(AtomicU8::new(TaskStatus::Running as u8));
+        let scope_cancelled = scope.is_some_and(|s| self.cancelled_scopes.contains(s));
+        let estop_cancelled = {
+            let task_scope = scope.unwrap_or("fleet");
+            crate::emergency_stop::EmergencyStopBus::is_globally_stopped(task_scope)
+        };
+        let initial_cancelled = scope_cancelled || estop_cancelled;
+        let initial_status = if estop_cancelled {
+            TaskStatus::Killed as u8
+        } else {
+            TaskStatus::Running as u8
+        };
+        let status = Arc::new(AtomicU8::new(initial_status));
         let last_progress_secs = Arc::new(AtomicU64::new(now_secs));
         let progress_count = Arc::new(AtomicU64::new(0));
         let result = Arc::new(parking_lot::RwLock::new(None));
-        let scope_cancelled = scope.is_some_and(|s| self.cancelled_scopes.contains(s));
-        let cancel_flag = Arc::new(AtomicBool::new(scope_cancelled));
+        let cancel_flag = Arc::new(AtomicBool::new(initial_cancelled));
         let pause_flag = Arc::new(AtomicBool::new(false));
 
         let record = TaskRecord {

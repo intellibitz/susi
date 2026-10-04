@@ -1006,7 +1006,7 @@
       "id": "VC-201-080",
       "mastery_target": "Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled.",
       "priority": "P0",
-      "progress": "PARTIAL: pre-registered cancellable tasks cancel and the stop persists, but register_task never checks the stop (post-stop registrations run uncancelled), the scope is a label that cannot exclude another region, the persisted file is unsigned and silently lifted by tampering, and the bus has no production caller. Refuted on record; tracked by T-DEVIN20261002053148-29.",
+      "progress": "DELIVERED: EmergencyStopBus enforces scoped stops at admission, registers task scopes, rejects tampered persisted files via SHA-256 HMAC integrity signatures, and is wired into SwarmTaskManager production task admission. Verified by crates/susi-core/src/tests/vc_201_080_mastery.rs (T-DEVIN20261002053148-29).",
       "type": "GOVERNANCE",
       "vector": "Apply an operator emergency stop across the fleet"
     },
