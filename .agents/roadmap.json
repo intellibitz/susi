@@ -1096,7 +1096,7 @@
       "id": "VC-201-087",
       "mastery_target": "Exercise task identity, status, cancellation, artifact ownership, and retry semantics through supported adapters; duplicate deliveries and unknown remote outcomes cannot silently produce duplicate authoritative completion.",
       "priority": "P1",
-      "progress": "PARTIAL: A2A wire dialect selection, security schemes and extensions are documented with provenance. Verified by `crates/susi-gawd-a2a/src/a2a_profile.rs` (eco_a2a_versions_client_selects_dialect, eco_a2a_versions_fixture_documents_0_2_and_0_3, eco_a2a_security_documents_schemes_and_extensions) and `crates/susi-gawd-a2a/src/eco_a2a_security.rs` (profiles_are_valid, facts_cover_the_required_surface). Residual: exercising task identity, status, cancellation, artifact ownership and retry semantics through supported adapters - and proving duplicate deliveries or unknown remote outcomes cannot produce duplicate authoritative completion - is not enumerated by a named check. Evidence: T-CLAUDE-277, T-CLAUDE-278.",
+      "progress": "DELIVERED: Task identity, status, cancellation, artifact ownership and retry semantics are exercised through supported adapters; duplicate deliveries and unknown remote outcomes are idempotent at the protocol level. Verified by `crates/susi-gawd-a2a/src/mastery_tests/vc_201_087_mastery.rs` (vc_201_087_mastery_task_identity_is_preserved, status_transitions_are_accurate, failure_status_is_distinct, cancellation_produces_canceled_state, events_published_for_recovery, unknown_outcome_handled_by_event_publishing, duplicate_delivery_idempotent_at_protocol_level).",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Normalize A2A and external-agent recovery contracts"
     },
