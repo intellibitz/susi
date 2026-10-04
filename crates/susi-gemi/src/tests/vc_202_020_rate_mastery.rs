@@ -112,7 +112,7 @@ fn model_rate_arbitration_production_cascade_admits() {
     // The deny path skips the candidate (failover to the next provider),
     // like the provider_cooled check it sits beside.
     let cooled = cascade
-        .find("provider_cooled")
+        .find("provider_cooldown_until")
         .expect("cooldown check present");
     assert!(
         cooled < acquire,

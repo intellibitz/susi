@@ -133,6 +133,9 @@ mod ranking_by_marginal_cost_tests;
 #[path = "tests/rate_limit_scheduler.rs"]
 mod rate_limit_scheduler_tests;
 #[cfg(test)]
+#[path = "tests/routing_ladder.rs"]
+mod routing_ladder_tests;
+#[cfg(test)]
 #[path = "tests/spend_tracker.rs"]
 mod spend_tracker_tests;
 #[cfg(test)]
