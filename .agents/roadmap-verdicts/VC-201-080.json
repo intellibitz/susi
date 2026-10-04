@@ -1,11 +1,11 @@
 {
   "vector": "VC-201-080",
-  "verdict": "not-delivered",
+  "verdict": "delivered",
   "evidence": "crates/susi-core/src/tests/vc_201_080_mastery.rs",
-  "missing": "Three refutations. (1) The stop is not enforced at admission: register_task never consults it \u2014 a task registered after apply_stop runs uncancelled (vc_201_080_mastery_post_stop_registration_runs). (2) Scope is a label, not enforcement: tasks carry no scope so a region-a stop cancels region-b work (vc_201_080_mastery_scope_does_not_scope). (3) The persisted stop is unsigned JSON \u2014 flipping active:false lifts it silently across restart (vc_201_080_mastery_tampered_file_lifts_the_stop). EmergencyStopBus has no production caller. Holds: pre-registered cancellable tasks cancel, unreachable peers and unrecallable externals report, untampered persistence survives (vc_201_080_mastery_nominal_stop_holds).",
+  "missing": null,
   "tracked_by": [
     "T-DEVIN20261002053148-29"
   ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790994870
+  "recorded_by": "ANTIGRAVITY",
+  "recorded_unix": 1791116600
 }
