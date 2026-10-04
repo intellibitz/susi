@@ -7,7 +7,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Watchdog manager tracking cell heartbeats.
+/// Watchdog manager tracking cell heartbeats. `Clone` shares the same
+/// heartbeat map — the supervisor attaches a clone while the swarm host
+/// keeps its own handle.
+#[derive(Clone)]
 pub struct WatchdogManager {
     /// Maps cell ID to their last check-in (ping) time.
     heartbeats: Arc<Mutex<HashMap<String, Instant>>>,

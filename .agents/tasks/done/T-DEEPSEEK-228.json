@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-228",
+  "title": "Wire the per-mission egress gate into the mission/tool path and record authority refusals: EgressGate consulted per mission, agent tokens checked at dispatch with refusals recorded",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--workspace",
+      "--locked",
+      "-E",
+      "test(vc_202_014_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-014",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791114821,
+  "closed": {
+    "at_unix": 1791123702,
+    "commit": "6626de20fefbf710fa7f53c1b7130c0c688a702b",
+    "by": "DEEPSEEK"
+  }
+}

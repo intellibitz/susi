@@ -1,9 +1,11 @@
 {
   "vector": "VC-202-001",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "No credential inventory exists at all: list_api_key_status in crates/susi-vendor-models/src/cloud.rs reports only whether each known vendor's env var is present (vendor, env, bool) — it does not enumerate the configured credentials as records, and key_statuses in crates/susi-config/src/key_rotation.rs reports key ages and rotation hints, never liveness. Nothing probes a credential with a real call: probe_credentialed_opt_in in crates/susi-gemi/src/provider_contract.rs is a stub that returns ProbeStatus::Unsupported with \"configure endpoint to exercise\", and ProbeStatus only spans Supported/Unsupported/Failed — there is no live/expired/unauthorized/rate-limited/unknown taxonomy. No probe evidence is persisted per credential, and no single report answers which credentials work today; the only boot-time consumer (zc_keys_health_boot) logs ages, not liveness.",
-  "tracked_by": ["T-DEEPSEEK-224"],
+  "verdict": "delivered",
+  "evidence": "vc_202_001_mastery_every_configured_credential_is_enumerated_and_probed, vc_202_001_mastery_classification_covers_all_required_classes, vc_202_001_mastery_report_records_evidence_without_secret_material, vc_202_001_mastery_dead_keys_are_marked_never_deleted (crates/susi-gemi/src/tests/vc_202_001_mastery.rs)",
+  "missing": "",
+  "tracked_by": [],
   "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1791126900
+  "recorded_unix": 1791132000,
+  "check": ["scripts/check-reachability.py", "--function", "--delivered", "scout_configured_once"],
+  "notes": "credential_scout (crates/susi-gemi/src/credential_scout.rs) enumerates every configured remote-cloud credential via effective_inference_endpoints + resolve_api_key, probes each with the cheapest authenticated call (zero-token GET {api_base}/models with the vendor's auth scheme — Bearer, x-api-key, x-goog-api-key), classifies live/expired/unauthorized/rate-limited/unknown through the shared classify_failure taxonomy, and records fingerprinted evidence: failure verdicts feed cloud_eligibility::record_probe so failover steers around dead keys, and ScoutReport::format renders the single report with per-credential status, detail and truncated sha-256 fingerprint — never the secret, even when a provider echoes it back. scout_configured_once is wired into register_configured_cloud_endpoints (reached from daemon composition and the discovery pipeline), interval-gated at 300s so repeat registrations stay free. Keys are marked, never deleted."
 }

@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-230",
+  "title": "Wire in-process supervision: register every long-lived daemon worker and the watchdog with health checks, bounded restart and the status surface",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--workspace",
+      "--locked",
+      "-E",
+      "test(vc_202_010_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-010",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791118478,
+  "closed": {
+    "at_unix": 1791121646,
+    "commit": "669d628a54adb93f386e4fb31304586e48b08c6a",
+    "by": "DEEPSEEK"
+  }
+}

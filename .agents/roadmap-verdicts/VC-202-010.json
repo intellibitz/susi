@@ -1,0 +1,15 @@
+{
+  "vector": "VC-202-010",
+  "verdict": "delivered",
+  "evidence": "vc_202_010_mastery_leaf_services_run_under_bounded_supervision, vc_202_010_mastery_no_unsupervised_thread_spawn_remains, vc_202_010_mastery_supervisor_is_driven_and_watchdogfed, vc_202_010_mastery_restart_is_bounded_logged_and_covers_the_monitor, vc_202_010_mastery_status_surface_reports_every_worker (crates/susi-daemon/src/tests/vc_202_010_mastery.rs); service_supervision unit tests incl. vc_202_010_mastery",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791121391,
+  "check": [
+    "scripts/check-reachability.py",
+    "--delivered",
+    "service_supervision::heartbeat"
+  ],
+  "notes": "service_supervision::Supervisor (crates/susi-daemon/src/service_supervision.rs) is now the single in-process supervisor: every long-lived daemon worker spawns through it \u2014 signal-handler, pheromone-evaporator, gemi-http, gmcp-http, gmcp-http-alias, a2a-udp-discovery, a2a-http, pulse-worker, leaf-service-monitor, stun-discovery, os-tick, gossip-recv, ambient-indexer, cell-watcher, runtime-admin, capability-rediscovery \u2014 and every helper is a supervised one-shot (cell spawners, child reapers, mcp-auto-link, swarm-scout-kick). Zero bare thread::spawn/thread::Builder remains in production susi-daemon code (mastery source scan). Health: thread-exit plus heartbeat() per loop pass and a shared WatchdogManager cell per worker (attach_watchdog back-fills; dead-cell findings mark hung); a hung worker is reported, never cloned. Bounded restart through per-worker factories (listeners try_clone per respawn), every restart/panic/down logged to the shared supervisor.log via slog. One status surface: supervision.json persisted each round + folded into os_planes/susi os. The daemon process itself revives through ensure_daemon_running (detect dead pid -> respawn) and its systemd cgroup; the primary watcher keeps its heartbeat file."
+}

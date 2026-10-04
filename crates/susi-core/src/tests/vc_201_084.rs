@@ -26,8 +26,12 @@ fn vc_201_084_skips_local_only_and_tombstones() {
         deleted: false,
     });
     let export = a.export_for_peers();
-    assert!(export.iter().all(|r| r.id == "shared"));
+    assert!(export
+        .iter()
+        .filter(|r| !r.deleted)
+        .all(|r| r.id == "shared"));
     assert!(!a.records.contains_key("gone"));
+    assert!(export.iter().any(|r| r.id == "gone" && r.deleted));
 }
 
 #[test]

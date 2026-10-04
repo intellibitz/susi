@@ -913,7 +913,7 @@
       "id": "VC-201-073",
       "mastery_target": "Propagate local-only, workspace-private, and approved-cloud labels through inference, MCP, A2A, generated tools, and artifacts; indirect delegation cannot strip a label to bypass an egress denial.",
       "priority": "P0",
-      "progress": "PARTIAL: verbatim known-secret blocking works, but no classification-label type exists to propagate, the env detector covers only *_API_KEY/_TOKEN/_SECRET names with >=8-char values, verbatim matching misses obfuscation, and the default policy ships scrubbed content instead of refusing. Refuted on record; tracked by T-DEVIN20261002053148-32.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-073.json, T-DEVIN20261002053148-32, 2026-10-04): classification labels (local-only, workspace-private, approved-cloud) are propagated and enforced at egress boundaries; held credentials under arbitrary key names (including passwords and short tokens) and obfuscated secrets are detected; and the default prompt scan policy fails closed (Block). Verified by crates/susi-core/src/tests/vc_201_073_mastery.rs.",
       "type": "GOVERNANCE",
       "vector": "Enforce data classifications at every egress boundary"
     },
@@ -1006,7 +1006,7 @@
       "id": "VC-201-080",
       "mastery_target": "Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled.",
       "priority": "P0",
-      "progress": "PARTIAL: pre-registered cancellable tasks cancel and the stop persists, but register_task never checks the stop (post-stop registrations run uncancelled), the scope is a label that cannot exclude another region, the persisted file is unsigned and silently lifted by tampering, and the bus has no production caller. Refuted on record; tracked by T-DEVIN20261002053148-29.",
+      "progress": "DELIVERED: EmergencyStopBus enforces scoped stops at admission, registers task scopes, rejects tampered persisted files via SHA-256 HMAC integrity signatures, and is wired into SwarmTaskManager production task admission. Verified by crates/susi-core/src/tests/vc_201_080_mastery.rs (T-DEVIN20261002053148-29).",
       "type": "GOVERNANCE",
       "vector": "Apply an operator emergency stop across the fleet"
     },
@@ -1018,7 +1018,7 @@
       "id": "VC-201-081",
       "mastery_target": "Attach workspace, source receipt, source revision, data classification, expiry, and owner to durable memory; reads reject expired or unauthorized records and distinguish evidence from model-generated assertions.",
       "priority": "P0",
-      "progress": "PARTIAL: expiry arithmetic is correct, but the claimed fields (workspace, receipt, revision, classification, owner) do not exist, provenance is a self-declared string, there is no read path that rejects expired or unauthorized records, and nothing calls it. Refuted on record; tracked by T-DEVIN20261002053148-30.",
+      "progress": "DELIVERED: Provenance attaches workspace, receipt, revision, classification, and owner; reads enforce expiry and authorization; evidence is distinguished from model assertions; wired to ArchivedReceipt. Verified by crates/susi-core/src/tests/vc_201_081_mastery.rs (T-DEVIN20261002053148-30).",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Define authoritative memory provenance and retention"
     },
@@ -1042,7 +1042,7 @@
       "id": "VC-201-083",
       "mastery_target": "Delete selected records from authoritative memory, semantic indexes, caches, and supported replicas with durable tombstones; interrupted deletion resumes and retrieval cannot resurrect deleted content.",
       "priority": "P0",
-      "progress": "PARTIAL: in-process tombstone read-blocking and pending-resume propagation hold — verified by `crates/susi-core/src/tests/vc_201_083_mastery.rs`. Refuted on record 2026-10-03: insert() ignores tombstones so a late write after resume permanently repopulates all derived stores, tombstones are volatile in-memory state that a restart forgets, and MemoryStores has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-083.json`. Follow-up tracked by T-DEVIN20261002053148-12.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-083.json, T-DEVIN20261002053148-12, 2026-10-04): deletion propagates into derived stores (authoritative, semantic indexes, caches, and replicas) with durable tombstones; late writes after deletion are refused so derived stores cannot be repopulated; interrupted deletion resumes; tombstones persist across restarts; and retrieval cannot resurrect deleted content. Verified by crates/susi-core/src/tests/vc_201_083_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Propagate memory deletion into derived stores"
     },
@@ -1056,7 +1056,7 @@
       "id": "VC-201-084",
       "mastery_target": "Synchronize scoped records with provenance, conflict handling, and deletion semantics over authenticated peers; disconnected replicas converge without exporting local-only memory or reviving tombstoned records.",
       "priority": "P1",
-      "progress": "PARTIAL: converge() converges eligible records and tombstones, local_only records never export, tombstoned records never revive — verified by `crates/susi-core/src/tests/vc_201_084_mastery.rs`. Refuted on record 2026-10-03: provenance is compared lexically so a stale write outranks a newer one, deletion does not propagate via export_for_peers/merge_from_peer (only converge's tombstone sync carries it), no peer authentication exists, and no production caller drives the replication. Verdict `.agents/roadmap-verdicts/VC-201-084.json`. Follow-up tracked by T-DEVIN20261002053148-13.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-084.json, T-DEVIN20261002053148-13, 2026-10-04): scoped records synchronize with natural provenance ordering where newer writes outrank older writes; export_for_peers carries tombstone records so deletion propagates across peer export/merge; peer authentication is verified on export and merge; disconnected replicas converge without exporting local-only memory or reviving tombstoned records. Verified by crates/susi-core/src/tests/vc_201_084_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Replicate only policy-eligible swarm memory"
     },
@@ -1069,7 +1069,7 @@
       "id": "VC-201-085",
       "mastery_target": "Package approved reflexes, prompts, fixtures, and capability requirements with immutable versions and signatures; importing a skill verifies provenance and tests before granting it executable status.",
       "priority": "P1",
-      "progress": "PARTIAL: untrusted signers and mismatched signature strings are rejected — verified by `crates/susi-core/src/tests/vc_201_085_mastery.rs`. Refuted on record 2026-10-03: skill_sign is forgeable (no key material), the signature binds only name+version so signed content swaps freely, fixture tests are a caller-supplied flag never executed, and import_skill has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-085.json`. Follow-up tracked by T-DEVIN20261002053148-14.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-085.json, T-DEVIN20261002053148-14, 2026-10-04): skill artifacts are packaged with immutable versions and HMAC cryptographic signatures binding the full payload (reflexes, prompts, fixtures, capabilities); signature verification enforces key material; packaged fixtures are executed and unparseable fixtures are rejected before granting executable status. Verified by crates/susi-core/src/tests/vc_201_085_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Share verified skills as versioned artifacts"
     },
@@ -1153,7 +1153,7 @@
       "id": "VC-201-091",
       "mastery_target": "Carry mission, task, placement, experiment, and deployment IDs through bounded redacted logs, metrics, and traces; one failed distributed request can be followed end to end without recording credentials.",
       "priority": "P0",
-      "progress": "PARTIAL: trace linkage through mission/routing/provider spans to a file holds, but there is no redaction (credentials export verbatim), HTTP export is a WouldPost noop, no status field exists to mark a failed request, file export is unbounded, and no caller emits spans. Refuted on record; tracked by T-DEVIN20261002053148-31.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-091.json, T-DEVIN20261002053148-31, 2026-10-04): bounded, redacted observability carrying mission/routing/provider spans end to end; credentials (Authorization headers, api_key, token, secret) are redacted before export; Http export actually transmits over the shared HTTP transport when egress permits; OtelSpan carries typed status_code and status_message for distributed failure tracking; and file export is bounded by generational rotation. Verified by crates/susi-core/src/tests/vc_201_091_mastery.rs.",
       "type": "OPERATIONS",
       "vector": "Correlate observability across models, tools, and peers"
     },
@@ -1303,7 +1303,7 @@
       "id": "VC-202-001",
       "mastery_target": "Every configured provider credential is enumerated, probed with the cheapest possible call, and classified live / expired / unauthorized / rate-limited / unknown with the evidence recorded; keys are never deleted, and one report answers which credentials work today without spending meaningfully to find out.",
       "priority": "P0",
-      "progress": "PARTIAL: credential presence is reported (list_api_key_status env-name presence; key_statuses ages and rotation hints) — never liveness. Refuted by .agents/roadmap-verdicts/VC-202-001.json (T-DEEPSEEK-223): no credential inventory, no cheapest-call probe (probe_credentialed_opt_in is a stub), no live/expired/unauthorized/rate-limited/unknown classification, no recorded evidence, no single report. Residual: T-DEEPSEEK-224.",
+      "progress": "DELIVERED: credential_scout enumerates every configured remote-cloud credential, probes each with the cheapest authenticated call (GET {base}/models), classifies live/expired/unauthorized/rate-limited/unknown, records fingerprinted evidence (record_probe feeds failover; ScoutReport::format is the single report), and marks keys without ever deleting them. Wired into register_configured_cloud_endpoints (scout_configured_once, 300s interval-gated). Verified by vc_202_001_mastery_* (4/4) and verdict .agents/roadmap-verdicts/VC-202-001.json.",
       "type": "CONFIGURATION",
       "vector": "Provider credential inventory and liveness scouting"
     },
@@ -1367,7 +1367,7 @@
       "id": "VC-202-007",
       "mastery_target": "A natural-language intent is turned into a typed DAG whose nodes are real susi leaf operations with declared inputs, outputs and costs, executed with per-node provenance; an intent the system cannot serve is refused with what is missing, never approximated silently.",
       "priority": "P0",
-      "progress": "PARTIAL: the typed planner/executor machinery exists (susi_core::intent_plan) and is tested, but is dead code — zero production callers. Refuted by .agents/roadmap-verdicts/VC-202-007.json (T-DEEPSEEK-225): the production mission path comma-splits LLM output into Vec<String> goals and silently falls back to a one-goal plan. Residual: T-DEEPSEEK-226.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-007.json, T-DEEPSEEK-226, 2026-10-05): the typed intent DAG is on the production mission path — solve_planned_mission consults Planner::plan on the whole intent and every decomposed step, executes leaf-expressible work via intent_plan::execute with per-node NodeProvenance recorded as PLAN_NODE_EXECUTED interactions, refuses command-shaped input (PLAN_REFUSAL/PLAN_STEP_REFUSED), and routes non-leaf steps through a named PLAN_STEP_ROUTE instead of the old silent single-goal fallback. Leaf vocabulary: the registered ops (list_dir, view_file, grep_search, find_files, write_file, exec_command).",
       "type": "CORE",
       "vector": "Intent becomes a typed, executable DAG"
     },
@@ -1399,7 +1399,7 @@
       "id": "VC-202-010",
       "mastery_target": "Daemon, watcher, brain scout and every other long-lived process runs under supervision with health checks, bounded restart, logs and a status surface; a killed component recovers without a human, and no unsupervised background process remains.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (T-DEEPSEEK-230): every long-lived in-process worker now spawns through service_supervision::Supervisor — zero bare thread::spawn/thread::Builder in production susi-daemon (mastery scan). Exit/panic triggers bounded restart via per-worker factories; stale heartbeat or a dead watchdog cell marks a worker hung (reported, never cloned); restarts log to supervisor.log; the status surface is supervision.json + susi os. The swarm watchdog now has a cell per worker, pinged by worker heartbeats; susi-host pings from the os tick. Leaf services remain process-supervised; the leaf monitor itself is a supervised worker. Verified by .agents/roadmap-verdicts/VC-202-010.json.",
       "type": "OPERATIONS",
       "vector": "Every long-lived component is supervised"
     },
@@ -1437,7 +1437,7 @@
       "id": "VC-202-014",
       "mastery_target": "Secrets never appear in logs, traces or evidence; egress is allow-listed per mission; and each agent acts only within the authority of its own token, with every refusal recorded.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-014.json, T-DEEPSEEK-228, 2026-10-05): the per-mission egress gate is on the production dispatch path — ToolRegistry::execute_tool resolves the acting mission's evidence session, mints its posture-bounded token set (a mission can only narrow the process posture, never widen it), checks the mission's own tokens at dispatch, and consults its EgressGate on every egress-class call; missions declare allow-lists in {workspace}/.susi/mission-egress.json (absent = permissive default, malformed = fail closed) or via declare_mission_egress. EgressRefusal{mission,host,reason} and AuthorityRefusal{mission,tool,reason} are recorded per mission and surface on the mission report via the tools.mission.refusals topic (REFUSALS_RECORDED interaction). Secret redaction at the logging/capture/context-graph/untrusted-content/fleet/admin choke points unchanged.",
       "type": "GOVERNANCE",
       "vector": "Secrets, egress and per-agent authority"
     },
@@ -1506,7 +1506,7 @@
       "id": "VC-202-020",
       "mastery_target": "Availability is tracked as its own axis: each model and key is healthy, cooling after a rate limit with Retry-After respected, degraded after timeouts or 5xx, key-dead, or out of quota - while capability is measured only from task outcomes. Per-key rate and concurrency limits are arbitrated across all agents and delegated fan-out, and a refutation test proves that a storm of 429s and timeouts leaves the capability ranking untouched.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED: typed ModelHealth per scope on the production dispatch path (JobOutcome::target_health, Retry-After honoured, persisted across restarts); capability ranking provably untouched by 429/timeout storms; process-global per-key rate+concurrency arbitration (susi-gemi key_arbitration::try_acquire) admits every production provider.generate — the failover cascade skips saturated keys, probe helpers refuse on denial.",
       "type": "OPERATIONS",
       "vector": "Model health is a separate axis from model capability"
     },

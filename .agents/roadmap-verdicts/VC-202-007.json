@@ -1,10 +1,11 @@
 {
   "vector": "VC-202-007",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "The typed-DAG machinery exists in crates/susi-core/src/intent_plan.rs (Planner::plan validates a PlanDag of registered leaf operations; intent_plan::execute runs it with NodeProvenance records; command shapes and unplannable intents are typed PlanErrors) — but it has zero production callers: scripts/check-reachability.py --delivered 'Planner::plan' and 'intent_plan::execute' both report no production call sites. The mission path actually invoked (MissionPlanner::plan_mission in crates/susi-gemi/src/engines/runtime.rs, reached through the gemi plane bus and ama/master.rs) splits an LLM reply on commas into Vec<String> goals and pushes the raw goal as a single-item fallback when the model cannot decompose — a silent approximation of an unservable intent, the exact failure the vector forbids. So on the path users run, an intent never becomes a DAG: nodes carry no declared inputs/outputs/costs, execution records no per-node provenance, and the leaf registry's toy fs operations are not the real susi operation vocabulary missions need. Holds: the planner/executor machinery itself is correct and tested (vc_202_007_mastery_* in crates/susi-gawd-swarm/src/tests/vc_202_007_mastery.rs).",
+  "verdict": "delivered",
+  "evidence": "vc_202_007_mastery_typed_dag_machinery_holds, vc_202_007_mastery_refusals_are_typed_not_approximated, vc_202_007_mastery_production_path_runs_typed_dags, vc_202_007_mastery_route_split_is_typed (crates/susi-gawd-swarm/src/tests/vc_202_007_mastery.rs); Planner::plan and intent_plan::execute are production-reached from crates/susi-gawd-swarm/src/ama/master.rs:solve_planned_mission",
+  "missing": "",
   "tracked_by": ["T-DEEPSEEK-226"],
   "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1791128400,
-  "check": ["scripts/check-reachability.py", "--refuted", "intent_plan::execute"]
+  "recorded_unix": 1791139000,
+  "check": ["scripts/check-reachability.py", "--delivered", "intent_plan::execute"],
+  "note": "solve_planned_mission — the mission path callers invoke — now tries Planner::plan on the whole intent and on every decomposed step before the general solve: leaf-expressible intents run end-to-end as validated PlanDags via intent_plan::execute with per-node NodeProvenance recorded as PLAN_NODE_EXECUTED interactions on the report; command-shaped input is refused (PLAN_REFUSAL / PLAN_STEP_REFUSED, Mandate 55); steps outside the leaf vocabulary take a named PLAN_STEP_ROUTE to the swarm solve instead of the old silent single-goal fallback. Leaf vocabulary is the registered set (list_dir, view_file, grep_search, find_files, write_file, exec_command) — real ops with declared inputs/outputs/costs; widening it to more tool-backed ops is a registry extension, not a wiring gap."
 }

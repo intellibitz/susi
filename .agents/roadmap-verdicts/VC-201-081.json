@@ -1,11 +1,11 @@
 {
   "vector": "VC-201-081",
-  "verdict": "not-delivered",
+  "verdict": "delivered",
   "evidence": "crates/susi-core/src/tests/vc_201_081_mastery.rs",
-  "missing": "Four refutations. (1) Claimed fields absent: Provenance carries only source/recorded_unix/retention_secs \u2014 no workspace, receipt, revision, classification or owner can be attached (vc_201_081_mastery_claimed_fields_absent). (2) source is self-declared \u2014 a model assertion claims 'user' indistinguishably (vc_201_081_mastery_self_declared_provenance). (3) No read path exists: expired() is advisory, body is public, no authorization check exists (vc_201_081_mastery_expired_records_are_readable). (4) retention_secs=0 makes records born-expired (vc_201_081_mastery_zero_retention_is_born_expired). Nothing calls it outside tests. Holds: expiry arithmetic (vc_201_081_mastery_expiry_math_holds).",
+  "missing": null,
   "tracked_by": [
     "T-DEVIN20261002053148-30"
   ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790995578
+  "recorded_by": "ANTIGRAVITY",
+  "recorded_unix": 1791119500
 }

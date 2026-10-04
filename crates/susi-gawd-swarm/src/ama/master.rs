@@ -1588,6 +1588,51 @@ impl SusiMasterAgent {
         })
     }
 
+    /// An intent the leaf-operation vocabulary expresses end to end: run the
+    /// validated `PlanDag` with per-node provenance and report the last
+    /// node's output — the DAG itself is the plan; there is no decomposed
+    /// string list to approximate.
+    fn solve_dag_mission(
+        goal: &str,
+        dag: &crate::susi_core::intent_plan::PlanDag,
+        workspace: &Path,
+    ) -> EaiResult<SusiMissionReport> {
+        let mut interactions = Vec::new();
+        let final_answer = Self::run_dag_step(dag, workspace, &mut interactions)?;
+        Ok(SusiMissionReport {
+            goal: goal.to_string(),
+            status: "COMPLETE".into(),
+            agents: Vec::new(),
+            interactions,
+            plan: None,
+            final_answer,
+        })
+    }
+
+    /// Execute one validated DAG on the workspace, appending one
+    /// `PLAN_NODE_EXECUTED` interaction per node carrying its full
+    /// `NodeProvenance` record (operation, resolved inputs, cost, output).
+    /// Returns the final node's output.
+    fn run_dag_step(
+        dag: &crate::susi_core::intent_plan::PlanDag,
+        workspace: &Path,
+        interactions: &mut Vec<A2AMessage>,
+    ) -> EaiResult<String> {
+        let provenance = crate::susi_core::intent_plan::execute(dag, workspace)?;
+        for record in &provenance {
+            interactions.push(A2AMessage {
+                sender: "IntentDAG".into(),
+                recipient: "SUSI-Master".into(),
+                action: "PLAN_NODE_EXECUTED".into(),
+                payload: serde_json::to_string(record).unwrap_or_else(|_| "{}".to_string()),
+            });
+        }
+        Ok(provenance
+            .last()
+            .map(|record| record.output.clone())
+            .unwrap_or_default())
+    }
+
     fn solve_planned_mission(
         &self,
         goal: &str,
@@ -1595,6 +1640,40 @@ impl SusiMasterAgent {
         version: &str,
         depth: u32,
     ) -> EaiResult<SusiMissionReport> {
+        use crate::susi_core::intent_plan::{PlanError, Planner};
+
+        // Typed-DAG route (VC-202-007): an intent the leaf-operation
+        // vocabulary expresses runs as a validated PlanDag with per-node
+        // provenance instead of a decomposed goal list. Command-shaped
+        // input is refused outright; intents the vocabulary cannot express
+        // fall through to the swarm decomposition — a named route on the
+        // record, never a silent single-goal approximation.
+        match Planner::plan(goal) {
+            Ok(dag) => return Self::solve_dag_mission(goal, &dag, workspace),
+            Err(PlanError::CommandShaped) => {
+                return Ok(SusiMissionReport {
+                    goal: goal.to_string(),
+                    status: "BLOCKED".into(),
+                    agents: Vec::new(),
+                    interactions: vec![A2AMessage {
+                        sender: "IntentDAG".into(),
+                        recipient: "SUSI-Master".into(),
+                        action: "PLAN_REFUSAL".into(),
+                        payload: PlanError::CommandShaped.to_string(),
+                    }],
+                    plan: None,
+                    final_answer: format!("PLAN_REFUSAL: {}", PlanError::CommandShaped),
+                });
+            }
+            Err(
+                PlanError::Unplannable { .. }
+                | PlanError::Cycle(_)
+                | PlanError::UnknownOperation(_)
+                | PlanError::UnknownDependency { .. }
+                | PlanError::MissingInput { .. },
+            ) => {}
+        }
+
         let mut plan_val =
             crate::susi_core::plane_bus::gemi::MissionPlanner::plan_mission(goal, workspace)
                 .map_err(crate::susi_error::EaiError::governance)?;
@@ -1606,31 +1685,79 @@ impl SusiMasterAgent {
 
         let mut current_step = 0;
         while current_step < goals.len() {
-            let sub_goal = &goals[current_step];
+            let sub_goal = goals[current_step].clone();
             let tagged_goal = format!("[STEP {}/{}]: {}", current_step + 1, goals.len(), sub_goal);
-            let report = self.solve_internal(&tagged_goal, workspace, version, depth + 1)?;
 
-            all_interactions.extend(report.interactions.clone());
-            all_agents.extend(report.agents.clone());
-            final_responses.push(report.final_answer.clone());
-            all_ok = all_ok && report.is_success();
+            // Every decomposed step is tried against the typed planner
+            // first: a leaf-expressible step runs as a real DAG with
+            // provenance; the rest are served by the general solve under a
+            // recorded route.
+            match Planner::plan(&sub_goal) {
+                Ok(dag) => {
+                    let output = Self::run_dag_step(&dag, workspace, &mut all_interactions)?;
+                    final_responses.push(output);
+                }
+                Err(PlanError::CommandShaped) => {
+                    all_ok = false;
+                    all_interactions.push(A2AMessage {
+                        sender: "IntentDAG".into(),
+                        recipient: "SUSI-Master".into(),
+                        action: "PLAN_STEP_REFUSED".into(),
+                        payload: format!(
+                            "step {} refused (Mandate 55): {}",
+                            current_step + 1,
+                            PlanError::CommandShaped
+                        ),
+                    });
+                    final_responses.push(format!("PLAN_REFUSAL: {}", PlanError::CommandShaped));
+                }
+                Err(
+                    error @ (PlanError::Unplannable { .. }
+                    | PlanError::Cycle(_)
+                    | PlanError::UnknownOperation(_)
+                    | PlanError::UnknownDependency { .. }
+                    | PlanError::MissingInput { .. }),
+                ) => {
+                    all_interactions.push(A2AMessage {
+                        sender: "IntentDAG".into(),
+                        recipient: "SUSI-Master".into(),
+                        action: "PLAN_STEP_ROUTE".into(),
+                        payload: format!(
+                            "step {} swarm-solve (not leaf-expressible: {})",
+                            current_step + 1,
+                            error
+                        ),
+                    });
+                    let report =
+                        self.solve_internal(&tagged_goal, workspace, version, depth + 1)?;
 
-            // Dynamic Plan Mutation: Check for failure or gap in the last step
-            if report.final_answer.contains("FAILURE") || report.final_answer.contains("GAP") {
-                crate::susi_sandbox::manager::SusiAuditLogger::log_event(
-                    workspace,
-                    "PLAN_MUTATION",
-                    &format!("Refining plan due to step {} failure.", current_step + 1),
-                );
+                    all_interactions.extend(report.interactions.clone());
+                    all_agents.extend(report.agents.clone());
+                    final_responses.push(report.final_answer.clone());
+                    all_ok = all_ok && report.is_success();
 
-                let blackboard_state = format!("LATEST_OUTCOME: {}", report.final_answer);
-                if let Ok(new_plan) = crate::susi_core::plane_bus::gemi::MissionPlanner::refine_plan(
-                    goal,
-                    &serde_json::json!({ "blackboard": blackboard_state }),
-                    workspace,
-                ) {
-                    plan_val = new_plan;
-                    goals = mission_plan_goals(&plan_val);
+                    // Dynamic Plan Mutation: Check for failure or gap in the last step
+                    if report.final_answer.contains("FAILURE")
+                        || report.final_answer.contains("GAP")
+                    {
+                        crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                            workspace,
+                            "PLAN_MUTATION",
+                            &format!("Refining plan due to step {} failure.", current_step + 1),
+                        );
+
+                        let blackboard_state = format!("LATEST_OUTCOME: {}", report.final_answer);
+                        if let Ok(new_plan) =
+                            crate::susi_core::plane_bus::gemi::MissionPlanner::refine_plan(
+                                goal,
+                                &serde_json::json!({ "blackboard": blackboard_state }),
+                                workspace,
+                            )
+                        {
+                            plan_val = new_plan;
+                            goals = mission_plan_goals(&plan_val);
+                        }
+                    }
                 }
             }
 
@@ -1763,6 +1890,38 @@ fn attach_evidence_ledger(
                 action: "EVIDENCE_CAPTURED".into(),
                 payload: summary,
             });
+        }
+        // Per-mission authority records (VC-202-014): the egress-gate and
+        // token refusals this mission accumulated on the dispatch path —
+        // recorded records must surface on the report, not just sit in the
+        // registry. The tools plane answers `tools.mission.refusals`; a
+        // substrate without it registered simply yields no row.
+        if let Ok(refusals) = crate::susi_core::plane_bus::PlaneBus::global().request(
+            "tools.mission.refusals",
+            serde_json::json!({ "mission": session.id() }),
+        ) {
+            let egress = refusals
+                .get("egress")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let authority = refusals
+                .get("authority")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            if !egress.is_empty() || !authority.is_empty() {
+                report.interactions.push(A2AMessage {
+                    sender: "AuthorityGate".into(),
+                    recipient: "SUSI-Master".into(),
+                    action: "REFUSALS_RECORDED".into(),
+                    payload: serde_json::json!({
+                        "egress": egress,
+                        "authority": authority,
+                    })
+                    .to_string(),
+                });
+            }
         }
     }
     report.persist_inspectable_trace(workspace);

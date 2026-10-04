@@ -1,0 +1,11 @@
+{
+  "vector": "VC-202-014",
+  "verdict": "delivered",
+  "evidence": "vc_202_014_mastery_gate_consulted_per_mission_refusals_recorded, vc_202_014_mastery_permissive_mission_refuses_nothing, vc_202_014_mastery_agent_tokens_checked_at_dispatch, vc_202_014_mastery_workspace_declaration_binds_policy, vc_202_014_mastery_url_hosts_extracted_from_tool_args (crates/susi-tools/src/registry.rs); vc_202_014_mastery_egress_gate_records_per_mission_refusals, vc_202_014_mastery_egress_gate_is_on_the_production_dispatch_path, vc_202_014_mastery_secret_redaction_scrubs_key_material (crates/susi-gawd-swarm/src/tests/vc_202_014_mastery.rs)",
+  "missing": "",
+  "tracked_by": ["T-DEEPSEEK-228"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791137600,
+  "check": ["scripts/check-reachability.py", "--delivered", "check_mission_egress"],
+  "note": "ToolRegistry::execute_tool — the single choke every tool dispatch passes — resolves the acting mission's evidence session, mints its posture-bounded token set (a mission can only narrow the process posture, never widen it), checks the mission's own tokens at dispatch, and consults the mission's EgressGate on every egress-class call. Missions declare allow-lists in {workspace}/.susi/mission-egress.json or via ToolRegistry::declare_mission_egress; absent = documented permissive default, malformed = fail closed. Egress denials record EgressRefusal{mission,host,reason}; token denials record AuthorityRefusal{mission,tool,reason}; both surface on the mission report via the tools.mission.refusals plane-bus topic (REFUSALS_RECORDED interaction in attach_evidence_ledger). Redaction leg unchanged: redact_credentials runs at the logging/capture/context-graph/untrusted-content/fleet/admin choke points."
+}

@@ -23,10 +23,17 @@ pub fn start_ambient_indexer(workspace: &Path) {
         return;
     }
     let ws = workspace.to_path_buf();
-    std::thread::Builder::new()
-        .name("susi-ambient".into())
-        .spawn(move || ambient_loop(ws))
-        .ok();
+    // Supervised: a full-tree scan can legitimately take minutes, so the
+    // heartbeat bound is generous — a wedged scan is reported, not cloned.
+    crate::service_supervision::Supervisor::global().spawn(
+        "ambient-indexer",
+        3,
+        Some(Duration::from_secs(900)),
+        move || {
+            let ws = ws.clone();
+            Some(move || ambient_loop(ws))
+        },
+    );
 }
 
 /// One-shot ambient pulse (also used by CLI).
@@ -105,6 +112,7 @@ fn save_scan_state(workspace: &Path, state: &HashMap<String, u64>) {
 fn ambient_loop(workspace: PathBuf) {
     let mut last = load_scan_state(&workspace);
     loop {
+        crate::service_supervision::heartbeat("ambient-indexer");
         let changed = scan_with_state(&workspace, &mut last);
         if changed > 0 {
             save_scan_state(&workspace, &last);

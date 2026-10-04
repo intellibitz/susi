@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-084",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "Three refutations. (1) Conflict resolution is wrong: merge_from_peer compares provenance as a string, so a stale write outranks a newer one — 'p9' beats 'p10' lexically and the replica keeps the older record forever (vc_201_084_mastery_lexical_provenance_keeps_stale_write). (2) Deletion does not propagate on the export/merge path: export_for_peers silently drops tombstoned records and merge_from_peer never sees the tombstone set, so a peer that only merges exports keeps deleted content and can re-broadcast it; only the converge() helper's separate tombstone sync carries deletes (vc_201_084_mastery_delete_does_not_propagate_via_export_merge). (3) No peer authentication exists in the path and memory_replicate has no production caller — no replication channel runs this code. Holds: converge() converges eligible records and tombstones, local_only records never export, tombstoned records never revive (vc_201_084_mastery_converge_and_eligibility_hold).",
+  "verdict": "delivered",
+  "evidence": "crates/susi-core/src/tests/vc_201_084_mastery.rs",
+  "missing": "",
   "tracked_by": ["T-DEVIN20261002053148-13"],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790985395
+  "recorded_by": "ANTIGRAVITY",
+  "recorded_unix": 1791138120
 }

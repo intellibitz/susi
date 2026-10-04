@@ -46,6 +46,8 @@ pub fn probe(prompt: &str) -> Result<String> {
         .enable_all()
         .build()
         .context("tokio runtime for OpenRouter probe")?;
+    let _permit = crate::key_arbitration::try_acquire(provider.name())
+        .map_err(|d| susi_error::eai_err!(format!("{}: {}", provider.name(), d.describe())))?;
     let text = runtime
         .block_on(provider.generate(prompt))
         .map_err(|e| susi_error::eai_err!(e.to_string()))?;
