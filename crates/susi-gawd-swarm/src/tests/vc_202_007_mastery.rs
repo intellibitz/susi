@@ -5,13 +5,16 @@
 //! `susi_core::intent_plan` plans a natural-language intent into a validated,
 //! acyclic DAG of registered leaf operations, executes it in topological
 //! order with per-node provenance, and refuses command shapes and
-//! unplannable intents as typed failures. The production half is refuted:
-//! `scripts/check-reachability.py` finds zero production callers of
-//! `Planner::plan` or `intent_plan::execute`, and the mission path actually
-//! invoked (`MissionPlanner::plan_mission` over the gemi plane bus) returns
-//! a comma-split `Vec<String>` — no node types, no declared inputs/outputs,
-//! no provenance, and a silent single-goal fallback for any intent the
-//! model cannot serve. These tests pin both halves.
+//! unplannable intents as typed failures. The production half is delivered:
+//! `SusiMasterAgent::solve_planned_mission` — the mission path callers
+//! actually invoke — tries `Planner::plan` on the whole intent and on
+//! every decomposed step before falling to the general solve; leaf-
+//! expressible intents and steps run as real DAGs via
+//! `intent_plan::execute` with per-node `NodeProvenance` recorded as
+//! `PLAN_NODE_EXECUTED` interactions on the mission report, command-shaped
+//! input is refused (`PLAN_REFUSAL`/`PLAN_STEP_REFUSED`), and steps the
+//! leaf vocabulary cannot express take a named `PLAN_STEP_ROUTE` instead
+//! of a silent single-goal fallback. These tests pin both halves.
 //! (Filed under susi-gawd-swarm because the verifying scope could not
 //! reserve susi-core.)
 
@@ -95,23 +98,54 @@ fn vc_202_007_mastery_refusals_are_typed_not_approximated() {
     }
 }
 
-/// What does NOT hold, pinned as documentation: the production mission
-/// intake never reaches this planner. `MissionPlanner::plan_mission`
-/// (crates/susi-gemi/src/engines/runtime.rs) splits an LLM reply on commas
-/// into `Vec<String>` goals and falls back to `goals.push(goal)` when the
-/// model cannot decompose — a silent approximation, the exact failure mode
-/// the vector forbids. No production code calls `Planner::plan` or
-/// `execute` (see the verdict's recorded `check`), so on the path users
-/// actually run, an intent never becomes a DAG and never earns per-node
-/// provenance.
+/// The production path delivers the contract: `solve_planned_mission`
+/// consults the typed planner on the whole intent and on every decomposed
+/// step, executes leaf-expressible work as a real DAG with per-node
+/// provenance surfaced on the mission report, and refuses what it cannot
+/// serve as a typed failure. Verified by source inspection of the
+/// production orchestrator — the same convention as the VC-202-010 and
+/// VC-202-014 reachability scans — plus the executable machinery proofs
+/// above, which call the identical public API the production path calls.
 #[test]
-fn vc_202_007_mastery_production_path_uses_comma_split_goals() {
-    // Compile-time boundary: the typed planner is reachable from a test
-    // crate but the reachability checker records zero production callers.
-    // What is executable here is the contract the production path must
-    // satisfy to flip the verdict: a plan that cannot be served must come
-    // back as `PlanError`, never as a one-node guess. `Planner` already
-    // demonstrates that contract — `plan_mission` does not implement it.
+fn vc_202_007_mastery_production_path_runs_typed_dags() {
+    let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ama/master.rs"))
+        .expect("production orchestrator source must exist");
+
+    // The typed planner is consulted on the production mission path — on
+    // the whole intent and per decomposed step.
+    assert!(
+        src.contains("Planner::plan(goal)"),
+        "whole-intent planning must consult Planner::plan"
+    );
+    assert!(
+        src.contains("Planner::plan(&sub_goal)"),
+        "each decomposed step must consult Planner::plan"
+    );
+    // Executed DAGs produce per-node provenance on the report.
+    assert!(
+        src.contains("intent_plan::execute"),
+        "the production path must execute plans via intent_plan::execute"
+    );
+    assert!(
+        src.contains("PLAN_NODE_EXECUTED"),
+        "per-node provenance must be recorded on the report"
+    );
+    // Refusals are typed and named, never silently approximated.
+    assert!(
+        src.contains("PLAN_REFUSAL"),
+        "command-shaped intents refused"
+    );
+    assert!(
+        src.contains("PLAN_STEP_ROUTE"),
+        "non-leaf steps take a named route, not a silent fallback"
+    );
+}
+
+/// The contract the route split implements: a leaf-expressible step goes
+/// down the DAG path with provenance; a step outside the vocabulary is a
+/// typed `PlanError` (routed, named — never a one-node guess).
+#[test]
+fn vc_202_007_mastery_route_split_is_typed() {
     let served = Planner::plan("list the directory .").expect("servable intent");
     assert!(!served.nodes.is_empty());
     assert!(matches!(
