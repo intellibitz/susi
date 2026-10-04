@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-62",
+  "title": "Verify mastery: Normalize A2A and external-agent recovery contracts",
+  "goal": "VC-201-087 (P1) claims mastery of: Exercise task identity, status, cancellation, artifact ownership, and retry semantics through supported adapters; duplicate deliveries and unknown remote outcomes cannot silently produce duplicate authoritative completion.. Its own narrative does not claim delivery: PARTIAL: A2A wire dialect selection, security schemes and extensions are documented with provenance. Verified by `crates/susi-gawd-a2a/src/a2a_profile.rs` (eco_a2a_versions_client_selects_dialect, eco_a2a_versions_fixture_documents_0_2_and_0_3, eco_a2a_security_documents_schemes_and_extensions) and `crates/susi-gawd-a2a/src/eco_a2a_security.rs` (profiles_are_valid, facts_cover_the_required_surface. Prove or refute it: add a nonzero test named vc_201_087_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence. Closing this task records the outcome, not a passing test: write .agents/roadmap-verdicts/<the vector>.json with verdict 'delivered' (and the test or record that proves it) or 'not-delivered' (with what is missing and the task ids that track the follow-up work), then run scripts/check-roadmap-verdict.py <the vector> — which is this task's acceptance. A refutation therefore closes the task and files the work, instead of stalling on a test that cannot pass; the roadmap and the queue both understand the record. Do not reserve .agents/roadmap-verdicts in your claim: the directory is exempt from the scope check precisely so a verdict commits under your source claim, and reserving it would overlap every other verification task and serialize them all. Reserve the source paths you will touch, and add a scope if the verdict needs to change the vector's narrative in .agents/roadmap.json. Evidence must name something real: a path that exists in the checkout, or an identifier (a test name) that appears in it. The checker verifies this, so a verdict cannot be closed by typing a claim. Put the test in its own file named after the vector (for example crates/<crate>/src/tests/<vc_id>_mastery.rs) and reserve that file with --scope: if several vectors' tests land in one crate test file, their claim scopes overlap and the verifications serialize, so one file per vector is what lets them run at the same time.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-087"
+    ]
+  },
+  "roadmap": "VC-201-087",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916198,
+  "closed": {
+    "at_unix": 1791086108,
+    "commit": "5707b89c21bcce0765511138f855008508292b1b",
+    "by": "CLAUDE1"
+  }
+}
