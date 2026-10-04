@@ -167,22 +167,50 @@ pub fn apply_patch_cycle(
     }
 
     // Run tests.
-    let test_cmd = request
-        .test_command
-        .clone()
-        .unwrap_or_else(|| detect_test_command(workspace));
-    let output = match Command::new("sh")
-        .arg("-c")
-        .arg(&test_cmd)
-        .current_dir(workspace)
-        .output()
-    {
-        Ok(output) => output,
-        Err(e) => return Err(rollback(format!("failed to run test command: {e}"))),
-    };
-    let test_passed = output.status.success();
-    let test_stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let test_stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let susi_repo = crate::susi_core::self_build::is_susi_repo(workspace);
+    let mut test_passed = true;
+    let mut test_stdout = String::new();
+    let mut test_stderr = String::new();
+    if let Some(test_cmd) = request.test_command.clone() {
+        let output = match Command::new("sh")
+            .arg("-c")
+            .arg(&test_cmd)
+            .current_dir(workspace)
+            .output()
+        {
+            Ok(output) => output,
+            Err(e) => return Err(rollback(format!("failed to run test command: {e}"))),
+        };
+        test_passed = output.status.success();
+        test_stdout.push_str(&String::from_utf8_lossy(&output.stdout));
+        test_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
+    } else if !susi_repo {
+        let test_cmd = detect_test_command(workspace);
+        let output = match Command::new("sh")
+            .arg("-c")
+            .arg(&test_cmd)
+            .current_dir(workspace)
+            .output()
+        {
+            Ok(output) => output,
+            Err(e) => return Err(rollback(format!("failed to run test command: {e}"))),
+        };
+        test_passed = output.status.success();
+        test_stdout.push_str(&String::from_utf8_lossy(&output.stdout));
+        test_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
+    }
+    if susi_repo {
+        match crate::repo_gate::run_repository_gate(workspace) {
+            Ok(report) => {
+                test_passed &= report.promotion_ready();
+                test_stdout.push_str(&format!("repository gate executed: {report:?}"));
+            }
+            Err(error) => {
+                test_passed = false;
+                test_stderr.push_str(&error.to_string());
+            }
+        }
+    }
 
     let mut reverted = false;
     let mut error = None;
@@ -289,6 +317,38 @@ mod tests {
         assert!(!out.reverted);
         let content = std::fs::read_to_string(ws.join("a.txt")).unwrap();
         assert_eq!(content, "new");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn susi_repo_runs_the_full_gate_even_with_an_override_command() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(ws.join(".agents"));
+        std::fs::write(ws.join(".agents/identity.json"), "{}").unwrap();
+        std::fs::write(
+            ws.join("Cargo.toml"),
+            "[package]\nname = \"susi\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        let _ = std::fs::create_dir_all(ws.join("src"));
+        std::fs::write(ws.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+        std::fs::write(ws.join("a.txt"), "old").unwrap();
+        let req = PatchRequest {
+            files: vec![FilePatch {
+                path: "a.txt".into(),
+                old: "old".into(),
+                new: "new".into(),
+            }],
+            test_command: Some("true".into()),
+            auto_apply: true,
+            description: "test".into(),
+        };
+        let out = apply_patch_cycle(&ws, &req, "balanced").unwrap();
+        assert!(out.applied);
+        assert!(!out.test_passed, "the override must not bypass the gate");
+        assert!(out.reverted);
+        assert!(out.test_stdout.contains("repository gate executed"));
+        assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "old");
         let _ = std::fs::remove_dir_all(&ws);
     }
 
