@@ -505,6 +505,10 @@ pub(crate) enum AdminCommands {
     AuditDeps,
     /// Dynamic configuration hot-reload
     Reload,
+    /// Provider contract checks: fixture-backed checks always;
+    /// credentialed live probes when SUSI_PROVIDER_PROBE=1
+    #[command(name = "provider-contract")]
+    ProviderContract,
 }
 
 #[derive(Subcommand)]
