@@ -18,66 +18,79 @@ fn iso() -> TenantIsolation {
             max_queue: 2,
             budget_usd_cents: 100,
         },
-    });
+    })
+    .unwrap();
     i
 }
 
-/// Cross-tenant workspace isolation is a lexical `starts_with` — a sibling
-/// directory sharing the prefix (`/t/alpha-evil`) reads as inside alpha's
-/// workspace. Another tenant's tree is reachable without crossing a
-/// boundary.
+/// Fixed: cross-tenant workspace isolation now resolves the path and
+/// requires an exact match or a `/`-bounded nesting under the root, so a
+/// sibling directory that merely shares the string prefix
+/// (`/t/alpha-evil`) is no longer admitted as inside `/t/alpha`.
 #[test]
 fn vc_201_078_mastery_sibling_prefix_escape() {
     let i = iso();
     assert_eq!(
         i.read_path("alpha", "/t/alpha-evil/secrets"),
-        AccessVerdict::Allowed,
-        "lexical prefix admits a foreign sibling workspace"
+        AccessVerdict::CrossTenantDenied,
+        "a sibling sharing only a string prefix must not read as inside the workspace"
     );
 }
 
-/// `..` never normalizes under `starts_with` — `/t/alpha/../beta` resolves
-/// to a foreign workspace yet is Allowed.
+/// Fixed: the path is resolved lexically (`.`/`..` collapsed) before the
+/// boundary check, so `/t/alpha/../beta/secrets` — which resolves to a
+/// foreign workspace — is denied instead of matching the raw prefix.
 #[test]
 fn vc_201_078_mastery_dotdot_escape() {
     let i = iso();
     assert_eq!(
         i.read_path("alpha", "/t/alpha/../beta/secrets"),
-        AccessVerdict::Allowed,
-        "dotdot inside the prefix escapes the workspace"
+        AccessVerdict::CrossTenantDenied,
+        "a dotdot that resolves outside the workspace must be denied"
     );
 }
 
-/// `register` silently replaces an existing tenant's context — any caller
-/// can rebind `alpha` to a different root/grants/quota with no ownership or
-/// lease check. Identity is mutable by overwrite.
+/// Fixed: `register` now refuses to rebind an already-registered
+/// tenant_id — any caller swapping another tenant's root/grants/quota by
+/// re-registering is rejected, not silently applied.
 #[test]
 fn vc_201_078_mastery_reregister_swaps_identity_silently() {
     let mut i = iso();
-    i.register(TenantContext {
-        tenant_id: "alpha".into(),
-        workspace_root: "/t/beta".into(),
-        memory_ns: "mem-beta".into(),
-        tool_grants: ["admin".into()].into_iter().collect(),
-        quota: TenantQuota {
-            max_queue: 999,
-            budget_usd_cents: u64::MAX,
-        },
-    });
-    assert_eq!(i.read_path("alpha", "/t/beta/x"), AccessVerdict::Allowed);
-    assert_eq!(i.use_tool("alpha", "admin"), AccessVerdict::Allowed);
+    let err = i
+        .register(TenantContext {
+            tenant_id: "alpha".into(),
+            workspace_root: "/t/beta".into(),
+            memory_ns: "mem-beta".into(),
+            tool_grants: ["admin".into()].into_iter().collect(),
+            quota: TenantQuota {
+                max_queue: 999,
+                budget_usd_cents: u64::MAX,
+            },
+        })
+        .expect_err("re-registering an existing tenant_id must be refused");
+    assert!(err.contains("alpha"), "{err}");
+    // The original identity is untouched.
+    assert_eq!(
+        i.read_path("alpha", "/t/beta/x"),
+        AccessVerdict::CrossTenantDenied
+    );
+    assert_eq!(i.use_tool("alpha", "admin"), AccessVerdict::ToolDenied);
 }
 
-/// The queue never drains: `enqueue` only increments — there is no
-/// dequeue/complete — so `max_queue` is a permanent, monotone wedge, not a
-/// live concurrency bound.
+/// Fixed: `dequeue` releases a slot, so `max_queue` is a live bound rather
+/// than a permanent, monotone wedge.
 #[test]
 fn vc_201_078_mastery_queue_never_drains() {
     let mut i = iso();
     assert_eq!(i.enqueue("alpha"), AccessVerdict::Allowed);
     assert_eq!(i.enqueue("alpha"), AccessVerdict::Allowed);
     assert_eq!(i.enqueue("alpha"), AccessVerdict::QuotaExhausted);
-    // No API exists to release the slots — "alpha" is wedged forever.
+    assert_eq!(i.dequeue("alpha"), AccessVerdict::Allowed);
+    assert_eq!(
+        i.enqueue("alpha"),
+        AccessVerdict::Allowed,
+        "a released slot must be reusable"
+    );
 }
 
 /// Holds: foreign namespace reads are denied.
@@ -109,4 +122,32 @@ fn vc_201_078_mastery_tool_and_budget_bounds_hold() {
     assert_eq!(i.charge("alpha", 150), AccessVerdict::QuotaExhausted);
     assert_eq!(i.charge("alpha", 100), AccessVerdict::Allowed);
     assert_eq!(i.charge("alpha", 1), AccessVerdict::QuotaExhausted);
+}
+
+/// New: `unregister` is the sanctioned way to free a tenant_id — after it,
+/// re-registering with a new context succeeds and the tenant's prior queue
+/// and spend do not leak into the new registration.
+#[test]
+fn vc_201_078_mastery_unregister_then_reregister_is_clean() {
+    let mut i = iso();
+    assert_eq!(i.enqueue("alpha"), AccessVerdict::Allowed);
+    assert_eq!(i.charge("alpha", 100), AccessVerdict::Allowed);
+    i.unregister("alpha");
+    i.register(TenantContext {
+        tenant_id: "alpha".into(),
+        workspace_root: "/t/alpha2".into(),
+        memory_ns: "mem-alpha2".into(),
+        tool_grants: BTreeSet::new(),
+        quota: TenantQuota {
+            max_queue: 1,
+            budget_usd_cents: 10,
+        },
+    })
+    .unwrap();
+    assert_eq!(i.enqueue("alpha"), AccessVerdict::Allowed);
+    assert_eq!(
+        i.charge("alpha", 10),
+        AccessVerdict::Allowed,
+        "old spend must not carry over to the fresh registration"
+    );
 }
