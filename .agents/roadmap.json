@@ -900,7 +900,7 @@
       "id": "VC-201-072",
       "mastery_target": "Bind credentials to workspace, mission, capabilities, audience, and expiry; an agent cannot reuse a token for a different mission or broader tool scope and cancellation revokes eligible credentials.",
       "priority": "P0",
-      "progress": "PARTIAL: gateway workload credentials are issued, authorized and revoked, with token and spend budgets enforced. Verified by `crates/susi-server/src/gateway_keys.rs`: issue_authorize_and_revoke, enforces_token_budget, enforces_spend_budget. Residual: binding to workspace, mission, capabilities, audience and expiry, and revocation on cancellation, are not individually enumerated by a named check. Evidence: T-CLAUDE-77.",
+      "progress": "DELIVERED: Gateway workload credentials bind to workspace, mission, capabilities, audience, and expiry; mission cancellation revokes eligible credentials. Verified by vc_201_072_mastery_binding_and_expiry and vc_201_072_mastery_cancellation_revokes_credentials in crates/susi-server/src/gateway_keys.rs.",
       "type": "GOVERNANCE",
       "vector": "Issue scoped expiring workload credentials"
     },
