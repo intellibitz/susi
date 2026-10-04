@@ -5,7 +5,7 @@
 //! states and operator limits; simulated pressure throttles or reroutes eligible
 //! work while preserving local-only requirements.
 
-use crate::thermal_routing::{HostFitness, ThermalRouter, ThermalSample};
+use crate::thermal_routing::{HostFitness, LocalWorkGate, ThermalRouter, ThermalSample};
 
 #[test]
 fn vc_201_048_mastery_thermal_and_power_pressure_transitions() {
@@ -71,4 +71,52 @@ fn vc_201_048_mastery_prefer_cloud_lacks_local_only_preservation() {
     let local_request = PlacementRequest { local_only: true };
     // Demonstrates that router does not handle local-only preservation internally:
     assert!(router.prefer_cloud() && local_request.local_only);
+}
+
+/// Acceptance: unknown host telemetry is an explicit state that placement
+/// never reads as fit, and the operator gate queues then throttles local-only
+/// work under pressure instead of rerouting it to cloud.
+#[test]
+fn vc_201_048_thermal_router_unknown_telemetry_in_placement() {
+    let mut router = ThermalRouter::new(85.0, 70.0, 2);
+
+    // Unknown telemetry must not be read as "fit".
+    assert_eq!(router.observe_unknown(), HostFitness::Unknown);
+    assert!(!router.local_ok_for_latency_sensitive());
+    assert!(router.prefer_cloud());
+
+    // A real (cool) sample clears the unknown state and reports fit again.
+    assert_eq!(
+        router.observe(ThermalSample {
+            temp_c: 60.0,
+            power_w: 10.0,
+            power_cap_w: 0.0,
+            util_pct: 0.2,
+        }),
+        HostFitness::Fit
+    );
+    assert!(router.local_ok_for_latency_sensitive());
+
+    // Operator gate: under pressure, local-only work is queued, then
+    // throttled — never admitted.
+    let mut gate = LocalWorkGate::new(2);
+    let (run, q) = gate.admit(HostFitness::Fit);
+    assert!(run);
+    assert_eq!(q, 0);
+
+    let (run, q) = gate.admit(HostFitness::UnfitThermal);
+    assert!(!run);
+    assert_eq!(q, 1);
+    let (run, q) = gate.admit(HostFitness::UnfitThermal);
+    assert!(!run);
+    assert_eq!(q, 2);
+    // Past the cap: throttled, queue stays at the limit.
+    let (run, q) = gate.admit(HostFitness::UnfitThermal);
+    assert!(!run);
+    assert_eq!(q, 2);
+
+    // Recovery drains the backlog and admits work again.
+    let (run, q) = gate.admit(HostFitness::Fit);
+    assert!(run);
+    assert_eq!(q, 0);
 }
