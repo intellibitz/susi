@@ -1,0 +1,11 @@
+{
+  "vector": "VC-202-010",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Only the five leaf-service processes are supervised in production (crates/susi-daemon/src/supervisor.rs monitor: HTTP probes, MAX_RESTARTS + disabled_until backoff, slog, `susi services` surface, started at server.rs). Everything else the vector names is unsupervised: the daemon spawns ~18 long-lived in-process workers (scout thread, SubstratePulseQueue worker, cell_watcher, rediscovery, NAT, GMCP bootstrap, auto-discovery) with bare thread::spawn and no registration — a panicked worker leaves the daemon silently half-alive with no health check, restart bound, or status coverage. The unified registry built for exactly this, service_supervision::Supervisor, has zero production callers (dead code). The cell watchdog registers only \"susi-host\", nothing pings it, and no dead-cell finding becomes a restart. The daemon itself revives only on demand (ensure_daemon_running on CLI calls; its systemd transient unit sets MemoryMax/CPUQuota but no Restart= policy), and the primary watcher heals only incidentally at sync boundaries.",
+  "tracked_by": ["T-DEEPSEEK-230"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791132900,
+  "check": ["scripts/check-reachability.py", "--refuted", "service_supervision::Supervisor"],
+  "notes": "vc_202_010_mastery_* (4/4, crates/susi-daemon/src/tests/vc_202_010_mastery.rs): leaf services run under bounded supervision (delivered part, verified), the supervision registry has no production caller, ~18 daemon workers spawn unsupervised, and the watchdog covers one unpinged cell with no restart path. engine_watchdog does bound engine-process restarts in runtime_admin — that narrows but does not close the gap."
+}

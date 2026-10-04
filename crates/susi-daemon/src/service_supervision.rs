@@ -112,6 +112,11 @@ mod tests {
     /// within its bound, logged, and surfaced; an exhausted component stays
     /// unhealthy and is reported rather than dropped.
     #[test]
+    fn vc_202_010_mastery() {
+        service_supervision_restarts_bounded_and_reports_every_component();
+    }
+
+    #[test]
     fn service_supervision_restarts_bounded_and_reports_every_component() {
         let mut sup = Supervisor::new();
         sup.register("daemon", 2);
