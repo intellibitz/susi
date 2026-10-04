@@ -426,9 +426,12 @@ mod tests {
     use super::*;
     use crate::susi_core::inference_wire::InferenceProtocol;
 
+    type Reply = Result<(u16, String), String>;
+    type ReplyCase = (String, Reply);
+
     struct Fake {
         /// (url substring, response) pairs checked in order; first match wins.
-        replies: Vec<(String, Result<(u16, String), String>)>,
+        replies: Vec<ReplyCase>,
     }
 
     impl crate::credential_scout::CheapCall for Fake {
