@@ -635,6 +635,13 @@ impl SusiDaemon {
             eprintln!("[SusiDaemon] Failed to create substrate directory: {error}");
             return;
         }
+        // Upgrade path: migrate persisted host state (backup + rollback on
+        // failure) before anything below reads or rewrites it — token seed,
+        // config load, port canonicalization all assume the current schema.
+        if let Err(error) = susi_config::migrate_state_dir(&global_dir) {
+            eprintln!("[SusiDaemon] Fatal: state migration failed: {error}");
+            return;
+        }
         // Zero-trust: seed host bearer token before opening world-facing ports.
         if let Err(error) = crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded()
         {
