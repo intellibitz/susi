@@ -117,3 +117,164 @@ pub fn write_bench_evidence(
     }
     std::fs::write(path, lines).map_err(|e| e.to_string())
 }
+
+/// A model serialization format in the placement benchmark matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelFormat {
+    Gguf,
+    Safetensors,
+    Exl2,
+    Awq,
+}
+
+impl ModelFormat {
+    /// Every format the matrix benchmarks.
+    pub const ALL: [ModelFormat; 4] = [
+        ModelFormat::Gguf,
+        ModelFormat::Safetensors,
+        ModelFormat::Exl2,
+        ModelFormat::Awq,
+    ];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModelFormat::Gguf => "GGUF",
+            ModelFormat::Safetensors => "Safetensors",
+            ModelFormat::Exl2 => "EXL2",
+            ModelFormat::Awq => "AWQ",
+        }
+    }
+}
+
+/// A quantization level in the placement benchmark matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Quantization {
+    Q4,
+    Q8,
+    Fp16,
+}
+
+impl Quantization {
+    /// Every quantization the matrix benchmarks.
+    pub const ALL: [Quantization; 3] = [Quantization::Q4, Quantization::Q8, Quantization::Fp16];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Quantization::Q4 => "Q4",
+            Quantization::Q8 => "Q8",
+            Quantization::Fp16 => "FP16",
+        }
+    }
+}
+
+/// One (format, quantization) candidate for a model on an engine.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CandidateSpec {
+    pub engine: String,
+    pub model: String,
+    pub format: ModelFormat,
+    pub quantization: Quantization,
+}
+
+/// The full format × quantization placement matrix for one model on one engine.
+#[must_use]
+pub fn format_quantization_matrix(engine: &str, model: &str) -> Vec<CandidateSpec> {
+    let mut matrix = Vec::new();
+    for format in ModelFormat::ALL {
+        for quantization in Quantization::ALL {
+            matrix.push(CandidateSpec {
+                engine: engine.to_string(),
+                model: model.to_string(),
+                format,
+                quantization,
+            });
+        }
+    }
+    matrix
+}
+
+/// One benchmarked matrix candidate: throughput, memory and correctness.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CandidateBenchmark {
+    pub spec: CandidateSpec,
+    /// The engine accepted the format/quantization combination.
+    pub supported: bool,
+    /// Every prompt produced non-empty output (a real correctness check, not
+    /// merely "the call returned").
+    pub correct: bool,
+    pub memory_mb: f32,
+    pub tokens_per_sec: f32,
+    pub first_token_latency_ms: u128,
+}
+
+/// Benchmarks one matrix candidate through the same [`BenchProvider`]
+/// abstraction the harness uses, recording memory, throughput and a
+/// non-empty-output correctness check. An unsupported format/backend
+/// combination yields `supported == false` and is never recommended.
+#[must_use]
+pub fn run_candidate_benchmark(
+    provider: &dyn BenchProvider,
+    spec: CandidateSpec,
+    memory_mb: f32,
+    prompts: &[&str],
+) -> CandidateBenchmark {
+    let mut total_tps = 0.0f32;
+    let mut first_token_latency_ms = 0u128;
+    let mut ran = 0usize;
+    let mut all_succeeded = !prompts.is_empty();
+    let mut correct = !prompts.is_empty();
+
+    for prompt in prompts {
+        let start = Instant::now();
+        match provider.complete(prompt) {
+            Ok((text, first_tok)) => {
+                let elapsed = start.elapsed().max(Duration::from_millis(1));
+                total_tps += estimate_tokens(&text) as f32 / elapsed.as_secs_f32().max(0.001);
+                if ran == 0 {
+                    first_token_latency_ms = first_tok.as_millis();
+                }
+                if text.trim().is_empty() {
+                    correct = false;
+                }
+                ran += 1;
+            }
+            Err(_) => {
+                all_succeeded = false;
+                break;
+            }
+        }
+    }
+
+    let supported = all_succeeded && ran == prompts.len();
+    let correct = supported && correct;
+    let tokens_per_sec = if ran > 0 { total_tps / ran as f32 } else { 0.0 };
+
+    CandidateBenchmark {
+        spec,
+        supported,
+        correct,
+        memory_mb,
+        tokens_per_sec,
+        first_token_latency_ms,
+    }
+}
+
+/// Ranks benchmarked candidates into the placement recommendation: supported,
+/// correct candidates first, ordered by throughput descending.
+#[must_use]
+pub fn recommend_placement(results: &[CandidateBenchmark]) -> Vec<CandidateSpec> {
+    let mut ranked: Vec<&CandidateBenchmark> = results
+        .iter()
+        .filter(|r| r.supported && r.correct)
+        .collect();
+    ranked.sort_by(|a, b| {
+        b.tokens_per_sec
+            .partial_cmp(&a.tokens_per_sec)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    ranked.into_iter().map(|r| r.spec.clone()).collect()
+}

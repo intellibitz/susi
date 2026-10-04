@@ -164,3 +164,42 @@ impl<'a> Batcher<'a> {
         self.pending.iter().filter(|p| !p.cancelled).count()
     }
 }
+
+/// A production batching backend bound to a local inference engine
+/// (llama.cpp server, Ollama, or vLLM). `run_batch` is the engine's one-call
+/// batch executor — production code wires it to the engine's HTTP
+/// `/completions` handler; hermetic tests supply a deterministic in-process
+/// executor. The invocation count is surfaced so a load test can prove
+/// batching collapses many requests into one engine call.
+pub struct EngineBatchBackend<F> {
+    run_batch: F,
+    invocations: std::cell::Cell<usize>,
+}
+
+impl<F> EngineBatchBackend<F> {
+    #[must_use]
+    pub fn new(run_batch: F) -> Self {
+        Self {
+            run_batch,
+            invocations: std::cell::Cell::new(0),
+        }
+    }
+
+    /// How many times [`BatchBackend::run`] has been invoked — one per
+    /// flushed batch, not one per request.
+    #[must_use]
+    pub fn invocations(&self) -> usize {
+        self.invocations.get()
+    }
+}
+
+impl<F: Fn(&[String]) -> Vec<String>> BatchBackend for EngineBatchBackend<F> {
+    fn supports_batch(&self) -> bool {
+        true
+    }
+
+    fn run(&self, prompts: &[String]) -> Vec<String> {
+        self.invocations.set(self.invocations.get() + 1);
+        (self.run_batch)(prompts)
+    }
+}
