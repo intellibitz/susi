@@ -1,0 +1,11 @@
+{
+  "vector": "VC-200-002",
+  "verdict": "delivered",
+  "evidence": "vc_200_002_wrong_output_keeps_reflex_unregistered (crates/susi-gawd/src/tests/vc_200_002.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791103480,
+  "check": ["scripts/check-reachability.py", "--function", "--delivered", "synthesize_capability_for"],
+  "notes": "Under the documented reinterpretation (literal Rust trait patching is impossible in safe Rust), the capability is delivered on the production path: ToolRegistry::execute_tool -> resolve_capability_gap -> ReflexSynthesizer::synthesize_capability_for (reached from crates/susi-gawd/src/evolution.rs and crates/susi-gawd/src/plane_handler.rs) asks the model for reflex source AND an intent-check spec, compiles to a staged name, runs the fixtures/invariants under the WASI sandbox via reflex_verify::run_checks, and publishes under the live reflex_<slug> name only when checks pass - wrong or crashing output stays unregistered (vc_200_002_wrong_output_keeps_reflex_unregistered, vc_200_002_execution_failure_is_a_failed_check, vc_200_002_unverifiable_spec_is_rejected_at_parse, 6/6 passing). Hot-load needs no daemon restart (reflexes/*.wasm convention), exercised end to end by capability_gap_synthesizes_and_executes_reflex_through_execute_tool (crates/susi-daemon/tests/capability_gap_e2e.rs) through the real execute_tool path."
+}
