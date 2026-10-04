@@ -29,6 +29,7 @@ pub mod cloud_cli_auth;
 pub mod cloud_eligibility;
 pub mod cloud_manage;
 pub mod cloud_quota;
+pub mod cloud_reconciler;
 pub mod deepseek_default;
 pub mod default_models;
 pub mod disk_budget;
@@ -135,6 +136,9 @@ mod vc_201_050_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_055_mastery.rs"]
 mod vc_201_055_mastery_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_055.rs"]
+mod vc_201_055_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_060_mastery.rs"]
 mod vc_201_060_mastery_tests;
