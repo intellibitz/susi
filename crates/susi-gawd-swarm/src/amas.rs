@@ -9,6 +9,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use crate::cancel_propagate::{run_cancellable, CancellableResult, CancellationHandle};
 use crate::peer_registry;
 use crate::susi_core::plane_bus::gemi::HardwareProfiler;
 use crate::susi_core::untrusted_content::{enforce_action, wrap_tool_output, ActionClass};
@@ -20,6 +21,12 @@ pub struct A2AMessage {
     pub recipient: String,
     pub action: String,
     pub payload: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerDispatchOutcome {
+    Completed(String),
+    UnresolvedRemote { peer: String, reason: String },
 }
 
 /// Fixed-size (256-bit) capability bloom filter exchanged during peer discovery,
@@ -1055,6 +1062,18 @@ impl SusiSupervisor {
         goal: &str,
         workspace: &Path,
     ) -> (Vec<A2AMessage>, Vec<GawdAgentInfo>) {
+        let cancellation = CancellationHandle::with_deadline_after(Duration::from_secs(3_600));
+        Self::supervise_mission_cancellable(goal, workspace, &cancellation)
+    }
+
+    /// Run peer dispatches under a live cancellation capability. A remote
+    /// request cannot be rolled back by the local node, so cancellation
+    /// records it as unresolved and suppresses its late answer.
+    pub fn supervise_mission_cancellable(
+        goal: &str,
+        workspace: &Path,
+        cancellation: &CancellationHandle,
+    ) -> (Vec<A2AMessage>, Vec<GawdAgentInfo>) {
         // 1. Initialize Mission Blackboard (High-Density Context Store with 1024 entry lease cap)
         // Optimized for Lock-Free Swarm Execution
         let blackboard: MissionBlackboard =
@@ -1115,15 +1134,21 @@ impl SusiSupervisor {
                 let node_id = node.node_id.clone();
                 let g = goal.to_string();
                 let bb = Arc::clone(&blackboard);
+                let peer_cancel = cancellation.clone();
                 rayon::spawn(move || {
-                    let remote_res = Self::dispatch_peer_task(&addr, "reason", &g);
-                    // Only genuine peer outputs may vote: transport
-                    // failures ("unreachable") and tool-level refusals
-                    // ("[A2A Error") are excluded — an error string is
-                    // not an opinion and must never reach quorum.
-                    if !remote_res.contains("unreachable") && !remote_res.starts_with("[A2A Error")
+                    if let PeerDispatchOutcome::Completed(remote_res) =
+                        Self::dispatch_peer_task_cancellable(&addr, "reason", &g, &peer_cancel)
                     {
-                        bb.insert(format!("PeerNode_{}", node_id), remote_res);
+                        // Only genuine peer outputs may vote: transport
+                        // failures and tool-level refusals are excluded —
+                        // an error string is not an opinion and must never
+                        // reach quorum. A late result is also discarded.
+                        if !peer_cancel.should_stop()
+                            && !remote_res.contains("unreachable")
+                            && !remote_res.starts_with("[A2A Error")
+                        {
+                            bb.insert(format!("PeerNode_{}", node_id), remote_res);
+                        }
                     }
                 });
             }
@@ -1637,6 +1662,63 @@ impl SusiSupervisor {
                 let safe =
                     wrap_tool_output("mcp-peer-transport", &e.to_string()).redacted_for_sink();
                 format!("[A2A Fallback]: Node '{}' unreachable ({}).", addr, safe)
+            }
+        }
+    }
+
+    /// Bounded peer request entry point. Local cancellation returns while the
+    /// network operation is still in flight, and the result is recorded as
+    /// unresolved instead of being allowed to mutate the blackboard later.
+    pub fn dispatch_peer_task_cancellable(
+        addr: &str,
+        tool_name: &str,
+        arg: &str,
+        cancellation: &CancellationHandle,
+    ) -> PeerDispatchOutcome {
+        let peer = addr.to_string();
+        let peer_for_call = peer.clone();
+        let tool = tool_name.to_string();
+        let argument = arg.to_string();
+        let result = run_cancellable(cancellation, move || {
+            Self::dispatch_peer_task(&peer_for_call, &tool, &argument)
+        });
+        match result {
+            Ok(CancellableResult::Completed(text)) => {
+                if cancellation.should_stop() {
+                    let reason = if cancellation.deadline_exceeded() {
+                        "deadline expired after peer response"
+                    } else {
+                        "peer response arrived after cancellation"
+                    };
+                    cancellation.record_unresolved_remote(&peer, reason);
+                    PeerDispatchOutcome::UnresolvedRemote {
+                        peer,
+                        reason: reason.to_string(),
+                    }
+                } else {
+                    PeerDispatchOutcome::Completed(text)
+                }
+            }
+            Ok(CancellableResult::Cancelled) => {
+                let reason = "local cancellation cannot roll back remote peer work";
+                cancellation.record_unresolved_remote(&peer, reason);
+                PeerDispatchOutcome::UnresolvedRemote {
+                    peer,
+                    reason: reason.to_string(),
+                }
+            }
+            Ok(CancellableResult::DeadlineExceeded) => {
+                let reason = "deadline expired before remote peer completion";
+                cancellation.record_unresolved_remote(&peer, reason);
+                PeerDispatchOutcome::UnresolvedRemote {
+                    peer,
+                    reason: reason.to_string(),
+                }
+            }
+            Err(error) => {
+                let reason = error.to_string();
+                cancellation.record_unresolved_remote(&peer, &reason);
+                PeerDispatchOutcome::UnresolvedRemote { peer, reason }
             }
         }
     }

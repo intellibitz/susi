@@ -2,6 +2,9 @@
 
 use crate::ama::SusiMissionReport;
 use crate::amas::A2AMessage;
+use crate::cancel_propagate::{
+    run_external_agent_cancellable, CancellableResult, CancellationHandle,
+};
 use crate::susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
 use crate::susi_core::registry::CapabilityRegistry;
 use crate::susi_core::truth::TruthTransformer;
@@ -513,6 +516,7 @@ async fn recover_with_providers(
     if !eligible(report) {
         return;
     }
+    let cancellation = CancellationHandle::with_deadline_after(timeout);
     // Caller-requested model: when the hint names a failover provider, try
     // that provider first — the request explicitly asked for it.
     let hint_is_provider = model_hint
@@ -763,8 +767,12 @@ async fn recover_with_providers(
         "openhands",
     ];
     let mut delegated = Vec::new();
+    let mut unresolved_external = Vec::new();
 
     for agent in fallback_agents {
+        if cancellation.should_stop() {
+            break;
+        }
         // Try IDE delegation protocol for IDE agents
         if ["antigravity", "cursor", "codex", "claude", "devin"].contains(&agent) {
             let delegations_dir = susi_paths::SusiDirs::data_dir().join("delegations");
@@ -784,16 +792,47 @@ async fn recover_with_providers(
         }
 
         // Try executing CLI agents via plane bus
-        if crate::susi_core::plane_bus::agents::external_run(
+        match run_external_agent_cancellable(
+            &cancellation,
             workspace,
             "execution",
             agent,
             &report.goal,
-        )
-        .is_ok()
-        {
-            delegated.push(agent);
+        ) {
+            Ok(CancellableResult::Completed(Ok(_))) => delegated.push(agent),
+            Ok(CancellableResult::Completed(Err(_))) => {}
+            Ok(CancellableResult::Cancelled) => {
+                let reason = "local cancellation cannot roll back external agent work";
+                cancellation.record_unresolved_remote(agent, reason);
+                unresolved_external.push(agent);
+                break;
+            }
+            Ok(CancellableResult::DeadlineExceeded) => {
+                let reason = "deadline expired before external agent completion";
+                cancellation.record_unresolved_remote(agent, reason);
+                unresolved_external.push(agent);
+                break;
+            }
+            Err(_) => {}
         }
+    }
+
+    if !unresolved_external.is_empty() {
+        record_attempt(
+            report,
+            "external_agents",
+            "EXTERNAL_UNRESOLVED",
+            format!(
+                "Recovery request remains unresolved with: {}",
+                unresolved_external.join(", ")
+            ),
+        );
+        report.status = "DELEGATED".into();
+        report.final_answer = format!(
+            "Recovery remains unresolved with external agents: {}",
+            unresolved_external.join(", ")
+        );
+        return;
     }
 
     if !delegated.is_empty() {
