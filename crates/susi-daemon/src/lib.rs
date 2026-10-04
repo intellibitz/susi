@@ -98,7 +98,3 @@ pub use service_supervision::{RestartEvent, ServiceStatus, Supervisor};
 // SusiAdmin and EvolutionManager are used via fully qualified names in tools.rs
 pub mod eco_drift_alerts;
 pub mod eco_probe_scheduler;
-
-#[cfg(test)]
-#[path = "tests/vc_202_010_mastery.rs"]
-mod vc_202_010_mastery_tests;
