@@ -18,6 +18,7 @@ fn limits(per_key_concurrent: u32, per_key_requests: u32, global: u32) -> Arbite
         per_key_requests,
         window_secs: 60,
         global_concurrent: global,
+        quota: Vec::new(),
     }
 }
 
