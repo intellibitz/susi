@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-071",
-  "verdict": "not-delivered",
+  "verdict": "delivered",
   "evidence": "crates/susi-core/src/tests/vc_201_071_mastery.rs",
-  "missing": "Deny-wins semantics are correct but the claimed mapping is absent: no function derives LayerDecision from MacPolicy/CapabilityToken or the daemon CapabilityPolicy, and evaluate has no production callers \u2014 the 'one authoritative evaluation contract' is never applied to real policy output. A fabricated Allow layer from an unrecognized name permits (vc_201_071_mastery_fabricated_layer_permits); the mac layer can be omitted entirely and a stray Allow still permits (vc_201_071_mastery_missing_real_layer_still_permits); EntryPoint is ignored (vc_201_071_mastery_entry_point_is_ignored). Holds: deny-wins and empty-denies at all entry points (vc_201_071_mastery_deny_wins_and_empty_denies).",
-  "tracked_by": [
-    "T-DEVIN20261002053148-27"
-  ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790993916
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "ANTIGRAVITY",
+  "recorded_unix": 1791125700
 }
