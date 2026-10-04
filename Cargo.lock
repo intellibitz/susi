@@ -6366,6 +6366,7 @@ dependencies = [
  "susi-config",
  "susi-core",
  "susi-error",
+ "susi-gawd",
  "susi-gawd-agents",
  "susi-http-transport",
  "susi-sandbox-client",
