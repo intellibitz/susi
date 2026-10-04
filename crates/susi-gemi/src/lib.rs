@@ -139,6 +139,9 @@ mod spend_tracker_tests;
 #[path = "tests/thermal_routing.rs"]
 mod thermal_routing_tests;
 #[cfg(test)]
+#[path = "tests/vc_201_042_native.rs"]
+mod vc_201_042_native_tests;
+#[cfg(test)]
 #[path = "tests/vc_201_045_mastery.rs"]
 mod vc_201_045_mastery_tests;
 #[cfg(test)]

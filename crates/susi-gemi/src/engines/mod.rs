@@ -14,6 +14,7 @@ pub mod capability;
 pub mod cost;
 pub mod http_provider;
 pub mod mcp_provider;
+pub mod native_lifecycle;
 pub mod reflex;
 pub mod reflex_llm;
 pub mod routing;

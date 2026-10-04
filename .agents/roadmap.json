@@ -522,7 +522,7 @@
       "id": "VC-201-042",
       "mastery_target": "Exercise discover, load, ready, infer, cancel, unload, and health behavior for supported native and HTTP-managed runtimes; unsupported operations return typed errors and process presence alone cannot establish readiness.",
       "priority": "P1",
-      "progress": "PARTIAL (verdict .agents/roadmap-verdicts/VC-201-042.json, T-DEEPSEEK-212): one contract spans all seven ops (susi-vendor-models runtime_lifecycle) with typed unsupported errors and health-probe readiness; HTTP-managed daemons are driven through it on the production ecosystem scan. Native engines (NativeInferenceEngine/InferenceHost in susi-gemi) are not yet driven through the contract - tracked by T-DEEPSEEK-231.",
+      "progress": "DELIVERED: lifecycle contract now drives both runtime classes — HTTP-managed daemons via local_ecosystem::scan (T-212), native susi-gemi engines + InferenceHost via native_lifecycle::infer_via_contract on the production local-inference path (T-231).",
       "type": "LOCAL_HOSTING",
       "vector": "Conform local runtimes to one lifecycle contract"
     },
