@@ -43,6 +43,7 @@ pub mod python_engine_cli;
 pub mod services_cli;
 pub mod setup_cli;
 pub mod shell_cli;
+pub mod status_cli;
 pub mod substrate_cli;
 pub mod swe_agent_cli;
 pub mod tasks_cli;
