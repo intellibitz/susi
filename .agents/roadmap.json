@@ -1437,7 +1437,7 @@
       "id": "VC-202-014",
       "mastery_target": "Secrets never appear in logs, traces or evidence; egress is allow-listed per mission; and each agent acts only within the authority of its own token, with every refusal recorded.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: secret redaction runs at the real logging/capture/context-graph/admin choke points, and the per-mission egress gate machinery exists — but it is dead code. Refuted by .agents/roadmap-verdicts/VC-202-014.json (T-DEEPSEEK-227): enforced egress is the process-global mac_policy posture, not a per-mission allow-list, and agent authority refusals are not recorded on a named path. Residual: T-DEEPSEEK-228.",
       "type": "GOVERNANCE",
       "vector": "Secrets, egress and per-agent authority"
     },
