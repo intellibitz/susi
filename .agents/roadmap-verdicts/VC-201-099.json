@@ -1,0 +1,40 @@
+{
+  "vector": "VC-201-099",
+  "verdict": "not-delivered",
+  "mastery_target": "Expose actual workload, resource, provider, configuration, federation, and evidence state through consistent CLI/API views; drill-down explains blocked work and actions obey the same grants and preconditions as automation.",
+  "summary": "The unified operator control surface is not delivered. Current implementation provides partial operator views (tui_top renders providers and GPU), but lacks the unified API/CLI surface required by the mastery target.",
+  "delivered": {
+    "components": [
+      "tui_top module renders providers (name, health, latency) with GPU utilization, temperature, and VRAM",
+      "susi fix applies safe doctor findings to initialize workspace structure",
+      "Various API endpoints exposed: /runtime/models, /v1/completions, /context-graph/*"
+    ],
+    "tests": [
+      "tests/tui_top.rs: tui_top_renders_providers_gpu_and_queue, tui_top_idle_queue_and_no_gpu",
+      "tests/zc_susi_fix.rs: zc_susi_fix_applies_safe_doctor_findings"
+    ]
+  },
+  "missing": {
+    "unified_api_surface": "No single GET /operator/state or /susi/status endpoint that exposes all six state dimensions (workload, resource, provider, configuration, federation, evidence)",
+    "workload_state": "DAG mission state, task queue depth, dependency tracking, and blocked task reasons not exposed via API/CLI",
+    "resource_state": "CPU utilization, memory usage, and load metrics not integrated into operator surface (GPU only partially via tui_top)",
+    "configuration_state": "Effective settings, layer origins (environment vs defaults), and configuration overrides not unified or exposed",
+    "federation_state": "Peer roster, quorum status, leadership election state, and cluster health not exposed to operators",
+    "evidence_state": "Evaluation history, test results, audit logs, and reasoning traces not consolidated for operator review",
+    "drill_down_capability": "No mechanism that explains WHY work is blocked (e.g., resource constraints, policy gates, failing preconditions)",
+    "grant_precondition_verification": "No verification that operator actions (via API/CLI) obey the same grants and preconditions as automation. Operator actions (if any exist) bypass the same policy gates enforced on swarm operations"
+  },
+  "tracked_by": [
+    "T-DEEPSEEK-87"
+  ],
+  "blocking_tasks": [
+    {
+      "task_id": "T-DEEPSEEK-87",
+      "title": "Implement unified operator control surface API",
+      "description": "Create a cohesive API/CLI endpoint that exposes workload, resource, provider, configuration, federation, and evidence state; add drill-down capabilities; verify operator actions against automation grants"
+    }
+  ],
+  "recorded_by": "T-DEEPSEEK-70",
+  "notes": "The mastery target requires a unified control surface integrating six distinct dimensions with drill-down and precondition verification. Current implementation provides isolated components (tui_top for monitoring, susi fix for auto-remediation) but no unified surface. The roadmap progress claimed 'PARTIAL' based on provider/GPU/queue rendering, but this is insufficient for mastery since it lacks the other dimensions and does not provide a unified or drill-down interface.",
+  "verified_by": "crates/susi-server/src/tests/vc_201_099_mastery.rs: vc_201_099_mastery_unified_operator_control_surface_incomplete"
+}
