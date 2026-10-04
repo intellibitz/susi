@@ -103,6 +103,9 @@ pub mod zc_timeouts_measured;
 #[path = "tests/billing_mode_marginal_cost.rs"]
 mod billing_mode_marginal_cost_tests;
 #[cfg(test)]
+#[path = "tests/budget_ceiling.rs"]
+mod budget_ceiling_tests;
+#[cfg(test)]
 #[path = "tests/capability_floor.rs"]
 mod capability_floor_tests;
 pub mod eco_capability_routing;
@@ -135,9 +138,6 @@ mod rate_limit_scheduler_tests;
 #[cfg(test)]
 #[path = "tests/routing_ladder.rs"]
 mod routing_ladder_tests;
-#[cfg(test)]
-#[path = "tests/spend_tracker.rs"]
-mod spend_tracker_tests;
 #[cfg(test)]
 #[path = "tests/thermal_routing.rs"]
 mod thermal_routing_tests;

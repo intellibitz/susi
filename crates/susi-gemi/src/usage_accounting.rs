@@ -38,6 +38,19 @@ pub struct UsageOutcome {
     pub latency_ms: u64,
     #[serde(default)]
     pub unix_ms: u64,
+    /// Agent identity that spent this call (SUSI_AGENT; "standalone" when
+    /// unset) — spend ceilings attribute every USD to an agent.
+    #[serde(default)]
+    pub agent: String,
+    /// Mission id the call was spent on (EvidenceSession id; empty = no
+    /// mission context reached the cascade).
+    #[serde(default)]
+    pub mission: String,
+    /// Estimated USD this call cost — the expected task cost at dispatch
+    /// time, recorded whether the call succeeded or not (a failed call is
+    /// still billed by the vendor).
+    #[serde(default)]
+    pub usd: f64,
 }
 
 /// USD price per million tokens for one provider.
@@ -83,6 +96,30 @@ impl UsageLedger {
 
     pub fn record(&mut self, o: UsageOutcome) {
         self.records.push(o);
+    }
+
+    /// Every recorded outcome — spend ceilings scan these for window sums.
+    #[must_use]
+    pub fn records(&self) -> &[UsageOutcome] {
+        &self.records
+    }
+
+    /// USD recorded since `since_unix_ms`, optionally scoped to one provider
+    /// and/or one mission (the attribution axes a ceiling checks).
+    #[must_use]
+    pub fn spend_usd(
+        &self,
+        since_unix_ms: u64,
+        provider: Option<&str>,
+        mission: Option<&str>,
+    ) -> f64 {
+        self.records
+            .iter()
+            .filter(|r| r.unix_ms >= since_unix_ms)
+            .filter(|r| provider.is_none_or(|p| r.provider == p))
+            .filter(|r| mission.is_none_or(|m| r.mission == m))
+            .map(|r| r.usd)
+            .sum()
     }
 
     #[must_use]
@@ -185,6 +222,9 @@ mod tests {
             success: ok,
             latency_ms: 100,
             unix_ms: 0,
+            agent: String::new(),
+            mission: String::new(),
+            usd: 0.0,
         }
     }
 
