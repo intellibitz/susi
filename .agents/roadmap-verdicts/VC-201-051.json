@@ -1,11 +1,10 @@
 {
-  "evidence": "",
-  "missing": "the checks exist as library code - probe_credentialed_opt_in is public in crates/susi-gemi/src/provider_contract.rs:145 and exported from lib.rs:69 - but nothing executes them: the only two references to that function anywhere in the tree are its own definition and the module declaration. No CLI command, no admin path and no daemon path invokes it, so no operator can run the opt-in credentialed or fixture-backed checks the vector claims are executed.",
-  "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1790979833,
-  "tracked_by": [
-    "T-DEEPSEEK-214"
-  ],
   "vector": "VC-201-051",
-  "verdict": "not-delivered"
+  "verdict": "delivered",
+  "evidence": "vc_201_051_checks_run_from_a_command_* (3 tests, tests/vc_201_051_checks_run_from_a_command.rs — the real binary reports all six probe kinds in the fixture claim list with provider/model/version/observed/status/detail fields; the credentialed half is opt-in gated and reports honest Unsupported claims when nothing is configured; a source scan pins the production caller); provider_contract_credentialed_* unit tests (3 tests, crates/susi-gemi/src/provider_contract.rs — injected-transport auth/error probing and credential redaction)",
+  "delivered_by": ["T-DEEPSEEK-214"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791178300,
+  "check": ["scripts/check-reachability.py", "--delivered", "provider_contract::probe_credentialed_opt_in"],
+  "notes": "susi admin provider-contract now executes the checks the vector requires an operator to run: fixture_checks composes one CapabilityClaim per probe kind over a canned-response corpus (authentication, streaming, tool_calls, embeddings, usage, errors — deterministic, no network), and probe_credentialed_opt_in — previously public with zero callers — runs the read-only credentialed half when SUSI_PROVIDER_PROBE=1: for each configured credentialed endpoint (credential_scout targets) it proves authentication via the vendor's zero-token probe and the error envelope via a deliberately missing model, and records the generation-dependent kinds (streaming/tool_calls/embeddings/usage) as Unsupported with the reason, rather than spending tokens or guessing. Unconfigured providers get explicit 'no configured credentialed endpoint' Unsupported claims — checked-and-empty, never silence. Claim details are credential-redacted (verified by unit test). Live output observed: 7 configured endpoints → 42 claims, credential-accepted + 404-error-envelope. Honest limits: the credentialed leg is read-only by design, so the four generation kinds are claimed Unsupported until a spend-bearing opt-in probe exists; fixture claims assert the canned corpus, not live behaviour."
 }

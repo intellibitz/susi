@@ -123,7 +123,7 @@ fn vc_201_051_checks_run_from_a_command_credentialed_probe_is_opt_in() {
 }
 
 #[test]
-fn vc_202_051_checks_run_from_a_command() {
+fn vc_201_051_checks_run_from_a_command_probe_has_a_production_caller() {
     // The original gap: probe_credentialed_opt_in existed with zero
     // callers outside its own file. Pin the fix — the admin command must
     // invoke it (or its live-probe sibling) and the fixture checks.
