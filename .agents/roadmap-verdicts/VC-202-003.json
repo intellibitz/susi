@@ -1,0 +1,11 @@
+{
+  "vector": "VC-202-003",
+  "verdict": "not-delivered",
+  "evidence": "brain_ranking_by_cost_* (crates/susi-gemi/src/tests/brain_ranking_by_cost.rs — cheap-decent leads pricey-proven by cost per verified outcome, equal priors order by expected cost, unpriced falls back to evidence, Budget::Max is pure evidence, a failed/unfunded provider never leads, below-floor cheap cannot outrank, the Ranked record carries the exact cpo figure it ranked by, production-wiring scan). `cost_per_outcome_usd` production-reached at 4 sites in crates/susi-gemi/src/engines/brain.rs (check-reachability).",
+  "missing": "The ranking core is now production-wired (T-DEEPSEEK-98): Store::rank_with_budget computes cost_per_outcome_usd = expected task cost (cache-aware catalog pricing, VC-202-002) divided by the smoothed verified-success probability from recorded outcomes, orders floor-meeting candidates by it unless Budget::Max pins pure evidence, and keeps below-floor candidates last (VC-202-004). The production cascade (runtime.rs) and the failover order (routing.rs) consume the rank *position* — not a re-sorted score — so the leader the brain elects is what actually serves; an unfit (failed/unfunded) provider sorts behind every fit one before ranking is consulted (Mandate 56). Decisions carry evidence: Ranked serializes cpo/expected-cost/samples/success-rate through `susi brain`, and the routing ladder persists every cascade decision. What remains undelivered: the *scheduled scout* — a periodic probe that runs a deterministic micro-benchmark against candidates, reports drift when the leader changes or a key dies, and keeps the previous ranking as evidence; and candidate-set freshness — a model that appeared since the last scout is probed on schedule rather than only ranked once it accumulates live outcomes, and a retired one stops being preferred (new/removed registry entries are already included/excluded dynamically by rank(), but there is no proactive probe of the new ones). Queued under T-DEEPSEEK-107.",
+  "tracked_by": [
+    "T-DEEPSEEK-107"
+  ],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791198000
+}
