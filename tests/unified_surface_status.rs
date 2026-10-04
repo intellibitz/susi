@@ -33,11 +33,11 @@ fn run_status(home: &Path, extra_env: &[(&str, PathBuf)]) -> (i32, String) {
     cmd.args(["status"])
         .current_dir(&cwd)
         .env("HOME", home)
+        .env("SUSI_HOME", home.join(".susi-dev"))
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("XDG_DATA_HOME", home.join("xdg-data"))
         .env("XDG_CACHE_HOME", home.join("xdg-cache"))
-        .env_remove("SUSI_HOME")
-        .env("SUSI_XDG", "1");
+        .env_remove("SUSI_XDG");
     for (k, v) in extra_env {
         cmd.env(k, v);
     }
