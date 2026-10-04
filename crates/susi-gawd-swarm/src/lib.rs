@@ -151,6 +151,9 @@ mod swarm_gap_live_admission_tests;
 #[path = "tests/swarm_gap_real_cancellation.rs"]
 mod swarm_gap_real_cancellation_tests;
 #[cfg(test)]
+#[path = "tests/swarm_gap_safe_replay.rs"]
+mod swarm_gap_safe_replay_tests;
+#[cfg(test)]
 #[path = "tests/task_lease_dispatch_wiring.rs"]
 mod task_lease_dispatch_wiring_tests;
 #[cfg(test)]
