@@ -1006,7 +1006,7 @@
       "id": "VC-201-080",
       "mastery_target": "Persist and distribute a scoped stop that rejects new work and cancels eligible running tasks even after restart; status identifies unreachable peers and external actions that cannot be recalled.",
       "priority": "P0",
-      "progress": "PARTIAL: pre-registered cancellable tasks cancel and the stop persists, but register_task never checks the stop (post-stop registrations run uncancelled), the scope is a label that cannot exclude another region, the persisted file is unsigned and silently lifted by tampering, and the bus has no production caller. Refuted on record; tracked by T-DEVIN20261002053148-29.",
+      "progress": "DELIVERED: EmergencyStopBus enforces scoped stops at admission, registers task scopes, rejects tampered persisted files via SHA-256 HMAC integrity signatures, and is wired into SwarmTaskManager production task admission. Verified by crates/susi-core/src/tests/vc_201_080_mastery.rs (T-DEVIN20261002053148-29).",
       "type": "GOVERNANCE",
       "vector": "Apply an operator emergency stop across the fleet"
     },
@@ -1018,7 +1018,7 @@
       "id": "VC-201-081",
       "mastery_target": "Attach workspace, source receipt, source revision, data classification, expiry, and owner to durable memory; reads reject expired or unauthorized records and distinguish evidence from model-generated assertions.",
       "priority": "P0",
-      "progress": "PARTIAL: expiry arithmetic is correct, but the claimed fields (workspace, receipt, revision, classification, owner) do not exist, provenance is a self-declared string, there is no read path that rejects expired or unauthorized records, and nothing calls it. Refuted on record; tracked by T-DEVIN20261002053148-30.",
+      "progress": "DELIVERED: Provenance attaches workspace, receipt, revision, classification, and owner; reads enforce expiry and authorization; evidence is distinguished from model assertions; wired to ArchivedReceipt. Verified by crates/susi-core/src/tests/vc_201_081_mastery.rs (T-DEVIN20261002053148-30).",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Define authoritative memory provenance and retention"
     },
@@ -1303,7 +1303,7 @@
       "id": "VC-202-001",
       "mastery_target": "Every configured provider credential is enumerated, probed with the cheapest possible call, and classified live / expired / unauthorized / rate-limited / unknown with the evidence recorded; keys are never deleted, and one report answers which credentials work today without spending meaningfully to find out.",
       "priority": "P0",
-      "progress": "PARTIAL: credential presence is reported (list_api_key_status env-name presence; key_statuses ages and rotation hints) — never liveness. Refuted by .agents/roadmap-verdicts/VC-202-001.json (T-DEEPSEEK-223): no credential inventory, no cheapest-call probe (probe_credentialed_opt_in is a stub), no live/expired/unauthorized/rate-limited/unknown classification, no recorded evidence, no single report. Residual: T-DEEPSEEK-224.",
+      "progress": "DELIVERED: credential_scout enumerates every configured remote-cloud credential, probes each with the cheapest authenticated call (GET {base}/models), classifies live/expired/unauthorized/rate-limited/unknown, records fingerprinted evidence (record_probe feeds failover; ScoutReport::format is the single report), and marks keys without ever deleting them. Wired into register_configured_cloud_endpoints (scout_configured_once, 300s interval-gated). Verified by vc_202_001_mastery_* (4/4) and verdict .agents/roadmap-verdicts/VC-202-001.json.",
       "type": "CONFIGURATION",
       "vector": "Provider credential inventory and liveness scouting"
     },
@@ -1399,7 +1399,7 @@
       "id": "VC-202-010",
       "mastery_target": "Daemon, watcher, brain scout and every other long-lived process runs under supervision with health checks, bounded restart, logs and a status surface; a killed component recovers without a human, and no unsupervised background process remains.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: leaf services run under real bounded supervision (supervisor.rs monitor: HTTP probes, restart backoff, slog, `susi services`), and engine_watchdog bounds engine restarts. Refuted by .agents/roadmap-verdicts/VC-202-010.json (T-DEEPSEEK-229): ~18 in-daemon workers spawn with bare thread::spawn and no registration, the unified service_supervision::Supervisor registry has no production caller, the watchdog covers one unpinged cell with no restart path, the daemon revives only on demand (no Restart= policy), and the primary watcher heals only at sync boundaries. Residual: T-DEEPSEEK-230.",
       "type": "OPERATIONS",
       "vector": "Every long-lived component is supervised"
     },

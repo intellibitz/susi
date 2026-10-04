@@ -56,6 +56,7 @@ pub mod coding_models_ext;
 pub mod confidence_escalation;
 pub mod consensus_mode;
 pub mod context_length_routing;
+pub mod credential_scout;
 pub mod embedding_routing;
 pub mod engine_benchmark;
 pub mod eval;

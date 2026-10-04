@@ -1,0 +1,26 @@
+{
+  "id": "T-DEEPSEEK-229",
+  "title": "Verify mastery: Every long-lived component is supervised",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--workspace",
+      "--locked",
+      "-E",
+      "test(vc_202_010_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-010",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791116416,
+  "closed": {
+    "at_unix": 1791118586,
+    "commit": "16b9b3e63580daccd43a31b7c49b241e3ebaad96",
+    "by": "DEEPSEEK"
+  }
+}
