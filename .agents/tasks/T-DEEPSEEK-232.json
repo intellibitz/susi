@@ -1,0 +1,23 @@
+{
+  "id": "T-DEEPSEEK-232",
+  "title": "Wire per-key quota windows into the production arbiter and failover ordering",
+  "goal": "",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-118"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "--workspace",
+      "-E",
+      "test(quota_window_accounting)"
+    ]
+  },
+  "roadmap": "VC-202-021",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791140541
+}
