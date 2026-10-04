@@ -1,0 +1,10 @@
+{
+  "vector": "VC-201-094",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "Capacity limits exist only as pure functions with unit tests: admit and saturation in crates/susi-gawd/src/capacity_limits.rs have no production call sites (scripts/check-reachability.py --function --refuted saturation passes), and saturation() hardcodes healthy=true and cancel_responsive=true rather than measuring them. Nothing load-tests simultaneous missions, streaming calls, peer repair or model churn against recorded hardware, no saturation points are measured or published, and overload rejection is asserted on a synthetic LoadPoint, not observed on a stressed control plane. Holds: overload is rejected and reported as healthy on the model (vc_201_094_rejects_overload_and_stays_healthy in crates/susi-gawd/src/tests/vc_201_094.rs).",
+  "tracked_by": ["T-DEEPSEEK-218"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791103480,
+  "check": ["scripts/check-reachability.py", "--function", "--refuted", "saturation"]
+}
