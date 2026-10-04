@@ -1,0 +1,28 @@
+{
+  "id": "T-DEEPSEEK-88",
+  "title": "Cost a task before choosing the model that runs it",
+  "goal": "Compute the expected cost of a call and of a whole task from its token counts and the cache hit rate actually achieved, using the pricing records. A ranking that ignores caching picks the wrong brain for exactly the workloads agents run - long repeated context - so this number is the input to every routing decision.",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-87"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "--workspace",
+      "-E",
+      "test(expected_cost_with_cache)"
+    ]
+  },
+  "roadmap": "VC-202-002",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357,
+  "closed": {
+    "at_unix": 1791146289,
+    "commit": "3a922235a401ff412c0e591fcf8eae4c348ac1d8",
+    "by": "DEEPSEEK"
+  }
+}
