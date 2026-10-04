@@ -232,9 +232,13 @@ impl GemiEngine {
                     "[SUSI ROUTING] Escalating to cloud `{}` ({})\n",
                     esc.provider, esc.reason
                 ));
-                if let Some(text) =
-                    Self::try_discovered_providers(prompt, Some(&esc.provider), callback, meta)
-                {
+                let (escalated, esc_ladder) =
+                    Self::try_discovered_providers(prompt, Some(&esc.provider), callback, meta);
+                if esc_ladder.step_downs() > 0 {
+                    callback(format!("[SUSI ROUTING] {}\n", esc_ladder.summary()));
+                }
+                esc_ladder.persist();
+                if let Some(text) = escalated {
                     return match Self::verify_axiomatic_alignment(&text, workspace) {
                         Ok(v) => v,
                         Err(_) => text,
@@ -246,8 +250,13 @@ impl GemiEngine {
         // Pillar 4/8: prefer zero-config discovered providers (Ollama, vLLM, …)
         // before the native GGUF path. Skips Candle (Local) — that provider
         // delegates back into this function and would recurse.
-        if let Some(text) = Self::try_discovered_providers(prompt, requested_model, callback, meta)
-        {
+        let (provider_answer, mut ladder) =
+            Self::try_discovered_providers(prompt, requested_model, callback, meta);
+        if let Some(text) = provider_answer {
+            if ladder.step_downs() > 0 {
+                callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
+            }
+            ladder.persist();
             return match Self::verify_axiomatic_alignment(&text, workspace) {
                 Ok(v) => v,
                 Err(_) => text,
@@ -297,6 +306,21 @@ impl GemiEngine {
         });
         // Report the actual local generator before the first content chunk.
         meta(selected_model.as_deref().unwrap_or(engine_key));
+        // Why the request reached the local rung — either the provider
+        // cascade stepped every candidate down, or it never ran because a
+        // caller-named local model was honored (VC-202-004: the trace must
+        // say which model ran and why).
+        let local_reason = if ladder.steps.is_empty() {
+            "no provider cascade ran — routing directly to local".to_string()
+        } else {
+            format!(
+                "every provider rung stepped down ({} skipped/failed)",
+                ladder.step_downs()
+            )
+        };
+        let local_candidate = selected_model
+            .clone()
+            .unwrap_or_else(|| engine_key.to_string());
         let local_started = std::time::Instant::now();
         // Drive the engine through the shared lifecycle contract: discover →
         // load → ready (health probe) → infer (VC-201-042). A failed probe
@@ -325,8 +349,19 @@ impl GemiEngine {
                 );
             }
         }
+        use crate::engines::routing::{LadderRung, StepOutcome};
         match &result {
             Ok(res) if !res.trim().is_empty() => {
+                ladder.record(
+                    LadderRung::Local,
+                    local_candidate,
+                    StepOutcome::Selected,
+                    local_reason,
+                );
+                if ladder.step_downs() > 0 {
+                    callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
+                }
+                ladder.persist();
                 // Feed the latency gate so the next request can escalate if slow.
                 if engine_key == "llamacpp" {
                     crate::engines::routing::InferenceRouter::record_local_sample(
@@ -340,8 +375,24 @@ impl GemiEngine {
                     Err(_) => res.clone(),
                 };
             }
-            Ok(_) => eprintln!("[INFERENCE] Local engine returned empty output"),
-            Err(e) => eprintln!("[INFERENCE] Local engine failed: {e}"),
+            Ok(_) => {
+                eprintln!("[INFERENCE] Local engine returned empty output");
+                ladder.record(
+                    LadderRung::Local,
+                    local_candidate.clone(),
+                    StepOutcome::Failed,
+                    "local engine returned empty output",
+                );
+            }
+            Err(e) => {
+                eprintln!("[INFERENCE] Local engine failed: {e}");
+                ladder.record(
+                    LadderRung::Local,
+                    local_candidate.clone(),
+                    StepOutcome::Failed,
+                    e.to_string(),
+                );
+            }
         }
 
         // Fleet Mandate: a fresh substrate with zero provisioned weights must
@@ -353,6 +404,16 @@ impl GemiEngine {
             if let Some(res) =
                 Self::provision_and_retry(prompt, workspace, callback, min_complexity)
             {
+                ladder.record(
+                    LadderRung::Local,
+                    "provisioning-retry",
+                    StepOutcome::Selected,
+                    "fetched a hardware-fit model after the first local attempt failed",
+                );
+                if ladder.step_downs() > 0 {
+                    callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
+                }
+                ladder.persist();
                 return res;
             }
         }
@@ -365,10 +426,21 @@ impl GemiEngine {
         )
         .unwrap_or_default();
         if !power_res.trim().is_empty() && !Self::looks_like_error_text(&power_res) {
+            ladder.record(
+                LadderRung::Local,
+                "power_reason",
+                StepOutcome::Selected,
+                "local engine failed; power reasoning tool answered",
+            );
+            if ladder.step_downs() > 0 {
+                callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
+            }
+            ladder.persist();
             callback(power_res.clone());
             return power_res;
         }
 
+        ladder.persist();
         let final_msg = "[FAIL] SUSI-Tier2-Inference: Local model inference and power reasoning fallback both failed.".to_string();
         callback(final_msg.clone());
         final_msg
@@ -438,17 +510,24 @@ impl GemiEngine {
     }
 
     /// Try CapabilityRegistry providers registered by zero-config discovery.
+    /// Returns the answer plus the routing ladder that recorded how the
+    /// cascade resolved — the caller owns emitting and persisting it.
     fn try_discovered_providers(
         prompt: &str,
         requested_model: Option<&str>,
         callback: &dyn Fn(String),
         meta: &dyn Fn(&str),
-    ) -> Option<String> {
+    ) -> (Option<String>, crate::engines::routing::RoutingLadder) {
         // Mock-inference seam: under test the env opts out of *all* real
         // provider calls — discovered HTTP endpoints included — not just the
         // native engine path (runtime_native honors the same flag).
         if std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true" {
-            return None;
+            return (
+                None,
+                crate::engines::routing::RoutingLadder::new(
+                    crate::engines::brain::TaskClass::classify(prompt),
+                ),
+            );
         }
         Self::try_providers(
             crate::susi_core::registry::CapabilityRegistry::global(),
@@ -501,7 +580,11 @@ impl GemiEngine {
         requested_model: Option<&str>,
         callback: &dyn Fn(String),
         meta: &dyn Fn(&str),
-    ) -> Option<String> {
+    ) -> (Option<String>, crate::engines::routing::RoutingLadder) {
+        use crate::engines::routing::{LadderRung, RoutingLadder, StepOutcome};
+
+        let class = crate::engines::brain::TaskClass::classify(prompt);
+        let mut ladder = RoutingLadder::new(class);
         let mut names: Vec<String> = registry
             .list_providers()
             .into_iter()
@@ -513,18 +596,19 @@ impl GemiEngine {
             names.retain(|n| !crate::engines::routing::InferenceRouter::is_cloud_provider_name(n));
         }
         if names.is_empty() {
-            return None;
+            return (None, ladder);
         }
 
         // Evidence-driven ordering: how each provider has actually performed
-        // on this kind of prompt; the static rank stays the tiebreaker.
-        let class = crate::engines::brain::TaskClass::classify(prompt);
-        let scores: std::collections::HashMap<String, i64> =
+        // on this kind of prompt; the static rank stays the tiebreaker. The
+        // capability floor is part of the key — a below-floor candidate
+        // trails every floor-meeting one whatever its evidence or cost.
+        let ranked: std::collections::HashMap<String, (bool, i64)> =
             crate::engines::brain::rank(&names, class)
                 .into_iter()
-                .map(|r| (r.provider, (r.score * 10_000.0) as i64))
+                .map(|r| (r.provider, (r.meets_floor, (r.score * 10_000.0) as i64)))
                 .collect();
-        let brain_score = |n: &String| scores.get(n).copied().unwrap_or(0);
+        let brain_rank = |n: &String| ranked.get(n).copied().unwrap_or((false, 0));
         // A provider that keeps failing right now (no credit, rejected key)
         // sorts behind every fit one — even the sticky preferred cloud.
         let unfit = |n: &String| crate::engines::brain::is_unfit(n, class);
@@ -543,18 +627,26 @@ impl GemiEngine {
                 .iter()
                 .any(|n| n.to_ascii_lowercase().contains(&model_l))
             {
-                return None;
+                ladder.record(
+                    LadderRung::Model,
+                    model,
+                    StepOutcome::Skipped,
+                    "named model matched no registered provider — honored as a local model id",
+                );
+                return (None, ladder);
             }
             names.sort_by_key(|n| {
                 let hit = n.to_ascii_lowercase().contains(&model_l);
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
+                let (meets_floor, score) = brain_rank(n);
                 (
                     !hit,
                     !probe(n),
                     unfit(n),
                     !preferred,
-                    std::cmp::Reverse(brain_score(n)),
+                    !meets_floor,
+                    std::cmp::Reverse(score),
                     Self::rank_provider_name(n),
                     n.clone(),
                 )
@@ -563,31 +655,68 @@ impl GemiEngine {
             names.sort_by_key(|n| {
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
+                let (meets_floor, score) = brain_rank(n);
                 (
                     !probe(n),
                     unfit(n),
                     !preferred,
-                    std::cmp::Reverse(brain_score(n)),
+                    !meets_floor,
+                    std::cmp::Reverse(score),
                     Self::rank_provider_name(n),
                     n.clone(),
                 )
             });
         }
 
-        let runtime = Self::provider_runtime()?;
+        let Some(runtime) = Self::provider_runtime() else {
+            ladder.record(
+                LadderRung::Provider,
+                "provider-runtime",
+                StepOutcome::Failed,
+                "tokio runtime unavailable — provider cascade could not start",
+            );
+            return (None, ladder);
+        };
         let mut errors: Vec<String> = Vec::new();
         for name in names {
-            if crate::engines::routing::InferenceRouter::provider_cooled(&name) {
+            if let Some(until) =
+                crate::engines::routing::InferenceRouter::provider_cooldown_until(&name)
+            {
+                ladder.record(
+                    LadderRung::Provider,
+                    &name,
+                    StepOutcome::Skipped,
+                    format!("provider cooled until unix {until} after recent failures"),
+                );
                 continue;
             }
             // Per-key rate + concurrency arbitration: a saturated key is
             // skipped like a cooled provider — the cascade tries the next
             // candidate rather than queueing a request that would race the
             // provider's own rate limit.
-            let Ok(_permit) = crate::key_arbitration::try_acquire(&name) else {
-                continue;
+            let permit = match crate::key_arbitration::try_acquire(&name) {
+                Ok(permit) => permit,
+                Err(denial) => {
+                    let reason = match denial {
+                        crate::key_arbitration::Denial::Quota { reset_unix } => {
+                            format!("key quota window exhausted — resets at unix {reset_unix}")
+                        }
+                        crate::key_arbitration::Denial::Concurrency
+                        | crate::key_arbitration::Denial::RateWindow
+                        | crate::key_arbitration::Denial::Global => denial.describe().to_string(),
+                    };
+                    ladder.record(LadderRung::Provider, &name, StepOutcome::Skipped, reason);
+                    continue;
+                }
             };
+            let _permit = permit;
             let Some(provider) = registry.get_provider(&name) else {
+                ladder.record(
+                    LadderRung::Provider,
+                    &name,
+                    StepOutcome::Skipped,
+                    "registration vanished before dispatch",
+                );
                 continue;
             };
             let started = std::time::Instant::now();
@@ -613,16 +742,33 @@ impl GemiEngine {
                             errors.len()
                         );
                     }
+                    let (meets_floor, _) = brain_rank(&name);
+                    let reason = if meets_floor {
+                        format!(
+                            "top-ranked candidate above the {} capability floor",
+                            class.label()
+                        )
+                    } else {
+                        "last resort — every floor-meeting candidate had already stepped down"
+                            .to_string()
+                    };
+                    ladder.record(LadderRung::Provider, &name, StepOutcome::Selected, reason);
                     // Actual generator — emitted before the content chunk so
                     // SSE labels can name it instead of the requested model.
                     meta(&name);
                     callback(text.clone());
-                    return Some(text);
+                    return (Some(text), ladder);
                 }
                 Ok(_) => {
                     crate::engines::routing::InferenceRouter::record_provider_failure(&name);
                     let detail = format!("{name}: empty response");
                     eprintln!("[INFERENCE FAILOVER] {detail}");
+                    ladder.record(
+                        LadderRung::Provider,
+                        &name,
+                        StepOutcome::Failed,
+                        "empty response",
+                    );
                     errors.push(detail);
                 }
                 Err(e) => {
@@ -630,6 +776,7 @@ impl GemiEngine {
                     crate::engines::routing::InferenceRouter::record_failure(&name, &msg);
                     let detail = format!("{name}: {e}");
                     eprintln!("[INFERENCE FAILOVER] {detail}");
+                    ladder.record(LadderRung::Provider, &name, StepOutcome::Failed, msg);
                     errors.push(detail);
                 }
             }
@@ -640,7 +787,7 @@ impl GemiEngine {
                 errors.len()
             );
         }
-        None
+        (None, ladder)
     }
 
     fn has_usable_local_model(workspace: &Path) -> bool {
@@ -1216,7 +1363,7 @@ mod tests {
             reply: "recovered",
         });
 
-        let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
+        let (out, _ladder) = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("recovered"));
     }
 
@@ -1239,7 +1386,7 @@ mod tests {
         });
         let prompt = "brainlearn ping";
         assert_eq!(TaskClass::classify(prompt), TaskClass::Reflex);
-        let out = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        let (out, _ladder) = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("fine"));
         let both = vec![
             "ollama-brainlearn-a".to_string(),
@@ -1267,7 +1414,7 @@ mod tests {
             reply: "real answer",
         });
         let prompt = "flatten check";
-        let out = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        let (out, _ladder) = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("real answer"));
         let names = vec!["ollama-flatten-a".to_string()];
         let a = &rank(&names, TaskClass::classify(prompt))[0];
@@ -1301,7 +1448,7 @@ mod tests {
             record_outcome("ollama-dry-a", class, false, 0);
         }
         note_failure("ollama-dry-a", FailureKind::Funds);
-        let out = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        let (out, _ladder) = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("fit answered"));
     }
 
@@ -1325,7 +1472,7 @@ mod tests {
             reply: "from-ollama",
         });
 
-        let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
+        let (out, _ladder) = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("from-ollama"));
     }
 
@@ -1345,7 +1492,8 @@ mod tests {
             reply: "mixtral",
         });
 
-        let out = GemiEngine::try_providers(&registry, "hello", Some("mixtral"), &|_| {}, &|_| {});
+        let (out, _ladder) =
+            GemiEngine::try_providers(&registry, "hello", Some("mixtral"), &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("mixtral"));
     }
 

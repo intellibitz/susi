@@ -91,6 +91,181 @@ pub struct PlacementDecision {
     pub allow_cloud: bool,
 }
 
+/// Which rung of the routing ladder a step belongs to — the ladder descends
+/// requested model → provider cascade → local engine (VC-202-004).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LadderRung {
+    /// A caller-named model (or escalation-named provider) the request
+    /// asked for directly, before the general cascade ran.
+    Model,
+    /// A registry provider candidate in the failover cascade.
+    Provider,
+    /// The local inference engine — the last rung before failure.
+    Local,
+}
+
+impl LadderRung {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Model => "model",
+            Self::Provider => "provider",
+            Self::Local => "local",
+        }
+    }
+}
+
+/// How one ladder step resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StepOutcome {
+    /// Chosen — the request was routed to this candidate.
+    Selected,
+    /// Passed over before any call was made: cooled, quota or arbitration
+    /// refusal, registration vanished, named model honored as a local id.
+    Skipped,
+    /// Called and failed or answered unusably.
+    Failed,
+}
+
+impl StepOutcome {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Selected => "selected",
+            Self::Skipped => "skipped",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// One recorded routing step — which candidate, how it resolved, and why.
+/// The reason is mandatory: a step down the ladder without one is a silent
+/// fallback, which is the defect this type exists to prevent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteStep {
+    pub rung: LadderRung,
+    pub candidate: String,
+    pub outcome: StepOutcome,
+    pub reason: String,
+}
+
+/// The complete routing trace for one request: the task class that shaped
+/// it and every rung stepped down, each carrying its reason (VC-202-004).
+/// Persisted as one JSON line per request so an operator can ask "which
+/// model ran and why" after the fact.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingLadder {
+    pub schema: String,
+    pub recorded_at_unix: u64,
+    pub task_class: String,
+    pub steps: Vec<RouteStep>,
+}
+
+impl RoutingLadder {
+    pub fn new(class: crate::engines::brain::TaskClass) -> Self {
+        Self {
+            schema: "susi/routing-ladder/v1".to_string(),
+            recorded_at_unix: now_unix(),
+            task_class: class.label().to_string(),
+            steps: Vec::new(),
+        }
+    }
+
+    pub fn record(
+        &mut self,
+        rung: LadderRung,
+        candidate: impl Into<String>,
+        outcome: StepOutcome,
+        reason: impl Into<String>,
+    ) {
+        self.steps.push(RouteStep {
+            rung,
+            candidate: candidate.into(),
+            outcome,
+            reason: reason.into(),
+        });
+    }
+
+    /// The step that actually served the request, if any rung was selected.
+    pub fn selected(&self) -> Option<&RouteStep> {
+        self.steps
+            .iter()
+            .rev()
+            .find(|step| step.outcome == StepOutcome::Selected)
+    }
+
+    /// How many rungs were stepped down (skipped or failed) before the
+    /// request resolved — zero means the first-choice candidate served it.
+    pub fn step_downs(&self) -> usize {
+        self.steps
+            .iter()
+            .filter(|step| step.outcome != StepOutcome::Selected)
+            .count()
+    }
+
+    /// One-line operator trace: which candidate served and why, followed by
+    /// every rung stepped down with its reason.
+    pub fn summary(&self) -> String {
+        let head = match self.selected() {
+            Some(step) => format!(
+                "{} '{}' selected: {}",
+                step.rung.label(),
+                step.candidate,
+                step.reason
+            ),
+            None => "no candidate selected".to_string(),
+        };
+        let downs: Vec<String> = self
+            .steps
+            .iter()
+            .filter(|step| step.outcome != StepOutcome::Selected)
+            .map(|step| {
+                format!(
+                    "{} '{}' {}: {}",
+                    step.rung.label(),
+                    step.candidate,
+                    step.outcome.label(),
+                    step.reason
+                )
+            })
+            .collect();
+        if downs.is_empty() {
+            head
+        } else {
+            format!("{head} — stepped down: {}", downs.join("; "))
+        }
+    }
+
+    /// Append the ladder as one JSON line to the routing trace file. Hermetic
+    /// under `cargo test` (Mandate 52): nothing writes unless the test sets
+    /// `SUSI_ROUTING_TRACE_FILE`, exactly like the brain evidence store.
+    pub fn persist(&self) {
+        if cfg!(test) && std::env::var_os("SUSI_ROUTING_TRACE_FILE").is_none() {
+            return;
+        }
+        let path = routing_trace_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let Ok(mut line) = serde_json::to_string(self) else {
+            return;
+        };
+        line.push('\n');
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = file.write_all(line.as_bytes());
+        }
+    }
+}
+
+fn routing_trace_path() -> PathBuf {
+    if let Some(p) = std::env::var_os("SUSI_ROUTING_TRACE_FILE").filter(|p| !p.is_empty()) {
+        return PathBuf::from(p);
+    }
+    susi_paths::SusiDirs::config_dir().join("routing_trace.jsonl")
+}
+
 pub struct InferenceRouter;
 
 /// A provider that just failed is skipped for this long — dead endpoints

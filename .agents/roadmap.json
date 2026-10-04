@@ -1336,7 +1336,7 @@
       "id": "VC-202-004",
       "mastery_target": "Each task class declares the minimum capability its work needs; routing selects the cheapest model above that floor, falls back model then provider then local, and records the reason for every step down the ladder - so cost pressure can never quietly send hard work to a weak model.",
       "priority": "P0",
-      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-004.json, T-DEEPSEEK-100, 2026-10-04): each TaskClass declares its capability floor; Store::rank, plan_placement_for and resolve_model_for_capabilities check the floor before price, so a cheap weak model can never lead hard work. Capability table is name-heuristic, operator-overridable.",
+      "progress": "DELIVERED (T-100 floor as data + floor-before-price; T-101 routing ladder): every step down the model->provider->local cascade records candidate, outcome and reason — cooldowns, arbitration/quota refusals included — and persists one JSON line per decision (routing_trace.jsonl). Below-floor candidates sort last on the live cascade.",
       "type": "CLOUD_HOSTING",
       "vector": "Capability floors and a routing ladder per task class"
     },
