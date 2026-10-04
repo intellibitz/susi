@@ -889,7 +889,7 @@
       "id": "VC-201-071",
       "mastery_target": "Map existing MacPolicy and daemon CapabilityPolicy decisions into one authoritative evaluation contract while preserving layer responsibilities; conflicting rules deny consistently across tool, peer, and model entry points.",
       "priority": "P0",
-      "progress": "PARTIAL: deny-wins and empty-denies hold across all entry points, but the claimed mapping is absent — evaluate() consumes caller-fabricated layer decisions, nothing derives them from MacPolicy or the daemon CapabilityPolicy, and it has no production callers; a fabricated Allow layer permits. Refuted on record; tracked by T-DEVIN20261002053148-27.",
+      "progress": "DELIVERED: MacPolicy and daemon CapabilityPolicy decisions are mapped into one authoritative evaluation contract (`LayerDecision::from_mac`, `LayerDecision::from_token`, `LayerDecision::from_daemon_capability`). Unknown fabricated layers are rejected, the mandatory MAC layer is enforced, entry-point specific restrictions are evaluated, and conflicting rules deny consistently across tool, peer, and model entry points. Refuted on record 2026-10-03, delivered by T-DEVIN20261002053148-27. Verified by `crates/susi-core/src/tests/vc_201_071_mastery.rs`: vc_201_071_mastery_fabricated_layer_denied, vc_201_071_mastery_missing_mac_layer_denied, vc_201_071_mastery_entry_point_enforced, vc_201_071_mastery_derived_from_mac_and_token, vc_201_071_mastery_deny_wins_and_empty_denies. Verdict `.agents/roadmap-verdicts/VC-201-071.json`.",
       "type": "GOVERNANCE",
       "vector": "Unify capability-policy decision semantics"
     },
