@@ -45,6 +45,7 @@ fn vc_201_068_unhealthy_node_pauses_and_blocks_later_waves() {
     // Rollback restores the node's pre-rollout revision.
     assert_eq!(r.rollback("n2").unwrap().as_deref(), Some("rev-1"));
     assert_eq!(r.nodes["n2"].current.as_deref(), Some("rev-1"));
+    assert!(!r.nodes["n2"].healthy);
     // Still paused state — n3 remains unapplied; n4/n5 untouched.
     assert_eq!(r.nodes["n4"].current.as_deref(), Some("rev-1"));
 }
@@ -58,6 +59,11 @@ fn vc_201_068_resume_requires_all_healthy_then_completes() {
     r.report("n2", false).unwrap();
     assert!(r.resume().is_err(), "unhealthy node blocks resume");
     r.rollback("n2").unwrap();
+    assert!(
+        r.resume().is_err(),
+        "rollback without a health report must not resume"
+    );
+    r.report("n2", true).unwrap();
     r.resume().unwrap();
     assert_eq!(r.status, RolloutStatus::Running);
     // n2 rolled back, n3..n5 not yet applied — pending reflects wave 1
