@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-222",
+  "title": "Run the full multi-stage release qualification: configure ecosystem, run and recover a swarm mission, evaluate a self-patch on isolated local and explicitly configured cloud environments, promote only via the tagged path, publish reproducible scorecard deltas and remaining limitations",
+  "goal": "VC-201-100 residual: crates/susi-gawd/src/release_qualify.rs qualifies a synthetic ReleaseDrill with zero production call sites. No real qualification run configures the ecosystem, runs and recovers a swarm mission, or evaluates a self-patch on isolated local or cloud environments, and no scorecard deltas are published. Deliver the production qualification path and a vc_201_100_mastery_* test.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_100_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-100",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791109015
+}

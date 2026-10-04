@@ -1,0 +1,10 @@
+{
+  "vector": "VC-201-100",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "The qualification is a synthetic model with no production path: qualify_release in crates/susi-gawd/src/release_qualify.rs judges a caller-fabricated ReleaseDrill and has zero production call sites (scripts/check-reachability.py --function --refuted qualify_release passes). No real qualification run configures the ecosystem, runs and recovers a swarm mission, or evaluates a self-patch on isolated local or explicitly configured cloud environments; scorecard deltas and remaining limitations are fields on the drill, not measured and published outputs. Holds: the tagged-release path is required and a 2x claim is gated on its predeclared metric (vc_201_100_qualifies_tagged_path_and_gates_2x_claim in crates/susi-gawd/src/tests/vc_201_100.rs).",
+  "tracked_by": ["T-DEEPSEEK-222"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791107243,
+  "check": ["scripts/check-reachability.py", "--function", "--refuted", "qualify_release"]
+}
