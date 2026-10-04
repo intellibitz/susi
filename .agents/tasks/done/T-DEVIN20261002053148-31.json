@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN20261002053148-31",
+  "title": "Redact credentials and actually export spans (VC-201-091)",
+  "goal": "VC-201-091 refuted: export_spans writes attributes verbatim — an Authorization bearer token lands in the export file unredacted; Http export returns WouldPost and never transmits (correlation 'end to end' ends at the local process); OtelSpan has no status/error field so a failed request cannot be represented; file export is unbounded; no caller emits spans outside tests. Evidence: crates/susi-core/src/tests/vc_201_091_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_091",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790996124,
+  "closed": {
+    "at_unix": 1791120178,
+    "commit": "e5ddd94f9d052019d667836614999a8e5195f459",
+    "by": "ANTIGRAVITY"
+  }
+}
