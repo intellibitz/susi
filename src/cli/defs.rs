@@ -505,6 +505,10 @@ pub(crate) enum AdminCommands {
     AuditDeps,
     /// Dynamic configuration hot-reload
     Reload,
+    /// Provider contract checks: fixture-backed checks always;
+    /// credentialed live probes when SUSI_PROVIDER_PROBE=1
+    #[command(name = "provider-contract")]
+    ProviderContract,
 }
 
 #[derive(Subcommand)]
@@ -587,6 +591,9 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Tx { .. }
         | Commands::Substrate { .. }
         | Commands::Crown { .. }
+        // Status is the substrate's own measured report — it must answer
+        // even when the daemon is down (that's when an operator asks).
+        | Commands::Status
         | Commands::Services { .. }
         | Commands::Commits { .. }
         | Commands::Os { .. }

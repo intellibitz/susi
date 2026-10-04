@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-231",
+  "title": "Drive native inference engines through the lifecycle contract",
+  "goal": "VC-201-042's contract (crates/susi-vendor-models/src/runtime_lifecycle.rs) is production-driven for HTTP-managed daemons (local_ecosystem::scan -> Runtime::discover/health), but no native engine is: LlamaCppEngine, SusiGgufEngine and SusiFederatedEngine (crates/susi-gemi/src/engines/runtime_native.rs) plus InferenceHost (runtime_substrate.rs) must implement or be adapted onto RuntimeBackend so discover, load, ready, infer, cancel, unload and health run through the one contract - typed errors where a native engine lacks a verb, readiness from a probe, not process presence.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-212"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_042_native_engines_through_contract)"
+    ]
+  },
+  "roadmap": "VC-201-042",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791137397
+}

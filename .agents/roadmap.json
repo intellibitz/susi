@@ -522,7 +522,7 @@
       "id": "VC-201-042",
       "mastery_target": "Exercise discover, load, ready, infer, cancel, unload, and health behavior for supported native and HTTP-managed runtimes; unsupported operations return typed errors and process presence alone cannot establish readiness.",
       "priority": "P1",
-      "progress": "PARTIAL: NativeInferenceEngine and a RuntimeSubstrate::unload exist, but no single lifecycle contract spans discover, load, ready, infer, cancel, unload and health, and readiness beyond process presence is not established - tracked by T-DEEPSEEK-212.",
+      "progress": "PARTIAL (verdict .agents/roadmap-verdicts/VC-201-042.json, T-DEEPSEEK-212): one contract spans all seven ops (susi-vendor-models runtime_lifecycle) with typed unsupported errors and health-probe readiness; HTTP-managed daemons are driven through it on the production ecosystem scan. Native engines (NativeInferenceEngine/InferenceHost in susi-gemi) are not yet driven through the contract - tracked by T-DEEPSEEK-231.",
       "type": "LOCAL_HOSTING",
       "vector": "Conform local runtimes to one lifecycle contract"
     },
@@ -634,7 +634,7 @@
       "id": "VC-201-051",
       "mastery_target": "Execute opt-in credentialed and fixture-backed checks for authentication, streaming, tool calls, embeddings, usage, and errors; capability claims include provider/model/version, observation time, and unsupported cases.",
       "priority": "P0",
-      "progress": "PARTIAL: the credentialed and fixture-backed provider checks are implemented and public in susi-gemi's provider_contract, but nothing executes them - no command, admin or daemon path calls probe_credentialed_opt_in - tracked by T-DEEPSEEK-214.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-051.json, T-DEEPSEEK-214, 2026-10-04): susi admin provider-contract runs the fixture-backed checks for all six probe kinds and, when SUSI_PROVIDER_PROBE=1, the read-only credentialed probes per configured endpoint (auth + error envelope exercised; generation kinds honestly Unsupported).",
       "type": "CLOUD_HOSTING",
       "vector": "Probe cloud provider contracts reproducibly"
     },
@@ -1461,7 +1461,7 @@
       "id": "VC-202-016",
       "mastery_target": "A single surface exposes missions, the queue, brain status, cost and approvals on local and configured cloud environments, so an intent enters and returns a result or a typed refusal without the user choosing a subsystem first.",
       "priority": "P2",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-016.json, T-DEEPSEEK-97, 2026-10-04): susi status is one deterministic surface over missions in flight, the scheduled queue, brain status and the model it would serve, measured token spend, and pending broker approvals — all read from persisted stores, never LLM-narrated, and answering with the daemon down. CLI done; TUI/web follow-on open.",
       "type": "CORE",
       "vector": "One entry point over the whole OS"
     },

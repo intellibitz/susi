@@ -114,6 +114,31 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
+    /// The contract's `Health` verb: run the readiness probe directly,
+    /// without demanding a staged model the way `ready()` does. Health
+    /// answers — never assumed state — decide: a failed probe on a runtime
+    /// that exists marks it `Unhealthy`, and a healthy answer on a `Gone`
+    /// runtime re-proves presence (`Discovered`). It never manufactures
+    /// `Ready`: inference still requires a loaded model via `ready()`.
+    pub fn health(&mut self) -> EaiResult<Result<(), String>> {
+        match self.backend.health()? {
+            Ok(()) => {
+                if self.status == RuntimeStatus::Gone {
+                    self.status = RuntimeStatus::Discovered;
+                }
+                Ok(Ok(()))
+            }
+            Err(reason) => {
+                if self.status != RuntimeStatus::Gone {
+                    self.status = RuntimeStatus::Unhealthy {
+                        reason: reason.clone(),
+                    };
+                }
+                Ok(Err(reason))
+            }
+        }
+    }
+
     /// Readiness is a probe result, not a state assumption: Loaded runtimes
     /// must pass health() before Ready is returned, and an Unhealthy
     /// runtime is re-probed — a transient failure is not a permanent gate.
