@@ -1312,7 +1312,7 @@
       "id": "VC-202-002",
       "mastery_target": "Per-model input, output, cache-hit and cache-miss rates plus measured latency and throughput; the expected cost of a call and of a whole task is computed from token counts and the realised cache hit rate, so two models are comparable in the only currency that matters here - cost per verified useful outcome.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (T-87, T-88): catalog entries carry cache-hit/miss rates; a call and a whole task are priced by class-scaled token profile; Ranked.expected_cost_usd feeds selection, max_cost drops over-cap providers, the ladder names the figure. Cost-per-verified-outcome ranking remains T-98; realised cache telemetry is a follow-on.",
       "type": "OPERATIONS",
       "vector": "Model and provider cost model with cache accounting"
     },

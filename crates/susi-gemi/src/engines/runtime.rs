@@ -743,7 +743,7 @@ impl GemiEngine {
                         );
                     }
                     let (meets_floor, _) = brain_rank(&name);
-                    let reason = if meets_floor {
+                    let mut reason = if meets_floor {
                         format!(
                             "top-ranked candidate above the {} capability floor",
                             class.label()
@@ -752,6 +752,9 @@ impl GemiEngine {
                         "last resort — every floor-meeting candidate had already stepped down"
                             .to_string()
                     };
+                    if let Some(usd) = crate::engines::cost::expected_task_cost_usd(&name, class) {
+                        reason.push_str(&format!("; expected task cost ≈${usd:.4}"));
+                    }
                     ladder.record(LadderRung::Provider, &name, StepOutcome::Selected, reason);
                     // Actual generator — emitted before the content chunk so
                     // SSE labels can name it instead of the requested model.

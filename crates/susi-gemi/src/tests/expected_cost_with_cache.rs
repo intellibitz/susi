@@ -1,162 +1,214 @@
-//! Test for costing a task before choosing the model (VC-202-002).
-//! Verifies that task cost can be calculated using model pricing records with cache rates.
+//! Expected call/task cost priced against real catalog records, cache-hit
+//! rates included (VC-202-002, T-DEEPSEEK-88).
 //!
-//! This test exercises:
-//! - Task structure with token estimates
-//! - Cost calculation using ModelPricingRecord (from T-DEEPSEEK-87)
-//! - Cache hit ratio impact on effective cost
-//! - Model selection based on cost per verified outcome
-//! - Foundation for task routing (choose cheapest capable model)
+//! The deliverable is the number itself — expected cost of a call and of a
+//! whole task from token counts and the cache hit rate the workload
+//! achieves — consumed by routing: `Ranked.expected_cost_usd` rides the
+//! brain's ranking surface, the `max_cost` ceiling in
+//! `apply_cloud_constraints` drops candidates priced over the cap, and the
+//! ladder's selected-reason names the figure.
 
-/// Represents a task to be routed to a model.
-#[derive(Debug, Clone)]
-pub struct Task {
-    /// Task identifier
-    #[allow(dead_code)]
-    pub id: String,
-    /// Estimated input tokens (context size)
-    pub input_tokens: u64,
-    /// Estimated output tokens (response size)
-    pub output_tokens: u64,
-    /// Estimated cache hit ratio [0.0, 1.0] for this task workload
-    pub cache_hit_ratio: f64,
-}
+use crate::engines::brain::TaskClass;
+use crate::engines::cost;
+use crate::engines::routing::InferenceRouter;
+use crate::models::price_catalog::{PriceCatalog, PriceEntry};
 
-impl Task {
-    /// Calculate expected cost for this task on a given model.
-    /// Uses model pricing and cache rates to estimate actual spend.
-    pub fn expected_cost_on_model(&self, model_pricing: &ModelPricingRecord) -> f64 {
-        // Input cost: varies by cache hit ratio
-        let cache_hit_cost = model_pricing.cache_hit_cost_per_1m_tokens.unwrap_or(0.0);
-        let cache_miss_cost = model_pricing
-            .cache_miss_cost_per_1m_tokens
-            .unwrap_or(model_pricing.input_cost_per_1m_tokens);
-
-        let avg_input_cost =
-            cache_hit_cost * self.cache_hit_ratio + cache_miss_cost * (1.0 - self.cache_hit_ratio);
-        let input_cost = (self.input_tokens as f64 * avg_input_cost) / 1_000_000.0;
-
-        // Output cost: fixed (no cache benefit)
-        let output_cost =
-            (self.output_tokens as f64 * model_pricing.output_cost_per_1m_tokens) / 1_000_000.0;
-
-        input_cost + output_cost
+fn entry(
+    model_id: &str,
+    input: f64,
+    output: f64,
+    hit: Option<f64>,
+    miss: Option<f64>,
+) -> PriceEntry {
+    PriceEntry {
+        model_id: model_id.to_string(),
+        input_usd_per_1m: input,
+        output_usd_per_1m: output,
+        cache_hit_usd_per_1m: hit,
+        cache_miss_usd_per_1m: miss,
     }
 }
 
-/// Represents a model's pricing record (from T-DEEPSEEK-87).
-#[derive(Debug, Clone)]
-pub struct ModelPricingRecord {
-    #[allow(dead_code)]
-    pub model_id: String,
-    pub input_cost_per_1m_tokens: f64,
-    pub output_cost_per_1m_tokens: f64,
-    pub cache_hit_cost_per_1m_tokens: Option<f64>,
-    pub cache_miss_cost_per_1m_tokens: Option<f64>,
-    #[allow(dead_code)]
-    pub latency_ms: Option<f64>,
-    #[allow(dead_code)]
-    pub throughput_tps: Option<f64>,
-    #[allow(dead_code)]
-    pub source: String,
-    #[allow(dead_code)]
-    pub date: String,
+#[test]
+fn expected_cost_with_cache_call_prices_hit_and_miss() {
+    let mut cat = PriceCatalog::empty(1);
+    // input $3/1M, output $15/1M, cache-hit $0.30/1M, cache-miss $3/1M.
+    cat.insert(entry("sonnet", 3.0, 15.0, Some(0.30), Some(3.0)));
+
+    // 1M prompt + 100K completion at 80% hits:
+    // input = 0.8*0.30 + 0.2*3.0 = 0.84 → $0.84; output = 0.1*15 = $1.50.
+    let cost = cat
+        .expected_cost_usd("sonnet", 1_000_000, 100_000, 0.8)
+        .expect("priced");
+    assert!((cost - 2.34).abs() < 1e-6, "cost={cost}");
+
+    // 0% hits prices every prompt token at the miss rate.
+    let nocache = cat
+        .expected_cost_usd("sonnet", 1_000_000, 100_000, 0.0)
+        .expect("priced");
+    assert!((nocache - 4.5).abs() < 1e-6, "nocache={nocache}");
+    assert!(nocache > cost, "cache must make the same call cheaper");
+
+    // No record → None, never an invented price.
+    assert_eq!(cat.expected_cost_usd("unknown", 1, 1, 0.0), None);
 }
 
 #[test]
-fn expected_cost_with_cache() {
-    // Foundation test: verify task costing works with cache rates.
-    // In production, this will:
-    // 1. Estimate task tokens (input, output) based on mission intent
-    // 2. Estimate cache hit ratio for the workload
-    // 3. Cost the task on multiple models
-    // 4. Select the cheapest model that meets capability requirements
-    // 5. Execute and verify outcome (feedback for next ranking)
+fn expected_cost_with_cache_absent_rates_bill_at_input_price() {
+    let mut cat = PriceCatalog::empty(1);
+    cat.insert(entry("plain", 3.0, 15.0, None, None));
+    let at_zero = cat
+        .expected_cost_usd("plain", 1_000_000, 0, 0.0)
+        .expect("priced");
+    let at_full = cat
+        .expected_cost_usd("plain", 1_000_000, 0, 1.0)
+        .expect("priced");
+    assert_eq!(
+        at_zero, at_full,
+        "no cache rates → hit ratio changes nothing"
+    );
+    assert!((at_zero - 3.0).abs() < 1e-9);
+}
 
-    // Create two model pricing records with different cache efficiency
-    let claude_sonnet = ModelPricingRecord {
-        model_id: "claude-3-sonnet-20240229".to_string(),
-        input_cost_per_1m_tokens: 3.0,
-        output_cost_per_1m_tokens: 15.0,
-        cache_hit_cost_per_1m_tokens: Some(0.30), // 10x cheaper when cached
-        cache_miss_cost_per_1m_tokens: Some(3.0),
-        latency_ms: Some(500.0),
-        throughput_tps: Some(50.0),
-        source: "provider-published".to_string(),
-        date: "2024-10-03".to_string(),
-    };
-
-    let gpt4_turbo = ModelPricingRecord {
-        model_id: "gpt-4-turbo".to_string(),
-        input_cost_per_1m_tokens: 10.0,
-        output_cost_per_1m_tokens: 30.0,
-        cache_hit_cost_per_1m_tokens: Some(5.0), // 2x cheaper when cached
-        cache_miss_cost_per_1m_tokens: Some(10.0),
-        latency_ms: Some(800.0),
-        throughput_tps: Some(20.0),
-        source: "provider-published".to_string(),
-        date: "2024-10-03".to_string(),
-    };
-
-    // Create a task with cache-heavy workload
-    let task = Task {
-        id: "cache-heavy-query".to_string(),
-        input_tokens: 1_000_000, // 1M tokens (large context)
-        output_tokens: 100_000,  // 100K tokens
-        cache_hit_ratio: 0.8,    // 80% cache hits (realistic for cached contexts)
-    };
-
-    // Calculate costs on both models
-    let sonnet_cost = task.expected_cost_on_model(&claude_sonnet);
-    let gpt4_cost = task.expected_cost_on_model(&gpt4_turbo);
-
-    // Sonnet should be much cheaper due to better cache rates
+#[test]
+fn expected_cost_with_cache_task_profile_scales_by_class() {
+    let mut cat = PriceCatalog::empty(1);
+    cat.insert(entry("workhorse", 2.0, 8.0, Some(0.20), Some(2.0)));
+    let reflex = cost::expected_task_cost_usd_in(Some(&cat), "x-workhorse", TaskClass::Reflex)
+        .expect("priced");
+    let reasoning =
+        cost::expected_task_cost_usd_in(Some(&cat), "x-workhorse", TaskClass::Reasoning)
+            .expect("priced");
     assert!(
-        sonnet_cost < gpt4_cost,
-        "Sonnet ({}) should be cheaper than GPT-4 ({}) for cache-heavy task",
-        sonnet_cost,
-        gpt4_cost
+        reasoning > reflex,
+        "a reasoning task's token profile costs more than a reflex turn ({reasoning} > {reflex})"
+    );
+    // Reflex profile (512 in, 128 out, 0% hits) at $2/$8: 0.001024+0.001024.
+    assert!((reflex - 0.002048).abs() < 1e-6, "reflex={reflex}");
+}
+
+#[test]
+fn expected_cost_with_cache_composite_provider_names_resolve() {
+    let mut cat = PriceCatalog::empty(1);
+    cat.insert(entry("gpt-4o", 2.5, 10.0, None, None));
+    cat.insert(entry("gpt-4o-mini", 0.15, 0.60, None, None));
+    // "openai-gpt-4o-mini" contains both ids — longest match wins.
+    let (p, c, h) = cost::task_token_profile(TaskClass::Chat);
+    let mini =
+        cost::expected_call_cost_usd_in(Some(&cat), "openai-gpt-4o-mini", p, c, h).expect("priced");
+    let full =
+        cost::expected_call_cost_usd_in(Some(&cat), "openai-gpt-4o", p, c, h).expect("priced");
+    assert!(
+        mini < full,
+        "the mini price record must win the longer match"
+    );
+}
+
+/// Install the shared test catalog: one fixed path, one fixed content, so
+/// parallel tests that set `SUSI_PRICE_CATALOG_FILE` write identical bytes
+/// and cannot corrupt each other's lookups. Entries cover every model_id
+/// the file tests reference; provider names containing other ids simply
+/// miss the catalog.
+fn install_catalog() -> PriceCatalog {
+    let dir = std::env::temp_dir().join("susi-prices-shared");
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = dir.join("model_prices.json");
+    let mut cat = PriceCatalog::empty(1);
+    cat.insert(entry("cheapmodel", 1.0, 4.0, Some(0.1), Some(1.0)));
+    cat.insert(entry("premiummodel", 1.0, 10.0, Some(0.1), Some(1.0)));
+    cat.insert(entry("budgetmodel", 0.01, 0.01, None, None));
+    std::fs::write(&path, cat.to_json().expect("catalog json")).expect("catalog file");
+    // SAFETY: test-only env mutation; every caller writes the same path and
+    // the same content, so a torn set/write pair is still consistent.
+    unsafe {
+        std::env::set_var("SUSI_PRICE_CATALOG_FILE", &path);
+    }
+    cat
+}
+
+#[test]
+fn expected_cost_with_cache_ranked_carries_priced_task_cost() {
+    let cat = install_catalog();
+
+    let ranked = crate::engines::brain::rank(&["acme-cheapmodel".to_string()], TaskClass::Chat);
+    let r = ranked.first().expect("one ranked provider");
+    let usd = r
+        .expected_cost_usd
+        .expect("a priced provider carries its expected task cost");
+    let (p, c, h) = cost::task_token_profile(TaskClass::Chat);
+    let want = cat
+        .expected_cost_usd("cheapmodel", p, c, h)
+        .expect("priced");
+    assert!(
+        (usd - want).abs() < 1e-9,
+        "Ranked.expected_cost_usd must price the same task profile ({usd} vs {want})"
     );
 
-    // Verify cost breakdown is sensible
-    // Sonnet with 80% cache hits: (1M * (0.30*0.8 + 3.0*0.2)) / 1M + (100K * 15) / 1M
-    // = (0.24 + 0.6) + 1.5 = 2.34
-    assert!(sonnet_cost < 5.0, "Sonnet cost should be ~2-3 dollars");
+    // An unpriced provider stays None — the coarse tier covers it.
+    let unpriced = crate::engines::brain::rank(&["acme-unpriced".to_string()], TaskClass::Chat);
+    assert_eq!(unpriced[0].expected_cost_usd, None);
+}
 
-    // GPT-4 with 80% cache hits: (1M * (5.0*0.8 + 10.0*0.2)) / 1M + (100K * 30) / 1M
-    // = (4.0 + 2.0) + 3.0 = 9.0
-    assert!(gpt4_cost < 15.0, "GPT-4 cost should be ~9-10 dollars");
-
-    // Test with no cache hits (worst case)
-    let nocache_task = Task {
-        id: "nocache-query".to_string(),
-        input_tokens: 1_000_000,
-        output_tokens: 100_000,
-        cache_hit_ratio: 0.0, // No cache hits
-    };
-
-    let sonnet_nocache = nocache_task.expected_cost_on_model(&claude_sonnet);
-    let gpt4_nocache = nocache_task.expected_cost_on_model(&gpt4_turbo);
-
-    // Even without cache, Sonnet should be cheaper
-    assert!(
-        sonnet_nocache < gpt4_nocache,
-        "Sonnet should be cheaper even without cache benefits"
+#[test]
+fn expected_cost_with_cache_max_cost_drops_over_cap_priced_provider() {
+    // Reasoning task profile (49K in @75% hits, 3K out): "premiummodel" is
+    // priced ~$0.05 — a $0.01 cap drops it even though name rules call it
+    // Low tier; "budgetmodel" prices under the cap and stays.
+    let _cat = install_catalog();
+    let decision = InferenceRouter::plan_placement_for(
+        &[
+            "vendor-premiummodel".to_string(),
+            "vendor-budgetmodel".to_string(),
+        ],
+        Some("reasoning"),
+        Some(0.01),
+        true,
     );
-
-    // Cache benefit should exist (some models show it more than others)
-    let _sonnet_delta = sonnet_cost - sonnet_nocache; // Cache savings
-    let _gpt4_delta = gpt4_cost - gpt4_nocache; // Cache savings
-
-    // At least one model should show cache benefit, or combined should show it
-    let total_cache_benefit = (sonnet_nocache + gpt4_nocache) - (sonnet_cost + gpt4_cost);
     assert!(
-        total_cache_benefit > 0.0,
-        "Models should show cost benefit from cache hits (benefit={})",
-        total_cache_benefit
+        !decision
+            .cloud_candidates
+            .iter()
+            .any(|n| n.contains("premiummodel")),
+        "a provider priced over the max_cost ceiling is dropped: {:?}",
+        decision.cloud_candidates
     );
+    assert!(
+        decision
+            .cloud_candidates
+            .iter()
+            .any(|n| n.contains("budgetmodel")),
+        "a provider priced under the cap stays: {:?}",
+        decision.cloud_candidates
+    );
+}
 
-    // Summary: task costing with cache rates enables model selection by cost.
-    // Full implementation will estimate task tokens from intent, apply workload
-    // cache hit profiles, and select models via cost-per-verified-outcome ranking.
+#[test]
+fn expected_cost_with_cache_production_wiring() {
+    // The cost must feed routing on the production path — a catalog nothing
+    // consumes is scaffold, not delivery.
+    let routing_src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/engines/routing.rs"
+    ))
+    .expect("routing.rs readable");
+    assert!(
+        routing_src.contains("expected_task_cost_usd_in"),
+        "the max_cost ceiling must price candidates from the catalog"
+    );
+    let brain_src =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/engines/brain.rs"))
+            .expect("brain.rs readable");
+    assert!(
+        brain_src.contains("expected_cost_usd"),
+        "Ranked must carry the priced task cost for ranking surfaces"
+    );
+    let runtime_src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/engines/runtime.rs"
+    ))
+    .expect("runtime.rs readable");
+    assert!(
+        runtime_src.contains("expected_task_cost_usd"),
+        "the production cascade must name the expected cost in the ladder trace"
+    );
 }

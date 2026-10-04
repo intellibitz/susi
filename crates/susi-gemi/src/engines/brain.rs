@@ -325,6 +325,12 @@ pub struct Ranked {
     pub score: f32,
     /// Marginal-cost tier that fed the score (`free`/`low`/`mid`/`high`).
     pub cost_tier: &'static str,
+    /// Expected USD for one whole `class` task on this provider, priced
+    /// from the installed catalog's cache-hit/miss rates
+    /// (VC-202-002/T-DEEPSEEK-88). `None` when no price record exists —
+    /// callers show the coarse `cost_tier` instead.
+    #[serde(default)]
+    pub expected_cost_usd: Option<f64>,
     pub samples: u32,
     pub success_rate: Option<f32>,
     pub avg_latency_ms: Option<u32>,
@@ -431,6 +437,7 @@ impl Store {
         class: TaskClass,
         budget: Budget,
     ) -> Vec<Ranked> {
+        let catalog = cost::price_catalog();
         let mut out: Vec<Ranked> = providers
             .iter()
             .map(|p| {
@@ -446,6 +453,7 @@ impl Store {
                         .map(|h| (h.kind, h.consecutive)),
                     score: score(p, class, rec, budget),
                     cost_tier: cost::tier_of(p).label(),
+                    expected_cost_usd: cost::expected_task_cost_usd_in(catalog.as_ref(), p, class),
                     samples,
                     success_rate: rec
                         .filter(|r| r.samples() > 0)

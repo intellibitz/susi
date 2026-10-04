@@ -996,15 +996,27 @@ impl InferenceRouter {
                     || name.contains("vl-")
             });
         }
-        // Cost ceilings use the same tier table the brain ranks with: a zero
-        // ceiling keeps only free routes, a near-zero one drops the premium tier.
-        if max_cost == Some(0.0) {
+        // Cost ceilings price the task before the model is chosen
+        // (VC-202-002/T-DEEPSEEK-88): a candidate with a catalog price
+        // record is judged on the expected cost of the task's token
+        // profile at its achieved cache rate; one without a record keeps
+        // the coarse tier-table semantics — a zero ceiling keeps only free
+        // routes, a near-zero one drops the premium tier.
+        if let Some(cap) = max_cost {
+            let class = crate::engines::brain::TaskClass::from_requires(requires);
+            let catalog = crate::engines::cost::price_catalog();
             clouds.retain(|name| {
-                crate::engines::cost::tier_of(name) == crate::engines::cost::CostTier::Free
-            });
-        } else if max_cost.is_some_and(|cost| cost <= 0.01) {
-            clouds.retain(|name| {
-                crate::engines::cost::tier_of(name) < crate::engines::cost::CostTier::High
+                match crate::engines::cost::expected_task_cost_usd_in(catalog.as_ref(), name, class)
+                {
+                    Some(cost) => cost <= cap,
+                    None if cap <= 0.0 => {
+                        crate::engines::cost::tier_of(name) == crate::engines::cost::CostTier::Free
+                    }
+                    None if cap <= 0.01 => {
+                        crate::engines::cost::tier_of(name) < crate::engines::cost::CostTier::High
+                    }
+                    None => true,
+                }
             });
         }
     }
