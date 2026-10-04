@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-095",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "The chaos coverage is an in-memory model plus a fault matrix, not dev-deployment drills: swarm_chaos.rs exercises election determinism, duplicated-message idempotence, partition-then-no-split-brain and same-term foreign-leader rejection, and fault_matrix.rs adds clock skew, stale keys, failed rekeys, mixed versions and crash recovery — all against ChaosNetwork/IdentityStore in process. Disk-full, corrupt state and revoked credentials are not injected (the only disk-full path is a quorum-ledger unit test, not a drill), nothing drives the drills against isolated dev deployments, and explicit degraded-state reporting with privacy and budget preservation is not enumerated by any named check.",
+  "tracked_by": ["T-DEEPSEEK-220"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791107243
+}
