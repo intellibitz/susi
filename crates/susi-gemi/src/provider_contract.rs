@@ -416,3 +416,90 @@ pub fn probe_credentialed_opt_in(
     };
     Some(claims)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::susi_core::inference_wire::InferenceProtocol;
+
+    struct Fake {
+        /// (url substring, response) pairs checked in order; first match wins.
+        replies: Vec<(String, Result<(u16, String), String>)>,
+    }
+
+    impl crate::credential_scout::CheapCall for Fake {
+        fn get(&self, url: &str, _headers: &[(&str, &str)]) -> Result<(u16, String), String> {
+            for (pat, r) in &self.replies {
+                if url.contains(pat.as_str()) {
+                    return r.clone();
+                }
+            }
+            Err(format!("no canned reply for {url}"))
+        }
+    }
+
+    fn target() -> crate::credential_scout::CredentialTarget {
+        crate::credential_scout::CredentialTarget {
+            vendor: "openai".into(),
+            env: "OPENAI_API_KEY".into(),
+            api_base: "https://api.example.test/v1".into(),
+            protocol: InferenceProtocol::OpenAiChat,
+            api_key: "sk-fake-secret-000".into(),
+        }
+    }
+
+    #[test]
+    fn provider_contract_credentialed_probe_exercises_auth_and_errors() {
+        let fake = Fake {
+            replies: vec![
+                (
+                    "__susi_contract_probe_missing__".into(),
+                    Ok((404, r#"{"error":"no such model"}"#.into())),
+                ),
+                ("/models".into(), Ok((200, r#"{"data":[]}"#.into()))),
+            ],
+        };
+        let claims = probe_credentialed_with(&fake, "openai", "gpt-x", "1", &target());
+        assert_eq!(claims.len(), 6);
+        let at = |k: ProbeKind| claims.iter().find(|c| c.kind == k).unwrap();
+        assert_eq!(at(ProbeKind::Authentication).status, ProbeStatus::Supported);
+        assert_eq!(at(ProbeKind::Errors).status, ProbeStatus::Supported);
+        // Generation-only kinds are honest Unsupported, never guessed.
+        for k in [
+            ProbeKind::Streaming,
+            ProbeKind::ToolCalls,
+            ProbeKind::Embeddings,
+            ProbeKind::Usage,
+        ] {
+            assert_eq!(at(k).status, ProbeStatus::Unsupported, "{k:?}");
+        }
+    }
+
+    #[test]
+    fn provider_contract_credentialed_probe_redacts_the_key_from_details() {
+        let fake = Fake {
+            replies: vec![(
+                "/models".into(),
+                Ok((500, "server broke on sk-fake-secret-000 tail".into())),
+            )],
+        };
+        let claims = probe_credentialed_with(&fake, "openai", "gpt-x", "1", &target());
+        for c in &claims {
+            assert!(
+                !c.detail.contains("sk-fake-secret-000"),
+                "claim detail leaked the credential: {c:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_contract_opt_in_gate() {
+        // Without SUSI_PROVIDER_PROBE the public entry stays silent.
+        // (Set inside the test: env mutation is #[allow]-gated repo-wide.)
+        #[allow(clippy::disallowed_methods)]
+        unsafe {
+            std::env::remove_var("SUSI_PROVIDER_PROBE");
+        }
+        assert!(probe_credentialed_opt_in("openai", "gpt-x", "1").is_none());
+    }
+}

@@ -101,16 +101,24 @@ fn vc_201_051_checks_run_from_a_command_credentialed_probe_is_opt_in() {
     );
 
     // Opted in with zero configured endpoints: the gate flips and the
-    // report stays honest instead of fabricating coverage.
+    // report records explicit `unsupported` claims — "checked, nothing
+    // configured" — instead of silence or fabricated coverage.
     let (code, out) = run_probe(&home, Some("1"));
     assert_eq!(code, 0, "opted-in run failed: {out}");
     let credentialed = &report(&out)["credentialed"];
     assert_eq!(credentialed["opted_in"], serde_json::json!(true));
-    assert_eq!(
-        credentialed["claims"].as_array().unwrap().len(),
-        0,
-        "no endpoints configured → no live claims (env cleared, hermetic)"
-    );
+    let claims = credentialed["claims"].as_array().unwrap();
+    assert_eq!(claims.len(), 6, "one honest claim per probe kind");
+    for c in claims {
+        assert_eq!(c["status"], serde_json::json!("unsupported"));
+        assert!(
+            c["detail"]
+                .as_str()
+                .unwrap()
+                .contains("no configured credentialed endpoint"),
+            "empty config must be reported, not hidden: {c}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&home);
 }
 
