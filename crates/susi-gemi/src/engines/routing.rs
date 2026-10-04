@@ -714,6 +714,28 @@ impl InferenceRouter {
         if Self::effective_policy(&cfg, &pref) == "local_only" {
             return Vec::new();
         }
+        Self::cloud_failover_order_scoped(registry, class, &crate::key_arbitration::quota_headroom)
+    }
+
+    /// `cloud_failover_order_for` with an explicit quota-headroom lookup —
+    /// tests inject headroom without touching the process-global arbiter.
+    /// `headroom` returns `(remaining, allowance)` per provider, `None`
+    /// when no quota windows are declared.
+    pub fn cloud_failover_order_scoped(
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+        class: crate::engines::brain::TaskClass,
+        headroom: &crate::key_arbitration::HeadroomFn,
+    ) -> Vec<String> {
+        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+            return Vec::new();
+        }
+        let cfg = SusiConfig::load_global()
+            .unwrap_or_default()
+            .inference_routing();
+        let pref = Self::load_preference();
+        if Self::effective_policy(&cfg, &pref) == "local_only" {
+            return Vec::new();
+        }
         let mut providers = Self::list_cloud_providers_from_registry(registry);
         providers.retain(|name| !Self::provider_cooled(name));
         // Order by how each provider has performed on this task class, with
@@ -734,12 +756,25 @@ impl InferenceRouter {
             (
                 !preferred,
                 !meets_floor,
+                Self::quota_scarcity_tier(headroom(name)),
                 std::cmp::Reverse(score),
                 Self::cloud_rank(name),
                 name.clone(),
             )
         });
         providers
+    }
+
+    /// Scarcity tier for the failover sort: a provider whose tightest quota
+    /// window is spent or nearly spent (≤10% allowance) sorts behind an
+    /// abundant one — scarce capacity is not free capacity (VC-202-021).
+    pub fn quota_scarcity_tier(headroom: Option<(u64, u64)>) -> u8 {
+        match headroom {
+            None => 0,
+            Some((0, _)) => 2,
+            Some((remaining, allowance)) if remaining <= allowance / 10 => 1,
+            Some(_) => 0,
+        }
     }
 
     pub fn list_cloud_providers(names: &[String]) -> Vec<String> {

@@ -1,0 +1,11 @@
+{
+  "vector": "VC-202-021",
+  "verdict": "not-delivered",
+  "evidence": "quota_window_accounting_* (crates/susi-gemi/src/tests/quota_window_accounting.rs — daily/weekly/rolling resets on an injected clock, exhaustion refusal with reset time, tightest-window governs, remaining allowance + utilization, per-key independence, env-declared windows, failover scarcity demotion, production-wiring scan)",
+  "missing": "The quota-window axis is now production-wired (T-DEEPSEEK-232): every cloud provider.generate admits through crates/susi-gemi/src/key_arbitration.rs::KeyArbiter, which now tracks per-key quota windows (rolling/daily-UTC/weekly-UTC, declared via SUSI_KEY_QUOTA_*), refuses with Denial::Quota{reset_unix} when a window's allowance is spent, and exposes remaining allowance + reset via ScopeStatus::quota and quota_headroom; cloud_failover_order_for demotes keys at ≤10% remaining (scarce) and 0 remaining (spent) below abundant peers. What remains undelivered: ranking by the expected marginal cost of the next call plus scarcity — the billing-mode-aware marginal-cost model (subscription zero-until-cap, prepaid depleting stock, pay-as-you-go price per token) does not yet exist; ordering uses the scarcity tier, not marginal cost. Queued under T-DEEPSEEK-120. Honest limit: quota windows are process-local like the arbiter — they do not persist across restarts and are not fed by provider-reported headers (susi-vendor-models cloud_quota remains an inventory, not joined to the gate).",
+  "tracked_by": [
+    "T-DEEPSEEK-120"
+  ],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791180000
+}

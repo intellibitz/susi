@@ -1517,7 +1517,7 @@
       "id": "VC-202-021",
       "mastery_target": "Every key - and every agent seat, which is a subscription rather than a token meter - carries its billing mode - pay-as-you-go, subscription, free tier or prepaid balance - with the marginal cost semantics that follow: zero until the cap for a subscription, a depleting stock for prepaid, price per token for pay-as-you-go, and data plus rate cost for a free tier. Quota windows (rolling hours, daily, weekly) are tracked with remaining allowance and reset time, so ranking uses the expected marginal cost of the next call plus the scarcity of a nearly-exhausted cap rather than a naive price per token.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: quota windows production-wired by T-DEEPSEEK-232 (per-key daily/weekly/rolling windows in the shared KeyArbiter, refusal with reset time, scarcity demotion in failover ordering); marginal-cost ranking still queued under T-DEEPSEEK-120.",
       "type": "OPERATIONS",
       "vector": "Billing mode and quota windows enter the cost model"
     },
