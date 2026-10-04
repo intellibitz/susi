@@ -25,39 +25,61 @@ fn suite(
     }
 }
 
-/// Falsification: `version` is dead weight. A candidate suite *older* than
-/// the baseline — a stale evaluation — promotes as long as its numbers hold.
-/// Nothing in evaluate_promotion compares versions, so "versioned suite"
-/// is a field, not a gate.
+/// Mastery: `version` is enforced. A candidate suite older than the baseline
+/// is rejected as a stale evaluation, even if raw metrics hold.
 #[test]
-fn vc_201_082_mastery_stale_suite_version_promotes() {
+fn vc_201_082_mastery_stale_suite_version_rejected() {
     let baseline = suite(5, 0.9, 1.0, 0.5, 100);
     let candidate = suite(1, 0.95, 1.0, 0.6, 150);
     assert_eq!(
         evaluate_promotion(&baseline, &candidate),
-        PromoteVerdict::Promote,
-        "a suite four versions behind the baseline promoted"
+        PromoteVerdict::RejectStaleSuiteVersion,
+        "a suite behind the baseline version must be rejected"
     );
 }
 
-/// Falsification: an *unmeasured* metric passes the gate. NaN fails every
-/// `<` comparison, so a candidate whose correctness was never computed
-/// promotes — an empty evaluation reads as no regression.
+/// Mastery: unmeasured metrics (NaN) are detected and rejected.
 #[test]
-fn vc_201_082_mastery_nan_correctness_promotes_as_unmeasured() {
+fn vc_201_082_mastery_nan_metrics_rejected_as_unmeasured() {
     let baseline = suite(1, 0.9, 1.0, 0.5, 100);
     let candidate = suite(2, f64::NAN, 1.0, 0.6, 150);
     assert_eq!(
         evaluate_promotion(&baseline, &candidate),
-        PromoteVerdict::Promote,
-        "NaN correctness bypasses the regression check"
+        PromoteVerdict::RejectUnmeasuredMetrics,
+        "NaN correctness must be rejected as unmeasured metrics"
     );
     let candidate_iso = suite(2, 0.95, f64::NAN, 0.6, 150);
     assert_eq!(
         evaluate_promotion(&baseline, &candidate_iso),
-        PromoteVerdict::Promote,
-        "NaN isolation bypasses the regression check"
+        PromoteVerdict::RejectUnmeasuredMetrics,
+        "NaN isolation must be rejected as unmeasured metrics"
     );
+}
+
+/// Mastery: production promotion path is gated by evaluate_promotion.
+#[test]
+fn vc_201_082_mastery_promotion_path_is_gated() {
+    use crate::retrieval_eval::MemoryIndexCandidate;
+
+    let baseline = suite(2, 0.90, 1.0, 0.70, 500);
+
+    // Stale candidate fails promotion
+    let stale_cand = MemoryIndexCandidate::new(suite(1, 0.95, 1.0, 0.80, 600), vec![1, 2, 3]);
+    assert_eq!(
+        stale_cand.try_promote(&baseline),
+        Err(PromoteVerdict::RejectStaleSuiteVersion)
+    );
+
+    // Regressed candidate fails promotion
+    let regressed_cand = MemoryIndexCandidate::new(suite(3, 0.80, 1.0, 0.95, 1000), vec![4, 5, 6]);
+    assert_eq!(
+        regressed_cand.try_promote(&baseline),
+        Err(PromoteVerdict::RejectCorrectnessRegression)
+    );
+
+    // Honest candidate promotes successfully
+    let good_cand = MemoryIndexCandidate::new(suite(3, 0.92, 1.0, 0.75, 550), vec![7, 8, 9]);
+    assert_eq!(good_cand.try_promote(&baseline), Ok(()));
 }
 
 /// What does hold: quality promotion, correctness-regression rejection
