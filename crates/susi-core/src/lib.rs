@@ -76,6 +76,7 @@ pub mod mac_policy;
 pub mod manifold;
 pub mod mcp_client;
 pub mod mission_trace;
+pub mod model_health;
 pub mod net_guard;
 pub mod otel_export;
 pub mod plane_bus;
