@@ -2,7 +2,10 @@
 //! carrying mission/task/placement/experiment/deployment ids end to end
 //! without recording credentials.
 
-use crate::otel_export::{export_spans, mission_span, OtelExportTarget, OtelKeyValue};
+use crate::otel_export::{
+    export_spans, export_spans_with_limit, mission_span, ExportOutcome, OtelExportTarget,
+    OtelKeyValue, OtelStatusCode,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn scratch(tag: &str) -> std::path::PathBuf {
@@ -17,11 +20,10 @@ fn scratch(tag: &str) -> std::path::PathBuf {
     dir
 }
 
-/// Falsification: 'without recording credentials' — there is no
-/// redaction. A span attribute carrying an Authorization bearer token
-/// (or an api_key) is written to the export file verbatim.
+/// Verification: credentials (Authorization bearer tokens, api keys, tokens, secrets)
+/// are automatically redacted in exported span attributes rather than written verbatim.
 #[test]
-fn vc_201_091_mastery_credentials_exported_verbatim() {
+fn vc_201_091_mastery_credentials_are_redacted() {
     let dir = scratch("cred");
     let path = dir.join("spans.jsonl");
     let mut s = mission_span("trace1", "m-1", "deploy");
@@ -29,73 +31,94 @@ fn vc_201_091_mastery_credentials_exported_verbatim() {
         key: "http.request.header.authorization".into(),
         value: serde_json::Value::String("Bearer sk-live-SECRET".into()),
     });
+    s.attributes.push(OtelKeyValue {
+        key: "openai.api_key".into(),
+        value: serde_json::Value::String("sk-abcdef123456789".into()),
+    });
     export_spans(&OtelExportTarget::File { path: path.clone() }, &[s]).unwrap();
     let body = std::fs::read_to_string(&path).unwrap();
     assert!(
-        body.contains("sk-live-SECRET"),
-        "a credential rode the export verbatim"
+        !body.contains("sk-live-SECRET"),
+        "credential must not be exported verbatim: got {body}"
+    );
+    assert!(
+        !body.contains("sk-abcdef123456789"),
+        "api key must not be exported verbatim: got {body}"
+    );
+    assert!(
+        body.contains("[REDACTED]"),
+        "expected redacted token marker: got {body}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Falsification: Http export never posts. A permitted endpoint returns
-/// WouldPost — 'record intent without a live collector' — so spans
-/// claimed to reach a collector are only counted. Correlation 'end to
-/// end' ends at the local process.
+/// Verification: Http export actually transmits via HTTP transport when egress permits,
+/// returning real HTTP status (e.g. Posted or PostFailed) rather than a labeled noop (WouldPost).
 #[test]
-fn vc_201_091_mastery_http_export_is_a_labeled_noop() {
-    use crate::otel_export::ExportOutcome;
+fn vc_201_091_mastery_http_export_actually_transmits() {
     let s = mission_span("t", "m", "g");
     let out = export_spans(
         &OtelExportTarget::Http {
-            endpoint: "http://localhost:4318/v1/traces".into(),
+            // Egress to non-existent port on localhost fails at connect time, proving network transmission attempt
+            endpoint: "http://127.0.0.1:49999/v1/traces".into(),
         },
         &[s],
     )
     .unwrap();
-    // Even where egress permits, nothing is transmitted.
-    assert!(matches!(
-        out,
-        ExportOutcome::WouldPost { .. } | ExportOutcome::EgressBlocked { .. }
-    ));
+    // Proves transmission is attempted: it returns Posted or PostFailed, never a mock WouldPost
+    assert!(
+        matches!(
+            out,
+            ExportOutcome::Posted { .. } | ExportOutcome::PostFailed { .. }
+        ),
+        "HTTP export must attempt real transmission, got: {out:?}"
+    );
 }
 
-/// Falsification: 'one failed distributed request' cannot be
-/// represented — OtelSpan has no status or error field. A failed span
-/// is indistinguishable from a successful one, so the failure cannot be
-/// 'followed' at all.
+/// Verification: OtelSpan includes typed status_code and status_message fields,
+/// allowing failed distributed requests and errors to be represented and followed.
 #[test]
-fn vc_201_091_mastery_no_failure_can_be_recorded() {
+fn vc_201_091_mastery_failure_can_be_recorded() {
     let mut failed = mission_span("t", "m", "g");
-    failed.attributes.push(OtelKeyValue {
-        key: "status".into(),
-        value: serde_json::Value::String("error".into()),
-    });
-    // 'status' is just another attribute — nothing typed; a trace
-    // backend sees no failure semantic.
+    failed.record_error("connection refused to upstream peer");
+    assert_eq!(failed.status_code, OtelStatusCode::Error);
+    assert_eq!(
+        failed.status_message.as_deref(),
+        Some("connection refused to upstream peer")
+    );
+
     let ser = serde_json::to_string(&failed).unwrap();
     assert!(
-        !ser.contains("\"status_code\""),
-        "no OTLP status field exists"
+        ser.contains("\"status_code\":\"error\""),
+        "OTLP status_code field must be present in serialization: {ser}"
     );
-    assert!(ser.contains("susi.mission"));
+    assert!(
+        ser.contains("\"status_message\":\"connection refused to upstream peer\""),
+        "status_message field must be present: {ser}"
+    );
 }
 
-/// Falsification: 'bounded' — export appends to a file forever; no size
-/// cap, no rotation, no span cap. File growth is unbounded.
+/// Verification: File export is bounded and rotates when reaching capacity.
 #[test]
-fn vc_201_091_mastery_file_export_is_unbounded() {
-    let dir = scratch("unb");
+fn vc_201_091_mastery_file_export_is_bounded_and_rotates() {
+    let dir = scratch("rot");
     let path = dir.join("spans.jsonl");
-    for _ in 0..3 {
-        let s = mission_span("t", "m", "g");
-        export_spans(&OtelExportTarget::File { path: path.clone() }, &[s]).unwrap();
+    // Write 5 spans with a low rotation threshold (500 bytes)
+    for i in 0..5 {
+        let s = mission_span(&format!("t{i}"), "m", "goal");
+        export_spans_with_limit(&OtelExportTarget::File { path: path.clone() }, &[s], 500).unwrap();
     }
+    // Verify rotated generation `.1` exists
+    let rotated = dir.join("spans.jsonl.1");
+    assert!(
+        rotated.exists(),
+        "rotated generation spans.jsonl.1 must exist"
+    );
     let meta = std::fs::metadata(&path).unwrap();
-    assert!(meta.len() > 0);
-    // No rotation or cap exists: 3 writes = 3 appended lines, forever.
-    let body = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(body.lines().count(), 3);
+    assert!(
+        meta.len() > 0,
+        "active spans.jsonl must exist and be bounded"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
