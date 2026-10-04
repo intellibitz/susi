@@ -110,10 +110,18 @@ fn now_unix() -> u64 {
 }
 
 /// Read every persisted store once and fold it into a `UnifiedStatus`.
+/// `global_dir` is the substrate config dir (brain evidence, usage ledger,
+/// identity); `substrate_home` is the daemon's data dir (mission dispatch
+/// dir, scheduled-missions.json — `runtime_admin` binds there).
 /// `now` is a parameter so tests pin the clock instead of racing `due`.
-pub(crate) fn collect(cwd: &Path, global_dir: &Path, now: u64) -> UnifiedStatus {
-    let missions = read_missions(global_dir);
-    let queue = read_queue(global_dir, now);
+pub(crate) fn collect(
+    cwd: &Path,
+    global_dir: &Path,
+    substrate_home: &Path,
+    now: u64,
+) -> UnifiedStatus {
+    let missions = read_missions(substrate_home);
+    let queue = read_queue(substrate_home, now);
     let brain = read_brain(now);
     let routing = read_routing(cwd, now);
     let spend = read_spend(global_dir);
@@ -130,8 +138,8 @@ pub(crate) fn collect(cwd: &Path, global_dir: &Path, now: u64) -> UnifiedStatus 
     }
 }
 
-fn read_missions(global_dir: &Path) -> Vec<MissionInFlight> {
-    let dir = global_dir.join("missions");
+fn read_missions(substrate_home: &Path) -> Vec<MissionInFlight> {
+    let dir = substrate_home.join("missions");
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return out;
@@ -178,8 +186,8 @@ fn read_missions(global_dir: &Path) -> Vec<MissionInFlight> {
     out
 }
 
-fn read_queue(global_dir: &Path, now: u64) -> QueueSection {
-    let path = ScheduleStore::path_in(global_dir);
+fn read_queue(substrate_home: &Path, now: u64) -> QueueSection {
+    let path = ScheduleStore::path_in(substrate_home);
     let Ok(store) = ScheduleStore::load(&path) else {
         return QueueSection::default();
     };
@@ -407,6 +415,11 @@ pub(crate) fn render(s: &UnifiedStatus) -> String {
 
 /// The `susi status` command body.
 pub(crate) fn run(cwd: &Path, global_dir: &Path) {
-    let status = collect(cwd, global_dir, now_unix());
+    let status = collect(
+        cwd,
+        global_dir,
+        &susi_paths::SusiDirs::substrate_home(),
+        now_unix(),
+    );
     print!("{}", render(&status));
 }

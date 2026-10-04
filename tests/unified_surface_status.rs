@@ -52,17 +52,11 @@ fn run_status(home: &Path, extra_env: &[(&str, PathBuf)]) -> (i32, String) {
     (out.status.code().unwrap_or(-1), surface)
 }
 
-/// `SusiDirs::config_dir()` under the env `run_status` installs.
-fn config_dir(home: &Path) -> PathBuf {
-    // The dev binary selects its hermetic instance under the supplied HOME;
-    // seed the same config root that the CLI receives after composition.
+/// The dev build reroots to `$HOME/.susi-dev` (`isolate_if_dev_build`),
+/// which becomes `SUSI_HOME` — `instance_root` then answers every
+/// `SusiDirs` lookup (config, data, cache) with this one root.
+fn dev_root(home: &Path) -> PathBuf {
     home.join(".susi-dev")
-}
-
-/// `SusiDirs::substrate_home()` (the daemon's data dir): mission dispatch
-/// dir and `scheduled-missions.json` live here, not under config.
-fn substrate_home(home: &Path) -> PathBuf {
-    home.join("xdg-data").join("susi")
 }
 
 #[test]
@@ -162,14 +156,16 @@ fn unified_surface_status_reports_all_axes() {
     for axis in [
         "susi status",
         "daemon:",
-        "missions in flight:",
-        "scheduled queue:",
+        "missions in flight: 1",
+        "m-7",
+        "scheduled queue: 1",
         "brain: 1 provider(s) with evidence",
         "chat: groq",
         "budget:",
         "spend: 3 calls (2 ok), 310 prompt + 155 completion tokens",
         "groq: 2 calls, 1 ok",
-        "pending approvals:",
+        "pending approvals: 1",
+        "cell-a asks fs:/etc:write (req-9)",
     ] {
         assert!(out.contains(axis), "missing `{axis}` in:\n{out}");
     }
