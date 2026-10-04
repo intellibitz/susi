@@ -12,6 +12,7 @@
       "nextest",
       "run",
       "--locked",
+      "--workspace",
       "-E",
       "test(vc_201_042_native_engines_through_contract)"
     ]

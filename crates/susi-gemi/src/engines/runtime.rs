@@ -298,7 +298,23 @@ impl GemiEngine {
         // Report the actual local generator before the first content chunk.
         meta(selected_model.as_deref().unwrap_or(engine_key));
         let local_started = std::time::Instant::now();
-        let result = engine.run_inference_stream(prompt, callback, selected_model.as_deref());
+        // Drive the engine through the shared lifecycle contract: discover →
+        // load → ready (health probe) → infer (VC-201-042). A failed probe
+        // is a typed error here, the same outcome the bare call produced.
+        let result = crate::engines::native_lifecycle::infer_via_contract(
+            engine,
+            match engine_key {
+                "susi-federated" | "cloud" => {
+                    crate::engines::native_lifecycle::EngineKind::Federated
+                }
+                _ => crate::engines::native_lifecycle::EngineKind::Native,
+            },
+            &crate::engines::native_lifecycle::ContractCall::new(
+                prompt,
+                callback,
+                selected_model.as_deref(),
+            ),
+        );
         if let Some(model) = selected_model.as_deref() {
             if active_engine_identifier != "susi-federated" && active_engine_identifier != "cloud"
                 || requested_model.is_some()
