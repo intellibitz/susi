@@ -621,16 +621,20 @@ impl GemiEngine {
             return (None, ladder);
         }
 
-        // Evidence-driven ordering: how each provider has actually performed
-        // on this kind of prompt; the static rank stays the tiebreaker. The
-        // capability floor is part of the key — a below-floor candidate
-        // trails every floor-meeting one whatever its evidence or cost.
-        let ranked: std::collections::HashMap<String, (bool, i64)> =
+        // The brain's rank position for this task class drives the cascade
+        // order: it already folds in the capability floor, cost per
+        // verified outcome (or evidence score when unpriced / Budget::Max)
+        // and the static-rank tiebreak (VC-202-003). The rank call is fed
+        // the canonical static order first so a brain tie breaks
+        // deterministically — `names` arrives in registry (hash) order.
+        names.sort_by_key(|n| (Self::rank_provider_name(n), n.clone()));
+        let ranked: std::collections::HashMap<String, (bool, usize)> =
             crate::engines::brain::rank(&names, class)
                 .into_iter()
-                .map(|r| (r.provider, (r.meets_floor, (r.score * 10_000.0) as i64)))
+                .enumerate()
+                .map(|(pos, r)| (r.provider, (r.meets_floor, pos)))
                 .collect();
-        let brain_rank = |n: &String| ranked.get(n).copied().unwrap_or((false, 0));
+        let brain_rank = |n: &String| ranked.get(n).copied().unwrap_or((false, usize::MAX));
         // A provider that keeps failing right now (no credit, rejected key)
         // sorts behind every fit one — even the sticky preferred cloud.
         let unfit = |n: &String| crate::engines::brain::is_unfit(n, class);
@@ -661,14 +665,14 @@ impl GemiEngine {
                 let hit = n.to_ascii_lowercase().contains(&model_l);
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
-                let (meets_floor, score) = brain_rank(n);
+                let (meets_floor, pos) = brain_rank(n);
                 (
                     !hit,
                     !probe(n),
                     unfit(n),
                     !preferred,
                     !meets_floor,
-                    std::cmp::Reverse(score),
+                    pos,
                     Self::rank_provider_name(n),
                     n.clone(),
                 )
@@ -677,13 +681,13 @@ impl GemiEngine {
             names.sort_by_key(|n| {
                 let preferred =
                     crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
-                let (meets_floor, score) = brain_rank(n);
+                let (meets_floor, pos) = brain_rank(n);
                 (
                     !probe(n),
                     unfit(n),
                     !preferred,
                     !meets_floor,
-                    std::cmp::Reverse(score),
+                    pos,
                     Self::rank_provider_name(n),
                     n.clone(),
                 )

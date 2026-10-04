@@ -268,9 +268,10 @@ fn budget_ceiling_cascade_steps_down_to_the_affordable_rung() {
     let registry = CapabilityRegistry::new();
     // "hello there" classifies Reflex (512 in + 128 out): pricymodel at
     // $5/$50 ≈ $0.009 — over the $0.005 daily cap; bargainmodel at
-    // $0.01/$0.01 ≈ $0.000006 — under. The pricey name sorts first
-    // alphabetically so the cascade evaluates its refusal before the
-    // affordable rung gets to serve (the cascade exits on first success).
+    // $0.01/$0.01 ≈ $0.000006 — under. Cost-per-outcome ranking puts the
+    // affordable rung first now (VC-202-003), so the pricey rung leads only
+    // as the user's pinned preferred cloud — its refusal is evaluated
+    // before the affordable rung serves (the cascade exits on success).
     registry.register_provider(AnsweringProvider {
         name: "acme-apricymodel",
         reply: "premium answer",
@@ -279,9 +280,14 @@ fn budget_ceiling_cascade_steps_down_to_the_affordable_rung() {
         name: "acme-bargainmodel",
         reply: "budget answer",
     });
+    crate::engines::routing::InferenceRouter::set_preferred_cloud("pricymodel")
+        .expect("pin the pricey rung");
 
     let (out, ladder) =
         GemiEngine::try_providers(&registry, "hello there", None, None, &|_| {}, &|_| {});
+    // Cleared before the assertions so a panic cannot leak the pin into
+    // the other cascade tests sharing this process's preference file.
+    let _ = crate::engines::routing::InferenceRouter::clear_preferred_cloud();
     assert_eq!(
         out.as_deref(),
         Some("budget answer"),
