@@ -15,29 +15,23 @@ fn fleet() -> Vec<(String, Option<String>)> {
         .collect()
 }
 
-/// Falsification: the wave bound lives only in `pending()` — `mark_applied`
-/// accepts any node regardless of wave. A node three waves out can take the
-/// pinned revision while the canary has not even applied, so "bounded waves"
-/// is advisory, not enforced.
 #[test]
-fn vc_201_068_mastery_mark_applied_bypasses_wave_bound() {
+fn vc_201_068_mastery_mark_applied_enforces_wave_bound() {
     let mut r = Rollout::new("rev-2", &fleet(), &["n1".into()], 2).unwrap();
     assert_eq!(r.pending(), vec!["n1".to_string()]);
     assert!(
         !r.pending().contains(&"n5".to_string()),
         "n5 is in a later wave — not pending"
     );
-    // The canary has not applied, yet n5 accepts the pinned revision.
-    r.mark_applied("n5", "rev-2")
-        .expect("later-wave node accepted the pinned revision while wave 0 is open");
-    assert_eq!(r.nodes["n5"].current.as_deref(), Some("rev-2"));
+    assert!(
+        r.mark_applied("n5", "rev-2").is_err(),
+        "later-wave node must not apply while wave 0 is open"
+    );
+    assert_eq!(r.nodes["n5"].current.as_deref(), Some("rev-1"));
 }
 
-/// Falsification: `rollback` marks the node healthy without any health
-/// evidence, so `resume` — which claims to require every node healthy —
-/// unblocks a rollout over a node that was never re-verified.
 #[test]
-fn vc_201_068_mastery_rollback_fabricates_health_and_resume_accepts_it() {
+fn vc_201_068_mastery_rollback_requires_verified_health_before_resume() {
     let mut r = Rollout::new("rev-2", &fleet(), &["n1".into()], 2).unwrap();
     r.mark_applied("n1", "rev-2").unwrap();
     r.report("n1", true).unwrap();
@@ -45,26 +39,22 @@ fn vc_201_068_mastery_rollback_fabricates_health_and_resume_accepts_it() {
     r.report("n2", false).unwrap();
     assert_eq!(r.status, RolloutStatus::Paused);
 
-    // No probe, no report — rollback alone flips the node healthy.
     r.rollback("n2").unwrap();
     assert!(
-        r.nodes["n2"].healthy,
-        "rollback marked the node healthy with no health evidence"
+        !r.nodes["n2"].healthy,
+        "rollback must invalidate health until a fresh report"
     );
-    r.resume().expect("resume accepted fabricated health");
+    assert!(r.resume().is_err(), "unverified rollback must block resume");
+    r.report("n2", true).unwrap();
+    r.resume().expect("verified rollback should permit resume");
     assert_eq!(r.status, RolloutStatus::Running);
 }
 
-/// Falsification: an empty canary leaves `open_wave` at 0 with no members.
-/// `pending()` yields nothing forever — the operator's only signal of what
-/// may apply is empty — yet the rollout still reports Running.
 #[test]
-fn vc_201_068_mastery_no_canary_leaves_pending_empty_while_running() {
-    let r = Rollout::new("rev-2", &fleet(), &[], 2).unwrap();
-    assert_eq!(r.status, RolloutStatus::Running);
+fn vc_201_068_mastery_no_canary_is_rejected() {
     assert!(
-        r.pending().is_empty(),
-        "nothing is ever pending in wave 0 without a canary"
+        Rollout::new("rev-2", &fleet(), &[], 2).is_err(),
+        "a non-empty fleet must have a canary wave"
     );
 }
 
@@ -94,6 +84,7 @@ fn vc_201_068_mastery_pin_pause_rollback_state_and_completion_hold() {
 
     // Fully pinned + healthy fleet completes.
     r.rollback("n1").unwrap();
+    r.report("n1", true).unwrap();
     r.resume().unwrap();
     for id in ["n1", "n2", "n3", "n4", "n5"] {
         r.mark_applied(id, "rev-2").unwrap();
