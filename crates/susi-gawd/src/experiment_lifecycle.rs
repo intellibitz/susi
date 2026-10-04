@@ -1,5 +1,6 @@
 //! Persist self-improvement experiment lifecycle (VC-201-011).
 
+use crate::scorecard::{ImprovementScorecard, ScorecardSpec};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -63,6 +64,22 @@ impl ExperimentLog {
         exp.state = to;
         self.applied_transitions.push((id.to_string(), from, to));
         Ok(())
+    }
+
+    /// Promotion is earned, not declared: the Evaluated ->
+    /// PromotionReady transition goes through only when the
+    /// experiment's scorecard clears the predeclared spec — every
+    /// dimension within its bound and the sample floor reached.
+    pub fn promote_with_scorecard(
+        &mut self,
+        id: &str,
+        scorecard: &ImprovementScorecard,
+        spec: &ScorecardSpec,
+    ) -> Result<(), String> {
+        if !scorecard.summary_ok(spec) {
+            return Err("scorecard fails the predeclared spec".into());
+        }
+        self.transition(id, ExperimentState::PromotionReady)
     }
 
     /// After crash: resume from durable log without skipping evaluation.
