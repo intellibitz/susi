@@ -2096,6 +2096,8 @@ fn estimated_usage(prompt_tokens: u64, completion_tokens: u64) -> serde_json::Va
 mod tests {
     use super::*;
 
+    mod vc_201_099_mastery;
+
     #[test]
     fn placement_query_accepts_constraints_and_rejects_ambiguous_input() {
         assert_eq!(
