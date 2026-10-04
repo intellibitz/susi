@@ -1461,7 +1461,7 @@
       "id": "VC-202-016",
       "mastery_target": "A single surface exposes missions, the queue, brain status, cost and approvals on local and configured cloud environments, so an intent enters and returns a result or a typed refusal without the user choosing a subsystem first.",
       "priority": "P2",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-016.json, T-DEEPSEEK-97, 2026-10-04): susi status is one deterministic surface over missions in flight, the scheduled queue, brain status and the model it would serve, measured token spend, and pending broker approvals — all read from persisted stores, never LLM-narrated, and answering with the daemon down. CLI done; TUI/web follow-on open.",
       "type": "CORE",
       "vector": "One entry point over the whole OS"
     },

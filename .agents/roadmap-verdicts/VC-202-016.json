@@ -1,0 +1,10 @@
+{
+  "vector": "VC-202-016",
+  "verdict": "delivered",
+  "evidence": "unified_surface_status_* (4 tests, tests/unified_surface_status.rs — real-binary run against a seeded throwaway instance asserts every axis: missions in flight listed by id, scheduled queue counts, brain evidence provider + per-class leader, measured token spend per provider, a pending broker approval rendered; empty-instance zero lines; run-to-run determinism; a source scan pinning that the Status arm renders the surface and the surface never calls the swarm/LLM)",
+  "delivered_by": ["T-DEEPSEEK-97"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791235000,
+  "check": ["scripts/check-reachability.py", "--delivered", "status_cli::run"],
+  "notes": "susi status now prints one deterministic surface instead of asking an LLM to narrate 'status' (a path that could claim anything — Mandate 2): daemon pid via the substrate lock; missions in flight from the runtime_admin dispatch dir; the scheduled-mission queue (total/paused/due-now/next-run/failure streaks); brain evidence with the per-class leader, unfit providers, and the local floor model identify_best_suited_local_model would serve; routing preference (preferred cloud, policy override, auto-switch, cooldowns, budget); measured spend from the usage ledger; and pending approvals from the file-backed IPC broker's shared pending-request queue (a real cross-process read — sibling pid dirs). The command no longer requires the daemon (defs.rs): a status surface must answer precisely when the daemon is down. Honest limits: CLI-only (the vector's TUI/web follow-on is still open); the usage ledger has no production writer yet (T-DEEPSEEK-213), so spend reports tokens/calls — never invented USD — and reads 'no usage recorded' until outcomes persist; missions listed are dispatch-dir requests, not the daemon's in-memory mission table; approvals are the broker's shared queue, so requests pending inside other, non-broker flows are not visible."
+}

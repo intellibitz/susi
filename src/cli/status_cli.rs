@@ -182,7 +182,7 @@ fn read_missions(substrate_home: &Path) -> Vec<MissionInFlight> {
             dispatched_unix,
         });
     }
-    out.sort_by(|a, b| a.dispatched_unix.cmp(&b.dispatched_unix));
+    out.sort_by_key(|m| m.dispatched_unix);
     out
 }
 
