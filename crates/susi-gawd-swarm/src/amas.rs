@@ -198,6 +198,18 @@ pub struct ClusterPeerNode {
 /// until they re-verify with a fresh signed pong.
 pub const PEER_STALE_SECS: u64 = 30;
 
+/// Keep one mission from creating an unbounded number of remote calls. The
+/// discovery sweep has the same cap; consensus must not exceed it just because
+/// the roster grew between sweeps.
+const MAX_QUORUM_PEERS: usize = 32;
+
+/// Peer reasoning is an input to this mission's decision only if it arrives in
+/// this collection window. A late response is intentionally discarded rather
+/// than mutating the blackboard after consensus has moved on.
+const PEER_COLLECTION_TIMEOUT: Duration = Duration::from_secs(2);
+
+const QUORUM_AGREED_UNVERIFIED: &str = "[QUORUM_AGREED_UNVERIFIED]";
+
 /// Broadcast cadence once the roster is established (~600ms while
 /// discovery is pending). New nodes still reach us instantly — their
 /// own pings arrive via recv_from and we answer immediately — so an
@@ -231,6 +243,14 @@ fn our_gmcp_http_port() -> u16 {
 }
 
 pub struct SusiSupervisor;
+
+/// One peer response collected before the consensus pass. The sender is the
+/// pinned `PeerNode_<id>` authority, not an address supplied by the response
+/// body.
+struct PeerResponse {
+    voter: String,
+    output: String,
+}
 
 impl SusiSupervisor {
     pub fn get_udp_discovery_port() -> u16 {
@@ -988,14 +1008,22 @@ impl SusiSupervisor {
         }
         let mut counts: std::collections::HashMap<String, (usize, &str)> =
             std::collections::HashMap::new();
+        let mut counted_voters = std::collections::BTreeSet::new();
         for (voter, output) in valid_outputs {
             // Churn guard: only pinned members vote. A peer admitted after
             // the broadcast (or a blackboard key no mission dispatched) can
             // never tilt the count.
-            if !electorate.contains(voter) {
+            if !electorate.contains(voter) || !counted_voters.insert(voter.clone()) {
                 continue;
             }
-            let trimmed = output.trim();
+            // Peer transport wraps successful text as `[A2A Flux (addr)]: …`.
+            // The address identifies the transport hop, not the answer, so it
+            // must never become part of the canonical vote value. Error and
+            // fallback envelopes are not opinions and are rejected here even
+            // when a caller bypasses the normal blackboard filter.
+            let Some(trimmed) = Self::canonical_vote_value(output) else {
+                continue;
+            };
             let normalized = trimmed
                 .to_lowercase()
                 .split_whitespace()
@@ -1017,6 +1045,78 @@ impl SusiSupervisor {
             .filter(|(count, _)| *count >= quorum_threshold)
             .max_by_key(|(count, _)| *count)
             .map(|(tally, representative)| (representative.to_string(), tally))
+    }
+
+    /// Extract the answer text from one blackboard value. This is deliberately
+    /// independent of the sender's address: two authenticated members that
+    /// return the same answer must vote for the same value, while a transport
+    /// error or tool refusal must never manufacture a vote.
+    fn canonical_vote_value(output: &str) -> Option<&str> {
+        let raw = output.trim();
+        let value = if let Some(rest) = raw.strip_prefix("[A2A Flux (") {
+            let (_, value) = rest.split_once(")]:")?;
+            value.trim()
+        } else {
+            raw
+        };
+        if value.is_empty()
+            || value.starts_with("[A2A Error")
+            || value.starts_with("[A2A Fallback")
+            || !susi_gawd_agents::accountability::is_usable(value)
+        {
+            None
+        } else {
+            Some(value)
+        }
+    }
+
+    fn eligible_quorum_peers(nodes: &[ClusterPeerNode]) -> Vec<&ClusterPeerNode> {
+        nodes
+            .iter()
+            .filter(|n| {
+                n.is_active
+                    && !n.is_stale(now_secs())
+                    && matches!(n.admission, PeerAdmission::Explicit)
+            })
+            .take(MAX_QUORUM_PEERS)
+            .collect()
+    }
+
+    /// Await the peer workers until the fixed deadline, accepting only one
+    /// response from each pinned electorate member. The workers do not receive
+    /// the blackboard and therefore cannot write a late answer after this
+    /// function returns.
+    fn collect_peer_responses(
+        receiver: &std::sync::mpsc::Receiver<PeerResponse>,
+        electorate: &std::collections::BTreeSet<String>,
+        blackboard: &MissionBlackboard,
+        deadline: std::time::Instant,
+        cancellation: &CancellationHandle,
+    ) -> usize {
+        let mut accepted = 0usize;
+        let mut seen = std::collections::BTreeSet::new();
+        loop {
+            if cancellation.should_stop() {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let response = match receiver.recv_timeout(remaining) {
+                Ok(response) => response,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            if !electorate.contains(&response.voter) || !seen.insert(response.voter.clone()) {
+                continue;
+            }
+            if let Some(value) = Self::canonical_vote_value(&response.output) {
+                blackboard.insert(response.voter, value.to_string());
+                accepted += 1;
+            }
+        }
+        accepted
     }
 
     /// When one agent's rank is a clear outlier above the
@@ -1118,13 +1218,12 @@ impl SusiSupervisor {
         // the response set instead of corrupting the quorum bar.
         let mut electorate: std::collections::BTreeSet<String> =
             fleet_info.iter().map(|i| i.name.clone()).collect();
-        let dispatched_peers: Vec<&ClusterPeerNode> = cluster_nodes
-            .iter()
-            .filter(|n| n.is_active && matches!(n.admission, PeerAdmission::Explicit))
-            .collect();
+        let dispatched_peers = Self::eligible_quorum_peers(&cluster_nodes);
         for node in &dispatched_peers {
             electorate.insert(format!("PeerNode_{}", node.node_id));
         }
+        let collection_deadline = std::time::Instant::now() + PEER_COLLECTION_TIMEOUT;
+        let (peer_tx, peer_rx) = std::sync::mpsc::channel::<PeerResponse>();
         let active_peers_count = dispatched_peers.len();
         if active_peers_count > 0 {
             eprintln!("- [Distributed Swarm] Broadcasting mission intent to {} explicitly admitted peer nodes...", active_peers_count);
@@ -1133,26 +1232,25 @@ impl SusiSupervisor {
                 let addr = node.address.clone();
                 let node_id = node.node_id.clone();
                 let g = goal.to_string();
-                let bb = Arc::clone(&blackboard);
                 let peer_cancel = cancellation.clone();
+                let peer_tx = peer_tx.clone();
                 rayon::spawn(move || {
                     if let PeerDispatchOutcome::Completed(remote_res) =
                         Self::dispatch_peer_task_cancellable(&addr, "reason", &g, &peer_cancel)
                     {
-                        // Only genuine peer outputs may vote: transport
-                        // failures and tool-level refusals are excluded —
-                        // an error string is not an opinion and must never
-                        // reach quorum. A late result is also discarded.
-                        if !peer_cancel.should_stop()
-                            && !remote_res.contains("unreachable")
-                            && !remote_res.starts_with("[A2A Error")
-                        {
-                            bb.insert(format!("PeerNode_{}", node_id), remote_res);
-                        }
+                        // The collector owns the blackboard write. A worker
+                        // that finishes after the collection deadline can
+                        // only send to a dropped receiver, never alter the
+                        // decision that was already computed.
+                        let _ = peer_tx.send(PeerResponse {
+                            voter: format!("PeerNode_{node_id}"),
+                            output: remote_res,
+                        });
                     }
                 });
             }
         }
+        drop(peer_tx);
 
         // 4. Dispatch the local agent fleet; each agent's output lands on the blackboard
         let swarm_logs = GawdAgentFleet::dispatch_explosive_swarm(
@@ -1225,6 +1323,24 @@ impl SusiSupervisor {
             }
         }
 
+        // Peer reasoning is deliberately collected after local dispatch so
+        // both paths can make progress concurrently, but before any consensus
+        // read. The deadline is absolute from dispatch, not a fresh wait after
+        // local work completes.
+        if active_peers_count > 0 {
+            let collected = Self::collect_peer_responses(
+                &peer_rx,
+                &electorate,
+                &blackboard,
+                collection_deadline,
+                cancellation,
+            );
+            eprintln!(
+                "- [Distributed Swarm] Collected {collected}/{active_peers_count} peer responses within the bounded window."
+            );
+            let _ = std::io::stderr().flush();
+        }
+
         // 5. Weighted Swarm Consensus Pass
         if !blackboard.is_empty() {
             // Aggregate agent outputs weighted by rank and node trust
@@ -1266,30 +1382,17 @@ impl SusiSupervisor {
                         &wrap_tool_output("mission-blackboard", r.value()),
                         ActionClass::Consequential,
                     )
-                    .unwrap_or_else(|reason| reason)
-                    .trim()
-                    .to_string();
-                    if susi_gawd_agents::accountability::is_usable(&output) {
-                        Some((agent_name, output))
-                    } else {
-                        None
-                    }
+                    .unwrap_or_else(|reason| reason);
+                    Self::canonical_vote_value(&output)
+                        .filter(|value| susi_gawd_agents::accountability::is_usable(value))
+                        .map(|value| (agent_name, value.to_string()))
                 })
                 .collect();
 
             // Consensus Hardening: quorum-commit first (strict majority of
             // the electorate pinned at broadcast), then direct pass-through,
             // then rank-leader, then LLM re-synthesis.
-            let (synthesized, convergence_action) = if is_direct_synthesis
-                || valid_outputs.len() <= 1
-            {
-                let out = if valid_outputs.len() == 1 {
-                    valid_outputs[0].1.clone()
-                } else {
-                    weighted_wisdom.clone()
-                };
-                (out, "STATE_CONVERGENCE")
-            } else if let Some((quorum_output, tally)) =
+            let (synthesized, convergence_action) = if let Some((quorum_output, tally)) =
                 Self::quorum_majority(&electorate, &valid_outputs)
             {
                 eprintln!(
@@ -1309,7 +1412,7 @@ impl SusiSupervisor {
                     .iter()
                     .map(|node| node.address.clone())
                     .collect();
-                let durability = crate::quorum_durable::durable_commit(
+                let durability = crate::quorum_durable::durable_commit_requiring_acks(
                     || {
                         Self::elect_leader(&cluster_nodes).and_then(|leader| {
                             // Term semantics (VC-200-001): claim leadership
@@ -1336,13 +1439,14 @@ impl SusiSupervisor {
                     &voter_addrs,
                     |addr, record| {
                         let body = serde_json::to_string(record).unwrap_or_default();
-                        // Best-effort replication: an unreachable voter just
-                        // misses this entry — the ledger is a recovery aid,
-                        // not the commit itself. A tool-level refusal (stale
-                        // term, chain divergence) is consensus-relevant
-                        // though — log it, never swallow it.
+                        // This path promises a durable copy at every
+                        // dispatched voter, so a transport failure or a
+                        // tool-level refusal (stale term, chain divergence)
+                        // is a failed acknowledgement, not a commit.
                         let res = Self::dispatch_peer_task(addr, "commit_record", &body);
-                        let acked = !(res.starts_with("[A2A Error") || res.contains("unreachable"));
+                        let acked = !res.starts_with("[A2A Error")
+                            && !res.starts_with("[A2A Fallback")
+                            && !res.contains("unreachable");
                         if !acked {
                             eprintln!("- [Consensus Master] commit push to {addr} failed: {res}");
                         }
@@ -1354,7 +1458,10 @@ impl SusiSupervisor {
                         eprintln!(
                             "- [Consensus Master] quorum commit durable; replicated to {acked}/{voters} voters."
                         );
-                        (quorum_output, "QUORUM_COMMIT")
+                        (
+                            format!("{quorum_output}\n\n{QUORUM_AGREED_UNVERIFIED}"),
+                            "QUORUM_COMMIT",
+                        )
                     }
                     crate::quorum_durable::CommitDurability::Undurable(detail) => {
                         eprintln!(
@@ -1366,6 +1473,13 @@ impl SusiSupervisor {
                         )
                     }
                 }
+            } else if is_direct_synthesis || valid_outputs.len() <= 1 {
+                let out = if valid_outputs.len() == 1 {
+                    valid_outputs[0].1.clone()
+                } else {
+                    weighted_wisdom.clone()
+                };
+                (out, "STATE_CONVERGENCE")
             } else if let Some(leader_output) =
                 Self::dominant_rank_leader(&valid_outputs, &fleet_info)
             {
@@ -2001,6 +2115,96 @@ mod tests {
         ];
         let voters = electorate(&["AgentA", "AgentB"]);
         assert_eq!(SusiSupervisor::quorum_majority(&voters, &outputs), None);
+    }
+
+    #[test]
+    fn swarm_gap_durable_quorum_canonicalizes_addresses_and_rejects_errors() {
+        let voters = electorate(&["PeerNode_a", "PeerNode_b", "AgentA"]);
+        let outputs = vec![
+            (
+                "PeerNode_a".to_string(),
+                "[A2A Flux (10.0.0.1:9093)]: shared answer".to_string(),
+            ),
+            (
+                "PeerNode_b".to_string(),
+                "[A2A Flux (10.0.0.2:9093)]: SHARED   ANSWER".to_string(),
+            ),
+            (
+                "AgentA".to_string(),
+                "[A2A Error (10.0.0.3:9093)]: stale authority".to_string(),
+            ),
+            (
+                "PeerNode_late".to_string(),
+                "[A2A Flux (10.0.0.4:9093)]: shared answer".to_string(),
+            ),
+        ];
+        assert_eq!(
+            SusiSupervisor::quorum_majority(&voters, &outputs),
+            Some(("shared answer".to_string(), 2))
+        );
+    }
+
+    #[test]
+    fn swarm_gap_durable_quorum_deduplicates_voters_across_member_views() {
+        let voters = electorate(&["PeerNode_a", "PeerNode_b", "PeerNode_c"]);
+        let outputs = vec![
+            (
+                "PeerNode_a".to_string(),
+                "[A2A Flux (10.0.0.1:9093)]: same".to_string(),
+            ),
+            (
+                "PeerNode_a".to_string(),
+                "[A2A Flux (10.0.0.9:9093)]: same".to_string(),
+            ),
+            (
+                "PeerNode_foreign_view".to_string(),
+                "[A2A Flux (10.0.0.8:9093)]: same".to_string(),
+            ),
+            (
+                "PeerNode_b".to_string(),
+                "[A2A Flux (10.0.0.2:9093)]: different".to_string(),
+            ),
+        ];
+        assert_eq!(SusiSupervisor::quorum_majority(&voters, &outputs), None);
+    }
+
+    #[test]
+    fn swarm_gap_durable_quorum_bounded_collection_discards_delayed_valid_peer() {
+        let blackboard: MissionBlackboard =
+            Arc::new(susi_gawd_agents::agents::HighDensityContextStore::new(8));
+        let electorate = electorate(&["PeerNode_delayed"]);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let delayed = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            let _ = sender.send(PeerResponse {
+                voter: "PeerNode_delayed".to_string(),
+                output: "[A2A Flux (10.0.0.7:9093)]: valid but late".to_string(),
+            });
+        });
+        let deadline = std::time::Instant::now() + Duration::from_millis(5);
+        let accepted = SusiSupervisor::collect_peer_responses(
+            &receiver,
+            &electorate,
+            &blackboard,
+            deadline,
+            &CancellationHandle::new(),
+        );
+        assert_eq!(accepted, 0);
+        assert!(!blackboard.contains_key("PeerNode_delayed"));
+        delayed.join().expect("delayed peer fixture should exit");
+        assert!(!blackboard.contains_key("PeerNode_delayed"));
+    }
+
+    #[test]
+    fn swarm_gap_durable_quorum_stale_authority_is_not_dispatched() {
+        let mut stale = peer_node("stale", 1.0, true, PeerAdmission::Explicit);
+        stale.last_seen_secs = now_secs().saturating_sub(PEER_STALE_SECS + 1);
+        let fresh = peer_node("fresh", 0.1, true, PeerAdmission::Explicit);
+        let discovered = peer_node("discovered", 1.0, true, PeerAdmission::Discovered);
+        let nodes = [stale, fresh, discovered];
+        let eligible = SusiSupervisor::eligible_quorum_peers(&nodes);
+        assert_eq!(eligible.len(), 1);
+        assert_eq!(eligible[0].node_id, "fresh");
     }
 
     #[test]

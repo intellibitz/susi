@@ -7,9 +7,11 @@
 //!
 //! Acknowledgement guarantees:
 //! - Local durability is REQUIRED: no durable append → no commit report.
-//! - Voter replication is AT-LEAST-ONCE best-effort: acks are counted and
-//!   reported, but a missed voter is a recovery gap, not a commit veto — the
-//!   sealed record carries the electorate and tally for later anti-entropy.
+//! - The primitive below keeps the original at-least-once recovery policy: acks
+//!   are counted and reported, but a missed voter is not a veto.
+//! - The supervisor uses [`durable_commit_requiring_acks`] because it promises
+//!   a copy to every dispatched voter. A missing acknowledgement is therefore
+//!   reported as uncommitted even though the local record remains recoverable.
 
 use crate::susi_core::commit_log::CommitRecord;
 use crate::susi_error::EaiError;
@@ -72,6 +74,47 @@ where
         record: Box::new(record),
         acked,
         voters: voter_addrs.len(),
+    }
+}
+
+/// Run a commit whose contract includes durable acknowledgement from every
+/// dispatched voter.
+///
+/// `durable_commit` is intentionally retained for callers that promise only
+/// local durability plus best-effort anti-entropy. The production quorum path
+/// promises a replicated copy, so a partial acknowledgement must not be
+/// labelled `QUORUM_COMMIT`. The local append is not rolled back: restart and
+/// anti-entropy can still recover the record, while the returned status tells
+/// the caller that the stronger commit contract was not met.
+pub fn durable_commit_requiring_acks<Seal, Append, Replicate>(
+    seal: Seal,
+    append: Append,
+    voter_addrs: &[String],
+    replicate: Replicate,
+) -> CommitDurability
+where
+    Seal: FnOnce() -> Option<CommitRecord>,
+    Append: FnOnce(&CommitRecord) -> crate::susi_error::EaiResult<()>,
+    Replicate: Fn(&str, &CommitRecord) -> bool,
+{
+    match durable_commit(seal, append, voter_addrs, replicate) {
+        CommitDurability::Durable {
+            record: _,
+            acked,
+            voters,
+        } if acked < voters => CommitDurability::Undurable(format!(
+            "commit ledger append succeeded but replication acknowledgements are incomplete: {acked}/{voters} voters acknowledged"
+        )),
+        CommitDurability::Durable {
+            record,
+            acked,
+            voters,
+        } => CommitDurability::Durable {
+            record,
+            acked,
+            voters,
+        },
+        CommitDurability::Undurable(detail) => CommitDurability::Undurable(detail),
     }
 }
 
@@ -192,5 +235,67 @@ mod tests {
             CommitDurability::Undurable(d) => panic!("local durability suffices: {d}"),
         }
         assert!(out.is_committed());
+    }
+
+    #[test]
+    fn swarm_gap_durable_quorum_lost_replication_ack_is_uncommitted() {
+        let voters = vec!["a:1".to_string(), "b:2".to_string()];
+        let out = durable_commit_requiring_acks(
+            || Some(record()),
+            |_| Ok(()),
+            &voters,
+            |addr, _| addr == "a:1",
+        );
+        match out {
+            CommitDurability::Undurable(detail) => {
+                assert!(detail.contains("1/2"), "{detail}");
+                assert!(detail.contains("acknowledgements"), "{detail}");
+            }
+            CommitDurability::Durable { .. } => {
+                panic!("a promised replica acknowledgement cannot be missing")
+            }
+        }
+    }
+
+    #[test]
+    fn swarm_gap_durable_quorum_unwritable_ledger_never_reports_commit() {
+        let replicated = AtomicUsize::new(0);
+        let voters = vec!["a:1".to_string()];
+        let out = durable_commit_requiring_acks(
+            || Some(record()),
+            |_| Err(EaiError::io("ledger is unwritable".to_string())),
+            &voters,
+            |_, _| {
+                replicated.fetch_add(1, Ordering::SeqCst);
+                true
+            },
+        );
+        assert!(!out.is_committed());
+        assert_eq!(replicated.load(Ordering::SeqCst), 0);
+        match out {
+            CommitDurability::Undurable(detail) => assert!(detail.contains("unwritable")),
+            CommitDurability::Durable { .. } => {
+                panic!("an unwritable ledger cannot report a durable quorum")
+            }
+        }
+    }
+
+    #[test]
+    fn swarm_gap_durable_quorum_local_record_survives_coordinator_crash_window() {
+        let retained = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let retained_by_append = std::sync::Arc::clone(&retained);
+        let voters = vec!["a:1".to_string()];
+        let out = durable_commit_requiring_acks(
+            || Some(record()),
+            move |rec| {
+                *retained_by_append.lock().unwrap_or_else(|e| e.into_inner()) = Some(rec.clone());
+                Ok(())
+            },
+            &voters,
+            |_, _| false,
+        );
+        assert!(!out.is_committed());
+        let recovered = retained.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        assert_eq!(recovered.map(|rec| rec.value), Some("v".to_string()));
     }
 }
