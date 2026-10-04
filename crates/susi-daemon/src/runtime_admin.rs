@@ -342,6 +342,7 @@ struct Maintenance {
     missions_path: std::path::PathBuf,
     dispatch_dir: std::path::PathBuf,
     drift_log: std::path::PathBuf,
+    scout_journal: std::path::PathBuf,
     config_path: std::path::PathBuf,
     cfg_shadow: std::collections::BTreeMap<String, String>,
     cfg_mtime: Option<std::time::SystemTime>,
@@ -365,6 +366,7 @@ impl Maintenance {
             missions_path: crate::scheduled_missions::ScheduleStore::path_in(home),
             dispatch_dir: home.join("missions"),
             drift_log: home.join("drift-alerts.jsonl"),
+            scout_journal: home.join("brain_scout_runs.jsonl"),
             config_path,
             cfg_shadow,
             cfg_mtime,
@@ -575,6 +577,40 @@ impl Maintenance {
             if self.last_report.as_deref() != Some(text.as_str()) {
                 self.changes_last = self.changes_last.saturating_add(1);
                 self.last_report = Some(text);
+            }
+        }
+
+        // Brain scout on its own cadence (default 6h, SUSI_BRAIN_SCOUT_
+        // INTERVAL_SECS): probes every registered provider through the real
+        // registry and arbiter, records verified outcomes, snapshots the
+        // leader per task class, and diffs against the journal's last run —
+        // a leader change or a dead provider is reported drift, and each
+        // run is appended so the previous ranking stays as evidence
+        // (VC-202-003).
+        let scout = crate::eco_probe_scheduler::Subject {
+            id: "brain_scout".to_string(),
+            interval_secs: susi_gemi::scout_schedule::interval_secs(),
+            budget: 64,
+            needs_consent: false, // only registered providers are probed;
+                                  // local_only keeps clouds out of that registry already
+        };
+        if let crate::eco_probe_scheduler::Decision::Run { .. } =
+            self.probes.decide(&scout, now, cond)
+        {
+            let (run, drift) = susi_gemi::scout_schedule::run_scheduled(now, &self.scout_journal);
+            self.probes.record_run(&scout, now, run.providers.len());
+            for d in &drift {
+                warn!("[runtime-admin] brain scout drift: {d:?}");
+                if let Ok(line) = serde_json::to_string(d) {
+                    use std::io::Write as _;
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&self.drift_log)
+                    {
+                        let _ = writeln!(f, "{line}");
+                    }
+                }
             }
         }
 
