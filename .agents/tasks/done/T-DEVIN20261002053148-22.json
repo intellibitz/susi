@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN20261002053148-22",
+  "title": "Sanitize patch ids and make the fence actually fence (VC-201-013)",
+  "goal": "VC-201-013 refuted: patch_id is interpolated into the workspace path unsanitized — '../escape' and 'x/../victim' build workspaces outside the fence root or inside a sibling experiment's workspace, and ensure_isolated creates them; is_inside_fence is lexical starts_with so workspace/../outside reports inside; apply_in_isolation applies nothing and checks no target path (the installed-release guarantee is untestable); identical patch_ids share one workspace with no per-experiment isolation; PatchFence has no callers outside tests. Evidence: crates/susi-gawd/src/tests/vc_201_013_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_013",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790990872,
+  "closed": {
+    "at_unix": 1791152989,
+    "commit": "f3e9105cd17e545b2d1d7d9f54fab13edd11715e",
+    "by": "INTELLIBITZWT20261005035445"
+  }
+}
