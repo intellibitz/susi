@@ -9,6 +9,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-daemon",
       "--locked",
       "-E",
       "test(service_supervision)"
@@ -16,5 +18,10 @@
   },
   "roadmap": "VC-202-010",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790953357
+  "created_unix": 1790953357,
+  "closed": {
+    "at_unix": 1791087428,
+    "commit": "6417d94ab9f0dd6d22f9903d58a7f889ba8d24ae",
+    "by": "DEEPSEEK"
+  }
 }
