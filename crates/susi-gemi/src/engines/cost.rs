@@ -140,6 +140,116 @@ pub fn penalty(tier: CostTier, class: super::brain::TaskClass, budget: Budget) -
     tier.steps() * per_step * budget.weight()
 }
 
+/// Canonical token profile of one `class` task — prompt tokens, completion
+/// tokens, and the prompt-cache hit ratio the workload is expected to
+/// achieve (VC-202-002). Repeat-context classes carry a long shared prefix
+/// (system prompt, workspace context, tool schemas) that vendor prompt
+/// caching bills at the cheaper hit rate; providers that report no cache
+/// counters cannot be measured, so these are declared workload profiles,
+/// not telemetry.
+pub fn task_token_profile(class: super::brain::TaskClass) -> (u64, u64, f64) {
+    use super::brain::TaskClass;
+    match class {
+        TaskClass::Reflex => (512, 128, 0.0),
+        TaskClass::Chat => (2_048, 384, 0.25),
+        TaskClass::Code => (16_384, 1_536, 0.6),
+        TaskClass::Reasoning => (49_152, 3_072, 0.75),
+    }
+}
+
+/// The installed price catalog, loaded from `model_prices.json` in the
+/// config dir — the file a signed `model-prices` channel bundle lands as.
+/// Re-read per call so a fresh catalog is picked up without a restart; an
+/// absent or unparsable file prices nothing rather than guessing.
+/// `SUSI_PRICE_CATALOG_FILE` overrides the path (tests point it at their
+/// own file — the host's real catalog is never read under `cfg(test)`).
+pub(crate) fn price_catalog() -> Option<crate::models::price_catalog::PriceCatalog> {
+    let path =
+        if let Some(p) = std::env::var_os("SUSI_PRICE_CATALOG_FILE").filter(|p| !p.is_empty()) {
+            std::path::PathBuf::from(p)
+        } else {
+            if cfg!(test) {
+                return None;
+            }
+            susi_paths::SusiDirs::config_dir().join("model_prices.json")
+        };
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| crate::models::price_catalog::PriceCatalog::from_json(&s).ok())
+}
+
+/// Provider name → catalog entry: exact match first, then the longest
+/// catalog `model_id` contained in the composite provider name (the same
+/// contains-rule style `tier_of` uses for `cost_tiers.json`).
+fn catalog_entry_for<'a>(
+    catalog: &'a crate::models::price_catalog::PriceCatalog,
+    provider: &str,
+) -> Option<&'a crate::models::price_catalog::PriceEntry> {
+    if let Some(entry) = catalog.lookup(provider) {
+        return Some(entry);
+    }
+    let name = provider.to_ascii_lowercase();
+    catalog
+        .entries
+        .values()
+        .filter(|entry| name.contains(&entry.model_id.to_ascii_lowercase()))
+        .max_by_key(|entry| entry.model_id.len())
+}
+
+/// Expected USD for one call: `prompt`/`completion` token counts and the
+/// cache hit ratio the workload actually achieves, priced against the
+/// catalog's cache-hit/miss rates (VC-202-002). `None` when the provider
+/// has no price record — callers keep the coarse-tier fallback.
+pub fn expected_call_cost_usd_in(
+    catalog: Option<&crate::models::price_catalog::PriceCatalog>,
+    provider: &str,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    cache_hit_ratio: f64,
+) -> Option<f64> {
+    let catalog = catalog?;
+    let entry = catalog_entry_for(catalog, provider)?;
+    catalog.expected_cost_usd(
+        &entry.model_id,
+        prompt_tokens,
+        completion_tokens,
+        cache_hit_ratio,
+    )
+}
+
+/// As [`expected_call_cost_usd_in`], priced against the installed catalog.
+pub fn expected_call_cost_usd(
+    provider: &str,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    cache_hit_ratio: f64,
+) -> Option<f64> {
+    expected_call_cost_usd_in(
+        price_catalog().as_ref(),
+        provider,
+        prompt_tokens,
+        completion_tokens,
+        cache_hit_ratio,
+    )
+}
+
+/// Expected USD for one whole `class` task on `provider` — the canonical
+/// [`task_token_profile`] priced against the catalog, cache-hit rate
+/// included. `None` when no price record exists (VC-202-002).
+pub fn expected_task_cost_usd_in(
+    catalog: Option<&crate::models::price_catalog::PriceCatalog>,
+    provider: &str,
+    class: super::brain::TaskClass,
+) -> Option<f64> {
+    let (prompt, completion, hit_ratio) = task_token_profile(class);
+    expected_call_cost_usd_in(catalog, provider, prompt, completion, hit_ratio)
+}
+
+/// As [`expected_task_cost_usd_in`], priced against the installed catalog.
+pub fn expected_task_cost_usd(provider: &str, class: super::brain::TaskClass) -> Option<f64> {
+    expected_task_cost_usd_in(price_catalog().as_ref(), provider, class)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,6 +14,15 @@ pub struct PriceEntry {
     pub input_usd_per_1m: f64,
     /// USD per 1M output tokens.
     pub output_usd_per_1m: f64,
+    /// USD per 1M prompt-cache-read tokens; absent = billed at input rate.
+    /// Cache-hit pricing is what makes long repeated context cheap on
+    /// vendors that offer it (VC-202-002).
+    #[serde(default)]
+    pub cache_hit_usd_per_1m: Option<f64>,
+    /// USD per 1M prompt-cache-write/miss tokens; absent = billed at input
+    /// rate.
+    #[serde(default)]
+    pub cache_miss_usd_per_1m: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,6 +67,31 @@ impl PriceCatalog {
         }
     }
 
+    /// Expected USD for one call on `model_id`, priced from the cache hit
+    /// rate the workload actually achieves (VC-202-002): hit-priced tokens
+    /// are billed at `cache_hit`, misses at `cache_miss`, and either absent
+    /// rate falls back to the plain input price. `None` when the model has
+    /// no price record — the caller decides the fallback, this function
+    /// never invents a price.
+    #[must_use]
+    pub fn expected_cost_usd(
+        &self,
+        model_id: &str,
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        cache_hit_ratio: f64,
+    ) -> Option<f64> {
+        let e = self.lookup(model_id)?;
+        let hit = cache_hit_ratio.clamp(0.0, 1.0);
+        let hit_rate = e.cache_hit_usd_per_1m.unwrap_or(e.input_usd_per_1m);
+        let miss_rate = e.cache_miss_usd_per_1m.unwrap_or(e.input_usd_per_1m);
+        let input_rate = hit * hit_rate + (1.0 - hit) * miss_rate;
+        Some(
+            (prompt_tokens as f64) * input_rate / 1_000_000.0
+                + (completion_tokens as f64) * e.output_usd_per_1m / 1_000_000.0,
+        )
+    }
+
     pub fn from_json(s: &str) -> Result<Self, String> {
         serde_json::from_str(s).map_err(|e| e.to_string())
     }
@@ -88,6 +122,8 @@ mod price_catalog_tests {
             model_id: "gpt-4o".into(),
             input_usd_per_1m: 2.5,
             output_usd_per_1m: 10.0,
+            cache_hit_usd_per_1m: None,
+            cache_miss_usd_per_1m: None,
         });
         let cost = cat.cost_usd("gpt-4o", 1_000_000, 500_000, 99.0);
         assert!((cost - 7.5).abs() < 1e-9);
@@ -110,6 +146,8 @@ mod price_catalog_tests {
             model_id: "claude".into(),
             input_usd_per_1m: 3.0,
             output_usd_per_1m: 15.0,
+            cache_hit_usd_per_1m: None,
+            cache_miss_usd_per_1m: None,
         });
         let json = cat.to_json().unwrap();
         let back = PriceCatalog::from_json(&json).unwrap();
