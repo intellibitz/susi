@@ -913,7 +913,7 @@
       "id": "VC-201-073",
       "mastery_target": "Propagate local-only, workspace-private, and approved-cloud labels through inference, MCP, A2A, generated tools, and artifacts; indirect delegation cannot strip a label to bypass an egress denial.",
       "priority": "P0",
-      "progress": "PARTIAL: verbatim known-secret blocking works, but no classification-label type exists to propagate, the env detector covers only *_API_KEY/_TOKEN/_SECRET names with >=8-char values, verbatim matching misses obfuscation, and the default policy ships scrubbed content instead of refusing. Refuted on record; tracked by T-DEVIN20261002053148-32.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-073.json, T-DEVIN20261002053148-32, 2026-10-04): classification labels (local-only, workspace-private, approved-cloud) are propagated and enforced at egress boundaries; held credentials under arbitrary key names (including passwords and short tokens) and obfuscated secrets are detected; and the default prompt scan policy fails closed (Block). Verified by crates/susi-core/src/tests/vc_201_073_mastery.rs.",
       "type": "GOVERNANCE",
       "vector": "Enforce data classifications at every egress boundary"
     },
@@ -1153,7 +1153,7 @@
       "id": "VC-201-091",
       "mastery_target": "Carry mission, task, placement, experiment, and deployment IDs through bounded redacted logs, metrics, and traces; one failed distributed request can be followed end to end without recording credentials.",
       "priority": "P0",
-      "progress": "PARTIAL: trace linkage through mission/routing/provider spans to a file holds, but there is no redaction (credentials export verbatim), HTTP export is a WouldPost noop, no status field exists to mark a failed request, file export is unbounded, and no caller emits spans. Refuted on record; tracked by T-DEVIN20261002053148-31.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-091.json, T-DEVIN20261002053148-31, 2026-10-04): bounded, redacted observability carrying mission/routing/provider spans end to end; credentials (Authorization headers, api_key, token, secret) are redacted before export; Http export actually transmits over the shared HTTP transport when egress permits; OtelSpan carries typed status_code and status_message for distributed failure tracking; and file export is bounded by generational rotation. Verified by crates/susi-core/src/tests/vc_201_091_mastery.rs.",
       "type": "OPERATIONS",
       "vector": "Correlate observability across models, tools, and peers"
     },

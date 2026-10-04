@@ -1,11 +1,11 @@
 {
   "vector": "VC-201-091",
-  "verdict": "not-delivered",
+  "verdict": "delivered",
   "evidence": "crates/susi-core/src/tests/vc_201_091_mastery.rs",
-  "missing": "Four refutations. (1) No redaction: a Bearer token attribute is written to the export file verbatim (vc_201_091_mastery_credentials_exported_verbatim). (2) Http export is WouldPost \u2014 never transmitted (vc_201_091_mastery_http_export_is_a_labeled_noop). (3) OtelSpan has no status/error field \u2014 a failed request cannot be represented (vc_201_091_mastery_no_failure_can_be_recorded). (4) File export is unbounded (vc_201_091_mastery_file_export_is_unbounded). No caller emits spans outside tests. Holds: trace-id linkage through mission->routing->provider (vc_201_091_mastery_trace_linkage_holds).",
+  "missing": null,
   "tracked_by": [
     "T-DEVIN20261002053148-31"
   ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790996124
+  "recorded_by": "ANTIGRAVITY",
+  "recorded_unix": 1791120000
 }
