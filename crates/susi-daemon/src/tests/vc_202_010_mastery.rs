@@ -29,11 +29,18 @@ fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()
 }
 
-/// Every `.rs` file under `dir`, recursively.
+/// Every production `.rs` file under `dir` — `src/tests/` subtrees are
+/// verification code, not call sites.
 fn rs_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
+        if d.file_name().is_some_and(|n| n == "tests")
+            && d.parent()
+                .is_some_and(|p| p.file_name().is_some_and(|n| n == "src"))
+        {
+            continue;
+        }
         let Ok(entries) = std::fs::read_dir(&d) else {
             continue;
         };
@@ -126,7 +133,8 @@ fn vc_202_010_mastery_daemon_workers_spawn_unsupervised() {
     let mut registered = 0usize;
     for file in rs_files(&daemon_src) {
         let name = file.to_string_lossy().replace('\\', "/");
-        if name.ends_with("service_supervision.rs") {
+        // The module's own file and the crate declaration are not callers.
+        if name.ends_with("service_supervision.rs") || name.ends_with("susi-daemon/src/lib.rs") {
             continue;
         }
         let text = read(&file);

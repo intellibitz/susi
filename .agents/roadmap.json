@@ -1399,7 +1399,7 @@
       "id": "VC-202-010",
       "mastery_target": "Daemon, watcher, brain scout and every other long-lived process runs under supervision with health checks, bounded restart, logs and a status surface; a killed component recovers without a human, and no unsupervised background process remains.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: leaf services run under real bounded supervision (supervisor.rs monitor: HTTP probes, restart backoff, slog, `susi services`), and engine_watchdog bounds engine restarts. Refuted by .agents/roadmap-verdicts/VC-202-010.json (T-DEEPSEEK-229): ~18 in-daemon workers spawn with bare thread::spawn and no registration, the unified service_supervision::Supervisor registry has no production caller, the watchdog covers one unpinged cell with no restart path, the daemon revives only on demand (no Restart= policy), and the primary watcher heals only at sync boundaries. Residual: T-DEEPSEEK-230.",
       "type": "OPERATIONS",
       "vector": "Every long-lived component is supervised"
     },
