@@ -9,6 +9,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-daemon",
       "--locked",
       "-E",
       "test(service_supervision)"
