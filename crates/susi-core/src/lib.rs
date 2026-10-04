@@ -47,6 +47,7 @@ pub mod capability_contract;
 pub mod capture;
 pub mod commit_log;
 pub mod context_graph;
+pub mod egress;
 pub mod emergency_stop;
 pub mod evidence;
 pub mod memory_provenance;
