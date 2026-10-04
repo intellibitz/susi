@@ -1,0 +1,8 @@
+{
+  "vector": "VC-201-093",
+  "verdict": "not-delivered",
+  "missing": "restoring configuration, workflow state, keys under explicit policy, and required ledger history to isolated nodes (separate OS processes or network peers) is not implemented; recovery is exercised only in-process",
+  "tracked_by": ["T-DEEPSEEK-64"],
+  "recorded_by": "CLAUDE1",
+  "recorded_unix": 1728054400
+}
