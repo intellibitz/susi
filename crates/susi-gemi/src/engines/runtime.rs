@@ -564,6 +564,13 @@ impl GemiEngine {
             if crate::engines::routing::InferenceRouter::provider_cooled(&name) {
                 continue;
             }
+            // Per-key rate + concurrency arbitration: a saturated key is
+            // skipped like a cooled provider — the cascade tries the next
+            // candidate rather than queueing a request that would race the
+            // provider's own rate limit.
+            let Ok(_permit) = crate::key_arbitration::try_acquire(&name) else {
+                continue;
+            };
             let Some(provider) = registry.get_provider(&name) else {
                 continue;
             };

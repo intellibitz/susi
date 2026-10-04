@@ -10,6 +10,7 @@
       "nextest",
       "run",
       "--locked",
+      "--workspace",
       "-E",
       "test(model_rate_arbitration)"
     ]
