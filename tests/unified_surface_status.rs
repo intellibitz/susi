@@ -42,26 +42,40 @@ fn run_status(home: &Path, extra_env: &[(&str, PathBuf)]) -> (i32, String) {
         cmd.env(k, v);
     }
     let out = cmd.output().unwrap();
-    (
-        out.status.code().unwrap_or(-1),
-        String::from_utf8_lossy(&out.stdout).into_owned(),
-    )
+    // Boot-time tracing (`INFO ThreadId(01) susi: …`) also lands on stdout;
+    // it carries a timestamp and is not part of the measured surface.
+    let surface: String = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| !l.contains("ThreadId("))
+        .collect::<Vec<_>>()
+        .join("\n");
+    (out.status.code().unwrap_or(-1), surface)
 }
 
 /// `SusiDirs::config_dir()` under the env `run_status` installs.
 fn config_dir(home: &Path) -> PathBuf {
-    home.join("xdg").join("susi")
+    // The dev binary selects its hermetic instance under the supplied HOME;
+    // seed the same config root that the CLI receives after composition.
+    home.join(".susi-dev")
+}
+
+/// `SusiDirs::substrate_home()` (the daemon's data dir): mission dispatch
+/// dir and `scheduled-missions.json` live here, not under config.
+fn substrate_home(home: &Path) -> PathBuf {
+    home.join("xdg-data").join("susi")
 }
 
 #[test]
 fn unified_surface_status_reports_all_axes() {
     let home = scratch("axes");
     let cfg = config_dir(&home);
-    std::fs::create_dir_all(cfg.join("missions")).unwrap();
+    let data = substrate_home(&home);
+    std::fs::create_dir_all(data.join("missions")).unwrap();
+    std::fs::create_dir_all(&cfg).unwrap();
 
     // One mission dispatched to the ingress dir (runtime_admin's layout).
     std::fs::write(
-        cfg.join("missions").join("m-7-1700000000.json"),
+        data.join("missions").join("m-7-1700000000.json"),
         serde_json::json!({
             "id": "m-7",
             "prompt": "scan the fleet",
@@ -73,7 +87,7 @@ fn unified_surface_status_reports_all_axes() {
 
     // One scheduled mission that has never run (due immediately).
     std::fs::write(
-        cfg.join("scheduled-missions.json"),
+        data.join("scheduled-missions.json"),
         serde_json::json!({
             "missions": [{
                 "id": "nightly-scan",
