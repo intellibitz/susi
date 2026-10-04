@@ -2,10 +2,10 @@
   "vector": "VC-201-078",
   "verdict": "not-delivered",
   "evidence": "crates/susi-gawd/src/tests/vc_201_078_mastery.rs",
-  "missing": "Workspace isolation is lexical: /t/alpha admits /t/alpha-evil (sibling prefix) and /t/alpha/../beta (unnormalized dotdot) (vc_201_078_mastery_sibling_prefix_escape, vc_201_078_mastery_dotdot_escape). register() overwrites a tenant's root/grants/quota with no ownership check (vc_201_078_mastery_reregister_swaps_identity_silently). The queue never drains \u2014 no dequeue exists, max_queue is a monotone wedge (vc_201_078_mastery_queue_never_drains). Zero production callers. Holds: foreign memory-ns denial (vc_201_078_mastery_foreign_memory_ns_denied_holds), unknown-tenant denial (vc_201_078_mastery_unknown_tenant_denied_holds), tool/budget bounds (vc_201_078_mastery_tool_and_budget_bounds_hold).",
+  "missing": "Three refutations fixed: read_path now resolves `.`/`..` lexically and requires an exact match or a `/`-bounded nesting under the workspace root, so /t/alpha-evil (sibling prefix) and /t/alpha/../beta (dotdot) are both denied; register() now refuses to rebind an already-registered tenant_id, and unregister() is the sanctioned way to free one; dequeue() releases a queue slot so max_queue is a live bound instead of a monotone wedge. Still missing: zero production callers \u2014 nothing in susi-gawd wires requests through TenantIsolation yet. Holds: foreign memory-ns denial (vc_201_078_mastery_foreign_memory_ns_denied_holds), unknown-tenant denial (vc_201_078_mastery_unknown_tenant_denied_holds), tool/budget bounds (vc_201_078_mastery_tool_and_budget_bounds_hold).",
   "tracked_by": [
     "T-DEVIN20261002053148-38"
   ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1791000661
+  "recorded_by": "INTELLIBITZWT20261005035445",
+  "recorded_unix": 1791154221
 }

@@ -13,7 +13,8 @@ fn vc_201_078_cross_tenant_path_and_memory_denied() {
             max_queue: 2,
             budget_usd_cents: 100,
         },
-    });
+    })
+    .unwrap();
     iso.register(TenantContext {
         tenant_id: "t2".into(),
         workspace_root: "/ws/t2".into(),
@@ -23,7 +24,8 @@ fn vc_201_078_cross_tenant_path_and_memory_denied() {
             max_queue: 2,
             budget_usd_cents: 100,
         },
-    });
+    })
+    .unwrap();
     assert_eq!(iso.read_path("t1", "/ws/t1/a.rs"), AccessVerdict::Allowed);
     assert_eq!(
         iso.read_path("t1", "/ws/t2/secret"),
@@ -48,7 +50,8 @@ fn vc_201_078_quota_exhaustion_boundary() {
             max_queue: 1,
             budget_usd_cents: 50,
         },
-    });
+    })
+    .unwrap();
     assert_eq!(iso.enqueue("t1"), AccessVerdict::Allowed);
     assert_eq!(iso.enqueue("t1"), AccessVerdict::QuotaExhausted);
     assert_eq!(iso.charge("t1", 40), AccessVerdict::Allowed);
