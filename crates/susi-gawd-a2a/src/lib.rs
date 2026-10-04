@@ -253,3 +253,7 @@ mod tests {
 }
 #[cfg(test)]
 mod eco_a2a_security;
+#[cfg(test)]
+mod mastery_tests {
+    pub mod vc_201_087_mastery;
+}

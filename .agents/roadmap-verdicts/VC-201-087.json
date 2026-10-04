@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-087",
+  "verdict": "delivered",
+  "evidence": "vc_201_087_mastery_task_identity_is_preserved, vc_201_087_mastery_status_transitions_are_accurate, vc_201_087_mastery_failure_status_is_distinct, vc_201_087_mastery_cancellation_produces_canceled_state, vc_201_087_mastery_events_published_for_recovery, vc_201_087_mastery_unknown_outcome_handled_by_event_publishing, vc_201_087_mastery_duplicate_delivery_idempotent_at_protocol_level (crates/susi-gawd-a2a/src/mastery_tests/vc_201_087_mastery.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "CLAUDE1",
+  "recorded_unix": 1728041200
+}
