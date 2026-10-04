@@ -12,6 +12,7 @@ use super::os_cli;
 use super::peers_cli;
 use super::services_cli;
 use super::shell_cli::{glass_box_callback, run_shell, MissionHost};
+use super::status_cli;
 
 use std::env;
 use std::fs;
@@ -179,8 +180,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     println!("[SUBSTRATE IDENTITY]: {}", id.trim());
                 }
             }
-            let answer = ama.solve_clean("status", cwd, SUSI_VERSION);
-            println!("{}", answer);
+            status_cli::run(cwd, global_dir);
         }
         Commands::SovereignDashboard => {
             // Calls the compiled-constants report (`AlphaSelf::RULES`/

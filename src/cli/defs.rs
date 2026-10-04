@@ -587,6 +587,9 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Tx { .. }
         | Commands::Substrate { .. }
         | Commands::Crown { .. }
+        // Status is the substrate's own measured report — it must answer
+        // even when the daemon is down (that's when an operator asks).
+        | Commands::Status
         | Commands::Services { .. }
         | Commands::Commits { .. }
         | Commands::Os { .. }
