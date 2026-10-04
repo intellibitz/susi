@@ -12,6 +12,37 @@ pub struct PlanOp {
     pub to: String,
 }
 
+impl PlanOp {
+    /// One-line, export-safe rendering: the value behind a
+    /// credential-named key never appears; every other value still passes
+    /// through `redact_for_export` for `resolved=`/credential-field shapes.
+    /// Apply consumes the structured fields — rendered text never feeds
+    /// back into state.
+    #[must_use]
+    pub fn render(&self) -> String {
+        let from = self
+            .from
+            .as_deref()
+            .map(|v| export_value(&self.key, v))
+            .unwrap_or_else(|| "<absent>".to_string());
+        format!(
+            "{} {}: {} -> {}",
+            self.id,
+            self.key,
+            from,
+            export_value(&self.key, &self.to)
+        )
+    }
+}
+
+fn export_value(key: &str, value: &str) -> String {
+    if crate::secret_ref::credential_field(key) {
+        "[REDACTED]".to_string()
+    } else {
+        crate::secret_ref::redact_for_export(value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigPlan {
     pub ops: Vec<PlanOp>,
@@ -25,6 +56,20 @@ pub struct ConfigPlan {
 pub struct ConfigStore {
     pub values: BTreeMap<String, String>,
     pub applied_ops: BTreeMap<String, bool>,
+}
+
+impl ConfigPlan {
+    /// Plan text for logs/export — plan output never discloses secret
+    /// material: credential-named values are masked outright and every
+    /// rendered value passes through `redact_for_export`.
+    #[must_use]
+    pub fn render(&self) -> String {
+        self.ops
+            .iter()
+            .map(PlanOp::render)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 /// An operation id names the *change*, not just the key: two plans touching

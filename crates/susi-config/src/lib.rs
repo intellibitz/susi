@@ -31,6 +31,7 @@ pub use susi_error;
 pub mod cloud_env;
 pub mod cluster_key;
 mod config;
+pub mod credential;
 pub mod desired_state;
 pub mod env_profiles;
 pub mod explain;
@@ -133,6 +134,7 @@ mod service {
 
 pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
 pub use config::{redact_credentials, SusiConfig};
+pub use credential::CredentialRef;
 pub use desired_state::{
     parse_desired_state, round_trip_desired_state, validate_desired_state, DesiredRef,
     DesiredState, DESIRED_STATE_SCHEMA,
@@ -146,6 +148,7 @@ pub use json_util::{
 };
 pub use key_scope::{resolve_key_ref, KeyRef, KeyScope, ScopedSecret};
 pub use rekey_schedule::{evaluate_rekey_policy, RekeyPolicy, RekeyReason, RekeyScheduleDecision};
+pub use secret_ref::{redact_for_export, ResolvedSecret, ScopeBoundary, SecretRef, SecretVault};
 pub use selfheal::{load_or_selfheal, SelfHealReport};
 pub use state_migration::{migrate_state_dir, MigrationReport};
 pub use types::*;
