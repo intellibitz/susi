@@ -4,6 +4,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-gemi",
       "--locked",
       "-E",
       "test(vc_201_048_thermal_router_unknown_telemetry_in_placement)"
