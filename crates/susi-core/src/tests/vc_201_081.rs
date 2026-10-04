@@ -1,4 +1,4 @@
-use crate::memory_provenance::{MemoryRecord, Provenance};
+use crate::memory_provenance::{DataClassification, MemoryRecord, Provenance, ProvenanceSource};
 
 #[test]
 fn vc_201_081_records_provenance_and_retention() {
@@ -6,7 +6,12 @@ fn vc_201_081_records_provenance_and_retention() {
         id: "m1".into(),
         body: "note".into(),
         provenance: Provenance {
-            source: "user".into(),
+            source: ProvenanceSource::from("user"),
+            workspace: "/workspace".into(),
+            receipt: Some("rcpt-1".into()),
+            revision: "rev-1".into(),
+            classification: DataClassification::Internal,
+            owner: "user".into(),
             recorded_unix: 100,
             retention_secs: 50,
         },
