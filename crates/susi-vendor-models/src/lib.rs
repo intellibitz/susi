@@ -70,6 +70,7 @@ pub mod model_store_dedupe;
 pub mod more_openai_compat;
 pub mod multi_gpu_plan;
 pub mod npu_detection;
+pub mod offline_bundle;
 pub mod ollama_models;
 pub mod open_weight;
 pub mod openrouter;
@@ -128,6 +129,9 @@ mod vc_201_046_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_049.rs"]
 mod vc_201_049_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_050.rs"]
+mod vc_201_050_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_055_mastery.rs"]
 mod vc_201_055_mastery_tests;
