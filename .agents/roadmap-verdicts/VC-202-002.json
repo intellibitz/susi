@@ -1,0 +1,17 @@
+{
+ "vector": "VC-202-002",
+ "verdict": "delivered",
+ "evidence": "expected_cost_with_cache_* (crates/susi-gemi/src/tests/expected_cost_with_cache.rs) \u2014 7 tests: a catalog entry's cache-hit/cache-miss rates produce the exact expected call cost ($2.34 for the 80%-hit reference task vs $4.50 uncached); entries without cache rates bill every token at the input price; per-class task token profiles scale expected task cost (Reasoning > Reflex); composite provider names resolve to the longest matching model id (openai-gpt-4o-mini prices as the mini record); Ranked.expected_cost_usd carries the priced task cost out of brain::rank while unpriced providers stay None; a provider priced over the max_cost ceiling is dropped from cloud_candidates in plan_placement_for; a source scan pins expected_task_cost_usd_in inside apply_cloud_constraints and the ladder trace in the production cascade.",
+ "delivered_by": [
+  "T-DEEPSEEK-87",
+  "T-DEEPSEEK-88"
+ ],
+ "recorded_unix": 1791182400,
+ "check": [
+  "scripts/check-reachability.py",
+  "--delivered",
+  "expected_task_cost_usd_in"
+ ],
+ "notes": "PriceEntry now carries optional cache_hit_usd_per_1m / cache_miss_usd_per_1m (T-87's catalog, extended by T-88); expected_cost_usd prices a call as input_tokens \u00d7 (hit_ratio \u00d7 hit_rate + miss_ratio \u00d7 miss_rate) / 1M + output_tokens \u00d7 out_rate / 1M, returning None for an unpriced model. The task-level figure adds a per-class token profile (prompt/completion bytes plus the cache hit ratio each TaskClass is expected to reach \u2014 Reflex/Chat/Code/Reasoning in engines/cost.rs) so the whole task is costed, not just one call. Consumption is production, not test-only: Store::rank populates Ranked.expected_cost_usd for every priced candidate so model selection sees real dollars beside the coarse CostTier penalty; apply_cloud_constraints turns the max_cost ceiling into a real price check \u2014 a provider whose expected task cost exceeds the cap is dropped, while unpriced names fall back to the coarse-tier estimate exactly as before; the routing ladder's selected-rung reason names the expected cost so operators can read why a cheaper or pricier rung served. The catalog is operator-editable (SUSI_PRICE_CATALOG_FILE override, ~/.susi/model_prices.json by default; cfg(test) requires the env override so hermetic tests never read host state). Honest limits: per-class token profiles and hit ratios are estimates, not measured telemetry \u2014 usage_accounting records realised tokens after the fact but carries no cache field yet, so the 'realised cache hit rate' half of the mastery target awaits a usage-record cache field (tracked under VC-202-021/VC-202-004 follow-ons); the price still ranks alongside evidence score, not by cost-per-verified-outcome \u2014 that ranking is T-DEEPSEEK-98.",
+ "recorded_by": "DEEPSEEK"
+}
