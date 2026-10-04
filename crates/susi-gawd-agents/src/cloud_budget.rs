@@ -496,4 +496,43 @@ mod tests {
         ));
         l.release(r);
     }
+
+    #[test]
+    fn cloud_budget() {
+        let ledger = BudgetLedger::new();
+        let policy = SpendPolicy::PaidAuthorized {
+            max_spend_micro: 10_000,
+        };
+
+        let reservation = ledger
+            .reserve(req(
+                "account",
+                policy,
+                false,
+                FreeHeadroom::Exhausted,
+                5_000,
+            ))
+            .unwrap();
+        ledger.commit(reservation, Some(4_000));
+        assert_eq!(ledger.account_exposure("account"), 4_000);
+
+        let reservation2 = ledger
+            .reserve(req(
+                "account",
+                policy,
+                false,
+                FreeHeadroom::Exhausted,
+                6_000,
+            ))
+            .unwrap();
+        ledger.commit(reservation2, Some(6_000));
+        assert_eq!(ledger.account_exposure("account"), 10_000);
+
+        assert!(matches!(
+            ledger
+                .reserve(req("account", policy, false, FreeHeadroom::Exhausted, 1))
+                .unwrap_err(),
+            Denial::OverBudget { .. }
+        ));
+    }
 }

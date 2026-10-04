@@ -99,6 +99,7 @@ pub mod genome_distiller;
 pub mod intent_invariants;
 pub mod kernel_loader;
 pub mod lane_overlap_warning;
+pub mod model_rate_arbitration;
 pub mod ops_slo;
 pub mod paired_regression;
 pub mod patch_cycle;
