@@ -1367,7 +1367,7 @@
       "id": "VC-202-007",
       "mastery_target": "A natural-language intent is turned into a typed DAG whose nodes are real susi leaf operations with declared inputs, outputs and costs, executed with per-node provenance; an intent the system cannot serve is refused with what is missing, never approximated silently.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: the typed planner/executor machinery exists (susi_core::intent_plan) and is tested, but is dead code — zero production callers. Refuted by .agents/roadmap-verdicts/VC-202-007.json (T-DEEPSEEK-225): the production mission path comma-splits LLM output into Vec<String> goals and silently falls back to a one-goal plan. Residual: T-DEEPSEEK-226.",
       "type": "CORE",
       "vector": "Intent becomes a typed, executable DAG"
     },
