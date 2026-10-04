@@ -9,6 +9,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-core",
       "--locked",
       "-E",
       "test(secrets_never_logged)"
