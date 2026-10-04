@@ -23,6 +23,15 @@ pub enum BrainCommands {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
+    /// Probe a registered provider with the fixed scout benchmark and record
+    /// the verified outcomes as brain evidence
+    Probe {
+        /// Registered provider name (see `susi brain` ranking output)
+        provider: String,
+        /// Do not record the outcomes into the brain evidence store
+        #[arg(long)]
+        no_record: bool,
+    },
 }
 
 pub fn execute(action: Option<BrainCommands>) -> Result<()> {
@@ -90,6 +99,22 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
             print_json(&serde_json::json!({
                 "evidence_path": path,
                 "samples": samples,
+            }))?;
+        }
+        BrainCommands::Probe {
+            provider,
+            no_record,
+        } => {
+            let report =
+                susi_gemi::scout_probe::probe_registered(&provider).map_err(anyhow::Error::msg)?;
+            let recorded = if no_record {
+                0
+            } else {
+                susi_gemi::scout_probe::record_outcomes(&report)
+            };
+            print_json(&serde_json::json!({
+                "report": report,
+                "outcomes_recorded": recorded,
             }))?;
         }
     }
