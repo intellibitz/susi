@@ -9,6 +9,23 @@ pub struct ContaminationReport {
     pub reason: Option<String>,
 }
 
+/// Detect contamination of a corpus's held-out split. The corpus is
+/// verified first: a corpus whose held-out membership or inputs cannot
+/// be trusted cannot ground a contamination verdict, so integrity
+/// failure is an error rather than a clean report.
+pub fn detect_in_corpus(
+    corpus: &crate::rsi_corpus::RsiCorpus,
+    training_access: &BTreeSet<String>,
+    memory_access: &BTreeSet<String>,
+) -> Result<ContaminationReport, crate::rsi_corpus::CorpusIntegrityError> {
+    corpus.verify_integrity()?;
+    Ok(detect(
+        &corpus.held_out_ids(),
+        training_access,
+        memory_access,
+    ))
+}
+
 /// A run is contaminated when held-out fixture ids appear in train/memory access sets.
 #[must_use]
 pub fn detect(
