@@ -9,6 +9,7 @@
       "cargo",
       "nextest",
       "run",
+      "--workspace",
       "--locked",
       "-E",
       "test(model_health_failure_classes)"
