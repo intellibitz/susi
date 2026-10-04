@@ -6,7 +6,13 @@
 //! Third-party names, ports and health paths live here (vendor code); the
 //! scan is generic over [`Probe`] so it is tested without touching the host.
 use serde::Serialize;
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
+
+use crate::runtime_lifecycle::{
+    Capabilities as RuntimeCaps, InferOutcome, Runtime, RuntimeBackend,
+};
+use crate::susi_error::{EaiError, EaiResult};
 
 /// Everything the scan needs from the host.
 pub trait Probe {
