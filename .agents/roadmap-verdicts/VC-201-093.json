@@ -1,7 +1,8 @@
 {
   "vector": "VC-201-093",
-  "verdict": "delivered",
-  "evidence": "vc_201_093_mastery (crates/susi-gawd-a2a/src/mastery_tests/vc_201_093_mastery.rs)",
+  "verdict": "not-delivered",
+  "missing": "restoring configuration, workflow state, keys under explicit policy, and required ledger history to isolated nodes (separate OS processes or network peers) is not implemented; recovery is exercised only in-process",
+  "tracked_by": ["T-DEEPSEEK-64"],
   "recorded_by": "CLAUDE1",
   "recorded_unix": 1728054400
 }
