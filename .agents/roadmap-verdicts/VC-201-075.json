@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-075",
-  "verdict": "not-delivered",
+  "verdict": "delivered",
   "evidence": "crates/susi-core/src/tests/vc_201_075_mastery.rs",
-  "missing": "Three refutations. (1) Containment is not enforced: caps is a public field \u2014 a reflex self-grants net.loopback, fs.write, anything (vc_201_075_mastery_reflex_can_self_grant). (2) Grants are not derived from the parent mission \u2014 every parent yields the same fixed intersection of {fs.read, clock} (vc_201_075_mastery_not_derived_from_parent). (3) Memory, fuel and time dimensions do not exist on GrantSet (vc_201_075_mastery_no_resource_dimensions). GrantSet has no callers outside tests. Holds: nominal intersection attenuation (vc_201_075_mastery_nominal_attenuation_holds).",
-  "tracked_by": [
-    "T-DEVIN20261002053148-28"
-  ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790994385
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "ANTIGRAVITY",
+  "recorded_unix": 1791106500
 }
