@@ -13,6 +13,7 @@ use crate::mission_resume::{DagNodeView, MissionView, NodeView};
 use crate::node_enrollment::{enroll, Enrollment};
 use crate::resource_schedule::{admit, reserve, Admit, DagNode as ResNode, Resources};
 use crate::role_select::{select_roles, AgentEvidence, RoleAssignment, SelectError};
+use crate::side_effect_journal::DispatchDecision;
 use crate::side_effects::{reconcile_dispatch_side_effect, ActionOutcome};
 use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
@@ -289,12 +290,43 @@ impl MissionDag {
             .record_intent(&Self::persist_id(idx), tool, args, now_unix())
     }
 
+    /// Prepare one tool operation at the production dispatch boundary.  A
+    /// mutating operation must provide a stable key that survives restart;
+    /// acknowledged operations return a durable receipt and are not invoked
+    /// again, while uncertain operations remain blocked for reconciliation.
+    pub fn prepare_dispatch_intent(
+        &self,
+        idx: usize,
+        tool: &str,
+        args: &str,
+        idempotency_key: Option<&str>,
+    ) -> DispatchDecision {
+        self.intent_journal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .prepare_dispatch(
+                &Self::persist_id(idx),
+                tool,
+                args,
+                idempotency_key,
+                now_unix(),
+            )
+    }
+
     /// Mark an intent's dispatch observed-complete.
     pub fn mark_intent_executed(&self, intent_id: &str) {
         self.intent_journal
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .mark_executed(intent_id);
+    }
+
+    /// Publish the receipt that follows a successful external operation.
+    pub fn mark_intent_executed_with_receipt(&self, intent_id: &str, output: &str) {
+        self.intent_journal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .mark_executed_with_receipt(intent_id, output, now_unix());
     }
 
     /// Attach a cancel token and register a worker descendant for this node.
@@ -1082,7 +1114,7 @@ impl MissionDag {
                 let node_ws = run.scope.dir.clone();
                 let mut executed_scripts = String::new();
                 let mut node_calls = Vec::new();
-                for block in generated.split("```").skip(1).step_by(2) {
+                for (block_index, block) in generated.split("```").skip(1).step_by(2).enumerate() {
                     let manager = crate::susi_core::task_manager::SwarmTaskManager::global();
                     if manager.is_scope_cancelled(&mission_scope) || self.is_cancelled(now_unix()) {
                         run.cancelled = true;
@@ -1116,11 +1148,35 @@ impl MissionDag {
                         )));
                         break;
                     }
+                    // The operation id excludes the attempt-local cancellation
+                    // scope.  A resumed node therefore addresses the same
+                    // append/create/deploy-like effect even when its worker
+                    // process receives a fresh scope.
+                    let operation_key = format!("{node_id}:exec_command:{block_index}");
+                    let intent_id = match self.prepare_dispatch_intent(
+                        run.idx,
+                        "exec_command",
+                        cmd,
+                        Some(&operation_key),
+                    ) {
+                        DispatchDecision::Dispatch { intent_id } => intent_id,
+                        DispatchDecision::AlreadyExecuted { intent_id, receipt } => {
+                            executed_scripts.push_str(&format!(
+                                "\n\nExecution Receipt for `{cmd}`: already acknowledged (intent {intent_id}, output digest {})\n",
+                                receipt.output_digest
+                            ));
+                            continue;
+                        }
+                        DispatchDecision::ReconciliationRequired { intent_id, reason } => {
+                            run.res = Err(EaiError::governance(format!(
+                                "refuse replay of side effect for {node_id} (intent {intent_id}): {reason}"
+                            )));
+                            break;
+                        }
+                    };
                     // Intent persistence is itself a mutating boundary: it
                     // is published only after the same authority check and
                     // before execute_tool is allowed to run.
-                    let intent_id =
-                        self.record_dispatch_intent(run.idx, "exec_command", &call_text);
                     if let Some(ctx) = persist_slot.as_mut() {
                         let leases = self.leases.clone();
                         let journal = self
@@ -1168,7 +1224,7 @@ impl MissionDag {
                         break;
                     }
                     if !result.starts_with("[Error]") {
-                        self.mark_intent_executed(&intent_id);
+                        self.mark_intent_executed_with_receipt(&intent_id, &result);
                         if let Some(ctx) = persist_slot.as_mut() {
                             let leases = self.leases.clone();
                             let journal = self

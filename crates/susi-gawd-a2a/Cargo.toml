@@ -22,6 +22,7 @@ serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 
 [dev-dependencies]
 susi-vendor-models = { workspace = true }
+susi-gawd = { path = "../susi-gawd" }
 
 [lints]
 workspace = true
