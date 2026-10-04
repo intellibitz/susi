@@ -5,7 +5,10 @@
 //! prewarming and hysteresis; a mixed-workload benchmark measures cold starts
 //! and proves the cache avoids repeated load/evict oscillation.
 
-use crate::model_preload::{schedule_preload, ModelUseEvent, PreloadPolicy};
+use crate::model_preload::{
+    cold_starts, schedule_preload, schedule_preload_damped, ModelUseEvent, PreloadHysteresis,
+    PreloadPolicy,
+};
 
 #[test]
 fn vc_201_047_mastery_preload_ranking_under_window() {
@@ -83,4 +86,81 @@ fn vc_201_047_mastery_alternating_load_reveals_oscillation_without_hysteresis() 
     assert_eq!(plan2[0].model_id, "model_x");
     // Demonstrates immediate oscillation when scores are tied: hysteresis damping
     // is needed to prevent expensive repeated load/evict thrashing.
+}
+
+/// Acceptance: the production path damps eviction with hysteresis, so an
+/// incumbent survives tied/alternating load, and a mixed-workload benchmark
+/// shows the damped plan avoids the cold starts the undamped plan suffers.
+#[test]
+fn vc_201_047_preload_eviction_with_hysteresis() {
+    let now = 1000u64;
+    let policy = PreloadPolicy {
+        max_warm: 1,
+        window_secs: 100,
+    };
+    let hysteresis = PreloadHysteresis { margin: 0.25 };
+
+    // Alternating tied load: x used one tick, y used the next, repeating.
+    let tick_a = vec![
+        ModelUseEvent {
+            model_id: "model_x".into(),
+            used_unix: now,
+        },
+        ModelUseEvent {
+            model_id: "model_y".into(),
+            used_unix: now - 1,
+        },
+    ];
+    let tick_b = vec![
+        ModelUseEvent {
+            model_id: "model_y".into(),
+            used_unix: now,
+        },
+        ModelUseEvent {
+            model_id: "model_x".into(),
+            used_unix: now - 1,
+        },
+    ];
+
+    // Undamped: the leader flutters every tick (y, then x).
+    let undamped_a = schedule_preload(&tick_a, &policy, Some(now));
+    let undamped_b = schedule_preload(&tick_b, &policy, Some(now));
+    assert_ne!(undamped_a[0].model_id, undamped_b[0].model_id);
+
+    // Damped: once x is incumbent, the tied y cannot clear the margin, so x
+    // stays warm across both ticks (no load/evict thrash).
+    let incumbent = vec!["model_x".to_string()];
+    let damped_a = schedule_preload_damped(&tick_a, &policy, &incumbent, &hysteresis, Some(now));
+    let damped_b = schedule_preload_damped(&tick_b, &policy, &incumbent, &hysteresis, Some(now));
+    assert_eq!(damped_a[0].model_id, "model_x");
+    assert_eq!(damped_b[0].model_id, "model_x");
+
+    // Mixed-workload benchmark: a workload of x/y/x/y/x with the damped warm
+    // set {x} suffers fewer cold starts than an empty warm set.
+    let workload = vec![
+        ModelUseEvent {
+            model_id: "model_x".into(),
+            used_unix: now,
+        },
+        ModelUseEvent {
+            model_id: "model_y".into(),
+            used_unix: now + 1,
+        },
+        ModelUseEvent {
+            model_id: "model_x".into(),
+            used_unix: now + 2,
+        },
+        ModelUseEvent {
+            model_id: "model_y".into(),
+            used_unix: now + 3,
+        },
+        ModelUseEvent {
+            model_id: "model_x".into(),
+            used_unix: now + 4,
+        },
+    ];
+    let warm: Vec<String> = damped_a.iter().map(|c| c.model_id.clone()).collect();
+    let cold_with_preload = cold_starts(&workload, &warm);
+    let cold_without = cold_starts(&workload, &[]);
+    assert!(cold_with_preload < cold_without);
 }
