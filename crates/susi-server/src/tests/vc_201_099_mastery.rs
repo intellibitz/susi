@@ -87,7 +87,7 @@ fn vc_201_099_mastery_unified_operator_control_surface_incomplete() {
             && !missing_drill_down.is_empty()
             && !missing_grant_preconditions.is_empty(),
         "Unified operator control surface is incomplete: {}",
-        vec![
+        [
             missing_workload_state,
             missing_resource_state,
             missing_configuration_state,
