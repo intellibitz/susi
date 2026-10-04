@@ -196,13 +196,16 @@ fn install_fixtures() {
     let dir = std::env::temp_dir().join("susi-budget-shared");
     std::fs::create_dir_all(&dir).expect("temp dir");
 
+    // Identical content to expected_cost_with_cache::install_catalog's file —
+    // whichever path `SUSI_PRICE_CATALOG_FILE` resolves to mid-race, every
+    // model id in the suite prices the same.
     let mut entries = BTreeMap::new();
-    for (id, i, o) in [
-        ("cheapmodel", 1.0, 4.0),
-        ("premiummodel", 1.0, 10.0),
-        ("budgetmodel", 0.01, 0.01),
-        ("pricymodel", 5.0, 50.0),
-        ("bargainmodel", 0.01, 0.01),
+    for (id, i, o, hit, miss) in [
+        ("cheapmodel", 1.0, 4.0, Some(0.1), Some(1.0)),
+        ("premiummodel", 1.0, 10.0, Some(0.1), Some(1.0)),
+        ("budgetmodel", 0.01, 0.01, None, None),
+        ("pricymodel", 5.0, 50.0, None, None),
+        ("bargainmodel", 0.01, 0.01, None, None),
     ] {
         entries.insert(
             id.to_string(),
@@ -210,8 +213,8 @@ fn install_fixtures() {
                 model_id: id.to_string(),
                 input_usd_per_1m: i,
                 output_usd_per_1m: o,
-                cache_hit_usd_per_1m: None,
-                cache_miss_usd_per_1m: None,
+                cache_hit_usd_per_1m: hit,
+                cache_miss_usd_per_1m: miss,
             },
         );
     }
