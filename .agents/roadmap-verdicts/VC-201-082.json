@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-082",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "Three refutations. (1) evaluate_promotion is library-only — nothing outside crates/susi-core tests consults the verdict, so no memory/index promotion path is actually gated. (2) The 'versioned suite' claim is unenforced: evaluate_promotion never compares versions, and a candidate suite four versions behind the baseline promotes (vc_201_082_mastery_stale_suite_version_promotes). (3) NaN metrics bypass both regression checks — an unmeasured suite promotes as 'no regression' (vc_201_082_mastery_nan_correctness_promotes_as_unmeasured). Holds: honest promotion, correctness-regression rejection despite higher recall, and isolation-regression rejection on finite metrics (vc_201_082_mastery_honest_verdicts_hold).",
+  "verdict": "delivered",
+  "evidence": "crates/susi-core/src/tests/vc_201_082_mastery.rs",
+  "missing": "",
   "tracked_by": ["T-DEVIN20261002053148-11"],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790983935
+  "recorded_by": "ANTIGRAVITY",
+  "recorded_unix": 1791140900
 }
