@@ -107,8 +107,8 @@ fn expected_cost_with_cache_composite_provider_names_resolve() {
 /// Install the shared test catalog: one fixed path, one fixed content, so
 /// parallel tests that set `SUSI_PRICE_CATALOG_FILE` write identical bytes
 /// and cannot corrupt each other's lookups. Entries cover every model_id
-/// the file tests reference; provider names containing other ids simply
-/// miss the catalog.
+/// the suite prices — including the budget_ceiling cascade tests, which
+/// install an identical superset at their own path.
 fn install_catalog() -> PriceCatalog {
     let dir = std::env::temp_dir().join("susi-prices-shared");
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -117,6 +117,10 @@ fn install_catalog() -> PriceCatalog {
     cat.insert(entry("cheapmodel", 1.0, 4.0, Some(0.1), Some(1.0)));
     cat.insert(entry("premiummodel", 1.0, 10.0, Some(0.1), Some(1.0)));
     cat.insert(entry("budgetmodel", 0.01, 0.01, None, None));
+    cat.insert(entry("pricymodel", 5.0, 50.0, None, None));
+    cat.insert(entry("bargainmodel", 0.01, 0.01, None, None));
+    cat.insert(entry("spendmodel", 0.01, 0.01, None, None));
+    cat.insert(entry("doommodel", 5.0, 50.0, None, None));
     std::fs::write(&path, cat.to_json().expect("catalog json")).expect("catalog file");
     // SAFETY: test-only env mutation; every caller writes the same path and
     // the same content, so a torn set/write pair is still consistent.

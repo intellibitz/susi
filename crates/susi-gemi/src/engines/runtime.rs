@@ -232,8 +232,13 @@ impl GemiEngine {
                     "[SUSI ROUTING] Escalating to cloud `{}` ({})\n",
                     esc.provider, esc.reason
                 ));
-                let (escalated, esc_ladder) =
-                    Self::try_discovered_providers(prompt, Some(&esc.provider), callback, meta);
+                let (escalated, esc_ladder) = Self::try_discovered_providers(
+                    prompt,
+                    Some(workspace),
+                    Some(&esc.provider),
+                    callback,
+                    meta,
+                );
                 if esc_ladder.step_downs() > 0 {
                     callback(format!("[SUSI ROUTING] {}\n", esc_ladder.summary()));
                 }
@@ -250,8 +255,13 @@ impl GemiEngine {
         // Pillar 4/8: prefer zero-config discovered providers (Ollama, vLLM, …)
         // before the native GGUF path. Skips Candle (Local) — that provider
         // delegates back into this function and would recurse.
-        let (provider_answer, mut ladder) =
-            Self::try_discovered_providers(prompt, requested_model, callback, meta);
+        let (provider_answer, mut ladder) = Self::try_discovered_providers(
+            prompt,
+            Some(workspace),
+            requested_model,
+            callback,
+            meta,
+        );
         if let Some(text) = provider_answer {
             if ladder.step_downs() > 0 {
                 callback(format!("[SUSI ROUTING] {}\n", ladder.summary()));
@@ -514,6 +524,7 @@ impl GemiEngine {
     /// cascade resolved — the caller owns emitting and persisting it.
     fn try_discovered_providers(
         prompt: &str,
+        workspace: Option<&Path>,
         requested_model: Option<&str>,
         callback: &dyn Fn(String),
         meta: &dyn Fn(&str),
@@ -532,6 +543,7 @@ impl GemiEngine {
         Self::try_providers(
             crate::susi_core::registry::CapabilityRegistry::global(),
             prompt,
+            workspace,
             requested_model,
             callback,
             meta,
@@ -574,9 +586,11 @@ impl GemiEngine {
             || head.contains("MCP Error")
     }
 
-    fn try_providers(
+    #[allow(clippy::too_many_arguments)] // flat params mirror every call site; a builder would only wrap them
+    pub(crate) fn try_providers(
         registry: &crate::susi_core::registry::CapabilityRegistry,
         prompt: &str,
+        workspace: Option<&Path>,
         requested_model: Option<&str>,
         callback: &dyn Fn(String),
         meta: &dyn Fn(&str),
@@ -585,6 +599,14 @@ impl GemiEngine {
 
         let class = crate::engines::brain::TaskClass::classify(prompt);
         let mut ladder = RoutingLadder::new(class);
+        // Mission the spend is attributed to: the workspace's evidence
+        // session first, then a session entered on this thread (federated /
+        // contract paths carry no workspace).
+        let mission = workspace
+            .and_then(crate::susi_core::capture::EvidenceSession::for_workspace)
+            .or_else(crate::susi_core::capture::EvidenceSession::current)
+            .map(|s| s.id().to_string())
+            .unwrap_or_default();
         let mut names: Vec<String> = registry
             .list_providers()
             .into_iter()
@@ -710,6 +732,26 @@ impl GemiEngine {
                 }
             };
             let _permit = permit;
+            // Spend ceilings refuse before the call is made: an expected
+            // task cost that would cross an hourly/daily/mission/task cap
+            // steps the cascade down to a cheaper rung (VC-202-005).
+            let expected_usd = crate::engines::cost::expected_task_cost_usd(&name, class);
+            if let Some(usd) = expected_usd {
+                let intent = crate::spend_tracker::SpendIntent {
+                    provider: &name,
+                    expected_usd: usd,
+                    mission: &mission,
+                };
+                if let Err(refusal) = crate::spend_tracker::check(&intent) {
+                    ladder.record(
+                        LadderRung::Provider,
+                        &name,
+                        StepOutcome::Skipped,
+                        refusal.describe(),
+                    );
+                    continue;
+                }
+            }
             let Some(provider) = registry.get_provider(&name) else {
                 ladder.record(
                     LadderRung::Provider,
@@ -732,6 +774,16 @@ impl GemiEngine {
             let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             let answered = matches!(&outcome, Ok(text) if !text.trim().is_empty());
             crate::engines::brain::record_outcome(&name, class, answered, elapsed_ms);
+            // Every attempted call is spend — success or failure — so the
+            // ceiling's window sums stay real (VC-202-005).
+            crate::spend_tracker::record(&crate::spend_tracker::SpendWrite {
+                provider: &name,
+                class,
+                ok: answered,
+                latency_ms: elapsed_ms,
+                usd: expected_usd.unwrap_or(0.0),
+                mission: &mission,
+            });
             match outcome {
                 Ok(text) if !text.trim().is_empty() => {
                     crate::engines::routing::InferenceRouter::record_provider_success(&name);
@@ -1366,7 +1418,8 @@ mod tests {
             reply: "recovered",
         });
 
-        let (out, _ladder) = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
+        let (out, _ladder) =
+            GemiEngine::try_providers(&registry, "hello", None, None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("recovered"));
     }
 
@@ -1389,7 +1442,8 @@ mod tests {
         });
         let prompt = "brainlearn ping";
         assert_eq!(TaskClass::classify(prompt), TaskClass::Reflex);
-        let (out, _ladder) = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        let (out, _ladder) =
+            GemiEngine::try_providers(&registry, prompt, None, None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("fine"));
         let both = vec![
             "ollama-brainlearn-a".to_string(),
@@ -1417,7 +1471,8 @@ mod tests {
             reply: "real answer",
         });
         let prompt = "flatten check";
-        let (out, _ladder) = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        let (out, _ladder) =
+            GemiEngine::try_providers(&registry, prompt, None, None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("real answer"));
         let names = vec!["ollama-flatten-a".to_string()];
         let a = &rank(&names, TaskClass::classify(prompt))[0];
@@ -1451,7 +1506,8 @@ mod tests {
             record_outcome("ollama-dry-a", class, false, 0);
         }
         note_failure("ollama-dry-a", FailureKind::Funds);
-        let (out, _ladder) = GemiEngine::try_providers(&registry, prompt, None, &|_| {}, &|_| {});
+        let (out, _ladder) =
+            GemiEngine::try_providers(&registry, prompt, None, None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("fit answered"));
     }
 
@@ -1475,7 +1531,8 @@ mod tests {
             reply: "from-ollama",
         });
 
-        let (out, _ladder) = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
+        let (out, _ladder) =
+            GemiEngine::try_providers(&registry, "hello", None, None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("from-ollama"));
     }
 
@@ -1496,7 +1553,7 @@ mod tests {
         });
 
         let (out, _ladder) =
-            GemiEngine::try_providers(&registry, "hello", Some("mixtral"), &|_| {}, &|_| {});
+            GemiEngine::try_providers(&registry, "hello", None, Some("mixtral"), &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("mixtral"));
     }
 

@@ -1,0 +1,16 @@
+{
+ "vector": "VC-202-005",
+ "verdict": "delivered",
+ "evidence": "budget_ceiling_* (crates/susi-gemi/src/tests/budget_ceiling.rs) — 11 tests: a per-task cap refuses the over-priced call itself (window Task, spent $0); hourly and rolling-24h windows sum only in-window spend and reset; per-mission caps scope to one mission id and leave sibling missions uncapped; per-vendor-daily caps key on the vendor substring; the refusal is typed (BudgetRefusal {window, cap, spent, projected}, serde + describe()); an uncapped governor never refuses; on the production cascade an over-cap priced provider is skipped with the ceiling named in the ladder and the affordable rung serves; every dispatched call records its estimated spend to the persisted usage ledger attributed to agent (SUSI_AGENT), task class and mission; a wholly-over-cap cascade leaves the priced rungs unanswered with the refusal on the record; a source scan pins spend_tracker::check + spend_tracker::record inside try_providers before generate.",
+ "delivered_by": [
+  "T-DEEPSEEK-102"
+ ],
+ "recorded_by": "DEEPSEEK",
+ "recorded_unix": 1791195000,
+ "check": [
+  "scripts/check-reachability.py",
+  "--delivered",
+  "spend_usd"
+ ],
+ "notes": "Enforcement point: try_providers in engines/runtime.rs — after the key-arbitration permit and before provider.generate — prices each candidate with the T-88 expected task cost and asks spend_tracker::check; a BudgetRefusal is recorded on the ladder as the step-down reason and the cascade degrades to a cheaper rung (or leaves cloud entirely, after which the free local rung still serves). Ceilings are operator-declared in budget_ceilings.json in the config dir (SUSI_BUDGET_CEILINGS_FILE override; cfg(test) requires the override): hourly + daily rolling windows, per-mission cap scoped by EvidenceSession id, per-task cap on a single call, and per-vendor daily caps keyed by name substring; an absent file means no caps — the check is always live but never invents limits. Attribution rides UsageOutcome {agent, mission, usd} appended to the persisted usage.json ledger (SUSI_USAGE_FILE override under cfg(test)) — the same file susi status's spend axis reads — and a failed generate still records its attempted spend because the vendor bills the call either way. Honest limits: spend is the *estimated* task cost at dispatch time — providers do not yet report realised token usage through the Provider trait, so records carry usage=0 and usd=estimate; over-budget degradation prefers the next-sorted rung, which is evidence-ordered, not strictly cheapest-first; unpriced providers (no catalog entry) bypass the USD ceilings by construction — the coarse-tier max_cost filter remains their only cost gate."
+}
