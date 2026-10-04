@@ -205,6 +205,34 @@ pub struct CloudVendorEntry {
     pub api_key_env_alts: Vec<String>,
 }
 
+impl CloudVendorEntry {
+    /// Resolve this vendor's credential at use time through the scoped key
+    /// path, trying `api_key_env` then each `api_key_env_alts` entry in
+    /// order — every field names a `key://` ref or bare `ENV_NAME`, never
+    /// the secret body. `Ok(None)` means no credential is configured;
+    /// `Err` means references were configured but none resolved.
+    pub fn resolve_api_key(
+        &self,
+        global_dir: &std::path::Path,
+    ) -> crate::susi_error::EaiResult<Option<crate::key_scope::ScopedSecret>> {
+        let mut last_err = None;
+        for name in std::iter::once(&self.api_key_env).chain(self.api_key_env_alts.iter()) {
+            if name.trim().is_empty() {
+                continue;
+            }
+            match crate::credential::resolve_api_key_env(name, global_dir) {
+                Ok(found @ Some(_)) => return Ok(found),
+                Ok(None) => {}
+                Err(e) => last_err = Some(e),
+            }
+        }
+        if let Some(e) = last_err {
+            return Err(e);
+        }
+        Ok(None)
+    }
+}
+
 const DEFAULT_PACK_ID: &str = "default";
 const BUNDLED_MANIFEST: &str = include_str!("../../../config/extensions/default/manifest.json");
 pub(crate) const BUNDLED_CLOUD_VENDORS: &str =
