@@ -1,11 +1,9 @@
 {
-  "evidence": "",
-  "missing": "the one contract covering all seven operations is not in the tree: susi-gemi defines NativeInferenceEngine (crates/susi-gemi/src/engines/runtime_native.rs) and a RuntimeSubstrate::unload (crates/susi-gemi/src/engines/runtime_substrate.rs), but discover, ready, cancel and health have no definition there, and nothing establishes readiness beyond process presence. The mastery test that asserted the vector (ff8d8713) exists only on an unmerged branch - zero files named vc_201_042_mastery are tracked on main - so the delivered narrative rested on evidence that was never landed.",
-  "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1790977900,
-  "tracked_by": [
-    "T-DEEPSEEK-212"
-  ],
-  "vector": "VC-201-042",
-  "verdict": "not-delivered"
+    "vector": "VC-201-042",
+    "verdict": "not-delivered",
+    "evidence": "lifecycle_contract_covers_all_seven_operations + vc_201_042_* (8 tests, crates/susi-vendor-models/src/tests/vc_201_042.rs): one contract (crates/susi-vendor-models/src/runtime_lifecycle.rs) now spans all seven ops - Runtime::{discover,load,ready,infer,cancel,unload,health} over a RuntimeBackend trait; unsupported cancel/unload return typed EaiError via Capabilities; readiness is only a health-probe answer - process presence cannot reach Ready, and a failed probe marks Unhealthy but stays re-probeable. Production reachability: local_ecosystem::scan drives every detected HTTP-managed runtime (Ollama, LM Studio, vLLM, llama.cpp server, sglang, localai, jan, gpt4all, koboldcpp, text-generation-webui) through Runtime::discover + Runtime::health via DaemonBackend (crates/susi-vendor-models/src/local_ecosystem.rs:284-330), and scan is called from susi-daemon::discovery_pipeline (crates/susi-daemon/src/discovery_pipeline.rs:107) - so `running` is a contract health answer, not a bare port check.",
+    "missing": "the native side of 'supported native and HTTP-managed runtimes': NativeInferenceEngine impls (LlamaCppEngine, SusiGgufEngine, SusiFederatedEngine in crates/susi-gemi/src/engines/runtime_native.rs) and InferenceHost (runtime_substrate.rs) do not implement or drive the RuntimeBackend contract, so no native runtime is exercised through discover/load/ready/infer/cancel/unload/health in production - only HTTP-managed daemons are, and only their discover/health verbs.",
+    "recorded_by": "DEEPSEEK",
+    "recorded_unix": 1791137100,
+    "tracked_by": ["T-DEEPSEEK-212"]
 }
