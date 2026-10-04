@@ -9,6 +9,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-core",
       "--locked",
       "-E",
       "test(secrets_never_logged)"
@@ -16,5 +18,10 @@
   },
   "roadmap": "VC-202-014",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790953357
+  "created_unix": 1790953357,
+  "closed": {
+    "at_unix": 1791083281,
+    "commit": "a33184905b3024e9afc3c0fbe62b76e251bf913d",
+    "by": "DEEPSEEK"
+  }
 }
