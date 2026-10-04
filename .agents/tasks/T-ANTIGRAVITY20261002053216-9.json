@@ -4,6 +4,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-vendor-models",
       "--locked",
       "-E",
       "test(vc_201_055_cloud_reconciler_desired_observed_state)"
