@@ -682,12 +682,13 @@ fn managed_peers_from_catalogs() -> Vec<ExternalPeerAgentSpec> {
 /// The one credential redactor for text leaving SUSI's trust boundary
 /// (CLI output, peer/agent logs, provider errors). Masks the value of every
 /// environment variable named `*_API_KEY` / `*_TOKEN` / `*_SECRET` (8+
-/// chars), then every configured `governance.secret_tokens` pattern. An
-/// unreadable host config falls back to the bundled token list — redaction
-/// never fails open.
+/// chars), then `resolved=` material and credential-named fields, then
+/// every configured `governance.secret_tokens` pattern. An unreadable host
+/// config falls back to the bundled token list — redaction never fails open.
 #[must_use]
 pub fn redact_credentials(text: &str) -> String {
     let result = crate::susi_error::redact::mask_env_credentials(text);
+    let result = crate::secret_ref::redact_for_export(&result);
     let patterns = SusiConfig::load_arc(&susi_paths::SusiDirs::config_dir())
         .map(|cfg| cfg.governance().secret_tokens)
         .unwrap_or_else(|_| SusiConfig::default().governance().secret_tokens);
