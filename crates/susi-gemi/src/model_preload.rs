@@ -94,3 +94,84 @@ pub fn schedule_preload(
     }
     out
 }
+
+/// Hysteresis band for preload eviction.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PreloadHysteresis {
+    /// A challenger must beat an incumbent's score by at least this margin
+    /// before it is allowed to evict the incumbent from the warm set.
+    pub margin: f64,
+}
+
+/// Damped preload schedule: a model already held warm stays warm unless a
+/// challenger exceeds its score by `hysteresis.margin`. Tied or alternating
+/// load therefore keeps the incumbent instead of flapping between two models
+/// on every tick, which avoids repeated load/evict thrashing.
+#[must_use]
+pub fn schedule_preload_damped(
+    events: &[ModelUseEvent],
+    policy: &PreloadPolicy,
+    incumbent_ids: &[String],
+    hysteresis: &PreloadHysteresis,
+    now_unix_secs: Option<u64>,
+) -> Vec<PreloadCandidate> {
+    let full_policy = PreloadPolicy {
+        max_warm: usize::MAX,
+        window_secs: policy.window_secs,
+    };
+    let ranked = schedule_preload(events, &full_policy, now_unix_secs);
+    let incumbent: std::collections::HashSet<&str> =
+        incumbent_ids.iter().map(String::as_str).collect();
+
+    let mut warm: Vec<PreloadCandidate> = Vec::with_capacity(policy.max_warm);
+    // Incumbents that are still ranked keep their slot first.
+    for c in &ranked {
+        if incumbent.contains(c.model_id.as_str()) && warm.len() < policy.max_warm {
+            warm.push(c.clone());
+        }
+    }
+    // Fill free slots with the strongest challengers, then only evict an
+    // incumbent when a challenger clears the hysteresis margin.
+    for c in &ranked {
+        if incumbent.contains(c.model_id.as_str()) {
+            continue;
+        }
+        if warm.len() < policy.max_warm {
+            warm.push(c.clone());
+            continue;
+        }
+        if let Some(weakest) = warm
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| incumbent.contains(w.model_id.as_str()))
+            .min_by(|(_, a), (_, b)| {
+                a.score
+                    .partial_cmp(&b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)
+        {
+            if c.score > warm[weakest].score + hysteresis.margin {
+                warm[weakest] = c.clone();
+            }
+        }
+    }
+    warm.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.model_id.cmp(&b.model_id))
+    });
+    warm
+}
+
+/// Cold-start count over a mixed workload: uses of a model that is not in the
+/// warm set. A smaller count means the warm set avoided a reload.
+#[must_use]
+pub fn cold_starts(events: &[ModelUseEvent], warm_ids: &[String]) -> usize {
+    let warm: std::collections::HashSet<&str> = warm_ids.iter().map(String::as_str).collect();
+    events
+        .iter()
+        .filter(|e| !warm.contains(e.model_id.as_str()))
+        .count()
+}
