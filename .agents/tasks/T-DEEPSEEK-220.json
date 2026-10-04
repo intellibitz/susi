@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-220",
+  "title": "Extend ecosystem chaos drills to dev deployments: inject disk-full, runtime crashes, corrupt state and revoked credentials in isolated dev deployments; verify bounded recovery, explicit degraded states, privacy and budget preservation",
+  "goal": "VC-201-095 residual: swarm_chaos/fault_matrix cover network-fault classes (partition, skew, duplicates, stale keys, failed rekey, mixed versions, crash recovery) against an in-memory model. Disk-full, corrupt state and revoked credentials are not injected, nothing runs against isolated dev deployments, and degraded-state reporting with privacy and budget preservation is not enumerated by a named check. Deliver the drills and a vc_201_095_mastery_* test.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_095_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-095",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791107804
+}
