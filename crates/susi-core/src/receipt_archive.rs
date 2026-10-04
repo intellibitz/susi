@@ -48,6 +48,35 @@ pub struct ArchivedReceipt {
     pub training_staged: Option<bool>,
 }
 
+impl ArchivedReceipt {
+    pub fn to_memory_record(
+        &self,
+        workspace: &Path,
+        owner: &str,
+    ) -> crate::memory_provenance::MemoryRecord {
+        use crate::memory_provenance::{
+            DataClassification, MemoryRecord, Provenance, ProvenanceSource,
+        };
+        MemoryRecord::new(
+            self.receipt_id.clone(),
+            format!("{}: {}", self.tool, self.arguments),
+            Provenance {
+                source: ProvenanceSource::Evidence {
+                    receipt_id: self.receipt_id.clone(),
+                    verifier: "receipt_archive".into(),
+                },
+                workspace: workspace.to_string_lossy().to_string(),
+                receipt: Some(self.receipt_id.clone()),
+                revision: self.session_id.clone(),
+                classification: DataClassification::Internal,
+                owner: owner.to_string(),
+                recorded_unix: self.observed_at,
+                retention_secs: 0,
+            },
+        )
+    }
+}
+
 pub struct ReceiptArchive;
 
 impl ReceiptArchive {
