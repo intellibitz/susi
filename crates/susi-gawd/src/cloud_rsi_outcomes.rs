@@ -277,7 +277,14 @@ impl OutcomeLedger {
                     receipts,
                     at_unix: (self.clock)(),
                 });
-                rec.counterexamples.truncate(MAX_COUNTEREXAMPLES);
+                // Keep the newest MAX_COUNTEREXAMPLES, not the oldest: a
+                // plain `truncate` keeps index 0..cap, which drops every
+                // fresh rejection once the cap is reached and the ledger
+                // stops learning from anything new.
+                if rec.counterexamples.len() > MAX_COUNTEREXAMPLES {
+                    let excess = rec.counterexamples.len() - MAX_COUNTEREXAMPLES;
+                    rec.counterexamples.drain(0..excess);
+                }
             }
             Outcome::AvailabilityFailure { kind: _ } => {
                 rec.avail_failures += 1;
@@ -362,7 +369,10 @@ impl OutcomeLedger {
             .counterexamples
             .iter()
             .any(|c| addressed.iter().any(|a| a == &c.candidate_id));
-        if referenced || !fresh_receipts.is_empty() {
+        // A blank string is not evidence: require at least one
+        // non-whitespace receipt, not merely a non-empty list.
+        let has_fresh_evidence = fresh_receipts.iter().any(|r| !r.trim().is_empty());
+        if referenced || has_fresh_evidence {
             ProposalCheck::Addressed
         } else {
             ProposalCheck::Stale

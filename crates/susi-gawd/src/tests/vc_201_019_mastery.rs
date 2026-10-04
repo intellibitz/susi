@@ -9,6 +9,15 @@
 use crate::cloud_rsi_outcomes::{Outcome, OutcomeLedger, OutcomeUsage, ProposalCheck};
 use crate::experiment_memory::{ExperimentMemory, ExperimentMemoryEntry};
 
+fn entry(proposal_id: &str, cause: &str, counterexample: Option<&str>) -> ExperimentMemoryEntry {
+    ExperimentMemoryEntry {
+        proposal_id: proposal_id.into(),
+        cause: cause.into(),
+        counterexample: counterexample.map(String::from),
+        lineage: vec!["root".into()],
+    }
+}
+
 fn rejected(id: &str) -> Outcome {
     Outcome::Rejected {
         candidate_id: id.into(),
@@ -30,11 +39,10 @@ fn ledger() -> OutcomeLedger {
     OutcomeLedger::load(dir, || 1_700_000_000)
 }
 
-/// Falsification (ExperimentMemory half): 'repeated proposal' is keyed
-/// only by proposal_id — the identical proposal resubmitted under a new
-/// id is 'fresh'. And addresses_prior/new_evidence are caller-supplied
-/// booleans — the identical proposal resubmits unchanged by passing
-/// `true`. Nothing inspects the proposal's content against the cause.
+/// Fixed (ExperimentMemory half): a repeat is now recognized by identical
+/// (cause, counterexample) content even under a fresh id, and
+/// `addressed`/`fresh_receipts` are real evidence rather than
+/// caller-asserted booleans — a blank receipt no longer counts.
 #[test]
 fn vc_201_019_mastery_identical_proposal_under_new_id_is_fresh() {
     let mut m = ExperimentMemory::default();
@@ -44,24 +52,37 @@ fn vc_201_019_mastery_identical_proposal_under_new_id_is_fresh() {
         counterexample: Some("case-9".into()),
         lineage: vec!["root".into()],
     });
-    // Same content, new id — memory cannot tell it is the same proposal.
-    assert!(m.may_resubmit("p1-renamed", false, false));
-    // And the identical proposal resubmits by asserting a boolean.
-    assert!(m.may_resubmit("p1", true, false));
+    // Same content under a new id is still recognized as the same prior
+    // rejection, so it is refused without addressing it or fresh evidence.
+    assert!(!m.may_resubmit(&entry("p1-renamed", "gate fail", Some("case-9")), &[], &[]));
+    assert!(m.may_resubmit(
+        &entry("p1-renamed", "gate fail", Some("case-9")),
+        &["p1".into()],
+        &[]
+    ));
+    // The identical id with a blank "evidence" string is also refused.
+    assert!(!m.may_resubmit(
+        &entry("p1", "gate fail", Some("case-9")),
+        &[],
+        &[String::new()]
+    ));
+    assert!(m.may_resubmit(
+        &entry("p1", "gate fail", Some("case-9")),
+        &[],
+        &["genuinely new failure mode".into()]
+    ));
 }
 
-/// Falsification (OutcomeLedger half): 'declares new evidence' accepts
-/// ANY non-empty receipt list — including a single empty string. A
-/// repeated proposal citing nothing and offering an empty string is
-/// 'Addressed' — content-free evidence satisfies the gate.
+/// Fixed (OutcomeLedger half): a blank receipt string no longer counts
+/// as evidence — only a non-whitespace receipt satisfies the gate.
 #[test]
 fn vc_201_019_mastery_empty_string_receipt_is_evidence() {
     let mut l = ledger();
     l.record("patch", "m1", rejected("C-9")).unwrap();
     assert_eq!(
         l.check_proposal("patch", "m1", &[], &[String::new()]),
-        ProposalCheck::Addressed,
-        "an empty string counts as fresh evidence"
+        ProposalCheck::Stale,
+        "a blank string must not count as fresh evidence"
     );
     assert_eq!(
         l.check_proposal("patch", "m1", &[], &["unrelated".into()]),
@@ -69,11 +90,9 @@ fn vc_201_019_mastery_empty_string_receipt_is_evidence() {
     );
 }
 
-/// Falsification: the counterexample cap keeps the OLDEST entries and
-/// silently drops every new rejection once MAX_COUNTEREXAMPLES is
-/// reached — the ledger stops learning from fresh failures. A proposal
-/// referencing a dropped rejection reads Stale even though the rejection
-/// happened.
+/// Fixed: the counterexample cap now keeps the NEWEST entries and drops
+/// the oldest once `MAX_COUNTEREXAMPLES` is reached, so the ledger keeps
+/// learning from fresh failures instead of freezing on the first batch.
 #[test]
 fn vc_201_019_mastery_cap_drops_newest_failures() {
     let mut l = ledger();
@@ -84,11 +103,17 @@ fn vc_201_019_mastery_cap_drops_newest_failures() {
     let rec = l.get("patch", "m1").unwrap();
     assert_eq!(rec.counterexamples.len(), 32);
     assert_eq!(rec.rejected, 33);
-    // The 33rd rejection exists in the count but its counterexample was
-    // discarded — referencing it reports Stale.
+    // The oldest rejection (C-0) was dropped to make room.
+    assert_eq!(
+        l.check_proposal("patch", "m1", &["C-0".into()], &[]),
+        ProposalCheck::Stale,
+        "the oldest, evicted counterexample must not be referenceable"
+    );
+    // The newest rejection (C-32) is still on file.
     assert_eq!(
         l.check_proposal("patch", "m1", &["C-32".into()], &[]),
-        ProposalCheck::Stale
+        ProposalCheck::Addressed,
+        "the newest rejection's counterexample must still be on file"
     );
 }
 
