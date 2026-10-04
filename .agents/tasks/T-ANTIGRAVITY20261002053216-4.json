@@ -4,6 +4,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-gemi",
       "--locked",
       "-E",
       "test(vc_201_045_format_and_quantization_benchmark_matrix)"
