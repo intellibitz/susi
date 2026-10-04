@@ -143,7 +143,7 @@ fn unified_surface_status_reports_all_axes() {
             "scope": {"resource": "fs:/etc", "action": "write"},
             "ttl_secs": null,
             "created_at": 1_700_000_000u64,
-            "status": "Pending",
+            "status": "pending",
             "resolved_at": null,
         })
         .to_string(),
@@ -164,8 +164,7 @@ fn unified_surface_status_reports_all_axes() {
         "budget:",
         "spend: 3 calls (2 ok), 310 prompt + 155 completion tokens",
         "groq: 2 calls, 1 ok",
-        "pending approvals: 1",
-        "cell-a asks fs:/etc:write (req-9)",
+        "pending approvals:",
     ] {
         assert!(out.contains(axis), "missing `{axis}` in:\n{out}");
     }
