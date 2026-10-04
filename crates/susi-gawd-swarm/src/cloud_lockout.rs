@@ -27,6 +27,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use susi_core::model_health::{FailureClass, ModelHealth};
 use susi_vendor_models::cloud_eligibility::{EligibilityKind, InferenceResult};
 
 /// Clock injection point: `fn() -> u64` seconds since epoch. Tests pass a
@@ -115,6 +116,15 @@ struct Entry {
     probes_in_flight: u32,
     /// Permanent block reason; cleared only by fresh positive evidence.
     permanent: Option<String>,
+    /// Typed kind of the permanent block — lets [`LockoutTracker::health`]
+    /// report a `FailureClass` without parsing `permanent`'s display text.
+    /// `default` keeps files written before this field loadable.
+    #[serde(default)]
+    permanent_kind: Option<EligibilityKind>,
+    /// Kind of the most recent recorded failure — lets `health` classify a
+    /// scope correctly when the caller passes `EligibilityKind::Unknown`.
+    #[serde(default)]
+    last_kind: Option<EligibilityKind>,
     /// Clock time when last updated — detects backwards clock jumps.
     last_seen_ms: u64,
 }
@@ -128,6 +138,8 @@ impl Default for Entry {
             retry_after_until_ms: 0,
             probes_in_flight: 0,
             permanent: None,
+            permanent_kind: None,
+            last_kind: None,
             last_seen_ms: 0,
         }
     }
@@ -278,6 +290,173 @@ impl LockoutTracker {
         }
     }
 
+    /// Typed health view of one scope — the availability axis, reported in
+    /// `susi_core::model_health` terms so dispatch surfaces carry the same
+    /// vocabulary everywhere. Mirrors `permit`: verdicts and tracker state
+    /// only ever describe *availability*; capability evidence never enters
+    /// here. `verdict` is the caller's current eligibility verdict — pass
+    /// `EligibilityKind::Unknown` when none is resolved.
+    ///
+    /// States: `Healthy` (proven usable), `Unhealthy{RateLimited}` (cooling
+    /// — the deadline honours `Retry-After`), `Degraded` (timeouts or 5xx,
+    /// intermittent), `Unhealthy{ServiceError}` (repeated transient failure
+    /// tripped the circuit), `Dead{InvalidCredential|Unsupported}`
+    /// (key-dead), `Dead{InsufficientQuota}` (unfunded account),
+    /// `Unhealthy{InsufficientQuota}` (out of quota until the reset).
+    #[must_use]
+    pub fn health(&self, scope: &str, verdict: EligibilityKind) -> ModelHealth {
+        let now = self.now_ms();
+        let Some(e) = self.entries.get(scope) else {
+            return match verdict {
+                EligibilityKind::Usable => ModelHealth::Healthy,
+                EligibilityKind::InvalidCredential | EligibilityKind::AccessDenied => {
+                    ModelHealth::Dead {
+                        class: FailureClass::InvalidCredential,
+                    }
+                }
+                EligibilityKind::InsufficientCredit => ModelHealth::Dead {
+                    class: FailureClass::InsufficientQuota,
+                },
+                EligibilityKind::UnsupportedRequest => ModelHealth::Dead {
+                    class: FailureClass::Unsupported,
+                },
+                EligibilityKind::QuotaExhausted => ModelHealth::Unhealthy {
+                    class: FailureClass::InsufficientQuota,
+                    reason: "out of quota until provider reset".to_string(),
+                },
+                EligibilityKind::RateLimited => ModelHealth::Unhealthy {
+                    class: FailureClass::RateLimited,
+                    reason: "rate limited".to_string(),
+                },
+                EligibilityKind::ServiceUnavailable => ModelHealth::Degraded {
+                    reason: "timeouts or provider 5xx".to_string(),
+                },
+                EligibilityKind::Unknown => ModelHealth::Unknown,
+            };
+        };
+        // Permanent block — tracker entry or the caller's verdict.
+        if e.permanent.is_some() {
+            return ModelHealth::Dead {
+                class: Self::permanent_class(e),
+            };
+        }
+        // The effective failure kind: the caller's verdict when it carries
+        // evidence, else the last kind recorded against this scope.
+        let kind = if verdict == EligibilityKind::Unknown {
+            e.last_kind.unwrap_or(EligibilityKind::Unknown)
+        } else {
+            verdict
+        };
+        match kind {
+            EligibilityKind::InvalidCredential | EligibilityKind::AccessDenied => {
+                return ModelHealth::Dead {
+                    class: FailureClass::InvalidCredential,
+                };
+            }
+            EligibilityKind::InsufficientCredit => {
+                return ModelHealth::Dead {
+                    class: FailureClass::InsufficientQuota,
+                };
+            }
+            EligibilityKind::UnsupportedRequest => {
+                return ModelHealth::Dead {
+                    class: FailureClass::Unsupported,
+                };
+            }
+            EligibilityKind::Usable
+            | EligibilityKind::Unknown
+            | EligibilityKind::RateLimited
+            | EligibilityKind::QuotaExhausted
+            | EligibilityKind::ServiceUnavailable => {}
+        }
+        let until = e.cooldown_until_ms.max(e.retry_after_until_ms);
+        let cooling = now < until;
+        if matches!(kind, EligibilityKind::RateLimited) {
+            let reason = if cooling {
+                format!("cooling until {until} ms (Retry-After honoured)")
+            } else {
+                "rate limited".to_string()
+            };
+            return ModelHealth::Unhealthy {
+                class: FailureClass::RateLimited,
+                reason,
+            };
+        }
+        if matches!(kind, EligibilityKind::QuotaExhausted) {
+            let reason = if cooling {
+                format!("out of quota until {until} ms")
+            } else {
+                "out of quota".to_string()
+            };
+            return ModelHealth::Unhealthy {
+                class: FailureClass::InsufficientQuota,
+                reason,
+            };
+        }
+        if e.circuit == Circuit::Open && cooling {
+            return ModelHealth::Unhealthy {
+                class: FailureClass::ServiceError,
+                reason: format!("circuit open until {until} ms"),
+            };
+        }
+        if e.consecutive_failures > 0 {
+            let reason = if cooling {
+                format!("intermittent failures; recovering at {until} ms")
+            } else {
+                "intermittent failures".to_string()
+            };
+            return ModelHealth::Degraded { reason };
+        }
+        match kind {
+            EligibilityKind::Usable => ModelHealth::Healthy,
+            EligibilityKind::ServiceUnavailable => ModelHealth::Degraded {
+                reason: "timeouts or provider 5xx".to_string(),
+            },
+            EligibilityKind::Unknown
+            | EligibilityKind::InvalidCredential
+            | EligibilityKind::AccessDenied
+            | EligibilityKind::InsufficientCredit
+            | EligibilityKind::QuotaExhausted
+            | EligibilityKind::RateLimited
+            | EligibilityKind::UnsupportedRequest => ModelHealth::Unknown,
+        }
+    }
+
+    /// Typed class of a recorded permanent block. Reads `permanent_kind`
+    /// when present, falling back to the legacy display reason persisted
+    /// before that field existed.
+    fn permanent_class(e: &Entry) -> FailureClass {
+        if let Some(kind) = e.permanent_kind {
+            return Self::failure_class(kind);
+        }
+        let reason = e.permanent.as_deref().unwrap_or("");
+        if reason.contains("InsufficientCredit") {
+            FailureClass::InsufficientQuota
+        } else if reason.contains("Unsupported") {
+            FailureClass::Unsupported
+        } else {
+            FailureClass::InvalidCredential
+        }
+    }
+
+    /// Map an eligibility verdict to a typed failure class. `Usable` and
+    /// `Unknown` carry no failure and are never reached from a recorded
+    /// block — they map to `Unknown` defensively.
+    fn failure_class(kind: EligibilityKind) -> FailureClass {
+        match kind {
+            EligibilityKind::RateLimited => FailureClass::RateLimited,
+            EligibilityKind::QuotaExhausted | EligibilityKind::InsufficientCredit => {
+                FailureClass::InsufficientQuota
+            }
+            EligibilityKind::InvalidCredential | EligibilityKind::AccessDenied => {
+                FailureClass::InvalidCredential
+            }
+            EligibilityKind::ServiceUnavailable => FailureClass::ServiceError,
+            EligibilityKind::UnsupportedRequest => FailureClass::Unsupported,
+            EligibilityKind::Usable | EligibilityKind::Unknown => FailureClass::Unknown,
+        }
+    }
+
     /// Record an in-flight half-open probe. Call before dispatching when
     /// `permit` allowed; other workers then see `ProbesExhausted`.
     /// Returns false when the probe budget was already spent (race with
@@ -320,6 +499,7 @@ impl LockoutTracker {
             } => {
                 let (kind, _level) =
                     susi_vendor_models::cloud_eligibility::classify_failure(*status, body_snippet);
+                self.entry(scope, now).last_kind = Some(kind);
                 match kind {
                     EligibilityKind::InvalidCredential
                     | EligibilityKind::InsufficientCredit
@@ -327,6 +507,7 @@ impl LockoutTracker {
                     | EligibilityKind::UnsupportedRequest => {
                         let e = self.entry(scope, now);
                         e.permanent = Some(format!("{kind:?}"));
+                        e.permanent_kind = Some(kind);
                         e.probes_in_flight = 0;
                     }
                     EligibilityKind::RateLimited => {

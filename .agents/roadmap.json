@@ -1506,7 +1506,7 @@
       "id": "VC-202-020",
       "mastery_target": "Availability is tracked as its own axis: each model and key is healthy, cooling after a rate limit with Retry-After respected, degraded after timeouts or 5xx, key-dead, or out of quota - while capability is measured only from task outcomes. Per-key rate and concurrency limits are arbitrated across all agents and delegated fan-out, and a refutation test proves that a storm of 429s and timeouts leaves the capability ranking untouched.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: health axis delivered — LockoutTracker::health reports typed ModelHealth per scope on the production dispatch path (JobOutcome::target_health), Retry-After honoured, state persisted across restarts; the 429/timeout-storm refutation proves capability ranking untouched. Per-key rate/concurrency arbitration remains queued (T-DEEPSEEK-116).",
       "type": "OPERATIONS",
       "vector": "Model health is a separate axis from model capability"
     },
