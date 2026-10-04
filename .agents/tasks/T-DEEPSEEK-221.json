@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-221",
+  "title": "Add real Kani proof harnesses: bounded verification of lease fencing, budget transitions and policy precedence with documented assumptions; CI retains counterexamples and reports proof bounds",
+  "goal": "VC-201-096 residual: formal_invariants.rs is an exhaustive three-agent model check, not a Kani harness — no #[kani::proof] exists anywhere in the repo, budget transitions and policy precedence are not covered by any model, and proof bounds with retained counterexamples are not reported. Deliver cfg(kani) harnesses for the named primitives and a vc_201_096_mastery_* test plus a CI step.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_096_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-096",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791108408
+}
