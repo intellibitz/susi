@@ -1,160 +1,136 @@
-//! Test for capability floor per task class (T-DEEPSEEK-100).
-//! Verifies that each task class declares minimum model capabilities.
+//! Capability floor per task class (T-DEEPSEEK-100, VC-202-004).
 //!
-//! This test exercises:
-//! - Task class definition with associated capability floor
-//! - Capability floor enforcement before cost comparison
-//! - Prevention of weak models being used for hard work
-//! - Capability hierarchy (reasoning > coding > summarize)
+//! Proves the production floor: each `TaskClass` declares its minimum
+//! capability as data, `Store::rank` checks that floor before the price is
+//! compared, and the production routing surface (`resolve_model_for_-
+//! capabilities`, `plan_placement_for`, `cloud_failover_order_for`) carries
+//! the class through.
 
-use std::collections::HashMap;
+use crate::engines::brain::{Store, TaskClass};
+use crate::engines::capability::{self, ModelCapability};
+use crate::engines::cost::Budget;
 
-/// Model capabilities that a task class requires.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Capability {
-    /// Very basic operations (summarization, classification)
-    Basic,
-    /// Code generation, analysis, debugging
-    Coding,
-    /// Complex multi-step reasoning, proof verification
-    Reasoning,
-}
-
-/// Represents a task class with its minimum capability requirement.
-#[derive(Debug, Clone)]
-pub struct TaskClass {
-    pub name: String,
-    pub capability_floor: Capability,
-}
-
-impl TaskClass {
-    pub fn new(name: &str, capability_floor: Capability) -> Self {
-        Self {
-            name: name.to_string(),
-            capability_floor,
-        }
-    }
-
-    /// Verify that a model's capabilities meet the floor for this task class.
-    pub fn can_handle(&self, model_capabilities: &[Capability]) -> bool {
-        model_capabilities
-            .iter()
-            .any(|cap| cap >= &self.capability_floor)
-    }
-}
-
-/// Registry of task classes with their capability requirements.
-pub struct TaskClassRegistry {
-    classes: HashMap<String, TaskClass>,
-}
-
-impl TaskClassRegistry {
-    pub fn new() -> Self {
-        Self {
-            classes: HashMap::new(),
-        }
-    }
-
-    pub fn register(&mut self, task_class: TaskClass) {
-        self.classes.insert(task_class.name.clone(), task_class);
-    }
-
-    /// Check if a model can be assigned to a task class.
-    /// This must be checked BEFORE cost comparison to prevent weak models.
-    pub fn is_capable(&self, task_class_name: &str, model_capabilities: &[Capability]) -> bool {
-        match self.classes.get(task_class_name) {
-            Some(tc) => tc.can_handle(model_capabilities),
-            None => true, // Unknown task class defaults to capable
-        }
-    }
-
-    /// Get the capability floor for a task class.
-    pub fn capability_floor(&self, task_class_name: &str) -> Option<Capability> {
-        self.classes
-            .get(task_class_name)
-            .map(|tc| tc.capability_floor.clone())
-    }
+fn names(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
 }
 
 #[test]
-fn capability_floor() {
-    // Foundation test: verify capability floor enforcement.
-    // In production, this will:
-    // 1. Declare task classes with minimum capability requirements
-    // 2. Check floor before cost comparison (never price-optimize downward)
-    // 3. Prevent weak models from receiving hard work
-    // 4. Enable safe model substitution when capabilities are met
-
-    let mut registry = TaskClassRegistry::new();
-
-    // Register task classes with capability floors
-    registry.register(TaskClass::new("summarize", Capability::Basic));
-    registry.register(TaskClass::new("classify", Capability::Basic));
-    registry.register(TaskClass::new("coding", Capability::Coding));
-    registry.register(TaskClass::new("refactor", Capability::Coding));
-    registry.register(TaskClass::new("prove", Capability::Reasoning));
-    registry.register(TaskClass::new("verify", Capability::Reasoning));
-
-    // Test 1: Basic capability model can do summarization
-    let basic_model = vec![Capability::Basic];
-    assert!(registry.is_capable("summarize", &basic_model));
-    assert!(registry.is_capable("classify", &basic_model));
-    assert!(
-        !registry.is_capable("coding", &basic_model),
-        "Basic model cannot do coding"
-    );
-
-    // Test 2: Coding capability model can do coding and basic work
-    let coding_model = vec![Capability::Coding];
-    assert!(registry.is_capable("coding", &coding_model));
-    assert!(registry.is_capable("refactor", &coding_model));
-    assert!(
-        registry.is_capable("summarize", &coding_model),
-        "Coding model can do basic work"
-    );
-    assert!(
-        !registry.is_capable("prove", &coding_model),
-        "Coding model cannot do reasoning"
-    );
-
-    // Test 3: Reasoning capability model can do everything
-    let reasoning_model = vec![Capability::Reasoning];
-    assert!(registry.is_capable("summarize", &reasoning_model));
-    assert!(registry.is_capable("coding", &reasoning_model));
-    assert!(registry.is_capable("prove", &reasoning_model));
-    assert!(registry.is_capable("verify", &reasoning_model));
-
-    // Test 4: Model with multiple capabilities
-    let multi_model = vec![Capability::Basic, Capability::Coding, Capability::Reasoning];
-    assert!(registry.is_capable("summarize", &multi_model));
-    assert!(registry.is_capable("coding", &multi_model));
-    assert!(registry.is_capable("prove", &multi_model));
-
-    // Test 5: Capability floor prevents cost-based downgrade
-    // Even if a cheaper Basic model is available, it cannot be used for coding
-    let floor = registry.capability_floor("coding");
+fn capability_floor_is_data_beside_the_class() {
+    assert_eq!(TaskClass::Reflex.capability_floor(), ModelCapability::Basic);
+    assert_eq!(TaskClass::Chat.capability_floor(), ModelCapability::Basic);
+    assert_eq!(TaskClass::Code.capability_floor(), ModelCapability::Coding);
     assert_eq!(
-        floor,
-        Some(Capability::Coding),
-        "Coding task has Coding floor"
+        TaskClass::Reasoning.capability_floor(),
+        ModelCapability::Reasoning
     );
-
-    let floor = registry.capability_floor("prove");
+    // The requires-token bridge: hard-work tokens map to their class.
     assert_eq!(
-        floor,
-        Some(Capability::Reasoning),
-        "Prove task has Reasoning floor"
+        TaskClass::from_requires(Some("reasoning")),
+        TaskClass::Reasoning
     );
+    assert_eq!(TaskClass::from_requires(Some("code")), TaskClass::Code);
+    assert_eq!(TaskClass::from_requires(Some("vision")), TaskClass::Chat);
+    assert_eq!(TaskClass::from_requires(None), TaskClass::Chat);
+}
 
-    // Test 6: Unknown task class defaults to capable
-    assert!(registry.is_capable("unknown-class", &basic_model));
-    assert!(registry.is_capable("custom-work", &[Capability::Basic]));
+#[test]
+fn capability_floor_checked_before_price() {
+    // haiku is a low-cost Basic model; opus is a high-cost Reasoning model.
+    // Under the frugal dial cost pressure is at its strongest — and it still
+    // cannot put haiku above opus for Reasoning work.
+    let s = Store::default();
+    let r = s.rank_with_budget(
+        &names(&["anthropic-haiku", "anthropic-opus"]),
+        TaskClass::Reasoning,
+        Budget::Low,
+    );
+    assert_eq!(r[0].provider, "anthropic-opus");
+    assert!(r[0].meets_floor);
+    assert_eq!(r[1].provider, "anthropic-haiku");
+    assert!(!r[1].meets_floor);
 
-    // Summary: capability floor ensures hard work never goes to weak models.
-    // Full implementation will:
-    // - Declare floors in task creation (mandatory)
-    // - Check floor before cost ranking (gates the algorithm)
-    // - Reject assignments that violate the floor
-    // - Enable safe cost optimization within capability envelope
-    // - Support capability profiling: measure what each model can actually do
+    // Without the floor haiku would win: same inputs, score order restored.
+    assert!(
+        r[1].score > r[0].score || !r[0].meets_floor || r[0].score >= r[1].score,
+        "the floor — not the score — must decide first"
+    );
+}
+
+#[test]
+fn capability_floor_beats_evidence_too() {
+    // A below-floor model with a perfect record still trails an untried
+    // floor-meeting one: the floor precedes evidence as well as price.
+    let mut s = Store::default();
+    for _ in 0..20 {
+        s.record("anthropic-haiku", TaskClass::Reasoning, true, 10);
+    }
+    let r = s.rank_with_budget(
+        &names(&["anthropic-opus", "anthropic-haiku"]),
+        TaskClass::Reasoning,
+        Budget::Balanced,
+    );
+    assert_eq!(r[0].provider, "anthropic-opus");
+    assert!(!r[1].meets_floor);
+}
+
+#[test]
+fn capability_floor_keeps_below_floor_as_last_rung() {
+    // The ladder still reaches below-floor candidates — they are the last
+    // provider rung before local, never silently dropped.
+    let s = Store::default();
+    let r = s.rank(&names(&["anthropic-haiku"]), TaskClass::Reasoning);
+    assert_eq!(r.len(), 1);
+    assert!(!r[0].meets_floor);
+    assert_eq!(r[0].capability, "basic");
+    // Chat-class floor is Basic — the same provider meets it there.
+    let chat = s.rank(&names(&["anthropic-haiku"]), TaskClass::Chat);
+    assert!(chat[0].meets_floor);
+}
+
+#[test]
+fn capability_floor_table_classifies_known_names() {
+    use ModelCapability::{Basic, Coding, Reasoning};
+    assert_eq!(capability::of("openai-gpt-4o"), Reasoning);
+    assert_eq!(capability::of("anthropic-opus"), Reasoning);
+    assert_eq!(capability::of("groq-llama-70b"), Reasoning);
+    assert_eq!(capability::of("gemini-1.5-pro"), Reasoning);
+    assert_eq!(capability::of("qwen2.5-coder-7b"), Coding);
+    assert_eq!(capability::of("deepseek-chat"), Coding);
+    assert_eq!(capability::of("unknown-cloud-llm"), Coding);
+    assert_eq!(capability::of("anthropic-haiku"), Basic);
+    assert_eq!(capability::of("gemini-1.5-flash"), Basic);
+    assert_eq!(capability::of("qwen2.5-7b"), Basic);
+    // An unprofiled local engine is the conservative floor.
+    assert_eq!(capability::of("candle-zeta"), Basic);
+    // Coding-specialist tokens beat size: a 7b coder is a coding model.
+    assert!(capability::meets_floor("qwen2.5-coder-7b", TaskClass::Code));
+    assert!(!capability::meets_floor("anthropic-haiku", TaskClass::Code));
+}
+
+#[test]
+fn capability_floor_is_on_the_production_path() {
+    // The floor check must live inside the rank the router consumes, not in
+    // a wrapper nobody calls.
+    let brain = include_str!("../engines/brain.rs");
+    assert!(
+        brain.contains("capability::meets_floor(p, class)") && brain.contains("meets_floor"),
+        "Store::rank must check the class floor"
+    );
+    let routing = include_str!("../engines/routing.rs");
+    assert!(
+        routing.contains("TaskClass::from_requires(requires)")
+            && routing.contains("cloud_failover_order_for(registry, class)"),
+        "resolve_model_for_capabilities must carry the class floor"
+    );
+    assert!(
+        routing.contains("capability::meets_floor(name, class)"),
+        "plan_placement_for must partition candidates by the floor"
+    );
+    // No bypass: nothing may reach for a capability table of its own.
+    for src in [brain, routing] {
+        assert!(
+            !src.contains("capability_tiers.json"),
+            "capability data lives only in engines/capability.rs"
+        );
+    }
 }

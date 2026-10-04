@@ -32,6 +32,30 @@ pub enum TaskClass {
 impl TaskClass {
     pub const ALL: [Self; 4] = [Self::Reflex, Self::Chat, Self::Code, Self::Reasoning];
 
+    /// The minimum capability work in this class needs, declared as data
+    /// beside the class (VC-202-004). Routing checks this floor before the
+    /// price is compared, so cost pressure can never send hard work to a
+    /// weak model.
+    pub fn capability_floor(self) -> super::capability::ModelCapability {
+        match self {
+            Self::Reflex | Self::Chat => super::capability::ModelCapability::Basic,
+            Self::Code => super::capability::ModelCapability::Coding,
+            Self::Reasoning => super::capability::ModelCapability::Reasoning,
+        }
+    }
+
+    /// The routing `requires` token's class: `code`/`reasoning` map to their
+    /// classes; everything else supported (`text`, `chat`, `vision`) runs at
+    /// the chat floor — modality gating is `supports_requirement`'s job, not
+    /// the capability floor's.
+    pub fn from_requires(requires: Option<&str>) -> Self {
+        match requires.map(|r| r.to_ascii_lowercase()).as_deref() {
+            Some("reasoning") => Self::Reasoning,
+            Some("code") => Self::Code,
+            _ => Self::Chat,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Reflex => "reflex",
@@ -286,6 +310,14 @@ fn score(provider: &str, class: TaskClass, rec: Option<&Record>, budget: Budget)
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Ranked {
     pub provider: String,
+    /// Meets the task class's capability floor. The floor is checked before
+    /// the price is compared: below-floor candidates sort behind every
+    /// floor-meeting one regardless of cost or evidence, and are kept (not
+    /// dropped) so the ladder still reaches them when nothing stronger is
+    /// available.
+    pub meets_floor: bool,
+    /// Declared capability tier that fed the floor check.
+    pub capability: &'static str,
     /// Failing right now with poor evidence: sorted behind every fit provider.
     pub unfit: bool,
     /// Kind and streak of the most recent failure inside the fitness window.
@@ -406,6 +438,8 @@ impl Store {
                 let samples = rec.map_or(0, Record::samples);
                 Ranked {
                     provider: p.clone(),
+                    meets_floor: super::capability::meets_floor(p, class),
+                    capability: super::capability::of(p).label(),
                     unfit: self.is_unfit(p, class, unix_now()),
                     last_failure: self
                         .recent_failure(p, unix_now())
@@ -420,10 +454,16 @@ impl Store {
                 }
             })
             .collect();
+        // Floor first, then score: `meets_floor` dominates the comparator so
+        // a cheap weak model can never outrank a floor-meeting one (the floor
+        // is checked before the price is compared), and below-floor
+        // candidates still appear at the tail — the last rung before local.
         out.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            b.meets_floor.cmp(&a.meets_floor).then_with(|| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
         out
     }

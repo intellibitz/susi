@@ -1,0 +1,10 @@
+{
+  "vector": "VC-202-004",
+  "verdict": "delivered",
+  "evidence": "capability_floor_* (crates/susi-gemi/src/tests/capability_floor.rs) — 6 tests: TaskClass declares its floor as data (Reflex/Chat=Basic, Code=Coding, Reasoning=Reasoning via capability_floor()); a low-cost Basic model cannot outrank a high-cost Reasoning model for Reasoning work even under Budget::Low, nor can a below-floor model with a perfect record outrank an untried floor-meeting one; below-floor candidates are kept as the last rung, not dropped; the bundled table classifies known names and coding-specialist tokens beat size; a source scan pins the floor inside Store::rank and on the production routing paths.",
+  "delivered_by": ["T-DEEPSEEK-100"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791144200,
+  "check": ["scripts/check-reachability.py", "--delivered", "capability::meets_floor"],
+  "notes": "The floor is checked before the price is compared at three production points: Store::rank_with_budget partitions meets_floor ahead of score (crates/susi-gemi/src/engines/brain.rs:440,459 - the same rank cloud_failover_order_for consumes); plan_placement_for partitions cloud candidates by floor before pick_cloud (routing.rs:984); resolve_model_for_capabilities maps the requires token to its TaskClass via TaskClass::from_requires and ranks with it (routing.rs:760). Provider capability is a name-rule table (engines/capability.rs + bundled config/capability-tiers.json, same editable pattern as cost_tiers.json); cloud default Coding, local default Basic, operator override at ~/.susi/capability_tiers.json. Ranked exposes meets_floor + capability for audit; PlacementDecision.reason records the chosen rung. Honest limits: the table is name-heuristic (a model's real capability is profiled, not measured - VC-202-003's catalogue probing can refine it); a below-floor provider remains reachable as the last rung before local by design - it is chosen only when no floor-meeting provider is viable; ladder-step fallthrough is observable via serialized fields, not narrated per step."
+}
