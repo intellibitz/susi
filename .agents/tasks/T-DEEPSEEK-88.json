@@ -5,6 +5,7 @@
       "nextest",
       "run",
       "--locked",
+      "--workspace",
       "-E",
       "test(expected_cost_with_cache)"
     ]
