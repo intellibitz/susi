@@ -216,6 +216,9 @@ mod vc_201_039_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_040.rs"]
 mod vc_201_040_tests;
+#[cfg(test)]
+#[path = "tests/vc_202_007_mastery.rs"]
+mod vc_202_007_mastery_tests;
 
 /// Wire the MissionDag post-swarm hook into the agents leaf.
 ///

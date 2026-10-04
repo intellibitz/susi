@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-226",
+  "title": "Wire the typed intent DAG into the production mission path: replace comma-split goals with PlanDag nodes of real susi leaf operations, execute with per-node provenance, refuse unservable intents with what is missing",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--workspace",
+      "--locked",
+      "-E",
+      "test(vc_202_007_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-007",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791114029
+}

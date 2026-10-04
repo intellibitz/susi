@@ -1,0 +1,10 @@
+{
+  "vector": "VC-202-007",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "The typed-DAG machinery exists in crates/susi-core/src/intent_plan.rs (Planner::plan validates a PlanDag of registered leaf operations; intent_plan::execute runs it with NodeProvenance records; command shapes and unplannable intents are typed PlanErrors) — but it has zero production callers: scripts/check-reachability.py --delivered 'Planner::plan' and 'intent_plan::execute' both report no production call sites. The mission path actually invoked (MissionPlanner::plan_mission in crates/susi-gemi/src/engines/runtime.rs, reached through the gemi plane bus and ama/master.rs) splits an LLM reply on commas into Vec<String> goals and pushes the raw goal as a single-item fallback when the model cannot decompose — a silent approximation of an unservable intent, the exact failure the vector forbids. So on the path users run, an intent never becomes a DAG: nodes carry no declared inputs/outputs/costs, execution records no per-node provenance, and the leaf registry's toy fs operations are not the real susi operation vocabulary missions need. Holds: the planner/executor machinery itself is correct and tested (vc_202_007_mastery_* in crates/susi-gawd-swarm/src/tests/vc_202_007_mastery.rs).",
+  "tracked_by": ["T-DEEPSEEK-226"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791128400,
+  "check": ["scripts/check-reachability.py", "--refuted", "intent_plan::execute"]
+}
