@@ -322,11 +322,21 @@ fn try_awaken_local_engines() {
             .stderr(std::process::Stdio::null())
             .spawn();
         // The daemon parents this child for its whole life: reap it when it
-        // exits, or it lingers as a zombie.
-        if let Ok(mut child) = spawned {
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
+        // exits, or it lingers as a zombie. A supervised one-shot, like
+        // every other background helper.
+        if let Ok(child) = spawned {
+            let mut child = Some(child);
+            crate::service_supervision::Supervisor::global().spawn_oneshot(
+                "reap:ollama",
+                0,
+                move || {
+                    child.take().map(|mut child| {
+                        move || {
+                            let _ = child.wait();
+                        }
+                    })
+                },
+            );
         }
         if std::env::var("SUSI_VERBOSE").is_ok() {
             eprintln!("[BOOTSTRAP] Awakened local engine: ollama serve");
@@ -407,23 +417,31 @@ pub fn spawn_periodic_rediscovery(interval_secs: u64) {
     if interval_secs == 0 {
         return;
     }
-    std::thread::Builder::new()
-        .name("susi-capability-rediscovery".into())
-        .spawn(move || {
-            let runtime = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(e) => {
-                    eprintln!("[SusiDaemon] Capability rediscovery loop aborted: {}", e);
-                    return;
+    // Supervised: a full bootstrap pass probes engines and MCP servers
+    // over the network and can legitimately take many minutes, so the
+    // heartbeat bound is generous.
+    crate::service_supervision::Supervisor::global().spawn(
+        "capability-rediscovery",
+        3,
+        Some(Duration::from_secs(3600)),
+        move || {
+            Some(move || {
+                let runtime = match tokio::runtime::Runtime::new() {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        eprintln!("[SusiDaemon] Capability rediscovery loop aborted: {}", e);
+                        return;
+                    }
+                };
+                let interval = Duration::from_secs(interval_secs);
+                loop {
+                    std::thread::sleep(interval);
+                    crate::service_supervision::heartbeat("capability-rediscovery");
+                    runtime.block_on(bootstrap_zero_config_substrate());
                 }
-            };
-            let interval = Duration::from_secs(interval_secs);
-            loop {
-                std::thread::sleep(interval);
-                runtime.block_on(bootstrap_zero_config_substrate());
-            }
-        })
-        .ok();
+            })
+        },
+    );
 }
 
 #[cfg(test)]

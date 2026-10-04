@@ -45,6 +45,9 @@ pub struct CellWatcherHandle {
 impl CellWatcherHandle {
     /// Signals the watcher thread to stop.
     pub fn stop(&self) {
+        // Retire first so the deliberate exit is never read as a crash
+        // and restarted by the supervisor.
+        crate::service_supervision::Supervisor::global().retire("cell-watcher");
         self.shutdown.store(true, Ordering::Release);
     }
 }
@@ -64,14 +67,25 @@ pub fn start_cell_watcher(config: CellWatcherConfig) -> CellWatcherHandle {
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
-    let thread = std::thread::Builder::new()
-        .name("susi-cell-watcher".into())
-        .spawn(move || {
-            watcher_loop(&config, &shutdown_clone);
-        })
-        .ok();
+    // Supervised like every other long-lived worker: a crashed watcher is
+    // restarted within its bound and reported on the status surface.
+    crate::service_supervision::Supervisor::global().spawn(
+        "cell-watcher",
+        3,
+        Some(Duration::from_secs(120)),
+        move || {
+            let config = config.clone();
+            let shutdown_clone = shutdown_clone.clone();
+            Some(move || {
+                watcher_loop(&config, &shutdown_clone);
+            })
+        },
+    );
 
-    CellWatcherHandle { shutdown, thread }
+    CellWatcherHandle {
+        shutdown,
+        thread: None,
+    }
 }
 
 /// The main polling loop. Tracks known files and triggers re-discovery
@@ -86,6 +100,7 @@ fn watcher_loop(config: &CellWatcherConfig, shutdown: &AtomicBool) {
     );
 
     while !shutdown.load(Ordering::Acquire) {
+        crate::service_supervision::heartbeat("cell-watcher");
         std::thread::sleep(config.poll_interval);
 
         if shutdown.load(Ordering::Acquire) {

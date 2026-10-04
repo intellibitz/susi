@@ -53,17 +53,27 @@ impl DaemonContext {
 
     pub fn setup_signal_handlers(&self) -> Result<(), EaiError> {
         let shutdown = Arc::clone(&self.shutdown_signal);
-        thread::spawn(move || {
-            if let Ok(mut signals) = Signals::new([SIGTERM, SIGINT]) {
-                for sig in signals.forever() {
-                    let msgs = crate::susi_sandbox::manager::SusiMessages::load_global();
-                    let def_msg = "[SusiDaemon] Received signal: {}".to_string();
-                    let msg = msgs.get("daemon", "signal_received").unwrap_or(&def_msg);
-                    eprintln!("{}", msg.replace("{}", &sig.to_string()));
-                    shutdown.store(true, Ordering::Release);
-                }
-            }
-        });
+        // Supervised like every other long-lived worker: a signal-handler
+        // thread that dies would leave the daemon deaf to SIGTERM.
+        crate::service_supervision::Supervisor::global().spawn(
+            "signal-handler",
+            3,
+            None,
+            move || {
+                let shutdown = Arc::clone(&shutdown);
+                Some(move || {
+                    if let Ok(mut signals) = Signals::new([SIGTERM, SIGINT]) {
+                        for sig in signals.forever() {
+                            let msgs = crate::susi_sandbox::manager::SusiMessages::load_global();
+                            let def_msg = "[SusiDaemon] Received signal: {}".to_string();
+                            let msg = msgs.get("daemon", "signal_received").unwrap_or(&def_msg);
+                            eprintln!("{}", msg.replace("{}", &sig.to_string()));
+                            shutdown.store(true, Ordering::Release);
+                        }
+                    }
+                })
+            },
+        );
         Ok(())
     }
 
@@ -875,12 +885,21 @@ impl SusiDaemon {
         // Initialize Global Stigmergic Blackboard (Swarm OS Points 5, 21, 25, 31)
         let blackboard = crate::blackboard::SwarmBlackboard::new();
         let blackboard_evaporator = blackboard.clone();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                blackboard_evaporator.evaporate_pheromones();
-            }
-        });
+        crate::service_supervision::Supervisor::global().spawn(
+            "pheromone-evaporator",
+            3,
+            Some(Duration::from_secs(60)),
+            move || {
+                let blackboard_evaporator = blackboard_evaporator.clone();
+                Some(move || {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        blackboard_evaporator.evaporate_pheromones();
+                        crate::service_supervision::heartbeat("pheromone-evaporator");
+                    }
+                })
+            },
+        );
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
         crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(
@@ -997,63 +1016,94 @@ impl SusiDaemon {
             a2a_port
         );
 
+        // Each server thread is supervised: the registry holds the
+        // listeners and `try_clone`s them per (re)spawn, so a panicked or
+        // exited server is restarted in place with a bounded budget and
+        // reported on the status surface instead of silently staying dead.
         let tls_gemi = tls_acceptor.clone();
         let workspace_gemi = workspace.clone();
         let require_tls_gemi = require_tls_remote;
-        thread::spawn(move || {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GemiServer::start_http_server(
-                    workspace_gemi,
-                    gemi_server,
-                    tls_gemi,
-                    require_tls_gemi,
-                );
-            })) {
-                eprintln!("[GEMI] Thread panicked: {:?}", e);
-            }
+        crate::service_supervision::Supervisor::global().spawn("gemi-http", 5, None, move || {
+            let workspace = workspace_gemi.clone();
+            let listeners: Vec<std::net::TcpListener> = gemi_server
+                .iter()
+                .filter_map(|l| l.try_clone().ok())
+                .collect();
+            let tls = tls_gemi.clone();
+            Some(move || {
+                if listeners.is_empty() {
+                    eprintln!("[GEMI] no listener left to serve on");
+                    return;
+                }
+                GemiServer::start_http_server(workspace, listeners, tls, require_tls_gemi);
+            })
         });
 
         let tls_gmcp = tls_acceptor.clone();
         let workspace_gmcp = workspace.clone();
         let require_tls_gmcp = require_tls_remote;
-        thread::spawn(move || {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GmcpServer::start_http_server(
-                    workspace_gmcp,
-                    gmcp_primary,
-                    tls_gmcp,
-                    require_tls_gmcp,
-                );
-            })) {
-                eprintln!("[GMCP] Thread panicked: {:?}", e);
-            }
+        crate::service_supervision::Supervisor::global().spawn("gmcp-http", 5, None, move || {
+            let workspace = workspace_gmcp.clone();
+            let listeners: Vec<std::net::TcpListener> = gmcp_primary
+                .iter()
+                .filter_map(|l| l.try_clone().ok())
+                .collect();
+            let tls = tls_gmcp.clone();
+            Some(move || {
+                if listeners.is_empty() {
+                    eprintln!("[GMCP] no listener left to serve on");
+                    return;
+                }
+                GmcpServer::start_http_server(workspace, listeners, tls, require_tls_gmcp);
+            })
         });
 
         let tls_gmcp_alias = tls_acceptor.clone();
         let workspace_gmcp_alias = workspace.clone();
         let require_tls_gmcp_alias = require_tls_remote;
-        thread::spawn(move || {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GmcpServer::start_http_server(
-                    workspace_gmcp_alias,
-                    gmcp_alias,
-                    tls_gmcp_alias,
-                    require_tls_gmcp_alias,
-                );
-            })) {
-                eprintln!("[GMCP alias] Thread panicked: {:?}", e);
-            }
-        });
+        crate::service_supervision::Supervisor::global().spawn(
+            "gmcp-http-alias",
+            5,
+            None,
+            move || {
+                let workspace = workspace_gmcp_alias.clone();
+                let listeners: Vec<std::net::TcpListener> = gmcp_alias
+                    .iter()
+                    .filter_map(|l| l.try_clone().ok())
+                    .collect();
+                let tls = tls_gmcp_alias.clone();
+                Some(move || {
+                    if listeners.is_empty() {
+                        eprintln!("[GMCP alias] no listener left to serve on");
+                        return;
+                    }
+                    GmcpServer::start_http_server(
+                        workspace,
+                        listeners,
+                        tls,
+                        require_tls_gmcp_alias,
+                    );
+                })
+            },
+        );
 
-        thread::spawn(move || {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::service_supervision::Supervisor::global().spawn(
+            "a2a-udp-discovery",
+            5,
+            None,
+            move || {
                 // The pong announces the effective GMCP port — a non-canonical
                 // instance (port_offset) still advertises the right port.
-                Self::start_udp_discovery_server(udp_socket, gmcp_port);
-            })) {
-                eprintln!("[UDP] Thread panicked: {:?}", e);
-            }
-        });
+                let socket = udp_socket.try_clone().ok();
+                Some(move || {
+                    let Some(socket) = socket else {
+                        eprintln!("[UDP] socket lost; discovery worker exiting");
+                        return;
+                    };
+                    Self::start_udp_discovery_server(socket, gmcp_port);
+                })
+            },
+        );
 
         // Same zero-trust policy as GMCP/GEMI: a bound member's Ed25519
         // signature over the exact body authorizes on its own, the bearer
@@ -1080,16 +1130,22 @@ impl SusiDaemon {
             });
         let tls_a2a = tls_acceptor;
         let require_tls_a2a = require_tls_remote;
-        thread::spawn(move || {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::service_supervision::Supervisor::global().spawn("a2a-http", 5, None, move || {
+            let listeners: Vec<std::net::TcpListener> =
+                a2a_http.iter().filter_map(|l| l.try_clone().ok()).collect();
+            let verifier = Arc::clone(&a2a_verifier);
+            let tls = tls_a2a.clone();
+            Some(move || {
+                if listeners.is_empty() {
+                    eprintln!("[A2A] no listener left to serve on");
+                    return;
+                }
                 if let Err(e) =
-                    susi_gawd::a2a::server::serve(a2a_http, a2a_verifier, tls_a2a, require_tls_a2a)
+                    susi_gawd::a2a::server::serve(listeners, verifier, tls, require_tls_a2a)
                 {
                     eprintln!("[A2A] Server exited: {e}");
                 }
-            })) {
-                eprintln!("[A2A] Thread panicked: {:?}", e);
-            }
+            })
         });
 
         // Cluster scout: discovery broadcasts, liveness decay, roster
@@ -1098,48 +1154,67 @@ impl SusiDaemon {
         // only ever starts when a mission happens to touch the roster —
         // the daemon would answer inbound pings but never scout outbound,
         // and ledger anti-entropy would stay dormant between missions.
-        thread::spawn(|| {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
-            })) {
-                eprintln!("[SWARM] Scout thread failed to start: {:?}", e);
-            }
-        });
+        // Supervised one-shot: a panic before the scout starts retries
+        // (bounded); a clean return retires it.
+        crate::service_supervision::Supervisor::global().spawn_oneshot(
+            "swarm-scout-kick",
+            1,
+            || {
+                Some(|| {
+                    let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
+                })
+            },
+        );
 
         // Continuous Interaction Substrate Worker
         // Each pulse carries the ingesting caller's cwd (`pulse.workspace`).
         // Never substitute the daemon's boot workspace — that made "susi" in
         // folder B silently operate on folder A whenever the daemon had been
         // started from A (same bug class as the cross-workspace binary restart).
-        thread::spawn(move || {
-            let queue = susi_gawd::queue::SubstratePulseQueue::global();
-            let ama = susi_gawd::ama::SusiMasterAgent::new();
+        // Supervised: the heartbeat bound is generous — a single pulse can
+        // legitimately block in solve_stream for many minutes.
+        crate::service_supervision::Supervisor::global().spawn(
+            "pulse-worker",
+            3,
+            Some(Duration::from_secs(900)),
+            || {
+                Some(move || {
+                    let queue = susi_gawd::queue::SubstratePulseQueue::global();
+                    let ama = susi_gawd::ama::SusiMasterAgent::new();
 
-            loop {
-                if let Some(pulse) = queue.pop() {
-                    info!(
-                        "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
-                        pulse.intent,
-                        pulse.workspace.display()
-                    );
-                    let _ = ama.solve_stream(
-                        &pulse.intent,
-                        susi_gawd::queue::SubstratePulseQueue::execution_workspace(&pulse),
-                        &pulse.version,
-                        &|_| {},
-                    );
-                }
-                thread::sleep(Duration::from_millis(100));
-            }
-        });
+                    loop {
+                        crate::service_supervision::heartbeat("pulse-worker");
+                        if let Some(pulse) = queue.pop() {
+                            info!(
+                                "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
+                                pulse.intent,
+                                pulse.workspace.display()
+                            );
+                            let _ = ama.solve_stream(
+                                &pulse.intent,
+                                susi_gawd::queue::SubstratePulseQueue::execution_workspace(&pulse),
+                                &pulse.version,
+                                &|_| {},
+                            );
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                })
+            },
+        );
 
         // Process layer: bring the leaf services up and keep them up for
         // the life of the daemon. The supervisor terminates only pids it
         // spawned itself, recorded in the shared process table.
-        let supervisor = crate::supervisor::start(Arc::clone(&ctx.shutdown_signal));
+        crate::supervisor::start(Arc::clone(&ctx.shutdown_signal));
 
         while !ctx.is_shutdown_requested() {
-            thread::sleep(Duration::from_secs(5));
+            // In-process supervision: restart dead workers, flag hung
+            // ones, persist the status surface every round.
+            let supervision = crate::service_supervision::Supervisor::global();
+            supervision.supervise();
+            supervision.persist_report();
+            thread::sleep(crate::service_supervision::SUPERVISE_INTERVAL);
         }
 
         eprintln!("[SusiDaemon] Graceful shutdown initiated");
@@ -1152,7 +1227,7 @@ impl SusiDaemon {
         // The monitor is shutdown-aware (aborts mid-pass, never spawns
         // or saves once the flag lands) — join it so no stale write or
         // in-flight spawn outlives the teardown.
-        let _ = supervisor.join();
+        let _ = crate::service_supervision::Supervisor::global().join("leaf-service-monitor");
     }
 
     fn force_canonical_ports(cfg: &mut SusiConfig) {
