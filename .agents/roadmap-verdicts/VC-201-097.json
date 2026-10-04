@@ -1,8 +1,8 @@
 {
   "vector": "VC-201-097",
-  "verdict": "delivered",
-  "evidence": "vc_201_097_mastery_* (crates/susi-gawd/src/tests/vc_201_097_mastery.rs) with GeigerRunner interface (crates/susi-gawd/src/unsafe_ratchet.rs)",
-  "missing": "",
+  "verdict": "not-delivered",
+  "evidence": "vc_201_097_mastery_production_integration, vc_201_097_mastery_new_unsafe_in_dep_requires_review, vc_201_097_mastery_first_party_exception_bypasses_gate, vc_201_097_mastery_increased_unsafe_fns_triggers_review (crates/susi-gawd/src/tests/vc_201_097_mastery.rs) and GeigerRunner production interface scaffolding (crates/susi-gawd/src/unsafe_ratchet.rs:73-127)",
+  "missing": "Production integration incomplete: GeigerRunner methods are scaffolded placeholders. Still needed: invoke cargo-geiger to populate run_geiger() results, implement SBOM generation, persist baseline to .agents/baseline/unsafe_*.json, integrate ratchet gate into CI workflow. Acceptance tests verify mastery but actual production path (running geiger, recording baselines, gating CI) is not yet wired.",
   "tracked_by": ["T-DEEPSEEK-217"],
   "recorded_by": "CLAUDEDEEPSEEK",
   "recorded_unix": 1728043200
