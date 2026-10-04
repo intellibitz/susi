@@ -27,6 +27,9 @@ pub struct NodeState {
     /// Revision to restore on rollback — what ran before this rollout.
     pub rollback_to: Option<String>,
     pub healthy: bool,
+    /// Whether the current health state was explicitly reported after the
+    /// last rollout or rollback transition.
+    pub health_verified: bool,
     /// Wave index this node belongs to (0 = canary).
     pub wave: usize,
 }
@@ -53,6 +56,9 @@ impl Rollout {
         }
         if wave_size == 0 {
             bail!("wave_size must be at least 1");
+        }
+        if !nodes.is_empty() && canary.is_empty() {
+            bail!("rollout needs at least one canary node");
         }
         let canary_set: std::collections::BTreeSet<&String> = canary.iter().collect();
         if canary_set
@@ -85,6 +91,10 @@ impl Rollout {
                     target: revision.to_string(),
                     rollback_to: current.clone(),
                     healthy: true,
+                    // The pre-rollout state is the baseline accepted by the
+                    // rollout. Any rollback invalidates that baseline until
+                    // a fresh health report is received.
+                    health_verified: true,
                     wave: w,
                 },
             );
@@ -123,6 +133,7 @@ impl Rollout {
             bail!("unknown node {id}");
         };
         node.healthy = healthy;
+        node.health_verified = true;
         if !healthy {
             self.status = RolloutStatus::Paused;
             return Ok(());
@@ -147,7 +158,19 @@ impl Rollout {
         let Some(node) = self.nodes.get_mut(id) else {
             bail!("unknown node {id}");
         };
+        if self.status == RolloutStatus::Paused {
+            bail!("rollout is paused; repair or resume before applying {id}");
+        }
+        if node.wave > self.open_wave {
+            bail!(
+                "node {id} belongs to wave {}, but wave {} is open",
+                node.wave,
+                self.open_wave
+            );
+        }
         node.current = Some(revision.to_string());
+        node.healthy = false;
+        node.health_verified = false;
         Ok(())
     }
 
@@ -158,14 +181,21 @@ impl Rollout {
             bail!("unknown node {id}");
         };
         node.current = node.rollback_to.clone();
-        node.healthy = true;
+        // A rollback restores bytes, not health evidence. The operator must
+        // probe the restored revision and call `report` before resuming.
+        node.healthy = false;
+        node.health_verified = false;
         Ok(node.rollback_to.clone())
     }
 
     /// Resume after repairing or rolling back unhealthy nodes. Refuses to
     /// resume while any already-applied node is still unhealthy.
     pub fn resume(&mut self) -> EaiResult<()> {
-        if self.nodes.values().any(|n| !n.healthy) {
+        if self
+            .nodes
+            .values()
+            .any(|n| !n.healthy || !n.health_verified)
+        {
             bail!("cannot resume: unhealthy nodes remain");
         }
         self.status = if self.all_pinned_healthy() {
