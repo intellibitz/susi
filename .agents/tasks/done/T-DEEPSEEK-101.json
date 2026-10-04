@@ -1,0 +1,28 @@
+{
+  "id": "T-DEEPSEEK-101",
+  "title": "A routing ladder that records why it stepped down",
+  "goal": "Route each task to the cheapest model above its floor, falling back model then provider then local, recording the reason for every step down the ladder including refusals. A fallback that happens silently is a defect: the trace must say which model ran and why it was chosen.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-100"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "--workspace",
+      "-E",
+      "test(routing_ladder)"
+    ]
+  },
+  "roadmap": "VC-202-004",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953358,
+  "closed": {
+    "at_unix": 1791144822,
+    "commit": "846cd0aa126511c14cd5be358fb46b9e1609a06f",
+    "by": "DEEPSEEK"
+  }
+}
