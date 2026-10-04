@@ -1,1 +1,12 @@
-{"exposure": []}
+{
+  "features": "default",
+  "exposure": [],
+  "sbom": [
+    {
+      "crate_name": "susi-gawd",
+      "version": "0.21.10",
+      "provenance": "path"
+    }
+  ],
+  "recorded_unix": 1791140000
+}

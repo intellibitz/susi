@@ -34,12 +34,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-geiger
         run: cargo install cargo-geiger --locked
-           - name: Run cargo-geiger and metadata capture
-             run: |
-               cargo geiger --output-format Json > geiger.json
-               cargo metadata --format-version 1 --locked > metadata.json
-           - name: Gate unsafe exposure against the pinned baseline
-             run: cargo run -p susi-gawd --locked --bin unsafe_ratchet -- --geiger geiger.json --metadata metadata.json --baseline .agents/baseline/unsafe-default.json --features default
+      - name: Run unsafe exposure ratchet
+        run: .github/workflows/unsafe-exposure-ratchet.sh
 
   fmt:
     name: Format Check
