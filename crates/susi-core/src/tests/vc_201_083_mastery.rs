@@ -1,19 +1,24 @@
 //! Mastery verification for VC-201-083: deletion propagation into derived
 //! stores with durable tombstones.
-//!
-//! The cited tests show the happy path. The distinguishing properties are
-//! that derived stores cannot be *repopulated* with deleted content after
-//! the tombstone exists (a late replica write is exactly how real systems
-//! resurrect), and that tombstones are durable beyond the process.
 
 use crate::memory_tombstone::MemoryStores;
 
-/// Falsification: `insert` never consults the tombstone set. A record
-/// deleted and fully propagated (pending_delete drained by delete_resume)
-/// is repopulated into authoritative, index, cache and replica by a single
-/// late write — and nothing ever purges it again, because the id is no
-/// longer pending. The tombstone shields `get()` but the deleted content
-/// lives in every derived store, one tombstone check away from leaking.
+fn scratch(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "susi-mem-tomb-{tag}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Verification: `insert` consults the tombstone set. A record deleted and fully
+/// propagated cannot be repopulated into authoritative, semantic index, cache, or replica
+/// by a late delayed write.
 #[test]
 fn vc_201_083_mastery_late_write_repopulates_derived_stores_after_delete() {
     let mut s = MemoryStores::default();
@@ -23,28 +28,30 @@ fn vc_201_083_mastery_late_write_repopulates_derived_stores_after_delete() {
     assert!(s.pending_delete.is_empty());
 
     // A delayed replica write for the deleted id arrives afterwards.
-    s.insert("m1", "resurrected");
+    let inserted = s.insert("m1", "resurrected");
+    assert!(!inserted, "insert of tombstoned id must return false");
 
-    assert!(s.get("m1").is_none(), "tombstone still shields get()");
-    assert_eq!(
-        s.authoritative.get("m1").map(String::as_str),
-        Some("resurrected"),
-        "deleted content is back in the authoritative store"
+    assert!(s.get("m1").is_none(), "tombstone shields get()");
+    assert!(
+        !s.authoritative.contains_key("m1"),
+        "authoritative store must not hold deleted content"
     );
-    assert!(s.semantic_index.contains("m1"));
-    assert_eq!(s.cache.get("m1").map(String::as_str), Some("resurrected"));
-    assert_eq!(s.replica.get("m1").map(String::as_str), Some("resurrected"));
-    // And no mechanism will ever clean it: the id is not pending.
-    assert!(s.pending_delete.is_empty());
-    s.delete_resume(); // re-run propagation — nothing to do
-    assert!(s.cache.contains_key("m1"), "deleted content is permanent");
+    assert!(
+        !s.semantic_index.contains("m1"),
+        "semantic index must not hold deleted content"
+    );
+    assert!(
+        !s.cache.contains_key("m1"),
+        "cache must not hold deleted content"
+    );
+    assert!(
+        !s.replica.contains_key("m1"),
+        "replica must not hold deleted content"
+    );
 }
 
-/// Falsification: an id that was never deleted can be tombstoned out of
-/// existence is harmless — but the reverse is not: `delete_start` on an
-/// id that exists only in the *replica* (authoritative missed the write)
-/// leaves the replica holding the content after resume, because insert
-/// ordering is never validated against tombstone timestamps either.
+/// Verification: `delete_start` on a lagging write that existed in replica
+/// is protected against late repopulation.
 #[test]
 fn vc_201_083_mastery_replica_only_content_survives_resume() {
     let mut s = MemoryStores::default();
@@ -55,43 +62,48 @@ fn vc_201_083_mastery_replica_only_content_survives_resume() {
     assert!(!s.replica.contains_key("r1"), "resume did purge replica");
 
     // The same delayed write lands again after the tombstone exists.
-    s.insert("r1", "lagging-write");
+    let inserted = s.insert("r1", "lagging-write");
+    assert!(!inserted, "late write must be rejected");
     assert!(s.get("r1").is_none(), "still shielded");
-    assert_eq!(
-        s.replica.get("r1").map(String::as_str),
-        Some("lagging-write"),
-        "replica repopulated despite the tombstone"
+    assert!(
+        !s.replica.contains_key("r1"),
+        "replica must not be repopulated after tombstone"
     );
 }
 
-/// Falsification: tombstones are in-memory only. Nothing in MemoryStores
-/// persists them — a process restart (a fresh instance) has no record of
-/// any deletion, and any snapshot of derived stores resurrects the content
-/// wholesale. "Durable" requires persistence that does not exist here.
+/// Verification: tombstones survive across restart via durable persistence.
 #[test]
 fn vc_201_083_mastery_tombstones_do_not_survive_restart() {
-    let mut s = MemoryStores::default();
+    let dir = scratch("persist");
+    let tombstone_file = dir.join("tombstones.json");
+
+    let mut s = MemoryStores::new_persistent(&tombstone_file);
     s.insert("m9", "secret");
     s.delete_start("m9", 1);
     s.delete_resume();
 
-    let restarted = MemoryStores::default();
+    // Restart with fresh MemoryStores loaded from the same persistent file
+    let mut restarted = MemoryStores::new_persistent(&tombstone_file);
     assert!(
-        restarted.tombstones.is_empty(),
-        "a restart forgets every deletion — tombstones are volatile"
+        restarted.tombstones.contains_key("m9"),
+        "tombstones must survive restart via durable persistence"
     );
-    // If a pre-delete snapshot of the cache were replayed into the new
-    // process there is no tombstone to stop it.
-    let mut restarted = restarted;
-    restarted.cache.insert("m9".into(), "secret".into());
+
+    // If pre-delete content is replayed, the durable tombstone refuses it
+    let inserted = restarted.insert("m9", "secret");
+    assert!(
+        !inserted,
+        "replayed write must be rejected by durable tombstone"
+    );
     assert_eq!(
         restarted.get("m9"),
-        Some("secret"),
-        "deleted content is retrievable after restart — no durable tombstone"
+        None,
+        "deleted content must not be retrievable after restart"
     );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// What does hold: within one live process, delete_start tombstones
+/// What holds: within one live process, delete_start tombstones
 /// immediately, get() refuses the id even when the cache is poisoned,
 /// and delete_resume drains pending propagation.
 #[test]
