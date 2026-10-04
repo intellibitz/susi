@@ -9,7 +9,7 @@
 //! usage ledger attributed to agent, mission and task class.
 
 use crate::engines::runtime::GemiEngine;
-use crate::spend_tracker::{self, BudgetCeilings, BudgetRefusal, BudgetWindow};
+use crate::spend_tracker::{self, BudgetCeilings, BudgetRefusal, BudgetWindow, SpendIntent};
 use crate::susi_core::provider::{BoxFuture, Provider};
 use crate::susi_core::registry::CapabilityRegistry;
 use crate::susi_core::susi_error::EaiResult;
@@ -40,6 +40,14 @@ fn ceilings() -> BudgetCeilings {
     }
 }
 
+fn intent<'a>(provider: &'a str, expected_usd: f64, mission: &'a str) -> SpendIntent<'a> {
+    SpendIntent {
+        provider,
+        expected_usd,
+        mission,
+    }
+}
+
 const NOW: u64 = 1_800_000_000_000;
 
 #[test]
@@ -48,12 +56,12 @@ fn budget_ceiling_task_cap_refuses_the_call_itself() {
         task_usd: Some(0.01),
         ..ceilings()
     };
-    let err = spend_tracker::check_in(&UsageLedger::new(), &c, "openai-x", 0.02, "", NOW)
+    let err = spend_tracker::check_in(&UsageLedger::new(), &c, &intent("openai-x", 0.02, ""), NOW)
         .expect_err("a $0.02 call breaks a $0.01 per-task cap");
     assert_eq!(err.window, BudgetWindow::Task);
     assert_eq!(err.spent_usd, 0.0, "task cap refuses before any spend");
     assert!((err.projected_usd - 0.02).abs() < 1e-9);
-    spend_tracker::check_in(&UsageLedger::new(), &c, "openai-x", 0.005, "", NOW)
+    spend_tracker::check_in(&UsageLedger::new(), &c, &intent("openai-x", 0.005, ""), NOW)
         .expect("under-cap call passes");
 }
 
@@ -67,11 +75,11 @@ fn budget_ceiling_hourly_window_sums_only_in_window_spend() {
     // $0.90 spent inside the hour; $50 spent a week ago — only the hour counts.
     ledger.record(outcome("p", "m", 0.9, NOW - 1_000));
     ledger.record(outcome("p", "m", 50.0, NOW - 604_800_000));
-    let err = spend_tracker::check_in(&ledger, &c, "p", 0.2, "", NOW)
+    let err = spend_tracker::check_in(&ledger, &c, &intent("p", 0.2, ""), NOW)
         .expect_err("0.9 spent + 0.2 expected crosses the $1 hourly cap");
     assert_eq!(err.window, BudgetWindow::Hourly);
     assert!((err.spent_usd - 0.9).abs() < 1e-9, "stale records excluded");
-    spend_tracker::check_in(&ledger, &c, "p", 0.05, "", NOW)
+    spend_tracker::check_in(&ledger, &c, &intent("p", 0.05, ""), NOW)
         .expect("0.9 + 0.05 stays under the cap");
 }
 
@@ -85,11 +93,11 @@ fn budget_ceiling_daily_window_rolls_over() {
     ledger.record(outcome("p", "m", 1.9, NOW - 1_000));
     ledger.record(outcome("p", "m", 99.0, NOW - 86_400_001));
     assert!(
-        spend_tracker::check_in(&ledger, &c, "p", 0.2, "", NOW).is_err(),
+        spend_tracker::check_in(&ledger, &c, &intent("p", 0.2, ""), NOW).is_err(),
         "1.9 + 0.2 > $2 daily"
     );
     assert!(
-        spend_tracker::check_in(&ledger, &c, "p", 0.2, "", NOW + 86_400_000).is_ok(),
+        spend_tracker::check_in(&ledger, &c, &intent("p", 0.2, ""), NOW + 86_400_000).is_ok(),
         "a day later the window resets"
     );
 }
@@ -103,13 +111,13 @@ fn budget_ceiling_mission_spend_is_scoped_to_that_mission() {
     let mut ledger = UsageLedger::new();
     ledger.record(outcome("p", "mission-A", 0.99, NOW - 1_000));
     assert!(
-        spend_tracker::check_in(&ledger, &c, "p", 0.05, "mission-A", NOW).is_err(),
+        spend_tracker::check_in(&ledger, &c, &intent("p", 0.05, "mission-A"), NOW).is_err(),
         "mission A is at its cap"
     );
-    spend_tracker::check_in(&ledger, &c, "p", 0.05, "mission-B", NOW)
+    spend_tracker::check_in(&ledger, &c, &intent("p", 0.05, "mission-B"), NOW)
         .expect("mission B starts with a fresh budget");
     // A call outside any mission is not mission-capped.
-    spend_tracker::check_in(&ledger, &c, "p", 5.0, "", NOW)
+    spend_tracker::check_in(&ledger, &c, &intent("p", 5.0, ""), NOW)
         .expect("unattributed calls skip the mission axis");
 }
 
@@ -124,12 +132,12 @@ fn budget_ceiling_vendor_daily_is_keyed_per_vendor() {
     let mut ledger = UsageLedger::new();
     ledger.record(outcome("openai-gpt", "m", 0.95, NOW - 1_000));
     assert!(
-        spend_tracker::check_in(&ledger, &c, "openai-gpt", 0.1, "", NOW)
+        spend_tracker::check_in(&ledger, &c, &intent("openai-gpt", 0.1, ""), NOW)
             .expect_err("openai over its vendor cap")
             .window
             == BudgetWindow::VendorDaily
     );
-    spend_tracker::check_in(&ledger, &c, "anthropic-claude", 5.0, "", NOW)
+    spend_tracker::check_in(&ledger, &c, &intent("anthropic-claude", 5.0, ""), NOW)
         .expect("a different vendor has no cap");
 }
 
@@ -142,7 +150,7 @@ fn budget_ceiling_refusal_is_typed_and_readable() {
     let mut ledger = UsageLedger::new();
     ledger.record(outcome("p", "m", 0.997, NOW - 1_000));
     let refusal: BudgetRefusal =
-        spend_tracker::check_in(&ledger, &c, "p", 0.01, "", NOW).expect_err("refused");
+        spend_tracker::check_in(&ledger, &c, &intent("p", 0.01, ""), NOW).expect_err("refused");
     assert_eq!(refusal.window, BudgetWindow::Daily);
     assert_eq!(refusal.cap_usd, 1.0);
     let text = refusal.describe();
@@ -157,7 +165,7 @@ fn budget_ceiling_refusal_is_typed_and_readable() {
 fn budget_ceiling_uncapped_governor_never_refuses() {
     let mut ledger = UsageLedger::new();
     ledger.record(outcome("p", "m", 9_999.0, NOW - 1_000));
-    spend_tracker::check_in(&ledger, &ceilings(), "p", 1e6, "any", NOW)
+    spend_tracker::check_in(&ledger, &ceilings(), &intent("p", 1e6, "any"), NOW)
         .expect("no configured ceiling means no refusal");
     assert!(ceilings().is_uncapped());
 }
@@ -206,6 +214,8 @@ fn install_fixtures() {
         ("budgetmodel", 0.01, 0.01, None, None),
         ("pricymodel", 5.0, 50.0, None, None),
         ("bargainmodel", 0.01, 0.01, None, None),
+        ("spendmodel", 0.01, 0.01, None, None),
+        ("doommodel", 5.0, 50.0, None, None),
     ] {
         entries.insert(
             id.to_string(),
@@ -303,7 +313,7 @@ fn budget_ceiling_cascade_records_spend_with_attribution() {
 
     let registry = CapabilityRegistry::new();
     registry.register_provider(AnsweringProvider {
-        name: "acme-bargainmodel",
+        name: "acme-spendmodel",
         reply: "cheap answer",
     });
     let (out, _ladder) =
@@ -314,7 +324,7 @@ fn budget_ceiling_cascade_records_spend_with_attribution() {
     let rec = ledger
         .records()
         .iter()
-        .find(|r| r.provider == "acme-bargainmodel")
+        .find(|r| r.provider == "acme-spendmodel")
         .expect("the served call recorded its spend");
     assert_eq!(rec.agent, "TESTAGENT", "spend attributed to the agent");
     assert_eq!(
@@ -343,7 +353,7 @@ fn budget_ceiling_all_over_cap_leaves_nothing_priced() {
 
     let registry = CapabilityRegistry::new();
     registry.register_provider(AnsweringProvider {
-        name: "acme-apricymodel",
+        name: "acme-doommodel",
         reply: "never",
     });
     let (out, ladder) =
@@ -365,7 +375,7 @@ fn budget_ceiling_all_over_cap_leaves_nothing_priced() {
         ledger
             .records()
             .iter()
-            .all(|r| r.provider != "acme-apricymodel"),
+            .all(|r| r.provider != "acme-doommodel"),
         "a refused call records no spend"
     );
 }

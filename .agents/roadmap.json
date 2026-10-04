@@ -1347,7 +1347,7 @@
       "id": "VC-202-005",
       "mastery_target": "Hourly, daily, per-mission and per-task spend ceilings are enforced before a call is made, over-budget work degrades to a cheaper rung or stops with a typed refusal, and every unit of spend is attributable to an agent, mission and task.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (T-102): hourly/daily/mission/task/per-vendor ceilings refuse before dispatch inside try_providers; refusals are typed BudgetRefusals on the routing ladder, over-budget work degrades to a cheaper rung or local, and every attempted call records agent/mission/task-attributed spend to usage.json. Spend is estimated-at-dispatch until providers report realised usage.",
       "type": "GOVERNANCE",
       "vector": "A budget governor with ceilings that refuse before spending"
     },

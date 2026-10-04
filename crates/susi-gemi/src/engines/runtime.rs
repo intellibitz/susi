@@ -586,6 +586,7 @@ impl GemiEngine {
             || head.contains("MCP Error")
     }
 
+    #[allow(clippy::too_many_arguments)] // flat params mirror every call site; a builder would only wrap them
     pub(crate) fn try_providers(
         registry: &crate::susi_core::registry::CapabilityRegistry,
         prompt: &str,
@@ -736,7 +737,12 @@ impl GemiEngine {
             // steps the cascade down to a cheaper rung (VC-202-005).
             let expected_usd = crate::engines::cost::expected_task_cost_usd(&name, class);
             if let Some(usd) = expected_usd {
-                if let Err(refusal) = crate::spend_tracker::check(&name, usd, &mission) {
+                let intent = crate::spend_tracker::SpendIntent {
+                    provider: &name,
+                    expected_usd: usd,
+                    mission: &mission,
+                };
+                if let Err(refusal) = crate::spend_tracker::check(&intent) {
                     ladder.record(
                         LadderRung::Provider,
                         &name,
@@ -770,14 +776,14 @@ impl GemiEngine {
             crate::engines::brain::record_outcome(&name, class, answered, elapsed_ms);
             // Every attempted call is spend — success or failure — so the
             // ceiling's window sums stay real (VC-202-005).
-            crate::spend_tracker::record(
-                &name,
+            crate::spend_tracker::record(&crate::spend_tracker::SpendWrite {
+                provider: &name,
                 class,
-                answered,
-                elapsed_ms,
-                expected_usd.unwrap_or(0.0),
-                &mission,
-            );
+                ok: answered,
+                latency_ms: elapsed_ms,
+                usd: expected_usd.unwrap_or(0.0),
+                mission: &mission,
+            });
             match outcome {
                 Ok(text) if !text.trim().is_empty() => {
                     crate::engines::routing::InferenceRouter::record_provider_success(&name);

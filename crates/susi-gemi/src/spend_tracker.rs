@@ -106,55 +106,64 @@ impl BudgetRefusal {
     }
 }
 
-/// Pure ceiling check against an already-loaded ledger. `mission` scopes
-/// the per-mission axis; `now_ms` anchors the rolling windows.
+/// One proposed dispatch the governor prices: the provider it would run
+/// on, the expected USD the catalog puts on the whole task, and the
+/// mission id the spend would be attributed to.
+#[derive(Debug, Clone, Copy)]
+pub struct SpendIntent<'a> {
+    pub provider: &'a str,
+    pub expected_usd: f64,
+    pub mission: &'a str,
+}
+
+/// Pure ceiling check against an already-loaded ledger. `now_ms` anchors
+/// the rolling windows.
 ///
 /// # Errors
 /// [`BudgetRefusal`] naming the first ceiling the expected spend crosses.
 pub fn check_in(
     ledger: &UsageLedger,
     ceilings: &BudgetCeilings,
-    provider: &str,
-    expected_usd: f64,
-    mission: &str,
+    intent: &SpendIntent<'_>,
     now_ms: u64,
 ) -> Result<(), BudgetRefusal> {
     let refuse = |window: BudgetWindow, cap: f64, spent: f64| BudgetRefusal {
         window,
         cap_usd: cap,
         spent_usd: spent,
-        projected_usd: spent + expected_usd,
+        projected_usd: spent + intent.expected_usd,
     };
     if let Some(cap) = ceilings.task_usd {
-        if expected_usd > cap {
+        if intent.expected_usd > cap {
             return Err(refuse(BudgetWindow::Task, cap, 0.0));
         }
     }
     if let Some(cap) = ceilings.hourly_usd {
         let spent = ledger.spend_usd(now_ms.saturating_sub(HOUR_MS), None, None);
-        if spent + expected_usd > cap {
+        if spent + intent.expected_usd > cap {
             return Err(refuse(BudgetWindow::Hourly, cap, spent));
         }
     }
     if let Some(cap) = ceilings.daily_usd {
         let spent = ledger.spend_usd(now_ms.saturating_sub(DAY_MS), None, None);
-        if spent + expected_usd > cap {
+        if spent + intent.expected_usd > cap {
             return Err(refuse(BudgetWindow::Daily, cap, spent));
         }
     }
     if let Some(cap) = ceilings.mission_usd {
-        if !mission.is_empty() {
-            let spent = ledger.spend_usd(0, None, Some(mission));
-            if spent + expected_usd > cap {
+        if !intent.mission.is_empty() {
+            let spent = ledger.spend_usd(0, None, Some(intent.mission));
+            if spent + intent.expected_usd > cap {
                 return Err(refuse(BudgetWindow::Mission, cap, spent));
             }
         }
     }
-    let lower = provider.to_ascii_lowercase();
+    let lower = intent.provider.to_ascii_lowercase();
     for (vendor, cap) in &ceilings.vendor_daily_usd {
         if lower.contains(&vendor.to_ascii_lowercase()) {
-            let spent = ledger.spend_usd(now_ms.saturating_sub(DAY_MS), Some(provider), None);
-            if spent + expected_usd > *cap {
+            let spent =
+                ledger.spend_usd(now_ms.saturating_sub(DAY_MS), Some(intent.provider), None);
+            if spent + intent.expected_usd > *cap {
                 return Err(refuse(BudgetWindow::VendorDaily, *cap, spent));
             }
         }
@@ -212,46 +221,44 @@ pub fn load_ledger() -> UsageLedger {
 ///
 /// # Errors
 /// [`BudgetRefusal`] when the expected spend would cross a configured cap.
-pub fn check(provider: &str, expected_usd: f64, mission: &str) -> Result<(), BudgetRefusal> {
+pub fn check(intent: &SpendIntent<'_>) -> Result<(), BudgetRefusal> {
     let ceilings = ceilings();
     if ceilings.is_uncapped() {
         return Ok(());
     }
-    check_in(
-        &load_ledger(),
-        &ceilings,
-        provider,
-        expected_usd,
-        mission,
-        now_ms(),
-    )
+    check_in(&load_ledger(), &ceilings, intent, now_ms())
+}
+
+/// One dispatched call as the ledger should remember it — the fields the
+/// cascade supplies; the governor stamps agent, timestamp and class.
+#[derive(Debug, Clone)]
+pub struct SpendWrite<'a> {
+    pub provider: &'a str,
+    pub class: crate::engines::brain::TaskClass,
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub usd: f64,
+    pub mission: &'a str,
 }
 
 /// Append one attributed spend record to the persisted ledger. Called for
 /// every dispatch that reached `provider.generate` — success or failure,
 /// the vendor billed the attempt.
-pub fn record(
-    provider: &str,
-    class: crate::engines::brain::TaskClass,
-    ok: bool,
-    latency_ms: u64,
-    usd: f64,
-    mission: &str,
-) {
+pub fn record(spend: &SpendWrite<'_>) {
     let Some(path) = ledger_path() else {
         return;
     };
     let mut ledger = UsageLedger::load(&path).unwrap_or_default();
     ledger.record(UsageOutcome {
-        provider: provider.to_string(),
-        task_class: class.label().to_string(),
+        provider: spend.provider.to_string(),
+        task_class: spend.class.label().to_string(),
         usage: crate::usage_accounting::TokenUsage::default(),
-        success: ok,
-        latency_ms,
+        success: spend.ok,
+        latency_ms: spend.latency_ms,
         unix_ms: now_ms(),
         agent: std::env::var("SUSI_AGENT").unwrap_or_else(|_| "standalone".to_string()),
-        mission: mission.to_string(),
-        usd,
+        mission: spend.mission.to_string(),
+        usd: spend.usd,
     });
     if let Err(e) = ledger.save(&path) {
         eprintln!(

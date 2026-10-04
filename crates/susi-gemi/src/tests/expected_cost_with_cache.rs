@@ -119,6 +119,8 @@ fn install_catalog() -> PriceCatalog {
     cat.insert(entry("budgetmodel", 0.01, 0.01, None, None));
     cat.insert(entry("pricymodel", 5.0, 50.0, None, None));
     cat.insert(entry("bargainmodel", 0.01, 0.01, None, None));
+    cat.insert(entry("spendmodel", 0.01, 0.01, None, None));
+    cat.insert(entry("doommodel", 5.0, 50.0, None, None));
     std::fs::write(&path, cat.to_json().expect("catalog json")).expect("catalog file");
     // SAFETY: test-only env mutation; every caller writes the same path and
     // the same content, so a torn set/write pair is still consistent.
