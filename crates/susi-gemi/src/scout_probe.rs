@@ -129,6 +129,33 @@ impl ScoutReport {
         let attempted = self.probes - self.transport_failures;
         (attempted > 0).then(|| self.verified as f32 / attempted as f32)
     }
+
+    /// A report for a provider that could not be probed at all — the name
+    /// did not resolve, or the sweep failed before a prompt was sent.
+    /// Every probe counts as a transport failure so drift detection sees
+    /// the death the same way as a dead key.
+    #[must_use]
+    pub fn transport_dead(provider: &str, error: String) -> Self {
+        let results = SCOUT_PROBES
+            .iter()
+            .map(|probe| ProbeResult {
+                class: probe.class,
+                prompt: probe.prompt,
+                expected: probe.expected,
+                answer_preview: None,
+                correct: false,
+                latency_ms: 0,
+                error: Some(error.clone()),
+            })
+            .collect::<Vec<_>>();
+        Self {
+            provider: provider.to_string(),
+            probes: results.len(),
+            verified: 0,
+            transport_failures: results.len(),
+            results,
+        }
+    }
 }
 
 const ANSWER_PREVIEW_CHARS: usize = 120;
