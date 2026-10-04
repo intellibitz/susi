@@ -457,7 +457,7 @@ impl GemiEngine {
     }
 
     /// Shared runtime for bridging sync swarm callers into async `Provider` APIs.
-    fn provider_runtime() -> Option<&'static tokio::runtime::Runtime> {
+    pub(crate) fn provider_runtime() -> Option<&'static tokio::runtime::Runtime> {
         static RT: OnceLock<std::io::Result<tokio::runtime::Runtime>> = OnceLock::new();
         RT.get_or_init(tokio::runtime::Runtime::new).as_ref().ok()
     }
