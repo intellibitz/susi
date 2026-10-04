@@ -10,6 +10,7 @@ pub mod alpha;
 pub mod brain;
 pub(crate) mod candle_err;
 pub mod candle_provider;
+pub mod capability;
 pub mod cost;
 pub mod http_provider;
 pub mod mcp_provider;

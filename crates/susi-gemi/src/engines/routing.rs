@@ -689,8 +689,20 @@ impl InferenceRouter {
 
     /// One deterministic recovery pass, honoring local-only policy and the
     /// preferred vendor without changing process-wide routing preferences.
+    /// Recovery has no prompt to classify: it orders by ordinary chat.
     pub fn cloud_failover_order(
         registry: &crate::susi_core::registry::CapabilityRegistry,
+    ) -> Vec<String> {
+        Self::cloud_failover_order_for(registry, crate::engines::brain::TaskClass::Chat)
+    }
+
+    /// Workload-aware failover order: ranks providers by performance on
+    /// `class`, so the capability floor of the work is applied — a model
+    /// below the floor sorts behind every floor-meeting one whatever it
+    /// costs (VC-202-004).
+    pub fn cloud_failover_order_for(
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+        class: crate::engines::brain::TaskClass,
     ) -> Vec<String> {
         if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
             return Vec::new();
@@ -704,21 +716,25 @@ impl InferenceRouter {
         }
         let mut providers = Self::list_cloud_providers_from_registry(registry);
         providers.retain(|name| !Self::provider_cooled(name));
-        // Recovery has no prompt to classify: order by how each provider has
-        // performed on ordinary chat, with the static rank as the tiebreaker.
-        let scores: std::collections::HashMap<String, i64> =
-            crate::engines::brain::rank(&providers, crate::engines::brain::TaskClass::Chat)
+        // Order by how each provider has performed on this task class, with
+        // the static rank as the tiebreaker. The capability floor is the
+        // second key: a below-floor model trails every floor-meeting one
+        // (preferred-vendor affinity aside) no matter how cheap it is.
+        let ranked: std::collections::HashMap<String, (bool, i64)> =
+            crate::engines::brain::rank(&providers, class)
                 .into_iter()
-                .map(|r| (r.provider, (r.score * 10_000.0) as i64))
+                .map(|r| (r.provider, (r.meets_floor, (r.score * 10_000.0) as i64)))
                 .collect();
         providers.sort_by_key(|name| {
             let preferred = pref.preferred_cloud.as_ref().is_some_and(|preferred| {
                 name.to_ascii_lowercase()
                     .contains(&preferred.to_ascii_lowercase())
             });
+            let (meets_floor, score) = ranked.get(name).copied().unwrap_or((false, 0));
             (
                 !preferred,
-                std::cmp::Reverse(scores.get(name).copied().unwrap_or(0)),
+                !meets_floor,
+                std::cmp::Reverse(score),
                 Self::cloud_rank(name),
                 name.clone(),
             )
@@ -737,12 +753,15 @@ impl InferenceRouter {
     }
 
     /// PHASE 2: Dynamic Model Router based on requested capabilities and constraints.
+    /// The `requires` token's task class sets the capability floor before any
+    /// cost ceiling applies (VC-202-004).
     pub fn resolve_model_for_capabilities(
         requires: Option<&str>,
         max_cost: Option<f64>,
         registry: &crate::susi_core::registry::CapabilityRegistry,
     ) -> Option<String> {
-        let mut clouds = Self::cloud_failover_order(registry);
+        let class = crate::engines::brain::TaskClass::from_requires(requires);
+        let mut clouds = Self::cloud_failover_order_for(registry, class);
         Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
 
         clouds.first().cloned()
@@ -964,6 +983,13 @@ impl InferenceRouter {
             .collect();
         Self::remove_cooled_providers(&mut clouds);
         Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
+
+        // Capability floor before any cost comparison (VC-202-004): the
+        // `requires` token's class floor partitions candidates — below-floor
+        // providers stay at the tail as the last rung before local, never
+        // ahead of a floor-meeting one whatever they cost.
+        let class = crate::engines::brain::TaskClass::from_requires(requires);
+        clouds.sort_by_key(|name| !crate::engines::capability::meets_floor(name, class));
 
         if clouds.is_empty() {
             return PlacementDecision {
