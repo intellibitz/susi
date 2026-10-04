@@ -5,7 +5,7 @@
       "nextest",
       "run",
       "-p",
-      "susi-gemi",
+      "susi-vendor-models",
       "--locked",
       "-E",
       "test(vc_201_046_batcher_called_by_a_production_backend)"
