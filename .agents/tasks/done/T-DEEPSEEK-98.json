@@ -1,0 +1,29 @@
+{
+  "id": "T-DEEPSEEK-98",
+  "title": "Rank models by cost per verified outcome",
+  "goal": "Rank candidate models per task class by expected cost per verified useful outcome - not by reputation - using the cost model and recorded outcomes, promote the leader automatically, and record the decision with its evidence. A model that failed, is unfunded or has no working key must never lead (Mandate 56).",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-86",
+    "T-DEEPSEEK-87"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "--workspace",
+      "-E",
+      "test(brain_ranking_by_cost)"
+    ]
+  },
+  "roadmap": "VC-202-003",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953357,
+  "closed": {
+    "at_unix": 1791149770,
+    "commit": "6e7f2b75ec99726b1bdb369af0bddaaabf1f2458",
+    "by": "DEEPSEEK"
+  }
+}
