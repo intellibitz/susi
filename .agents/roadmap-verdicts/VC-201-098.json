@@ -1,0 +1,10 @@
+{
+  "vector": "VC-201-098",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "The only coverage is a test-local checklist: zero_config_plan exists solely inside tests/zc_platform_installers.rs (scripts/check-reachability.py --function --refuted zero_config_plan passes — no occurrence in production code at all). No install, start, stop, upgrade or local-runtime smoke case runs on Linux, macOS and Windows in isolated environments — CI builds artifacts for linux and macos-14 but never installs or exercises them, and Windows builds are explicitly not published (.github/workflows/release.yml). No published matrix distinguishes tested features from unsupported GPU or sandbox paths. Holds: both installers share the zero-config first-run plan and need no hand-edited configuration (zc_platform_installers_* tests).",
+  "tracked_by": ["T-DEEPSEEK-219"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791107243,
+  "check": ["scripts/check-reachability.py", "--function", "--refuted", "zero_config_plan"]
+}

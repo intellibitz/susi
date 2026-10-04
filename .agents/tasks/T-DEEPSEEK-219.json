@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-219",
+  "title": "Run host-platform lifecycle smoke matrix: install, start, stop, upgrade and local-runtime smoke on Linux, macOS and Windows in isolated environments; publish the tested-vs-unsupported matrix (GPU, sandbox paths)",
+  "goal": "VC-201-098 residual: tests/zc_platform_installers.rs only proves the installers share a zero-config plan. No install/start/stop/upgrade/local-runtime smoke case runs on the three supported OSes in isolated environments, and no published matrix distinguishes tested features from unsupported GPU or sandbox paths (Windows builds are not even published). Deliver the drill, the matrix, and a vc_201_098_mastery_* test.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_098_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-098",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791107240
+}
