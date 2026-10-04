@@ -1324,7 +1324,7 @@
       "id": "VC-202-003",
       "mastery_target": "A scheduled scout probes candidate models with a deterministic micro-benchmark, ranks them per task class by expected cost per verified useful outcome rather than by reputation, promotes the leader automatically, and records the decision with its evidence; a failed or unfunded model never leads, and the candidate set keeps itself current: a model that appeared since the last scout is discovered and probed rather than waiting for a human to add it, and one that was retired stops being preferred.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL (T-98 ranking core delivered): Store::rank orders floor-meeting candidates by cost_per_outcome_usd — expected task cost / smoothed verified-success probability — unless Budget::Max pins pure evidence; the production cascade and failover order consume the rank position, unfit providers never lead (Mandate 56), and the decision serializes with its evidence. Remaining: the scheduled scout + drift reporting + candidate probing, queued as T-107.",
       "type": "RSI_EVALUATION",
       "vector": "The brain scouts and ranks itself by cost per verified outcome"
     },
