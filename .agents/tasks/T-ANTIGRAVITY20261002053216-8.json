@@ -4,6 +4,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-vendor-models",
       "--locked",
       "-E",
       "test(vc_201_050_offline_bundle_pack_and_import_checksummed)"
