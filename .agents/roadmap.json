@@ -1437,7 +1437,7 @@
       "id": "VC-202-014",
       "mastery_target": "Secrets never appear in logs, traces or evidence; egress is allow-listed per mission; and each agent acts only within the authority of its own token, with every refusal recorded.",
       "priority": "P0",
-      "progress": "PARTIAL: secret redaction runs at the real logging/capture/context-graph/admin choke points, and the per-mission egress gate machinery exists — but it is dead code. Refuted by .agents/roadmap-verdicts/VC-202-014.json (T-DEEPSEEK-227): enforced egress is the process-global mac_policy posture, not a per-mission allow-list, and agent authority refusals are not recorded on a named path. Residual: T-DEEPSEEK-228.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-014.json, T-DEEPSEEK-228, 2026-10-05): the per-mission egress gate is on the production dispatch path — ToolRegistry::execute_tool resolves the acting mission's evidence session, mints its posture-bounded token set (a mission can only narrow the process posture, never widen it), checks the mission's own tokens at dispatch, and consults its EgressGate on every egress-class call; missions declare allow-lists in {workspace}/.susi/mission-egress.json (absent = permissive default, malformed = fail closed) or via declare_mission_egress. EgressRefusal{mission,host,reason} and AuthorityRefusal{mission,tool,reason} are recorded per mission and surface on the mission report via the tools.mission.refusals topic (REFUSALS_RECORDED interaction). Secret redaction at the logging/capture/context-graph/untrusted-content/fleet/admin choke points unchanged.",
       "type": "GOVERNANCE",
       "vector": "Secrets, egress and per-agent authority"
     },

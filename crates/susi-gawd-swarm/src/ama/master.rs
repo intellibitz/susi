@@ -1764,6 +1764,38 @@ fn attach_evidence_ledger(
                 payload: summary,
             });
         }
+        // Per-mission authority records (VC-202-014): the egress-gate and
+        // token refusals this mission accumulated on the dispatch path —
+        // recorded records must surface on the report, not just sit in the
+        // registry. The tools plane answers `tools.mission.refusals`; a
+        // substrate without it registered simply yields no row.
+        if let Ok(refusals) = crate::susi_core::plane_bus::PlaneBus::global().request(
+            "tools.mission.refusals",
+            serde_json::json!({ "mission": session.id() }),
+        ) {
+            let egress = refusals
+                .get("egress")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let authority = refusals
+                .get("authority")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            if !egress.is_empty() || !authority.is_empty() {
+                report.interactions.push(A2AMessage {
+                    sender: "AuthorityGate".into(),
+                    recipient: "SUSI-Master".into(),
+                    action: "REFUSALS_RECORDED".into(),
+                    payload: serde_json::json!({
+                        "egress": egress,
+                        "authority": authority,
+                    })
+                    .to_string(),
+                });
+            }
+        }
     }
     report.persist_inspectable_trace(workspace);
 }

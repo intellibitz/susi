@@ -4,16 +4,16 @@
 //! The vector bundles three claims. The secrets leg is substantially real:
 //! `redact_credentials` runs at the logging, capture, context-graph,
 //! untrusted-content, fleet and admin choke points. The per-mission egress
-//! leg is refuted: `EgressGate`/`EgressPolicy` model exactly the required
-//! per-mission allow-list with recorded refusals, but the reachability
-//! checker finds zero production callers — the enforced path is the global
-//! `mac_policy::egress_permitted` posture, which is not per-mission and
-//! records nothing. The per-agent authority leg has real token machinery
-//! (`CapabilityToken`, `is_permitted` consulted in abi_bridge and broker)
-//! but refusal recording on the agent dispatch path is not a named,
-//! reachable behavior. These tests pin the honest boundary.
-//! (Filed under susi-gawd-swarm because susi-core was reserved by another
-//! agent's claim.)
+//! leg is delivered: `susi_tools::ToolRegistry::execute_tool` — the single
+//! dispatch choke every tool call passes — resolves the acting mission's
+//! evidence session, mints its posture-bounded token set, checks the
+//! mission's own tokens at dispatch, and consults the mission's
+//! `EgressGate` on every egress-class call. Refusals are recorded per
+//! mission (`EgressRefusal` for the gate, `AuthorityRefusal` for token
+//! denials). The behavioral proofs live in `crates/susi-tools/src/
+//! registry.rs` (`vc_202_014_mastery` tests) because this crate does not
+//! link susi-tools; the tests below pin the machinery and the production
+//! wiring by source inspection.
 
 use susi_core::egress::{DenyReason, EgressGate, EgressPolicy};
 use susi_core::zc_egress_allowlist::allowlist_from_vendors;
@@ -44,29 +44,42 @@ fn vc_202_014_mastery_egress_gate_records_per_mission_refusals() {
     );
 }
 
-/// What does NOT hold on the production path, pinned as documentation: the
-/// gate above is never constructed. `scripts/check-reachability.py
-/// --refuted EgressGate::authorize` passes — no production caller. The
-/// enforced egress check is `mac_policy::egress_permitted`, which answers
-/// for the whole process posture (subject "susi", scope "*"), not for a
-/// mission's declared allow-list, and returns a bare bool with no refusal
-/// record. A mission that must not reach `exfil.example.net` is protected
-/// only when the global posture is closed for everyone.
+/// The gate is on the production dispatch path: `ToolRegistry::execute_tool`
+/// — the choke every tool dispatch passes — resolves the acting mission,
+/// mints and checks its tokens, and consults its `EgressGate` on
+/// egress-class calls. The end-to-end behavior is proven by the
+/// `vc_202_014_mastery` tests inside `crates/susi-tools/src/registry.rs`;
+/// this crate cannot link susi-tools, so this test pins the wiring by
+/// source inspection (same convention as the VC-202-010 reachability
+/// scans).
 #[test]
-fn vc_202_014_mastery_egress_gate_is_not_on_the_production_path() {
-    // Executable proxy for the refutation: the production entry point is a
-    // global boolean, not a per-mission gate — so a *per-mission* policy
-    // can only be expressed by the (uncalled) machinery asserted above.
-    let local = susi_core::mac_policy::egress_permitted("http://127.0.0.1:9090/health");
+fn vc_202_014_mastery_egress_gate_is_on_the_production_dispatch_path() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../susi-tools/src/registry.rs"
+    ))
+    .expect("susi-tools registry.rs must exist");
+    // The gate is constructed per mission inside the dispatch choke…
     assert!(
-        local,
-        "local targets are always permitted under the posture"
+        src.contains("EgressGate::new"),
+        "production dispatch must build per-mission EgressGates"
     );
-    // Non-local traffic answers from posture alone — the call takes no
-    // mission and returns no record:
-    let posture_answer: bool =
-        susi_core::mac_policy::egress_permitted("https://api.openai.com/v1/models");
-    let _ = posture_answer; // mission name and refusal record are inexpressible
+    // …consulted on egress-class dispatches inside execute_tool…
+    assert!(
+        src.contains("gate.authorize(mission"),
+        "production dispatch must authorize against the mission's gate"
+    );
+    // …with the mission's own tokens checked at dispatch (subject = mission
+    // id, not the process-wide "susi")…
+    assert!(
+        src.contains("Some(mission)"),
+        "dispatch must pass the mission subject to authorize_tool"
+    );
+    // …and both refusal kinds recorded.
+    assert!(
+        src.contains("record_authority_refusal"),
+        "dispatch must record authority refusals per mission"
+    );
 }
 
 /// What does hold: the secrets leg — `redact_credentials` scrubs key-shaped
