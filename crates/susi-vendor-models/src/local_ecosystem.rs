@@ -6,7 +6,7 @@
 //! Third-party names, ports and health paths live here (vendor code); the
 //! scan is generic over [`Probe`] so it is tested without touching the host.
 use serde::Serialize;
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use crate::runtime_lifecycle::{
@@ -212,6 +212,106 @@ pub struct Ecosystem {
     pub accelerators: Vec<Accelerator>,
 }
 
+/// Host-managed runtimes (Ollama, LM Studio, vLLM, …) self-manage models
+/// and lifecycle: the scan can discover and health-probe them, never stage
+/// or cancel work inside them. [`RuntimeBackend`] implementation for the
+/// VC-201-042 contract — unsupported verbs answer typed errors, and the
+/// single health probe is shared between `discover` and `health` so a scan
+/// costs one request per engine.
+struct DaemonBackend<'p> {
+    def: &'static Def,
+    /// Binary or model-store evidence already gathered by the scan.
+    installed_evidence: bool,
+    port: u16,
+    probe: &'p dyn Probe,
+    probed: RefCell<Option<Result<(), String>>>,
+}
+
+impl<'p> DaemonBackend<'p> {
+    fn probe_health(&self) -> Result<(), String> {
+        if let Some(result) = self.probed.borrow().clone() {
+            return result;
+        }
+        let result = if self.port != 0 && self.probe.http_ok(self.port, self.def.health) {
+            Ok(())
+        } else {
+            Err(format!(
+                "{} health probe {} failed on port {}",
+                self.def.name, self.def.health, self.port
+            ))
+        };
+        *self.probed.borrow_mut() = Some(result.clone());
+        result
+    }
+}
+
+impl RuntimeBackend for DaemonBackend<'_> {
+    fn discover(&self) -> EaiResult<bool> {
+        Ok(self.installed_evidence || self.probe_health().is_ok())
+    }
+    fn load(&self, _model: &str) -> EaiResult<()> {
+        Err(EaiError::config(format!(
+            "{} is host-managed; susi does not stage models into it through the ecosystem scan",
+            self.def.name
+        )))
+    }
+    fn health(&self) -> EaiResult<Result<(), String>> {
+        Ok(self.probe_health())
+    }
+    fn infer(&self, _prompt: &str) -> EaiResult<InferOutcome> {
+        Ok(InferOutcome::Unavailable {
+            reason: format!(
+                "{} is host-managed; inference goes through its own endpoint, not the scan",
+                self.def.name
+            ),
+        })
+    }
+    fn cancel(&self) -> EaiResult<()> {
+        Err(EaiError::config(format!(
+            "{} is host-managed; susi holds no task handle to cancel",
+            self.def.name
+        )))
+    }
+    fn unload(&self) -> EaiResult<()> {
+        Err(EaiError::config(format!(
+            "{} is host-managed; susi did not stage its model and will not unload it",
+            self.def.name
+        )))
+    }
+}
+
+/// Drive a detected engine through the lifecycle contract: `discover`
+/// records install/running evidence and `health` is the readiness probe —
+/// an answering health endpoint, never a binary's presence, is what marks
+/// a runtime `running`.
+fn scan_engine(
+    p: &dyn Probe,
+    d: &'static Def,
+    port: u16,
+    binary: &Option<PathBuf>,
+    dirs: &[PathBuf],
+) -> bool {
+    let backend = DaemonBackend {
+        def: d,
+        installed_evidence: binary.is_some() || !dirs.is_empty(),
+        port,
+        probe: p,
+        probed: RefCell::new(None),
+    };
+    let mut rt = Runtime::new(
+        d.id,
+        RuntimeCaps {
+            can_cancel: false,
+            can_unload: false,
+        },
+        &backend,
+    );
+    if rt.discover().is_err() {
+        return false;
+    }
+    matches!(rt.health(), Ok(Ok(())))
+}
+
 pub fn scan(p: &dyn Probe) -> Ecosystem {
     scan_with(p, &env_overrides())
 }
@@ -233,7 +333,7 @@ fn scan_with(p: &dyn Probe, overrides: &[(String, u16)]) -> Ecosystem {
                 })
                 .unwrap_or_default();
             let port = port_of(d, overrides);
-            let running = port != 0 && p.http_ok(port, d.health);
+            let running = scan_engine(p, d, port, &binary, &dirs);
             let installed = binary.is_some() || !dirs.is_empty() || running;
             Detected {
                 id: d.id.into(),
