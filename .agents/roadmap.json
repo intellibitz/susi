@@ -1042,7 +1042,7 @@
       "id": "VC-201-083",
       "mastery_target": "Delete selected records from authoritative memory, semantic indexes, caches, and supported replicas with durable tombstones; interrupted deletion resumes and retrieval cannot resurrect deleted content.",
       "priority": "P0",
-      "progress": "PARTIAL: in-process tombstone read-blocking and pending-resume propagation hold — verified by `crates/susi-core/src/tests/vc_201_083_mastery.rs`. Refuted on record 2026-10-03: insert() ignores tombstones so a late write after resume permanently repopulates all derived stores, tombstones are volatile in-memory state that a restart forgets, and MemoryStores has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-083.json`. Follow-up tracked by T-DEVIN20261002053148-12.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-083.json, T-DEVIN20261002053148-12, 2026-10-04): deletion propagates into derived stores (authoritative, semantic indexes, caches, and replicas) with durable tombstones; late writes after deletion are refused so derived stores cannot be repopulated; interrupted deletion resumes; tombstones persist across restarts; and retrieval cannot resurrect deleted content. Verified by crates/susi-core/src/tests/vc_201_083_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Propagate memory deletion into derived stores"
     },
