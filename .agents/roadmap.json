@@ -1399,7 +1399,7 @@
       "id": "VC-202-010",
       "mastery_target": "Daemon, watcher, brain scout and every other long-lived process runs under supervision with health checks, bounded restart, logs and a status surface; a killed component recovers without a human, and no unsupervised background process remains.",
       "priority": "P1",
-      "progress": "PARTIAL: leaf services run under real bounded supervision (supervisor.rs monitor: HTTP probes, restart backoff, slog, `susi services`), and engine_watchdog bounds engine restarts. Refuted by .agents/roadmap-verdicts/VC-202-010.json (T-DEEPSEEK-229): ~18 in-daemon workers spawn with bare thread::spawn and no registration, the unified service_supervision::Supervisor registry has no production caller, the watchdog covers one unpinged cell with no restart path, the daemon revives only on demand (no Restart= policy), and the primary watcher heals only at sync boundaries. Residual: T-DEEPSEEK-230.",
+      "progress": "DELIVERED (T-DEEPSEEK-230): every long-lived in-process worker now spawns through service_supervision::Supervisor — zero bare thread::spawn/thread::Builder in production susi-daemon (mastery scan). Exit/panic triggers bounded restart via per-worker factories; stale heartbeat or a dead watchdog cell marks a worker hung (reported, never cloned); restarts log to supervisor.log; the status surface is supervision.json + susi os. The swarm watchdog now has a cell per worker, pinged by worker heartbeats; susi-host pings from the os tick. Leaf services remain process-supervised; the leaf monitor itself is a supervised worker. Verified by .agents/roadmap-verdicts/VC-202-010.json.",
       "type": "OPERATIONS",
       "vector": "Every long-lived component is supervised"
     },

@@ -53,7 +53,11 @@ impl SwarmHost {
 }
 
 fn wire_swarm_host() {
-    let _ = SWARM_HOST.get_or_init(SwarmHost::new);
+    let host = SWARM_HOST.get_or_init(SwarmHost::new);
+    // The in-process supervisor shares the watchdog: every registered
+    // worker gets a cell, worker heartbeats ping it, and a dead-cell
+    // finding feeds the worker's health verdict.
+    crate::service_supervision::Supervisor::global().attach_watchdog(host.watchdog.clone());
 }
 
 /// Side-effecting OS planes (checkpoint/log/plugin/fork/hibernate dirs)
@@ -172,9 +176,8 @@ fn spawn_nat_discovery() {
     {
         return;
     }
-    let _ = std::thread::Builder::new()
-        .name("susi-stun".into())
-        .spawn(|| {
+    crate::service_supervision::Supervisor::global().spawn_oneshot("stun-discovery", 1, || {
+        Some(|| {
             if let Some(planes) = DAEMON_OS.get() {
                 match planes.nat.status() {
                     crate::nat::NatStatus::Unknown => match planes.nat.discover_default() {
@@ -195,7 +198,8 @@ fn spawn_nat_discovery() {
                 }
                 persist_os_planes_report();
             }
-        });
+        })
+    });
 }
 
 /// Live host control planes held for the daemon lifetime and driven on a tick.
@@ -241,14 +245,23 @@ fn activate_host_control_planes(_workspace: &Path) {
 fn start_os_plane_ticks() {
     let _ = OS_TICK_STARTED.get_or_init(|| {
         tick_host_control_planes();
-        let _ = std::thread::Builder::new()
-            .name("susi-os-tick".into())
-            .spawn(|| {
-                loop {
-                    std::thread::sleep(Duration::from_secs(30));
-                    tick_host_control_planes();
-                }
-            });
+        // Supervised: the tick heartbeat doubles as the susi-host cell's
+        // liveness proof for the watchdog.
+        crate::service_supervision::Supervisor::global().spawn(
+            "os-tick",
+            3,
+            Some(Duration::from_secs(600)),
+            || {
+                Some(|| {
+                    loop {
+                        crate::service_supervision::heartbeat("os-tick");
+                        crate::service_supervision::heartbeat("susi-host");
+                        std::thread::sleep(Duration::from_secs(30));
+                        tick_host_control_planes();
+                    }
+                })
+            },
+        );
     });
 }
 
@@ -402,6 +415,9 @@ fn os_planes_json() -> serde_json::Value {
         "provision_tick_contract": "probe_all_only",
         "swarm_udp": swarm_udp,
         "live_planes": live_planes,
+        // The in-process supervision surface: every registered worker's
+        // liveness and restart count, readable via `susi os`.
+        "supervision": crate::service_supervision::report(),
     })
 }
 

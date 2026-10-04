@@ -127,12 +127,20 @@ pub fn spawn_cell(path: &Path) -> bool {
                 return false;
             }
         };
-        std::thread::spawn(move || {
-            let spawned = std::process::Command::new(&path)
-                .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, token)
-                .spawn();
-            track(path, spawned);
-        });
+        crate::service_supervision::Supervisor::global().spawn_oneshot(
+            &format!("cell-spawn:{name}"),
+            0,
+            move || {
+                let path = path.clone();
+                let token = token.clone();
+                Some(move || {
+                    let spawned = std::process::Command::new(&path)
+                        .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, token)
+                        .spawn();
+                    track(path, spawned);
+                })
+            },
+        );
     } else if name.ends_with(".json") {
         // Let the OS pick a free loopback port; a fixed counter handed out
         // ports without checking them and collided with anything already
@@ -163,31 +171,50 @@ pub fn spawn_cell(path: &Path) -> bool {
             .ok()
             .and_then(|exe| exe.parent().map(|dir| dir.join("susi-universal-cell")))
             .unwrap_or_else(|| "susi-universal-cell".into());
-        std::thread::spawn(move || {
-            let spawned = std::process::Command::new(universal_cell_path)
-                .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, token)
-                .arg(bind_addr)
-                .arg(&path)
-                .spawn();
-            track(path, spawned);
-        });
+        crate::service_supervision::Supervisor::global().spawn_oneshot(
+            &format!("cell-spawn:{name}"),
+            0,
+            move || {
+                let path = path.clone();
+                let token = token.clone();
+                let universal_cell_path = universal_cell_path.clone();
+                let bind_addr = bind_addr.clone();
+                Some(move || {
+                    let spawned = std::process::Command::new(universal_cell_path)
+                        .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, token)
+                        .arg(bind_addr)
+                        .arg(&path)
+                        .spawn();
+                    track(path, spawned);
+                })
+            },
+        );
     } else if name.ends_with(".wasm") {
-        // Load the cell in-process and run its `_start` entry point.
-        std::thread::spawn(
-            move || match susi_vendor_wasmer::cell::spawn_wasm_cell(path.clone()) {
-                Ok(mut cell) => {
-                    tracing::info!("[auto_discovery] Loaded WASM cell: {}", path.display());
-                    if let Err(e) = cell.execute("_start") {
-                        tracing::warn!("[auto_discovery] WASM cell _start failed: {:#}", e);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "[auto_discovery] Failed to load WASM cell {}: {:#}",
-                        path.display(),
-                        e
-                    );
-                }
+        // Load the cell in-process and run its `_start` entry point —
+        // supervised one-shot: a clean exit retires it, a panic before
+        // completion restarts it within a small bound.
+        crate::service_supervision::Supervisor::global().spawn_oneshot(
+            &format!("cell:{name}"),
+            2,
+            move || {
+                let path = path.clone();
+                Some(
+                    move || match susi_vendor_wasmer::cell::spawn_wasm_cell(path.clone()) {
+                        Ok(mut cell) => {
+                            tracing::info!("[auto_discovery] Loaded WASM cell: {}", path.display());
+                            if let Err(e) = cell.execute("_start") {
+                                tracing::warn!("[auto_discovery] WASM cell _start failed: {:#}", e);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "[auto_discovery] Failed to load WASM cell {}: {:#}",
+                                path.display(),
+                                e
+                            );
+                        }
+                    },
+                )
             },
         );
     } else {
