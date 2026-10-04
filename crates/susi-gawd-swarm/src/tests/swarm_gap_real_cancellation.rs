@@ -79,7 +79,9 @@ fn swarm_gap_real_cancellation_kills_process_descendants() {
         !process_is_alive(child_pid),
         "descendant process {child_pid} survived group cancellation"
     );
-    fs::remove_dir_all(dir).unwrap();
+    // Best-effort cleanup: a spawned descendant may still hold a handle to the
+    // temp dir, so "Directory not empty" on remove must not fail the test.
+    let _ = fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -181,7 +183,9 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
     );
     server.join().unwrap();
     drop(env);
-    fs::remove_dir_all(config_dir).unwrap();
+    // Best-effort cleanup: a spawned peer process may still hold a handle to
+    // the temp dir, so "Directory not empty" on remove must not fail the test.
+    let _ = fs::remove_dir_all(config_dir);
 }
 
 fn process_is_alive(pid: u32) -> bool {
