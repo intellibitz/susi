@@ -28,9 +28,10 @@ pub enum FailureClass {
 }
 
 /// Model health state machine.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum ModelHealth {
     /// Unknown state; initial or unprobed.
+    #[default]
     Unknown,
     /// Model responds and passes health checks.
     Healthy,
@@ -84,12 +85,6 @@ impl ModelHealth {
             ModelHealth::Unhealthy { class, .. } | ModelHealth::Dead { class } => Some(*class),
             _ => None,
         }
-    }
-}
-
-impl Default for ModelHealth {
-    fn default() -> Self {
-        ModelHealth::Unknown
     }
 }
 
@@ -166,22 +161,21 @@ mod tests {
         assert_ne!(FailureClass::Unsupported, FailureClass::Unknown);
 
         // Verify state machine transitions
-        let unknown = ModelHealth::Unknown;
-        let healthy = unknown.mark_healthy();
-        let degraded = healthy.mark_degraded("test");
-        let unhealthy = degraded.mark_unhealthy(FailureClass::Network, "connection lost");
-        let dead = unhealthy.mark_dead(FailureClass::NotFound);
+        let health = ModelHealth::Unknown.mark_healthy();
+        assert_eq!(health, ModelHealth::Healthy);
 
-        // Verify state properties at each transition
-        assert_eq!(unknown, ModelHealth::Unknown);
-        assert_eq!(healthy, ModelHealth::Healthy);
-        assert!(matches!(degraded, ModelHealth::Degraded { .. }));
-        assert!(matches!(unhealthy, ModelHealth::Unhealthy { .. }));
-        assert!(matches!(dead, ModelHealth::Dead { .. }));
+        let health = health.mark_degraded("test");
+        assert!(matches!(health, ModelHealth::Degraded { .. }));
+
+        let health = health.mark_unhealthy(FailureClass::Network, "connection lost");
+        assert!(matches!(health, ModelHealth::Unhealthy { .. }));
+
+        let health = health.mark_dead(FailureClass::NotFound);
+        assert!(matches!(health, ModelHealth::Dead { .. }));
 
         // Verify terminal state behavior
-        assert!(!dead.is_usable());
-        assert!(dead.is_terminal());
+        assert!(!health.is_usable());
+        assert!(health.is_terminal());
     }
 
     #[test]
