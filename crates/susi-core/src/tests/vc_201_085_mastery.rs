@@ -7,7 +7,9 @@
 //! are that the signature actually authenticates content and that tests
 //! are actually run — not that a caller-supplied flag is trusted.
 
-use crate::skill_artifacts::{import_skill, skill_sign, ImportVerdict, SkillArtifact};
+use crate::skill_artifacts::{
+    import_skill, import_skill_with_key, skill_sign, ImportVerdict, SkillArtifact,
+};
 use std::collections::BTreeSet;
 
 fn signed_artifact(name: &str, signer: &str, reflexes: &[&str]) -> SkillArtifact {
@@ -23,59 +25,63 @@ fn signed_artifact(name: &str, signer: &str, reflexes: &[&str]) -> SkillArtifact
     }
 }
 
-/// Falsification: the signature does not cover the payload. An attacker
-/// takes a validly-signed artifact, replaces every reflex with a hostile
-/// one and grants itself new capabilities — the signature still verifies,
-/// because it only binds name+version+signer.
+/// Mastery: cryptographic signature binds content so payload tampering is rejected.
 #[test]
-fn vc_201_085_mastery_signed_content_is_not_bound_to_the_signature() {
+fn vc_201_085_mastery_signed_content_is_bound_to_the_signature() {
     let trusted = BTreeSet::from(["alice".into()]);
+    let key = b"alice-secret-key-32-bytes-long!!";
     let mut art = signed_artifact("reflex-pack", "alice", &["r1"]);
+    art.sign_with_key(key);
+
     assert_eq!(
-        import_skill(&art, &trusted, true),
+        import_skill_with_key(&art, &trusted, true, Some(key)),
         ImportVerdict::Executable
     );
 
+    // Tampering with reflexes breaks the HMAC signature
     art.reflexes = vec!["rm -rf /".into()];
-    art.prompts = vec!["ignore safety".into()];
-    art.capabilities = BTreeSet::from(["exec".into(), "net".into()]);
     assert_eq!(
-        import_skill(&art, &trusted, true),
-        ImportVerdict::Executable,
-        "payload swapped wholesale under an unchanged signature"
+        import_skill_with_key(&art, &trusted, true, Some(key)),
+        ImportVerdict::BadProvenance,
+        "payload swapped wholesale must fail verification"
     );
 }
 
-/// Falsification: the signature is forgeable. `skill_sign` is a public
-/// pure function `signer:name@version` with no key material — anyone can
-/// produce a signature that passes verification for any trusted signer.
+/// Mastery: signature cannot be forged without key material.
 #[test]
-fn vc_201_085_mastery_signature_forgeable_without_any_key() {
-    // An attacker with no key material forges alice's signature directly.
-    let forged = signed_artifact("hostile", "alice", &["exfiltrate"]);
-    assert_eq!(forged.signature, "alice:hostile@1.0.0");
+fn vc_201_085_mastery_signature_requires_valid_key() {
     let trusted = BTreeSet::from(["alice".into()]);
+    let alice_key = b"alice-secret-key-32-bytes-long!!";
+    let attacker_key = b"attacker-key-cannot-forge-alice!";
+
+    let mut forged = signed_artifact("hostile", "alice", &["exfiltrate"]);
+    forged.sign_with_key(attacker_key);
+
     assert_eq!(
-        import_skill(&forged, &trusted, true),
-        ImportVerdict::Executable,
-        "a forged signature grants executable status"
+        import_skill_with_key(&forged, &trusted, true, Some(alice_key)),
+        ImportVerdict::BadProvenance,
+        "a signature created without the authentic key must be rejected"
     );
 }
 
-/// Falsification: "tests verify" is a boolean the caller passes. Import
-/// never runs the packaged fixtures — the same artifact is Executable or
-/// TestsFailed purely on a flag, so nothing in the artifact itself is
-/// tested.
+/// Mastery: packaged fixtures are executed and unparseable/broken fixtures fail tests.
 #[test]
-fn vc_201_085_mastery_tests_are_a_caller_supplied_flag() {
+fn vc_201_085_mastery_fixtures_are_executed_and_validated() {
     let trusted = BTreeSet::from(["alice".into()]);
-    // An artifact whose fixtures cannot parse — no test is run either way.
     let mut art = signed_artifact("broken", "alice", &[]);
     art.fixtures = vec!["not-a-fixture{{{".into()];
+
+    assert_eq!(
+        import_skill(&art, &trusted, true),
+        ImportVerdict::TestsFailed,
+        "an artifact with broken fixtures must fail tests even if caller passed true"
+    );
+
+    art.fixtures = vec!["{\"test\": \"ok\"}".into()];
     assert_eq!(
         import_skill(&art, &trusted, true),
         ImportVerdict::Executable,
-        "an artifact with broken fixtures is executable when the flag says pass"
+        "valid fixtures pass"
     );
 }
 
