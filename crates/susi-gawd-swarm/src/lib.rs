@@ -145,6 +145,9 @@ mod swarm_chaos_tests;
 #[path = "tests/swarm_gap_durable_fencing.rs"]
 mod swarm_gap_durable_fencing_tests;
 #[cfg(test)]
+#[path = "tests/swarm_gap_live_admission.rs"]
+mod swarm_gap_live_admission_tests;
+#[cfg(test)]
 #[path = "tests/swarm_gap_real_cancellation.rs"]
 mod swarm_gap_real_cancellation_tests;
 #[cfg(test)]
