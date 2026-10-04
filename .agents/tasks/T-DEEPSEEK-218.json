@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-218",
+  "title": "Load-test control plane to saturation: simultaneous missions, streaming calls, peer repair and model churn on recorded hardware; publish saturation points and verify overload rejection preserves health and cancellation responsiveness",
+  "goal": "VC-201-094 residual: crates/susi-gawd/src/capacity_limits.rs provides admit/saturation as pure functions with unit tests but no production caller, and no load test drives real missions/streaming/peer-repair/model-churn to saturation with recorded hardware. Deliver the benchmark, its recorded saturation report, and a vc_201_094_mastery_* test exercising the production path.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_094_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-094",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791104189
+}
