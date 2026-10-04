@@ -163,6 +163,7 @@ const GENERATION_ONLY_KINDS: [ProbeKind; 4] = [
     ProbeKind::Usage,
 ];
 
+#[allow(clippy::too_many_arguments)] // Keeps every measured claim construction explicit and auditable.
 fn claim(
     provider: &str,
     model: &str,
@@ -318,7 +319,10 @@ pub fn probe_credentialed_with(
             ProbeStatus::Unsupported,
             "raw-URL endpoint has no model path to miss",
         )),
-        _ => {
+        crate::susi_core::inference_wire::InferenceProtocol::OpenAiChat
+        | crate::susi_core::inference_wire::InferenceProtocol::OpenAiCompletions
+        | crate::susi_core::inference_wire::InferenceProtocol::Anthropic
+        | crate::susi_core::inference_wire::InferenceProtocol::Gemini => {
             let miss_url = format!(
                 "{}/models/__susi_contract_probe_missing__",
                 target.api_base.trim_end_matches('/')
@@ -494,12 +498,8 @@ mod tests {
 
     #[test]
     fn provider_contract_opt_in_gate() {
-        // Without SUSI_PROVIDER_PROBE the public entry stays silent.
-        // (Set inside the test: env mutation is #[allow]-gated repo-wide.)
-        #[allow(clippy::disallowed_methods)]
-        unsafe {
-            std::env::remove_var("SUSI_PROVIDER_PROBE");
-        }
+        let _g = crate::engines::env_test_lock();
+        std::env::remove_var("SUSI_PROVIDER_PROBE");
         assert!(probe_credentialed_opt_in("openai", "gpt-x", "1").is_none());
     }
 }
