@@ -2,10 +2,10 @@
   "vector": "VC-201-013",
   "verdict": "not-delivered",
   "evidence": "crates/susi-gawd/src/tests/vc_201_013_mastery.rs",
-  "missing": "Four refutations. (1) patch_id is interpolated into the workspace path unsanitized: '../escape' builds and creates a workspace outside the fence root, and 'x/../victim' resolves onto a sibling experiment's workspace (vc_201_013_mastery_patch_id_escapes_the_fence_root, vc_201_013_mastery_same_id_shares_workspace). (2) is_inside_fence is lexical starts_with \u2014 workspace/../outside reports inside (vc_201_013_mastery_dotdot_inside_reports_inside). (3) apply_in_isolation applies nothing and checks no target path, so 'cannot write the installed release' is untestable (vc_201_013_mastery_apply_checks_nothing). PatchFence has no callers outside tests. Holds: well-formed ids nest under root/patches and a missing workspace refuses apply (vc_201_013_mastery_basics_hold).",
+  "missing": "Three refutations fixed: patch_id is now validated as a single path segment before being joined onto root/patches, so '../escape' and 'x/../victim' are refused outright instead of escaping the fence root or resolving onto a sibling's workspace; is_inside_fence resolves '.'/'..' lexically before comparing, so workspace/../outside no longer reports inside; apply_in_isolation now takes the target path and content, validates every target through is_inside_fence, and actually writes inside the fence, refusing a target that climbs out. Each isolate() call also mixes in a per-call nonce, so a repeated patch_id no longer shares a workspace. Still missing: PatchFence has no production caller \u2014 self-patch application is not yet wired through it, pending the experiment orchestration tracked by VC-201-011.",
   "tracked_by": [
     "T-DEVIN20261002053148-22"
   ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790990882
+  "recorded_by": "PRIMARY",
+  "recorded_unix": 1791152533
 }

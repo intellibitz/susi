@@ -13,86 +13,88 @@ fn tmp_root(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("susi-fence-mastery-{tag}-{nanos}"))
 }
 
-/// Falsification: patch_id is interpolated into the workspace path with
-/// no sanitization. A patch_id of "../escape" builds a workspace that
-/// resolves outside root/patches entirely — the fence itself is the
-/// escape hatch. Component-normalizing the built path exposes it.
+/// Fixed: `patch_id` is validated as a single path segment before it is
+/// ever joined onto the fence root, so `"../escape"` — which carries a
+/// separator — is refused outright instead of building a workspace that
+/// resolves outside `root/patches`.
 #[test]
 fn vc_201_013_mastery_patch_id_escapes_the_fence_root() {
     let root = tmp_root("esc");
-    let fence = PatchFence::isolate(&root, "../escape");
-    // ensure_isolated happily CREATES the escaped directory.
-    fence.ensure_isolated().unwrap();
-    let resolved = fence.workspace.canonicalize().unwrap();
-    let patches = root.join("patches").canonicalize().unwrap();
-    // The 'workspace' is root/patches/../escape = root/escape — outside
-    // the patches directory the fence is supposed to confine to.
+    let err = PatchFence::isolate(&root, "../escape")
+        .expect_err("a patch id containing a path separator must be refused");
+    assert!(err.contains("path segment") || err.contains('.'), "{err}");
     assert!(
-        !resolved.starts_with(&patches),
-        "workspace {:?} escaped the fence root",
-        resolved
+        !root.join("escape").exists(),
+        "no workspace should have been created outside the fence root"
     );
-    // It was actually created on disk outside the fence root.
-    assert!(resolved.is_dir());
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Falsification: is_inside_fence is lexical starts_with. The path
-/// workspace/../outside resolves outside the workspace but reports
-/// 'inside' — a patch writer walking a crafted path passes the check.
+/// Fixed: `is_inside_fence` resolves `.`/`..` components lexically before
+/// comparing, so `workspace/../outside.patch` — which resolves outside the
+/// workspace — now correctly reports outside instead of matching on a raw
+/// `starts_with` of the unresolved path.
 #[test]
 fn vc_201_013_mastery_dotdot_inside_reports_inside() {
     let root = tmp_root("dd");
-    let fence = PatchFence::isolate(&root, "p1");
+    let fence = PatchFence::isolate(&root, "p1").unwrap();
     let sneaky = fence.workspace.join("..").join("outside.patch");
     assert!(
-        fence.is_inside_fence(&sneaky),
-        "lexical starts_with says a path resolving OUTSIDE is inside"
+        !fence.is_inside_fence(&sneaky),
+        "a path that resolves OUTSIDE the workspace must not report inside"
     );
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Falsification: apply_in_isolation applies nothing — it checks the
-/// directory exists and sets applied=true. There is no patch content, no
-/// target path validation, and nothing referencing the installed
-/// release, so 'cannot write the installed release' is untestable: the
-/// fence never inspects where a patch writes.
+/// Fixed: `apply_in_isolation` now takes the target path and the content
+/// being applied, validates the resolved target stays inside the fence,
+/// and actually writes it — a target that climbs out with `..` is refused
+/// rather than silently accepted with nothing checked.
 #[test]
 fn vc_201_013_mastery_apply_checks_nothing() {
     let root = tmp_root("ap");
-    let mut fence = PatchFence::isolate(&root, "p1");
+    let mut fence = PatchFence::isolate(&root, "p1").unwrap();
     fence.ensure_isolated().unwrap();
-    fence.apply_in_isolation().unwrap();
+
+    // A well-behaved target is actually written inside the fence.
+    fence.apply_in_isolation("diff.patch", b"hello").unwrap();
     assert!(fence.applied);
-    // workspace is empty — nothing was applied anywhere, inside or out.
-    assert!(std::fs::read_dir(&fence.workspace)
-        .unwrap()
-        .next()
-        .is_none());
+    assert_eq!(
+        std::fs::read(fence.workspace.join("diff.patch")).unwrap(),
+        b"hello"
+    );
+
+    // A target that climbs out of the workspace is refused, and nothing
+    // is written outside the fence.
+    let mut escapee = PatchFence::isolate(&root, "p2").unwrap();
+    escapee.ensure_isolated().unwrap();
+    let outside = root.join("escaped.patch");
+    assert!(escapee
+        .apply_in_isolation("../escaped.patch", b"evil")
+        .is_err());
+    assert!(!outside.exists(), "escape target must never be written");
+
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Falsification: 'concurrent experiments cannot write another
-/// experiment's workspace' — but two experiments sharing a patch_id get
-/// the same workspace path, and nothing prevents one fence's apply from
-/// touching a sibling workspace it can compute trivially.
+/// Fixed: two fences built from the same `patch_id` now get distinct
+/// workspaces (a per-call nonce is mixed in), and a `patch_id` that tries
+/// to walk onto a sibling experiment's directory (`"x/../victim"`) is
+/// refused outright because it carries a path separator.
 #[test]
 fn vc_201_013_mastery_same_id_shares_workspace() {
     let root = tmp_root("sh");
-    let a = PatchFence::isolate(&root, "shared");
-    let b = PatchFence::isolate(&root, "shared");
-    assert_eq!(a.workspace, b.workspace, "two experiments, one workspace");
-    // And patch_id "x/../victim" resolves onto the victim experiment's
-    // workspace outright — an experiment can point its fence at a
-    // sibling's directory.
+    let a = PatchFence::isolate(&root, "shared").unwrap();
+    let b = PatchFence::isolate(&root, "shared").unwrap();
+    assert_ne!(
+        a.workspace, b.workspace,
+        "two fences for the same patch_id must not share one workspace"
+    );
+
     let hostile = PatchFence::isolate(&root, "x/../victim");
-    let victim = PatchFence::isolate(&root, "victim");
-    hostile.ensure_isolated().unwrap();
-    victim.ensure_isolated().unwrap();
-    assert_eq!(
-        hostile.workspace.canonicalize().unwrap(),
-        victim.workspace.canonicalize().unwrap(),
-        "hostile id resolves into victim's workspace"
+    assert!(
+        hostile.is_err(),
+        "a patch id with a path separator must be refused, not resolved onto a sibling"
     );
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -102,10 +104,10 @@ fn vc_201_013_mastery_same_id_shares_workspace() {
 #[test]
 fn vc_201_013_mastery_basics_hold() {
     let root = tmp_root("ok");
-    let mut fence = PatchFence::isolate(&root, "p1");
+    let mut fence = PatchFence::isolate(&root, "p1").unwrap();
     assert!(fence.workspace.starts_with(root.join("patches")));
-    assert!(fence.apply_in_isolation().is_err());
+    assert!(fence.apply_in_isolation("diff.patch", b"x").is_err());
     fence.ensure_isolated().unwrap();
-    fence.apply_in_isolation().unwrap();
+    fence.apply_in_isolation("diff.patch", b"x").unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }
