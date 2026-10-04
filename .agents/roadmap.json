@@ -1030,7 +1030,7 @@
       "id": "VC-201-082",
       "mastery_target": "Use a versioned relevance and grounded-answer suite to compare retrieval/index revisions; a larger index or higher recall alone cannot hide regression in answer correctness or private-data isolation.",
       "priority": "P1",
-      "progress": "PARTIAL: on finite metrics the gate holds — quality promotion accepted, correctness regression rejected despite higher recall, isolation regression rejected — verified by `crates/susi-core/src/tests/vc_201_082_mastery.rs`. Refuted on record 2026-10-03: evaluate_promotion has no production caller so no promotion path is actually gated, the versioned-suite claim is unenforced (a stale candidate version promotes), and NaN metrics bypass both regression checks. Verdict `.agents/roadmap-verdicts/VC-201-082.json`. Follow-up tracked by T-DEVIN20261002053148-11.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-082.json, T-DEVIN20261002053148-11, 2026-10-04): retrieval evaluation gates memory and index candidate promotion; candidate suites older than baseline are rejected as stale; unmeasured/NaN metrics are rejected; answer correctness and private isolation regressions are blocked despite higher recall. Verified by crates/susi-core/src/tests/vc_201_082_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Evaluate retrieval quality before promoting memory changes"
     },
