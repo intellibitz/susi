@@ -495,6 +495,24 @@ pub fn register_configured_cloud_endpoints(
     }
 
     register_model_catalog(registry);
+
+    // VC-202-001 — scout every configured credential with its cheapest
+    // call: classify live/expired/unauthorized/rate-limited/unknown and
+    // record the fingerprinted evidence so failover steers around dead
+    // keys. Interval-gated so repeat registrations stay free.
+    if let Some(report) =
+        crate::credential_scout::scout_configured_once(&crate::credential_scout::TransportCall)
+    {
+        for verdict in &report.verdicts {
+            tracing::info!(
+                vendor = %verdict.vendor,
+                liveness = ?verdict.liveness,
+                status = ?verdict.status,
+                detail = %verdict.detail,
+                "credential scout"
+            );
+        }
+    }
 }
 
 /// Register the curated models catalog (~50) plus the top coding/agent models.

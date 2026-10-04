@@ -9,6 +9,7 @@
       "cargo",
       "nextest",
       "run",
+      "--workspace",
       "--locked",
       "-E",
       "test(vc_202_001_mastery)"

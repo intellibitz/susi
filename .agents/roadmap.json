@@ -1303,7 +1303,7 @@
       "id": "VC-202-001",
       "mastery_target": "Every configured provider credential is enumerated, probed with the cheapest possible call, and classified live / expired / unauthorized / rate-limited / unknown with the evidence recorded; keys are never deleted, and one report answers which credentials work today without spending meaningfully to find out.",
       "priority": "P0",
-      "progress": "PARTIAL: credential presence is reported (list_api_key_status env-name presence; key_statuses ages and rotation hints) — never liveness. Refuted by .agents/roadmap-verdicts/VC-202-001.json (T-DEEPSEEK-223): no credential inventory, no cheapest-call probe (probe_credentialed_opt_in is a stub), no live/expired/unauthorized/rate-limited/unknown classification, no recorded evidence, no single report. Residual: T-DEEPSEEK-224.",
+      "progress": "DELIVERED: credential_scout enumerates every configured remote-cloud credential, probes each with the cheapest authenticated call (GET {base}/models), classifies live/expired/unauthorized/rate-limited/unknown, records fingerprinted evidence (record_probe feeds failover; ScoutReport::format is the single report), and marks keys without ever deleting them. Wired into register_configured_cloud_endpoints (scout_configured_once, 300s interval-gated). Verified by vc_202_001_mastery_* (4/4) and verdict .agents/roadmap-verdicts/VC-202-001.json.",
       "type": "CONFIGURATION",
       "vector": "Provider credential inventory and liveness scouting"
     },
