@@ -141,3 +141,62 @@ fn vc_201_042_health_recheck_can_restore_readiness() {
     assert!(rt.ready().unwrap(), "second probe recovers");
     assert!(rt.infer("x").is_ok());
 }
+
+#[test]
+fn lifecycle_contract_covers_all_seven_operations() {
+    let fake = Fake::new(true);
+    fake.push_health(Ok(()));
+    fake.push_health(Ok(()));
+    fake.push_infer(InferOutcome::Cancelled);
+    let mut rt = Runtime::new("contract", caps(true, true), &fake);
+
+    rt.discover().unwrap();
+    rt.load("model.gguf").unwrap();
+    // The health verb is a first-class op, not only ready()'s innards.
+    assert!(matches!(rt.health().unwrap(), Ok(())));
+    assert!(rt.ready().unwrap());
+    assert!(matches!(
+        rt.infer("prompt").unwrap(),
+        InferOutcome::Cancelled
+    ));
+    rt.cancel().unwrap();
+    rt.unload().unwrap();
+    assert!(matches!(rt.status(), RuntimeStatus::Discovered));
+}
+
+#[test]
+fn vc_201_042_health_verb_marks_and_recovers() {
+    // A failed probe on a discovered runtime marks Unhealthy; a later
+    // healthy answer does not manufacture Ready without a loaded model.
+    let fake = Fake::new(true);
+    fake.push_health(Err("daemon wedged".into()));
+    let mut rt = Runtime::new("ollama", caps(false, false), &fake);
+    rt.discover().unwrap();
+    assert!(rt.health().unwrap().is_err());
+    assert!(matches!(rt.status(), RuntimeStatus::Unhealthy { .. }));
+    assert!(!rt.ready().unwrap(), "no model staged — never Ready");
+    // A Gone runtime answering health re-proves presence (Discovered).
+    let up = Fake::new(false);
+    up.push_health(Ok(()));
+    let mut gone = Runtime::new("docker-ollama", caps(false, false), &up);
+    gone.discover().unwrap();
+    assert!(matches!(gone.status(), RuntimeStatus::Gone));
+    assert!(matches!(gone.health().unwrap(), Ok(())));
+    assert!(matches!(gone.status(), RuntimeStatus::Discovered));
+}
+
+#[test]
+fn vc_201_042_production_scan_drives_the_contract() {
+    // The ecosystem scan must run its runtimes through the contract, so a
+    // host daemon's `running` flag is a health-probe answer (VC-201-042),
+    // not a bare port check the contract never saw.
+    let src = include_str!("../local_ecosystem.rs");
+    assert!(
+        src.contains("runtime_lifecycle::") && src.contains("Runtime::new"),
+        "local_ecosystem must drive runtimes through runtime_lifecycle::Runtime"
+    );
+    assert!(
+        src.contains("rt.discover()") && src.contains("rt.health()"),
+        "the scan must drive discover and health through the contract"
+    );
+}
