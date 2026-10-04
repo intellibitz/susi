@@ -1,10 +1,11 @@
 use crate::repo_gate::{
-    command_covers_full_gate, evaluate_transcript, required_verify_command, CheckOutcome, GateCheck,
+    command_covers_full_gate, evaluate_transcript, executed_report, required_verify_command,
+    CheckOutcome, GateCheck,
 };
 
 #[test]
 fn vc_201_015_full_pass_is_promotion_ready() {
-    let report = evaluate_transcript("fmt: pass\nclippy: pass\ntest: pass\n");
+    let report = executed_report(CheckOutcome::Pass, CheckOutcome::Pass, CheckOutcome::Pass);
     assert!(report.promotion_ready());
     assert!(report.blocking_reasons().is_empty());
     let _ = GateCheck::Fmt;
