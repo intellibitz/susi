@@ -1,0 +1,28 @@
+{
+  "id": "T-DEEPSEEK-128",
+  "title": "Discover, probe and retire models since the last scout",
+  "goal": "Snapshot each provider's catalogue at every scout, diff it against the previous snapshot, probe the newly appeared models cheaply, and mark the retired ones without deleting their history. A catalogue change - a new model, a retired one, a changed price or context limit - is an event that can re-trigger ranking, so a model that outranks the incumbent does not wait for a human to notice it: actively scouting for the best brain means the candidate set keeps itself current.",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-86"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "--workspace",
+      "-E",
+      "test(model_catalogue_drift)"
+    ]
+  },
+  "roadmap": "VC-202-003",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790955420,
+  "closed": {
+    "at_unix": 1791156923,
+    "commit": "e2c1d7902d324f51b9eff3c9c1bcc55ec6e42045",
+    "by": "DEEPSEEK"
+  }
+}
