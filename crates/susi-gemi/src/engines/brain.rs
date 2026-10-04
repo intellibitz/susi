@@ -331,6 +331,13 @@ pub struct Ranked {
     /// callers show the coarse `cost_tier` instead.
     #[serde(default)]
     pub expected_cost_usd: Option<f64>,
+    /// `expected_cost_usd` divided by the expected success probability —
+    /// the price of one *verified useful outcome*, the only currency this
+    /// ranking trades in (VC-202-003/T-DEEPSEEK-98). The probability is the
+    /// same smoothed success rate `score` uses; untried providers get the
+    /// class prior. `None` for unpriced providers.
+    #[serde(default)]
+    pub cost_per_outcome_usd: Option<f64>,
     pub samples: u32,
     pub success_rate: Option<f32>,
     pub avg_latency_ms: Option<u32>,
@@ -443,6 +450,15 @@ impl Store {
             .map(|p| {
                 let rec = self.records.get(&key(p, class));
                 let samples = rec.map_or(0, Record::samples);
+                let expected_cost_usd = cost::expected_task_cost_usd_in(catalog.as_ref(), p, class);
+                // Expected success probability: the same smoothed rate the
+                // score uses, the class prior for an untried provider.
+                let p_success = match rec.filter(|r| r.samples() > 0) {
+                    Some(r) => (r.ok as f32 + 1.0) / (r.samples() as f32 + 2.0),
+                    None => class_prior(p, class),
+                };
+                let cost_per_outcome_usd =
+                    expected_cost_usd.map(|usd| usd / f64::from(p_success.max(1e-3)));
                 Ranked {
                     provider: p.clone(),
                     meets_floor: super::capability::meets_floor(p, class),
@@ -453,7 +469,8 @@ impl Store {
                         .map(|h| (h.kind, h.consecutive)),
                     score: score(p, class, rec, budget),
                     cost_tier: cost::tier_of(p).label(),
-                    expected_cost_usd: cost::expected_task_cost_usd_in(catalog.as_ref(), p, class),
+                    expected_cost_usd,
+                    cost_per_outcome_usd,
                     samples,
                     success_rate: rec
                         .filter(|r| r.samples() > 0)
@@ -462,15 +479,30 @@ impl Store {
                 }
             })
             .collect();
-        // Floor first, then score: `meets_floor` dominates the comparator so
-        // a cheap weak model can never outrank a floor-meeting one (the floor
-        // is checked before the price is compared), and below-floor
-        // candidates still appear at the tail — the last rung before local.
+        // Floor first — a cheap weak model can never outrank a floor-meeting
+        // one (the floor is checked before the price is compared), and
+        // below-floor candidates still appear at the tail. Then, unless the
+        // budget dial is pinned to pure quality (Max), cost per verified
+        // outcome decides: the ranking currency is a verified answer per
+        // dollar, not reputation (VC-202-003). Unpriced candidates, and Max
+        // budget, keep the evidence-score ordering.
+        let cost_first = budget != Budget::Max;
         out.sort_by(|a, b| {
             b.meets_floor.cmp(&a.meets_floor).then_with(|| {
-                b.score
-                    .partial_cmp(&a.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                match (cost_first, a.cost_per_outcome_usd, b.cost_per_outcome_usd) {
+                    (true, Some(x), Some(y)) => x
+                        .partial_cmp(&y)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| {
+                            b.score
+                                .partial_cmp(&a.score)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }),
+                    _ => b
+                        .score
+                        .partial_cmp(&a.score)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                }
             })
         });
         out

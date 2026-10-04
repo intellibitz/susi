@@ -103,6 +103,9 @@ pub mod zc_timeouts_measured;
 #[path = "tests/billing_mode_marginal_cost.rs"]
 mod billing_mode_marginal_cost_tests;
 #[cfg(test)]
+#[path = "tests/brain_ranking_by_cost.rs"]
+mod brain_ranking_by_cost_tests;
+#[cfg(test)]
 #[path = "tests/budget_ceiling.rs"]
 mod budget_ceiling_tests;
 #[cfg(test)]

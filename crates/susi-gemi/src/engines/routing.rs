@@ -913,26 +913,27 @@ impl InferenceRouter {
         }
         let mut providers = Self::list_cloud_providers_from_registry(registry);
         providers.retain(|name| !Self::provider_cooled(name));
-        // Order by how each provider has performed on this task class, with
-        // the static rank as the tiebreaker. The capability floor is the
-        // second key: a below-floor model trails every floor-meeting one
-        // (preferred-vendor affinity aside) no matter how cheap it is.
-        let ranked: std::collections::HashMap<String, (bool, i64)> =
+        // Order by the brain's ranking of this task class — its position
+        // already folds in the capability floor, cost per verified outcome
+        // (or evidence score when unpriced / Budget::Max), and the static
+        // rank as the tiebreaker (VC-202-003).
+        let ranked: std::collections::HashMap<String, (bool, usize)> =
             crate::engines::brain::rank(&providers, class)
                 .into_iter()
-                .map(|r| (r.provider, (r.meets_floor, (r.score * 10_000.0) as i64)))
+                .enumerate()
+                .map(|(pos, r)| (r.provider, (r.meets_floor, pos)))
                 .collect();
         providers.sort_by_key(|name| {
             let preferred = pref.preferred_cloud.as_ref().is_some_and(|preferred| {
                 name.to_ascii_lowercase()
                     .contains(&preferred.to_ascii_lowercase())
             });
-            let (meets_floor, score) = ranked.get(name).copied().unwrap_or((false, 0));
+            let (meets_floor, pos) = ranked.get(name).copied().unwrap_or((false, usize::MAX));
             (
                 !preferred,
                 !meets_floor,
                 Self::quota_scarcity_tier(headroom(name)),
-                std::cmp::Reverse(score),
+                pos,
                 Self::cloud_rank(name),
                 name.clone(),
             )
