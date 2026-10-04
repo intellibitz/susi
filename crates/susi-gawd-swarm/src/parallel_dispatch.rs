@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::thread;
 
+use susi_core::model_health::ModelHealth;
 use susi_gawd_agents::cloud_budget::{BudgetLedger, Denial, FreeHeadroom, Reservation};
 use susi_gawd_agents::cloud_intent::{select, Candidate, IntentConstraints, Ranked, Selection};
 use susi_vendor_models::cloud_eligibility::{
@@ -53,6 +54,10 @@ pub struct JobOutcome {
     pub stop: Option<FailoverStop>,
     /// A prior ambiguous attempt may have had side effects.
     pub prior_ambiguous: bool,
+    /// Typed availability of every target this job consulted — the health
+    /// axis next to the attempt trace: a locked-out or dead candidate is
+    /// reported by its `ModelHealth`, never folded into capability.
+    pub target_health: BTreeMap<String, ModelHealth>,
 }
 
 /// Shared stores behind scoped locks — workers borrow guards per decision,
@@ -261,6 +266,7 @@ fn run_job<R: Runner>(
                     attempts: Vec::new(),
                     stop: Some(FailoverStop::Admission(format!("{why:?}"))),
                     prior_ambiguous: false,
+                    target_health: BTreeMap::new(),
                 };
             }
         },
@@ -274,6 +280,7 @@ fn run_job<R: Runner>(
         attempts: Vec::new(),
         stop: None,
         prior_ambiguous: false,
+        target_health: BTreeMap::new(),
     };
     let mut now_ms = budget.now_ms;
     // Selection once per job: evidence gathered during this job's attempts is
@@ -339,10 +346,14 @@ fn run_job<R: Runner>(
                 Permit::Allowed => {}
                 Permit::Cooldown { .. } | Permit::CircuitOpen { .. } | Permit::ProbesExhausted => {
                     saw_lockout = true;
+                    out.target_health
+                        .insert(scope.clone(), lk.health(&scope, EligibilityKind::Unknown));
                     attempted.push(ranked.index);
                     continue;
                 }
                 Permit::Permanent { .. } => {
+                    out.target_health
+                        .insert(scope.clone(), lk.health(&scope, EligibilityKind::Unknown));
                     attempted.push(ranked.index);
                     continue;
                 }
@@ -432,6 +443,8 @@ fn run_job<R: Runner>(
                 out.output = Some(text);
                 out.winner = Some(ranked.candidate.clone());
                 out.winner_pool = Some(pool);
+                out.target_health
+                    .insert(scope.clone(), ModelHealth::Healthy);
                 out.attempts.push(AttemptRecord {
                     candidate: ranked.candidate.clone(),
                     outcome: "success",
@@ -445,6 +458,8 @@ fn run_job<R: Runner>(
                     eg.record_inference(subj(c), &res, now_ms / 1000);
                     let mut lk = shared.lockouts();
                     lk.record(&scope, &res);
+                    out.target_health
+                        .insert(scope.clone(), lk.health(&scope, EligibilityKind::Unknown));
                 }
                 shared.ledger.release(reservation);
                 out.attempts.push(AttemptRecord {
@@ -471,6 +486,8 @@ fn run_job<R: Runner>(
                     eg.record_inference(subj(c), &res, now_ms / 1000);
                     let mut lk = shared.lockouts();
                     lk.record(&scope, &res);
+                    out.target_health
+                        .insert(scope.clone(), lk.health(&scope, EligibilityKind::Unknown));
                 }
                 shared.ledger.commit(reservation, None);
                 out.attempts.push(AttemptRecord {
@@ -484,6 +501,8 @@ fn run_job<R: Runner>(
                     eg.record_inference(subj(c), &res, now_ms / 1000);
                     let mut lk = shared.lockouts();
                     lk.record(&scope, &res);
+                    out.target_health
+                        .insert(scope.clone(), lk.health(&scope, EligibilityKind::Unknown));
                 }
                 shared.ledger.commit(reservation, None);
                 out.prior_ambiguous = true;

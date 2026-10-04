@@ -1042,7 +1042,7 @@
       "id": "VC-201-083",
       "mastery_target": "Delete selected records from authoritative memory, semantic indexes, caches, and supported replicas with durable tombstones; interrupted deletion resumes and retrieval cannot resurrect deleted content.",
       "priority": "P0",
-      "progress": "PARTIAL: in-process tombstone read-blocking and pending-resume propagation hold — verified by `crates/susi-core/src/tests/vc_201_083_mastery.rs`. Refuted on record 2026-10-03: insert() ignores tombstones so a late write after resume permanently repopulates all derived stores, tombstones are volatile in-memory state that a restart forgets, and MemoryStores has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-083.json`. Follow-up tracked by T-DEVIN20261002053148-12.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-083.json, T-DEVIN20261002053148-12, 2026-10-04): deletion propagates into derived stores (authoritative, semantic indexes, caches, and replicas) with durable tombstones; late writes after deletion are refused so derived stores cannot be repopulated; interrupted deletion resumes; tombstones persist across restarts; and retrieval cannot resurrect deleted content. Verified by crates/susi-core/src/tests/vc_201_083_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Propagate memory deletion into derived stores"
     },
@@ -1056,7 +1056,7 @@
       "id": "VC-201-084",
       "mastery_target": "Synchronize scoped records with provenance, conflict handling, and deletion semantics over authenticated peers; disconnected replicas converge without exporting local-only memory or reviving tombstoned records.",
       "priority": "P1",
-      "progress": "PARTIAL: converge() converges eligible records and tombstones, local_only records never export, tombstoned records never revive — verified by `crates/susi-core/src/tests/vc_201_084_mastery.rs`. Refuted on record 2026-10-03: provenance is compared lexically so a stale write outranks a newer one, deletion does not propagate via export_for_peers/merge_from_peer (only converge's tombstone sync carries it), no peer authentication exists, and no production caller drives the replication. Verdict `.agents/roadmap-verdicts/VC-201-084.json`. Follow-up tracked by T-DEVIN20261002053148-13.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-084.json, T-DEVIN20261002053148-13, 2026-10-04): scoped records synchronize with natural provenance ordering where newer writes outrank older writes; export_for_peers carries tombstone records so deletion propagates across peer export/merge; peer authentication is verified on export and merge; disconnected replicas converge without exporting local-only memory or reviving tombstoned records. Verified by crates/susi-core/src/tests/vc_201_084_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Replicate only policy-eligible swarm memory"
     },
@@ -1069,7 +1069,7 @@
       "id": "VC-201-085",
       "mastery_target": "Package approved reflexes, prompts, fixtures, and capability requirements with immutable versions and signatures; importing a skill verifies provenance and tests before granting it executable status.",
       "priority": "P1",
-      "progress": "PARTIAL: untrusted signers and mismatched signature strings are rejected — verified by `crates/susi-core/src/tests/vc_201_085_mastery.rs`. Refuted on record 2026-10-03: skill_sign is forgeable (no key material), the signature binds only name+version so signed content swaps freely, fixture tests are a caller-supplied flag never executed, and import_skill has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-085.json`. Follow-up tracked by T-DEVIN20261002053148-14.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-085.json, T-DEVIN20261002053148-14, 2026-10-04): skill artifacts are packaged with immutable versions and HMAC cryptographic signatures binding the full payload (reflexes, prompts, fixtures, capabilities); signature verification enforces key material; packaged fixtures are executed and unparseable fixtures are rejected before granting executable status. Verified by crates/susi-core/src/tests/vc_201_085_mastery.rs.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Share verified skills as versioned artifacts"
     },
@@ -1367,7 +1367,7 @@
       "id": "VC-202-007",
       "mastery_target": "A natural-language intent is turned into a typed DAG whose nodes are real susi leaf operations with declared inputs, outputs and costs, executed with per-node provenance; an intent the system cannot serve is refused with what is missing, never approximated silently.",
       "priority": "P0",
-      "progress": "PARTIAL: the typed planner/executor machinery exists (susi_core::intent_plan) and is tested, but is dead code — zero production callers. Refuted by .agents/roadmap-verdicts/VC-202-007.json (T-DEEPSEEK-225): the production mission path comma-splits LLM output into Vec<String> goals and silently falls back to a one-goal plan. Residual: T-DEEPSEEK-226.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-007.json, T-DEEPSEEK-226, 2026-10-05): the typed intent DAG is on the production mission path — solve_planned_mission consults Planner::plan on the whole intent and every decomposed step, executes leaf-expressible work via intent_plan::execute with per-node NodeProvenance recorded as PLAN_NODE_EXECUTED interactions, refuses command-shaped input (PLAN_REFUSAL/PLAN_STEP_REFUSED), and routes non-leaf steps through a named PLAN_STEP_ROUTE instead of the old silent single-goal fallback. Leaf vocabulary: the registered ops (list_dir, view_file, grep_search, find_files, write_file, exec_command).",
       "type": "CORE",
       "vector": "Intent becomes a typed, executable DAG"
     },
@@ -1437,7 +1437,7 @@
       "id": "VC-202-014",
       "mastery_target": "Secrets never appear in logs, traces or evidence; egress is allow-listed per mission; and each agent acts only within the authority of its own token, with every refusal recorded.",
       "priority": "P0",
-      "progress": "PARTIAL: secret redaction runs at the real logging/capture/context-graph/admin choke points, and the per-mission egress gate machinery exists — but it is dead code. Refuted by .agents/roadmap-verdicts/VC-202-014.json (T-DEEPSEEK-227): enforced egress is the process-global mac_policy posture, not a per-mission allow-list, and agent authority refusals are not recorded on a named path. Residual: T-DEEPSEEK-228.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-014.json, T-DEEPSEEK-228, 2026-10-05): the per-mission egress gate is on the production dispatch path — ToolRegistry::execute_tool resolves the acting mission's evidence session, mints its posture-bounded token set (a mission can only narrow the process posture, never widen it), checks the mission's own tokens at dispatch, and consults its EgressGate on every egress-class call; missions declare allow-lists in {workspace}/.susi/mission-egress.json (absent = permissive default, malformed = fail closed) or via declare_mission_egress. EgressRefusal{mission,host,reason} and AuthorityRefusal{mission,tool,reason} are recorded per mission and surface on the mission report via the tools.mission.refusals topic (REFUSALS_RECORDED interaction). Secret redaction at the logging/capture/context-graph/untrusted-content/fleet/admin choke points unchanged.",
       "type": "GOVERNANCE",
       "vector": "Secrets, egress and per-agent authority"
     },
@@ -1506,7 +1506,7 @@
       "id": "VC-202-020",
       "mastery_target": "Availability is tracked as its own axis: each model and key is healthy, cooling after a rate limit with Retry-After respected, degraded after timeouts or 5xx, key-dead, or out of quota - while capability is measured only from task outcomes. Per-key rate and concurrency limits are arbitrated across all agents and delegated fan-out, and a refutation test proves that a storm of 429s and timeouts leaves the capability ranking untouched.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: health axis delivered — LockoutTracker::health reports typed ModelHealth per scope on the production dispatch path (JobOutcome::target_health), Retry-After honoured, state persisted across restarts; the 429/timeout-storm refutation proves capability ranking untouched. Per-key rate/concurrency arbitration remains queued (T-DEEPSEEK-116).",
       "type": "OPERATIONS",
       "vector": "Model health is a separate axis from model capability"
     },

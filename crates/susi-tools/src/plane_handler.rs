@@ -11,6 +11,10 @@ use crate::registry::ToolRegistry;
 
 struct ToolsPlaneHandler;
 
+/// Mission-scoped authority records: the egress-gate and token refusals a
+/// mission accumulated, so the orchestrator can surface them on the report.
+const MISSION_REFUSALS_TOPIC: &str = "tools.mission.refusals";
+
 fn workspace_path(payload: &Value) -> PathBuf {
     payload
         .get("workspace")
@@ -71,6 +75,30 @@ impl PlaneHandler for ToolsPlaneHandler {
             topics::TOOLS_SCOUT_REMOTES => {
                 let remotes = GmcpClient::scout_reasoning_remotes();
                 Ok(json!({ "remotes": remotes }))
+            }
+            MISSION_REFUSALS_TOPIC => {
+                let mission = payload
+                    .get("mission")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                Ok(json!({
+                    "egress": ToolRegistry::mission_egress_refusals(mission)
+                        .iter()
+                        .map(|r| json!({
+                            "mission": r.mission,
+                            "host": r.host,
+                            "reason": r.reason.to_string(),
+                        }))
+                        .collect::<Vec<_>>(),
+                    "authority": ToolRegistry::mission_authority_refusals(mission)
+                        .iter()
+                        .map(|r| json!({
+                            "mission": r.mission,
+                            "tool": r.tool,
+                            "reason": r.reason,
+                        }))
+                        .collect::<Vec<_>>(),
+                }))
             }
             topics::TOOLS_REMOTE_EXECUTE => {
                 let remote = payload.get("remote").and_then(|v| v.as_str()).unwrap_or("");
