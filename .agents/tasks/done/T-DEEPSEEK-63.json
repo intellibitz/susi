@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-63",
+  "title": "Verify mastery: Define and measure operating-layer service objectives",
+  "goal": "VC-201-092 (P1) claims mastery of: Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient.. Its own narrative does not claim delivery: PARTIAL: the service-objective view publishes values with an explicit denominator and marks a metric unknown when samples are insufficient. Verified by `crates/susi-gawd/src/tests/vc_201_092.rs`: publishes_values_with_denominator, marks_unknown_when_samples_insufficient. Residual: measuring each of availability, task success, queue delay, inference latency and recovery duration from actual events,. Prove or refute it: add a nonzero test named vc_201_092_mastery_* that exercises the capability on its production path, and record exactly which part is missing when it cannot be proven. Coverage is not mastery: this closes only when the capability is verified, and a linked closed task is not evidence. Closing this task records the outcome, not a passing test: write .agents/roadmap-verdicts/<the vector>.json with verdict 'delivered' (and the test or record that proves it) or 'not-delivered' (with what is missing and the task ids that track the follow-up work), then run scripts/check-roadmap-verdict.py <the vector> — which is this task's acceptance. A refutation therefore closes the task and files the work, instead of stalling on a test that cannot pass; the roadmap and the queue both understand the record. Do not reserve .agents/roadmap-verdicts in your claim: the directory is exempt from the scope check precisely so a verdict commits under your source claim, and reserving it would overlap every other verification task and serialize them all. Reserve the source paths you will touch, and add a scope if the verdict needs to change the vector's narrative in .agents/roadmap.json. Evidence must name something real: a path that exists in the checkout, or an identifier (a test name) that appears in it. The checker verifies this, so a verdict cannot be closed by typing a claim. Put the test in its own file named after the vector (for example crates/<crate>/src/tests/<vc_id>_mastery.rs) and reserve that file with --scope: if several vectors' tests land in one crate test file, their claim scopes overlap and the verifications serialize, so one file per vector is what lets them run at the same time.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-092"
+    ]
+  },
+  "roadmap": "VC-201-092",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790916198,
+  "closed": {
+    "at_unix": 1791087569,
+    "commit": "4abf2f850318b7588be9d98ba5018e68afc9a7fe",
+    "by": "CLAUDE1"
+  }
+}
