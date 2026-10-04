@@ -1,0 +1,10 @@
+{
+  "vector": "VC-201-097",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "The ratchet exists only as a pure comparator with unit tests: ratchet_unsafe in crates/susi-gawd/src/unsafe_ratchet.rs has zero production call sites (scripts/check-reachability.py --function --refuted ratchet_unsafe passes). Nothing runs cargo-geiger or generates an SBOM for pinned feature sets, no baseline of UnsafeExposure/SbomEntry is recorded in the checkout, transitive changes are compared but never persisted or reported, and no CI job invokes the ratchet so new exposure has no auditable review path. Holds: first-party unsafe exceptions are allowed and newly introduced unsafe is flagged for review (vc_201_097_allows_first_party_exceptions, vc_201_097_flags_new_unsafe_for_review in crates/susi-gawd/src/tests/vc_201_097.rs).",
+  "tracked_by": ["T-DEEPSEEK-217"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791103480,
+  "check": ["scripts/check-reachability.py", "--function", "--refuted", "ratchet_unsafe"]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-217",
+  "title": "Wire unsafe-exposure ratchet into CI: run cargo-geiger and SBOM generation for pinned feature sets, record baseline and transitive changes, gate new exposure with an auditable review path",
+  "goal": "VC-201-097 residual: crates/susi-gawd/src/unsafe_ratchet.rs provides ratchet_unsafe with unit tests but no production caller — nothing runs cargo-geiger, generates the SBOM, records a pinned baseline, or gates CI. Deliver the missing production path and a vc_201_097_mastery_* test that exercises it.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_097_mastery",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-097",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791103468
+}
