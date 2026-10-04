@@ -1,0 +1,25 @@
+{
+  "id": "T-DEEPSEEK-212",
+  "title": "One lifecycle contract across discover, load, ready, infer, cancel, unload and health",
+  "goal": "VC-201-042 claims one lifecycle contract covering discover, load, ready, infer, cancel, unload and health for supported native and HTTP-managed runtimes, with typed errors for unsupported operations and readiness that process presence cannot establish. The tree has NativeInferenceEngine and a RuntimeSubstrate::unload; it has no contract spanning the seven, and nothing that establishes readiness beyond process presence. The mastery test that asserted the vector (ff8d8713) exists only on an unmerged branch: zero files named vc_201_042_mastery are tracked on main, so the delivered narrative rested on evidence that was never landed.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "--workspace",
+      "-E",
+      "test(lifecycle_contract_covers_all_seven_operations)"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790977893,
+  "closed": {
+    "at_unix": 1791137587,
+    "commit": "edb76376b36564120cb40cca8cf163b0876e28bc",
+    "by": "DEEPSEEK"
+  }
+}
