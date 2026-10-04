@@ -10,11 +10,17 @@
       "nextest",
       "run",
       "--locked",
+      "--workspace",
       "-E",
       "test(model_rate_arbitration)"
     ]
   },
   "roadmap": "VC-202-020",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790954862
+  "created_unix": 1790954862,
+  "closed": {
+    "at_unix": 1791129437,
+    "commit": "d410c1a17501b87624c74b9b292671f2b278d3e0",
+    "by": "DEEPSEEK"
+  }
 }
