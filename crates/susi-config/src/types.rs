@@ -442,6 +442,18 @@ pub struct InferenceEndpointsConfig {
 
 impl InferenceEndpointsConfig {}
 
+impl InferenceEndpointItem {
+    /// Resolve this endpoint's credential at use time through the scoped
+    /// key path — `api_key_env` names a `key://` ref or bare `ENV_NAME`,
+    /// never the secret body. `Ok(None)` means no credential configured.
+    pub fn resolve_api_key(
+        &self,
+        global_dir: &Path,
+    ) -> crate::susi_error::EaiResult<Option<crate::key_scope::ScopedSecret>> {
+        crate::credential::resolve_api_key_env(&self.api_key_env, global_dir)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ModelScoringHeuristics {
@@ -607,6 +619,21 @@ pub struct ExternalPeerAgentSpec {
     pub api_key_env: Option<String>,
 }
 
+impl ExternalPeerAgentSpec {
+    /// Resolve this peer's credential at use time through the scoped key
+    /// path — `api_key_env` names a `key://` ref or bare `ENV_NAME`, never
+    /// the secret body. `Ok(None)` means no credential configured.
+    pub fn resolve_api_key(
+        &self,
+        global_dir: &Path,
+    ) -> crate::susi_error::EaiResult<Option<crate::key_scope::ScopedSecret>> {
+        match &self.api_key_env {
+            Some(name) => crate::credential::resolve_api_key_env(name, global_dir),
+            None => Ok(None),
+        }
+    }
+}
+
 /// One entry in the leading-models catalog (`config/models.catalog.default.json`).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -618,6 +645,18 @@ pub struct ModelCatalogEntry {
     pub protocol_type: String,
     #[serde(default)]
     pub api_key_env: String,
+}
+
+impl ModelCatalogEntry {
+    /// Resolve this entry's credential at use time through the scoped key
+    /// path — `api_key_env` names a `key://` ref or bare `ENV_NAME`, never
+    /// the secret body. `Ok(None)` means no credential configured.
+    pub fn resolve_api_key(
+        &self,
+        global_dir: &Path,
+    ) -> crate::susi_error::EaiResult<Option<crate::key_scope::ScopedSecret>> {
+        crate::credential::resolve_api_key_env(&self.api_key_env, global_dir)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

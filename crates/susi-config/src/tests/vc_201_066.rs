@@ -7,15 +7,18 @@ fn vc_201_066_parse_and_scope_guard() {
     assert_eq!(r.name, "api_key");
     let mut v = SecretVault::default();
     v.put("deploy", "api_key", "super-secret");
-    assert!(v.resolve(&r, "other").is_err());
-    assert_eq!(v.resolve(&r, "deploy").unwrap(), "super-secret");
+    assert!(v.issue_boundary("other").resolve(&r).is_err());
+    assert_eq!(
+        v.issue_boundary("deploy").resolve(&r).unwrap().expose(),
+        "super-secret"
+    );
 }
 
 #[test]
 fn vc_201_066_plan_export_never_discloses() {
     let out = redact_for_export("using secret://deploy/api_key resolved=super-secret");
     assert!(!out.contains("super-secret"));
-    assert!(out.contains("<redacted>"));
+    assert!(out.contains("[REDACTED]"));
 }
 
 #[test]

@@ -60,9 +60,17 @@ impl KeyRef {
                 name: name.to_string(),
             });
         }
-        if raw.is_empty() || raw.contains('/') || raw.contains(' ') {
+        // A bare ref must be a real environment-variable name; anything
+        // else — including embedded secret material, which this shape
+        // refuses by construction — is not a reference.
+        let mut chars = raw.chars();
+        let env_name = chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !env_name {
             return Err(EaiError::config(
-                "bare key ref must be a non-empty ENV_NAME without spaces",
+                "bare key ref must be an ENV_NAME like OPENAI_API_KEY",
             ));
         }
         Ok(Self {
