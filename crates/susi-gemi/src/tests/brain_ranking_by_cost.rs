@@ -210,7 +210,7 @@ fn brain_ranking_by_cost_floor_still_dominates_the_cheap() {
     // Code floor is Coding-capable: the cloud default (Coding) meets it,
     // a local name (Basic) is below — and cheaper.
     let ranked = s.rank_with_budget(
-        &names(&["ollama-bargainmodel", "acme-apricymodel"]),
+        &names(&["vllm-bargainmodel", "acme-apricymodel"]),
         TaskClass::Code,
         Budget::Balanced,
     );
