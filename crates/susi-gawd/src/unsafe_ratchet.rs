@@ -94,11 +94,8 @@ impl GeigerRunner {
         // Placeholder: In production, this would write the baseline to a version-controlled
         // JSON file (.agents/baseline/unsafe_<features>.json) with the current timestamp
         // and git revision for audit traceability.
-        if exposure.is_empty() && sbom.is_empty() {
-            Ok(())
-        } else {
-            Ok(())
-        }
+        let _ = (exposure, sbom);
+        Ok(())
     }
 
     /// Load the pinned baseline for comparison.
