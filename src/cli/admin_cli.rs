@@ -73,6 +73,24 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
             ],
         ),
         AdminCommands::AuditDeps => run_cargo(cwd, &["audit"]),
+        AdminCommands::ProviderContract => {
+            // The credentialed half stays opt-in (SUSI_PROVIDER_PROBE=1)
+            // and read-only — it proves auth and the error envelope and
+            // records the generation-dependent kinds as Unsupported
+            // rather than spending tokens to verify them.
+            let fixture = susi_gemi::provider_contract::fixture_checks("fixture", "*", "1");
+            let opted_in = std::env::var("SUSI_PROVIDER_PROBE").as_deref() == Ok("1");
+            let credentialed =
+                susi_gemi::provider_contract::probe_credentialed_opt_in("*", "*", "1")
+                    .unwrap_or_default();
+            let _ = crate::cli_json::print_json(&serde_json::json!({
+                "fixture": fixture,
+                "credentialed": {
+                    "opted_in": opted_in,
+                    "claims": credentialed,
+                },
+            }));
+        }
         AdminCommands::Reload => match susi_sandbox::manager::SusiConfig::reload(global_dir) {
             Ok(reloaded) => {
                 println!(

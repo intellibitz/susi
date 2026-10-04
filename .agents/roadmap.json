@@ -634,7 +634,7 @@
       "id": "VC-201-051",
       "mastery_target": "Execute opt-in credentialed and fixture-backed checks for authentication, streaming, tool calls, embeddings, usage, and errors; capability claims include provider/model/version, observation time, and unsupported cases.",
       "priority": "P0",
-      "progress": "PARTIAL: the credentialed and fixture-backed provider checks are implemented and public in susi-gemi's provider_contract, but nothing executes them - no command, admin or daemon path calls probe_credentialed_opt_in - tracked by T-DEEPSEEK-214.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-051.json, T-DEEPSEEK-214, 2026-10-04): susi admin provider-contract runs the fixture-backed checks for all six probe kinds and, when SUSI_PROVIDER_PROBE=1, the read-only credentialed probes per configured endpoint (auth + error envelope exercised; generation kinds honestly Unsupported).",
       "type": "CLOUD_HOSTING",
       "vector": "Probe cloud provider contracts reproducibly"
     },
