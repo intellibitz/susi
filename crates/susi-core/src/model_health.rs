@@ -83,7 +83,7 @@ impl ModelHealth {
     pub fn failure_class(&self) -> Option<FailureClass> {
         match self {
             ModelHealth::Unhealthy { class, .. } | ModelHealth::Dead { class } => Some(*class),
-            _ => None,
+            ModelHealth::Unknown | ModelHealth::Healthy | ModelHealth::Degraded { .. } => None,
         }
     }
 }
