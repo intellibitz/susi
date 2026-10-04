@@ -1,0 +1,32 @@
+{
+  "verdict": "not-delivered",
+  "vector": "VC-201-092",
+  "title": "Define and measure operating-layer service objectives",
+  "mastery_target": "Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient.",
+  "recorded_by": "T-DEEPSEEK-63",
+  "test_evidence": "crates/susi-gawd-a2a/src/mastery_tests/vc_201_092_mastery.rs",
+  "test_names": [
+    "vc_201_092_mastery_availability_measurement_missing",
+    "vc_201_092_mastery_task_success_measurement_missing",
+    "vc_201_092_mastery_queue_delay_measurement_missing",
+    "vc_201_092_mastery_inference_latency_measurement_missing",
+    "vc_201_092_mastery_recovery_duration_measurement_missing"
+  ],
+  "missing": "Instrumentation and aggregation pipeline to measure availability, task success, queue delay, inference latency, and recovery duration from actual task events and roll them into time-windowed SloSample.",
+  "tracked_by": ["T-DEEPSEEK-63"],
+  "delivered_portions": [
+    "SloSample structure exists with all five metric fields",
+    "publish_slos() function correctly formats measurements with denominator and unknown markers",
+    "Testing confirms publish_slos behavior (publishes_values_with_denominator, marks_unknown_when_samples_insufficient)"
+  ],
+  "missing_portions": [
+    "No code measures availability from actual task events (completion vs total attempts)",
+    "No code measures task_success from actual events (successes vs failures)",
+    "No code measures queue_delay from actual events (RequestContext carries no enqueue_time)",
+    "No code measures inference_latency from actual events (TaskState carries no execution duration)",
+    "No code measures recovery_duration from actual events (no recovery timing instrumentation)",
+    "No aggregation pipeline rolls per-task measurements into time-windowed SloSample",
+    "No instrumentation subscribed to task events for collection and windowing"
+  ],
+  "rationale": "The data structures and formatting functions are ready, but the measurement pipeline does not exist. The A2A executor publishes task events, but there is no subscriber that collects the five metrics from those events. RequestContext and TaskState do not carry the timestamps needed for queue_delay, inference_latency, or recovery_duration measurement. Without this instrumentation, the capability cannot be exercised on the production path, so it is not delivered."
+}
