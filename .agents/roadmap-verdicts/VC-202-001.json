@@ -1,0 +1,9 @@
+{
+  "vector": "VC-202-001",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "No credential inventory exists at all: list_api_key_status in crates/susi-vendor-models/src/cloud.rs reports only whether each known vendor's env var is present (vendor, env, bool) — it does not enumerate the configured credentials as records, and key_statuses in crates/susi-config/src/key_rotation.rs reports key ages and rotation hints, never liveness. Nothing probes a credential with a real call: probe_credentialed_opt_in in crates/susi-gemi/src/provider_contract.rs is a stub that returns ProbeStatus::Unsupported with \"configure endpoint to exercise\", and ProbeStatus only spans Supported/Unsupported/Failed — there is no live/expired/unauthorized/rate-limited/unknown taxonomy. No probe evidence is persisted per credential, and no single report answers which credentials work today; the only boot-time consumer (zc_keys_health_boot) logs ages, not liveness.",
+  "tracked_by": ["T-DEEPSEEK-224"],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791126900
+}

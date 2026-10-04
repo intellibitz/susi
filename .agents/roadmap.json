@@ -1303,7 +1303,7 @@
       "id": "VC-202-001",
       "mastery_target": "Every configured provider credential is enumerated, probed with the cheapest possible call, and classified live / expired / unauthorized / rate-limited / unknown with the evidence recorded; keys are never deleted, and one report answers which credentials work today without spending meaningfully to find out.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: credential presence is reported (list_api_key_status env-name presence; key_statuses ages and rotation hints) — never liveness. Refuted by .agents/roadmap-verdicts/VC-202-001.json (T-DEEPSEEK-223): no credential inventory, no cheapest-call probe (probe_credentialed_opt_in is a stub), no live/expired/unauthorized/rate-limited/unknown classification, no recorded evidence, no single report. Residual: T-DEEPSEEK-224.",
       "type": "CONFIGURATION",
       "vector": "Provider credential inventory and liveness scouting"
     },
