@@ -141,3 +141,22 @@ fn vc_201_042_health_recheck_can_restore_readiness() {
     assert!(rt.ready().unwrap(), "second probe recovers");
     assert!(rt.infer("x").is_ok());
 }
+
+#[test]
+fn lifecycle_contract_covers_all_seven_operations() {
+    let fake = Fake::new(true);
+    fake.push_health(Ok(()));
+    fake.push_infer(InferOutcome::Cancelled);
+    let mut rt = Runtime::new("contract", caps(true, true), &fake);
+
+    rt.discover().unwrap();
+    rt.load("model.gguf").unwrap();
+    assert!(rt.ready().unwrap());
+    assert!(matches!(
+        rt.infer("prompt").unwrap(),
+        InferOutcome::Cancelled
+    ));
+    rt.cancel().unwrap();
+    rt.unload().unwrap();
+    assert!(matches!(rt.status(), RuntimeStatus::Discovered));
+}

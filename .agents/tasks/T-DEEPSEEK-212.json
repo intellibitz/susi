@@ -10,6 +10,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-vendor-models",
       "-E",
       "test(lifecycle_contract_covers_all_seven_operations)"
     ]
