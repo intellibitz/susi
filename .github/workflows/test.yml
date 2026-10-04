@@ -24,6 +24,19 @@ permissions:
   contents: read
 
 jobs:
+  unsafe-ratchet:
+    name: Unsafe Exposure Ratchet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-geiger
+        run: cargo install cargo-geiger --locked
+      - name: Run unsafe exposure ratchet
+             run: .github/workflows/unsafe-exposure-ratchet.sh
+
   fmt:
     name: Format Check
     runs-on: ubuntu-latest
