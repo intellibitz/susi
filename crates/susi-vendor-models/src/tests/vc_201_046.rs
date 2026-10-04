@@ -1,6 +1,8 @@
 //! Bounded inference batching for capable backends (VC-201-046).
 
-use crate::infer_batch::{BatchBackend, BatchLimits, BatchOutcome, Batcher, Request};
+use crate::infer_batch::{
+    BatchBackend, BatchLimits, BatchOutcome, Batcher, EngineBatchBackend, Request,
+};
 use std::cell::Cell;
 
 struct Echo {
@@ -131,4 +133,54 @@ fn vc_201_046_queue_bound_and_wait_based_flush() {
     assert!(batch.should_flush(150));
     let out = batch.flush(150);
     assert_eq!(out.len(), 2);
+}
+
+/// Acceptance: the production [`EngineBatchBackend`] — not a test `Echo` —
+/// is called by the [`Batcher`], and batching collapses many requests into
+/// one engine invocation (the throughput win), while deadlines and
+/// cancellation still hold on that production path.
+#[test]
+fn vc_201_046_batcher_called_by_a_production_backend() {
+    let backend = EngineBatchBackend::new(|prompts: &[String]| {
+        prompts.iter().map(|p| format!("out:{p}")).collect()
+    });
+    let mut batcher = Batcher::new(
+        BatchLimits {
+            max_batch: 8,
+            max_queue: 8,
+            max_wait_ms: 100,
+        },
+        &backend,
+    )
+    .unwrap();
+
+    // Four live requests plus one cancelled plus one already-expired.
+    for i in 1..=4u64 {
+        batcher.submit(req(i, &format!("p{i}"), 10_000), 0).unwrap();
+    }
+    batcher.submit(req(5, "cancelled", 10_000), 0).unwrap();
+    batcher.cancel(5).unwrap();
+    batcher.submit(req(6, "expired", 0), 0).unwrap();
+
+    let out = batcher.flush(0);
+    // The expired request was answered at submit time, so flush returns the
+    // four live requests plus the cancelled one.
+    assert_eq!(out.len(), 5);
+    assert_eq!(
+        out.iter()
+            .filter(|(_, o)| matches!(o, BatchOutcome::Done { .. }))
+            .count(),
+        4
+    );
+    assert!(out
+        .iter()
+        .any(|(_, o)| matches!(o, BatchOutcome::Cancelled)));
+    // The already-expired request never ran and is answerable at submit.
+    assert!(matches!(
+        batcher.outcome(6),
+        Some(BatchOutcome::DeadlineExceeded)
+    ));
+
+    // Throughput: four requests became exactly one engine invocation.
+    assert_eq!(backend.invocations(), 1);
 }
