@@ -1,117 +1,105 @@
-//! Mastery verification for VC-201-097: unsafe exposure ratchet production integration.
-//!
-//! The unit tests in unsafe_ratchet.rs verify the core logic. This mastery test
-//! verifies the production integration path: running cargo-geiger, generating SBOM,
-//! recording baselines, and gating CI with the ratchet verdict.
+use crate::unsafe_ratchet::{
+    ratchet_unsafe, sbom_changes, GeigerVerdict, SbomEntry, UnsafeExposure,
+};
 
-use crate::unsafe_ratchet::{ratchet_unsafe, GeigerVerdict, SbomEntry, UnsafeExposure};
-
-/// Production path: run geiger, generate SBOM, and evaluate against baseline.
-/// A clean baseline with no new unsafe exposure passes; new unsafe flags for review.
 #[test]
-fn vc_201_097_mastery_production_integration() {
-    // Simulate a workspace scan result: one crate with unsafe.
+fn vc_201_097_mastery_records_transitive_changes_and_gates_new_exposure() {
     let baseline = vec![UnsafeExposure {
-        crate_name: "susi-core".into(),
-        unsafe_fns: 2,
+        crate_name: "serde".into(),
+        unsafe_fns: 1,
         first_party_exception: false,
     }];
-    let baseline_sbom = vec![SbomEntry {
-        crate_name: "susi-core".into(),
-        version: "0.1.0".into(),
-        provenance: "workspace".into(),
-    }];
-
-    // Current scan: same crate, no new unsafe.
-    let current = vec![UnsafeExposure {
-        crate_name: "susi-core".into(),
-        unsafe_fns: 2,
-        first_party_exception: false,
-    }];
-    let current_sbom = vec![SbomEntry {
-        crate_name: "susi-core".into(),
-        version: "0.1.0".into(),
-        provenance: "workspace".into(),
-    }];
-
-    let result = ratchet_unsafe(&baseline, &current, &baseline_sbom, &current_sbom);
-    assert_eq!(result, GeigerVerdict::Clean);
-}
-
-/// New unsafe exposure in a third-party crate triggers review gate.
-#[test]
-fn vc_201_097_mastery_new_unsafe_in_dep_requires_review() {
-    let baseline = vec![];
-    let baseline_sbom = vec![];
-
-    // New dependency with unsafe functions.
-    let current = vec![UnsafeExposure {
-        crate_name: "external-crate".into(),
-        unsafe_fns: 5,
-        first_party_exception: false,
-    }];
-    let current_sbom = vec![SbomEntry {
-        crate_name: "external-crate".into(),
-        version: "1.2.3".into(),
+    let current = vec![
+        baseline[0].clone(),
+        UnsafeExposure {
+            crate_name: "new-native-dependency".into(),
+            unsafe_fns: 1,
+            first_party_exception: false,
+        },
+    ];
+    let old_sbom = vec![SbomEntry {
+        crate_name: "serde".into(),
+        version: "1.0.0".into(),
         provenance: "crates.io".into(),
     }];
+    let new_sbom = vec![
+        SbomEntry {
+            crate_name: "serde".into(),
+            version: "1.0.1".into(),
+            provenance: "crates.io".into(),
+        },
+        SbomEntry {
+            crate_name: "new-native-dependency".into(),
+            version: "0.1.0".into(),
+            provenance: "crates.io".into(),
+        },
+    ];
 
-    let result = ratchet_unsafe(&baseline, &current, &baseline_sbom, &current_sbom);
-    match result {
-        GeigerVerdict::NeedsReview { new_crates } => {
-            assert!(new_crates.contains(&"external-crate".into()));
+    let changes = sbom_changes(&old_sbom, &new_sbom);
+    assert_eq!(changes.len(), 2);
+    assert!(changes.iter().any(|change| change.crate_name == "serde"));
+    assert_eq!(
+        ratchet_unsafe(&baseline, &current, &old_sbom, &new_sbom),
+        GeigerVerdict::NeedsReview {
+            new_crates: vec!["new-native-dependency".into()]
         }
-        other => panic!("expected review, got {other:?}"),
-    }
+    );
 }
 
-/// First-party exceptions (our own unsafe code) bypass the gate.
 #[test]
-fn vc_201_097_mastery_first_party_exception_bypasses_gate() {
-    let baseline = vec![];
-    let baseline_sbom = vec![];
+fn vc_201_097_mastery_gate_is_on_the_ci_path() {
+    // The production gate must reach ratchet_unsafe: CI runs the workflow
+    // script, the script invokes the susi-gawd binary, and the binary is
+    // the comparator's production call site.
+    let bin = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/bin/unsafe_ratchet.rs"
+    ))
+    .expect("unsafe_ratchet binary present");
+    assert!(
+        bin.contains("ratchet_unsafe("),
+        "the gate binary must call ratchet_unsafe"
+    );
+    assert!(
+        bin.contains("--write-baseline"),
+        "the binary must offer the auditable baseline-regeneration path"
+    );
 
-    let current = vec![UnsafeExposure {
-        crate_name: "susi-tools".into(),
-        unsafe_fns: 10,
-        first_party_exception: true, // Approved internally
-    }];
-    let current_sbom = vec![];
+    let script = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../.github/workflows/unsafe-exposure-ratchet.sh"
+    ))
+    .expect("ratchet workflow script present");
+    assert!(script.contains("cargo geiger"));
+    assert!(script.contains("cargo metadata --format-version 1 --locked"));
+    assert!(script.contains("--bin unsafe_ratchet"));
 
-    let result = ratchet_unsafe(&baseline, &current, &baseline_sbom, &current_sbom);
-    assert_eq!(result, GeigerVerdict::Clean);
+    let workflow = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../.github/workflows/test.yml"
+    ))
+    .expect("test workflow present");
+    assert!(
+        workflow.contains("unsafe-exposure-ratchet.sh"),
+        "CI must invoke the ratchet script"
+    );
 }
 
-/// Increased unsafe in a tracked crate (greater or equal) triggers review.
 #[test]
-fn vc_201_097_mastery_increased_unsafe_fns_triggers_review() {
-    let baseline = vec![UnsafeExposure {
-        crate_name: "susi-sandbox".into(),
-        unsafe_fns: 3,
-        first_party_exception: false,
-    }];
-    let baseline_sbom = vec![SbomEntry {
-        crate_name: "susi-sandbox".into(),
-        version: "0.21.10".into(),
-        provenance: "workspace".into(),
-    }];
-
-    let current = vec![UnsafeExposure {
-        crate_name: "susi-sandbox".into(),
-        unsafe_fns: 5, // Increased from 3 to 5
-        first_party_exception: false,
-    }];
-    let current_sbom = vec![SbomEntry {
-        crate_name: "susi-sandbox".into(),
-        version: "0.21.10".into(),
-        provenance: "workspace".into(),
-    }];
-
-    let result = ratchet_unsafe(&baseline, &current, &baseline_sbom, &current_sbom);
-    match result {
-        GeigerVerdict::NeedsReview { new_crates } => {
-            assert!(new_crates.contains(&"susi-sandbox".into()));
-        }
-        other => panic!("expected review, got {other:?}"),
-    }
+fn vc_201_097_mastery_pinned_baseline_exists_for_the_default_feature_set() {
+    // The gate only means something against a recorded baseline of the
+    // pinned feature set. An empty baseline would flag every exposed crate.
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../.agents/baseline/unsafe-default.json"
+    ))
+    .expect("pinned baseline recorded");
+    let baseline: crate::unsafe_ratchet::UnsafeBaseline =
+        serde_json::from_str(&text).expect("baseline parses as UnsafeBaseline");
+    assert_eq!(baseline.features, "default");
+    assert!(
+        !baseline.exposure.is_empty() || !baseline.sbom.is_empty(),
+        "baseline must record measured exposure and/or the SBOM — an empty \
+         baseline is not a recorded measurement"
+    );
 }
