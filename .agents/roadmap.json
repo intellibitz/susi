@@ -1236,7 +1236,7 @@
       "id": "VC-201-097",
       "mastery_target": "Run cargo-geiger and software-bill-of-materials generation for pinned feature sets, recording first-party exceptions and transitive changes; CI flags new exposure with an auditable review path.",
       "priority": "P1",
-      "progress": "PARTIAL: first-party unsafe exceptions are allowed and newly introduced unsafe is flagged for review. Verified by `crates/susi-gawd/src/tests/vc_201_097.rs`: allows_first_party_exceptions, flags_new_unsafe_for_review. Residual: running cargo-geiger and SBOM generation for pinned feature sets, recording transitive changes, and gating new exposure in CI with an auditable review path, are not enumerated by a named check. Evidence: T-CLAUDE-396.",
+      "progress": "DELIVERED: unsafe-ratchet CI job runs `cargo geiger --forbid-only` + `cargo metadata` SBOM and gates through the unsafe_ratchet binary (production caller of ratchet_unsafe); pinned baseline .agents/baseline/unsafe-default.json records features=default, 605 exposure entries and 871 SBOM entries; transitive changes reported via sbom_changes; --write-baseline + committed diff is the auditable review path. Mastery: vc_201_097_mastery_* (3 tests).",
       "type": "OPERATIONS",
       "vector": "Ratchet dependency unsafe exposure and provenance"
     },

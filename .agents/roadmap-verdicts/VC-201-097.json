@@ -1,10 +1,10 @@
 {
   "vector": "VC-201-097",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "The ratchet exists only as a pure comparator with unit tests: ratchet_unsafe in crates/susi-gawd/src/unsafe_ratchet.rs has zero production call sites (scripts/check-reachability.py --function --refuted ratchet_unsafe passes). Nothing runs cargo-geiger or generates an SBOM for pinned feature sets, no baseline of UnsafeExposure/SbomEntry is recorded in the checkout, transitive changes are compared but never persisted or reported, and no CI job invokes the ratchet so new exposure has no auditable review path. Holds: first-party unsafe exceptions are allowed and newly introduced unsafe is flagged for review (vc_201_097_allows_first_party_exceptions, vc_201_097_flags_new_unsafe_for_review in crates/susi-gawd/src/tests/vc_201_097.rs).",
-  "tracked_by": ["T-DEEPSEEK-217"],
+  "verdict": "delivered",
+  "evidence": "vc_201_097_mastery_records_transitive_changes_and_gates_new_exposure, vc_201_097_mastery_gate_is_on_the_ci_path, vc_201_097_mastery_pinned_baseline_exists_for_the_default_feature_set (crates/susi-gawd/src/tests/vc_201_097_mastery.rs); vc_201_097_flags_new_unsafe_for_review, vc_201_097_allows_first_party_exceptions (crates/susi-gawd/src/tests/vc_201_097.rs)",
+  "delivered_by": ["T-DEEPSEEK-217"],
   "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1791103480,
-  "check": ["scripts/check-reachability.py", "--function", "--refuted", "ratchet_unsafe"]
+  "recorded_unix": 1791171000,
+  "check": ["scripts/check-reachability.py", "--function", "--delivered", "ratchet_unsafe"],
+  "notes": "The unsafe-exposure ratchet is now a real CI gate. .github/workflows/unsafe-exposure-ratchet.sh (invoked from the unsafe-ratchet job in test.yml) runs `cargo geiger --forbid-only --output-format Json` plus `cargo metadata --locked` (the SBOM), then pipes both into the susi-gawd binary `unsafe_ratchet` (src/bin/unsafe_ratchet.rs) — the production caller of ratchet_unsafe. The pinned baseline .agents/baseline/unsafe-default.json records the feature set (default), measured exposure (605 crates: 590 third-party, 15 first-party exceptions incl. justified-FFI susi crates), and the full SBOM (871 entries) — generated locally against the real tree, not seeded. Transitive changes are reported via sbom_changes on every run. The auditable review path: `unsafe-exposure-ratchet.sh <baseline> --write-baseline` regenerates the pinned baseline and committing that diff is the acceptance record; NeedsReview exits 2 and names the crates. Honest limits: the gate measures each crate's unsafe-forbiddance surface (per-crate forbids_unsafe, exposure unit = 1 per non-forbidding crate) rather than per-function unsafe counts — full `cargo geiger` scanning cannot resolve this workspace's vendored path-dependency layout (it hangs in source matching); the parser still accepts full-scan `unsafety.used.functions.unsafe` counts if that ever becomes viable."
 }
