@@ -4,6 +4,7 @@
 use crate::cancel_propagate::{
     run_cancellable, CancelBus, CancelToken, CancellableResult, Descendant, WorkerKind,
 };
+use crate::capacity_admission::LiveAdmission;
 use crate::fair_queue::{EnqueueResult, FairQueue, QueueLimits, QueuedMission};
 use crate::independent_verify::{verification_satisfied, ReviewConclusion};
 use crate::joint_consensus::{overlapping_disjoint_blocked, Electorate, MembershipTransition};
@@ -57,6 +58,13 @@ pub struct MissionDag {
     /// Admission capacity override (T-DEVIN-12). `None` measures the host
     /// each scheduling round; tests pin a fixed snapshot for determinism.
     pub capacity: Option<Resources>,
+    /// Optional shared admission ledger. Production defaults to the
+    /// process-wide host ledger; tests and embedding callers may inject a
+    /// small measured inventory.
+    pub live_admission: Option<Arc<LiveAdmission>>,
+    /// Per-node measured resource requirements. Missing entries use the
+    /// conservative default request rather than a fixed host assumption.
+    pub resource_requests: std::collections::BTreeMap<usize, ResNode>,
 }
 
 pub type SwarmDag = MissionDag;
@@ -116,6 +124,8 @@ impl MissionDag {
             roster: Electorate(BTreeSet::new()),
             pending_membership: None,
             capacity: None,
+            live_admission: None,
+            resource_requests: std::collections::BTreeMap::new(),
         }
     }
 
@@ -222,6 +232,8 @@ impl MissionDag {
             roster: Electorate(BTreeSet::new()),
             pending_membership: None,
             capacity: None,
+            live_admission: None,
+            resource_requests: std::collections::BTreeMap::new(),
         };
         // Durable state survives the crash (T-DEVIN-9/10): fences stay
         // monotonic so stale tokens can't collide, and intents recorded
@@ -559,9 +571,66 @@ impl MissionDag {
             cpu: 1.0,
             gpu_mem_gb: 0.0,
             mem_gb: 0.0,
+            subprocesses: 1,
             needs_model: true,
             needs_tools: vec!["exec_command".into()],
         }
+    }
+
+    /// Inject one shared admission ledger, preserving atomic reservations
+    /// when several mission DAGs execute concurrently.
+    #[must_use]
+    pub fn with_live_admission(mut self, admission: Arc<LiveAdmission>) -> Self {
+        self.live_admission = Some(admission);
+        self
+    }
+
+    /// Replace the live admission ledger on an existing mission.
+    pub fn set_live_admission(&mut self, admission: Arc<LiveAdmission>) {
+        self.live_admission = Some(admission);
+    }
+
+    /// Record measured resource demand for a node. The request is consumed by
+    /// the production execution path, not only by a unit-test helper.
+    pub fn set_resource_request(&mut self, idx: usize, request: ResNode) {
+        self.resource_requests.insert(idx, request);
+    }
+
+    /// Admit the supplied ready nodes through the same production ledger used
+    /// by [`Self::execute_dag`]. Deferred nodes stay queued in that ledger;
+    /// callers must not mark them complete until a later pass admits them.
+    pub fn admit_ready_nodes(
+        &mut self,
+        mission: &str,
+        ready: &[usize],
+    ) -> crate::capacity_admission::AdmissionBatch {
+        let requests: Vec<(usize, ResNode)> = ready
+            .iter()
+            .map(|&idx| {
+                (
+                    idx,
+                    self.resource_requests
+                        .get(&idx)
+                        .cloned()
+                        .unwrap_or_else(|| Self::default_resource_node(idx)),
+                )
+            })
+            .collect();
+        self.live_admission().admit_batch(mission, &requests)
+    }
+
+    fn live_admission(&mut self) -> Arc<LiveAdmission> {
+        if let Some(admission) = self.live_admission.as_ref() {
+            return Arc::clone(admission);
+        }
+        let admission = self
+            .capacity
+            .clone()
+            .map(crate::capacity_admission::LiveAdmission::fixed)
+            .unwrap_or_else(crate::capacity_admission::host_admission);
+        let admission = Arc::new(admission);
+        self.live_admission = Some(Arc::clone(&admission));
+        admission
     }
 
     /// Filter ready indices by live resource constraints; reserves as admits
@@ -737,6 +806,7 @@ impl MissionDag {
 
         let mut executed_count = self.nodes.iter().filter(|node| node.completed).count();
         let total_nodes = self.nodes.len();
+        let admission_mission = format!("dag-{:p}", self);
 
         while executed_count < total_nodes {
             if self.is_cancelled(now_unix()) {
@@ -770,23 +840,35 @@ impl MissionDag {
                 ));
             }
 
-            // Admit against measured host capacity, re-measured each round
-            // so deferred nodes drain under fresh headroom (T-DEVIN-12).
-            // A `capacity` override pins the snapshot for tests.
-            let host_probe = crate::capacity_admission::HostProbe;
-            let fixed = self
-                .capacity
-                .clone()
-                .map(crate::capacity_admission::FixedProbe);
-            let probe: &dyn crate::capacity_admission::CapacityProbe =
-                fixed.as_ref().map_or(&host_probe, |f| f);
-            let (ready_indices, _deferred, _remaining) = crate::capacity_admission::admit_round(
-                probe,
-                &ready_indices,
-                &std::collections::BTreeMap::new(),
-                Self::default_resource_node,
-            );
+            // Admit against a fresh shared inventory snapshot. Deferred nodes
+            // remain in the live queue and are retried after this batch's
+            // reservations release; they are never marked complete here.
+            let admission_batch = self.admit_ready_nodes(&admission_mission, &ready_indices);
+            let ready_indices = admission_batch.admitted_indices();
+            let deferred = admission_batch.deferred.clone();
+            let batch_reservations: Vec<_> = admission_batch
+                .admitted
+                .into_iter()
+                .map(|(_, reservation)| reservation)
+                .collect();
+            if !deferred.is_empty() {
+                eprintln!(
+                    "[DAG Admission] deferred {} required node(s) for a later drain: {}",
+                    deferred.len(),
+                    deferred
+                        .iter()
+                        .map(|idx| Self::persist_id(*idx))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+            }
             if ready_indices.is_empty() {
+                if let Some(blocked) = admission_batch.blocked {
+                    return Err(EaiError::governance(format!(
+                        "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints; node {} remains queued: {}",
+                        blocked.node_id, blocked.reason
+                    )));
+                }
                 return Err(EaiError::governance(
                     "DAG_EXECUTION_FAILED: no ready nodes admitted under resource constraints",
                 ));
@@ -1391,6 +1473,11 @@ impl MissionDag {
                     }
                 }
             }
+            // Releasing the batch reservations after all completion records
+            // are published wakes queued missions and drains the next fair
+            // batch. Early returns above drop the same tokens on failure or
+            // cancellation.
+            drop(batch_reservations);
         }
 
         Ok(all_evidence)
