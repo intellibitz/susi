@@ -326,20 +326,28 @@ impl GossipManager {
         }
     }
 
-    /// Recv loop for the daemon process lifetime.
+    /// Recv loop for the daemon process lifetime — supervised like every
+    /// other long-lived worker: heartbeated, bounded-restart, reported.
     pub fn spawn_recv_loop(&self) {
         let this = self.clone();
-        let _ = std::thread::Builder::new()
-            .name("susi-gossip-recv".into())
-            .spawn(move || {
-                loop {
-                    match this.poll_recv() {
-                        Ok(true) => {}
-                        Ok(false) => std::thread::sleep(std::time::Duration::from_millis(50)),
-                        Err(_) => std::thread::sleep(std::time::Duration::from_millis(200)),
+        crate::service_supervision::Supervisor::global().spawn(
+            "gossip-recv",
+            3,
+            Some(std::time::Duration::from_secs(120)),
+            move || {
+                let this = this.clone();
+                Some(move || {
+                    loop {
+                        crate::service_supervision::heartbeat("gossip-recv");
+                        match this.poll_recv() {
+                            Ok(true) => {}
+                            Ok(false) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                            Err(_) => std::thread::sleep(std::time::Duration::from_millis(200)),
+                        }
                     }
-                }
-            });
+                })
+            },
+        );
     }
 
     /// Rewrite a cluster peer host:port onto the gossip UDP port.

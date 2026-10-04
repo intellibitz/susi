@@ -29,40 +29,61 @@ impl SusiRuntimeAdmin {
     /// `substrate_home` is the host substrate root (`~/.susi`), never a project cwd.
     pub fn start_administration_cycle(substrate_home: &Path, blackboard: Arc<SwarmBlackboard>) {
         let home = substrate_home.to_path_buf();
-        std::thread::spawn(move || {
-            let elastic_scheduler = ElasticScheduler::default();
-            let mut maintenance = Maintenance::new(&home);
+        // Supervised like every other long-lived worker. The heartbeat
+        // bound is an hour: one readiness pulse runs a full 23-agent
+        // security-sweep mission and can legitimately take that long.
+        crate::service_supervision::Supervisor::global().spawn(
+            "runtime-admin",
+            3,
+            Some(Duration::from_secs(3600)),
+            move || {
+                let home = home.clone();
+                let blackboard = Arc::clone(&blackboard);
+                Some(move || {
+                    let elastic_scheduler = ElasticScheduler::default();
+                    let mut maintenance = Maintenance::new(&home);
 
-            // Mandate: Perform immediate Readiness Pulse on substrate boot
-            let _ = Self::perform_substrate_audit(&home);
-            let _ = Self::perform_host_readiness(&home);
-
-            let mut last_pulse = std::time::Instant::now();
-            let mut tuned_at_completed = 0usize;
-            loop {
-                // 1. Hardware Load Watchdog (High-Resolution)
-                Self::perform_hardware_watchdog_audit(&home, &blackboard, &elastic_scheduler);
-                // 1b. SLA-driven auto-tune over the live task table.
-                Self::perform_auto_tune(&blackboard, &elastic_scheduler, &mut tuned_at_completed);
-
-                // 1c. Periodic maintenance on its own adaptive cadence.
-                if std::time::Instant::now() >= maintenance.next_due {
-                    maintenance.tick();
-                }
-
-                // 2. Periodic host readiness (hourly) — not project work.
-                // Each pulse runs a full 23-agent security-sweep mission;
-                // a 5-minute cadence burned inference failover and filled
-                // the journal with 12KB traces ~288x/day.
-                if last_pulse.elapsed() > Duration::from_secs(3600) {
+                    // Mandate: Perform immediate Readiness Pulse on substrate boot
                     let _ = Self::perform_substrate_audit(&home);
                     let _ = Self::perform_host_readiness(&home);
-                    last_pulse = std::time::Instant::now();
-                }
 
-                std::thread::sleep(Duration::from_secs(10));
-            }
-        });
+                    let mut last_pulse = std::time::Instant::now();
+                    let mut tuned_at_completed = 0usize;
+                    loop {
+                        crate::service_supervision::heartbeat("runtime-admin");
+                        // 1. Hardware Load Watchdog (High-Resolution)
+                        Self::perform_hardware_watchdog_audit(
+                            &home,
+                            &blackboard,
+                            &elastic_scheduler,
+                        );
+                        // 1b. SLA-driven auto-tune over the live task table.
+                        Self::perform_auto_tune(
+                            &blackboard,
+                            &elastic_scheduler,
+                            &mut tuned_at_completed,
+                        );
+
+                        // 1c. Periodic maintenance on its own adaptive cadence.
+                        if std::time::Instant::now() >= maintenance.next_due {
+                            maintenance.tick();
+                        }
+
+                        // 2. Periodic host readiness (hourly) — not project work.
+                        // Each pulse runs a full 23-agent security-sweep mission;
+                        // a 5-minute cadence burned inference failover and filled
+                        // the journal with 12KB traces ~288x/day.
+                        if last_pulse.elapsed() > Duration::from_secs(3600) {
+                            let _ = Self::perform_substrate_audit(&home);
+                            let _ = Self::perform_host_readiness(&home);
+                            last_pulse = std::time::Instant::now();
+                        }
+
+                        std::thread::sleep(Duration::from_secs(10));
+                    }
+                })
+            },
+        );
     }
 
     /// Evaluates a telemetry snapshot against the watchdog's stress

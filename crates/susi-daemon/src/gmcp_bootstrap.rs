@@ -635,7 +635,8 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     susi_gmcp::reflexes::register_synthesized_reflexes();
 
     // Zero-Config Auto-Link: Ensure essential MCP tools are mapped (Non-Blocking Mandate)
-    std::thread::spawn(|| {
-        ToolRegistry::auto_link_essential_mcp_servers();
+    // Supervised one-shot: a panic retries once, a clean return retires it.
+    crate::service_supervision::Supervisor::global().spawn_oneshot("mcp-auto-link", 1, || {
+        Some(ToolRegistry::auto_link_essential_mcp_servers)
     });
 }

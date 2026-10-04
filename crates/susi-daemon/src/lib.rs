@@ -94,7 +94,7 @@ mod vc_202_010_mastery_tests;
 pub use composition::{swarm_host_snapshot, wire_cli_substrate, wire_engine_hooks};
 pub use engine_hooks::SusiEngineHooks;
 pub use server::SusiDaemon;
-pub use service_supervision::{RestartEvent, ServiceStatus, Supervisor};
+pub use service_supervision::{RestartEvent, ServiceStatus, Supervisor, WorkerState};
 // SusiAdmin and EvolutionManager are used via fully qualified names in tools.rs
 pub mod eco_drift_alerts;
 pub mod eco_probe_scheduler;
