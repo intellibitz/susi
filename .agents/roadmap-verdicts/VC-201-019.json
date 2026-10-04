@@ -2,10 +2,10 @@
   "vector": "VC-201-019",
   "verdict": "not-delivered",
   "evidence": "crates/susi-gawd/src/tests/vc_201_019_mastery.rs",
-  "missing": "The ledger half is substantially real (scoped per task-class+model, persisted, wired into brain ranking) but the claimed refusal is not delivered: (1) 'fresh evidence' is any non-empty list \u2014 one empty string passes (vc_201_019_mastery_empty_string_receipt_is_evidence); (2) the counterexample cap drops the NEWEST rejections \u2014 after 32 the ledger stops learning (vc_201_019_mastery_cap_drops_newest_failures); (3) check_proposal has no production caller, so 'a repeated proposal is refused' is never enforced; (4) the parallel ExperimentMemory keys repeats by caller-chosen id \u2014 identical content under a new id is Fresh \u2014 and trusts caller booleans (vc_201_019_mastery_identical_proposal_under_new_id_is_fresh). Holds: persisted scoped counterexamples, verified-reference addressing, bogus references rejected (vc_201_019_mastery_ledger_semantics_hold).",
+  "missing": "Three refutations fixed: 'fresh evidence' now requires at least one non-blank receipt, not merely a non-empty list (a lone empty string is refused); the counterexample cap now evicts the OLDEST rejection once MAX_COUNTEREXAMPLES is reached, so the ledger keeps learning from new failures instead of freezing; and the parallel ExperimentMemory now recognizes a repeat by identical (cause, counterexample) content even under a fresh id, with addressed/fresh_receipts checked as real evidence rather than caller-asserted booleans. Still missing: check_proposal has no production caller, so 'a repeated proposal is refused' is not yet enforced anywhere. Holds: persisted scoped counterexamples, verified-reference addressing, bogus references rejected (vc_201_019_mastery_ledger_semantics_hold).",
   "tracked_by": [
     "T-DEVIN20261002053148-26"
   ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790992768
+  "recorded_by": "INTELLIBITZWT20261005035445",
+  "recorded_unix": 1791156736
 }

@@ -246,7 +246,7 @@
       "id": "VC-201-019",
       "mastery_target": "Store failure causes, counterexamples, and proposal lineage in scoped experiment memory; repeated proposals must address the previous rejection or explicitly declare new evidence.",
       "priority": "P1",
-      "progress": "PARTIAL: the OutcomeLedger half is real — scoped, persisted counterexamples that reject invented references — but the claimed refusal is not enforced (check_proposal has no production caller), an empty-string receipt counts as 'new evidence', and the counterexample cap discards the newest failures. The cited ExperimentMemory keys repeats by caller-chosen id and trusts caller booleans. Refuted on record; tracked by T-DEVIN20261002053148-26.",
+      "progress": "PARTIAL: the OutcomeLedger half is real — scoped, persisted counterexamples that reject invented references — and now requires a non-blank receipt as fresh evidence while the cap evicts the oldest failure instead of the newest. ExperimentMemory now recognizes a repeat by (cause, counterexample) content under a fresh id and checks real evidence instead of caller booleans. Residual: check_proposal has no production caller. Refuted on record; tracked by T-DEVIN20261002053148-26.",
       "type": "RSI_EXECUTION",
       "vector": "Learn from failed and rejected experiments"
     },
