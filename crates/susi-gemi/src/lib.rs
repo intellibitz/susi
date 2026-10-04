@@ -75,6 +75,7 @@ pub mod region_eligibility;
 pub mod region_failover;
 pub mod retry_policy;
 pub mod scout_probe;
+pub mod scout_schedule;
 pub mod speculative_routing;
 pub mod spend_tracker;
 pub mod sse_streaming;
@@ -109,6 +110,9 @@ mod brain_ranking_by_cost_tests;
 #[cfg(test)]
 #[path = "tests/brain_scout_probe.rs"]
 mod brain_scout_probe_tests;
+#[cfg(test)]
+#[path = "tests/brain_scout_schedule.rs"]
+mod brain_scout_schedule_tests;
 #[cfg(test)]
 #[path = "tests/budget_ceiling.rs"]
 mod budget_ceiling_tests;
