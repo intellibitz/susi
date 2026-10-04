@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-224",
+  "title": "Implement provider credential inventory and liveness scouting: enumerate every configured key, probe each with the cheapest call, classify live/expired/unauthorized/rate-limited/unknown with recorded evidence, one report command; keys never deleted",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_202_001_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-001",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791112450
+}
