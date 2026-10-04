@@ -5,6 +5,10 @@
 //! state, stable operation IDs, health checks, and rollback for an explicitly
 //! supported backend; repeated apply and crash recovery do not create duplicate resources.
 
+use crate::cloud_reconciler::{
+    CloudReconciler, DeploymentDesiredState, DeploymentObservedState, DeploymentPhase,
+    ReconcileAction,
+};
 use crate::eco_gpu_clouds::{profile, PROFILE_ID};
 
 #[test]
@@ -15,36 +19,72 @@ fn vc_201_055_mastery_catalog_profile_loads() {
 }
 
 #[test]
-fn vc_201_055_mastery_reconciliation_engine_missing() {
-    // Mastery target requires desired/observed state reconciliation with stable operation IDs,
-    // health checks, and rollback for an explicitly supported cloud backend (e.g. RunPod, Replicate).
-    // In current implementation, only static descriptive profiles exist; no provisioning reconciler,
-    // state store, operation ID tracker, or health check probe is implemented.
-    #[allow(dead_code)]
-    struct DeploymentDesiredState {
-        pub target_backend: String,
-        pub model_id: String,
-        pub min_replicas: u32,
-        pub op_id: String,
-    }
-
+fn vc_201_055_mastery_reconciliation_engine_implemented() {
+    let mut reconciler = CloudReconciler::new();
     let desired = DeploymentDesiredState {
+        deployment_id: "dep-mastery-runpod".into(),
         target_backend: "runpod".into(),
         model_id: "llama3-70b".into(),
         min_replicas: 1,
-        op_id: "op-runpod-llama3-001".into(),
+        max_replicas: 3,
+        gpu_type: "A100".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-mastery-runpod".into(),
+        target_backend: "runpod".into(),
+        model_id: "llama3-70b".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
     };
 
-    assert_eq!(desired.target_backend, "runpod");
-    assert_eq!(desired.min_replicas, 1);
-    assert!(!desired.op_id.is_empty());
-    // Confirms that no production cloud deployment reconciliation engine exists in susi-vendor-models
+    let outcome = reconciler.reconcile(&desired, &mut observed);
+    assert_eq!(outcome.action, ReconcileAction::Provision);
+    assert_eq!(observed.phase, DeploymentPhase::Healthy);
+    assert_eq!(observed.observed_generation, 1);
 }
 
 #[test]
-fn vc_201_055_mastery_crash_recovery_deduplication_unimplemented() {
-    // Repeated apply and crash recovery must not create duplicate remote resources.
-    // Without stable operation IDs tracked in durable state, repeated apply cannot guarantee idempotency.
-    let op_id = "op-idempotent-apply-test";
-    assert!(!op_id.is_empty());
+fn vc_201_055_mastery_crash_recovery_deduplication() {
+    let mut reconciler = CloudReconciler::new();
+    let desired = DeploymentDesiredState {
+        deployment_id: "dep-mastery-dedup".into(),
+        target_backend: "modal".into(),
+        model_id: "mistral-7b".into(),
+        min_replicas: 2,
+        max_replicas: 4,
+        gpu_type: "T4".into(),
+        generation: 1,
+    };
+    let mut observed = DeploymentObservedState {
+        deployment_id: "dep-mastery-dedup".into(),
+        target_backend: "modal".into(),
+        model_id: "mistral-7b".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
+    };
+
+    let outcome1 = reconciler.reconcile(&desired, &mut observed);
+    assert!(!outcome1.deduplicated);
+
+    // Simulate crash before observed state was committed (replayed from pre-crash snapshot)
+    let mut recovered_observed = DeploymentObservedState {
+        deployment_id: "dep-mastery-dedup".into(),
+        target_backend: "modal".into(),
+        model_id: "mistral-7b".into(),
+        active_replicas: 0,
+        healthy_replicas: 0,
+        phase: DeploymentPhase::Pending,
+        last_operation_id: None,
+        observed_generation: 0,
+    };
+    let outcome2 = reconciler.reconcile(&desired, &mut recovered_observed);
+    assert!(outcome2.deduplicated);
+    assert_eq!(outcome1.operation_id, outcome2.operation_id);
 }
