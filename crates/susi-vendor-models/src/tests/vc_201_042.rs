@@ -172,7 +172,7 @@ fn vc_201_042_health_verb_marks_and_recovers() {
     fake.push_health(Err("daemon wedged".into()));
     let mut rt = Runtime::new("ollama", caps(false, false), &fake);
     rt.discover().unwrap();
-    assert!(matches!(rt.health().unwrap(), Err(_)));
+    assert!(rt.health().unwrap().is_err());
     assert!(matches!(rt.status(), RuntimeStatus::Unhealthy { .. }));
     assert!(!rt.ready().unwrap(), "no model staged — never Ready");
     // A Gone runtime answering health re-proves presence (Discovered).
