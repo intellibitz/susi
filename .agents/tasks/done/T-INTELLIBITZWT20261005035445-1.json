@@ -1,0 +1,23 @@
+{
+  "id": "T-INTELLIBITZWT20261005035445-1",
+  "title": "Reconcile open PRs every 5 minutes instead of 15",
+  "goal": "The auto-merge reconciler (scripts/reconcile-prs.sh via auto-merge.yml's schedule trigger) is a fallback-only safety net for merges the event-driven path misses (a dropped workflow_run, a green run that finished before the PR opened, a transient merge refusal); it is lightweight (gh api polling only, no builds). Tighten its worst-case recovery window from 15 to 5 minutes.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "INTELLIBITZWT20261005035445",
+  "created_unix": 1791199762,
+  "closed": {
+    "at_unix": 1791203037,
+    "commit": "784291ddc9cdf554517d32c50fcf3a72d727d729",
+    "by": "INTELLIBITZWT20261005035445"
+  }
+}
