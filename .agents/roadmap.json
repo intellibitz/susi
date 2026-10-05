@@ -1472,7 +1472,7 @@
       "id": "VC-202-017",
       "mastery_target": "Every action that changes state or spends money - task and claim transitions, commits, pushes and merges, model calls, tool executions, file writes, egress attempts, approvals, secret access - emits exactly one structured audit record (actor, action kind, target, outcome, duration, cost, correlation and a redaction marker) through a single dispatch point, reusing the existing signed audit log rather than creating a second one. Coverage is made checkable rather than aspirational: an exhaustive action enum plus an architecture test that fails if any other path mutates state.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (T-DEEPSEEK-108): production state-changing actions use an exhaustive typed audit schema and one guarded gawd.audit.action dispatch into the existing signed SusiAuditLogger; payloads are digest-only and denial outcomes are retained.",
       "type": "OPERATIONS",
       "vector": "Every state-changing action is audited through one choke point"
     },
