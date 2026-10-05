@@ -10,6 +10,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-core",
       "-E",
       "test(vc_201_074_mastery)"
     ]
