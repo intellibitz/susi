@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-265",
+  "title": "Verify mastery: Make placement respect host thermal and power limits",
+  "goal": "Use available thermal and power telemetry with explicit unknown states and operator limits; simulated pressure throttles or reroutes eligible work while preserving local-only requirements.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-gemi",
+      "--locked",
+      "-E",
+      "test(vc_201_048_thermal_router_unknown_telemetry_in_placement)"
+    ]
+  },
+  "roadmap": "VC-201-048",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237633
+}

@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-277",
+  "title": "Verify mastery: Exercise disaster recovery from authoritative backups",
+  "goal": "Restore configuration, workflow state, keys under explicit policy, and required ledger history to isolated nodes; verify audit continuity and report measured recovery time and data loss against declared targets.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-093"
+    ]
+  },
+  "roadmap": "VC-201-093",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237639
+}

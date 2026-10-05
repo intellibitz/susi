@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-260",
+  "title": "Verify mastery: Classify and reconcile task side effects",
+  "goal": "Declare read-only, idempotent, reconcilable, and non-retryable tool actions; crash tests retry only supported actions and surface uncertain external effects for reconciliation.",
+  "size": "l",
+  "deps": [
+    "T-CODEXSWARMGAPS-3"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_safe_replay",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-023",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237630
+}

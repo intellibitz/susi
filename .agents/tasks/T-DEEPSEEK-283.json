@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-283",
+  "title": "Verify mastery: Every decision is observable and costed",
+  "goal": "Each mission yields a trace linking intent to plan to node to model to tokens to cost to outcome, queryable per agent and per task, and the audit trail is append-only and survives restarts.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(cost_ledger_trace)"
+    ]
+  },
+  "roadmap": "VC-202-013",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237643
+}

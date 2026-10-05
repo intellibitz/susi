@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-272",
+  "title": "Verify mastery: Rotate secrets and certificates without silent downgrade",
+  "goal": "Roll credentials and transport certificates with bounded overlap and explicit revocation; interrupted rotation recovers and expired credentials cannot trigger plaintext or unauthenticated fallback.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-077"
+    ]
+  },
+  "roadmap": "VC-201-077",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237637
+}

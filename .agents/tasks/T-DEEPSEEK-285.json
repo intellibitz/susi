@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-285",
+  "title": "Verify mastery: The action history is tamper-evident and interrogable",
+  "goal": "Each audit record is chained to its predecessor under the existing audit key, a verification command detects a mutated, removed or reordered record, and the chain head is anchored periodically so the history is evidence rather than a file the system could rewrite. A read surface answers what an agen",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-108"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(audit_chain_verifies)"
+    ]
+  },
+  "roadmap": "VC-202-019",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237645
+}

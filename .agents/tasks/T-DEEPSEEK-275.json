@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-275",
+  "title": "Verify mastery: Sandbox and roll back adapter upgrades",
+  "goal": "Install an adapter revision beside the active one, run contract checks, and switch only after success; a failed upgrade preserves the working revision and in-flight session ownership.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-089"
+    ]
+  },
+  "roadmap": "VC-201-089",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237638
+}
