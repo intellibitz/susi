@@ -101,6 +101,25 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+/// Model adapter used by the DAG's cancellable worker boundary.
+pub(crate) type DagModelGenerator = Arc<dyn Fn(&str, &Path) -> String + Send + Sync + 'static>;
+
+/// Tool adapter used by the DAG's cancellable mutation boundary.
+pub(crate) type DagToolExecutor =
+    Arc<dyn Fn(&str, &serde_json::Value, &Path) -> EaiResult<String> + Send + Sync + 'static>;
+
+fn production_model_generator() -> DagModelGenerator {
+    Arc::new(|prompt, workspace| {
+        crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(prompt, workspace)
+    })
+}
+
+fn production_tool_executor() -> DagToolExecutor {
+    Arc::new(|name, args, workspace| {
+        crate::susi_core::plane_bus::tools::execute_tool(name, args, workspace)
+    })
+}
+
 /// Unique-per-process execution counter minting task-registry cancel scopes
 /// for each DAG batch run (T-DEVIN-8).
 static DAG_EXEC_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -777,7 +796,14 @@ impl MissionDag {
         blackboard: &MissionBlackboard,
         event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
     ) -> EaiResult<Vec<EvidenceRecord>> {
-        self.execute_dag_inner(workspace, blackboard, event_sender, None)
+        self.execute_dag_inner(
+            workspace,
+            blackboard,
+            event_sender,
+            None,
+            production_model_generator(),
+            production_tool_executor(),
+        )
     }
 
     /// Execute while persisting each successful node completion (resume-safe).
@@ -787,6 +813,26 @@ impl MissionDag {
         blackboard: &MissionBlackboard,
         event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
         persist: &mut MissionPersistCtx<'_>,
+    ) -> EaiResult<Vec<EvidenceRecord>> {
+        self.execute_dag_persisted_with_backends(
+            workspace,
+            blackboard,
+            event_sender,
+            persist,
+            production_model_generator(),
+            production_tool_executor(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)] // persistence context and two injected production adapters are the complete dispatch boundary
+    pub(crate) fn execute_dag_persisted_with_backends(
+        &mut self,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+        event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
+        persist: &mut MissionPersistCtx<'_>,
+        model_generator: DagModelGenerator,
+        tool_executor: DagToolExecutor,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         self.seed_persist(persist.mission);
         // Recovery is an atomic authority transition.  It advances both
@@ -823,15 +869,25 @@ impl MissionDag {
             "{}-{}",
             next_ownership.mission, next_ownership.coordinator
         ))?;
-        self.execute_dag_inner(workspace, blackboard, event_sender, Some(persist))
+        self.execute_dag_inner(
+            workspace,
+            blackboard,
+            event_sender,
+            Some(persist),
+            model_generator,
+            tool_executor,
+        )
     }
 
+    #[allow(clippy::too_many_arguments)] // the inner loop carries its workspace, event, persistence and adapter boundaries explicitly
     fn execute_dag_inner(
         &mut self,
         workspace: &Path,
         blackboard: &MissionBlackboard,
         event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
         mut persist_slot: Option<&mut MissionPersistCtx<'_>>,
+        model_generator: DagModelGenerator,
+        tool_executor: DagToolExecutor,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         use rayon::prelude::*;
         let mut all_evidence = Vec::new();
@@ -1062,11 +1118,9 @@ impl MissionDag {
                     let model_workspace = node_ws.clone();
                     let model_cancel = cancellation.clone();
                     let model_prompt = prompt.clone();
+                    let model_generator = Arc::clone(&model_generator);
                     let res = match run_cancellable(&model_cancel, move || {
-                        crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
-                            &model_prompt,
-                            &model_workspace,
-                        )
+                        model_generator(&model_prompt, &model_workspace)
                     }) {
                         Ok(CancellableResult::Completed(output)) => Ok(output),
                         Ok(CancellableResult::Cancelled) => Err(EaiError::governance(
@@ -1195,12 +1249,9 @@ impl MissionDag {
                     }
                     let tool_call = call.clone();
                     let tool_workspace = node_ws.clone();
+                    let tool_executor = Arc::clone(&tool_executor);
                     let result = match run_cancellable(&cancellation, move || {
-                        crate::susi_core::plane_bus::tools::execute_tool(
-                            "exec_command",
-                            &tool_call,
-                            &tool_workspace,
-                        )
+                        tool_executor("exec_command", &tool_call, &tool_workspace)
                     }) {
                         Ok(CancellableResult::Completed(Ok(output))) => output,
                         Ok(CancellableResult::Completed(Err(error))) => {
@@ -1562,6 +1613,36 @@ pub fn dispatch_mission_dag(
     workspace: &Path,
     blackboard: &MissionBlackboard,
 ) -> Vec<(String, String)> {
+    dispatch_mission_dag_inner(
+        goal,
+        workspace,
+        blackboard,
+        production_model_generator(),
+        production_tool_executor(),
+    )
+}
+
+/// Hermetic production-entry seam for regression tests. It deliberately
+/// retains the persisted mission loading and dispatch hook around the same
+/// `execute_dag_persisted` path used by the daemon.
+#[cfg(test)]
+pub(crate) fn dispatch_mission_dag_with_backends(
+    goal: &str,
+    workspace: &Path,
+    blackboard: &MissionBlackboard,
+    model_generator: DagModelGenerator,
+    tool_executor: DagToolExecutor,
+) -> Vec<(String, String)> {
+    dispatch_mission_dag_inner(goal, workspace, blackboard, model_generator, tool_executor)
+}
+
+fn dispatch_mission_dag_inner(
+    goal: &str,
+    workspace: &Path,
+    blackboard: &MissionBlackboard,
+    model_generator: DagModelGenerator,
+    tool_executor: DagToolExecutor,
+) -> Vec<(String, String)> {
     let mut results = Vec::new();
     let persist_dir = PersistedMission::missions_dir(workspace);
     let mission_id = PersistedMission::mission_id_for_goal(goal);
@@ -1582,7 +1663,14 @@ pub fn dispatch_mission_dag(
         mission: &mut persist,
         dir: &persist_dir,
     };
-    match dag.execute_dag_persisted(workspace, blackboard, &event_tx, &mut persist_ctx) {
+    match dag.execute_dag_persisted_with_backends(
+        workspace,
+        blackboard,
+        &event_tx,
+        &mut persist_ctx,
+        model_generator,
+        tool_executor,
+    ) {
         Ok(evidence_records) => {
             for record in &evidence_records {
                 let payload =

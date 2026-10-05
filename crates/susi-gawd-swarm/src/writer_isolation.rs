@@ -274,6 +274,30 @@ impl WriterIsolation {
             ));
         }
         if !scope.dir.is_dir() {
+            let owner = scope
+                .dir
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let retired = scope.dir.parent().is_some_and(|root| {
+                std::fs::read_dir(root)
+                    .ok()
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .any(|entry| {
+                        entry
+                            .file_name()
+                            .to_string_lossy()
+                            .ends_with(&format!("-{owner}"))
+                            && entry.file_name().to_string_lossy().starts_with("stale-")
+                    })
+            });
+            if retired {
+                return Err(EaiError::governance(
+                    "writer isolation: stale worker scope cannot be folded",
+                ));
+            }
             return Err(EaiError::governance(
                 "writer isolation: missing worker scope cannot be folded",
             ));
