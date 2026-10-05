@@ -51,3 +51,57 @@ fn vc_201_015_mastery_transcripts_cannot_replace_execution() {
     }
     assert!(!command_covers_full_gate("cargo test"));
 }
+
+/// The gate is on the production patch path, not a transcript a caller
+/// supplies: `apply_patch_cycle` — the seam `susi patch` and the gmcp
+/// `apply_patch_cycle` tool run — executes `run_repository_gate` against
+/// the candidate workspace when the target is the susi repo itself, a
+/// caller-supplied `test_command` cannot bypass it, and the failing
+/// executed report rolls the patch back.
+#[test]
+fn vc_201_015_mastery_production_patch_path_executes_the_gate() {
+    use crate::patch_cycle::{apply_patch_cycle, FilePatch, PatchRequest};
+
+    let ws = std::env::temp_dir().join(format!("susi-vc015-gate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(&ws).unwrap();
+    // The `.agents` identity marker plus a package literally named
+    // `susi` is what marks the repo as the self-build target, so the
+    // full repository gate applies.
+    std::fs::create_dir_all(ws.join(".agents")).unwrap();
+    std::fs::write(ws.join(".agents/identity.json"), "{}").unwrap();
+    std::fs::write(
+        ws.join("Cargo.toml"),
+        "[package]\nname = \"susi\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(ws.join("src")).unwrap();
+    std::fs::write(ws.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+    std::fs::write(ws.join("a.txt"), "old").unwrap();
+
+    let req = PatchRequest {
+        files: vec![FilePatch {
+            path: "a.txt".into(),
+            old: "old".into(),
+            new: "new".into(),
+        }],
+        // An override that would trivially "pass" — the executed gate
+        // must still run and its verdict must win.
+        test_command: Some("true".into()),
+        auto_apply: true,
+        description: "mastery".into(),
+    };
+    let out = apply_patch_cycle(&ws, &req, "autonomous").unwrap();
+    assert!(
+        out.test_stdout.contains("repository gate executed"),
+        "the production path must execute the gate, not parse a transcript"
+    );
+    assert!(
+        !out.test_passed,
+        "a failing executed report blocks the patch"
+    );
+    assert!(out.reverted);
+    assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "old");
+
+    let _ = std::fs::remove_dir_all(&ws);
+}
