@@ -839,10 +839,13 @@ impl MissionDag {
         model_generator: DagModelGenerator,
         tool_executor: DagToolExecutor,
     ) -> EaiResult<Vec<EvidenceRecord>> {
+        let had_prior_state = !persist.mission.nodes.is_empty();
         self.seed_persist(persist.mission);
         // A recorded terminal `Failed` verdict is the mission's outcome:
         // report it cleanly, naming the node and its recorded output,
         // rather than re-running to a dispatch refusal wedge (T-DEEPSEEK-93).
+        // When a snapshot exists the report names it — the known-good
+        // point a rollback would restore (T-DEEPSEEK-94).
         if let crate::mission_persist::ResumeVerdict::TerminalFailed(failed) =
             persist.mission.resume_verdict()
         {
@@ -851,10 +854,26 @@ impl MissionDag {
                 .map(|(id, out)| format!("{id}: {out}"))
                 .collect::<Vec<_>>()
                 .join("; ");
+            let rollback =
+                match PersistedMission::latest_snapshot(workspace, &persist.mission.mission_id) {
+                    Some(name) => format!("; snapshot {name} available for rollback"),
+                    None => String::new(),
+                };
             return Err(EaiError::governance(format!(
-                "DAG_EXECUTION_FAILED: mission {} resumed with recorded failure at {detail}",
+                "DAG_EXECUTION_FAILED: mission {} resumed with recorded failure at {detail}{rollback}",
                 persist.mission.mission_id
             )));
+        }
+        // A mission resuming from a prior record first snapshots that
+        // record — the known-good point a rollback restores if this run
+        // fails (T-DEEPSEEK-94). Bounded to the newest few per mission.
+        if had_prior_state {
+            let _ = persist.mission.snapshot(
+                workspace,
+                &format!("pre-resume-{}", persist.mission.ownership.mission),
+                8,
+                now_unix(),
+            );
         }
         // Recovery is an atomic authority transition.  It advances both
         // epochs, records the restart, invalidates old leases, folds
