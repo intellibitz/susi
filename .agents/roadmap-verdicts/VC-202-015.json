@@ -1,0 +1,9 @@
+{
+  "vector": "VC-202-015",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "vc_202_015_mastery (tests/vc_202_015_mastery.rs) runs crates/susi-gawd/src/autonomous_builder.rs's run_cycle end to end against a scratch bare remote: propose (pick an open task) -> claim -> delegate -> gate (fmt/clippy/test when the workspace has a lockfile) -> commit with the Task trailer -> close -> push, and confirms the pushed branch and commit land on the scratch remote. That is as far as the loop goes. Three gaps from the mastery_target: (1) run_cycle returns the instant 'git push' succeeds; it never confirms the branch actually merges into origin/main the way 'susi workflow finish' polls for with await_merged-style logic, so 'merged' is not yet something this call observes, only 'pushed'. (2) Nothing calls admin::release::execute_release (the 'susi admin release --cut' path) or scripts/susi-release-sync.sh, so a closed, pushed task is never carried through to release and promotion on an installed binary. (3) BuildOutcome carries only task_id/agent/worktree/branch/commit -- no elapsed time, cost, or defect count, and the crate has no build-cycle scorecard type to record one into, so the loop runs but nothing measures it into a reproducible, human-readable scorecard.",
+  "tracked_by": ["T-INTELLIBITZWT20261005035445-11"],
+  "recorded_by": "INTELLIBITZWT20261005035445",
+  "recorded_unix": 1791251500
+}

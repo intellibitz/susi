@@ -1,0 +1,25 @@
+{
+  "id": "T-INTELLIBITZWT20261005035445-11",
+  "title": "Verify mastery: The self-build loop closes end to end",
+  "goal": "A task the system proposed for itself is implemented, gated, merged, released and promoted by the workflow, with the whole loop measured - elapsed time, cost, defects - in a reproducible scorecard a human can read and stop.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_202_015_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-015",
+  "created_by": "INTELLIBITZWT20261005035445",
+  "created_unix": 1791237280,
+  "closed": {
+    "at_unix": 1791238163,
+    "commit": "c6222737000335af4888077053c86a61e520408a",
+    "by": "INTELLIBITZWT20261005035445"
+  }
+}
