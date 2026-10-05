@@ -88,6 +88,10 @@ pub mod zc_scorecard;
 pub mod zc_startup_autofix;
 
 #[cfg(test)]
+#[path = "tests/estate_loop_unattended.rs"]
+mod estate_loop_unattended_tests;
+
+#[cfg(test)]
 #[path = "tests/vc_202_010_mastery.rs"]
 mod vc_202_010_mastery_tests;
 
@@ -98,3 +102,4 @@ pub use service_supervision::{RestartEvent, ServiceStatus, Supervisor, WorkerSta
 // SusiAdmin and EvolutionManager are used via fully qualified names in tools.rs
 pub mod eco_drift_alerts;
 pub mod eco_probe_scheduler;
+pub mod estate_loop;
