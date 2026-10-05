@@ -13,11 +13,18 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gemi",
       "-E",
       "test(estate_operations_capability_floor)"
     ]
   },
   "roadmap": "VC-202-024",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790956284
+  "created_unix": 1790956284,
+  "closed": {
+    "at_unix": 1791198372,
+    "commit": "f9c1d05d0c97288ad830753538117d0394967eae",
+    "by": "DEEPSEEK"
+  }
 }
