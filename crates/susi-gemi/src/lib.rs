@@ -164,6 +164,9 @@ mod orchestration_topology_tests;
 #[path = "tests/primary_election.rs"]
 mod primary_election_tests;
 #[cfg(test)]
+#[path = "tests/primary_failover_resume.rs"]
+mod primary_failover_resume_tests;
+#[cfg(test)]
 #[path = "tests/primary_without_secondaries.rs"]
 mod primary_without_secondaries_tests;
 #[cfg(test)]
