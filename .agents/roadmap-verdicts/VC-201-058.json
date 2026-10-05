@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-058",
+  "verdict": "delivered",
+  "evidence": "swarm_gap_production_lifecycle_full_loop_publishes_two_workers, swarm_gap_production_lifecycle_coordinator_restart_preserves_context, swarm_gap_production_lifecycle_conflicting_scope_stays_partial, swarm_gap_production_lifecycle_cancelled_worker_stays_open, and swarm_gap_production_lifecycle_remote_merge_wait_is_uncertain (crates/susi-gawd-swarm/src/production_lifecycle.rs)",
+  "missing": "",
+  "tracked_by": ["T-CODEXSWARMGAPS-9"],
+  "recorded_by": "INTELLIBITZ20261005030120687099",
+  "recorded_unix": 1791180000
+}
