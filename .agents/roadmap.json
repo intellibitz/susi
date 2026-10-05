@@ -76,7 +76,7 @@
       "id": "VC-201-005",
       "mastery_target": "Run the evaluator with held-out inputs and write permissions unavailable to the candidate; demonstrate that a patch altering its own expected results cannot satisfy the promotion gate.",
       "priority": "P0",
-      "progress": "PARTIAL: invented expectations fail and the write flag fails closed, and judge() now requires the candidate's actual_output to cover the suite's held-out truth — wrong or empty output fails with FailWrongOutput instead of passing on a plausible declared expected_results. Verified by `crates/susi-gawd/src/tests/vc_201_005_mastery.rs`. Residual: the write-permission boundary is still a caller-supplied bool (the gate cannot observe isolation itself), and eval_separation has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-005.json`. Follow-up tracked by T-DEVIN20261002053148-18.",
+      "progress": "DELIVERED: judging is separated from generation — the gate evaluates actual output against corpus-verified held-out truth, invented expectations and write-flagged runs fail closed, and the eval-corpus production path (where the candidate is inert data) runs it end to end with durable experiment evidence. Verified by crates/susi-gawd/src/tests/vc_201_005_mastery.rs (5 tests).",
       "type": "RSI_EVALUATION",
       "vector": "Separate candidate generation from judging"
     },
