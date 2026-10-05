@@ -1,0 +1,15 @@
+{
+  "id": "T-INTELLIBITZWT20261005035445-10",
+  "title": "Fix roadmap narratives that contradict their delivered verdicts",
+  "goal": "check-roadmap-queue.py --consistency-only flags VC-201-044, VC-201-045, VC-201-052, VC-202-009 as having a delivered verdict on record while roadmap.json's progress text still says PARTIAL. Update each vector's progress text to match its recorded verdict.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-queue.py",
+      "--consistency-only"
+    ]
+  },
+  "created_by": "INTELLIBITZWT20261005035445",
+  "created_unix": 1791236169
+}
