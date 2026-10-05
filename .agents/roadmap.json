@@ -752,7 +752,7 @@
       "id": "VC-201-060",
       "mastery_target": "Round-trip supported model endpoints, runtime requirements, secret references, and placement policies between local and supported cloud targets; compatibility checks surface nonportable settings before any changes.",
       "priority": "P1",
-      "progress": "PARTIAL: Kubernetes model-serving targets are catalogued as validated profiles with canonical capabilities and facts. Verified by `crates/susi-vendor-models/src/eco_k8s_serving.rs`: profile_is_valid, capabilities_are_canonical, facts_cover_the_required_surface, store_stays_consistent. Residual: the mastery target's export/restore round-trip of endpoints, runtime requirements, secret references and placement policies, and its pre-change portability checks, are not delivered or enumerated by a named check - the linked task catalogued the backend rather than implementing portability. Evidence: T-CLAUDE-298.",
+      "progress": "DELIVERED: DeploymentSpec is a closed, versioned JSON artifact that round-trips model endpoints, runtime requirements, secret references, and placement policies through export_spec/restore_spec. restore_for_target performs pure pre-change compatibility checks for endpoint protocols, secret stores, accelerators, and local/cloud placement constraints. Verified by `crates/susi-vendor-models/src/tests/vc_201_060_mastery.rs` (cargo test -p susi-vendor-models vc_201_060 --locked). Evidence: T-DEVIN20261002053148-33.",
       "type": "CLOUD_HOSTING",
       "vector": "Export and restore portable AI deployment specifications"
     },
