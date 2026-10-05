@@ -1,0 +1,11 @@
+{
+  "evidence": "crates/susi-gawd-swarm/src/parallel_admission.rs (AdmissionController, LocalCapacity, Ticket, Backpressure), crates/susi-gawd-swarm/src/tests/vc_202_009_mastery.rs (vc_202_009_mastery_resource_quotas_prevent_oversubscription, vc_202_009_mastery_fair_queue_prevents_starvation, vc_202_009_mastery_idempotent_readmission).",
+  "missing": null,
+  "recorded_by": "CODEX",
+  "recorded_unix": 1791229000,
+  "tracked_by": [
+    "T-DEEPSEEK-255"
+  ],
+  "vector": "VC-202-009",
+  "verdict": "delivered"
+}

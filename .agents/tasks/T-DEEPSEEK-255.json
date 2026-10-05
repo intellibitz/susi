@@ -10,8 +10,10 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd-swarm",
       "-E",
-      "test(vc_202_009_mastery)"
+      "test(/vc_202_009_mastery/)"
     ]
   },
   "roadmap": "VC-202-009",
