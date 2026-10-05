@@ -31,12 +31,10 @@ fn set(list: &[(&str, Profile)]) -> ProfileSet {
     }
 }
 
-/// Falsification: the doc contract says "parents applied in order, earlier
-/// wins ties among parents". `apply` inserts each parent's values into the
-/// accumulator in order, so the *later* parent overwrites the earlier —
-/// the resolved value contradicts the documented precedence, and an
-/// operator relying on documented ordering silently gets the wrong parent's
-/// endpoint.
+/// Fixed: the doc contract says "parents applied in order, earlier wins
+/// ties among parents". `apply` now applies parents in reverse so the
+/// earlier-listed parent's value is the one left standing on a key
+/// collision, matching the documented precedence.
 #[test]
 fn vc_201_067_mastery_later_parent_wins_despite_documented_earlier_wins() {
     let s = set(&[
@@ -60,10 +58,10 @@ fn vc_201_067_mastery_later_parent_wins_despite_documented_earlier_wins() {
     let r = s.resolve("dev").unwrap();
     assert_eq!(
         r.values["endpoint"],
-        json!("late.example"),
-        "the later parent wins ties — the documented 'earlier wins' is false"
+        json!("early.example"),
+        "the earlier-listed parent must win ties, matching the documented contract"
     );
-    assert_eq!(r.provenance["endpoint"].profile, "late");
+    assert_eq!(r.provenance["endpoint"].profile, "early");
 }
 
 /// Transitive falsification attempt: a dev profile cannot reach production

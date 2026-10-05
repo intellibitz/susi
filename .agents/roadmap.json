@@ -834,7 +834,7 @@
       "id": "VC-201-067",
       "mastery_target": "Support explicit development, staging, and production profiles with inspectable inheritance; a dev mission cannot accidentally resolve production endpoints or credentials from ambient configuration.",
       "priority": "P1",
-      "progress": "PARTIAL: ProfileSet validates the full graph before resolution, refuses dev→production inheritance (directly and transitively), cycles and unknown parents, and records per-key provenance and the resolution chain — verified by `crates/susi-config/src/tests/vc_201_067_mastery.rs`. Refuted on record 2026-10-03: no production path loads or resolves profiles (no config source produces a ProfileSet, no mission consumes one), and the documented 'earlier wins ties among parents' is inverted — the later parent's value wins (vc_201_067_mastery_later_parent_wins_despite_documented_earlier_wins). Verdict `.agents/roadmap-verdicts/VC-201-067.json`. Follow-up tracked by T-DEVIN20261002053148-9.",
+      "progress": "PARTIAL: ProfileSet validates the full graph before resolution, refuses dev→production inheritance (directly and transitively), cycles and unknown parents, records per-key provenance and the resolution chain, and now applies sibling parents in reverse so the earlier-listed one wins ties as documented — verified by `crates/susi-config/src/tests/vc_201_067_mastery.rs`. Residual: no production path loads or resolves profiles (no config source produces a ProfileSet, no mission consumes one). Verdict `.agents/roadmap-verdicts/VC-201-067.json`. Follow-up tracked by T-DEVIN20261002053148-9.",
       "type": "CONFIGURATION",
       "vector": "Separate workspace and environment configuration profiles"
     },
