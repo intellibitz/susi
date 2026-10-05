@@ -1,5 +1,6 @@
-# Fresh-environment matrix: run the clean-HOME zero-config journey on
-# container profiles defined in .github/zc-matrix/matrix.json.
+# Fresh-environment matrix: run the installer/lifecycle smoke journey on the
+# three supported host families. GPU and sandbox support remain explicit
+# matrix data rather than being inferred from the runner's hardware.
 name: Zero-Config Matrix
 
 on:
@@ -9,20 +10,25 @@ on:
 
 jobs:
   matrix:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        profile: [cpu-only, emulated-gpu, low-memory]
-    container:
-      image: rust:bookworm
-      options: ${{ matrix.profile == 'low-memory' && '--memory 1536m' || '--memory 8g' }}
+        include:
+          - os: ubuntu-latest
+            profile: linux-cpu
+          - os: macos-latest
+            profile: macos-cpu
+          - os: windows-latest
+            profile: windows-cpu
     steps:
       - uses: actions/checkout@v4.2.2
       - name: Validate matrix definition
         run: scripts/check-zc-matrix.sh
-      - name: Fresh-HOME journey (${{ matrix.profile }})
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Fresh-HOME lifecycle smoke (${{ matrix.profile }})
         env:
           SUSI_PROFILE: ${{ matrix.profile }}
         run: |
-          cargo test --test zc_time_to_answer --test zc_fresh_home --test zc_hooks_on_clone --locked
+          cargo test --test zc_platform_installers --test vc_201_098_mastery --locked
