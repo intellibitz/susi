@@ -10,11 +10,18 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd-swarm",
       "-E",
       "test(durable_mission_state)"
     ]
   },
   "roadmap": "VC-202-011",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790953357
+  "created_unix": 1790953357,
+  "closed": {
+    "at_unix": 1791185367,
+    "commit": "262f30286af0be82ab2ffbef4706fe295dd883e5",
+    "by": "DEEPSEEK"
+  }
 }

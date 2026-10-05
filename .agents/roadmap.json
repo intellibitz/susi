@@ -1408,7 +1408,7 @@
       "id": "VC-202-011",
       "mastery_target": "Workspace and mission state survives process restart and host reboot; a mission's state can be snapshotted and restored, and a failed mission rolls back to a known-good state without touching another mission's state.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: restart survival delivered (T-DEEPSEEK-93): persisted Running nodes fold back to Pending inside the recovery transaction and re-dispatch, completed work and outputs are preserved, the fold is recorded on the mission's interruptions, a recorded Failed verdict fails cleanly by name, and `susi status` enumerates resumable missions with their resume nodes; snapshot/restore and single-mission rollback tracked by T-94.",
       "type": "CORE",
       "vector": "Durable state, snapshot and rollback"
     },
