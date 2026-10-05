@@ -281,6 +281,18 @@ pub fn finish_run(
     if let Err(e) = crate::capability_matrix::persist(&matrix_path, &matrix) {
         tracing::warn!("brain capability matrix persist failed: {e}");
     }
+    // Re-elect the primary per class over the same fresh evidence — a dead
+    // provider, a moved price or a changed capability elects a new primary
+    // on this run, and the ballot journals the evidence for each choice
+    // (VC-202-022/T-121).
+    let ballot = crate::primary_election::Ballot {
+        unix: now,
+        elections: crate::primary_election::elect_all(&matrix_names, now),
+    };
+    let elections_path = journal.with_file_name("brain_elections.jsonl");
+    if let Err(e) = crate::primary_election::append(&elections_path, &ballot) {
+        tracing::warn!("brain election journal append failed: {e}");
+    }
     (run, drift)
 }
 

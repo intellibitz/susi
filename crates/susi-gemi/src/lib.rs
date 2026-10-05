@@ -68,6 +68,7 @@ pub mod learned_classifier;
 pub mod model_preload;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
+pub mod primary_election;
 pub mod prompt_caching;
 pub mod provider_contract;
 pub mod pulse;
@@ -144,6 +145,9 @@ mod model_preload_tests;
 #[cfg(test)]
 #[path = "tests/model_pricing_cache_rates.rs"]
 mod model_pricing_cache_rates_tests;
+#[cfg(test)]
+#[path = "tests/primary_election.rs"]
+mod primary_election_tests;
 #[cfg(test)]
 #[path = "tests/quota_window_accounting.rs"]
 mod quota_window_accounting_tests;
