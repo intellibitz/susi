@@ -184,7 +184,7 @@ fn vc_201_003_mastery_task_count_cannot_pass_as_a_percent() {
 fn vc_201_003_mastery_scorecard_gates_the_promotion_path() {
     let spec = spec();
     let mut log = ExperimentLog::default();
-    log.propose("exp-1");
+    log.propose("exp-1").unwrap();
     log.transition("exp-1", ExperimentState::Isolated).unwrap();
     log.transition("exp-1", ExperimentState::Evaluated).unwrap();
 
