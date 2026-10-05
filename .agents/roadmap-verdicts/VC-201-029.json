@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-029",
+  "verdict": "delivered",
+  "evidence": "swarm_gap_workspace_isolation_parallel_dag_writers_use_private_scopes, swarm_gap_workspace_isolation_conflicting_dag_writers_never_overwrite, swarm_gap_workspace_isolation_stale_scope_is_quarantined_and_dirty_primary_survives, and swarm_gap_workspace_isolation_unrelated_scopes_merge_without_index_loss (crates/susi-gawd-swarm/src/tests/swarm_gap_workspace_isolation.rs)",
+  "missing": "",
+  "tracked_by": ["T-CODEXSWARMGAPS-2"],
+  "recorded_by": "INTELLIBITZ20261005030120687099",
+  "recorded_unix": 1791176853
+}
