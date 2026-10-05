@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN20261002053148-39",
+  "title": "Real MCP server probes: init/discovery/cancel/timeout/malformed/credential isolation (VC-201-086)",
+  "goal": "VC-201-086 refuted: McpSpecProfile is a static catalog — registry_metadata hardcodes supports_list_changed=true before any server is contacted; its version list is stale relative to the wire (misses 2025-11-25 and 2025-06-18 that susi-core's real client speaks); negotiate() is pure list intersection — no initialize, discovery, cancellation, timeout, malformed-response, or credential-isolation probe exists; the profile has no production callers. Evidence: crates/susi-gmcp/src/tests/vc_201_086_mastery.rs.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "vc_201_086",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1791002078,
+  "closed": {
+    "at_unix": 1791172659,
+    "commit": "d4ec8760109534c9c2cfc7833df4c819552df9a9",
+    "by": "INTELLIBITZ20261005030120687099"
+  }
+}
