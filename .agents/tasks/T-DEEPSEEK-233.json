@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-233",
+  "title": "Author queue items from failure analysis",
+  "goal": "Feed recorded failures (audit findings, drift, refused missions) into the authored backlog the way the coverage audit feeds 'susi tasks author --unqueued': a detected failure drafts its own repair task through tasks::author under the same gates and bound.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(self_authored_failure_backlog)"
+    ]
+  },
+  "roadmap": "VC-202-008",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791202082
+}

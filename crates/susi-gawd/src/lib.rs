@@ -385,3 +385,6 @@ pub fn init_hooks() {
         susi_gawd_swarm::host_hooks::init(Box::new(GawdHostHooks));
     });
 }
+#[cfg(test)]
+#[path = "tests/vc_202_008.rs"]
+mod vc_202_008_tests;
