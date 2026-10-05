@@ -1,11 +1,11 @@
 {
-  "evidence": "",
-  "missing": "the ledger is real, atomic and tested - SpendPolicy, Reservation, BudgetLedger::reserve, commit(res, actual), release, global() and reserve_dispatch, whose own doc comment says it reserves 'right before dispatch' - but reserve_dispatch (crates/susi-gawd-agents/src/cloud_budget.rs:290) has no callers anywhere in the tree, commit and release are called only inside the module's own tests, and nothing consumes provider-reported usage: no reported_usage, provider_usage or actual_usage symbol exists outside tests. No request reserves before it is made, and none reconciles after.",
-  "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1790979069,
+  "evidence": "crates/susi-gawd-swarm/src/cloud_failover.rs (reserve_dispatch called before request, commit called after taking provider-reported usage), tests/vc_201_052_reserved_before_dispatch_and_reconciled_after.rs (vc_201_052_reserved_before_dispatch_and_reconciled_after), crates/susi-gawd-swarm/src/tests/vc_201_052_mastery.rs (vc_201_052_mastery_reserve_and_reconcile, vc_201_052_mastery_hard_budget_exceeded_refuses_dispatch).",
+  "missing": null,
+  "recorded_by": "ANTIGRAVITY",
+  "recorded_unix": 1791225800,
   "tracked_by": [
-    "T-DEEPSEEK-213"
+    "T-INTELLIBITZWT20261005035445-8"
   ],
   "vector": "VC-201-052",
-  "verdict": "not-delivered"
+  "verdict": "delivered"
 }
