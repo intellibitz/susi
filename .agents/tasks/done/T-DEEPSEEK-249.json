@@ -10,12 +10,18 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd",
       "-E",
-      "test(vc_201_009_mastery)"
+      "test(/vc_201_009_mastery/)"
     ]
   },
   "roadmap": "VC-201-009",
   "created_by": "DEEPSEEK",
   "created_unix": 1791222655,
-  "authored": true
+  "closed": {
+    "at_unix": 1791225714,
+    "commit": "d6e271a268c6d9cf67c97db9f40098547b1caa5e",
+    "by": "PRIMARY202610051809451758787"
+  }
 }
