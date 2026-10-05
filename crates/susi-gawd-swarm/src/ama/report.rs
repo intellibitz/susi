@@ -224,6 +224,9 @@ impl SusiMissionReport {
         trace.agents = crate::susi_core::mission_trace::bounded_list(
             self.agents.iter().map(|a| a.name.clone()),
         );
+        // Real node attribution: the cluster membership identity this
+        // mission's supervising agent actually ran on.
+        trace.node = crate::susi_config::cluster_key::node_id();
         if let Some(plan) = &self.plan {
             trace.plan_steps =
                 crate::susi_core::mission_trace::bounded_list(plan.steps.iter().cloned());
