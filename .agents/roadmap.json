@@ -196,7 +196,7 @@
       "id": "VC-201-015",
       "mastery_target": "Run cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, and cargo test --workspace --locked against the candidate; missing, skipped, or failing checks prevent promotion readiness.",
       "priority": "P0",
-      "progress": "PARTIAL: missing, skipped, and failed transcript outcomes block promotion, but no check is ever executed — the gate parses a caller-supplied transcript a candidate can fabricate, later lines overwrite real failures, and the command-coverage check is substring matching that accepts never-executed commands. Refuted on record; tracked by T-DEVIN20261002053148-23.",
+      "progress": "DELIVERED: promotion readiness requires executed fmt/clippy/workspace-test reports — transcripts are diagnostic-only and fail closed on conflicts, the gate command match is exact, and the production patch path executes run_repository_gate on the self-build repo (override commands cannot bypass). Verified by crates/susi-gawd/src/tests/vc_201_015_mastery.rs (6 tests).",
       "type": "RSI_EXECUTION",
       "vector": "Gate self-patches on the full repository checks"
     },
