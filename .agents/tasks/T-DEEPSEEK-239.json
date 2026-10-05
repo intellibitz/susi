@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-239",
+  "title": "Verify mastery: Fence autonomous patches into isolated workspaces",
+  "goal": "Create a candidate checkout with explicit path and command scope for each experiment; concurrent experiments preserve user changes and cannot write the installed release or another experiment's workspace.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_013_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-013",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791209529,
+  "authored": true
+}

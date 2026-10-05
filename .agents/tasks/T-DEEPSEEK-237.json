@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-237",
+  "title": "Verify mastery: Separate candidate generation from judging",
+  "goal": "Run the evaluator with held-out inputs and write permissions unavailable to the candidate; demonstrate that a patch altering its own expected results cannot satisfy the promotion gate.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_005_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-005",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791209529,
+  "authored": true
+}

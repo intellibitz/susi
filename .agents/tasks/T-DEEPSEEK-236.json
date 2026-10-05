@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-236",
+  "title": "Verify mastery: Define a measurable improvement scorecard",
+  "goal": "Publish separate quality, reliability, latency, resource, and operator-effort measures with predeclared comparison thresholds; report uncertainty and never equate task count with a percentage improvement.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_003_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-003",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791209529,
+  "authored": true
+}
