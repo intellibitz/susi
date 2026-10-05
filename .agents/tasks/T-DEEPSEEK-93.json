@@ -10,6 +10,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd-swarm",
       "-E",
       "test(durable_mission_state)"
     ]
