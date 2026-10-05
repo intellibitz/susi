@@ -218,3 +218,33 @@ fn audit_action_choke_point() {
     // - Never delete records (Mandate 56: mark as archived, never removed)
     // - Export evidence for compliance audits
 }
+
+#[test]
+fn audit_action_choke_point_production_dispatch() {
+    use crate::susi_core::audit_export::{
+        AuditAction, AuditActionKind, AuditChokePoint, AuditOutcome, AuditTarget,
+        RecordingAuditSink,
+    };
+
+    let sink = RecordingAuditSink::default();
+    let choke = AuditChokePoint::new(sink.clone());
+    let action = AuditAction::new(
+        AuditActionKind::MissionTransition,
+        "swarm-coordinator",
+        AuditTarget::identifier("mission-42"),
+        AuditOutcome::Partial,
+        9,
+        3,
+        "mission-42/transition-2",
+    )
+    .unwrap();
+
+    choke.dispatch(&action).unwrap();
+
+    let records = sink.records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].action_kind.as_str(), "mission_transition");
+    assert_eq!(records[0].target.id, "mission-42");
+    assert_eq!(records[0].outcome, AuditOutcome::Partial);
+    assert!(records[0].redacted);
+}

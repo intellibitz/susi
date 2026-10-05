@@ -1,5 +1,6 @@
 //! Plane-bus handler for all `gawd.*` topics.
 
+use crate::susi_core::audit_export::{AuditAction, AuditChokePoint, AuditOutcome, AuditSink};
 use crate::susi_core::plane_bus::topics;
 use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
 use crate::susi_error::EaiResult;
@@ -19,6 +20,32 @@ fn workspace_path(payload: &Value) -> PathBuf {
 
 fn eai_to_string<T>(r: EaiResult<T>) -> Result<T, String> {
     r.map_err(|e| e.to_string())
+}
+
+struct SignedAuditSink {
+    workspace: PathBuf,
+}
+
+impl AuditSink for SignedAuditSink {
+    fn append(&self, action: &AuditAction) -> EaiResult<()> {
+        let details = serde_json::to_string(action).map_err(|error| {
+            crate::susi_error::EaiError::protocol(format!("serialize audit action: {error}"))
+        })?;
+        crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+            &self.workspace,
+            "AUDIT_ACTION",
+            &details,
+        );
+        Ok(())
+    }
+}
+
+fn persist_audit_action(action: &AuditAction, workspace: &std::path::Path) -> Result<(), String> {
+    AuditChokePoint::new(SignedAuditSink {
+        workspace: workspace.to_path_buf(),
+    })
+    .dispatch(action)
+    .map_err(|error| error.to_string())
 }
 
 impl PlaneHandler for GawdPlaneHandler {
@@ -56,13 +83,28 @@ impl PlaneHandler for GawdPlaneHandler {
                 let tool = payload.get("tool").and_then(|v| v.as_str()).unwrap_or("");
                 let detail = payload.get("detail").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
-                if let Err(e) = crate::safety::SafetyDetector::audit_action(tool, detail, &ws) {
-                    return Ok(json!({ "error": e.to_string() }));
+                let mut action = payload
+                    .get("action")
+                    .cloned()
+                    .map(serde_json::from_value::<AuditAction>)
+                    .transpose()
+                    .map_err(|error| format!("invalid structured audit action: {error}"))?
+                    .map_or_else(
+                        || AuditAction::from_legacy(tool, detail, AuditOutcome::Succeeded),
+                        Ok,
+                    )
+                    .map_err(|error| error.to_string())?;
+                let gate_result = crate::safety::SafetyDetector::audit_action(tool, detail, &ws)
+                    .and_then(|()| {
+                        crate::security::SecurityDetector::audit_action(tool, detail, &ws)
+                    });
+                if let Err(error) = gate_result {
+                    action.outcome = AuditOutcome::Denied;
+                    persist_audit_action(&action, &ws)?;
+                    return Ok(json!({ "error": error.to_string() }));
                 }
-                match crate::security::SecurityDetector::audit_action(tool, detail, &ws) {
-                    Ok(()) => Ok(json!({ "ok": true })),
-                    Err(e) => Ok(json!({ "error": e.to_string() })),
-                }
+                persist_audit_action(&action, &ws)?;
+                Ok(json!({ "ok": true }))
             }
             topics::GAWD_PATCH => {
                 let ws = workspace_path(&payload);
