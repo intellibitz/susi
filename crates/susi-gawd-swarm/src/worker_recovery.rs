@@ -207,6 +207,34 @@ impl JobLedger {
         Ok(())
     }
 
+    /// Record evidence produced after the assignment reached `Completed`.
+    /// Closure review happens after the worker's completion fence is sealed,
+    /// so this narrow method permits only an already-completed assignment and
+    /// never reopens or mutates its ownership state.
+    pub fn record_terminal_receipt(
+        &self,
+        job: &str,
+        fence: u64,
+        effect: &str,
+    ) -> Result<(), FenceError> {
+        let mut st = self.lock();
+        let Some(a) = st.get_mut(job) else {
+            return Err(FenceError::Missing);
+        };
+        if a.fence != fence {
+            return Err(FenceError::Stale);
+        }
+        if a.state != JobState::Completed {
+            return Err(FenceError::Terminal);
+        }
+        a.receipts.push(Receipt {
+            effect: effect.to_string(),
+            fence,
+        });
+        self.persist(&st);
+        Ok(())
+    }
+
     /// Checkpoint partial edits — preserved across reassignment.
     pub fn checkpoint(&self, job: &str, fence: u64, edits: Vec<String>) -> Result<(), FenceError> {
         let mut st = self.lock();

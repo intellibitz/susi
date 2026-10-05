@@ -1,4 +1,6 @@
-use crate::independent_verify::{verification_satisfied, ReviewConclusion, ToolReceipt};
+use crate::independent_verify::{
+    digest_fields, verification_satisfied, ReviewConclusion, ToolReceipt,
+};
 
 #[test]
 fn vc_201_028_implementer_assertion_insufficient() {
@@ -7,7 +9,7 @@ fn vc_201_028_implementer_assertion_insufficient() {
         pass: true,
         receipts: vec![ToolReceipt {
             tool: "test".into(),
-            digest: "d1".into(),
+            digest: digest_fields(&["receipt", "d1"]),
         }],
         implementer: "alice".into(),
     };
@@ -21,7 +23,7 @@ fn vc_201_028_requires_receipts_and_independent_reviewer() {
         pass: true,
         receipts: vec![ToolReceipt {
             tool: "test".into(),
-            digest: "d1".into(),
+            digest: digest_fields(&["receipt", "d1"]),
         }],
         implementer: "alice".into(),
     };
@@ -36,11 +38,11 @@ fn vc_201_028_duplicate_digests_fail() {
         receipts: vec![
             ToolReceipt {
                 tool: "a".into(),
-                digest: "same".into(),
+                digest: digest_fields(&["receipt", "same"]),
             },
             ToolReceipt {
                 tool: "b".into(),
-                digest: "same".into(),
+                digest: digest_fields(&["receipt", "same"]),
             },
         ],
         implementer: "alice".into(),
@@ -57,11 +59,11 @@ fn independent_verify_dispatch_wiring() {
     let receipts = vec![
         ToolReceipt {
             tool: "tool-1".into(),
-            digest: "digest-1".into(),
+            digest: digest_fields(&["receipt", "digest-1"]),
         },
         ToolReceipt {
             tool: "tool-2".into(),
-            digest: "digest-2".into(),
+            digest: digest_fields(&["receipt", "digest-2"]),
         },
     ];
 

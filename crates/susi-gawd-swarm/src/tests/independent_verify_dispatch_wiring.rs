@@ -1,7 +1,7 @@
 //! Wiring: independent verifier evidence in MissionDag verify path (T-INTELLIBITZ-11).
 
 use crate::dag::MissionDag;
-use crate::independent_verify::{ReviewConclusion, ToolReceipt};
+use crate::independent_verify::{digest_fields, ReviewConclusion, ToolReceipt};
 use crate::role_select::AgentEvidence;
 use std::collections::BTreeSet;
 
@@ -36,7 +36,7 @@ fn independent_verify_dispatch_wiring() {
         pass: true,
         receipts: vec![ToolReceipt {
             tool: "test".into(),
-            digest: "d1".into(),
+            digest: digest_fields(&["receipt", "d1"]),
         }],
         implementer: roles.implementer.clone(),
     };
@@ -64,7 +64,7 @@ fn independent_verify_dispatch_wiring() {
         pass: true,
         receipts: vec![ToolReceipt {
             tool: "cargo_test".into(),
-            digest: "abc123".into(),
+            digest: digest_fields(&["receipt", "abc123"]),
         }],
         implementer: roles.implementer.clone(),
     };

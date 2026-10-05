@@ -515,6 +515,36 @@ mod tests {
         }
     }
 
+    struct Approve;
+    impl Verifier for Approve {
+        fn verify(&self, _w: &Path, _t: &TaskSpec) -> crate::agent_integration::Verdict {
+            crate::agent_integration::Verdict::Approve
+        }
+
+        fn authenticated_identity(&self) -> Option<&str> {
+            Some("reviewer-1")
+        }
+
+        fn review_receipt(
+            &self,
+            _w: &Path,
+            task: &TaskSpec,
+            implementer: &str,
+            source_sha: &str,
+            acceptance: &crate::agent_integration::AcceptanceObservation,
+        ) -> Option<crate::independent_verify::ReviewReceipt> {
+            Some(crate::independent_verify::ReviewReceipt::new(
+                "reviewer-1",
+                implementer,
+                &task.id,
+                &acceptance.tool,
+                &acceptance.arguments_digest,
+                &acceptance.result_digest,
+                source_sha,
+            ))
+        }
+    }
+
     /// Coordinator-side evidence stores.
     struct CFx {
         elig: EligibilityStore,
@@ -663,6 +693,7 @@ mod tests {
             write_marker: true,
         };
         let int = Int::clean();
+        let approve = Approve;
         let intent = intent();
         let shared = Shared::new(&w.elig, &w.quota, &w.lock, &w.ledger);
         let mut lc = Fix {
@@ -676,7 +707,7 @@ mod tests {
             workers: &workers,
             exec: &exec,
             int: &int,
-            verifier: None,
+            verifier: Some(&approve),
         }
         .lifecycle();
         let mut mission = BrainMission::default();
@@ -723,6 +754,7 @@ mod tests {
             write_marker: false,
         };
         let int = Int::clean();
+        let approve = Approve;
         let intent = intent();
         let shared = Shared::new(&w.elig, &w.quota, &w.lock, &w.ledger);
         let mut lc = Fix {
@@ -736,7 +768,7 @@ mod tests {
             workers: &workers,
             exec: &exec,
             int: &int,
-            verifier: None,
+            verifier: Some(&approve),
         }
         .lifecycle();
         let mut mission = BrainMission::default();
@@ -833,6 +865,7 @@ mod tests {
             ),
             merged: Mutex::new(Vec::new()),
         };
+        let approve = Approve;
         let intent = intent();
         let shared = Shared::new(&w.elig, &w.quota, &w.lock, &w.ledger);
         let mut lc = Fix {
@@ -846,7 +879,7 @@ mod tests {
             workers: &workers,
             exec: &exec,
             int: &int,
-            verifier: None,
+            verifier: Some(&approve),
         }
         .lifecycle();
         let mut mission = BrainMission::default();
@@ -887,6 +920,7 @@ mod tests {
             write_marker: true,
         };
         let int = Int::clean();
+        let approve = Approve;
         let intent = intent();
         let shared = Shared::new(&w.elig, &w.quota, &w.lock, &w.ledger);
         let mut lc = Fix {
@@ -900,7 +934,7 @@ mod tests {
             workers: &workers,
             exec: &exec,
             int: &int,
-            verifier: None,
+            verifier: Some(&approve),
         }
         .lifecycle();
         let mut mission = BrainMission::default();
@@ -940,6 +974,7 @@ mod tests {
             write_marker: true,
         };
         let int = Int::clean();
+        let approve = Approve;
         let intent = intent();
         let shared = Shared::new(&w.elig, &w.quota, &w.lock, &w.ledger);
         let mut lc = Fix {
@@ -953,7 +988,7 @@ mod tests {
             workers: &workers,
             exec: &exec,
             int: &int,
-            verifier: None,
+            verifier: Some(&approve),
         }
         .lifecycle();
         let mut mission = BrainMission::default();

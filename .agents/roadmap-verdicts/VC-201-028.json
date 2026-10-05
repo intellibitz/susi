@@ -1,0 +1,9 @@
+{
+  "vector": "VC-201-028",
+  "verdict": "delivered",
+  "evidence": "swarm_gap_verified_closure_dispatch_output_cannot_finish_without_gate, swarm_gap_verified_closure_zero_test_acceptance_stays_open, swarm_gap_verified_closure_forged_receipt_stays_open, swarm_gap_verified_closure_self_review_alias_stays_open, swarm_gap_verified_closure_changed_sha_after_review_stays_open, swarm_gap_verified_closure_failing_acceptance_stays_open, and swarm_gap_verified_closure_bound_receipt_finishes_and_is_stored (crates/susi-gawd-swarm/src/tests/swarm_gap_verified_closure.rs)",
+  "missing": "",
+  "tracked_by": ["T-CODEXSWARMGAPS-8"],
+  "recorded_by": "INTELLIBITZ20261005030120687099",
+  "recorded_unix": 1791179000
+}

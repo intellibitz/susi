@@ -66,6 +66,11 @@ pub struct MissionDag {
     /// Per-node measured resource requirements. Missing entries use the
     /// conservative default request rather than a fixed host assumption.
     pub resource_requests: std::collections::BTreeMap<usize, ResNode>,
+    /// Independent review receipts accepted for verify nodes. Keeping the
+    /// conclusion on the DAG prevents a transient model response from being
+    /// mistaken for durable verification evidence.
+    pub verification_receipts:
+        std::collections::BTreeMap<usize, crate::independent_verify::ReviewConclusion>,
 }
 
 pub type SwarmDag = MissionDag;
@@ -146,6 +151,7 @@ impl MissionDag {
             capacity: None,
             live_admission: None,
             resource_requests: std::collections::BTreeMap::new(),
+            verification_receipts: std::collections::BTreeMap::new(),
         }
     }
 
@@ -254,6 +260,7 @@ impl MissionDag {
             capacity: None,
             live_admission: None,
             resource_requests: std::collections::BTreeMap::new(),
+            verification_receipts: std::collections::BTreeMap::new(),
         };
         // Durable state survives the crash (T-DEVIN-9/10): fences stay
         // monotonic so stale tokens can't collide, and intents recorded
@@ -482,11 +489,9 @@ impl MissionDag {
     /// satisfies VC-201-028: reviewer ≠ implementer, pass, unique receipts.
     /// On success marks the Independent Verify node complete.
     pub fn accept_independent_verify(&mut self, conclusion: &ReviewConclusion) -> bool {
-        let implementer = self
-            .nodes
-            .first()
-            .and_then(|n| n.assigned_agent.as_deref())
-            .unwrap_or(conclusion.implementer.as_str());
+        let Some(implementer) = self.nodes.first().and_then(|n| n.assigned_agent.as_deref()) else {
+            return false;
+        };
         if !verification_satisfied(conclusion, implementer) {
             return false;
         }
@@ -494,19 +499,19 @@ impl MissionDag {
             .nodes
             .iter()
             .position(|n| n.title == "Independent Verify");
-        if let Some(idx) = verify_idx {
-            if let Some(node) = self.nodes.get_mut(idx) {
-                if node
-                    .assigned_agent
-                    .as_deref()
-                    .is_some_and(|a| a != conclusion.reviewer)
-                {
-                    // Assigned verifier must match the conclusion reviewer.
-                    return false;
-                }
-                node.completed = true;
-            }
+        let Some(idx) = verify_idx else {
+            return false;
+        };
+        let Some(node) = self.nodes.get_mut(idx) else {
+            return false;
+        };
+        // Assigned verifier must match the conclusion reviewer. An absent
+        // assignment is not an authenticated identity.
+        if node.assigned_agent.as_deref() != Some(conclusion.reviewer.as_str()) {
+            return false;
         }
+        node.completed = true;
+        self.verification_receipts.insert(idx, conclusion.clone());
         true
     }
 
@@ -1492,6 +1497,21 @@ impl MissionDag {
                         workspace,
                     ) {
                         Ok(verified) => {
+                            if self.nodes[idx].title == "Independent Verify" {
+                                let conclusion = serde_json::from_str::<ReviewConclusion>(
+                                    output.trim(),
+                                )
+                                .map_err(|error| {
+                                    EaiError::governance(format!(
+                                        "independent review output is not a conclusion: {error}"
+                                    ))
+                                })?;
+                                if !self.accept_independent_verify(&conclusion) {
+                                    return Err(EaiError::governance(
+                                        "independent review receipt or reviewer binding rejected",
+                                    ));
+                                }
+                            }
                             // Classify exec_command side effects before fencing
                             // completion so crash resume can reconcile (VC-201-023).
                             if !node_calls.is_empty() {
