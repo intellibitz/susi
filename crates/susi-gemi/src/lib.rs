@@ -56,6 +56,7 @@ pub mod capability_matrix;
 pub mod coding_models_ext;
 pub mod confidence_escalation;
 pub mod consensus_mode;
+pub mod context_assembly;
 pub mod context_length_routing;
 pub mod credential_scout;
 pub mod embedding_routing;
@@ -70,7 +71,6 @@ pub mod open_weight_ext;
 pub mod openrouter_ext;
 pub mod orchestration;
 pub mod primary_election;
-pub mod prompt_caching;
 pub mod provider_contract;
 pub mod pulse;
 pub mod rate_limit_scheduler;
@@ -124,6 +124,9 @@ mod brain_scout_schedule_tests;
 #[cfg(test)]
 #[path = "tests/budget_ceiling.rs"]
 mod budget_ceiling_tests;
+#[cfg(test)]
+#[path = "tests/cache_first_context.rs"]
+mod cache_first_context_tests;
 #[cfg(test)]
 #[path = "tests/capability_floor.rs"]
 mod capability_floor_tests;

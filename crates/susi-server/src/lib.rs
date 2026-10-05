@@ -827,7 +827,14 @@ async fn handle_gemi_request(
                 }
             };
             let is_streaming = completion.stream;
-            let pulse_intent = completion.prompt;
+            // Multi-turn requests are assembled cache-safely by the GEMI
+            // plane — instructions hoisted, history verbatim — and the
+            // measured cacheable fraction journaled against the provider
+            // the placement just chose (VC-202-006).
+            let pulse_intent = match completion.turns {
+                Some(turns) => assemble_context_prompt(&turns, completion_provider(&placement)),
+                None => completion.prompt,
+            };
             let intent = gemi::IntentClassifier::classify(&pulse_intent);
             // A caller-requested model labels the response; intent
             // classification only applies when no model was named. The
@@ -1869,6 +1876,10 @@ fn api_error(status: StatusCode, message: &str) -> Response<BoxBody> {
 
 struct CompletionInput {
     prompt: String,
+    /// Raw `(role, content)` turns for multi-message requests — the prompt
+    /// is assembled cache-safely by the GEMI plane once the placement has
+    /// chosen the provider that prices the measured saving.
+    turns: Option<Vec<(String, String)>>,
     stream: bool,
     model: Option<String>,
     max_tokens: Option<u32>,
@@ -1881,6 +1892,38 @@ struct CompletionInput {
     allow_cloud: bool,
 }
 
+/// The provider a placement decision routes to — priced for the measured
+/// cache saving; `None` for local targets, which carry no catalog price.
+fn completion_provider(placement: &serde_json::Value) -> Option<&str> {
+    placement.get("provider").and_then(|v| v.as_str())
+}
+
+/// Cache-first context assembly and its measurement journal live in the
+/// GEMI plane (`gemi.context.assemble`): the server sends the raw turns and
+/// gets back a cache-safe prompt. A plane that is not wired — a partial
+/// test harness — falls back to the literal-order join rather than failing
+/// the request, with no journal entry (there is nothing measured).
+fn assemble_context_prompt(turns: &[(String, String)], provider: Option<&str>) -> String {
+    let payload = serde_json::json!({
+        "turns": turns
+            .iter()
+            .map(|(role, content)| serde_json::json!({"role": role, "content": content}))
+            .collect::<Vec<_>>(),
+        "provider": provider,
+    });
+    susi_core::plane_bus::PlaneBus::global()
+        .request("gemi.context.assemble", payload)
+        .ok()
+        .and_then(|v| v.get("prompt").and_then(|p| p.as_str()).map(str::to_string))
+        .unwrap_or_else(|| {
+            turns
+                .iter()
+                .map(|(role, content)| format!("{role}: {content}"))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
+}
+
 fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String> {
     let value: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {e}"))?;
@@ -1889,12 +1932,15 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         None => false,
         Some(value) => value.as_bool().ok_or("stream must be a boolean")?,
     };
-    let prompt = if legacy {
-        object
-            .get("prompt")
-            .and_then(|p| p.as_str())
-            .ok_or("prompt must be a non-empty string")?
-            .to_owned()
+    let (prompt, turns) = if legacy {
+        (
+            object
+                .get("prompt")
+                .and_then(|p| p.as_str())
+                .ok_or("prompt must be a non-empty string")?
+                .to_owned(),
+            None,
+        )
     } else {
         let messages = object
             .get("messages")
@@ -1931,21 +1977,17 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
             if content.trim().is_empty() {
                 return Err("Message content must not be empty".into());
             }
-            turns.push((role, content));
+            turns.push((role.to_string(), content));
         }
-        // Preserve the direct single-user task path; carry all roles and history
-        // for conversations through the existing text-based agent interface.
+        // Preserve the direct single-user task path; multi-turn requests
+        // carry their roles for the GEMI plane's cache-first assembly.
         if turns.len() == 1 && turns[0].0 == "user" {
-            turns.remove(0).1
+            (turns.remove(0).1, None)
         } else {
-            turns
-                .into_iter()
-                .map(|(role, content)| format!("{role}: {content}"))
-                .collect::<Vec<_>>()
-                .join("\n\n")
+            (String::new(), Some(turns))
         }
     };
-    if prompt.trim().is_empty() {
+    if turns.is_none() && prompt.trim().is_empty() {
         return Err("Prompt must not be empty".into());
     }
     let model = object
@@ -2020,6 +2062,7 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
     };
     Ok(CompletionInput {
         prompt,
+        turns,
         stream,
         model,
         max_tokens,
@@ -2536,11 +2579,37 @@ mod tests {
     #[test]
     fn preserves_conversation_and_all_text_parts() {
         let input = parse_completion(br#"{"messages":[{"role":"system","content":"Be brief"},{"role":"user","content":"Remember 42"},{"role":"assistant","content":"OK"},{"role":"user","content":[{"type":"text","text":"What "},{"type":"text","text":"number?"}]}],"stream": true}"#, false).unwrap();
+        // Multi-turn requests carry their roles to the GEMI plane's
+        // cache-first assembly — the flatten is its job now.
         assert_eq!(
-            input.prompt,
-            "system: Be brief\n\nuser: Remember 42\n\nassistant: OK\n\nuser: What number?"
+            input.turns.as_deref(),
+            Some(
+                [
+                    ("system".to_string(), "Be brief".to_string()),
+                    ("user".to_string(), "Remember 42".to_string()),
+                    ("assistant".to_string(), "OK".to_string()),
+                    ("user".to_string(), "What number?".to_string()),
+                ]
+                .as_slice()
+            )
         );
         assert!(input.stream);
+    }
+
+    #[test]
+    fn assemble_context_prompt_falls_back_to_literal_join() {
+        // With no GEMI plane wired (unit-test topology) the join is the
+        // same literal order the endpoint always produced.
+        let turns = vec![
+            ("system".to_string(), "Be brief".to_string()),
+            ("user".to_string(), "Remember 42".to_string()),
+            ("assistant".to_string(), "OK".to_string()),
+            ("user".to_string(), "What number?".to_string()),
+        ];
+        assert_eq!(
+            assemble_context_prompt(&turns, None),
+            "system: Be brief\n\nuser: Remember 42\n\nassistant: OK\n\nuser: What number?"
+        );
     }
 
     #[test]
