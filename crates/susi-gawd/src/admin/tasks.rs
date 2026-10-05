@@ -135,8 +135,17 @@ pub struct Task {
     pub roadmap: Option<String>,
     pub created_by: String,
     pub created_unix: u64,
+    /// True when the backlog's own author path wrote this — `created_by`
+    /// says *who*, this says *how*: a human `tasks add` vs the gated
+    /// machine-authored path the rate bound applies to.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub authored: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed: Option<Closed>,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn default_size() -> String {
@@ -279,6 +288,7 @@ pub fn next_id(ws: &Path, agent: &str) -> EaiResult<String> {
 }
 
 /// A task to create; the id, author and timestamp are filled in by [`add`].
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct NewTask {
     pub title: String,
     pub goal: String,
@@ -292,6 +302,10 @@ pub struct NewTask {
 }
 
 pub fn add(ws: &Path, agent: &str, new: NewTask) -> EaiResult<Task> {
+    add_inner(ws, agent, new, false)
+}
+
+fn add_inner(ws: &Path, agent: &str, new: NewTask, authored: bool) -> EaiResult<Task> {
     let NewTask {
         title,
         goal,
@@ -309,13 +323,44 @@ pub fn add(ws: &Path, agent: &str, new: NewTask) -> EaiResult<Task> {
         size.as_str(),
         deps.as_slice(),
     );
+    check_task_fields(title, size, &accept_cmd)?;
+    let known: std::collections::HashSet<String> = list_open(ws)
+        .into_iter()
+        .chain(list_done(ws))
+        .map(|t| t.id)
+        .collect();
+    check_task_deps(deps, &known)?;
+    let task = Task {
+        id: next_id(ws, agent)?,
+        title: title.trim().to_string(),
+        goal: goal.trim().to_string(),
+        size: size.to_string(),
+        deps: deps.to_vec(),
+        accept: Accept { cmd: accept_cmd },
+        roadmap,
+        created_by: agent_token(agent)?,
+        created_unix: now_unix(),
+        authored,
+        closed: None,
+    };
+    std::fs::create_dir_all(tasks_dir(ws))?;
+    std::fs::write(
+        tasks_dir(ws).join(format!("{}.json", task.id)),
+        serde_json::to_vec_pretty(&task)?,
+    )?;
+    Ok(task)
+}
+
+/// The field-level gates every new task meets — title, size, acceptance
+/// command — shared by `add` and the author path's batch pre-flight.
+fn check_task_fields(title: &str, size: &str, accept_cmd: &[String]) -> EaiResult<()> {
     if title.trim().is_empty() {
         return Err(EaiError::config("task title must not be empty"));
     }
     if !matches!(size, "s" | "m" | "l") {
         return Err(EaiError::config("size must be s, m or l"));
     }
-    if !accept_allowed(&accept_cmd) {
+    if !accept_allowed(accept_cmd) {
         return Err(EaiError::config(
             "acceptance command is required and must start with cargo, susi or scripts/<file> \
              (a task file is not a shell)",
@@ -335,32 +380,15 @@ pub fn add(ws: &Path, agent: &str, new: NewTask) -> EaiResult<Task> {
              rather than `-E 'binary(tasks_cli)'`"
         )));
     }
-    let known: std::collections::HashSet<String> = list_open(ws)
-        .into_iter()
-        .chain(list_done(ws))
-        .map(|t| t.id)
-        .collect();
+    Ok(())
+}
+
+/// Every dep must name a task the queue already knows.
+fn check_task_deps(deps: &[String], known: &std::collections::HashSet<String>) -> EaiResult<()> {
     if let Some(bad) = deps.iter().find(|d| !known.contains(*d)) {
         return Err(EaiError::config(format!("unknown dependency {bad}")));
     }
-    let task = Task {
-        id: next_id(ws, agent)?,
-        title: title.trim().to_string(),
-        goal: goal.trim().to_string(),
-        size: size.to_string(),
-        deps: deps.to_vec(),
-        accept: Accept { cmd: accept_cmd },
-        roadmap,
-        created_by: agent_token(agent)?,
-        created_unix: now_unix(),
-        closed: None,
-    };
-    std::fs::create_dir_all(tasks_dir(ws))?;
-    std::fs::write(
-        tasks_dir(ws).join(format!("{}.json", task.id)),
-        serde_json::to_vec_pretty(&task)?,
-    )?;
-    Ok(task)
+    Ok(())
 }
 
 /// `VC-<digits>-<digits>`.
@@ -383,6 +411,9 @@ pub struct Vector {
     /// The vector's own status narrative — where it says whether the
     /// capability is delivered ("DELIVERED: …", "PARTIAL: …").
     pub progress: String,
+    /// What mastery looks like — the bar a verification task checks.
+    #[serde(default)]
+    pub mastery_target: String,
 }
 
 /// Vectors from `.agents/roadmap.json` (`/vectors`), in file order.
@@ -404,6 +435,7 @@ pub fn roadmap_vectors(ws: &Path) -> EaiResult<Vec<Vector>> {
                             .unwrap_or("")
                             .to_string(),
                         progress: x["progress"].as_str().unwrap_or("").to_string(),
+                        mastery_target: x["mastery_target"].as_str().unwrap_or("").to_string(),
                     })
                 })
                 .collect()
@@ -423,6 +455,261 @@ fn validate_roadmap_link(ws: &Path, vector: &str) -> EaiResult<()> {
         )));
     }
     Ok(())
+}
+
+/// How many machine-authored tasks one agent may have open at once — a
+/// system that can add work but not justify it is a runaway, so the
+/// author path is bounded (T-DEEPSEEK-104).
+pub const AUTHORED_OPEN_MAX: usize = 5;
+
+/// A machine-authored roadmap vector: the same fields a human-written
+/// `.agents/roadmap.json` entry carries, gated the same way.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct NewVector {
+    /// `VC-<n>-<n>`, unique across the roadmap and the batch.
+    pub id: String,
+    /// `P0` | `P1` | `P2` — the roadmap's own vocabulary.
+    pub priority: String,
+    /// The one-line capability the vector names.
+    pub vector: String,
+    /// What mastery looks like — the bar a verification task checks.
+    pub mastery_target: String,
+    /// The roadmap `type` field (named `vtype` to keep the serde name).
+    #[serde(rename = "type")]
+    pub vtype: String,
+    /// Vector ids this work builds on; each must already be on the
+    /// roadmap or be authored earlier in the same batch.
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+}
+
+/// One authored batch: the rationale that justifies it plus the vectors
+/// and tasks it produces. `susi tasks author --file` consumes this.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AuthoredSpec {
+    /// Why this work exists — the review line a runaway cannot write.
+    /// An empty rationale is refused before any artifact lands.
+    pub rationale: String,
+    #[serde(default)]
+    pub vectors: Vec<NewVector>,
+    #[serde(default)]
+    pub tasks: Vec<NewTask>,
+}
+
+/// What an [`author`] call created, for the report the CLI prints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthoredReport {
+    pub vectors: Vec<String>,
+    pub tasks: Vec<String>,
+}
+
+/// The narrative every freshly-authored vector starts with — the same
+/// "planned and queued" text the hand-written entries carry.
+const AUTHORED_PROGRESS: &str =
+    "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that \
+     proves or refutes this.";
+
+/// Author backlog artifacts from analysis: vectors into
+/// `.agents/roadmap.json` and tasks into `.agents/tasks/`, both through
+/// the same gates a human's edits would meet. The batch is checked as a
+/// whole before anything lands — a half-written batch is never a state.
+///
+/// The bound is per author: an agent may hold at most
+/// [`AUTHORED_OPEN_MAX`] open machine-authored tasks; the bound does not
+/// count tasks a human added by hand.
+///
+/// # Errors
+/// [`EaiError::config`] on an empty rationale, a rate-bound breach, an
+/// invalid or duplicate vector, a vector type/priority outside the
+/// roadmap's vocabulary, a dependency on an unknown vector or task, or
+/// any gate [`add`] applies to a hand-written task. I/O failures surface
+/// as [`EaiError::io`].
+pub fn author(ws: &Path, agent: &str, spec: &AuthoredSpec) -> EaiResult<AuthoredReport> {
+    if spec.rationale.trim().is_empty() {
+        return Err(EaiError::config(
+            "authored work needs a rationale — a record that cannot justify itself is a runaway",
+        ));
+    }
+    let token = agent_token(agent)?;
+    let authored_open = list_open(ws)
+        .iter()
+        .filter(|t| t.authored && t.created_by == token)
+        .count();
+    if authored_open + spec.tasks.len() > AUTHORED_OPEN_MAX {
+        return Err(EaiError::config(format!(
+            "authored backlog bound: {token} already holds {authored_open} open machine-authored \
+             tasks; the bound is {AUTHORED_OPEN_MAX}"
+        )));
+    }
+
+    // Validate every vector before any write — a rejected batch leaves
+    // both files untouched.
+    let roadmap_path = ws.join(".agents").join("roadmap.json");
+    let text = std::fs::read_to_string(&roadmap_path)
+        .map_err(|_| EaiError::config("no .agents/roadmap.json in this workspace"))?;
+    let mut doc: serde_json::Value = serde_json::from_str(&text)?;
+    let existing = roadmap_vectors(ws)?;
+    let known: std::collections::BTreeSet<String> = existing.iter().map(|v| v.id.clone()).collect();
+    let known_types: std::collections::BTreeSet<String> = doc["vectors"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v["type"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let batch_ids: std::collections::BTreeSet<String> =
+        spec.vectors.iter().map(|v| v.id.clone()).collect();
+    if batch_ids.len() != spec.vectors.len() {
+        return Err(EaiError::config("the batch names one vector id twice"));
+    }
+    for v in &spec.vectors {
+        if !valid_vector_id(&v.id) {
+            return Err(EaiError::config(format!(
+                "invalid vector id `{}` (want VC-<n>-<n>)",
+                v.id
+            )));
+        }
+        if known.contains(&v.id) {
+            return Err(EaiError::config(format!(
+                "vector {} already exists on the roadmap",
+                v.id
+            )));
+        }
+        if v.vector.trim().is_empty() || v.mastery_target.trim().is_empty() {
+            return Err(EaiError::config(format!(
+                "vector {} needs a name and a mastery target",
+                v.id
+            )));
+        }
+        if !matches!(v.priority.as_str(), "P0" | "P1" | "P2") {
+            return Err(EaiError::config(format!(
+                "vector {} priority must be P0, P1 or P2",
+                v.id
+            )));
+        }
+        if !known_types.contains(&v.vtype) {
+            return Err(EaiError::config(format!(
+                "vector {} type `{}` is not in the roadmap's vocabulary",
+                v.id, v.vtype
+            )));
+        }
+        for dep in &v.depends_on {
+            if dep == &v.id {
+                return Err(EaiError::config(format!(
+                    "vector {} depends on itself",
+                    v.id
+                )));
+            }
+            if !known.contains(dep) && !batch_ids.contains(dep) {
+                return Err(EaiError::config(format!(
+                    "vector {} depends on unknown vector {dep}",
+                    v.id
+                )));
+            }
+        }
+    }
+
+    // The whole batch is checked before anything lands: task gates run
+    // against the queue as it is now, with roadmap links resolving against
+    // the existing vectors plus this batch's own — a half-written batch is
+    // never a state.
+    let known_tasks: std::collections::HashSet<String> = list_open(ws)
+        .into_iter()
+        .chain(list_done(ws))
+        .map(|t| t.id)
+        .collect();
+    for t in &spec.tasks {
+        if let Some(r) = &t.roadmap {
+            if !valid_vector_id(r) || (!known.contains(r) && !batch_ids.contains(r)) {
+                return Err(EaiError::config(format!(
+                    "roadmap vector {r} does not exist in .agents/roadmap.json or this batch"
+                )));
+            }
+        }
+        check_task_fields(&t.title, &t.size, &t.accept)?;
+        check_task_deps(&t.deps, &known_tasks)?;
+    }
+
+    if !spec.vectors.is_empty() {
+        let arr = doc["vectors"]
+            .as_array_mut()
+            .ok_or_else(|| EaiError::config("roadmap.json has no vectors array"))?;
+        for v in &spec.vectors {
+            arr.push(serde_json::json!({
+                "depends_on": v.depends_on,
+                "id": v.id,
+                "mastery_target": v.mastery_target,
+                "priority": v.priority,
+                "progress": AUTHORED_PROGRESS,
+                "type": v.vtype,
+                "vector": v.vector,
+            }));
+        }
+        let mut body = serde_json::to_string_pretty(&doc)?;
+        body.push('\n');
+        crate::susi_config::atomic_write_bytes(&roadmap_path, body.as_bytes())
+            .map_err(|e| EaiError::filesystem(format!("roadmap write: {e}")))?;
+    }
+
+    // Tasks go through `add` — the identical gates a hand-written task
+    // meets — stamped authored so the bound and the review surface see
+    // them.
+    let mut tasks = Vec::new();
+    for new in &spec.tasks {
+        tasks.push(add_inner(ws, agent, new.clone(), true)?.id);
+    }
+    Ok(AuthoredReport {
+        vectors: spec.vectors.iter().map(|v| v.id.clone()).collect(),
+        tasks,
+    })
+}
+
+/// Susi's own gap analysis as an authored batch: the coverage audit
+/// already knows which vectors claim no mastery and hold no open task —
+/// the same finding the board reports as a missing queue item. This
+/// drafts a "Verify mastery" task for each through [`author`], so the
+/// analysis and the gates are the same code a human's work meets, and
+/// the bound still applies.
+///
+/// # Errors
+/// As [`author`]: an over-bound batch is refused whole.
+pub fn author_unqueued(ws: &Path, agent: &str) -> EaiResult<AuthoredReport> {
+    let vectors = roadmap_vectors(ws)?;
+    let cov = roadmap_coverage(&vectors, &list_open(ws), &list_done(ws));
+    let tasks: Vec<NewTask> = cov
+        .iter()
+        .filter(|c| c.unqueued())
+        .map(|c| NewTask {
+            title: format!("Verify mastery: {}", c.vector.title),
+            goal: c.vector.mastery_target.clone(),
+            size: "m".into(),
+            deps: vec![],
+            accept: vec![
+                "cargo".into(),
+                "nextest".into(),
+                "run".into(),
+                "--locked".into(),
+                "-E".into(),
+                format!(
+                    "test({}_mastery)",
+                    c.vector.id.to_ascii_lowercase().replace('-', "_")
+                ),
+            ],
+            roadmap: Some(c.vector.id.clone()),
+        })
+        .collect();
+    author(
+        ws,
+        agent,
+        &AuthoredSpec {
+            rationale: "coverage audit: vectors that claim no mastery and hold no open task get \
+                        their first verification task"
+                .into(),
+            vectors: vec![],
+            tasks,
+        },
+    )
 }
 
 /// One vector's coverage by tasks.

@@ -1,0 +1,11 @@
+{
+  "vector": "VC-202-008",
+  "verdict": "not-delivered",
+  "evidence": "",
+  "missing": "crates/susi-gawd/src/tests/vc_202_008.rs self_authored_backlog_* (8 tests): tasks::author lands vectors into .agents/roadmap.json and tasks into .agents/tasks/ through the same gates a human's edits meet \u2014 valid_vector_id, the roadmap type/priority vocabulary, vector deps, add's title/size/acceptance/dependency checks \u2014 with a required rationale, batch-wide pre-flight that leaves nothing half-written, the AUTHORED_OPEN_MAX per-author bound, authored stamping, and a 'susi tasks authored' review surface. tasks::author_unqueued turns the coverage audit's own finding \u2014 a vector claiming no mastery with no open task \u2014 into a drafted 'Verify mastery' task through the identical path, and 'susi tasks author --unqueued' exposes it on the CLI. Remaining: failure analysis (audit findings, drift, refused missions) does not yet draft its own repair tasks \u2014 only the gap side of 'failures and gaps' has a production analysis source (T-DEEPSEEK-233).",
+  "tracked_by": [
+    "T-DEEPSEEK-233"
+  ],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791202100
+}
