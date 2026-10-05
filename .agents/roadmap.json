@@ -1449,7 +1449,7 @@
       "id": "VC-202-015",
       "mastery_target": "A task the system proposed for itself is implemented, gated, merged, released and promoted by the workflow, with the whole loop measured - elapsed time, cost, defects - in a reproducible scorecard a human can read and stop.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: crates/susi-gawd/src/autonomous_builder.rs's run_cycle covers propose/claim/delegate/gate/commit/close/push end to end, proven by tests/vc_202_015_mastery.rs and tests/autonomous_builder.rs. Residual: it never confirms the merge (returns on push, not on landing on origin/main), nothing ties the result into admin::release::execute_release or scripts/susi-release-sync.sh for release/promotion, and no elapsed-time/cost/defect scorecard exists for a build cycle. Verdict `.agents/roadmap-verdicts/VC-202-015.json`.",
       "type": "RSI_EXECUTION",
       "vector": "The self-build loop closes end to end"
     },
