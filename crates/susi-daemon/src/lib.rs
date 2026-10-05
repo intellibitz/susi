@@ -92,6 +92,10 @@ pub mod zc_startup_autofix;
 mod estate_loop_unattended_tests;
 
 #[cfg(test)]
+#[path = "tests/estate_autonomy_tiers.rs"]
+mod estate_autonomy_tiers_tests;
+
+#[cfg(test)]
 #[path = "tests/vc_202_010_mastery.rs"]
 mod vc_202_010_mastery_tests;
 
