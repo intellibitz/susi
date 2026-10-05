@@ -9,10 +9,30 @@ pub struct AdapterRevision {
     pub version: u32,
 }
 
+/// Named contract-check outcomes a real sandbox run produced — not a bare
+/// boolean the caller asserts. An empty set is not evidence of anything
+/// passing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractResults {
+    pub checks: Vec<(String, bool)>,
+}
+
+impl ContractResults {
+    #[must_use]
+    pub fn all_pass(&self) -> bool {
+        !self.checks.is_empty() && self.checks.iter().all(|(_, ok)| *ok)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchVerdict {
     Switched,
-    PreservedActive,
+    /// Nothing was staged — distinct from a contract or version failure,
+    /// so an operator can tell "no candidate" from "checks failed".
+    NoCandidateStaged,
+    RejectedContractFailure,
+    /// The staged revision's version was not newer than the active one.
+    RejectedDowngrade,
 }
 
 #[derive(Debug, Default)]
@@ -29,8 +49,19 @@ impl AdapterUpgrade {
         Self::default()
     }
 
-    pub fn install_active(&mut self, rev: AdapterRevision) {
+    /// First-boot only: install a revision as active with nothing already
+    /// running. Refuses to replace an already-installed active revision —
+    /// every later update must go through `stage` + `switch_if_contracts_pass`,
+    /// so a revision can never become live by bypassing the sandbox.
+    pub fn install_active(&mut self, rev: AdapterRevision) -> Result<(), String> {
+        if let Some(active) = &self.active {
+            return Err(format!(
+                "an active revision ({}) is already installed; stage {} and switch through contracts instead",
+                active.id, rev.id
+            ));
+        }
         self.active = Some(rev);
+        Ok(())
     }
 
     /// Install candidate beside the active revision.
@@ -59,18 +90,23 @@ impl AdapterUpgrade {
         self.sessions.get(session_id).map(String::as_str)
     }
 
-    /// Switch only after contract checks succeed; otherwise preserve active
-    /// and in-flight session ownership.
-    pub fn switch_if_contracts_pass(&mut self, contracts_ok: bool) -> SwitchVerdict {
-        if !contracts_ok {
-            self.staged = None;
-            return SwitchVerdict::PreservedActive;
+    /// Switch only after real contract checks pass and the staged
+    /// revision is actually newer than the active one; otherwise preserve
+    /// active and in-flight session ownership. "Nothing staged" is its
+    /// own verdict, distinct from a contract or version failure.
+    pub fn switch_if_contracts_pass(&mut self, contracts: &ContractResults) -> SwitchVerdict {
+        let Some(staged) = self.staged.take() else {
+            return SwitchVerdict::NoCandidateStaged;
+        };
+        if !contracts.all_pass() {
+            return SwitchVerdict::RejectedContractFailure;
         }
-        if let Some(staged) = self.staged.take() {
-            self.active = Some(staged);
-            SwitchVerdict::Switched
-        } else {
-            SwitchVerdict::PreservedActive
+        if let Some(active) = &self.active {
+            if staged.version <= active.version {
+                return SwitchVerdict::RejectedDowngrade;
+            }
         }
+        self.active = Some(staged);
+        SwitchVerdict::Switched
     }
 }
