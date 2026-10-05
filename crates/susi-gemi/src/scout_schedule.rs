@@ -264,6 +264,23 @@ pub fn finish_run(
     if let Err(e) = append(journal, &run) {
         tracing::warn!("brain scout journal append failed: {e}");
     }
+    // The capability matrix is refreshed by the scout, not remembered: the
+    // union of registered candidates and providers with evidence, ranked
+    // per class exactly as the cascade would consult it, written next to
+    // the journal so a human reads what routed (VC-202-022/T-125).
+    let store = crate::engines::brain::load();
+    let mut matrix_names = store.providers();
+    for n in names {
+        if !matrix_names.contains(n) {
+            matrix_names.push(n.clone());
+        }
+    }
+    matrix_names.sort();
+    let matrix = crate::capability_matrix::build_in(&store, &matrix_names, now);
+    let matrix_path = journal.with_file_name("brain_capability_matrix.json");
+    if let Err(e) = crate::capability_matrix::persist(&matrix_path, &matrix) {
+        tracing::warn!("brain capability matrix persist failed: {e}");
+    }
     (run, drift)
 }
 

@@ -1,0 +1,12 @@
+{
+  "vector": "VC-202-022",
+  "verdict": "not-delivered",
+  "evidence": "capability_matrix_by_class_* (crates/susi-gemi/src/tests/capability_matrix_by_class.rs — 5 tests: per-class leadership is independent (a chat-proven provider leads Chat while a code-proven one leads Code — no single global score), cells carry the measured dimensions with honest None for untried providers, finish_run refreshes brain_capability_matrix.json next to the journal every scout run, the artifact round-trips, and the human surface (`susi brain matrix`) plus scout-refresh wiring are pinned by source scan). `capability_matrix::build` reads the same `Store::rank` output the cascade consults.",
+  "missing": "The capability matrix is now delivered (T-DEEPSEEK-125): capability_matrix::build_in maps every provider x task class to its measured cell — samples, success rate, EMA latency, expected task cost and cost per verified outcome — computed from the exact `rank` calls the production cascade makes, so the matrix cannot disagree with routing; the scheduled scout persists it to ~/.susi/brain_capability_matrix.json every run, and `susi brain matrix` renders it. What remains undelivered: primary election with re-election on health or price change (the drift events exist — LeaderChanged fires on each — but no primary is elected or re-elected from them, T-121); secondaries as agent seats on marginal cost with bounded fan-out and provenance (T-129); and primary mid-mission failover with durable resume. Queued under T-DEEPSEEK-121/T-DEEPSEEK-129.",
+  "tracked_by": [
+    "T-DEEPSEEK-121",
+    "T-DEEPSEEK-129"
+  ],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791304000
+}
