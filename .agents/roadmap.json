@@ -1408,7 +1408,7 @@
       "id": "VC-202-011",
       "mastery_target": "Workspace and mission state survives process restart and host reboot; a mission's state can be snapshotted and restored, and a failed mission rolls back to a known-good state without touching another mission's state.",
       "priority": "P1",
-      "progress": "PARTIAL: restart survival delivered (T-DEEPSEEK-93): persisted Running nodes fold back to Pending inside the recovery transaction and re-dispatch, completed work and outputs are preserved, the fold is recorded on the mission's interruptions, a recorded Failed verdict fails cleanly by name, and `susi status` enumerates resumable missions with their resume nodes; snapshot/restore and single-mission rollback tracked by T-94.",
+      "progress": "DELIVERED: restart survival (T-DEEPSEEK-93) plus snapshot/restore/rollback (T-DEEPSEEK-94): the production dispatch path snapshots the pre-resume record before the recovery transaction, rollback_mission restores nodes/outputs/journal to the known-good snapshot scoped to one mission id (a sibling mission is untouched), the clean-failure report names the available snapshot, gawd.mission.rollback exposes rollback on the plane bus, and susi status reports failed missions that still have a restore point.",
       "type": "CORE",
       "vector": "Durable state, snapshot and rollback"
     },

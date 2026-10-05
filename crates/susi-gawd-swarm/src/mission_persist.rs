@@ -18,6 +18,19 @@ pub enum NodeTerminal {
     Failed,
 }
 
+impl NodeTerminal {
+    /// The serialized name — the same snake_case the JSON record carries.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedNode {
     pub id: String,
@@ -53,6 +66,18 @@ pub enum ResumeVerdict {
     Resumable,
 }
 
+/// One rollback's record (T-DEEPSEEK-94): the snapshot that was restored
+/// and the node states it replaced — the restore is visible in the
+/// mission's own record, not a silent rewrite of history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Restore {
+    pub unix: u64,
+    /// Snapshot file name that was restored.
+    pub snapshot: String,
+    /// `id:state` pairs the restored record replaced.
+    pub replaced: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedMission {
     pub mission_id: String,
@@ -81,6 +106,10 @@ pub struct PersistedMission {
     /// back for re-dispatch (T-DEEPSEEK-93) — the resume point is durable.
     #[serde(default)]
     pub interruptions: Vec<Interruption>,
+    /// Every rollback's record — which snapshot was restored and the node
+    /// states it replaced (T-DEEPSEEK-94).
+    #[serde(default)]
+    pub restores: Vec<Restore>,
 }
 
 impl PersistedMission {
@@ -95,6 +124,7 @@ impl PersistedMission {
             recovery: LeaseRecovery::default(),
             side_effect_journal: crate::side_effect_journal::IntentJournal::new(),
             interruptions: Vec::new(),
+            restores: Vec::new(),
         }
     }
 
@@ -345,6 +375,138 @@ impl PersistedMission {
     #[must_use]
     pub fn missions_dir(workspace: &Path) -> PathBuf {
         workspace.join(".susi").join("missions")
+    }
+
+    /// Workspace-local snapshots directory — one subdirectory per mission
+    /// (`<workspace>/.susi/mission-snapshots/<mission_id>/`), so a
+    /// rollback touches only its own mission's files (T-DEEPSEEK-94).
+    #[must_use]
+    pub fn snapshots_dir(workspace: &Path, mission_id: &str) -> PathBuf {
+        workspace
+            .join(".susi")
+            .join("mission-snapshots")
+            .join(mission_id)
+    }
+
+    /// Copy the current durable record into the snapshots dir as
+    /// `<label>.json` — a verbatim restore point taken before risky work
+    /// (the resume path snapshots the pre-resume state). `keep_last`
+    /// bounds the pile: the oldest snapshots are pruned first. Returns
+    /// the snapshot file name.
+    pub fn snapshot(
+        &self,
+        workspace: &Path,
+        label: &str,
+        keep_last: usize,
+        now: u64,
+    ) -> EaiResult<String> {
+        let dir = Self::snapshots_dir(workspace, &self.mission_id);
+        std::fs::create_dir_all(&dir).map_err(|e| EaiError::io(e.to_string()))?;
+        let safe: String = label
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let name = format!("{now:020}-{safe}.json");
+        let path = dir.join(&name);
+        let body = serde_json::to_string_pretty(self)
+            .map_err(|e| EaiError::internal(format!("serialize snapshot: {e}")))?;
+        crate::susi_config::atomic_write_bytes(&path, body.as_bytes())
+            .map_err(|e| EaiError::filesystem(format!("write {}: {e}", path.display())))?;
+        self.prune_snapshots(workspace, keep_last);
+        Ok(name)
+    }
+
+    /// Snapshot file names for this mission, oldest first.
+    #[must_use]
+    pub fn list_snapshots(workspace: &Path, mission_id: &str) -> Vec<String> {
+        let dir = Self::snapshots_dir(workspace, mission_id);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_str()?.to_string();
+                name.ends_with(".json").then_some(name)
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The newest snapshot name, if any — the latest known-good point.
+    #[must_use]
+    pub fn latest_snapshot(workspace: &Path, mission_id: &str) -> Option<String> {
+        Self::list_snapshots(workspace, mission_id).pop()
+    }
+
+    /// Drop the oldest snapshots past `keep_last`. Names sort by their
+    /// zero-padded timestamp prefix, so lexical order is chronological.
+    fn prune_snapshots(&self, workspace: &Path, keep_last: usize) {
+        let names = Self::list_snapshots(workspace, &self.mission_id);
+        if names.len() <= keep_last {
+            return;
+        }
+        for name in &names[..names.len() - keep_last] {
+            let _ =
+                std::fs::remove_file(Self::snapshots_dir(workspace, &self.mission_id).join(name));
+        }
+    }
+
+    /// Roll this mission back to a snapshot — the newest when `snapshot`
+    /// is `None`. The restored record is written back atomically as the
+    /// mission's current state with the restore appended to `restores`,
+    /// naming the node states it replaced; every other mission's file is
+    /// untouched (T-DEEPSEEK-94). The normal resume machinery then
+    /// continues the restored record — completed nodes stay done,
+    /// interrupted `Running` nodes fold back, and a previously recorded
+    /// `Failed` verdict is replaced by the pre-failure state rather than
+    /// silently retried.
+    pub fn rollback(
+        workspace: &Path,
+        mission_id: &str,
+        snapshot: Option<&str>,
+        now: u64,
+    ) -> EaiResult<PersistedMission> {
+        let name = match snapshot {
+            Some(n) => n.to_string(),
+            None => Self::latest_snapshot(workspace, mission_id).ok_or_else(|| {
+                EaiError::governance(format!("no snapshot to roll mission {mission_id} back to"))
+            })?,
+        };
+        if name.contains('/') || name.contains("..") {
+            return Err(EaiError::governance(format!("bad snapshot name {name}")));
+        }
+        let snap_path = Self::snapshots_dir(workspace, mission_id).join(&name);
+        let mut restored = Self::load(&snap_path)
+            .map_err(|e| EaiError::filesystem(format!("load snapshot {name}: {e}")))?;
+        restored.mission_id = mission_id.to_string();
+        // The record of what the rollback replaced — from the current
+        // mission file when one exists.
+        let current_path = Self::missions_dir(workspace).join(format!("{mission_id}.json"));
+        let replaced: Vec<String> = match Self::load(&current_path) {
+            Ok(current) => current
+                .nodes
+                .values()
+                .map(|n| format!("{}:{}", n.id, n.state.name()))
+                .collect(),
+            Err(_) => vec!["(no current record)".to_string()],
+        };
+        restored.restores.push(Restore {
+            unix: now,
+            snapshot: name,
+            replaced,
+        });
+        restored
+            .save(&Self::missions_dir(workspace))
+            .map_err(|e| EaiError::filesystem(format!("restore mission {mission_id}: {e}")))?;
+        Ok(restored)
     }
 
     /// Stable mission id derived from the goal (hex of DefaultHasher).
