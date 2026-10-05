@@ -535,7 +535,7 @@
       "id": "VC-201-043",
       "mastery_target": "Coordinate model loads and inference reservations using measured memory headroom; concurrent load and out-of-memory tests release reservations and preserve a responsive control plane.",
       "priority": "P0",
-      "progress": "PARTIAL: model admission mock reserves accelerator memory in isolated AccelPool struct, but live measured headroom is not integrated, and concurrent load / OOM release on the production runtime path remains unverified. Tracked by T-ANTIGRAVITY20261002053216-2.",
+      "progress": "DELIVERED: production AdmissionController (persisted_default) derives limits from measured host capacity; the nvidia-smi accelerator probe plus AccelPool headroom rule gates admit and probe; unmeasured VRAM fails closed with SUSI_ADMIT_* operator escapes; concurrent reservations release on Ticket drop and persist across controller reload. Mastery: vc_201_043_mastery (5 tests). Residuals: NVIDIA-only probe, logical reservations, fixed 5% headroom.",
       "type": "LOCAL_HOSTING",
       "vector": "Reserve accelerator memory before model admission"
     },
