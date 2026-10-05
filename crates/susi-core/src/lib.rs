@@ -43,6 +43,7 @@ pub mod agent_types;
 pub mod audit_export;
 pub mod broker;
 pub mod bus;
+pub mod capability_bus;
 pub mod capability_contract;
 pub mod capture;
 pub mod commit_log;
@@ -162,6 +163,9 @@ pub use truth::TruthTransformer;
 #[cfg(test)]
 #[path = "tests/audit_action_choke_point.rs"]
 mod audit_action_choke_point_tests;
+#[cfg(test)]
+#[path = "tests/capability_bus.rs"]
+mod capability_bus_tests;
 #[cfg(test)]
 #[path = "tests/vc_200_001.rs"]
 mod vc_200_001_tests;
