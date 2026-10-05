@@ -1,11 +1,11 @@
 {
-  "vector": "VC-201-044",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "Managed installation does not invoke transactional staging or atomic manifest writing on production paths; finish() loads full files into RAM with std::fs::read which fails on multi-gigabyte models; disk-full error handling and resumption are not integrated with model store management.",
+  "evidence": "crates/susi-vendor-models/src/transactional_download.rs (Store::publish staging, publish, resume and recovery), crates/susi-vendor-models/src/resumable_downloads.rs (range requests, checksum verification), crates/susi-vendor-models/src/tests/vc_201_044_mastery.rs (vc_201_044_mastery_checksum_mismatch_quarantines_and_never_ready, vc_201_044_mastery_interrupted_download_preserves_recoverable_state).",
+  "missing": null,
+  "recorded_by": "CODEX",
+  "recorded_unix": 1791228000,
   "tracked_by": [
-    "T-ANTIGRAVITY20261002053216-3"
+    "T-DEEPSEEK-253"
   ],
-  "recorded_by": "ANTIGRAVITY20261002053216",
-  "recorded_unix": 1790965000
+  "vector": "VC-201-044",
+  "verdict": "delivered"
 }
