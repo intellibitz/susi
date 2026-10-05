@@ -42,8 +42,7 @@ fn cloud_budget() {
     }
     let wins = workers
         .into_iter()
-        .map(|worker| worker.join().expect("budget worker must join"))
-        .flatten()
+        .filter_map(|worker| worker.join().expect("budget worker must join"))
         .collect::<Vec<_>>();
     assert_eq!(wins.len(), 6);
     assert_eq!(ledger.account_exposure("shared"), 900);
