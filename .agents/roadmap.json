@@ -234,7 +234,7 @@
       "id": "VC-201-018",
       "mastery_target": "A passing experiment produces a reviewable release candidate and evidence manifest; only susi release and scripts/susi-release-sync.sh promote tagged builds, and attempts to install target/ binaries into ~/.susi/bin are rejected.",
       "priority": "P0",
-      "progress": "PARTIAL: the DirectTargetInstall path is refused and a verbatim target -> ~/.susi/bin pair is caught, but a 'passing experiment' is never verified before minting a reviewable RC, the path guard is substring matching evaded by staging, and whitespace evidence/digest promote. Refuted on record; tracked by T-DEVIN20261002053148-25.",
+      "progress": "PARTIAL: the DirectTargetInstall path is refused, a verbatim target -> ~/.susi/bin pair is caught, produce_release_candidate/promote_via now require the experiment's independent Verification outcome (verified=true) before minting a reviewable RC, the path guard is a component-wise fail-closed check on the destination (no longer evaded by staging or a relative dest), and whitespace evidence/digest are refused. Refuted on record; tracked by T-DEVIN20261002053148-25.",
       "type": "RSI_EXECUTION",
       "vector": "Connect RSI promotion to release-only self-build"
     },
