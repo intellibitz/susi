@@ -863,7 +863,7 @@
       "id": "VC-201-069",
       "mastery_target": "Guide discovery and configuration of an available local runtime, an optional cloud provider, tools, and policy through validated plans; the completion check runs a real mission and reports missing prerequisites.",
       "priority": "P1",
-      "progress": "PARTIAL: the setup workflow detects the ecosystem, takes consent and applies, then summarises - verified by `tests/zc_setup_workflow.rs`: zc_setup_workflow_detect_consent_apply_summary. Residual: guiding discovery and configuration of a local runtime, an optional cloud provider, tools and policy through validated plans, and a completion check that runs a real mission and reports missing prerequisites, are not enumerated by a named check. Evidence: T-CLAUDE-250.",
+      "progress": "DELIVERED: the setup workflow validates and applies bundled defaults, tools and policy, gates cloud opt-in on consent and a discovered API key, reports missing runtime/key prerequisites, and runs an isolated first-party mission probe when ready. Verified by `crates/susi-config/src/tests/vc_201_069_mastery.rs`: vc_201_069_mastery_completion_reports_missing_runtime_and_key, vc_201_069_mastery_seeds_bundled_defaults_and_validated_surfaces, vc_201_069_mastery_completion_runs_a_real_first_party_mission, vc_201_069_mastery_cloud_opt_in_requires_a_key, vc_201_069_mastery_plan_validation_rejects_missing_surfaces, vc_201_069_mastery_consent_gating_and_rerun_are_idempotent. Evidence: T-DEVIN20261002053148-35.",
       "type": "CONFIGURATION",
       "vector": "Provide an end-to-end ecosystem setup workflow"
     },
