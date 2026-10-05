@@ -181,7 +181,7 @@ pub(crate) fn price_catalog() -> Option<crate::models::price_catalog::PriceCatal
 /// Provider name → catalog entry: exact match first, then the longest
 /// catalog `model_id` contained in the composite provider name (the same
 /// contains-rule style `tier_of` uses for `cost_tiers.json`).
-fn catalog_entry_for<'a>(
+pub(crate) fn catalog_entry_for<'a>(
     catalog: &'a crate::models::price_catalog::PriceCatalog,
     provider: &str,
 ) -> Option<&'a crate::models::price_catalog::PriceEntry> {
