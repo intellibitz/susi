@@ -149,3 +149,120 @@ fn vc_201_018_mastery_nominal_refusals_hold() {
     });
     assert!(matches!(d2, PromotionDecision::Rejected(_)));
 }
+
+/// Production reachability: the real `evaluate_and_record` path — the
+/// same one `susi tasks eval-corpus` runs — leaves a reviewable release
+/// candidate under `.susi/release-candidates/` for a PromotionReady
+/// experiment, and only for one. The persisted manifest binds the eval
+/// evidence, corpus revision, measured scorecard, promotion spec and
+/// the allowed promoters, and the recorded decision is the one
+/// `decide_promotion` reached — never a silent promotion.
+#[test]
+fn vc_201_018_mastery_promotion_ready_experiment_leaves_a_release_candidate() {
+    use crate::eval_separation::{
+        evaluate_and_record, CandidateArtifact, EvalRunInput, ReleaseCandidateRecord,
+    };
+    use crate::rsi_corpus::{
+        make_fixture, FixtureClass, FixtureSpec, FixtureSplit, RsiCorpus, RSI_CORPUS_SCHEMA,
+    };
+    use crate::scorecard::{DimensionScore, DimensionSpec, ImprovementScorecard, ScorecardSpec};
+    use std::collections::BTreeSet;
+
+    let dim = |name: &str, v: f64, u: f64| DimensionScore {
+        name: name.into(),
+        value: v,
+        uncertainty: u,
+    };
+    let spec = ScorecardSpec {
+        quality: DimensionSpec {
+            threshold: 0.8,
+            lower_is_better: false,
+        },
+        reliability: DimensionSpec {
+            threshold: 0.9,
+            lower_is_better: false,
+        },
+        latency: DimensionSpec {
+            threshold: 100.0,
+            lower_is_better: true,
+        },
+        resource: DimensionSpec {
+            threshold: 0.9,
+            lower_is_better: false,
+        },
+        operator_effort: DimensionSpec {
+            threshold: 5.0,
+            lower_is_better: true,
+        },
+        min_task_count: 30,
+    };
+    let measured = ImprovementScorecard {
+        quality: dim("quality", 0.95, 0.01),
+        reliability: dim("reliability", 0.99, 0.01),
+        latency: dim("latency", 50.0, 5.0),
+        resource: dim("resource", 0.99, 0.01),
+        operator_effort: dim("operator_effort", 1.0, 0.1),
+        task_count: 50,
+    };
+    let corpus = RsiCorpus {
+        schema_version: RSI_CORPUS_SCHEMA.into(),
+        revision: "rev-rc".into(),
+        fixtures: vec![make_fixture(FixtureSpec {
+            id: "h1",
+            class: FixtureClass::Coding,
+            input: "held-out input",
+            split: FixtureSplit::HeldOut,
+            seed: 1,
+            evaluator_expected: Some("expected-output".into()),
+        })],
+        promotion_spec: Some(spec),
+    };
+    let root = std::env::temp_dir().join(format!("susi-vc018-prod-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let run = |id: &str, m: Option<ImprovementScorecard>| EvalRunInput {
+        candidate: CandidateArtifact {
+            id: id.into(),
+            actual_output: BTreeSet::from(["expected-output".to_string()]),
+            expected_results: BTreeSet::new(),
+        },
+        candidate_can_write: false,
+        training_access: BTreeSet::new(),
+        memory_access: BTreeSet::new(),
+        measured: m,
+    };
+    let rc_dir = root.join(".susi").join("release-candidates");
+
+    // A cleared experiment mints its reviewable candidate + manifest.
+    evaluate_and_record(&root, &corpus, &run("cand-rc", Some(measured))).unwrap();
+    let record_path = rc_dir.join("cand-rc.json");
+    assert!(
+        record_path.is_file(),
+        "a PromotionReady experiment must leave a release candidate"
+    );
+    let record: ReleaseCandidateRecord =
+        serde_json::from_str(&std::fs::read_to_string(&record_path).unwrap()).unwrap();
+    assert_eq!(record.candidate.experiment_id, "cand-rc");
+    assert_eq!(record.decision, "accepted_reviewable");
+    assert!(!record.candidate.artifact_digest.trim().is_empty());
+    let manifest: serde_json::Value =
+        serde_json::from_str(&record.candidate.evidence_manifest).unwrap();
+    assert_eq!(manifest["corpus_revision"], "rev-rc");
+    assert_eq!(
+        manifest["allowed_promoters"],
+        serde_json::json!(["susi release", "scripts/susi-release-sync.sh"]),
+        "the manifest names the only paths that may promote this candidate"
+    );
+    assert!(manifest["eval_evidence"]["verdict"].is_string());
+    assert!(manifest["promotion_spec"].is_object());
+
+    // An experiment that passes the gate but carries no measured
+    // scorecard stays Evaluated — no release candidate is minted.
+    evaluate_and_record(&root, &corpus, &run("cand-nospec", None)).unwrap();
+    assert!(
+        !rc_dir.join("cand-nospec.json").exists(),
+        "an Evaluated experiment must not mint a release candidate"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}

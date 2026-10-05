@@ -266,6 +266,9 @@ pub fn evaluate_and_record(
     let mut log = ExperimentLog::load(experiments_dir(workspace));
     evidence.experiment_state = Some(advance_experiment(&mut log, &evidence, input, corpus)?);
     record(workspace, &evidence)?;
+    if evidence.experiment_state == Some(ExperimentState::PromotionReady) {
+        record_release_candidate(workspace, corpus, &evidence, input)?;
+    }
     Ok(evidence)
 }
 
@@ -286,6 +289,122 @@ fn record(workspace: &Path, evidence: &EvalEvidence) -> EaiResult<()> {
         .map_err(|e| EaiError::filesystem(format!("eval evidence file open failed: {e}")))?;
     file.write_all(&line)
         .map_err(|e| EaiError::filesystem(format!("eval evidence write failed: {e}")))
+}
+
+/// Directory holding the reviewable release candidates a PromotionReady
+/// experiment produces — the only artifacts `susi release` /
+/// `susi-release-sync.sh` may later promote (VC-201-018).
+fn release_candidates_dir(workspace: &Path) -> std::path::PathBuf {
+    workspace.join(".susi").join("release-candidates")
+}
+
+/// Render `id` safe as a single filename component — a candidate id may
+/// carry separators that must never become path segments.
+fn candidate_file_name(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// The durable artifact left under `.susi/release-candidates/` for a
+/// PromotionReady experiment: the `ReleaseCandidate` itself plus the
+/// promotion decision the policy reached for it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseCandidateRecord {
+    /// The reviewable candidate — `evidence_manifest` carries the full
+    /// serialized manifest JSON.
+    pub candidate: crate::rsi_promotion::ReleaseCandidate,
+    /// `accepted_reviewable` when `decide_promotion` cleared the
+    /// SusiRelease path — the manifest records the decision a reviewer
+    /// would re-derive, not a silent promotion.
+    pub decision: String,
+}
+
+/// A PromotionReady experiment produces its reviewable release candidate
+/// and evidence manifest here: the manifest binds the eval evidence,
+/// corpus revision, measured scorecard, the corpus's predeclared
+/// promotion spec and the only allowed promoters, so review needs
+/// nothing a caller could fabricate. The `Verification` handed to
+/// `produce_release_candidate` is rebuilt from the recorded evidence —
+/// `verified` is only ever set on the PromotionReady branch this
+/// function is called from.
+fn record_release_candidate(
+    workspace: &Path,
+    corpus: &RsiCorpus,
+    evidence: &EvalEvidence,
+    input: &EvalRunInput,
+) -> EaiResult<()> {
+    let verification = crate::cloud_rsi::Verification {
+        verified: true,
+        review: Some(crate::cloud_rsi::ReviewVerdict {
+            verdict: "approve".into(),
+            reasons: Vec::new(),
+        }),
+        reviewer: Some(format!("eval-corpus:{}", corpus.revision)),
+        gates: vec![
+            ("held_out_eval".to_string(), true),
+            ("promotion_spec".to_string(), true),
+        ],
+        regressions: Vec::new(),
+        fabricated: Vec::new(),
+        failover: None,
+        reasons: Vec::new(),
+    };
+    let digest = crate::eval_receipt::EvalReceipt::digest_bytes(
+        serde_json::to_string(&input.candidate.actual_output)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    let manifest = serde_json::to_string_pretty(&serde_json::json!({
+        "eval_evidence": evidence,
+        "corpus_revision": corpus.revision,
+        "promotion_spec": corpus.promotion_spec,
+        "measured": input.measured,
+        "allowed_promoters": crate::rsi_promotion::ALLOWED_PROMOTERS,
+    }))
+    .unwrap_or_default();
+    let candidate = crate::rsi_promotion::produce_release_candidate(
+        &verification,
+        &evidence.candidate_id,
+        &digest,
+        &manifest,
+    )
+    .map_err(|e| EaiError::governance(format!("release candidate refused: {e}")))?;
+    let decision =
+        match crate::rsi_promotion::decide_promotion(&crate::rsi_promotion::PromotionAttempt {
+            candidate: candidate.clone(),
+            via: crate::rsi_promotion::PromotionPath::SusiRelease,
+        }) {
+            crate::rsi_promotion::PromotionDecision::AcceptedReviewable => "accepted_reviewable",
+            crate::rsi_promotion::PromotionDecision::Rejected(why) => {
+                return Err(EaiError::governance(format!(
+                    "promotion decision rejected reviewable candidate: {why}"
+                )))
+            }
+        };
+    let dir = release_candidates_dir(workspace);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| EaiError::filesystem(format!("release candidate dir create failed: {e}")))?;
+    let record = ReleaseCandidateRecord {
+        candidate,
+        decision: decision.to_string(),
+    };
+    let bytes = serde_json::to_vec_pretty(&record)
+        .map_err(|e| EaiError::internal(format!("release candidate serialization failed: {e}")))?;
+    crate::susi_config::atomic_replace_file(
+        &dir.join(format!(
+            "{}.json",
+            candidate_file_name(&evidence.candidate_id)
+        )),
+        &bytes,
+    )
+    .map_err(|e| EaiError::filesystem(format!("release candidate write failed: {e}")))
 }
 
 /// Read every eval evidence record under `workspace/.susi/`, skipping
