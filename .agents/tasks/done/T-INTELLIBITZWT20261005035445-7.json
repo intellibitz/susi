@@ -10,12 +10,18 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd-swarm",
       "-E",
-      "test(vc_201_043_mastery)"
+      "test(/vc_201_043_mastery/)"
     ]
   },
   "roadmap": "VC-201-043",
   "created_by": "INTELLIBITZWT20261005035445",
   "created_unix": 1791215947,
-  "authored": true
+  "closed": {
+    "at_unix": 1791226652,
+    "commit": "870633d44a8f3c30409b4318f34c73012c6674a9",
+    "by": "PRIMARY202610051809451758787"
+  }
 }
