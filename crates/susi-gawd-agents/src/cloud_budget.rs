@@ -228,6 +228,31 @@ impl BudgetLedger {
         }
     }
 
+    /// Reserve budget for a selected candidate immediately before dispatch.
+    ///
+    /// Keeping this operation on the injected ledger lets parallel callers
+    /// share one atomic account budget while tests and failover runs avoid
+    /// hidden process-global state.
+    pub fn reserve_dispatch(
+        &self,
+        candidate: &crate::cloud_intent::Candidate,
+        free_headroom: FreeHeadroom,
+        estimate: Micros,
+        policy: SpendPolicy,
+    ) -> Result<Reservation, Denial> {
+        let credential_fp =
+            susi_vendor_models::cloud_eligibility::credential_fingerprint(&candidate.api_key);
+        self.reserve(ReserveRequest {
+            account: candidate.account.as_deref().unwrap_or(""),
+            credential_fp: &credential_fp,
+            model: &candidate.model,
+            policy,
+            is_free_candidate: candidate.cost_per_mtok.unwrap_or(0.0) == 0.0,
+            free_headroom,
+            estimate,
+        })
+    }
+
     /// Authorize a `NeedsConsent`/`NeedsPriceConsent` path after the user
     /// consented — equivalent to `PaidAuthorized` for this account now.
     /// Consent is a deliberate caller upgrade, not a ledger decision.
@@ -293,17 +318,7 @@ pub fn reserve_dispatch(
     estimate: Micros,
     policy: SpendPolicy,
 ) -> Result<Reservation, Denial> {
-    global().reserve(ReserveRequest {
-        account: candidate.account.as_deref().unwrap_or(""),
-        credential_fp: &susi_vendor_models::cloud_eligibility::credential_fingerprint(
-            &candidate.api_key,
-        ),
-        model: &candidate.model,
-        policy,
-        is_free_candidate: candidate.cost_per_mtok.unwrap_or(0.0) == 0.0,
-        free_headroom,
-        estimate,
-    })
+    global().reserve_dispatch(candidate, free_headroom, estimate, policy)
 }
 
 #[cfg(test)]

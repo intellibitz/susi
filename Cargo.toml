@@ -198,6 +198,9 @@ criterion = "0.5"
 [dev-dependencies]
 ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "crates/susi-vendor-ed25519-dalek" }
 sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
+susi-gawd-agents = { workspace = true }
+susi-gawd-swarm = { workspace = true }
+susi-vendor-models = { workspace = true }
 
 [dependencies]
 susi-daemon = { path = "crates/susi-daemon" }
