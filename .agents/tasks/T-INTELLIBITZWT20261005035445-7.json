@@ -1,0 +1,21 @@
+{
+  "id": "T-INTELLIBITZWT20261005035445-7",
+  "title": "Verify mastery: Reserve accelerator memory before model admission",
+  "goal": "Coordinate model loads and inference reservations using measured memory headroom; concurrent load and out-of-memory tests release reservations and preserve a responsive control plane.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_043_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-043",
+  "created_by": "INTELLIBITZWT20261005035445",
+  "created_unix": 1791215947,
+  "authored": true
+}

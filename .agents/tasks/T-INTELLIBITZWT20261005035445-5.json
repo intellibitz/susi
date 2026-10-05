@@ -1,0 +1,21 @@
+{
+  "id": "T-INTELLIBITZWT20261005035445-5",
+  "title": "Verify mastery: Connect RSI promotion to release-only self-build",
+  "goal": "A passing experiment produces a reviewable release candidate and evidence manifest; only susi release and scripts/susi-release-sync.sh promote tagged builds, and attempts to install target/ binaries into ~/.susi/bin are rejected.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_018_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-018",
+  "created_by": "INTELLIBITZWT20261005035445",
+  "created_unix": 1791215947,
+  "authored": true
+}
