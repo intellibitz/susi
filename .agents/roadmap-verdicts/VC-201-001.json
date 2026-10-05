@@ -2,8 +2,10 @@
   "vector": "VC-201-001",
   "verdict": "not-delivered",
   "evidence": "",
-  "missing": "Three refutations. (1) Input hashes are never verified: no validation API exists, and a deserialized fixture whose input was changed while its hash stayed stale is served undetected (vc_201_001_mastery_tampered_input_hash_is_accepted). (2) Held-out membership is not enforced: split is a free-form string, and a fixture labeled 'held-out' escapes held_out() into the train side — the held-out split the evaluator believes isolated is contaminated (vc_201_001_mastery_mislabeled_split_escapes_held_out). (3) Replay is not bound to the revision: replay_seeds ignores revision entirely, so two different revisions yield identical replay plans (vc_201_001_mastery_replay_ignores_revision). Additionally RsiCorpus has no production caller. Holds: the candidate view strips evaluator_expected and keeps seeds (vc_201_001_mastery_candidate_view_hides_evaluator_data).",
-  "tracked_by": ["T-DEVIN20261002053148-16"],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790987352
+  "missing": "crates/susi-gawd/src/tests/intent_ladder_startup.rs intent_ladder_startup_* (7 tests, T-DEEPSEEK-200): the versioned .agents/intent-ladder.json loads through schema/rationale/id/path/budget verification; the start-up slice is bounded by count, grade and totals with slice-budget skips recorded; every rung runs in a fresh scratch SUSI_HOME + throwaway workspace that is deleted after; the production ProcessRunner env-scrubs credentials (proven end-to-end), sets SUSI_OFFLINE and the scratch home; the independent check \u2014 file content or output marker, never the runner's claim \u2014 decides pass/fail/partial; and the scorecard records cost, worker and stop-point durably per ladder revision. Boot slice + daily schedule are wired in runtime_admin and 'susi admin intent-ladder' is the on-demand surface. Corpus structure delivered earlier: crates/susi-gawd/src/tests/vc_201_001_mastery.rs vc_201_001_mastery_* (5 tests: tampered input hash rejected, mislabeled split cannot deserialize, replay bound to revision, corpus feeds the eval path, candidate view hides evaluator data). Remaining: RsiCorpus has no production caller \u2014 eval_separation/eval_contamination are exercised only by tests (T-DEEPSEEK-234).",
+  "tracked_by": [
+    "T-DEEPSEEK-234"
+  ],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791204180
 }

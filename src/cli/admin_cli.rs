@@ -120,6 +120,43 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                 std::process::exit(1);
             }
         },
+        AdminCommands::IntentLadder { run, slice } => {
+            let home = susi_paths::SusiDirs::substrate_home();
+            if run || slice {
+                let card = if slice {
+                    susi_gawd::intent_ladder::startup_slice(&home, cwd)
+                } else {
+                    susi_gawd::intent_ladder::full_run(&home, cwd)
+                };
+                match card {
+                    Ok(card) => {
+                        let _ = crate::cli_json::print_json(&serde_json::json!({
+                            "ladder_revision": card.ladder_revision,
+                            "source": card.ladder_source,
+                            "entries": card.entries,
+                            "scorecard": susi_gawd::intent_ladder::scorecard_path(&home),
+                        }));
+                    }
+                    Err(e) => {
+                        eprintln!("intent ladder run failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                match susi_gawd::intent_ladder::read_scorecard(&home) {
+                    Some(card) => {
+                        let _ = crate::cli_json::print_json(&serde_json::json!(card));
+                    }
+                    None => {
+                        eprintln!(
+                            "no scorecard at {} — `--run` the ladder or `--slice` the start-up slice",
+                            susi_gawd::intent_ladder::scorecard_path(&home).display()
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
     }
 }
 
