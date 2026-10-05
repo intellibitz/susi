@@ -149,6 +149,9 @@ mod model_pricing_cache_rates_tests;
 #[path = "tests/primary_election.rs"]
 mod primary_election_tests;
 #[cfg(test)]
+#[path = "tests/primary_without_secondaries.rs"]
+mod primary_without_secondaries_tests;
+#[cfg(test)]
 #[path = "tests/quota_window_accounting.rs"]
 mod quota_window_accounting_tests;
 #[cfg(test)]
