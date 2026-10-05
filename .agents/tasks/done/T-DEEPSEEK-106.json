@@ -1,0 +1,24 @@
+{
+  "id": "T-DEEPSEEK-106",
+  "title": "Measure the self-build loop into a scorecard",
+  "goal": "Close the self-build loop: a task the system proposed for itself is implemented, gated, merged, released and promoted, with elapsed time, cost and defects measured per loop into a reproducible scorecard a human can read and stop. This makes the RSI claim falsifiable - a loop that cannot be measured cannot be improved.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-104",
+    "T-DEEPSEEK-96"
+  ],
+  "accept": {
+    "cmd": [
+      "scripts/check-rsi-scorecard.py",
+      "--self-test"
+    ]
+  },
+  "roadmap": "VC-202-015",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953358,
+  "closed": {
+    "at_unix": 1791205848,
+    "commit": "93cbcd094a70190ab820ef7a063c583045c9d925",
+    "by": "PRIMARY202610051809451758787"
+  }
+}
