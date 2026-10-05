@@ -16,5 +16,10 @@
   },
   "roadmap": "VC-201-009",
   "created_by": "INTELLIBITZWT20261005035445",
-  "created_unix": 1791224553
+  "created_unix": 1791224553,
+  "closed": {
+    "at_unix": 1791227682,
+    "commit": "fbcf084eee1cd8179fe39dc2763e268b76ffcd07",
+    "by": "INTELLIBITZWT20261005035445"
+  }
 }

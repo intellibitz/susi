@@ -124,7 +124,7 @@
       "id": "VC-201-009",
       "mastery_target": "Track evaluation-data access and overlaps between training, memory, and held-out fixtures; a contaminated run is excluded from improvement evidence with an inspectable reason.",
       "priority": "P1",
-      "progress": "PARTIAL: a recorded id overlap flags with an inspectable reason, detect_in_corpus now resolves accessed ids to content hashes so identical held-out content under another id is caught, and exclude_if_contaminated is a real gate on the report. Verified by `crates/susi-gawd/src/tests/vc_201_009_mastery.rs`. Residual: detection still trusts caller-assembled access sets (no real access tracking at the read path), and eval_contamination has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-009.json`. Follow-up tracked by T-DEVIN20261002053148-20.",
+      "progress": "PARTIAL: a recorded id overlap flags with an inspectable reason, detect_in_corpus now resolves accessed ids to content hashes so identical held-out content under another id is caught, and exclude_if_contaminated is a real gate on the report. Verified by `crates/susi-gawd/src/tests/vc_201_009_mastery.rs`. Production caller landed (T-DEEPSEEK-234): eval_separation's evaluate/evaluate_and_record runs detect_in_corpus before trusting a promotion verdict, reachable on 'susi tasks eval-corpus'. Residual: that caller's access sets are still caller-declared, not derived from an actual read log, so an unrecorded held-out read still reports clean. Verdict `.agents/roadmap-verdicts/VC-201-009.json`. Follow-up tracked by T-DEVIN20261002053148-20.",
       "type": "RSI_EVALUATION",
       "vector": "Detect evaluation contamination"
     },
