@@ -10,6 +10,10 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-config",
+      "-p",
+      "susi-daemon",
       "-E",
       "test(vc_201_065_mastery)"
     ]
@@ -17,5 +21,10 @@
   "roadmap": "VC-201-065",
   "created_by": "DEEPSEEK",
   "created_unix": 1791222655,
-  "authored": true
+  "authored": true,
+  "closed": {
+    "at_unix": 1791225218,
+    "commit": "f6e4cd98d774bb8160509816849acab0d38134ac",
+    "by": "DEEPSEEK"
+  }
 }

@@ -99,6 +99,10 @@ mod estate_autonomy_tiers_tests;
 #[path = "tests/vc_202_010_mastery.rs"]
 mod vc_202_010_mastery_tests;
 
+#[cfg(test)]
+#[path = "tests/vc_201_065_mastery.rs"]
+mod vc_201_065_mastery_tests;
+
 pub use composition::{swarm_host_snapshot, wire_cli_substrate, wire_engine_hooks};
 pub use engine_hooks::SusiEngineHooks;
 pub use server::SusiDaemon;
