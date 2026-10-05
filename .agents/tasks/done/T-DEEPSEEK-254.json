@@ -13,7 +13,7 @@
       "-p",
       "susi-gemi",
       "-E",
-      "test(vc_201_045_mastery)"
+      "test(/vc_201_045_mastery/)"
     ]
   },
   "roadmap": "VC-201-045",
@@ -21,8 +21,8 @@
   "created_unix": 1791227856,
   "authored": true,
   "closed": {
-    "at_unix": 1791230415,
-    "commit": "d17b94f74cb1d9ff52e233d1c20b6b10a2e80019",
-    "by": "DEEPSEEK"
+    "at_unix": 1791231746,
+    "commit": "deb8b1cd8837fa7fb94fbe738af488113f32e44e",
+    "by": "CODEX"
   }
 }
