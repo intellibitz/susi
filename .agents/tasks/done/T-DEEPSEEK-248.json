@@ -10,12 +10,18 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-core",
       "-E",
-      "test(vc_201_074_mastery)"
+      "test(/vc_201_074_mastery/)"
     ]
   },
   "roadmap": "VC-201-074",
   "created_by": "DEEPSEEK",
   "created_unix": 1791222655,
-  "authored": true
+  "closed": {
+    "at_unix": 1791225182,
+    "commit": "644128d251752a3672fcb7b621c8055b6cf9e3d5",
+    "by": "PRIMARY202610051809451758787"
+  }
 }
