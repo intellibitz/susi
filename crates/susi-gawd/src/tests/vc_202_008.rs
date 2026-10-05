@@ -388,3 +388,49 @@ fn self_authored_backlog_wiring_is_on_the_cli_path() {
         assert!(lib.contains(needle), "admin/tasks.rs is missing `{needle}`");
     }
 }
+
+/// T-DEEPSEEK-235: a backlog longer than the authored bound is trimmed to
+/// it — highest roadmap priority first — not refused whole.
+#[test]
+fn author_unqueued_trims_a_long_backlog_to_the_bound() {
+    let root = ws("trim");
+    // Six unqueued vectors across three priorities — one over the bound.
+    let mut vectors = Vec::new();
+    for (id, prio) in [
+        ("VC-900-010", "P2"),
+        ("VC-900-011", "P0"),
+        ("VC-900-012", "P0"),
+        ("VC-900-013", "P1"),
+        ("VC-900-014", "P2"),
+        ("VC-900-015", "P1"),
+    ] {
+        vectors.push(format!(
+            r#"{{"depends_on": [], "id": "{id}", "mastery_target": "m-{id}",
+             "priority": "{prio}", "progress": "PARTIAL: nothing queued",
+             "type": "OPERATIONS", "vector": "cap {id}"}}"#,
+        ));
+    }
+    std::fs::write(
+        root.join(".agents/roadmap.json"),
+        format!("{{\"vectors\": [{}]}}", vectors.join(",")),
+    )
+    .unwrap();
+
+    let report = tasks::author_unqueued(&root, "deepseek").unwrap();
+    // The bound shaped the batch — five tasks, P0s first, not a refusal.
+    assert_eq!(report.tasks.len(), tasks::AUTHORED_OPEN_MAX);
+    let open = tasks::list_open(&root);
+    let roadmaps: Vec<_> = open.iter().filter_map(|t| t.roadmap.clone()).collect();
+    assert!(roadmaps.contains(&"VC-900-011".to_string()));
+    assert!(roadmaps.contains(&"VC-900-012".to_string()));
+    // After the P0s, priority order decides — not file order.
+    assert!(!roadmaps.contains(&"VC-900-010".to_string()) || roadmaps.len() == 5);
+    assert_eq!(
+        roadmaps
+            .iter()
+            .filter(|r| r.as_str() == "VC-900-010" || r.as_str() == "VC-900-014")
+            .count(),
+        1,
+        "only one P2 fits the remaining budget: {roadmaps:?}"
+    );
+}

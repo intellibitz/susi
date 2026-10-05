@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-235",
+  "title": "author --unqueued trims to the authored bound",
+  "goal": "When unqueued vectors exceed AUTHORED_OPEN_MAX the call refuses the whole batch, so the main use case (backlog longer than the bound) can never run. Trim the drafted batch to the remaining authored budget ordered by roadmap priority (P0 first), so the bound shapes the batch instead of refusing it.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(author_unqueued_trims)"
+    ]
+  },
+  "roadmap": "VC-202-008",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791207929
+}

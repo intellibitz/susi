@@ -672,14 +672,29 @@ pub fn author(ws: &Path, agent: &str, spec: &AuthoredSpec) -> EaiResult<Authored
 /// analysis and the gates are the same code a human's work meets, and
 /// the bound still applies.
 ///
-/// # Errors
-/// As [`author`]: an over-bound batch is refused whole.
+/// When more vectors are unqueued than the remaining authored budget,
+/// the batch is *trimmed*, not refused: the bound shapes which rungs
+/// land — highest roadmap priority first — rather than making the main
+/// use case (a backlog longer than the bound) impossible.
 pub fn author_unqueued(ws: &Path, agent: &str) -> EaiResult<AuthoredReport> {
     let vectors = roadmap_vectors(ws)?;
-    let cov = roadmap_coverage(&vectors, &list_open(ws), &list_done(ws));
-    let tasks: Vec<NewTask> = cov
+    let token = agent_token(agent)?;
+    let authored_open = list_open(ws)
         .iter()
-        .filter(|c| c.unqueued())
+        .filter(|t| t.authored && t.created_by == token)
+        .count();
+    let remaining = AUTHORED_OPEN_MAX.saturating_sub(authored_open);
+    let cov = roadmap_coverage(&vectors, &list_open(ws), &list_done(ws));
+    let mut unqueued: Vec<&Coverage> = cov.iter().filter(|c| c.unqueued()).collect();
+    unqueued.sort_by(|a, b| {
+        a.vector
+            .priority
+            .cmp(&b.vector.priority)
+            .then(a.vector.id.cmp(&b.vector.id))
+    });
+    let tasks: Vec<NewTask> = unqueued
+        .iter()
+        .take(remaining)
         .map(|c| NewTask {
             title: format!("Verify mastery: {}", c.vector.title),
             goal: c.vector.mastery_target.clone(),
