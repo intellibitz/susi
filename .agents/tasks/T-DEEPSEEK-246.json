@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-246",
+  "title": "Verify mastery: Publish an observed local AI resource inventory",
+  "goal": "Unify actual CPU, RAM, GPU, VRAM, disk, model, and runtime observations with timestamps and provenance; unavailable probes are unknown rather than zero or fabricated readiness.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_041_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-041",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791222655,
+  "authored": true
+}
