@@ -210,7 +210,11 @@ fn main() -> std::process::ExitCode {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let stdout_layer = tracing_subscriber::fmt::layer()
+    // The console layer goes to stderr: stdout is the data plane
+    // (`susi audit query --json`, `susi status`, every machine-readable
+    // surface), and a boot-time INFO line there makes it unparseable.
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
         .with_target(true)
         .with_thread_ids(true)
         .with_line_number(true);
@@ -221,7 +225,7 @@ fn main() -> std::process::ExitCode {
 
     let _ = tracing_subscriber::registry()
         .with(env_filter)
-        .with(stdout_layer)
+        .with(console_layer)
         .with(json_file_layer)
         .try_init();
 
