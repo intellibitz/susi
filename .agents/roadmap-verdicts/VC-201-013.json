@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-013",
-  "verdict": "not-delivered",
-  "evidence": "crates/susi-gawd/src/tests/vc_201_013_mastery.rs",
-  "missing": "Three refutations fixed: patch_id is now validated as a single path segment before being joined onto root/patches, so '../escape' and 'x/../victim' are refused outright instead of escaping the fence root or resolving onto a sibling's workspace; is_inside_fence resolves '.'/'..' lexically before comparing, so workspace/../outside no longer reports inside; apply_in_isolation now takes the target path and content, validates every target through is_inside_fence, and actually writes inside the fence, refusing a target that climbs out. Each isolate() call also mixes in a per-call nonce, so a repeated patch_id no longer shares a workspace. Still missing: PatchFence has no production caller \u2014 self-patch application is not yet wired through it, pending the experiment orchestration tracked by VC-201-011.",
-  "tracked_by": [
-    "T-DEVIN20261002053148-22"
-  ],
-  "recorded_by": "PRIMARY",
-  "recorded_unix": 1791152533
+  "verdict": "delivered",
+  "evidence": "crates/susi-gawd/src/patch_cycle.rs (apply_patch_cycle isolate path, stage_candidate, promote_into) and crates/susi-gawd/src/cloud_rsi.rs (apply_plan always isolates model-authored patches by brief.task_id); pinned by crates/susi-gawd/src/tests/vc_201_013_mastery.rs",
+  "missing": "The fence is a filesystem-namespace boundary, not a syscall sandbox: a candidate's declared test command runs with its cwd inside the fence but could still write absolute paths outside it. In the autonomous path (cloud_rsi::apply_plan) the command is susi-declared verify argv and only the model-authored file set is untrusted, which the fence fully confines; a malicious-command sandbox would be a separate feature. Fenced workspaces under root/patches are retained as evidence and never auto-cleaned.",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791217444
 }
