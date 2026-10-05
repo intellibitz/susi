@@ -1,0 +1,10 @@
+{
+  "vector": "VC-202-017",
+  "verdict": "delivered",
+  "evidence": "audit_action_choke_point_production_contract and audit_action_choke_point_rejects_unredacted_mutation in crates/susi-core/src/tests/audit_action_choke_point.rs; audit_action_choke_point_production_dispatch in crates/susi-gawd-swarm/src/tests/audit_action_choke_point.rs; susi-core::audit_export::AuditChokePoint is the typed dispatch contract, susi-gawd::plane_handler persists through the existing SusiAuditLogger, and susi-gawd-swarm::audit routes production callers through gawd.audit.action.",
+  "tracked_by": [
+    "T-DEEPSEEK-108"
+  ],
+  "recorded_by": "INTELLIBITZ20261005030120687099",
+  "recorded_unix": 1791183600
+}

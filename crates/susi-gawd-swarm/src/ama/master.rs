@@ -1476,22 +1476,24 @@ impl SusiMasterAgent {
                             // In-memory loop detection only: the text itself is
                             // the signature (no digest crate needed).
                             if previous_errors.contains(&error_str) {
-                                crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                                crate::audit::record_legacy(
                                     workspace,
-                                    "RETRY_LOOP_DETECTED",
-                                    &format!("Same error repeated: {}", error_str),
-                                );
+                                    "retry_loop_detected",
+                                    "truth_verification",
+                                    crate::susi_core::audit_export::AuditOutcome::Failed,
+                                )?;
                                 return Err(e);
                             }
 
                             previous_errors.insert(error_str.clone());
                             retry_count += 1;
                             last_error = error_str;
-                            crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                            crate::audit::record_legacy(
                                 workspace,
-                                "HALLUCINATION_DETECTED",
-                                &format!("Retry {}/3: {}", retry_count, last_error),
-                            );
+                                "hallucination_detected",
+                                "truth_verification",
+                                crate::susi_core::audit_export::AuditOutcome::Failed,
+                            )?;
 
                             current_goal = format!(
                                 "{}\n\n[CORRECTION ATTEMPT {}]: Previous response failed reality check.\n\
@@ -1505,11 +1507,12 @@ impl SusiMasterAgent {
                 }
                 Err(e) => {
                     retry_count += 1;
-                    crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                    crate::audit::record_legacy(
                         workspace,
-                        "AXIOMATIC_VIOLATION",
-                        &e.to_string(),
-                    );
+                        "axiomatic_violation",
+                        "axiomatic_alignment",
+                        crate::susi_core::audit_export::AuditOutcome::Failed,
+                    )?;
 
                     current_goal = format!(
                         "{}\n\n[CORRECTION ATTEMPT {}]: Response violated substrate axioms.\n\
@@ -1740,11 +1743,12 @@ impl SusiMasterAgent {
                     if report.final_answer.contains("FAILURE")
                         || report.final_answer.contains("GAP")
                     {
-                        crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                        crate::audit::record_legacy(
                             workspace,
-                            "PLAN_MUTATION",
-                            &format!("Refining plan due to step {} failure.", current_step + 1),
-                        );
+                            "plan_mutation",
+                            "step_failure",
+                            crate::susi_core::audit_export::AuditOutcome::Partial,
+                        )?;
 
                         let blackboard_state = format!("LATEST_OUTCOME: {}", report.final_answer);
                         if let Ok(new_plan) =

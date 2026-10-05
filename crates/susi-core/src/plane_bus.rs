@@ -833,6 +833,30 @@ pub mod gawd {
         Ok(())
     }
 
+    /// Dispatch one structured, payload-free action through the same
+    /// `gawd.audit.action` gate used by legacy callers.  The owning GAWD
+    /// handler persists it through the existing signed audit logger, so this
+    /// kernel facade never creates a second audit sink.
+    pub fn audit_structured_action(
+        action: &crate::audit_export::AuditAction,
+        workspace: &Path,
+    ) -> Result<(), String> {
+        let action_value = serde_json::to_value(action).map_err(|e| e.to_string())?;
+        let v = req(
+            topics::GAWD_AUDIT_ACTION,
+            json!({
+                "action": action_value,
+                "tool": action.action_kind.as_str(),
+                "detail": action.target.id,
+                "workspace": workspace.display().to_string()
+            }),
+        )?;
+        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+            return Err(e.to_string());
+        }
+        Ok(())
+    }
+
     pub fn apply_patch(payload: Value) -> Result<Value, String> {
         req(topics::GAWD_PATCH, payload)
     }
