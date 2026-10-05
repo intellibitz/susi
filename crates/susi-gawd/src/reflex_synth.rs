@@ -145,6 +145,16 @@ impl ReflexSynthesizer {
             // publish under a live name. An intent the model cannot
             // produce checks for is unverifiable → stays unregistered.
             let spec = Self::model_intent_spec(description, workspace)?;
+            let independent_probe = spec.fixtures.first().and_then(|fixture| {
+                fixture
+                    .expected
+                    .as_ref()
+                    .or(fixture.expect_contains.as_ref())
+                    .map(|expected| crate::reflex_intent::IntentFixture {
+                        input: fixture.input.clone(),
+                        expect_action: expected.clone(),
+                    })
+            });
             let verify = move |staged: &Path| -> Result<(), String> {
                 let run = |input: &str| -> Result<String, String> {
                     crate::susi_native::WasmHost::execute_reflex(staged, input)
@@ -157,7 +167,22 @@ impl ReflexSynthesizer {
                             }
                         })
                 };
-                crate::reflex_verify::run_checks(&spec, &run)
+                crate::reflex_verify::run_checks(&spec, &run)?;
+                if let Some(fixture) = &independent_probe {
+                    let verdict = crate::reflex_intent::probe_compiled_reflex(staged, fixture);
+                    match verdict {
+                        crate::reflex_intent::ReflexVerdict::Accept => Ok(()),
+                        crate::reflex_intent::ReflexVerdict::RejectMalformed
+                        | crate::reflex_intent::ReflexVerdict::RejectCompilation
+                        | crate::reflex_intent::ReflexVerdict::RejectExecution
+                        | crate::reflex_intent::ReflexVerdict::RejectSignatureEcho
+                        | crate::reflex_intent::ReflexVerdict::RejectWrongOutput => {
+                            Err(format!("independent reflex probe failed: {verdict:?}"))
+                        }
+                    }
+                } else {
+                    Ok(())
+                }
             };
             Self::compile_and_publish(&slug, &src, Some(&verify))
         });
