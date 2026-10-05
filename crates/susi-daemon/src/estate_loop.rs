@@ -66,6 +66,32 @@ impl ActionKind {
             Self::CollectOrphan => "collect_orphan",
         }
     }
+
+    /// How big the blast radius is when the act goes wrong — the
+    /// autonomy tier the change defaults to. Low-blast acts are cheap
+    /// and reversible (warm a cache, free memory, respawn a supervised
+    /// service); high-blast acts interrupt a running service or move a
+    /// credential — they need an explicit operator grant unless policy
+    /// says otherwise.
+    #[must_use]
+    pub fn blast(self) -> Blast {
+        match self {
+            Self::WarmModel | Self::EvictModel | Self::StartRuntime | Self::CollectOrphan => {
+                Blast::Low
+            }
+            Self::DrainRuntime | Self::RotateKey => Blast::High,
+        }
+    }
+}
+
+/// The blast-radius class an autonomy tier keys on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Blast {
+    /// Cheap, reversible, invisible to the operator when it works.
+    Low,
+    /// Interrupts a running service or moves a credential.
+    High,
 }
 
 /// One planned reconciliation act.
@@ -93,6 +119,15 @@ impl Action {
 pub enum Verdict {
     /// The act ran through its production seam.
     Applied(String),
+    /// The act ran through its production seam under a one-shot
+    /// operator grant the loop consumed first.
+    Approved(String),
+    /// The act was rehearsed only — the receipt and audit name what
+    /// would have run, and nothing was actuated.
+    DryRun(String),
+    /// The act waits on an operator grant; the detail names the grant
+    /// file an approval writes.
+    AwaitingApproval(String),
     /// Policy or ownership held it — recorded, never silently skipped.
     Held(String),
     /// The seam refused — the reason is on the receipt and the audit.
@@ -169,36 +204,69 @@ pub fn observe() -> Observed {
     }
 }
 
-/// `policy.estate` from the desired document: `"autonomy": "report"`
-/// holds everything; `"act": [kinds]` is an explicit allowlist;
-/// `"hold": [kinds]` an explicit denylist. Absent keys act — declaring
-/// the state is the operator's consent.
-fn allowed(desired: &DesiredState, kind: ActionKind) -> Result<(), String> {
+/// The autonomy tier one act resolves to — who may run it without an
+/// operator in the loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tier {
+    /// Actuate through the production seam.
+    Act,
+    /// Rehearse and record the act; never actuate.
+    DryRun,
+    /// Actuate only when a durable operator grant names this action.
+    Ask,
+}
+
+/// `policy.estate` from the desired document resolves each act to a
+/// tier. Explicit per-kind lists outrank global autonomy:
+/// `"hold": [kinds]` denies, `"dry_run": [kinds]` rehearses,
+/// `"ask": [kinds]` waits on a grant, `"act": [kinds]` is an allowlist
+/// (an unlisted kind is held), `"autonomy": "report"` holds everything
+/// and `"autonomy": "act"` promotes every unlisted kind to act. Absent
+/// all of these the blast radius decides: low-blast acts run, high-blast
+/// ones ask — declaring the state is consent to keep it, not to take a
+/// service down or move a credential.
+fn tier_of(desired: &DesiredState, kind: ActionKind) -> Result<Tier, String> {
     let estate = desired.policy.get("estate");
-    if estate
+    let listed = |key: &str| {
+        estate
+            .and_then(|p| p.get(key))
+            .and_then(|v| v.as_array())
+            .is_some_and(|list| {
+                list.iter()
+                    .filter_map(|v| v.as_str())
+                    .any(|k| k == kind.as_str())
+            })
+    };
+    if listed("hold") {
+        return Err(format!("estate.hold lists {}", kind.as_str()));
+    }
+    let autonomy = estate
         .and_then(|p| p.get("autonomy"))
-        .and_then(|v| v.as_str())
-        == Some("report")
-    {
+        .and_then(|v| v.as_str());
+    if autonomy == Some("report") {
         return Err("estate.autonomy is report".to_string());
     }
-    if let Some(list) = estate
-        .and_then(|p| p.get("hold"))
-        .and_then(|v| v.as_array())
-        && list
-            .iter()
-            .filter_map(|v| v.as_str())
-            .any(|k| k == kind.as_str())
-    {
-        return Err(format!("estate.hold lists {}", kind.as_str()));
+    if listed("dry_run") {
+        return Ok(Tier::DryRun);
+    }
+    if listed("ask") {
+        return Ok(Tier::Ask);
+    }
+    if autonomy == Some("act") {
+        return Ok(Tier::Act);
     }
     if let Some(list) = estate.and_then(|p| p.get("act")).and_then(|v| v.as_array()) {
         let kinds: BTreeSet<&str> = list.iter().filter_map(|v| v.as_str()).collect();
-        if !kinds.contains(kind.as_str()) {
-            return Err(format!("estate.act omits {}", kind.as_str()));
-        }
+        return if kinds.contains(kind.as_str()) {
+            Ok(Tier::Act)
+        } else {
+            Err(format!("estate.act omits {}", kind.as_str()))
+        };
     }
-    Ok(())
+    Ok(match kind.blast() {
+        Blast::Low => Tier::Act,
+        Blast::High => Tier::Ask,
+    })
 }
 
 /// Diff the declared state against the observed estate into the acts a
@@ -314,6 +382,10 @@ pub struct PassSummary {
     pub applied: usize,
     pub held: usize,
     pub failed: usize,
+    #[serde(default)]
+    pub dry_run: usize,
+    #[serde(default)]
+    pub awaiting: usize,
 }
 
 /// The durable loop journal: `<home>/estate-loop.json`.
@@ -369,7 +441,7 @@ impl PassReport {
             applied: self
                 .receipts
                 .iter()
-                .filter(|r| matches!(r.verdict, Verdict::Applied(_)))
+                .filter(|r| matches!(r.verdict, Verdict::Applied(_) | Verdict::Approved(_)))
                 .count(),
             held: self
                 .receipts
@@ -380,6 +452,16 @@ impl PassReport {
                 .receipts
                 .iter()
                 .filter(|r| matches!(r.verdict, Verdict::Failed(_)))
+                .count(),
+            dry_run: self
+                .receipts
+                .iter()
+                .filter(|r| matches!(r.verdict, Verdict::DryRun(_)))
+                .count(),
+            awaiting: self
+                .receipts
+                .iter()
+                .filter(|r| matches!(r.verdict, Verdict::AwaitingApproval(_)))
                 .count(),
         }
     }
@@ -397,6 +479,62 @@ pub fn desired_path(home: &Path) -> PathBuf {
 #[must_use]
 pub fn audit_path(home: &Path) -> PathBuf {
     home.join("estate-audit.log")
+}
+
+/// Where one-shot operator grants live — `<home>/estate-approvals/`.
+/// A grant is a file named for the action id it approves; the loop
+/// consumes it before actuating so a crash never re-runs a costly
+/// change on a stale approval.
+#[must_use]
+pub fn approvals_dir(home: &Path) -> PathBuf {
+    home.join("estate-approvals")
+}
+
+fn grant_path(home: &Path, action_id: &str) -> PathBuf {
+    let name: String = action_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    approvals_dir(home).join(format!("{name}.json"))
+}
+
+/// Grant an `ask`-tier action a one-shot approval: write the durable
+/// grant the next pass consumes before it actuates. The grant names
+/// the action and the approval time — it is evidence, not just a flag.
+///
+/// # Errors
+/// [`EaiError::io`] when the grant file cannot be written.
+pub fn approve(home: &Path, action_id: &str, now: u64) -> EaiResult<PathBuf> {
+    let dir = approvals_dir(home);
+    std::fs::create_dir_all(&dir).map_err(|e| EaiError::io(e.to_string()))?;
+    let path = grant_path(home, action_id);
+    let body = serde_json::to_vec(&serde_json::json!({
+        "action": action_id,
+        "granted_unix": now,
+    }))
+    .map_err(|e| EaiError::io(e.to_string()))?;
+    crate::susi_config::atomic_write_bytes(&path, &body)
+        .map_err(|e| EaiError::filesystem(format!("estate approval grant: {e}")))?;
+    Ok(path)
+}
+
+/// Consume a grant if one names this action — one-shot, so the file is
+/// removed whether or not the act then succeeds. Returns true when a
+/// grant existed.
+fn consume_grant(home: &Path, action_id: &str) -> bool {
+    let path = grant_path(home, action_id);
+    if path.exists() {
+        let _ = std::fs::remove_file(&path);
+        true
+    } else {
+        false
+    }
 }
 
 /// Estate pass cadence — `SUSI_ESTATE_INTERVAL_SECS`, default 5 minutes.
@@ -580,9 +718,37 @@ pub fn run_pass_with(
     for action in pending {
         let verdict = match desired {
             None => Verdict::Held("no desired-state document".to_string()),
-            Some(d) => match allowed(d, action.kind) {
+            Some(d) => match tier_of(d, action.kind) {
                 Err(why) => Verdict::Held(why),
-                Ok(()) => actuate.act(&action),
+                Ok(Tier::DryRun) => Verdict::DryRun(format!("{}: {}", action.id(), action.reason)),
+                Ok(Tier::Ask) => {
+                    if consume_grant(home, &action.id()) {
+                        audit(
+                            home,
+                            "ESTATE_APPROVAL",
+                            &format!("pass={pass} action={} grant consumed", action.id()),
+                        );
+                        match actuate.act(&action) {
+                            Verdict::Applied(d) => Verdict::Approved(d),
+                            v @ Verdict::Failed(_) => {
+                                // The seam refused — the side effect
+                                // never landed, so re-arm the grant.
+                                let _ = approve(home, &action.id(), now);
+                                v
+                            }
+                            v @ (Verdict::Approved(_)
+                            | Verdict::DryRun(_)
+                            | Verdict::AwaitingApproval(_)
+                            | Verdict::Held(_)) => v,
+                        }
+                    } else {
+                        Verdict::AwaitingApproval(format!(
+                            "grant {} to authorize",
+                            grant_path(home, &action.id()).display()
+                        ))
+                    }
+                }
+                Ok(Tier::Act) => actuate.act(&action),
             },
         };
         audit(
@@ -593,6 +759,9 @@ pub fn run_pass_with(
                 action.id(),
                 match &verdict {
                     Verdict::Applied(d) => format!("applied {d}"),
+                    Verdict::Approved(d) => format!("approved {d}"),
+                    Verdict::DryRun(d) => format!("dry-run {d}"),
+                    Verdict::AwaitingApproval(d) => format!("awaiting {d}"),
                     Verdict::Held(d) => format!("held {d}"),
                     Verdict::Failed(d) => format!("failed {d}"),
                 }
@@ -620,14 +789,14 @@ pub fn run_pass_with(
         home,
         "ESTATE_PASS",
         &format!(
-            "pass={} resumed={} planned={} applied={} held={} failed={}",
+            "pass={} resumed={} planned={} applied={} held={} failed={} dry_run={} awaiting={}",
             report.pass,
             report.resumed,
             report.receipts.len(),
             report
                 .receipts
                 .iter()
-                .filter(|r| matches!(r.verdict, Verdict::Applied(_)))
+                .filter(|r| matches!(r.verdict, Verdict::Applied(_) | Verdict::Approved(_)))
                 .count(),
             report
                 .receipts
@@ -638,6 +807,16 @@ pub fn run_pass_with(
                 .receipts
                 .iter()
                 .filter(|r| matches!(r.verdict, Verdict::Failed(_)))
+                .count(),
+            report
+                .receipts
+                .iter()
+                .filter(|r| matches!(r.verdict, Verdict::DryRun(_)))
+                .count(),
+            report
+                .receipts
+                .iter()
+                .filter(|r| matches!(r.verdict, Verdict::AwaitingApproval(_)))
                 .count(),
         ),
     );

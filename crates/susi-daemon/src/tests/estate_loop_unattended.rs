@@ -90,7 +90,8 @@ fn full_desired() -> DesiredState {
             {"id": "susi-native", "kind": "running"},
             {"id": "susi-config", "kind": "stopped"}
         ],
-        "providers": [{"id": "openai:gpt-x", "kind": "live"}]
+        "providers": [{"id": "openai:gpt-x", "kind": "live"}],
+        "policy": {"estate": {"autonomy": "act"}}
     }"#,
     )
 }
