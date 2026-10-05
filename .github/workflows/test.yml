@@ -422,6 +422,51 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  # The formal model is intentionally small and pure, so Kani can exhaust its
+  # bounded inputs without starting the daemon or contacting a provider. Keep
+  # the proof on main only: branch pushes already run the affected crate gate,
+  # while this job records the merged-tree proof and its bound for audit.
+  kani:
+    name: Kani Bounded Proofs
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Kani
+        run: |
+          cargo install --locked kani-verifier --version 0.68.0
+          cargo kani setup
+
+      - name: Verify bounded harnesses and retain proof output
+        run: |
+          mkdir -p kani-artifacts
+          set -o pipefail
+          cargo kani -p susi-gawd --default-unwind 4 --concrete-playback=print \
+            2>&1 | tee kani-artifacts/kani.log
+
+      - name: Record proof bounds and harness scope
+        if: always()
+        run: |
+          mkdir -p kani-artifacts
+          cat > kani-artifacts/proof-bounds.txt <<'EOF'
+          package=susi-gawd
+          default-unwind=4
+          harnesses=stale_claims_are_fenced,admitted_budget_transition_is_within_cap,paid_policy_precedence_is_explicit
+          counterexamples=retained in kani.log when a proof is unsuccessful
+          EOF
+
+      - name: Upload Kani proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kani-proof-artifacts
+          path: kani-artifacts/
+
   # Post-merge acceptance. `close` proved the task on its own branch; this asks
   # whether the *merged* result still satisfies it, beside everyone else's
   # changes, and records refs/verified/<id>. Only `cargo` acceptances are
