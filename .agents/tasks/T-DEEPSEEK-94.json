@@ -5,6 +5,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd-swarm",
       "-E",
       "test(snapshot_rollback)"
     ]

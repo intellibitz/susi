@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::mission_persist::{NodeTerminal, PersistedMission, ResumeVerdict};
+use crate::susi_error::EaiResult;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -149,6 +150,24 @@ pub fn resumable_missions(workspace: &Path) -> Vec<MissionView> {
     }
     out.sort_by(|a, b| a.mission_id.cmp(&b.mission_id));
     out
+}
+
+/// Roll one mission back to a snapshot — the newest when `snapshot` is
+/// `None` — and return the restored record's operator view and status
+/// line (T-DEEPSEEK-94). The rollback is recorded on the mission itself
+/// (`restores`), every other mission's file is untouched, and the next
+/// dispatch resumes the restored state through the normal recovery
+/// transaction rather than restarting from scratch.
+pub fn rollback_mission(
+    workspace: &Path,
+    mission_id: &str,
+    snapshot: Option<&str>,
+    now: u64,
+) -> EaiResult<(MissionView, String)> {
+    let restored = PersistedMission::rollback(workspace, mission_id, snapshot, now)?;
+    let view = MissionView::from_persisted(&restored);
+    let line = cli_status_line(&view);
+    Ok((view, line))
 }
 
 /// One-line CLI status for durable mission resume. Partial/resumable missions

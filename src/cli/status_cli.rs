@@ -101,6 +101,14 @@ pub(crate) struct ResumableMission {
     pub interruptions: usize,
 }
 
+/// A terminally failed mission that still has a snapshot to roll back
+/// to — the known-good point an operator can restore (T-DEEPSEEK-94).
+#[derive(Debug)]
+pub(crate) struct RollbackReady {
+    pub id: String,
+    pub snapshots: usize,
+}
+
 /// The whole surface, collected once so `render` is a pure function of it.
 #[derive(Debug)]
 pub(crate) struct UnifiedStatus {
@@ -108,6 +116,7 @@ pub(crate) struct UnifiedStatus {
     pub daemon_pid: Option<u32>,
     pub missions: Vec<MissionInFlight>,
     pub resumable: Vec<ResumableMission>,
+    pub rollback_ready: Vec<RollbackReady>,
     pub queue: QueueSection,
     pub brain: BrainSection,
     pub routing: RoutingSection,
@@ -141,6 +150,7 @@ pub(crate) fn collect(
 ) -> UnifiedStatus {
     let missions = read_missions(substrate_home);
     let resumable = read_resumable_missions(cwd);
+    let rollback_ready = read_rollback_ready(cwd);
     let queue = read_queue(substrate_home, now);
     let brain = read_brain(now);
     let routing = read_routing(cwd, now);
@@ -151,6 +161,7 @@ pub(crate) fn collect(
         daemon_pid: SusiDaemon::check_status(cwd, global_dir),
         missions,
         resumable,
+        rollback_ready,
         queue,
         brain,
         routing,
@@ -270,6 +281,64 @@ fn read_resumable_missions(workspace: &Path) -> Vec<ResumableMission> {
             resumable_nodes,
             interruptions,
         });
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out
+}
+
+/// Terminally failed missions that still hold a snapshot — the
+/// known-good point `gawd.mission.rollback` restores (T-DEEPSEEK-94).
+/// Same records `read_resumable_missions` scans, plus the
+/// `.susi/mission-snapshots/<id>/` dirs `PersistedMission::snapshot`
+/// writes.
+fn read_rollback_ready(workspace: &Path) -> Vec<RollbackReady> {
+    let dir = workspace.join(".susi").join("missions");
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let Some(nodes) = v.get("nodes").and_then(|n| n.as_object()) else {
+            continue;
+        };
+        let failed = nodes
+            .values()
+            .any(|n| n.get("state").and_then(|s| s.as_str()) == Some("failed"));
+        if !failed {
+            continue;
+        }
+        let id = v
+            .get("mission_id")
+            .and_then(|x| x.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            });
+        let snap_dir = workspace.join(".susi").join("mission-snapshots").join(&id);
+        let snapshots = std::fs::read_dir(&snap_dir)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+                    .count()
+            })
+            .unwrap_or(0);
+        if snapshots == 0 {
+            continue;
+        }
+        out.push(RollbackReady { id, snapshots });
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
@@ -465,6 +534,16 @@ pub(crate) fn render(s: &UnifiedStatus) -> String {
             m.id,
             m.resumable_nodes.join(","),
             m.interruptions
+        ));
+    }
+    out.push_str(&format!(
+        "failed missions with snapshots: {}\n",
+        s.rollback_ready.len()
+    ));
+    for m in &s.rollback_ready {
+        out.push_str(&format!(
+            "  {} — {} snapshot(s); rollback via gawd.mission.rollback\n",
+            m.id, m.snapshots
         ));
     }
 
