@@ -50,6 +50,7 @@ fn intent_ladder_canaries_negative_limit() {
 
 #[test]
 fn intent_ladder_canaries_within_limit_continues() {
+    // Control scenario: candidate remains within acceptable degradation threshold.
     // delta = 1.0 - 0.9 = 0.1, which is within regression_limit (0.4)
     let trial = CanaryTrial {
         candidate_metric: 0.9,
