@@ -1,0 +1,27 @@
+{
+  "id": "T-DEEPSEEK-109",
+  "title": "Enumerate every action kind and prove none escapes",
+  "goal": "Make the audited action set an exhaustive enum and prove it: every kind is recorded, and an architecture test fails when any other path mutates state, so a new subsystem that forgets to emit is a CI failure rather than a gap someone notices later. Include the refutation: mutate state from outside the choke point in a fixture and show the test catches it.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-108"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(audit_action_completeness)"
+    ]
+  },
+  "roadmap": "VC-202-017",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954195,
+  "closed": {
+    "at_unix": 1791184202,
+    "commit": "824fc2291e45828d3fc9495f19237b5385a294ea",
+    "by": "INTELLIBITZ20261005030120687099"
+  }
+}

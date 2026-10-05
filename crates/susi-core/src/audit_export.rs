@@ -33,6 +33,34 @@ pub enum AuditActionKind {
 }
 
 impl AuditActionKind {
+    /// Every state-changing action kind recognized by the production
+    /// dispatcher.  Adding a variant requires adding it here, so completeness
+    /// tests fail at review time instead of silently omitting a new action.
+    pub const ALL: [Self; 17] = [
+        Self::TaskTransition,
+        Self::ClaimTransition,
+        Self::Commit,
+        Self::Push,
+        Self::Merge,
+        Self::ModelCall,
+        Self::ToolExecution,
+        Self::FileWrite,
+        Self::EgressAttempt,
+        Self::Approval,
+        Self::SecretAccess,
+        Self::MissionAdmission,
+        Self::MissionTransition,
+        Self::LeaseRelease,
+        Self::EvidenceRecord,
+        Self::ConfigurationChange,
+        Self::Deployment,
+    ];
+
+    #[must_use]
+    pub const fn all() -> &'static [Self; 17] {
+        &Self::ALL
+    }
+
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -249,6 +277,21 @@ impl<S: AuditSink> AuditChokePoint<S> {
     pub fn dispatch(&self, action: &AuditAction) -> susi_error::EaiResult<()> {
         action.validate()?;
         self.sink.append(action)
+    }
+
+    /// Audit before a state mutation is applied.  Production adapters use
+    /// this boundary when a mutation can be represented as one synchronous
+    /// operation; a failed append prevents the mutation from starting.
+    pub fn dispatch_mutation<T, F>(
+        &self,
+        action: &AuditAction,
+        mutation: F,
+    ) -> susi_error::EaiResult<T>
+    where
+        F: FnOnce() -> susi_error::EaiResult<T>,
+    {
+        self.dispatch(action)?;
+        mutation()
     }
 }
 
