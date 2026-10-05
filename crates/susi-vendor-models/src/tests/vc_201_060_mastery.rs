@@ -6,103 +6,97 @@
 //! Every test name starts `vc_201_060_mastery_` so the vector's evidence is
 //! enumerable with `cargo test -p susi-vendor-models vc_201_060`.
 
-use crate::eco_k8s_serving;
-use crate::eco_profile;
+use crate::deployment_spec::{
+    self, DeploymentSpec, DeploymentTarget, ModelEndpoint, PlacementPolicy, RuntimeRequirements,
+    SecretReference, SecretStore, DEPLOYMENT_SPEC_VERSION,
+};
+use std::collections::BTreeMap;
 
-/// The only spec-like record in the crate cannot carry what the claim
-/// requires: `Profile` has no runtime-requirements, secret-reference, or
-/// placement-policy fields — nothing to round-trip.
-#[test]
-fn vc_201_060_mastery_profile_has_no_portability_fields() {
-    let p = eco_k8s_serving::profile().expect("bundled k8s-serving profile");
-    let json = serde_json::to_string(&p).expect("serializes");
-    for field in [
-        "runtime_requirements",
-        "secret_refs",
-        "secret_references",
-        "placement",
-        "placement_policies",
-    ] {
-        assert!(
-            !json.contains(field),
-            "deployment spec cannot express {field} — nothing to round-trip"
-        );
+fn spec() -> DeploymentSpec {
+    DeploymentSpec {
+        version: DEPLOYMENT_SPEC_VERSION.into(),
+        id: "portable-chat".into(),
+        model: "acme-chat".into(),
+        endpoints: vec![ModelEndpoint {
+            name: "chat".into(),
+            url: "https://models.example.test/v1".into(),
+            protocol: "openai-compatible".into(),
+            model: "acme-chat".into(),
+            health_path: Some("/health".into()),
+        }],
+        runtime_requirements: RuntimeRequirements {
+            runtime: "vllm".into(),
+            version: Some(">=0.8".into()),
+            cpu_cores: Some(4),
+            memory_mib: Some(16_384),
+            accelerator: Some("nvidia-a100".into()),
+            accelerator_memory_mib: Some(40_960),
+            features: vec!["continuous-batching".into()],
+        },
+        secret_references: vec![SecretReference {
+            name: "model-token".into(),
+            store: SecretStore::Kubernetes,
+            key: "serving/model-token".into(),
+        }],
+        placement_policies: vec![PlacementPolicy {
+            region: Some("eu-central".into()),
+            residency: Some("eu-only".into()),
+            zones: vec!["eu-central-1a".into()],
+            required_labels: BTreeMap::from([("accelerator".into(), "a100".into())]),
+        }],
     }
 }
 
-/// Falsification of "restore": a spec document that *does* carry placement /
-/// runtime-requirement / secret-reference fields parses with no error and the
-/// fields are silently dropped on re-serialization — no `deny_unknown_fields`,
-/// no portability diagnostic. Restore loses the claimed data invisibly.
 #[test]
-fn vc_201_060_mastery_restore_drops_spec_fields_silently() {
-    let p = eco_k8s_serving::profile().expect("bundled k8s-serving profile");
-    let mut doc: serde_json::Value = serde_json::to_value(&p).expect("to value");
-    let obj = doc.as_object_mut().expect("profile is an object");
-    obj.insert(
-        "runtime_requirements".into(),
-        serde_json::json!({"gpu": "a100-80g", "cuda": ">=12.4"}),
-    );
-    obj.insert(
-        "secret_refs".into(),
-        serde_json::json!(["vault://prod/hf-token"]),
-    );
-    obj.insert(
-        "placement".into(),
-        serde_json::json!({"region": "eu-central", "residency": "eu-only"}),
-    );
-    let restored = eco_profile::parse(&serde_json::to_string(&doc).unwrap())
-        .expect("parse accepts doc carrying nonportable fields — no error raised");
-    let back = serde_json::to_value(&restored).unwrap();
-    let back_obj = back.as_object().unwrap();
-    assert!(back_obj.get("runtime_requirements").is_none());
-    assert!(back_obj.get("secret_refs").is_none());
-    assert!(back_obj.get("placement").is_none());
+fn vc_201_060_mastery_export_restore_roundtrips_portable_fields() {
+    let original = spec();
+    let exported = deployment_spec::export_spec(&original).expect("export validates");
+    let restored = deployment_spec::restore_spec(&exported).expect("restore validates");
+    assert_eq!(restored, original);
+    let json = serde_json::to_value(restored).expect("restored spec serializes");
+    let object = json.as_object().expect("deployment spec is an object");
+    for field in [
+        "endpoints",
+        "runtime_requirements",
+        "secret_references",
+        "placement_policies",
+    ] {
+        assert!(object.contains_key(field), "round-trip lost {field}");
+    }
 }
 
-/// Falsification of "compatibility checks surface nonportable settings":
-/// `validate` checks document shape (ids, auth headers, endpoint paths) — a
-/// doc asserting nonportable requirements still validates clean.
 #[test]
-fn vc_201_060_mastery_validate_ignores_nonportable_settings() {
-    let p = eco_k8s_serving::profile().expect("bundled k8s-serving profile");
-    let mut doc: serde_json::Value = serde_json::to_value(&p).expect("to value");
-    let obj = doc.as_object_mut().expect("profile is an object");
-    obj.insert(
-        "runtime_requirements".into(),
-        serde_json::json!({"rdma": true, "local_nvme": true}),
-    );
-    obj.insert("secret_refs".into(), serde_json::json!(["k8s://ns/tok"]));
-    obj.insert(
-        "placement".into(),
-        serde_json::json!({"topology": "single-node-only"}),
-    );
-    let restored = eco_profile::parse(&serde_json::to_string(&doc).unwrap())
-        .expect("nonportable settings produce no compatibility finding");
-    assert!(eco_profile::validate(&restored).is_empty());
+fn vc_201_060_mastery_restore_refuses_unknown_fields() {
+    let mut document = serde_json::to_value(spec()).expect("spec serializes");
+    document
+        .as_object_mut()
+        .expect("spec object")
+        .insert("placement".into(), serde_json::json!({"region": "us-east"}));
+    let exported = serde_json::to_string(&document).expect("document serializes");
+    let error = deployment_spec::restore_spec(&exported)
+        .expect_err("restore must not silently discard deployment settings");
+    assert!(error.to_string().contains("unknown field"));
 }
 
-/// The closest thing to a restore path — key-source import — imports only
-/// credential names, not deployment specs; unrelated to the claim's surface.
-/// (Existence check on the real surface: k8s-serving exposes only `profile()`.)
 #[test]
-fn vc_201_060_mastery_no_export_restore_surface() {
-    // `eco_k8s_serving` exposes exactly `profile()` — a knowledge-base load,
-    // not an export. There is no `export_spec`/`restore_spec`/`roundtrip`
-    // anywhere in the crate; this test documents the module's whole surface
-    // and the claim's missing half.
-    let _p = eco_k8s_serving::profile().expect("profile loads");
-    assert_eq!(eco_k8s_serving::PROFILE_ID, "k8s-serving");
-    assert_eq!(eco_k8s_serving::SUBJECT_ID, "kserve");
+fn vc_201_060_mastery_portability_checks_run_before_target_restore() {
+    let exported = deployment_spec::export_spec(&spec()).expect("export validates");
+    let issues = deployment_spec::check_portability(&spec(), DeploymentTarget::AwsSagemaker);
+    assert!(issues
+        .iter()
+        .any(|issue| issue.path == "/secret_references/0/store"));
+    let error = deployment_spec::restore_for_target(&exported, DeploymentTarget::AwsSagemaker)
+        .expect_err("Kubernetes secret cannot be applied to SageMaker");
+    assert!(error.to_string().contains("not portable"));
 }
 
-/// Holds: the underlying profile round-trip is faithful for the fields the
-/// model actually carries — the refutation is about absent surfaces, not
-/// corrupt serialization.
 #[test]
-fn vc_201_060_mastery_serde_roundtrip_is_faithful_for_modeled_fields() {
-    let p = eco_k8s_serving::profile().expect("bundled k8s-serving profile");
-    let json = serde_json::to_string(&p).expect("serializes");
-    let back = eco_profile::parse(&json).expect("round-trip parses");
-    assert_eq!(p, back);
+fn vc_201_060_mastery_supported_cloud_restore_is_clean() {
+    let mut candidate = spec();
+    candidate.secret_references[0].store = SecretStore::AwsSecretsManager;
+    candidate.placement_policies[0].zones.clear();
+    let exported = deployment_spec::export_spec(&candidate).expect("export validates");
+    let restored = deployment_spec::restore_for_target(&exported, DeploymentTarget::AwsSagemaker)
+        .expect("AWS-compatible spec restores after portability check");
+    assert_eq!(restored, candidate);
 }
