@@ -270,7 +270,7 @@ fn the_workflow_wires_every_path_to_the_shared_scripts() {
     let wf = std::fs::read_to_string(root.join(".github/workflows/auto-merge.yml")).unwrap();
     for needle in [
         "schedule:",
-        "cron: '*/15 * * * *'",
+        "cron: '*/5 * * * *'",
         "workflow_dispatch:",
         "scripts/auto-merge-pr.sh",
         "scripts/reconcile-prs.sh",
