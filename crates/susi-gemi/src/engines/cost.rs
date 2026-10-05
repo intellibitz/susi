@@ -236,11 +236,25 @@ pub fn expected_call_cost_usd(
 /// Expected USD for one whole `class` task on `provider` — the canonical
 /// [`task_token_profile`] priced against the catalog, cache-hit rate
 /// included. `None` when no price record exists (VC-202-002).
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 pub fn expected_task_cost_usd_in(
     catalog: Option<&crate::models::price_catalog::PriceCatalog>,
     provider: &str,
     class: super::brain::TaskClass,
 ) -> Option<f64> {
+    // A configured agent seat is billed by subscription, not by token: its
+    // marginal cost is zero until the declared window cap is spent, then
+    // unaffordable — so at equal capability a seat outranks a metered
+    // model, and a saturated seat steps down every cost surface (VC-202-022).
+    if let Some(marginal) = crate::worker::seat_marginal_cost_usd(provider, unix_now()) {
+        return Some(marginal);
+    }
     let (prompt, completion, hit_ratio) = task_token_profile(class);
     expected_call_cost_usd_in(catalog, provider, prompt, completion, hit_ratio)
 }

@@ -496,6 +496,11 @@ pub fn register_configured_cloud_endpoints(
 
     register_model_catalog(registry);
 
+    // VC-202-022 — a declared agent seat is a brain candidate like any
+    // model API: it registers here so ranking, election, the matrix, the
+    // ladder and the budget all see it uniformly.
+    crate::seat_provider::register_configured_seats(registry);
+
     // VC-202-001 — scout every configured credential with its cheapest
     // call: classify live/expired/unauthorized/rate-limited/unknown and
     // record the fingerprinted evidence so failover steers around dead
