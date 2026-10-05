@@ -383,7 +383,7 @@ mod tests {
                             TaskSpec {
                                 id: id.to_string(),
                                 task_class: "coding".into(),
-                                accept: vec!["true".into()],
+                                accept: vec!["cargo".into(), "test".into()],
                                 title: id.to_string(),
                             },
                             None,
@@ -472,6 +472,40 @@ mod tests {
             Ok(())
         }
     }
+    struct ApproveVerifier;
+    impl crate::agent_integration::Verifier for ApproveVerifier {
+        fn verify(
+            &self,
+            _worktree: &std::path::Path,
+            _task: &TaskSpec,
+        ) -> crate::agent_integration::Verdict {
+            crate::agent_integration::Verdict::Approve
+        }
+
+        fn authenticated_identity(&self) -> Option<&str> {
+            Some("reviewer-1")
+        }
+
+        fn review_receipt(
+            &self,
+            _worktree: &std::path::Path,
+            task: &TaskSpec,
+            implementer: &str,
+            source_sha: &str,
+            acceptance: &crate::agent_integration::AcceptanceObservation,
+        ) -> Option<crate::independent_verify::ReviewReceipt> {
+            Some(crate::independent_verify::ReviewReceipt::new(
+                "reviewer-1",
+                implementer,
+                &task.id,
+                &acceptance.tool,
+                &acceptance.arguments_digest,
+                &acceptance.result_digest,
+                source_sha,
+            ))
+        }
+    }
+    static APPROVE_VERIFIER: ApproveVerifier = ApproveVerifier;
     struct CleanMerge;
     impl crate::agent_integration::Integrator for CleanMerge {
         fn integrate(
@@ -493,7 +527,7 @@ mod tests {
             queue,
             accept: &PassAccept,
             integrator: &CleanMerge,
-            verifier: None,
+            verifier: Some(&APPROVE_VERIFIER),
             head: &crate::agent_integration::ManifestProbe,
         }
     }
