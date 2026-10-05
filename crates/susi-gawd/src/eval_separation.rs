@@ -2,6 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::io::Write;
+use std::path::Path;
+
+use crate::eval_contamination::{self, ContaminationReport};
+use crate::rsi_corpus::{CorpusIntegrityError, RsiCorpus};
+use crate::susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CandidateArtifact {
@@ -86,4 +92,225 @@ pub fn judge(
         return PromotionGate::FailWrongOutput;
     }
     PromotionGate::Pass
+}
+
+/// One candidate run's access footprint, alongside the candidate itself —
+/// what training/memory ids it touched while producing `candidate`, which
+/// [`evaluate`] checks for held-out contamination before trusting the
+/// gate's verdict as promotable evidence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvalRunInput {
+    pub candidate: CandidateArtifact,
+    pub candidate_can_write: bool,
+    #[serde(default)]
+    pub training_access: BTreeSet<String>,
+    #[serde(default)]
+    pub memory_access: BTreeSet<String>,
+}
+
+/// The combined verdict [`evaluate`] records: a contaminated run is
+/// refused outright, never conflated with (or allowed to shadow) what the
+/// gate itself decided.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvalVerdict {
+    Pass,
+    FailContaminated,
+    FailSelfAlteredExpectations,
+    FailWrongOutput,
+    FailWriteAttempt,
+}
+
+impl From<PromotionGate> for EvalVerdict {
+    fn from(gate: PromotionGate) -> Self {
+        match gate {
+            PromotionGate::Pass => EvalVerdict::Pass,
+            PromotionGate::FailSelfAlteredExpectations => EvalVerdict::FailSelfAlteredExpectations,
+            PromotionGate::FailWrongOutput => EvalVerdict::FailWrongOutput,
+            PromotionGate::FailWriteAttempt => EvalVerdict::FailWriteAttempt,
+        }
+    }
+}
+
+/// The durable record one evaluation run leaves behind: which corpus
+/// revision judged which candidate, with what contamination/promotion
+/// result, so a verdict is never only an in-memory result a caller could
+/// silently drop.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvalEvidence {
+    pub corpus_revision: String,
+    pub candidate_id: String,
+    pub contamination: ContaminationReport,
+    pub verdict: EvalVerdict,
+    pub timestamp_unix: u64,
+}
+
+/// Judge one candidate run against `corpus`'s held-out suite: contamination
+/// is checked first — a run that touched held-out content during training
+/// or memory access can never pass regardless of what the gate itself
+/// decides, since the held-out truth it is judged against is truth it was
+/// already exposed to.
+pub fn evaluate(
+    corpus: &RsiCorpus,
+    input: &EvalRunInput,
+) -> Result<EvalEvidence, CorpusIntegrityError> {
+    let suite = HeldOutSuite::from_corpus(corpus)?;
+    let contamination =
+        eval_contamination::detect_in_corpus(corpus, &input.training_access, &input.memory_access)?;
+    let verdict = if contamination.contaminated {
+        EvalVerdict::FailContaminated
+    } else {
+        judge(&input.candidate, &suite, input.candidate_can_write).into()
+    };
+    Ok(EvalEvidence {
+        corpus_revision: corpus.revision.clone(),
+        candidate_id: input.candidate.id.clone(),
+        contamination,
+        verdict,
+        timestamp_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    })
+}
+
+/// [`evaluate`], then durably append the evidence as JSONL under
+/// `workspace/.susi/eval_evidence.jsonl` — the production record a
+/// `susi tasks eval-corpus` run or a scheduled evaluation leaves behind,
+/// mirroring how mission traces are recorded (`susi_core::mission_trace`).
+pub fn evaluate_and_record(
+    workspace: &Path,
+    corpus: &RsiCorpus,
+    input: &EvalRunInput,
+) -> EaiResult<EvalEvidence> {
+    let evidence = evaluate(corpus, input)
+        .map_err(|e| EaiError::governance(format!("rsi corpus eval failed: {e}")))?;
+    record(workspace, &evidence)?;
+    Ok(evidence)
+}
+
+fn record(workspace: &Path, evidence: &EvalEvidence) -> EaiResult<()> {
+    let susi_dir = workspace.join(".susi");
+    std::fs::create_dir_all(&susi_dir)
+        .map_err(|e| EaiError::filesystem(format!("eval evidence dir create failed: {e}")))?;
+    let mut line = serde_json::to_vec(evidence)
+        .map_err(|e| EaiError::internal(format!("eval evidence serialization failed: {e}")))?;
+    line.push(b'\n');
+    let _lock = crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "eval_evidence")
+        .ok_or_else(|| EaiError::filesystem("eval evidence lock acquisition failed".to_string()))?;
+    let path = susi_dir.join("eval_evidence.jsonl");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| EaiError::filesystem(format!("eval evidence file open failed: {e}")))?;
+    file.write_all(&line)
+        .map_err(|e| EaiError::filesystem(format!("eval evidence write failed: {e}")))
+}
+
+/// Read every eval evidence record under `workspace/.susi/`, skipping
+/// lines that fail to parse.
+#[must_use]
+pub fn read_all(workspace: &Path) -> Vec<EvalEvidence> {
+    let path = workspace.join(".susi").join("eval_evidence.jsonl");
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rsi_corpus::{
+        make_fixture, FixtureClass, FixtureSpec, FixtureSplit, RSI_CORPUS_SCHEMA,
+    };
+
+    fn eval_ws(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("susi-rsi-eval-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn sample_corpus(revision: &str) -> RsiCorpus {
+        RsiCorpus {
+            schema_version: RSI_CORPUS_SCHEMA.into(),
+            revision: revision.into(),
+            fixtures: vec![
+                make_fixture(FixtureSpec {
+                    id: "h1",
+                    class: FixtureClass::Coding,
+                    input: "hidden eval input",
+                    split: FixtureSplit::HeldOut,
+                    seed: 11,
+                    evaluator_expected: Some("rubric".into()),
+                }),
+                make_fixture(FixtureSpec {
+                    id: "t1",
+                    class: FixtureClass::Coding,
+                    input: "training input",
+                    split: FixtureSplit::Train,
+                    seed: 12,
+                    evaluator_expected: None,
+                }),
+            ],
+        }
+    }
+
+    /// The production surface: load a corpus, judge a clean candidate run
+    /// against its held-out suite, and record the promotion evidence —
+    /// then show a run that touched held-out content during training is
+    /// refused outright, and both runs persist as durable evidence a
+    /// second reader can see without re-running anything.
+    #[test]
+    fn rsi_corpus_production_eval() {
+        let ws = eval_ws("prod");
+        let corpus = sample_corpus("rev-9");
+
+        let clean = EvalRunInput {
+            candidate: CandidateArtifact {
+                id: "cand-pass".into(),
+                actual_output: BTreeSet::from(["rubric".to_string()]),
+                expected_results: BTreeSet::from(["rubric".to_string()]),
+            },
+            candidate_can_write: false,
+            training_access: BTreeSet::new(),
+            memory_access: BTreeSet::new(),
+        };
+        let evidence = evaluate_and_record(&ws, &corpus, &clean).expect("clean eval");
+        assert_eq!(evidence.verdict, EvalVerdict::Pass);
+        assert!(!evidence.contamination.contaminated);
+        assert_eq!(evidence.corpus_revision, "rev-9");
+
+        let tainted = EvalRunInput {
+            candidate: CandidateArtifact {
+                id: "cand-tainted".into(),
+                actual_output: BTreeSet::from(["rubric".to_string()]),
+                expected_results: BTreeSet::from(["rubric".to_string()]),
+            },
+            candidate_can_write: false,
+            training_access: BTreeSet::from(["h1".to_string()]),
+            memory_access: BTreeSet::new(),
+        };
+        let evidence2 = evaluate_and_record(&ws, &corpus, &tainted).expect("tainted eval");
+        assert_eq!(evidence2.verdict, EvalVerdict::FailContaminated);
+        assert!(evidence2.contamination.contaminated);
+
+        // Both runs are durably recorded, not just returned in memory.
+        let recorded = read_all(&ws);
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(recorded[0].candidate_id, "cand-pass");
+        assert_eq!(recorded[1].candidate_id, "cand-tainted");
+
+        // A tampered corpus cannot seed an evaluation at all.
+        let mut tampered = corpus.clone();
+        tampered.fixtures[0].input = "swapped".into();
+        assert!(evaluate(&tampered, &clean).is_err());
+
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }
