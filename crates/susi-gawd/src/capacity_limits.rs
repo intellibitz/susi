@@ -95,7 +95,7 @@ impl ControlPlaneCapacity {
         let next = checked_add(self.in_flight, requested)?;
         if admit(&next, &self.limits) == AdmitLoad::RejectOverload {
             return Err(CapacityError::Overloaded {
-                report: saturation(&next, &self.limits),
+                report: saturation_report(&next, &self.limits),
             });
         }
         self.in_flight = next;
@@ -167,7 +167,7 @@ pub fn admit(load: &LoadPoint, limits: &CapacityLimits) -> AdmitLoad {
 }
 
 #[must_use]
-pub fn saturation(load: &LoadPoint, limits: &CapacityLimits) -> SaturationReport {
+pub fn saturation_report(load: &LoadPoint, limits: &CapacityLimits) -> SaturationReport {
     let saturated_on = if load.missions > limits.max_missions {
         Some("missions")
     } else if load.streaming > limits.max_streaming {
@@ -185,4 +185,11 @@ pub fn saturation(load: &LoadPoint, limits: &CapacityLimits) -> SaturationReport
         healthy: true,
         cancel_responsive: true,
     }
+}
+
+/// Compatibility helper retained for the pure unit-model tests.
+#[cfg(test)]
+#[must_use]
+pub fn saturation(load: &LoadPoint, limits: &CapacityLimits) -> SaturationReport {
+    saturation_report(load, limits)
 }
