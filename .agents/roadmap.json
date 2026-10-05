@@ -1417,7 +1417,7 @@
       "id": "VC-202-012",
       "mastery_target": "A2A, MCP, HTTP and adapter capabilities are reachable through one typed interface with discovery, permissions, timeouts and cost attribution, so a new capability is added as data rather than as code in a new place.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-012.json): CapabilityBus (discovery, permission/timeout/cost contract) delivered by T-DEEPSEEK-95. Production caller delivered (T-INTELLIBITZWT20261005035445-2): CapabilityRegistry::dispatch_capability discovers a live registered tool through typed_bus() and invokes it (already MAC-enforced) under the bus's contract, exposed on 'susi os capabilities' / 'susi os capabilities invoke'. Remaining: only the Mcp surface dispatches today (A2a/Adapter discover but cannot invoke yet); cost_micros is still hardcoded to 0, so budget enforcement has no real cost model behind it.",
       "type": "FEDERATION",
       "vector": "One capability bus for every external surface"
     },
