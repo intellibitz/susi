@@ -90,6 +90,7 @@ fn vc_201_015_mastery_production_patch_path_executes_the_gate() {
         test_command: Some("true".into()),
         auto_apply: true,
         description: "mastery".into(),
+        isolate: None,
     };
     let out = apply_patch_cycle(&ws, &req, "autonomous").unwrap();
     assert!(
