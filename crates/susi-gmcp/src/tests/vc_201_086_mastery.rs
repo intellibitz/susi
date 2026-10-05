@@ -6,70 +6,165 @@
 //! Every test name starts `vc_201_086_mastery_` so the vector's evidence is
 //! enumerable with `cargo test -p susi-gmcp vc_201_086`.
 
-use crate::mcp_profile::McpSpecProfile;
+use crate::{
+    mcp_probe::{
+        McpProbeError, McpProbeNotification, McpProbeOptions, McpProbeRequest, McpProbeResponse,
+        McpProbeTransport,
+    },
+    mcp_profile::McpSpecProfile,
+};
+use serde_json::{json, Value};
+use std::time::Duration;
 
-/// "Compatibility status records tested behavior rather than catalog
-/// membership": `registry_metadata` is a hardcoded literal asserting
-/// `supports_list_changed` — no probe ran, no behavior was tested.
-#[test]
-fn vc_201_086_mastery_compatibility_is_static_catalog_claim() {
-    let p = McpSpecProfile::default_profile();
-    assert_eq!(p.registry_metadata["supports_list_changed"], true);
-    // The value exists before any server was contacted — it can never
-    // reflect tested behavior.
+#[derive(Default)]
+struct FakeMcpServer {
+    requests: Vec<McpProbeRequest>,
+    notifications: Vec<McpProbeNotification>,
+    malformed_initialize: bool,
 }
 
-/// The profile's version list is stale relative to the wire: the real
-/// client (`susi_core::mcp_client`) speaks 2025-11-25 and 2025-06-18, yet
-/// the catalog carries neither — so "negotiation" against a real current
-/// peer reports no common revision.
+impl McpProbeTransport for FakeMcpServer {
+    fn request(&mut self, request: &McpProbeRequest) -> Result<McpProbeResponse, McpProbeError> {
+        self.requests.push(request.clone());
+        match request.method.as_str() {
+            "initialize" if self.malformed_initialize => Ok(McpProbeResponse::from_value(
+                Value::String("malformed".to_string()),
+            )),
+            "initialize" => Ok(McpProbeResponse::from_value(json!({
+                "protocolVersion": "2025-11-25",
+                "capabilities": {"tools": {"listChanged": true}},
+                "serverInfo": {"name": "fake-mcp", "version": "1.0"}
+            }))),
+            "tools/list" => Ok(McpProbeResponse::from_value(json!({
+                "tools": [{"name": "echo"}, {"name": "status"}]
+            }))),
+            _ => Err(McpProbeError::Transport {
+                method: request.method.clone(),
+                detail: "unexpected request".to_string(),
+            }),
+        }
+    }
+
+    fn notify(&mut self, notification: &McpProbeNotification) -> Result<(), McpProbeError> {
+        self.notifications.push(notification.clone());
+        Ok(())
+    }
+
+    fn probe_timeout(
+        &mut self,
+        _timeout: Duration,
+        _protocol_version: &str,
+    ) -> Result<Duration, McpProbeError> {
+        Ok(Duration::from_millis(1))
+    }
+
+    fn probe_malformed_response(
+        &mut self,
+        _timeout: Duration,
+        _protocol_version: &str,
+    ) -> Result<(), McpProbeError> {
+        Ok(())
+    }
+
+    fn probe_credential_isolation(&self) -> Result<(), McpProbeError> {
+        if self
+            .requests
+            .iter()
+            .any(|request| !request.sensitive_headers().is_empty())
+        {
+            Err(McpProbeError::CredentialLeak {
+                detail: "sensitive request header observed".to_string(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[test]
-fn vc_201_086_mastery_catalog_versions_miss_the_current_wire() {
-    let mut p = McpSpecProfile::default_profile();
+fn vc_201_086_mastery_compatibility_records_probed_behavior() {
+    let mut profile = McpSpecProfile::default_profile();
+    assert_eq!(profile.registry_metadata["probe_status"], "unprobed");
+    let mut server = FakeMcpServer::default();
+    let report = profile.probe(&mut server, McpProbeOptions::default());
+
+    assert!(report.passed(), "{report:?}");
+    assert_eq!(profile.registry_metadata["probe_status"], "passed");
+    assert_eq!(profile.registry_metadata["supports_list_changed"], true);
     assert_eq!(
-        p.negotiate(&["2025-11-25"]),
-        None,
-        "catalog knows only 2024-11-05 / 2025-03-26 — a peer speaking the\n\
-         current wire revision negotiates to nothing"
+        profile.registry_metadata["discovered_tools"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(profile.negotiated.as_deref(), Some("2025-11-25"));
+}
+
+#[test]
+fn vc_201_086_mastery_catalog_versions_include_current_wire() {
+    let mut profile = McpSpecProfile::default_profile();
+    assert_eq!(
+        profile.negotiate(&["2025-11-25"]),
+        Some("2025-11-25".to_string())
+    );
+    assert_eq!(
+        profile.negotiate(&["2025-06-18"]),
+        Some("2025-06-18".to_string())
     );
 }
 
-/// The probe surface the claim requires — initialization, discovery,
-/// cancellation, timeouts, malformed responses, credential isolation — has
-/// no representation: the profile type carries exactly versions, negotiated
-/// and registry_metadata. No probe function exists in the crate.
 #[test]
-fn vc_201_086_mastery_no_probe_surface_exists() {
-    let p = McpSpecProfile::default_profile();
-    let json = serde_json::to_value(&p).unwrap();
-    let keys: std::collections::BTreeSet<String> =
-        json.as_object().unwrap().keys().cloned().collect();
-    assert_eq!(
-        keys,
-        ["versions", "negotiated", "registry_metadata"]
-            .into_iter()
-            .map(String::from)
-            .collect()
-    );
+fn vc_201_086_mastery_probe_exercises_lifecycle_safety_checks() {
+    let mut profile = McpSpecProfile::default_profile();
+    let mut server = FakeMcpServer::default();
+    let report = profile.probe(&mut server, McpProbeOptions::default());
+
+    for check in [
+        "initialize",
+        "initialized",
+        "discovery",
+        "cancellation",
+        "timeout",
+        "malformed_response",
+        "credential_isolation",
+    ] {
+        assert!(report.checks[check].passed, "{check}: {report:?}");
+    }
+    assert_eq!(server.notifications[1].method, "notifications/cancelled");
 }
 
-/// `negotiate` is a pure list intersection — no initialize request is
-/// issued, no timeout applies, malformed input is impossible to represent.
-/// It "succeeds" over a peer that was never contacted.
 #[test]
-fn vc_201_086_mastery_negotiate_is_pure_list_intersection() {
-    let mut p = McpSpecProfile::default_profile();
-    // A fabricated peer list — nothing was contacted — still "negotiates".
-    assert_eq!(p.negotiate(&["2024-11-05"]), Some("2024-11-05".into()));
-    assert_eq!(p.negotiated.as_deref(), Some("2024-11-05"));
+fn vc_201_086_mastery_malformed_initialization_is_rejected() {
+    let mut profile = McpSpecProfile::default_profile();
+    let mut server = FakeMcpServer {
+        malformed_initialize: true,
+        ..FakeMcpServer::default()
+    };
+    let report = profile.probe(&mut server, McpProbeOptions::default());
+
+    assert!(!report.passed());
+    assert!(report.checks["initialize"].detail.contains("malformed"));
+    assert_eq!(profile.registry_metadata["probe_status"], "failed");
+    assert!(profile.negotiated.is_none());
 }
 
-/// Holds: newest common revision wins when the catalog actually overlaps.
 #[test]
 fn vc_201_086_mastery_newest_common_wins_holds() {
-    let mut p = McpSpecProfile::default_profile();
+    let mut profile = McpSpecProfile::default_profile();
     assert_eq!(
-        p.negotiate(&["2024-11-05", "2025-03-26"]),
-        Some("2025-03-26".into())
+        profile.negotiate(&["2024-11-05", "2025-03-26"]),
+        Some("2025-03-26".to_string())
     );
+}
+
+#[test]
+fn vc_201_086_mastery_probe_requests_never_include_host_credentials() {
+    let mut server = FakeMcpServer::default();
+    let mut profile = McpSpecProfile::default_profile();
+    let report = profile.probe(&mut server, McpProbeOptions::default());
+    assert!(report.checks["credential_isolation"].passed);
+    assert!(server
+        .requests
+        .iter()
+        .all(|request| !request.headers.contains_key("authorization")));
 }
