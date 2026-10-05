@@ -120,9 +120,29 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                 std::process::exit(1);
             }
         },
-        AdminCommands::IntentLadder { run, slice } => {
+        AdminCommands::IntentLadder { run, slice, verify } => {
             let home = susi_paths::SusiDirs::substrate_home();
-            if run || slice {
+            if let Some(id) = verify {
+                let runner = match susi_gawd::intent_ladder::ProcessRunner::this_binary() {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("intent ladder runner unavailable: {e}");
+                        std::process::exit(1);
+                    }
+                };
+                match susi_gawd::intent_ladder::verify_intent(cwd, &id, &runner) {
+                    Ok(entry) => {
+                        let _ = crate::cli_json::print_json(&serde_json::json!(entry));
+                        if entry.verdict != "pass" {
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("intent verify failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else if run || slice {
                 let card = if slice {
                     susi_gawd::intent_ladder::startup_slice(&home, cwd)
                 } else {

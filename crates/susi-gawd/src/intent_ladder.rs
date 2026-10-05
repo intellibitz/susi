@@ -498,6 +498,7 @@ pub fn run_slice<R: Runner>(
         let _ = std::fs::remove_dir_all(&env.home);
         let _ = std::fs::remove_dir_all(&env.workspace);
     }
+    let _ = std::fs::remove_dir(runs_root);
 
     let card = Scorecard {
         schema: SCORECARD_SCHEMA.into(),
@@ -667,4 +668,185 @@ pub fn full_run(home: &Path, repo_root: &Path) -> EaiResult<Scorecard> {
         &SlicePolicy::full(),
         &runner,
     ))
+}
+
+/// A check as evidence prose — what was expected, for the task record.
+pub fn describe_check(check: &Check) -> String {
+    match check {
+        Check::FileContains { path, needle } => {
+            format!("a file `{path}` containing `{needle}`")
+        }
+        Check::StdoutMarker { needle } => format!("output containing `{needle}`"),
+    }
+}
+
+/// Re-run one named intent hermetically and return its scorecard entry —
+/// the acceptance a repair task's close runs: the task is done when the
+/// intent itself passes, not when somebody says so.
+///
+/// # Errors
+/// [`EaiError::config`] when the ladder holds no such intent.
+pub fn verify_intent<R: Runner>(
+    repo_root: &Path,
+    id: &str,
+    runner: &R,
+) -> EaiResult<ScorecardEntry> {
+    let (ladder, source) = load_ladder(repo_root)?;
+    let Some(intent) = ladder.intents.iter().find(|i| i.id == id) else {
+        return Err(EaiError::config(format!(
+            "no intent `{id}` on the ladder ({source})"
+        )));
+    };
+    let runs_root =
+        std::env::temp_dir().join(format!("susi-intent-verify-{id}-{}", std::process::id()));
+    let env = RunEnv {
+        home: runs_root.join("home"),
+        workspace: runs_root.join("ws"),
+    };
+    let _ = std::fs::remove_dir_all(&env.home);
+    let _ = std::fs::remove_dir_all(&env.workspace);
+    let _ = std::fs::create_dir_all(&env.home);
+    let _ = std::fs::create_dir_all(&env.workspace);
+    let outcome = runner.run(intent, &env, intent.budget);
+    let entry = if outcome.timed_out {
+        ScorecardEntry {
+            id: id.into(),
+            grade: intent.grade.name().into(),
+            verdict: "partial".into(),
+            seconds: outcome.seconds,
+            micros: outcome.micros,
+            worker: outcome.worker.clone(),
+            stopped: "timeout".into(),
+            detail: format!(
+                "hit its {}s budget without finishing",
+                intent.budget.seconds
+            ),
+        }
+    } else {
+        let (ok, detail) = evaluate(&intent.check, &env, &outcome);
+        ScorecardEntry {
+            id: id.into(),
+            grade: intent.grade.name().into(),
+            verdict: if ok && outcome.exit_ok {
+                "pass"
+            } else {
+                "fail"
+            }
+            .into(),
+            seconds: outcome.seconds,
+            micros: outcome.micros,
+            worker: outcome.worker.clone(),
+            stopped: "completed".into(),
+            detail,
+        }
+    };
+    let _ = std::fs::remove_dir_all(&env.home);
+    let _ = std::fs::remove_dir_all(&env.workspace);
+    let _ = std::fs::remove_dir(&runs_root);
+    Ok(entry)
+}
+
+/// Repair tasks authored per scorecard pass — the ladder cannot flood
+/// the queue faster than agents drain it, on top of the per-author bound
+/// `tasks::author` already enforces.
+pub const GAP_TASKS_PER_RUN: usize = 2;
+
+/// Turn each ladder failure into a specific, evidence-backed task
+/// (T-DEEPSEEK-201): the task names the intent, what was expected
+/// against what happened, and its acceptance is the failing intent
+/// itself — closing it requires `--verify` to pass, which makes the
+/// corpus a growing regression suite.
+///
+/// Deduplication: an open task or roadmap vector already naming the
+/// intent suppresses a duplicate; a closed one does not — an intent that
+/// regressed after repair earns a fresh task. Failures are triaged by
+/// grade (an extreme failure outranks a trivial one) and capped at
+/// [`GAP_TASKS_PER_RUN`] per scorecard.
+///
+/// Outside a repository — a daemon cwd that is not a checkout — this is
+/// a deliberate no-op: it must not invent `.agents/` state in an
+/// arbitrary directory.
+pub fn gap_tasks(
+    ws: &Path,
+    card: &Scorecard,
+    agent: &str,
+) -> EaiResult<crate::admin::tasks::AuthoredReport> {
+    use crate::admin::tasks;
+    let empty = tasks::AuthoredReport {
+        vectors: vec![],
+        tasks: vec![],
+    };
+    if !ws.join(".agents/roadmap.json").is_file() || !ws.join(".agents/tasks").is_dir() {
+        return Ok(empty);
+    }
+    let (ladder, _) = load_ladder(ws)?;
+    let open = tasks::list_open(ws);
+    let vectors = tasks::roadmap_vectors(ws).unwrap_or_default();
+    let already_known = |id: &str| {
+        open.iter().any(|t| {
+            t.title.contains(id) || t.goal.contains(id) || t.accept.cmd.join(" ").contains(id)
+        }) || vectors
+            .iter()
+            .any(|v| v.title.contains(id) || v.progress.contains(id))
+    };
+
+    // Triage by observed impact: the higher the failed grade, the more
+    // capability the failure reports.
+    let mut failures: Vec<(&Intent, &ScorecardEntry)> = card
+        .entries
+        .iter()
+        .filter(|e| e.verdict == "fail" || e.verdict == "partial")
+        .filter_map(|e| ladder.intents.iter().find(|i| i.id == e.id).map(|i| (i, e)))
+        .collect();
+    failures.sort_by_key(|(i, _)| std::cmp::Reverse(i.grade));
+
+    let new_tasks: Vec<tasks::NewTask> = failures
+        .iter()
+        .filter(|(i, _)| !already_known(&i.id))
+        .take(GAP_TASKS_PER_RUN)
+        .map(|(i, e)| tasks::NewTask {
+            title: format!("Restore intent {} ({})", i.id, i.grade.name()),
+            goal: format!(
+                "Restoring the {} intent `{}` from ladder revision {}.\n\
+                 Expected: {}.\n\
+                 Observed: {} — verdict {}, stopped {}, worker {}, {}s and {}µs.\n\
+                 Close requires the intent itself to pass: \
+                 `susi admin intent-ladder --verify {}`.",
+                i.grade.name(),
+                i.id,
+                card.ladder_revision,
+                describe_check(&i.check),
+                e.detail,
+                e.verdict,
+                e.stopped,
+                e.worker,
+                e.seconds,
+                e.micros,
+                i.id,
+            ),
+            size: "m".into(),
+            deps: vec![],
+            accept: vec![
+                "susi".into(),
+                "admin".into(),
+                "intent-ladder".into(),
+                "--verify".into(),
+                i.id.clone(),
+            ],
+            roadmap: None,
+        })
+        .collect();
+    tasks::author(
+        ws,
+        agent,
+        &tasks::AuthoredSpec {
+            rationale: format!(
+                "intent ladder revision {} scorecard: {} failing rung(s) become repair tasks",
+                card.ladder_revision,
+                failures.len()
+            ),
+            vectors: vec![],
+            tasks: new_tasks,
+        },
+    )
 }
