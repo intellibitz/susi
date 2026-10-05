@@ -777,7 +777,15 @@ impl GemiEngine {
             };
             let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             let answered = matches!(&outcome, Ok(text) if !text.trim().is_empty());
-            crate::engines::brain::record_outcome(&name, class, answered, elapsed_ms);
+            // Availability failures (429, 5xx, timeouts, auth, transport)
+            // are health evidence — the cooldown/quarantine axis absorbs
+            // them below — not capability evidence: a rate-limit storm
+            // must not move the model's measured ranking (VC-202-020).
+            // Only what the model actually produced counts: an answered
+            // call records success, an empty/unusable one a failure.
+            if outcome.is_ok() {
+                crate::engines::brain::record_outcome(&name, class, answered, elapsed_ms);
+            }
             // Every attempted call is spend — success or failure — so the
             // ceiling's window sums stay real (VC-202-005).
             crate::spend_tracker::record(&crate::spend_tracker::SpendWrite {
@@ -1455,7 +1463,9 @@ mod tests {
         ];
         let ranked = rank(&both, TaskClass::Reflex);
         assert_eq!(ranked[0].provider, "ollama-brainlearn-b");
-        assert_eq!(ranked[1].success_rate, Some(0.0));
+        // The error text is an availability failure, not a wrong answer:
+        // nothing lands on the capability axis (VC-202-020/T-117).
+        assert_eq!(ranked[1].success_rate, None);
     }
 
     #[test]
@@ -1481,9 +1491,9 @@ mod tests {
         let names = vec!["ollama-flatten-a".to_string()];
         let a = &rank(&names, TaskClass::classify(prompt))[0];
         assert_eq!(
-            a.success_rate,
-            Some(0.0),
-            "error text must not count as an answer"
+            a.success_rate, None,
+            "flattened error text is availability evidence — the capability \
+             axis stays untouched (VC-202-020/T-117)"
         );
     }
 
