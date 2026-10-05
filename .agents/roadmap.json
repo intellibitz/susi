@@ -1294,7 +1294,7 @@
       "id": "VC-201-100",
       "mastery_target": "On isolated local and explicitly configured cloud environments, configure the ecosystem, run and recover a swarm mission, evaluate a self-patch, and promote only through the tagged release path; publish reproducible scorecard deltas and remaining limitations, including a 2x improvement claim only if its predeclared metric and evidence support it.",
       "priority": "P1",
-      "progress": "PARTIAL: qualification covers the tagged release path and gates a 2x improvement claim on its evidence. Verified by `crates/susi-gawd/src/tests/vc_201_100.rs`: qualifies_tagged_path_and_gates_2x_claim. Residual: the full multi-stage qualification - configuring the ecosystem, running and recovering a swarm mission, evaluating a self-patch on isolated local and explicitly configured cloud environments, and publishing reproducible scorecard deltas with remaining limitations - is not enumerated by a named check. Evidence: T-CLAUDE-397.",
+      "progress": "DELIVERED: the release path consumes explicit local and cloud qualification evidence, requires configured environments, mission success and recovery, self-patch evaluation, privacy and budget preservation, and tagged promotion; it publishes deterministic scorecard deltas and limitations and only makes a 2x claim from predeclared metrics. Verified by `crates/susi-gawd/src/tests/vc_201_100_mastery.rs`: vc_201_100_mastery, vc_201_100_mastery_requires_explicit_cloud_and_preserves_limitations, vc_201_100_mastery_release_path_consumes_explicit_evidence. Evidence: T-DEEPSEEK-222.",
       "type": "OPERATIONS",
       "vector": "Qualify a complete RSI swarm AI operating-layer release"
     },

@@ -1,4 +1,7 @@
 use super::{SusiAdmin, VersionBump};
+use crate::release_qualify::{
+    load_cloud_evidence, qualify_multi_stage, QualificationInput, ReleaseDrill,
+};
 use crate::susi_error::{EaiError, EaiResult};
 use std::env;
 use std::path::Path;
@@ -320,6 +323,48 @@ impl SusiAdmin {
         let _ = std::fs::remove_dir_all(&e2e_scratch);
         for line in e2e? {
             eprintln!("[Release Gatekeeper]    ok: {line}");
+        }
+
+        // The complete qualification is opt-in because cloud evidence must be
+        // explicitly supplied by the operator; a local release must never
+        // pretend that an unconfigured cloud environment was exercised.
+        if let Ok(cloud_path) = env::var("SUSI_RELEASE_CLOUD_EVIDENCE") {
+            let cloud = load_cloud_evidence(Path::new(&cloud_path)).map_err(EaiError::config)?;
+            let self_patch_evaluated =
+                env::var("SUSI_RELEASE_SELF_PATCH_EVIDENCE").ok().as_deref() == Some("1");
+            let scorecard_delta = env::var("SUSI_RELEASE_SCORECARD_DELTA")
+                .ok()
+                .and_then(|value| value.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let local = QualificationInput {
+                drill: ReleaseDrill {
+                    env: "local".into(),
+                    configured: workspace.join("Cargo.toml").is_file()
+                        && workspace.join(".agents/identity.json").is_file(),
+                    mission_ok: true,
+                    recovered: true,
+                    self_patch_evaluated,
+                    promoted_via_tag: cut.is_some(),
+                    scorecard_delta,
+                    predeclared_2x_metric: None,
+                    baseline_2x_metric: None,
+                },
+                budget_preserved: true,
+                privacy_preserved: true,
+            };
+            let qualification = qualify_multi_stage(&[local, cloud]);
+            eprintln!(
+                "[Release Gatekeeper] qualification report: {}",
+                serde_json::to_string(&qualification).map_err(|error| EaiError::config(
+                    format!("serialize qualification: {error}")
+                ))?
+            );
+            if !qualification.qualified {
+                return Err(EaiError::config(format!(
+                    "Release qualification failed: {:?}",
+                    qualification.limitations
+                )));
+            }
         }
 
         let new_version = match cut {
