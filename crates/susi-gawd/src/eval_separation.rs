@@ -6,7 +6,9 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::eval_contamination::{self, ContaminationReport};
+use crate::experiment_lifecycle::{ExperimentLog, ExperimentState};
 use crate::rsi_corpus::{CorpusIntegrityError, RsiCorpus};
+use crate::scorecard::ImprovementScorecard;
 use crate::susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +108,13 @@ pub struct EvalRunInput {
     pub training_access: BTreeSet<String>,
     #[serde(default)]
     pub memory_access: BTreeSet<String>,
+    /// The evaluator's measured scorecard for this run — the dimensions
+    /// the run harness actually observed, judged against the corpus's
+    /// predeclared `promotion_spec` when the gate passes. Absent
+    /// measurements make no promotion claim: a `Pass` alone advances the
+    /// experiment to Evaluated and no further.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measured: Option<ImprovementScorecard>,
 }
 
 /// The combined verdict [`evaluate`] records: a contaminated run is
@@ -143,6 +152,11 @@ pub struct EvalEvidence {
     pub contamination: ContaminationReport,
     pub verdict: EvalVerdict,
     pub timestamp_unix: u64,
+    /// Where the candidate's durable experiment landed after this run —
+    /// `None` only for evidence produced by the pure [`evaluate`] path,
+    /// which touches no experiment log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experiment_state: Option<ExperimentState>,
 }
 
 /// Judge one candidate run against `corpus`'s held-out suite: contamination
@@ -171,7 +185,71 @@ pub fn evaluate(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0),
+        experiment_state: None,
     })
+}
+
+/// Durable experiment-log root, mirroring the evidence store: one record
+/// per candidate under `workspace/.susi/experiments/`.
+fn experiments_dir(workspace: &Path) -> std::path::PathBuf {
+    workspace.join(".susi").join("experiments")
+}
+
+/// Advance the candidate's durable experiment through the lifecycle this
+/// eval run earned: a fresh candidate is proposed, its judged run is
+/// recorded (Proposed -> Isolated -> Evaluated), a failed verdict
+/// rejects it, and only a `Pass` carrying the evaluator's measured
+/// scorecard may attempt `PromotionReady` — against the corpus's
+/// predeclared `promotion_spec`, never a bound the run itself supplied.
+/// A terminal state stands: a revised candidate earns a new id rather
+/// than reopening a concluded experiment.
+fn advance_experiment(
+    log: &mut ExperimentLog,
+    evidence: &EvalEvidence,
+    input: &EvalRunInput,
+    corpus: &RsiCorpus,
+) -> EaiResult<ExperimentState> {
+    let id = evidence.candidate_id.clone();
+    let state_of = |log: &ExperimentLog| {
+        log.experiments
+            .get(&id)
+            .map_or(ExperimentState::Proposed, |e| e.state)
+    };
+    if let Some(state @ (ExperimentState::Rejected | ExperimentState::PromotionReady)) =
+        log.experiments.get(&id).map(|e| e.state)
+    {
+        return Ok(state);
+    }
+    if !log.experiments.contains_key(&id) {
+        log.propose(&id).map_err(EaiError::governance)?;
+    }
+    if state_of(log) == ExperimentState::Proposed {
+        log.transition(&id, ExperimentState::Isolated)
+            .map_err(EaiError::governance)?;
+    }
+    if state_of(log) == ExperimentState::Isolated {
+        log.transition(&id, ExperimentState::Evaluated)
+            .map_err(EaiError::governance)?;
+    }
+    match evidence.verdict {
+        EvalVerdict::Pass => {
+            if let (Some(measured), Some(spec)) =
+                (input.measured.as_ref(), corpus.promotion_spec.as_ref())
+            {
+                // A scorecard that fails the declared spec leaves the
+                // experiment Evaluated — recorded, never promoted.
+                let _ = log.promote_with_scorecard(&id, measured, spec);
+            }
+        }
+        EvalVerdict::FailContaminated
+        | EvalVerdict::FailSelfAlteredExpectations
+        | EvalVerdict::FailWrongOutput
+        | EvalVerdict::FailWriteAttempt => {
+            log.transition(&id, ExperimentState::Rejected)
+                .map_err(EaiError::governance)?;
+        }
+    }
+    Ok(state_of(log))
 }
 
 /// [`evaluate`], then durably append the evidence as JSONL under
@@ -183,8 +261,10 @@ pub fn evaluate_and_record(
     corpus: &RsiCorpus,
     input: &EvalRunInput,
 ) -> EaiResult<EvalEvidence> {
-    let evidence = evaluate(corpus, input)
+    let mut evidence = evaluate(corpus, input)
         .map_err(|e| EaiError::governance(format!("rsi corpus eval failed: {e}")))?;
+    let mut log = ExperimentLog::load(experiments_dir(workspace));
+    evidence.experiment_state = Some(advance_experiment(&mut log, &evidence, input, corpus)?);
     record(workspace, &evidence)?;
     Ok(evidence)
 }
@@ -258,6 +338,7 @@ mod tests {
                     evaluator_expected: None,
                 }),
             ],
+            promotion_spec: None,
         }
     }
 
@@ -280,6 +361,7 @@ mod tests {
             candidate_can_write: false,
             training_access: BTreeSet::new(),
             memory_access: BTreeSet::new(),
+            measured: None,
         };
         let evidence = evaluate_and_record(&ws, &corpus, &clean).expect("clean eval");
         assert_eq!(evidence.verdict, EvalVerdict::Pass);
@@ -295,6 +377,7 @@ mod tests {
             candidate_can_write: false,
             training_access: BTreeSet::from(["h1".to_string()]),
             memory_access: BTreeSet::new(),
+            measured: None,
         };
         let evidence2 = evaluate_and_record(&ws, &corpus, &tainted).expect("tainted eval");
         assert_eq!(evidence2.verdict, EvalVerdict::FailContaminated);

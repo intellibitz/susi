@@ -228,3 +228,87 @@ fn vc_201_003_mastery_uncertainty_blocks_a_marginal_claim() {
     s.quality = dim("quality", 0.81, 0.005);
     assert!(s.summary_ok(&spec), "a tight band clears the same value");
 }
+
+/// The scorecard gates the *production* promotion path — `evaluate_and_record`
+/// (the seam `susi tasks eval-corpus` runs): the corpus declares the spec
+/// before any run, the run supplies measured dimensions, and only a run
+/// whose gate passes *and* whose measurements clear the declared bounds
+/// lands `PromotionReady`.
+#[test]
+fn vc_201_003_mastery_production_eval_path_gates_promotion() {
+    use crate::eval_separation::{
+        evaluate_and_record, CandidateArtifact, EvalRunInput, EvalVerdict,
+    };
+    use crate::rsi_corpus::{
+        make_fixture, FixtureClass, FixtureSpec, FixtureSplit, RsiCorpus, RSI_CORPUS_SCHEMA,
+    };
+    use std::collections::BTreeSet;
+
+    let root = std::env::temp_dir().join(format!("susi-vc003-prod-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let corpus = RsiCorpus {
+        schema_version: RSI_CORPUS_SCHEMA.into(),
+        revision: "rev-1".into(),
+        fixtures: vec![make_fixture(FixtureSpec {
+            id: "h1",
+            class: FixtureClass::Coding,
+            input: "held-out input",
+            split: FixtureSplit::HeldOut,
+            seed: 1,
+            evaluator_expected: Some("expected-output".into()),
+        })],
+        promotion_spec: Some(spec()),
+    };
+
+    let run = |id: &str, measured: Option<ImprovementScorecard>| EvalRunInput {
+        candidate: CandidateArtifact {
+            id: id.into(),
+            actual_output: BTreeSet::from(["expected-output".to_string()]),
+            expected_results: BTreeSet::new(),
+        },
+        candidate_can_write: false,
+        training_access: BTreeSet::new(),
+        memory_access: BTreeSet::new(),
+        measured,
+    };
+
+    // Gate pass + a scorecard clearing the declared spec -> PromotionReady,
+    // and durably so: a fresh log load sees the same state.
+    let ev = evaluate_and_record(&root, &corpus, &run("cand-a", Some(passing()))).unwrap();
+    assert_eq!(ev.verdict, EvalVerdict::Pass);
+    assert_eq!(ev.experiment_state, Some(ExperimentState::PromotionReady));
+    let log = ExperimentLog::load(root.join(".susi").join("experiments"));
+    assert_eq!(
+        log.experiments["cand-a"].state,
+        ExperimentState::PromotionReady
+    );
+
+    // Gate pass but a measured scorecard missing one declared bound ->
+    // stays Evaluated, never promoted.
+    let mut regressed = passing();
+    regressed.resource = dim("resource", 0.0, 0.0);
+    let ev = evaluate_and_record(&root, &corpus, &run("cand-b", Some(regressed))).unwrap();
+    assert_eq!(ev.verdict, EvalVerdict::Pass);
+    assert_eq!(ev.experiment_state, Some(ExperimentState::Evaluated));
+
+    // Gate pass carrying no measurements -> Evaluated: a bare verdict is
+    // no improvement claim.
+    let ev = evaluate_and_record(&root, &corpus, &run("cand-c", None)).unwrap();
+    assert_eq!(ev.experiment_state, Some(ExperimentState::Evaluated));
+
+    // A failed verdict rejects the experiment outright.
+    let mut failed = run("cand-d", Some(passing()));
+    failed.candidate.actual_output = BTreeSet::new();
+    let ev = evaluate_and_record(&root, &corpus, &failed).unwrap();
+    assert_eq!(ev.verdict, EvalVerdict::FailWrongOutput);
+    assert_eq!(ev.experiment_state, Some(ExperimentState::Rejected));
+
+    // A terminal state stands: re-evaluating the rejected id does not
+    // reopen it — a revised candidate earns a new id.
+    let ev = evaluate_and_record(&root, &corpus, &run("cand-d", Some(passing()))).unwrap();
+    assert_eq!(ev.experiment_state, Some(ExperimentState::Rejected));
+
+    let _ = std::fs::remove_dir_all(&root);
+}

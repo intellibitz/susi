@@ -57,11 +57,19 @@ pub struct CorpusFixture {
     pub evaluator_expected: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RsiCorpus {
     pub schema_version: String,
     pub revision: String,
     pub fixtures: Vec<CorpusFixture>,
+    /// Evaluator-declared promotion bounds: the predeclared scorecard
+    /// spec a candidate's measured run must clear before its experiment
+    /// may reach `PromotionReady`. It lives on the corpus — the
+    /// evaluator's artifact — so the bound is fixed before any run and
+    /// travels with the revision that judged it; a candidate can read
+    /// the goalposts but never move them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promotion_spec: Option<crate::scorecard::ScorecardSpec>,
 }
 
 /// Why a corpus — or a replay request against it — is untrustworthy.
@@ -197,6 +205,9 @@ impl RsiCorpus {
             schema_version: self.schema_version.clone(),
             revision: self.revision.clone(),
             fixtures,
+            // The declared bounds are public: a candidate may read the
+            // goalposts it is judged against; it just cannot edit them.
+            promotion_spec: self.promotion_spec.clone(),
         }
     }
 
