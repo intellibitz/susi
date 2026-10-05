@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-253",
+  "title": "Verify mastery: Publish model downloads transactionally",
+  "goal": "Extend managed installation with resumable content verification and staging; interrupted or checksum-mismatched downloads never appear as ready models and disk-full failures leave recoverable state.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_044_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-044",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791227856,
+  "authored": true
+}

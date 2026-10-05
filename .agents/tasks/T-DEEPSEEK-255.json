@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-255",
+  "title": "Verify mastery: Mission admission and resource arbitration",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_202_009_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-009",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791227875
+}
