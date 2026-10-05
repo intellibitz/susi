@@ -223,8 +223,7 @@ pub(crate) fn recover(
     if !eligible(report) {
         return;
     }
-    if susi_gawd_agents::safety::SafetyDetector::audit_action("SUSI_SOLVE", &report.goal, workspace)
-        .and_then(|_| SecurityDetector::audit_action("SUSI_SOLVE", &report.goal, workspace))
+    if crate::susi_core::plane_bus::gawd::audit_action("SUSI_SOLVE", &report.goal, workspace)
         .is_err()
     {
         return;
