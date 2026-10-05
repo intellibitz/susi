@@ -104,6 +104,9 @@ pub mod zc_speculative_auto;
 pub mod zc_timeouts_measured;
 
 #[cfg(test)]
+#[path = "tests/availability_not_capability.rs"]
+mod availability_not_capability_tests;
+#[cfg(test)]
 #[path = "tests/billing_mode_marginal_cost.rs"]
 mod billing_mode_marginal_cost_tests;
 #[cfg(test)]
