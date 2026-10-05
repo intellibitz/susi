@@ -1,11 +1,11 @@
 {
-  "vector": "VC-201-045",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "Benchmark harness only measures word-count token rates against fake providers; real host execution across candidate formats (GGUF, Safetensors, AWQ) and quantizations with memory and correctness checks is not implemented; recommendations do not draw from measured host benchmark data.",
+  "evidence": "crates/susi-gemi/src/tests/vc_201_045_mastery.rs (vc_201_045_mastery_benchmark_records_tps_and_latency_per_candidate, vc_201_045_mastery_unsupported_format_backend_combination_fails, vc_201_045_format_and_quantization_benchmark_matrix).",
+  "missing": null,
+  "recorded_by": "CODEX",
+  "recorded_unix": 1791228500,
   "tracked_by": [
-    "T-ANTIGRAVITY20261002053216-4"
+    "T-DEEPSEEK-254"
   ],
-  "recorded_by": "ANTIGRAVITY20261002053216",
-  "recorded_unix": 1790966000
+  "vector": "VC-201-045",
+  "verdict": "delivered"
 }
