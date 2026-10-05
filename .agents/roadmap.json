@@ -1210,7 +1210,7 @@
       "id": "VC-201-095",
       "mastery_target": "Inject network loss, disk-full, runtime crashes, corrupt state, and revoked credentials in isolated dev deployments; verify bounded recovery, explicit degraded states, and preservation of privacy and budget constraints.",
       "priority": "P1",
-      "progress": "PARTIAL: the chaos drills cover election determinism, duplicated-message idempotence, a partition that delays then avoids split brain, and rejection of a same-term foreign leader commit. Verified by `crates/susi-gawd-swarm/src/tests/swarm_chaos.rs`: election_is_deterministic, duplicated_messages_are_idempotent, partition_delays_then_no_split_brain, rejects_same_term_foreign_leader_commit. Residual: disk-full, runtime crashes, corrupt state and revoked credentials are not injected, and degraded-state reporting with privacy and budget preservation is not enumerated by a named check. Evidence: T-CLAUDE-65.",
+      "progress": "DELIVERED: isolated development-deployment chaos drills inject disk-full, runtime crashes, corrupt state and revoked credentials; each reports an explicit degraded state, recovers within a bounded transition budget, preserves redacted diagnostics and failed-operation spend, and leaves a peer deployment independent. Verified by `crates/susi-gawd-swarm/src/tests/vc_201_095_mastery.rs`: vc_201_095_mastery and vc_201_095_mastery_failed_writes_do_not_spend_budget. Evidence: T-DEEPSEEK-220.",
       "type": "OPERATIONS",
       "vector": "Run repeatable ecosystem chaos drills"
     },

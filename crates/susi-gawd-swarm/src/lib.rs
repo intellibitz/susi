@@ -34,6 +34,7 @@ pub mod brain_supervisor;
 pub mod cancel_propagate;
 pub mod capability_market;
 pub mod capacity_admission;
+pub mod chaos_deployment;
 pub mod cloud_e2e;
 pub mod cloud_failover;
 pub mod cloud_lockout;
@@ -229,6 +230,9 @@ mod vc_201_039_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_040.rs"]
 mod vc_201_040_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_095_mastery.rs"]
+mod vc_201_095_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_007_mastery.rs"]
 mod vc_202_007_mastery_tests;
