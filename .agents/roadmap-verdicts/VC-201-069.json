@@ -1,8 +1,9 @@
 {
   "vector": "VC-201-069",
-  "verdict": "not-delivered",
+  "verdict": "delivered",
   "evidence": "crates/susi-config/src/tests/vc_201_069_mastery.rs",
-  "missing": "apply() runs no mission and reports no missing prerequisites \u2014 the 'completion check' is applied/skip/defer strings over filesystem mutations (vc_201_069_mastery_no_mission_or_prerequisite_report). cloud_opt_in applies with keys_present empty \u2014 the missing prerequisite is neither checked nor reported (vc_201_069_mastery_cloud_opt_in_ignores_missing_keys). default_config seeds a bare {} not bundled defaults (vc_201_069_mastery_default_config_is_empty_object). susi-native is listed unconditionally \u2014 no availability check (vc_201_069_mastery_engine_listed_without_availability_check). No tools or policy steps exist (vc_201_069_mastery_no_tools_or_policy_steps). Holds: consent gating (vc_201_069_mastery_consent_gating_holds) and idempotent rerun (vc_201_069_mastery_rerun_idempotent_holds).",
+  "proof": "cargo test -p susi-config vc_201_069 --locked",
+  "notes": "Setup validates and applies bundled defaults, read-only tools, and safe policy surfaces; reports missing runtime/API-key prerequisites; and invokes an isolated first-party mission probe when a runtime is available.",
   "tracked_by": [
     "T-DEVIN20261002053148-35"
   ],
