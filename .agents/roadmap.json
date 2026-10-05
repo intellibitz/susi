@@ -1428,7 +1428,7 @@
       "id": "VC-202-013",
       "mastery_target": "Each mission yields a trace linking intent to plan to node to model to tokens to cost to outcome, queryable per agent and per task, and the audit trail is append-only and survives restarts.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "PARTIAL: MissionTrace (production-wired from ama/report.rs's per-mission terminal choke point) already linked intent/plan/agents/outcome durably; now also carries task_id, node (wired to real cluster-membership identity), and model_calls (per-call token/cost), with total_cost_micros/total_tokens and read_all_for_agent/read_all_for_task making it queryable per agent and per task. Verified by `crates/susi-core/src/tests/cost_ledger_trace.rs`. Residual: no dispatch path yet reports tokens/cost at call time, so model_calls is real but unpopulated in production; task_id has no accessor wired at the one existing call site. Verdict `.agents/roadmap-verdicts/VC-202-013.json`. Tracked by T-DEEPSEEK-96.",
       "type": "OPERATIONS",
       "vector": "Every decision is observable and costed"
     },
