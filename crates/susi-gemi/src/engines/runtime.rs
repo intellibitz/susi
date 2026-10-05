@@ -232,7 +232,7 @@ impl GemiEngine {
                     "[SUSI ROUTING] Escalating to cloud `{}` ({})\n",
                     esc.provider, esc.reason
                 ));
-                let (escalated, esc_ladder) = Self::try_discovered_providers(
+                let (escalated, mut esc_ladder) = Self::try_discovered_providers(
                     prompt,
                     Some(workspace),
                     Some(&esc.provider),
