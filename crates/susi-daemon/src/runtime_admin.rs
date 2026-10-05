@@ -47,6 +47,16 @@ impl SusiRuntimeAdmin {
                     let _ = Self::perform_substrate_audit(&home);
                     let _ = Self::perform_host_readiness(&home);
 
+                    // Bounded start-up slice of the graded user-intent
+                    // ladder (VC-201-001): a few low-grade intents run
+                    // hermetically — scratch SUSI_HOME, throwaway
+                    // workspace, no live estate, no egress — and the
+                    // scorecard lands under the susi home.
+                    let _ = susi_gawd::intent_ladder::startup_slice(
+                        &home,
+                        &susi_gawd::intent_ladder::repo_root(),
+                    );
+
                     let mut last_pulse = std::time::Instant::now();
                     let mut tuned_at_completed = 0usize;
                     loop {
@@ -652,6 +662,34 @@ impl Maintenance {
                 Err(e) => {
                     warn!("[runtime-admin] estate reconciliation pass failed: {e}");
                 }
+            }
+        }
+
+        // The full intent ladder on its own cadence (default daily,
+        // SUSI_INTENT_LADDER_INTERVAL_SECS): every rung — trivial to
+        // extreme — runs hermetically under its own budget, and the
+        // scorecard is the reproducible record of what susi can do
+        // from cold (VC-201-001, T-DEEPSEEK-200).
+        let ladder = crate::eco_probe_scheduler::Subject {
+            id: "intent_ladder".to_string(),
+            interval_secs: susi_gawd::intent_ladder::schedule_secs(),
+            budget: 8,
+            needs_consent: false, // scratch HOME + scrubbed env: no estate, no egress
+        };
+        if let crate::eco_probe_scheduler::Decision::Run { .. } =
+            self.probes.decide(&ladder, now, cond)
+        {
+            match susi_gawd::intent_ladder::full_run(
+                &self.home,
+                &susi_gawd::intent_ladder::repo_root(),
+            ) {
+                Ok(card) => {
+                    self.probes.record_run(&ladder, now, card.entries.len());
+                    self.changes_last = self.changes_last.saturating_add(
+                        card.entries.iter().filter(|e| e.verdict == "fail").count() as u32,
+                    );
+                }
+                Err(e) => warn!("[runtime-admin] intent ladder run failed: {e}"),
             }
         }
 
