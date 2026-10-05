@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-015",
-  "verdict": "not-delivered",
-  "evidence": "crates/susi-gawd/src/tests/vc_201_015_mastery.rs",
-  "missing": "Three refutations. (1) Nothing runs the checks: evaluate_transcript parses caller-supplied text, so a fabricated 'all pass' transcript promotes a candidate that never ran fmt/clippy/test (vc_201_015_mastery_fabricated_transcript_promotes). (2) Duplicate keys are last-write-wins \u2014 a real failure followed by a forged pass promotes (vc_201_015_mastery_later_line_overwrites_failure). (3) command_covers_full_gate is substring matching: it accepts an echo-only string and 'cargo test --lib' as covering the workspace gate (vc_201_015_mastery_substring_gate_accepts_non_gate). repo_gate has no production caller. Holds: missing/skipped/failed outcomes block, non-covering strings refused (vc_201_015_mastery_blocking_holds).",
-  "tracked_by": [
-    "T-DEVIN20261002053148-23"
-  ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790991424
+  "verdict": "delivered",
+  "evidence": "crates/susi-gawd/src/tests/vc_201_015_mastery.rs — transcripts can never promote (verified_execution=false; fabricated and conflicting transcripts fail closed), the full-gate command match is exact not substring, executed failures still block, and the gate executes on the production path: crates/susi-gawd/src/repo_gate.rs run_repository_gate launches fmt/clippy/test for real, called from crates/susi-gawd/src/patch_cycle.rs (susi patch / gmcp apply_patch_cycle) on the self-build repo where a caller-supplied test_command cannot bypass it (production_patch_path_executes_the_gate).",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791215116
 }
