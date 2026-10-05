@@ -10,6 +10,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd",
       "-E",
       "test(vc_201_003_mastery)"
     ]
