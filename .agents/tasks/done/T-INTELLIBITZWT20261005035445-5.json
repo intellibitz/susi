@@ -17,5 +17,10 @@
   "roadmap": "VC-201-018",
   "created_by": "INTELLIBITZWT20261005035445",
   "created_unix": 1791215947,
-  "authored": true
+  "authored": true,
+  "closed": {
+    "at_unix": 1791218017,
+    "commit": "50bbca5730cc3eae3643e24bb8e2bde712f728cf",
+    "by": "INTELLIBITZWT20261005035445"
+  }
 }
