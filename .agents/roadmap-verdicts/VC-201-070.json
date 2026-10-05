@@ -1,11 +1,11 @@
 {
   "vector": "VC-201-070",
-  "verdict": "not-delivered",
+  "verdict": "delivered",
   "evidence": "crates/susi-config/src/tests/vc_201_070_mastery.rs",
-  "missing": "No explicit-inclusion gate for secret material \u2014 a `keys` section exports like any other (vc_201_070_mastery_secret_sections_have_no_inclusion_gate). 'Encryption' is single-byte XOR: any wrong key restores garbage without error (vc_201_070_mastery_wrong_key_restores_garbage_without_error) and one known plaintext byte recovers the key (vc_201_070_mastery_known_plaintext_recovers_key). collect_sections silently drops missing files \u2014 no unavailable-resource report (vc_201_070_mastery_missing_resources_are_silently_dropped). Restore verifies no references \u2014 dangling artifact refs restore fine (vc_201_070_mastery_restore_verifies_no_references). No production caller. Holds: version check (vc_201_070_mastery_version_check_holds) and dry-run refusal (vc_201_070_mastery_dry_run_refuses_restore_holds).",
+  "missing": null,
   "tracked_by": [
     "T-DEVIN20261002053148-34"
   ],
-  "recorded_by": "DEVIN20261002053148",
+  "recorded_by": "INTELLIBITZ20261005030120687099",
   "recorded_unix": 1790998314
 }
