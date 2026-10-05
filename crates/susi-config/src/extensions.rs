@@ -12,6 +12,7 @@
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,6 +34,7 @@ pub struct PackStatus {
     pub seeded: bool,
     pub loaded: bool,
     pub active: bool,
+    pub quarantined: bool,
     pub root: PathBuf,
 }
 
@@ -63,6 +65,15 @@ pub struct ExtensionManifest {
     /// Logical file name → path relative to the pack root.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+    /// SHA-256 bindings for managed files. Values may be raw hexadecimal or
+    /// prefixed with `sha256:`.
+    #[serde(default)]
+    pub checksums: BTreeMap<String, String>,
+    /// Optional Ed25519 signatures over raw managed-file bytes.
+    #[serde(default)]
+    pub signatures: BTreeMap<String, String>,
+    #[serde(default)]
+    pub signer: Option<String>,
     /// Mandate 35: preserve unknown pack-manifest keys.
     #[serde(flatten, default)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -146,6 +157,44 @@ pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), String> {
             ));
         }
     }
+    for logical in manifest.checksums.keys().chain(manifest.signatures.keys()) {
+        if !manifest.files.contains_key(logical) {
+            return Err(format!(
+                "pack `{}` binds unknown file `{logical}`",
+                manifest.id
+            ));
+        }
+    }
+    for (logical, checksum) in &manifest.checksums {
+        if !is_sha256_digest(checksum) {
+            return Err(format!(
+                "pack `{}` has invalid SHA-256 checksum for `{logical}`",
+                manifest.id
+            ));
+        }
+    }
+    if !manifest.signatures.is_empty() {
+        let Some(signer) = manifest.signer.as_deref() else {
+            return Err(format!(
+                "pack `{}` declares signatures without a signer",
+                manifest.id
+            ));
+        };
+        if decode_fixed_hex::<32>(signer).is_none() {
+            return Err(format!(
+                "pack `{}` declares an invalid Ed25519 signer",
+                manifest.id
+            ));
+        }
+        for (logical, signature) in &manifest.signatures {
+            if decode_fixed_hex::<64>(signature).is_none() {
+                return Err(format!(
+                    "pack `{}` declares an invalid signature for `{logical}`",
+                    manifest.id
+                ));
+            }
+        }
+    }
     let can_read_outside = manifest.permissions.iter().any(|p| p == "filesystem.read");
     for (logical, rel) in &manifest.files {
         if Path::new(rel).is_absolute() {
@@ -174,6 +223,16 @@ struct ExtensionsState {
     /// Packs the user unloaded — not auto-loaded on discover until `load_pack`.
     #[serde(default)]
     unloaded: Vec<String>,
+    /// Digests pinned when a pack is first admitted or explicitly re-admitted.
+    #[serde(default)]
+    trusted_digests: BTreeMap<String, BTreeMap<String, String>>,
+    /// Signer keys are trust-on-first-use and require explicit re-admission to
+    /// rotate. The manifest alone cannot silently change identity.
+    #[serde(default)]
+    trusted_signers: BTreeMap<String, String>,
+    /// Pack id → logical file (or `manifest.json`) → quarantine reason.
+    #[serde(default)]
+    quarantined: BTreeMap<String, BTreeMap<String, String>>,
     /// Mandate 35: preserve unknown state keys on write-back.
     #[serde(flatten, default)]
     extra: HashMap<String, serde_json::Value>,
@@ -189,6 +248,9 @@ impl Default for ExtensionsState {
             active: DEFAULT_PACK_ID.to_string(),
             loaded: vec![DEFAULT_PACK_ID.to_string()],
             unloaded: Vec::new(),
+            trusted_digests: BTreeMap::new(),
+            trusted_signers: BTreeMap::new(),
+            quarantined: BTreeMap::new(),
             extra: HashMap::new(),
         }
     }
@@ -307,6 +369,13 @@ fn host_seed_manifest() -> ExtensionManifest {
     ] {
         files.insert(name.to_string(), name.to_string());
     }
+    let checksums = files
+        .keys()
+        .filter_map(|name| {
+            bundled_bytes_for(name)
+                .map(|contents| (name.clone(), sha256_digest(contents.as_bytes())))
+        })
+        .collect();
     ExtensionManifest {
         id: DEFAULT_PACK_ID.to_string(),
         name: "SUSI Default Extension Pack".into(),
@@ -322,6 +391,9 @@ fn host_seed_manifest() -> ExtensionManifest {
         optional: Vec::new(),
         permissions: vec!["filesystem.read".into()],
         files,
+        checksums,
+        signatures: BTreeMap::new(),
+        signer: None,
         extra: HashMap::new(),
     }
 }
@@ -343,19 +415,145 @@ fn bundled_bytes_for(name: &str) -> Option<&'static str> {
     }
 }
 
+fn sha256_digest(bytes: &[u8]) -> String {
+    format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
+}
+
+fn is_sha256_digest(value: &str) -> bool {
+    let hex_value = value.strip_prefix("sha256:").unwrap_or(value);
+    hex_value.len() == 64 && hex::decode(hex_value).is_ok()
+}
+
+fn decode_fixed_hex<const N: usize>(value: &str) -> Option<[u8; N]> {
+    let bytes = hex::decode(value).ok()?;
+    bytes.try_into().ok()
+}
+
+fn artifact_digests(
+    root: &Path,
+    manifest: &ExtensionManifest,
+) -> Result<BTreeMap<String, String>, String> {
+    let mut digests = BTreeMap::new();
+    let manifest_path = root.join("manifest.json");
+    let manifest_bytes = std::fs::read(&manifest_path)
+        .map_err(|e| format!("pack `{}` manifest is unavailable: {e}", manifest.id))?;
+    digests.insert("manifest.json".to_string(), sha256_digest(&manifest_bytes));
+    for (logical, rel) in &manifest.files {
+        let path = root.join(rel);
+        let bytes = std::fs::read(&path).map_err(|e| {
+            format!(
+                "pack `{}` artifact `{logical}` is unavailable at {}: {e}",
+                manifest.id,
+                path.display()
+            )
+        })?;
+        digests.insert(logical.clone(), sha256_digest(&bytes));
+    }
+    Ok(digests)
+}
+
+fn verify_signature(
+    manifest: &ExtensionManifest,
+    logical: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let Some(signature_hex) = manifest.signatures.get(logical) else {
+        return Ok(());
+    };
+    let signer = manifest
+        .signer
+        .as_deref()
+        .and_then(decode_fixed_hex::<32>)
+        .ok_or_else(|| format!("pack `{}` has no valid signer", manifest.id))?;
+    let signature = decode_fixed_hex::<64>(signature_hex).ok_or_else(|| {
+        format!(
+            "pack `{}` has invalid signature for `{logical}`",
+            manifest.id
+        )
+    })?;
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&signer)
+        .map_err(|e| format!("pack `{}` signer is invalid: {e}", manifest.id))?;
+    let signature = ed25519_dalek::Signature::from_bytes(&signature);
+    verifying_key
+        .verify_strict(bytes, &signature)
+        .map_err(|_| format!("pack `{}` signature mismatch for `{logical}`", manifest.id))
+}
+
+fn verify_pack_integrity(
+    root: &Path,
+    manifest: &ExtensionManifest,
+    state: &ExtensionsState,
+) -> Result<BTreeMap<String, String>, String> {
+    if let Some(files) = state.quarantined.get(&manifest.id) {
+        if !files.is_empty() {
+            return Err(format!(
+                "pack `{}` is quarantined; explicitly re-admit it after inspection",
+                manifest.id
+            ));
+        }
+    }
+    let digests = artifact_digests(root, manifest)?;
+    if let Some(trusted) = state.trusted_signers.get(&manifest.id) {
+        if manifest.signer.as_deref() != Some(trusted.as_str()) {
+            return Err(format!("pack `{}` signer changed", manifest.id));
+        }
+    }
+    for (logical, expected) in &manifest.checksums {
+        let actual = digests.get(logical).ok_or_else(|| {
+            format!(
+                "pack `{}` checksum target `{logical}` is missing",
+                manifest.id
+            )
+        })?;
+        if actual != &normalize_checksum(expected) {
+            return Err(format!(
+                "pack `{}` checksum mismatch for `{logical}`",
+                manifest.id
+            ));
+        }
+    }
+    if let Some(trusted) = state.trusted_digests.get(&manifest.id) {
+        for (logical, expected) in trusted {
+            let actual = digests.get(logical).ok_or_else(|| {
+                format!(
+                    "pack `{}` trusted artifact `{logical}` is missing",
+                    manifest.id
+                )
+            })?;
+            if actual != expected {
+                return Err(format!(
+                    "pack `{}` trusted digest mismatch for `{logical}`",
+                    manifest.id
+                ));
+            }
+        }
+    }
+    for (logical, rel) in &manifest.files {
+        let bytes = std::fs::read(root.join(rel)).map_err(|e| {
+            format!(
+                "pack `{}` artifact `{logical}` is unavailable: {e}",
+                manifest.id
+            )
+        })?;
+        verify_signature(manifest, logical, &bytes)?;
+    }
+    Ok(digests)
+}
+
+fn normalize_checksum(value: &str) -> String {
+    let hex_value = value.strip_prefix("sha256:").unwrap_or(value);
+    format!("sha256:{}", hex_value.to_ascii_lowercase())
+}
+
 /// Seed the default pack onto the host. Missing files are created from
-/// the bundled catalog. Existing files are refreshed only when they still
-/// match the previously seeded digest (operator has not customized them).
+/// the bundled catalog. Existing files are preserved as operator-owned bytes;
+/// integrity admission decides whether changed files may be served.
 pub fn seed_default_pack() -> Result<PathBuf, String> {
     use sha2::{Digest, Sha256};
     let root = extensions_root().join(DEFAULT_PACK_ID);
     private_dir(&root)?;
     let host_manifest = host_seed_manifest();
     let digests_path = root.join(".bundled-digests.json");
-    let prior: BTreeMap<String, String> = std::fs::read_to_string(&digests_path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
     let mut next = BTreeMap::new();
     let digest_of = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
 
@@ -375,15 +573,12 @@ pub fn seed_default_pack() -> Result<PathBuf, String> {
             return Ok(());
         };
         let current_digest = digest_of(current.as_bytes());
-        let refresh = prior
-            .get(name)
-            .is_some_and(|prev| prev == &current_digest && prev != &bundled_digest);
-        if refresh {
-            write_private_file(dest, bundled)?;
-            next.insert(name.to_string(), bundled_digest);
-        } else {
-            next.insert(name.to_string(), current_digest);
-        }
+        // Existing bytes are operator-owned once they differ from the
+        // bundled source. Never rewrite them based on a mutable digest ledger:
+        // doing so would turn a tamper into a trusted replacement on the next
+        // substrate start. Integrity admission below decides whether the pack
+        // may be served.
+        next.insert(name.to_string(), current_digest);
         Ok(())
     };
 
@@ -508,6 +703,10 @@ pub fn list_packs() -> Vec<PackStatus> {
             seeded: root.join("manifest.json").is_file(),
             loaded: state.loaded.iter().any(|x| x == id),
             active: state.active == id,
+            quarantined: state
+                .quarantined
+                .get(id)
+                .is_some_and(|files| !files.is_empty()),
             root,
         });
     };
@@ -570,6 +769,9 @@ pub fn create_pack(id: &str) -> Result<PackStatus, String> {
             optional: Vec::new(),
             permissions: Vec::new(),
             files: BTreeMap::new(),
+            checksums: BTreeMap::new(),
+            signatures: BTreeMap::new(),
+            signer: None,
             extra: HashMap::new(),
         };
         let text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
@@ -611,6 +813,23 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
         return Err(format!("pack `{id}` rejected: {e}"));
     }
     let mut state = read_state()?;
+    let digests = match verify_pack_integrity(&root, &manifest, &state) {
+        Ok(digests) => digests,
+        Err(reason) => {
+            state
+                .quarantined
+                .entry(id.to_string())
+                .or_default()
+                .insert("pack".to_string(), reason.clone());
+            write_state(&state)?;
+            return Err(format!("pack `{id}` quarantined: {reason}"));
+        }
+    };
+    state.trusted_digests.insert(id.to_string(), digests);
+    if let Some(signer) = manifest.signer.as_ref() {
+        state.trusted_signers.insert(id.to_string(), signer.clone());
+    }
+    state.quarantined.remove(id);
     state.unloaded.retain(|x| x != id);
     if !state.loaded.iter().any(|x| x == id) {
         state.loaded.push(id.to_string());
@@ -626,6 +845,37 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
         .into_iter()
         .find(|p| p.id == id)
         .expect("loaded pack must appear in list"))
+}
+
+/// Explicitly re-admit a quarantined pack after its files have been inspected.
+/// Re-admission pins the current bytes and is the only path that clears a
+/// quarantine or rotates a pinned signer.
+pub fn readmit_pack(id: &str) -> Result<PackStatus, String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err("pack id must not be empty".into());
+    }
+    ensure_extensions_substrate()?;
+    let root = extensions_root().join(id);
+    let manifest = manifest_for(id);
+    validate_manifest(&manifest).map_err(|e| format!("pack `{id}` rejected: {e}"))?;
+    let digests = artifact_digests(&root, &manifest)?;
+    for (logical, rel) in &manifest.files {
+        let bytes = std::fs::read(root.join(rel))
+            .map_err(|e| format!("pack `{id}` artifact `{logical}` is unavailable: {e}"))?;
+        verify_signature(&manifest, logical, &bytes)?;
+    }
+    let mut state = read_state()?;
+    state.trusted_digests.insert(id.to_string(), digests);
+    if let Some(signer) = manifest.signer {
+        state.trusted_signers.insert(id.to_string(), signer);
+    } else {
+        state.trusted_signers.remove(id);
+    }
+    state.quarantined.remove(id);
+    write_state(&state)?;
+    invalidate_extension_caches();
+    load_pack(id)
 }
 
 /// Unload a pack (deactivate; files kept). Cannot unload the last remaining pack —
@@ -663,6 +913,7 @@ pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
         seeded: extensions_root().join(id).join("manifest.json").is_file(),
         loaded: false,
         active: false,
+        quarantined: false,
         root: extensions_root().join(id),
     })
 }
@@ -693,6 +944,20 @@ pub fn active_pack() -> ExtensionPack {
 pub fn pack_file(name: &str) -> Option<PathBuf> {
     let _ = ensure_extensions_substrate();
     let pack = active_pack();
+    let mut state = read_state().ok()?;
+    let manifest = manifest_for(&pack.id);
+    if validate_manifest(&manifest).is_err() {
+        return None;
+    }
+    if let Err(reason) = verify_pack_integrity(&pack.root, &manifest, &state) {
+        state
+            .quarantined
+            .entry(pack.id.clone())
+            .or_default()
+            .insert("pack".to_string(), reason);
+        let _ = write_state(&state);
+        return None;
+    }
     resolve_pack_path(&pack, name)
 }
 
@@ -782,6 +1047,9 @@ pub fn manifest_for(pack_id: &str) -> ExtensionManifest {
         optional: Vec::new(),
         permissions: Vec::new(),
         files: Default::default(),
+        checksums: BTreeMap::new(),
+        signatures: BTreeMap::new(),
+        signer: None,
         extra: HashMap::new(),
     }
 }
