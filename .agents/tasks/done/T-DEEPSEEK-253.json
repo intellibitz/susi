@@ -13,16 +13,15 @@
       "-p",
       "susi-vendor-models",
       "-E",
-      "test(vc_201_044_mastery)"
+      "test(/vc_201_044_mastery/)"
     ]
   },
   "roadmap": "VC-201-044",
   "created_by": "DEEPSEEK",
   "created_unix": 1791227856,
-  "authored": true,
   "closed": {
-    "at_unix": 1791230415,
-    "commit": "d17b94f74cb1d9ff52e233d1c20b6b10a2e80019",
-    "by": "DEEPSEEK"
+    "at_unix": 1791230999,
+    "commit": "861a44206021511406d8bfd59d79d5d28d919d66",
+    "by": "CODEX"
   }
 }
