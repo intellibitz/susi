@@ -170,6 +170,11 @@ pub struct TraceConfig {
     /// Day files older than this are swept on the next trace write.
     #[serde(default = "default_retain_days")]
     pub retain_days: u32,
+    /// Hard cap on the whole trace tier across every subsystem's day
+    /// files — the disk the agents share cannot fill past this even when
+    /// each day file individually stays under its budget.
+    #[serde(default = "default_trace_total_bytes")]
+    pub max_total_bytes: u64,
 }
 
 fn default_day_budget() -> u64 {
@@ -178,6 +183,9 @@ fn default_day_budget() -> u64 {
 fn default_retain_days() -> u32 {
     3
 }
+fn default_trace_total_bytes() -> u64 {
+    64 * 1024 * 1024
+}
 
 impl Default for TraceConfig {
     fn default() -> Self {
@@ -185,6 +193,7 @@ impl Default for TraceConfig {
             subsystems: std::collections::BTreeMap::new(),
             max_bytes_per_day: default_day_budget(),
             retain_days: default_retain_days(),
+            max_total_bytes: default_trace_total_bytes(),
         }
     }
 }
@@ -268,6 +277,39 @@ fn sweep_expired(workspace: &Path, now: u64, retain_days: u32) {
     }
 }
 
+/// Total-byte cap across the trace tier: after a write lands, prune the
+/// oldest day files (any subsystem) until the directory is under the
+/// configured ceiling. Oldest by the day number in the filename.
+fn enforce_trace_total_cap(workspace: &Path, max_total_bytes: u64) {
+    let dir = workspace.join(".susi").join("trace");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let mut files: Vec<(u64, PathBuf, u64)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let day = name
+                .rsplit('-')
+                .next()
+                .and_then(|s| s.strip_suffix(".log"))
+                .and_then(|s| s.parse::<u64>().ok())?;
+            let len = entry.metadata().ok()?.len();
+            Some((day, entry.path(), len))
+        })
+        .collect();
+    files.sort_by_key(|(day, _, _)| *day);
+    let mut total: u64 = files.iter().map(|(_, _, len)| *len).sum();
+    for (_, path, len) in files {
+        if total <= max_total_bytes {
+            break;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(len);
+        }
+    }
+}
+
 /// Append one record to a subsystem's trace — when the subsystem opted in,
 /// its level allows the record, and the day file is still under the
 /// measured bytes-per-day budget. Returns whether anything was written.
@@ -299,15 +341,361 @@ pub fn trace_at(
     if current + line.len() as u64 > config.max_bytes_per_day {
         return false;
     }
+    let started = std::time::Instant::now();
+    let written = if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        use std::io::Write;
+        file.write_all(line.as_bytes()).is_ok()
+    } else {
+        false
+    };
+    if written {
+        enforce_trace_total_cap(workspace, config.max_total_bytes);
+        record_observation(
+            workspace,
+            "trace",
+            subsystem,
+            line.len() as u64,
+            started.elapsed(),
+        );
+    }
+    written
+}
+
+// ── Retention (T-DEEPSEEK-111) ──────────────────────────────────────────
+
+/// The audit tier's retention policy — `.susi/audit-policy.json` in the
+/// workspace. Absent file ⇒ the defaults: a segment rotates past
+/// `segment_bytes`, archives live `retain_days`, and the whole tier
+/// (active + archives + chain tips) stays under `max_total_bytes`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditPolicy {
+    /// Rotate `audit.log` into a dated archive once it exceeds this many
+    /// bytes — an unbounded single file is the defect this exists to fix.
+    #[serde(default = "default_segment_bytes")]
+    pub segment_bytes: u64,
+    /// Archives older than this many days are pruned on the next write.
+    #[serde(default = "default_audit_retain_days")]
+    pub retain_days: u32,
+    /// Hard cap on total bytes across every audit file in `.susi/`.
+    #[serde(default = "default_audit_total_bytes")]
+    pub max_total_bytes: u64,
+}
+
+fn default_segment_bytes() -> u64 {
+    8 * 1024 * 1024
+}
+fn default_audit_retain_days() -> u32 {
+    30
+}
+fn default_audit_total_bytes() -> u64 {
+    64 * 1024 * 1024
+}
+
+impl Default for AuditPolicy {
+    fn default() -> Self {
+        Self {
+            segment_bytes: default_segment_bytes(),
+            retain_days: default_audit_retain_days(),
+            max_total_bytes: default_audit_total_bytes(),
+        }
+    }
+}
+
+fn audit_policy(workspace: &Path) -> AuditPolicy {
+    std::fs::read_to_string(workspace.join(".susi").join("audit-policy.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// What a rotation attested: the archive's name and the chain tip it was
+/// closed with — recorded by the next segment's first entry so a deleted
+/// or rewritten archive is detectable from the live chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RotateAttestation {
+    pub archive_file: String,
+    pub archive_tip_hash: String,
+    pub archive_bytes: u64,
+}
+
+impl RotateAttestation {
+    /// The signed first entry of the new segment: metadata only — the
+    /// attestation names the file and its tip, never its contents.
+    #[must_use]
+    pub fn details(&self) -> AuditDetails {
+        AuditDetails::fields(vec![
+            ("archive".into(), self.archive_file.clone()),
+            ("tip_sha256".into(), self.archive_tip_hash.clone()),
+            ("archive_bytes".into(), self.archive_bytes.to_string()),
+        ])
+    }
+}
+
+/// One audit file with its role, sorted age order for pruning.
+#[derive(Debug)]
+struct AuditFile {
+    path: PathBuf,
+    /// Rotation second from the archive name (`audit-<ts>.log`); the
+    /// active `audit.log` sorts newest so it is never a prune candidate.
+    stamp: u64,
+    len: u64,
+    active: bool,
+}
+
+fn list_audit_files(workspace: &Path) -> Vec<AuditFile> {
+    let dir = workspace.join(".susi");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let len = entry.metadata().ok()?.len();
+            if name == "audit.log" {
+                return Some(AuditFile {
+                    path: entry.path(),
+                    stamp: u64::MAX,
+                    len,
+                    active: true,
+                });
+            }
+            let stamp = name
+                .strip_prefix("audit-")?
+                .strip_suffix(".log")?
+                .parse::<u64>()
+                .ok()?;
+            Some(AuditFile {
+                path: entry.path(),
+                stamp,
+                len,
+                active: false,
+            })
+        })
+        .collect()
+}
+
+/// Prune audit archives: past `retain_days` (by the timestamp each
+/// archive's name carries), then oldest-first while the tier exceeds
+/// `max_total_bytes`. The active `audit.log` is never pruned — a fresh
+/// rotation already bounded it. Each archive's `.chain.tip` checkpoint
+/// goes with its file.
+fn prune_audit_archives(workspace: &Path, policy: &AuditPolicy, now: u64) {
+    let cutoff = now.saturating_sub(u64::from(policy.retain_days) * 86_400);
+    let mut files = list_audit_files(workspace);
+    for file in files.iter().filter(|f| !f.active && f.stamp < cutoff) {
+        let _ = std::fs::remove_file(&file.path);
+        let _ = std::fs::remove_file(file.path.with_extension("chain.tip"));
+    }
+    files.retain(|f| f.path.exists());
+    files.sort_by_key(|f| f.stamp);
+    let mut total: u64 = files
+        .iter()
+        .map(|f| {
+            f.len
+                + std::fs::metadata(f.path.with_extension("chain.tip"))
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+        })
+        .sum();
+    for file in files.iter().filter(|f| !f.active) {
+        if total <= policy.max_total_bytes {
+            break;
+        }
+        let tip_len = std::fs::metadata(file.path.with_extension("chain.tip"))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        if std::fs::remove_file(&file.path).is_ok() {
+            let _ = std::fs::remove_file(file.path.with_extension("chain.tip"));
+            total = total.saturating_sub(file.len + tip_len);
+        }
+    }
+}
+
+/// The retention chokepoint, called from the single audit append path
+/// before the signed write lands. Rotates a full `audit.log` into a
+/// dated archive — moving its `.chain.tip` checkpoint with it so the
+/// archive still self-verifies — and prunes expired/over-cap archives.
+/// Returns the attestation the caller must record as the new segment's
+/// first entry (linking the live chain to the archived tip).
+#[must_use]
+pub fn apply_audit_retention(workspace: &Path) -> Option<RotateAttestation> {
+    let policy = audit_policy(workspace);
+    let now = unix_now();
+    let active = workspace.join(".susi").join("audit.log");
+    let mut rotated = None;
+    if let Ok(meta) = std::fs::metadata(&active) {
+        if meta.len() > policy.segment_bytes {
+            let stamp = archive_stamp(&active, now);
+            let archive = active.with_file_name(format!("audit-{stamp}.log"));
+            // The checkpoint belongs to the bytes being rotated — move it
+            // beside the archive so each file's chain verifies standalone.
+            let tip_hash = std::fs::read_to_string(active.with_extension("chain.tip"))
+                .ok()
+                .and_then(|t| {
+                    serde_json::from_str::<serde_json::Value>(&t)
+                        .ok()
+                        .and_then(|v| {
+                            v.get("entry_hash")
+                                .and_then(|h| h.as_str())
+                                .map(str::to_string)
+                        })
+                })
+                .unwrap_or_else(|| "unknown".into());
+            if std::fs::rename(&active, &archive).is_ok() {
+                let _ = std::fs::rename(
+                    active.with_extension("chain.tip"),
+                    archive.with_extension("chain.tip"),
+                );
+                rotated = Some(RotateAttestation {
+                    archive_file: archive
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                    archive_tip_hash: tip_hash,
+                    archive_bytes: meta.len(),
+                });
+            }
+        }
+    }
+    prune_audit_archives(workspace, &policy, now);
+    rotated
+}
+
+fn archive_stamp(active: &Path, now: u64) -> u64 {
+    // Collision-safe: two rotations inside one second keep both files.
+    let dir = active.parent().unwrap_or_else(|| Path::new("."));
+    let mut stamp = now;
+    while dir.join(format!("audit-{stamp}.log")).exists() {
+        stamp += 1;
+    }
+    stamp
+}
+
+// ── Measured cost of observation ────────────────────────────────────────
+
+/// One attributed observation-cost record — the same axes a spend record
+/// carries (agent, workspace, time) plus what observation actually costs:
+/// bytes persisted and the wall-clock overhead of persisting them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObservationRecord {
+    pub ts: u64,
+    /// `"audit"` or `"trace"`.
+    pub tier: String,
+    /// The event type or trace subsystem that caused the write.
+    pub subsystem: String,
+    pub bytes: u64,
+    /// Wall-clock nanoseconds the write itself took — the honest,
+    /// measurable form of "CPU overhead" on this path.
+    pub elapsed_ns: u64,
+    /// `SUSI_AGENT` — spend attribution is per agent like any other cost.
+    pub agent: String,
+    /// Workspace basename — the mission-ish axis the audit tier already
+    /// keys on.
+    pub workspace: String,
+}
+
+/// Where the observation ledger persists: sibling of `usage.json` in the
+/// substrate config dir, appended line-per-record (no read-modify-write,
+/// so concurrent writers never lose each other's records).
+/// `SUSI_OBSERVATION_FILE` overrides; `None` under `cfg(test)` without the
+/// override (hermetic tests never touch `~/.susi*`).
+#[must_use]
+pub fn observation_journal_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("SUSI_OBSERVATION_FILE").filter(|p| !p.is_empty()) {
+        Some(PathBuf::from(p))
+    } else if cfg!(test) {
+        None
+    } else {
+        Some(susi_paths::SusiDirs::config_dir().join("observation-cost.jsonl"))
+    }
+}
+
+/// Attribute the measured cost of one observation write into the ledger —
+/// the same journaling a dispatched call gets, so observing is spend like
+/// any other spend.
+pub fn record_observation(
+    workspace: &Path,
+    tier: &str,
+    subsystem: &str,
+    bytes: u64,
+    elapsed: std::time::Duration,
+) {
+    let Some(path) = observation_journal_path() else {
+        return;
+    };
+    let record = ObservationRecord {
+        ts: unix_now(),
+        tier: tier.to_string(),
+        subsystem: subsystem.to_string(),
+        bytes,
+        elapsed_ns: u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX),
+        agent: std::env::var("SUSI_AGENT").unwrap_or_else(|_| "standalone".to_string()),
+        workspace: workspace
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| workspace.display().to_string()),
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
     {
         use std::io::Write;
-        return file.write_all(line.as_bytes()).is_ok();
+        let _ = writeln!(
+            file,
+            "{}",
+            serde_json::to_string(&record).unwrap_or_default()
+        );
     }
-    false
+}
+
+/// The published cost of observation: aggregated bytes and overhead per
+/// tier and per agent — the numbers a report states.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct ObservationReport {
+    pub records: u64,
+    pub total_bytes: u64,
+    pub total_elapsed_ns: u64,
+    /// tier → (records, bytes, elapsed_ns)
+    pub by_tier: std::collections::BTreeMap<String, (u64, u64, u64)>,
+    /// agent → (records, bytes, elapsed_ns)
+    pub by_agent: std::collections::BTreeMap<String, (u64, u64, u64)>,
+}
+
+/// Aggregate the observation ledger at `path` — absent or unreadable
+/// lines yield the honest empty report (cost is what was measured, never
+/// invented).
+#[must_use]
+pub fn observation_report(path: &Path) -> ObservationReport {
+    let mut report = ObservationReport::default();
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return report;
+    };
+    for line in text.lines() {
+        let Ok(record) = serde_json::from_str::<ObservationRecord>(line) else {
+            continue;
+        };
+        report.records += 1;
+        report.total_bytes += record.bytes;
+        report.total_elapsed_ns += record.elapsed_ns;
+        let tier = report.by_tier.entry(record.tier).or_default();
+        tier.0 += 1;
+        tier.1 += record.bytes;
+        tier.2 += record.elapsed_ns;
+        let agent = report.by_agent.entry(record.agent).or_default();
+        agent.0 += 1;
+        agent.1 += record.bytes;
+        agent.2 += record.elapsed_ns;
+    }
+    report
 }
 
 #[cfg(test)]
@@ -550,5 +938,254 @@ mod audit_payload_free_policy_tests {
         let tampered = text.replacen("alpha", "gamma", 1);
         std::fs::write(&log, tampered).expect("tamper");
         assert!(crate::audit_chain::verify_chain(&log).is_err());
+    }
+}
+
+#[cfg(test)]
+mod audit_retention_prune_tests {
+    use super::*;
+    use crate::manager::{LogLevel, SusiAuditLogger};
+
+    fn scratch(tag: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "susi_audit_retention_{tag}_{}_{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    fn susi_dir(ws: &Path) -> PathBuf {
+        ws.join(".susi")
+    }
+
+    fn policy(ws: &Path, json: &str) {
+        std::fs::create_dir_all(susi_dir(ws)).expect("susi dir");
+        std::fs::write(susi_dir(ws).join("audit-policy.json"), json).expect("policy");
+    }
+
+    fn archive_names(ws: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(susi_dir(ws))
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .filter(|n| n.starts_with("audit-") && n.ends_with(".log"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    /// Rotation: a segment over the configured cap rotates into a dated
+    /// archive that still self-verifies, the fresh active segment opens
+    /// with a signed AUDIT_ROTATE attestation of the archived tip, and
+    /// the archive keeps its checkpoint beside it.
+    #[test]
+    fn audit_retention_prune_full_segment_rotates_and_attests() {
+        let ws = scratch("rotate");
+        policy(
+            &ws,
+            r#"{"segment_bytes":200,"retain_days":30,"max_total_bytes":1048576}"#,
+        );
+        SusiAuditLogger::log_event(
+            &ws,
+            "FIRST",
+            "enough detail to exceed the segment cap eventually",
+        );
+        // The first write already overshot 200 bytes — the next append
+        // triggers rotation before it lands.
+        SusiAuditLogger::log_event(&ws, "SECOND", "another detail line");
+
+        let archives = archive_names(&ws);
+        assert_eq!(archives.len(), 1, "one segment rotated out: {archives:?}");
+
+        // The archive is a self-contained chain — it began at GENESIS
+        // when it was the active segment, so it verifies standalone.
+        let archive = susi_dir(&ws).join(&archives[0]);
+        assert!(
+            crate::audit_chain::verify_chain(&archive).is_ok(),
+            "a rotated segment still verifies: {}",
+            archive.display()
+        );
+        assert!(
+            archive.with_extension("chain.tip").exists(),
+            "the checkpoint moved with its bytes"
+        );
+
+        // The fresh active segment opens with the attestation — a
+        // signed record linking the live chain to the archived tip.
+        let active = std::fs::read_to_string(susi_dir(&ws).join("audit.log")).unwrap_or_default();
+        assert!(
+            active.contains("AUDIT_ROTATE"),
+            "attestation recorded: {active}"
+        );
+        assert!(
+            active.contains(&archives[0]),
+            "the archive is named: {active}"
+        );
+        assert!(
+            active.contains("tip_sha256"),
+            "the tip is attested: {active}"
+        );
+        assert!(
+            crate::audit_chain::verify_chain(&susi_dir(&ws).join("audit.log")).is_ok(),
+            "the new segment is its own signed chain"
+        );
+    }
+
+    /// Retention days: archives whose stamp is older than the window are
+    /// pruned on the next write, checkpoint files included.
+    #[test]
+    fn audit_retention_prune_expired_archives_are_removed() {
+        let ws = scratch("expire");
+        policy(
+            &ws,
+            r#"{"segment_bytes":1048576,"retain_days":3,"max_total_bytes":1048576}"#,
+        );
+        let now = unix_now();
+        for days_ago in [10u64, 6, 1] {
+            let stamp = now - days_ago * 86_400;
+            let name = format!("audit-{stamp}.log");
+            std::fs::create_dir_all(susi_dir(&ws)).expect("susi dir");
+            std::fs::write(susi_dir(&ws).join(&name), "stale\n").expect("archive");
+            std::fs::write(susi_dir(&ws).join(format!("audit-{stamp}.chain.tip")), "{}")
+                .expect("tip");
+        }
+        SusiAuditLogger::log_event(&ws, "TRIGGER", "drives the sweep");
+        let left = archive_names(&ws);
+        let ten_days = format!("audit-{}.log", now - 10 * 86_400);
+        let six_days = format!("audit-{}.log", now - 6 * 86_400);
+        let one_day = format!("audit-{}.log", now - 86_400);
+        assert!(!left.contains(&ten_days), "10-day archive pruned");
+        assert!(!left.contains(&six_days), "6-day archive pruned");
+        assert!(left.contains(&one_day), "1-day archive kept: {left:?}");
+        assert!(
+            !susi_dir(&ws)
+                .join(format!("audit-{}.chain.tip", now - 10 * 86_400))
+                .exists(),
+            "expired checkpoint pruned with its file"
+        );
+    }
+
+    /// Total-byte cap: while the tier exceeds the ceiling, the oldest
+    /// archive goes first — and the active segment is never a candidate.
+    #[test]
+    fn audit_retention_prune_total_cap_drops_oldest_keeps_active() {
+        let ws = scratch("cap");
+        policy(
+            &ws,
+            r#"{"segment_bytes":1048576,"retain_days":365,"max_total_bytes":700}"#,
+        );
+        let now = unix_now();
+        for (i, bytes) in [(1u64, 300usize), (2, 300), (3, 300)] {
+            let stamp = now - (10 - i) * 3_600;
+            std::fs::create_dir_all(susi_dir(&ws)).expect("susi dir");
+            std::fs::write(
+                susi_dir(&ws).join(format!("audit-{stamp}.log")),
+                "x".repeat(bytes),
+            )
+            .expect("archive");
+        }
+        SusiAuditLogger::log_event(&ws, "TRIGGER", "drives the cap sweep");
+        let left = archive_names(&ws);
+        // 900 bytes of archives > 700 cap → oldest pruned until under.
+        assert_eq!(left.len(), 2, "oldest pruned until under cap: {left:?}");
+        let oldest = format!("audit-{}.log", now - 9 * 3_600);
+        assert!(!left.contains(&oldest), "the oldest went first");
+        assert!(
+            susi_dir(&ws).join("audit.log").exists(),
+            "the active segment is never pruned"
+        );
+    }
+
+    /// Trace tier: the total-byte cap prunes the oldest day file across
+    /// subsystems — the shared disk cannot fill past the ceiling.
+    #[test]
+    fn audit_retention_prune_trace_total_cap_prunes_oldest_day() {
+        let ws = scratch("tracecap");
+        std::fs::create_dir_all(susi_dir(&ws)).expect("susi dir");
+        std::fs::write(
+            config_path(&ws),
+            r#"{"subsystems":{"a":"debug","b":"debug"},"max_bytes_per_day":65536,"retain_days":365,"max_total_bytes":120}"#,
+        )
+        .expect("trace config");
+        let today = unix_now() / 86_400 * 86_400;
+        // Two big day files: "a" older than "b".
+        let a_day = day_file(&ws, "a", today - 2 * 86_400);
+        let b_day = day_file(&ws, "b", today - 86_400);
+        std::fs::create_dir_all(a_day.parent().unwrap()).expect("trace dir");
+        std::fs::write(&a_day, "x".repeat(80)).expect("a day file");
+        std::fs::write(&b_day, "y".repeat(80)).expect("b day file");
+        // A fresh write lands, then the cap sweeps oldest-first.
+        assert!(trace_at(
+            &ws,
+            "a",
+            TraceLevel::Info,
+            &AuditDetails::label("trigger"),
+            today
+        ));
+        assert!(!a_day.exists(), "oldest day file pruned by the total cap");
+        assert!(b_day.exists(), "newer day file survives");
+    }
+
+    /// Measured cost of observation: each audit write lands an attributed
+    /// record — tier, subsystem, bytes, overhead, agent — and the report
+    /// aggregates it like any other spend.
+    #[test]
+    fn audit_retention_prune_observation_cost_measured_and_attributed() {
+        let _guard = crate::env_test_lock();
+        let ws = scratch("observe");
+        let journal = ws.join("observation-cost.jsonl");
+        std::env::set_var("SUSI_OBSERVATION_FILE", &journal);
+        std::env::set_var("SUSI_AGENT", "DEEPSEEK");
+
+        SusiAuditLogger::log_details(
+            &ws,
+            LogLevel::Info,
+            "OBSERVED_EVENT",
+            &AuditDetails::label("something happened"),
+        );
+
+        std::env::remove_var("SUSI_OBSERVATION_FILE");
+        std::env::remove_var("SUSI_AGENT");
+
+        let report = observation_report(&journal);
+        assert!(report.records >= 1, "the write was recorded");
+        assert!(report.total_bytes > 0, "bytes persisted were measured");
+        let audit = report.by_tier.get("audit").expect("audit tier recorded");
+        assert!(audit.1 > 0, "audit bytes attributed");
+        let agent = report
+            .by_agent
+            .get("DEEPSEEK")
+            .expect("agent attribution like any spend");
+        assert_eq!(agent.1, audit.1, "the agent's cost is the tier's cost");
+        let line = std::fs::read_to_string(&journal).expect("journal");
+        assert!(
+            line.contains("OBSERVED_EVENT"),
+            "the record names what caused the write: {line}"
+        );
+    }
+
+    /// The status surface publishes the measured cost — the spend section
+    /// reads the observation ledger and renders it, pinned by source scan.
+    #[test]
+    fn audit_retention_prune_status_publishes_observation_cost() {
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/cli/status_cli.rs"),
+        )
+        .expect("status_cli source");
+        assert!(
+            src.contains("observation-cost.jsonl") && src.contains("elapsed_ns"),
+            "susi status reads the observation ledger"
+        );
+        assert!(
+            src.contains("observation:") && src.contains("observation_by_agent"),
+            "the report renders bytes + overhead attributed per agent"
+        );
     }
 }

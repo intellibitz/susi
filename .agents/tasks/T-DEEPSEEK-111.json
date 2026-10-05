@@ -4,6 +4,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-sandbox-client",
       "--locked",
       "-E",
       "test(audit_retention_prune)"

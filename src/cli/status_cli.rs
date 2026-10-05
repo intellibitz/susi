@@ -72,6 +72,13 @@ pub(crate) struct SpendSection {
     pub completion_tokens: u64,
     /// per-provider (calls, successes) sorted by call volume.
     pub by_provider: Vec<(String, u64, u64)>,
+    /// The measured cost of observation itself (VC-202-018): bytes the
+    /// audit/trace tiers persisted plus the write overhead, attributed
+    /// per agent like any other spend.
+    pub observation_bytes: u64,
+    pub observation_ms: u64,
+    /// agent → bytes of observation that agent's actions wrote.
+    pub observation_by_agent: Vec<(String, u64)>,
 }
 
 /// One pending approval request seen on the shared broker.
@@ -282,6 +289,33 @@ fn read_spend(global_dir: &Path) -> SpendSection {
     }
     s.by_provider
         .sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    // The cost of observing all of the above, attributed like any other
+    // spend — the observation ledger sits beside `usage.json`, appended
+    // one JSON record per write by the audit/trace tiers (same read-the-
+    // records convention as `ledger_providers` above).
+    let journal = global_dir.join("observation-cost.jsonl");
+    if let Ok(text) = std::fs::read_to_string(&journal) {
+        let mut by_agent: std::collections::BTreeMap<String, u64> =
+            std::collections::BTreeMap::new();
+        for line in text.lines() {
+            let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let bytes = record.get("bytes").and_then(|b| b.as_u64()).unwrap_or(0);
+            s.observation_bytes += bytes;
+            s.observation_ms += record
+                .get("elapsed_ns")
+                .and_then(|n| n.as_u64())
+                .unwrap_or(0)
+                / 1_000_000;
+            if let Some(agent) = record.get("agent").and_then(|a| a.as_str()) {
+                *by_agent.entry(agent.to_string()).or_default() += bytes;
+            }
+        }
+        s.observation_by_agent = by_agent.into_iter().collect();
+        s.observation_by_agent
+            .sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    }
     s
 }
 
@@ -400,6 +434,15 @@ pub(crate) fn render(s: &UnifiedStatus) -> String {
         ));
         for (p, calls, ok) in &sp.by_provider {
             out.push_str(&format!("  {p}: {calls} calls, {ok} ok\n"));
+        }
+    }
+    if sp.observation_bytes > 0 {
+        out.push_str(&format!(
+            "observation: {} bytes written, {} ms overhead\n",
+            sp.observation_bytes, sp.observation_ms
+        ));
+        for (agent, bytes) in &sp.observation_by_agent {
+            out.push_str(&format!("  {agent}: {bytes} bytes\n"));
         }
     }
 
