@@ -243,6 +243,9 @@ mod vc_201_095_mastery_tests;
 #[path = "tests/vc_202_007_mastery.rs"]
 mod vc_202_007_mastery_tests;
 #[cfg(test)]
+#[path = "tests/vc_202_009_mastery.rs"]
+mod vc_202_009_mastery_tests;
+#[cfg(test)]
 #[path = "tests/vc_202_014_mastery.rs"]
 mod vc_202_014_mastery_tests;
 #[cfg(test)]
