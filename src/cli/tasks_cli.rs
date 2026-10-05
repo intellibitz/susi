@@ -36,6 +36,25 @@ pub enum TaskCommands {
         #[arg(long)]
         agent: Option<String>,
     },
+    /// Author backlog artifacts from a spec file: vectors into
+    /// .agents/roadmap.json and tasks into .agents/tasks/, both through the
+    /// same gates a human's edits meet. The spec is
+    /// {"rationale","vectors":[{"id","priority","vector","mastery_target","type","depends_on"}],
+    ///  "tasks":[{"title","goal","size","deps","accept","roadmap"}]}. The path is
+    /// rate-bound: an agent may hold AUTHORED_OPEN_MAX open authored tasks.
+    /// With --unqueued and no file, susi's own coverage audit drafts a
+    /// "Verify mastery" task for every unqueued vector through the same path.
+    Author {
+        /// Spec JSON file (omit with --unqueued)
+        file: Option<PathBuf>,
+        /// Author verification tasks for every unqueued roadmap vector
+        #[arg(long)]
+        unqueued: bool,
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// List open machine-authored tasks — the review surface for the author path
+    Authored,
     /// Roadmap coverage and mastery: which vectors have tasks, and which of
     /// them claim delivery in their own narrative
     Roadmap {
@@ -297,6 +316,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                         "deps": t.deps,
                         "accept": t.accept.cmd.join(" "),
                         "roadmap": t.roadmap,
+                        "authored": t.authored,
                         "claimed_by": claim.filter(|c| !c.expired(now)).map(|c| c.agent.clone()),
                         "lease_until_unix": claim.map(|c| c.lease_until_unix),
                         "scopes": claim.map(|c| &c.scopes),
@@ -386,6 +406,43 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                 "added {} — commit .agents/tasks/{}.json to share it",
                 task.id, task.id
             );
+        }
+        TaskCommands::Author {
+            file,
+            unqueued,
+            agent,
+        } => {
+            let agent_name = who(agent, &root);
+            let report = match (file, unqueued) {
+                (Some(file), false) => {
+                    let body = std::fs::read_to_string(&file)
+                        .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+                    let spec: tasks::AuthoredSpec = serde_json::from_str(&body)?;
+                    tasks::author(&root, &agent_name, &spec)?
+                }
+                (None, true) => tasks::author_unqueued(&root, &agent_name)?,
+                _ => bail!("pass a spec file or --unqueued, not both"),
+            };
+            print_json(&serde_json::json!({
+                "vectors": report.vectors,
+                "tasks": report.tasks,
+            }))?;
+        }
+        TaskCommands::Authored => {
+            let rows: Vec<_> = tasks::list_open(&root)
+                .into_iter()
+                .filter(|t| t.authored)
+                .map(|t| {
+                    serde_json::json!({
+                        "id": t.id,
+                        "title": t.title,
+                        "roadmap": t.roadmap,
+                        "created_by": t.created_by,
+                        "created_unix": t.created_unix,
+                    })
+                })
+                .collect();
+            print_json(&serde_json::json!({ "authored_open": rows }))?;
         }
         TaskCommands::Claim {
             id,

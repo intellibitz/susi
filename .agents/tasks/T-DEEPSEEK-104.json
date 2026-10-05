@@ -5,6 +5,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd",
       "-E",
       "test(self_authored_backlog)"
     ]
