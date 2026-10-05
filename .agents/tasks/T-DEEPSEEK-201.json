@@ -13,6 +13,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd",
       "-E",
       "test(gap_task_from_failure)"
     ]

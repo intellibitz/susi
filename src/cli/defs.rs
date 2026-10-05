@@ -523,6 +523,10 @@ pub(crate) enum AdminCommands {
         /// Run only the start-up slice
         #[arg(long)]
         slice: bool,
+        /// Re-check one intent id hermetically — the acceptance a repair
+        /// task's close runs; exits nonzero unless the intent passes
+        #[arg(long, value_name = "ID")]
+        verify: Option<String>,
     },
 }
 
