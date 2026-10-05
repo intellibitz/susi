@@ -1,4 +1,8 @@
 #![forbid(unsafe_code)]
+// Kani compiles the proof-only module with its custom `cfg(kani)` name.
+// Keep the verifier-specific check isolated while normal builds retain their
+// workspace warning policy for every other unknown configuration.
+#![allow(unexpected_cfgs)]
 #![cfg_attr(
     test,
     allow(
@@ -251,6 +255,9 @@ mod vc_201_093_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_094.rs"]
 mod vc_201_094_tests;
+#[cfg(test)]
+#[path = "tests/vc_201_096_mastery.rs"]
+mod vc_201_096_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_201_097_mastery.rs"]
 mod vc_201_097_mastery_tests;
