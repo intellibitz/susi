@@ -5,6 +5,7 @@
       "nextest",
       "run",
       "--locked",
+      "--workspace",
       "-E",
       "test(availability_not_capability)"
     ]
