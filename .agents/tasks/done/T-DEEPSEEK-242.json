@@ -19,5 +19,9 @@
   "roadmap": "VC-201-018",
   "created_by": "DEEPSEEK",
   "created_unix": 1791216895,
-  "authored": true
+  "closed": {
+    "at_unix": 1791218976,
+    "commit": "7d8ea02f47e52c3fdda31ad249a90fa660c9ef09",
+    "by": "DEEPSEEK"
+  }
 }
