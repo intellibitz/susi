@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-245",
+  "title": "Verify mastery: Reserve and reconcile cloud inference spend",
+  "goal": "Reserve estimated spend before requests and reconcile provider-reported usage afterward across parallel agents and retries; unknown prices or missing usage follow explicit policy and cannot silently bypass a hard budget.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_052_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-052",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791216895,
+  "authored": true
+}
