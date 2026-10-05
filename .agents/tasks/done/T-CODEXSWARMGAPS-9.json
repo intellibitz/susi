@@ -24,5 +24,10 @@
   },
   "roadmap": "VC-201-058",
   "created_by": "CODEXSWARMGAPS",
-  "created_unix": 1790798617
+  "created_unix": 1790798617,
+  "closed": {
+    "at_unix": 1791180983,
+    "commit": "1ee4fc30be0a711c665c086274724e52298e6fa1",
+    "by": "INTELLIBITZ20261005030120687099"
+  }
 }
