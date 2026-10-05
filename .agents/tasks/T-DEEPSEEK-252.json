@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-252",
+  "title": "Verify mastery: Learn from failed and rejected experiments",
+  "goal": "Store failure causes, counterexamples, and proposal lineage in scoped experiment memory; repeated proposals must address the previous rejection or explicitly declare new evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_019_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-019",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791227855,
+  "authored": true
+}
