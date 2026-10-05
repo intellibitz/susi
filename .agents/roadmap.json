@@ -149,7 +149,7 @@
       "id": "VC-201-011",
       "mastery_target": "Implement proposed, isolated, evaluated, rejected, and promotion-ready states with durable transitions; kill-and-resume tests neither skip evaluation nor duplicate an applied transition.",
       "priority": "P0",
-      "progress": "PARTIAL: the Proposed->Isolated->Evaluated->Rejected/PromotionReady table and the duplicate-edge refusal hold, ExperimentLog::load(dir) now persists each experiment and resumes it across a restart, Isolated -> Rejected gives a failed isolation leg an exit, and propose() refuses to reset an already-registered id. Residual: nothing outside tests calls ExperimentLog. Refuted on record; tracked by T-DEVIN20261002053148-21.",
+      "progress": "DELIVERED: durable per-experiment lifecycle (Proposed->Isolated->Evaluated->Rejected/PromotionReady) with kill-and-resume, duplicate-edge refusal and a failed-leg exit — and a production caller: the eval-corpus path advances each candidate's experiment under .susi/experiments/. Verified by crates/susi-gawd/src/tests/vc_201_011_mastery.rs (5 tests).",
       "type": "RSI_EXECUTION",
       "vector": "Persist the self-improvement experiment lifecycle"
     },
