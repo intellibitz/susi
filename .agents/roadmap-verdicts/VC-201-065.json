@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-065",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "Two independent refutations. (1) migrate_state_dir has no production caller — no CLI subcommand, daemon startup, or release/upgrade path invokes it, and state.schema.json is never read at runtime, so the claimed migration-with-durable-backup never executes on upgrade. (2) The backup is not durable across interruption: backup_tree names it .migrate-bak-<epoch-seconds>, and a same-second retry (crash after backup, before manifest write) reuses the dir and overwrites the preserved pre-migration config.json with the mid-migration file — proven by vc_201_065_mastery_rerun_in_same_second_clobbers_durable_backup. What does hold: first-run backup preserves pre-migration bytes, v0->v1 writes the version marker, rerun is a noop, and a failed migration rolls back byte-for-byte with no marker (vc_201_065_mastery_success_path_preserves_backup_and_marks_version, vc_201_065_mastery_failed_migration_rolls_back_and_retries).",
-  "tracked_by": ["T-DEVIN20261002053148-6", "T-DEVIN20261002053148-7"],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790981052
+  "verdict": "delivered",
+  "evidence": "crates/susi-daemon/src/server.rs (run_daemon_loop invokes migrate_state_dir(&global_dir) at boot, before ensure_api_auth_token_seeded and any other schema-dependent access, and aborts startup on failure) and crates/susi-config/src/state_migration.rs (read_version consults state.schema.json at runtime; backup dirs are .migrate-bak-<secs>-<pid>-<nanos> so a same-second retry cannot clobber the preserved pre-migration bytes); pinned by vc_201_065_mastery tests in susi-config (success path preserves bytes + marks version, rollback retries, interrupted-rerun durability) and susi-daemon (boot ordering, fatal-on-failure, manifest read at runtime).",
+  "missing": "A crash between the backup and the version-marker write leaves an orphaned .migrate-bak-* directory behind, and the retry backup preserves the healed (not original) config.json — the true original survives only in the earlier backup directory. Backup/rollback covers config.json and state.schema.json alone; other state files are preserved in place by design and are outside the crash-recovery window.",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791224884
 }
