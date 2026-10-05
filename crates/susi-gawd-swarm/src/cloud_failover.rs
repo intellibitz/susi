@@ -126,6 +126,15 @@ pub struct FailoverBudget {
 /// Implementations must not leak `Candidate.api_key` into outcomes.
 pub trait Runner {
     fn attempt(&mut self, index: usize, deadline_remaining_ms: u64) -> AttemptOutcome;
+
+    /// Take provider-reported usage for the attempt that just completed.
+    ///
+    /// Real providers may return token or billing usage asynchronously with
+    /// their response. Implementations that do not have a report leave this
+    /// as None, and the ledger conservatively charges the reservation.
+    fn take_reported_usage_micros(&mut self) -> Option<u64> {
+        None
+    }
 }
 
 /// Run an intent through failover: select, then attempt in rank order
@@ -219,40 +228,33 @@ pub fn run_selection<R: Runner>(
             }
         }
         // Spend gate — a denied reservation skips this candidate.
-        let reservation =
-            match stores
-                .ledger
-                .reserve(susi_gawd_agents::cloud_budget::ReserveRequest {
-                    account: c.account.as_deref().unwrap_or(""),
-                    credential_fp: &susi_vendor_models::cloud_eligibility::credential_fingerprint(
-                        &c.api_key,
-                    ),
-                    model: &c.model,
-                    policy: budget.spend,
-                    is_free_candidate: c.cost_per_mtok.unwrap_or(0.0) == 0.0,
-                    free_headroom: FreeHeadroom::Unknown,
-                    estimate: budget.attempt_estimate_micros,
-                }) {
-                Ok(r) => r,
-                Err(
-                    Denial::FreeExhausted
-                    | Denial::NeedsConsent { .. }
-                    | Denial::NeedsPriceConsent { .. }
-                    | Denial::OverBudget { .. },
-                ) => {
-                    saw_budget_denial = true;
-                    attempted.push(ranked.index);
-                    out.stop = Some(FailoverStop::BudgetExhausted);
-                    // Keep scanning: a *free* sibling may still be legal.
-                    continue;
-                }
-            };
+        let reservation = match stores.ledger.reserve_dispatch(
+            c,
+            FreeHeadroom::Unknown,
+            budget.attempt_estimate_micros,
+            budget.spend,
+        ) {
+            Ok(r) => r,
+            Err(
+                Denial::FreeExhausted
+                | Denial::NeedsConsent { .. }
+                | Denial::NeedsPriceConsent { .. }
+                | Denial::OverBudget { .. },
+            ) => {
+                saw_budget_denial = true;
+                attempted.push(ranked.index);
+                out.stop = Some(FailoverStop::BudgetExhausted);
+                // Keep scanning: a *free* sibling may still be legal.
+                continue;
+            }
+        };
         attempted.push(ranked.index);
         let remaining = budget
             .deadline_ms
             .map(|dl| dl.saturating_sub(now_ms))
             .unwrap_or(u64::MAX);
         let outcome = runner.attempt(ranked.index, remaining);
+        let reported_usage = runner.take_reported_usage_micros();
         match outcome {
             AttemptOutcome::Success(text) => {
                 stores.eligibility.record_inference(
@@ -261,7 +263,7 @@ pub fn run_selection<R: Runner>(
                     now_ms / 1000,
                 );
                 stores.lockouts.record(&scope, &InferenceResult::Success);
-                stores.ledger.commit(reservation, None);
+                stores.ledger.commit(reservation, reported_usage);
                 out.output = Some(text);
                 out.winner = Some(ranked.index);
                 out.attempts.push(AttemptRecord {
@@ -301,7 +303,7 @@ pub fn run_selection<R: Runner>(
                     .eligibility
                     .record_inference(subj(c), &res, now_ms / 1000);
                 stores.lockouts.record(&scope, &res);
-                stores.ledger.commit(reservation, None);
+                stores.ledger.commit(reservation, reported_usage);
                 out.attempts.push(AttemptRecord {
                     candidate: ranked.candidate.clone(),
                     outcome: "mid_stream",
@@ -312,7 +314,7 @@ pub fn run_selection<R: Runner>(
                     .eligibility
                     .record_inference(subj(c), &res, now_ms / 1000);
                 stores.lockouts.record(&scope, &res);
-                stores.ledger.commit(reservation, None);
+                stores.ledger.commit(reservation, reported_usage);
                 out.prior_ambiguous = true;
                 out.attempts.push(AttemptRecord {
                     candidate: ranked.candidate.clone(),
@@ -402,6 +404,23 @@ mod tests {
                 .get(index)
                 .cloned()
                 .unwrap_or_else(|| AttemptOutcome::PreDispatch(fail(500, "unscripted failure")))
+        }
+    }
+
+    struct UsageScript<'a> {
+        ledger: &'a BudgetLedger,
+        observed_before_dispatch: Option<u64>,
+        reported_usage: Option<u64>,
+    }
+
+    impl Runner for UsageScript<'_> {
+        fn attempt(&mut self, _index: usize, _remaining: u64) -> AttemptOutcome {
+            self.observed_before_dispatch = Some(self.ledger.account_exposure(""));
+            AttemptOutcome::Success("measured-answer".into())
+        }
+
+        fn take_reported_usage_micros(&mut self) -> Option<u64> {
+            self.reported_usage.take()
         }
     }
 
@@ -683,5 +702,38 @@ mod tests {
         );
         assert!(out.output.is_none());
         assert_eq!(out.attempts.len(), 1);
+    }
+
+    #[test]
+    fn vc_201_052_reserved_before_dispatch_and_reconciled_after() {
+        let cs = vec![cand("sk-measured", "measured-model")];
+        let mut elig = EligibilityStore::new();
+        let quota = QuotaInventory::new();
+        let mut lock = LockoutTracker::new(Default::default(), crate::cloud_lockout::now_unix);
+        let ledger = BudgetLedger::new();
+        let mut runner = UsageScript {
+            ledger: &ledger,
+            observed_before_dispatch: None,
+            reported_usage: Some(7),
+        };
+        let mut budget = budget();
+        budget.attempt_estimate_micros = 50;
+
+        let out = run(
+            &intent(),
+            &cs,
+            &mut Stores {
+                eligibility: &mut elig,
+                quota: &quota,
+                lockouts: &mut lock,
+                ledger: &ledger,
+            },
+            budget,
+            &mut runner,
+        );
+
+        assert_eq!(out.winner, Some(0));
+        assert_eq!(runner.observed_before_dispatch, Some(50));
+        assert_eq!(ledger.account_exposure(""), 7);
     }
 }
