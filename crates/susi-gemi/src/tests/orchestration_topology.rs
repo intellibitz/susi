@@ -46,7 +46,8 @@ fn fixed_order<'a>(names: &'a [&'a str], cost: f64) -> impl Fn(TaskClass) -> Vec
 #[test]
 fn orchestration_topology_delegates_to_working_secondary() {
     let names = ["acme-prime", "acme-second"];
-    let goals = vec!["refactor the parser".to_string()];
+    let goals =
+        vec!["summarize what changed in the release notes for the team update today".to_string()];
     let topology = orchestration::assign(
         &fixed_order(&names, 0.001),
         &no_headroom,
@@ -77,7 +78,7 @@ fn orchestration_topology_cost_bound_keeps_pricier_work_home() {
         ],
         _ => vec![ranked("acme-prime", Some(0.001))],
     };
-    let goals = vec!["refactor the cache".to_string()];
+    let goals = vec!["refactor the cache module now".to_string()];
     let topology = orchestration::assign(&ranked_for, &no_headroom, TaskClass::Code, &goals, 100)
         .expect("field elects");
     let d = &topology.delegations[0];
@@ -104,8 +105,8 @@ fn orchestration_topology_fan_out_bounded_by_rate_allowance() {
         }
     };
     let goals = vec![
-        "refactor the parser".to_string(),
-        "refactor the lexer".to_string(),
+        "summarize what changed in the release notes for the team update today".to_string(),
+        "summarize how the release schedule moved for the team update today".to_string(),
     ];
     let topology = orchestration::assign(
         &fixed_order(&names, 0.001),
@@ -135,7 +136,8 @@ fn orchestration_topology_capped_secondary_never_delegated() {
         r
     };
     let ranked_for = move |_: TaskClass| vec![ranked("acme-prime", Some(0.001)), capped()];
-    let goals = vec!["refactor the parser".to_string()];
+    let goals =
+        vec!["summarize what changed in the release notes for the team update today".to_string()];
     let topology = orchestration::assign(&ranked_for, &no_headroom, TaskClass::Code, &goals, 100)
         .expect("field elects");
     let d = &topology.delegations[0];
@@ -160,7 +162,8 @@ fn orchestration_topology_synthesis_is_the_primaries_own() {
         Ok(format!("{provider} answered"))
     };
     let names = ["acme-prime", "acme-second"];
-    let goals = vec!["refactor the parser".to_string()];
+    let goals =
+        vec!["summarize what changed in the release notes for the team update today".to_string()];
     let (topology, answer) = orchestration::orchestrate(
         "repair all of the tooling in the workshop before the day ends today",
         &goals,
@@ -199,8 +202,8 @@ fn orchestration_topology_reconstructible_from_the_journal() {
     let dispatch = |provider: &str, _: &str| Ok(format!("{provider} said so"));
     let names = ["acme-prime", "acme-second"];
     let goals = vec![
-        "refactor the parser".to_string(),
-        "refactor the lexer".to_string(),
+        "summarize what changed in the release notes for the team update today".to_string(),
+        "summarize how the release schedule moved for the team update today".to_string(),
     ];
     let (topology, _) = orchestration::orchestrate(
         "repair all of the tooling in the workshop before the day ends today",

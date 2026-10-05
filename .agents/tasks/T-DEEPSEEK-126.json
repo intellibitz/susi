@@ -4,6 +4,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-gemi",
       "--locked",
       "-E",
       "test(delegated_verification_by_risk)"

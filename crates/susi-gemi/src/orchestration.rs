@@ -51,9 +51,40 @@ pub enum HeldBack {
     /// A secondary could serve but its remaining rate allowance is spent
     /// on already-assigned delegations — the fan-out bound.
     SecondaryRateBound { candidate: String },
-    /// Delegating would cost more than doing the work on the primary —
-    /// the cost bound on fan-out.
+    /// The candidate's output could not be checked by any independent
+    /// working worker — and an unverified delegation never ships
+    /// (VC-202-023/T-DEEPSEEK-126).
+    NoVerifier { candidate: String },
+    /// Delegating plus verifying would cost more than doing the work on
+    /// the primary — the cost bound on fan-out, verification priced in.
     SecondaryPricier { candidate: String },
+}
+
+/// How one delegated result was checked (VC-202-023/T-DEEPSEEK-126): the
+/// depth is set by the goal's risk — a deterministic check for low-risk
+/// work, a model verifier for code and reasoning.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "how", rename_all = "snake_case")]
+pub enum Verification {
+    /// Low risk: the deterministic structural check — the answer exists
+    /// and is not a stringified failure. Free.
+    Deterministic { ok: bool },
+    /// High risk: an independent working worker judged the answer —
+    /// which model checked, and its verdict.
+    Model {
+        verifier: String,
+        ok: bool,
+        verdict: String,
+    },
+}
+
+impl Verification {
+    #[must_use]
+    pub fn ok(&self) -> bool {
+        match self {
+            Self::Deterministic { ok } | Self::Model { ok, .. } => *ok,
+        }
+    }
 }
 
 /// One goal's routing record — the provenance each delegated result keeps.
@@ -72,8 +103,26 @@ pub struct Delegation {
     pub effective_cost_usd: Option<f64>,
     /// Why the goal stayed with the primary when it did.
     pub why_not_delegated: Option<HeldBack>,
-    /// The call's outcome as the caller saw it.
+    /// The call's outcome as the caller saw it — for a delegated goal,
+    /// true only when the result survived verification (or the primary
+    /// rescued it); unverified work is never presented as a result.
     pub ok: bool,
+    /// The checker this delegation is bound to: `None` = the
+    /// deterministic check (low risk); `Some(verifier)` = a model
+    /// verifier (high risk), chosen at assignment time so its price is
+    /// inside the delegation cost bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_with: Option<String>,
+    /// The check that ran on the delegated result — which model checked
+    /// it and what it decided. `None` for goals the primary served itself
+    /// (the primary's own work is not a delegation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<Verification>,
+    /// When verification refuted the delegated result, the worker that
+    /// re-served the goal — the primary. The refuted answer is never
+    /// presented as the primary's own result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rescued_by: Option<String>,
     /// The answer the worker returned. Recorded in memory for synthesis;
     /// the journal keeps the topology, not payloads.
     #[serde(skip)]
@@ -147,7 +196,12 @@ pub fn assign(
                 .map(marginal_cost)
                 .unwrap_or(f64::MAX);
             let mut held = HeldBack::NoSecondary;
-            let mut secondary: Option<&Ranked> = None;
+            let mut secondary: Option<(&Ranked, Option<&Ranked>)> = None;
+            // Verification depth is set by the goal's risk: reflex and
+            // chat need only the deterministic check; code and reasoning
+            // need an independent working worker to judge the answer —
+            // and the checker's own marginal price is inside the bound.
+            let deep_check = matches!(class, TaskClass::Code | TaskClass::Reasoning);
             for r in &ranked {
                 if r.provider == primary || r.unfit || !r.meets_floor {
                     continue;
@@ -166,18 +220,45 @@ pub fn assign(
                         continue;
                     }
                 }
-                if marginal_cost(r) > primary_cost {
+                let verifier = if deep_check {
+                    match ranked.iter().find(|v| {
+                        v.provider != r.provider
+                            && v.meets_floor
+                            && !v.unfit
+                            && !brain_quota_exhausted(v)
+                            && headroom(&v.provider).is_none_or(|(remaining, _)| {
+                                *spent.get(&v.provider).unwrap_or(&0) < remaining
+                            })
+                    }) {
+                        Some(v) => Some(v),
+                        None => {
+                            held = HeldBack::NoVerifier {
+                                candidate: r.provider.clone(),
+                            };
+                            continue;
+                        }
+                    }
+                } else {
+                    None
+                };
+                let verify_cost = verifier.map(marginal_cost).unwrap_or(0.0);
+                if marginal_cost(r) + verify_cost > primary_cost {
                     held = HeldBack::SecondaryPricier {
                         candidate: r.provider.clone(),
                     };
                     continue;
                 }
-                secondary = Some(r);
+                secondary = Some((r, verifier));
                 break;
             }
             match secondary {
-                Some(r) => {
+                Some((r, verifier)) => {
                     *spent.entry(r.provider.clone()).or_insert(0) += 1;
+                    if let Some(v) = verifier {
+                        // The verification call spends the checker's rate
+                        // allowance just like a delegated call.
+                        *spent.entry(v.provider.clone()).or_insert(0) += 1;
+                    }
                     Delegation {
                         goal: goal.clone(),
                         class: class.label().to_string(),
@@ -186,6 +267,9 @@ pub fn assign(
                         effective_cost_usd: r.effective_cost_usd,
                         why_not_delegated: None,
                         ok: false,
+                        verify_with: verifier.map(|v| v.provider.clone()),
+                        verification: None,
+                        rescued_by: None,
                         answer: None,
                     }
                 }
@@ -200,6 +284,9 @@ pub fn assign(
                         .and_then(|r| r.effective_cost_usd),
                     why_not_delegated: Some(held),
                     ok: false,
+                    verify_with: None,
+                    verification: None,
+                    rescued_by: None,
                     answer: None,
                 },
             }
@@ -240,24 +327,98 @@ pub fn orchestrate(
     let mission_class = TaskClass::classify(mission);
     let mut topology = assign(ranked_for, headroom, mission_class, goals, now)
         .ok_or_else(|| "no fully-working primary for this mission".to_string())?;
+    let primary = topology.primary.clone();
     for d in &mut topology.delegations {
-        match dispatch(&d.provider, &d.goal) {
-            Ok(text) => {
-                d.ok = true;
-                d.answer = Some(text);
+        let produced = dispatch(&d.provider, &d.goal);
+        if !d.delegated {
+            match produced {
+                Ok(text) => {
+                    d.ok = true;
+                    d.answer = Some(text);
+                }
+                Err(e) => {
+                    d.ok = false;
+                    d.answer = Some(format!("[delegation failed: {e}]"));
+                }
             }
+            continue;
+        }
+        match produced {
             Err(e) => {
                 d.ok = false;
                 d.answer = Some(format!("[delegation failed: {e}]"));
+            }
+            Ok(text) => {
+                let verified = match d.verify_with.clone() {
+                    // Low risk: the deterministic check — the answer
+                    // exists and is not a stringified failure.
+                    None => Verification::Deterministic {
+                        ok: !text.trim().is_empty()
+                            && !crate::engines::runtime::GemiEngine::looks_like_error_text(&text),
+                    },
+                    // High risk: the bound's independent verifier judges
+                    // the answer.
+                    Some(verifier) => {
+                        let check = format!(
+                            "Goal: {}\nAnswer: {}\nReply with exactly VERIFIED if the \
+                             answer correctly accomplishes the goal, or REFUTED with \
+                             one line of reason.",
+                            d.goal, text
+                        );
+                        match dispatch(&verifier, &check) {
+                            Ok(verdict) => {
+                                let v = verdict.to_ascii_uppercase();
+                                Verification::Model {
+                                    verifier,
+                                    ok: v.contains("VERIFIED") && !v.contains("REFUTED"),
+                                    verdict: verdict.chars().take(120).collect(),
+                                }
+                            }
+                            Err(e) => Verification::Model {
+                                verifier,
+                                ok: false,
+                                verdict: format!("verifier unreachable: {e}"),
+                            },
+                        }
+                    }
+                };
+                let ok = verified.ok();
+                d.verification = Some(verified);
+                if ok {
+                    d.ok = true;
+                    d.answer = Some(text);
+                } else {
+                    // An unverified or refuted delegation is never
+                    // presented as the primary's own result — the primary
+                    // re-serves the goal itself and the record shows who
+                    // produced the refuted answer and who rescued it.
+                    d.rescued_by = Some(primary.clone());
+                    match dispatch(&primary, &d.goal) {
+                        Ok(rescued) => {
+                            d.ok = true;
+                            d.answer = Some(rescued);
+                        }
+                        Err(e) => {
+                            d.ok = false;
+                            d.answer = Some(format!("[unverified: {e}]"));
+                        }
+                    }
+                }
             }
         }
     }
     let mut brief = format!("Mission: {mission}\n\nResults to synthesize into one final answer:\n");
     for d in &topology.delegations {
+        let checked = match &d.verification {
+            Some(v) if v.ok() => "verified",
+            Some(_) => "refuted — rescued by the primary",
+            None => "primary's own",
+        };
         brief.push_str(&format!(
-            "- Goal ({}): {}\n  Answer: {}\n",
+            "- Goal ({}): {}\n  Served by: {} [{checked}]\n  Answer: {}\n",
             d.class,
             d.goal,
+            d.provider,
             d.answer.as_deref().unwrap_or("(no answer)")
         ));
     }
