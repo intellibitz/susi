@@ -236,6 +236,32 @@ impl PlaneHandler for GawdPlaneHandler {
                     .collect();
                 Ok(json!({ "peers": peers }))
             }
+            // Literal like `gawd.auth.mint_aic` — the topics module lives
+            // in susi-core; this arm is the swarm mission rollback
+            // surface (T-DEEPSEEK-94).
+            "gawd.mission.rollback" => {
+                let ws = workspace_path(&payload);
+                let mission_id = payload
+                    .get("mission_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("mission_id required")?;
+                let snapshot = payload.get("snapshot").and_then(|v| v.as_str());
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                match susi_gawd_swarm::mission_resume::rollback_mission(
+                    &ws, mission_id, snapshot, now,
+                ) {
+                    Ok((view, line)) => Ok(json!({
+                        "status": line,
+                        "mission_id": view.mission_id,
+                        "summary": format!("{:?}", view.summary()),
+                        "snapshots": susi_gawd_swarm::mission_persist::PersistedMission::list_snapshots(&ws, mission_id),
+                    })),
+                    Err(e) => Ok(json!({ "error": e.to_string() })),
+                }
+            }
             other => Err(format!("gawd handler: unhandled topic '{other}'")),
         }
     }

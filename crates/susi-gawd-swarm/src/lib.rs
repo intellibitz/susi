@@ -143,6 +143,9 @@ mod side_effect_journal_tests;
 #[path = "tests/side_effects_dispatch_wiring.rs"]
 mod side_effects_dispatch_wiring_tests;
 #[cfg(test)]
+#[path = "tests/snapshot_rollback.rs"]
+mod snapshot_rollback_tests;
+#[cfg(test)]
 #[path = "tests/swarm_chaos.rs"]
 mod swarm_chaos_tests;
 #[cfg(test)]
