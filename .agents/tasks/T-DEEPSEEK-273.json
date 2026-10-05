@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-273",
+  "title": "Verify mastery: Isolate tenant resource and data access",
+  "goal": "Enforce per-tenant workspace paths, memory namespaces, tool grants, queues, and budgets in the supported isolation mode; cross-tenant read and resource-exhaustion tests establish the documented boundary.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-078"
+    ]
+  },
+  "roadmap": "VC-201-078",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237637
+}

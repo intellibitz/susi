@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-262",
+  "title": "Verify mastery: Propagate cancellation through the entire swarm",
+  "goal": "Carry cancellation and remaining deadlines through local workers, external agents, peer dispatch, and model calls; integration tests terminate cancellable descendants and report any irreversibly running remote job.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_real_cancellation",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-026",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237631
+}

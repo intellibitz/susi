@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-274",
+  "title": "Verify mastery: Export independently verifiable audit evidence",
+  "goal": "Provide redacted exports with chain anchors, signature metadata, and a verification command; truncation, tampering, missing segments, and unknown keys produce distinct failures without exposing secrets.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_079_cli_verify)"
+    ]
+  },
+  "roadmap": "VC-201-079",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237638
+}

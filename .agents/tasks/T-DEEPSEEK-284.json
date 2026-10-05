@@ -1,0 +1,19 @@
+{
+  "id": "T-DEEPSEEK-284",
+  "title": "Verify mastery: The self-build loop closes end to end",
+  "goal": "A task the system proposed for itself is implemented, gated, merged, released and promoted by the workflow, with the whole loop measured - elapsed time, cost, defects - in a reproducible scorecard a human can read and stop.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-104",
+    "T-DEEPSEEK-96"
+  ],
+  "accept": {
+    "cmd": [
+      "scripts/check-rsi-scorecard.py",
+      "--self-test"
+    ]
+  },
+  "roadmap": "VC-202-015",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237644
+}

@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-259",
+  "title": "Verify mastery: Fence swarm task ownership with durable leases",
+  "goal": "Assign expiring ownership and monotonic fencing tokens to dispatched tasks; a recovered or partitioned worker with an old token cannot publish authoritative task completion.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_durable_fencing",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-022",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237629
+}
