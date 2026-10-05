@@ -1,13 +1,50 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+#![allow(missing_docs)]
+
 //! VC-202-013: each mission yields a trace linking intent to plan to node
 //! to model to tokens to cost to outcome, queryable per agent and per
 //! task, append-only and durable across restarts.
 
-use crate::mission_trace::{
+use susi_core::mission_trace::{
     read_all, read_all_for_agent, read_all_for_task, MissionTrace, ModelCallCost,
 };
 
-fn workspace() -> tempfile::TempDir {
-    tempfile::tempdir().unwrap()
+/// A fresh, serial-numbered scratch directory — same manual pattern other
+/// root-level integration tests use, since this package has no `tempfile`
+/// dev-dependency of its own.
+struct Workspace(std::path::PathBuf);
+
+impl Workspace {
+    fn new(tag: &str) -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "susi-cost-ledger-trace-{tag}-{}-{serial}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for Workspace {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn workspace() -> Workspace {
+    Workspace::new("ws")
 }
 
 fn call(node: &str, model: &str, tokens: u64, cost_micros: u64) -> ModelCallCost {
