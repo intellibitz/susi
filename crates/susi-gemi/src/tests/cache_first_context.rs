@@ -123,19 +123,33 @@ fn cache_first_context_journal_measures_hit_rate_and_reports() {
 
 #[test]
 fn cache_first_context_saving_priced_against_catalog() {
+    // The env lock is held for the whole test: an unlocked writer that
+    // re-points or clears SUSI_PRICE_CATALOG_FILE mid-flight makes a
+    // sibling cost test price a model at 0 (observed on the remote gate).
+    let _env = crate::engines::env_test_lock();
     // Same shared-catalog convention the cost tests use — identical path
     // and bytes make parallel writers consistent.
-    let dir = std::env::temp_dir().join("susi-prices-shared");
+    let dir = std::env::temp_dir().join("susi-budget-shared");
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = dir.join("model_prices.json");
     let mut cat = crate::models::price_catalog::PriceCatalog::empty(1);
-    cat.insert(crate::models::price_catalog::PriceEntry {
-        model_id: "cheapmodel".to_string(),
-        input_usd_per_1m: 1.0,
-        output_usd_per_1m: 4.0,
-        cache_hit_usd_per_1m: Some(0.1),
-        cache_miss_usd_per_1m: Some(1.0),
-    });
+    for (id, i, o, hit, miss) in [
+        ("cheapmodel", 1.0, 4.0, Some(0.1), Some(1.0)),
+        ("premiummodel", 1.0, 10.0, Some(0.1), Some(1.0)),
+        ("budgetmodel", 0.01, 0.01, None, None),
+        ("pricymodel", 5.0, 50.0, None, None),
+        ("bargainmodel", 0.01, 0.01, None, None),
+        ("spendmodel", 0.01, 0.01, None, None),
+        ("doommodel", 5.0, 50.0, None, None),
+    ] {
+        cat.insert(crate::models::price_catalog::PriceEntry {
+            model_id: id.to_string(),
+            input_usd_per_1m: i,
+            output_usd_per_1m: o,
+            cache_hit_usd_per_1m: hit,
+            cache_miss_usd_per_1m: miss,
+        });
+    }
     std::fs::write(&path, cat.to_json().expect("catalog json")).expect("catalog file");
     // SAFETY: test-only env mutation; identical path and content as the
     // sibling cost tests, so a torn write still reads the same catalog.
