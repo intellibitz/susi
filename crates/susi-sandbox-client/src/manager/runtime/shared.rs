@@ -82,18 +82,35 @@ impl SusiAuditLogger {
         Self::log(workspace, LogLevel::Info, event_type, details);
     }
 
+    /// Typed entry point (VC-202-018): `AuditDetails` variants can only
+    /// render metadata — a payload can only ride as a digest plus byte
+    /// length — so a record cannot print a secret by construction.
+    pub fn log_details(
+        workspace: &Path,
+        level: LogLevel,
+        event_type: &str,
+        details: &crate::audit_fidelity::AuditDetails,
+    ) {
+        Self::log_inner(workspace, level, event_type, &details.to_string());
+    }
+
     pub fn log(workspace: &Path, level: LogLevel, event_type: &str, details: &str) {
+        // Legacy `&str` callers get the chokepoint bound: credential-masked
+        // plus hard-capped — a stuffed payload is truncated, never durable.
+        let details = crate::audit_fidelity::bound_legacy_details(details);
+        Self::log_inner(workspace, level, event_type, &details);
+    }
+
+    fn log_inner(workspace: &Path, level: LogLevel, event_type: &str, details: &str) {
+        // Defense-in-depth under the typed layer: a Fields value could still
+        // carry a credential-shaped string — mask it before signing.
+        let details = crate::susi_config::redact_credentials(details);
+        let details = details.as_str();
         let susi_dir = workspace.join(".susi");
         if !susi_dir.exists() {
             let _ = fs::create_dir_all(&susi_dir);
         }
         let audit_file = workspace.join(".susi/audit.log");
-
-        // Deterministic credential masking (Mandate 10: No Secret Leaks) — every
-        // telemetry write funnels through here, so this is the one chokepoint
-        // that guarantees secrets never reach the persistent audit trail.
-        let details = crate::susi_config::redact_credentials(details);
-        let details = details.as_str();
 
         tracing::info!(
             target: "susi_audit",
