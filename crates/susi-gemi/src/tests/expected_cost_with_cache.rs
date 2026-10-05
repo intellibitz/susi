@@ -157,32 +157,24 @@ fn expected_cost_with_cache_ranked_carries_priced_task_cost() {
 fn expected_cost_with_cache_max_cost_drops_over_cap_priced_provider() {
     // Reasoning task profile (49K in @75% hits, 3K out): "premiummodel" is
     // priced ~$0.05 — a $0.01 cap drops it even though name rules call it
-    // Low tier; "budgetmodel" prices under the cap and stays.
+    // Low tier; "budgetmodel" prices under the cap and stays. The filter
+    // itself is exercised directly: `plan_placement_for` prefers the
+    // process-global registry over the passed list, and other tests
+    // legitimately register providers there — a deterministic candidate
+    // list keeps this test about the ceiling, not about who else ran.
     let _cat = install_catalog();
-    let decision = InferenceRouter::plan_placement_for(
-        &[
-            "vendor-premiummodel".to_string(),
-            "vendor-budgetmodel".to_string(),
-        ],
-        Some("reasoning"),
-        Some(0.01),
-        true,
+    let mut clouds = vec![
+        "vendor-premiummodel".to_string(),
+        "vendor-budgetmodel".to_string(),
+    ];
+    InferenceRouter::apply_cloud_constraints(&mut clouds, Some("reasoning"), Some(0.01));
+    assert!(
+        !clouds.iter().any(|n| n.contains("premiummodel")),
+        "a provider priced over the max_cost ceiling is dropped: {clouds:?}"
     );
     assert!(
-        !decision
-            .cloud_candidates
-            .iter()
-            .any(|n| n.contains("premiummodel")),
-        "a provider priced over the max_cost ceiling is dropped: {:?}",
-        decision.cloud_candidates
-    );
-    assert!(
-        decision
-            .cloud_candidates
-            .iter()
-            .any(|n| n.contains("budgetmodel")),
-        "a provider priced under the cap stays: {:?}",
-        decision.cloud_candidates
+        clouds.iter().any(|n| n.contains("budgetmodel")),
+        "a provider priced under the cap stays: {clouds:?}"
     );
 }
 

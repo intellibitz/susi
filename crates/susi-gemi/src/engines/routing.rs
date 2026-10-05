@@ -1070,7 +1070,7 @@ impl InferenceRouter {
         clouds.first().cloned()
     }
 
-    fn apply_cloud_constraints(
+    pub(crate) fn apply_cloud_constraints(
         clouds: &mut Vec<String>,
         requires: Option<&str>,
         max_cost: Option<f64>,
