@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-238",
+  "title": "Verify mastery: Persist the self-improvement experiment lifecycle",
+  "goal": "Implement proposed, isolated, evaluated, rejected, and promotion-ready states with durable transitions; kill-and-resume tests neither skip evaluation nor duplicate an applied transition.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_011_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-011",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791209529,
+  "authored": true
+}

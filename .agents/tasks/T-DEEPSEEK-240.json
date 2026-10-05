@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-240",
+  "title": "Verify mastery: Gate self-patches on the full repository checks",
+  "goal": "Run cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings, and cargo test --workspace --locked against the candidate; missing, skipped, or failing checks prevent promotion readiness.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_015_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-015",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791209529,
+  "authored": true
+}
