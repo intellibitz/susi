@@ -1,0 +1,29 @@
+{
+  "id": "T-DEEPSEEK-126",
+  "title": "Verify delegated work to a depth set by its risk",
+  "goal": "Verify what a secondary produced to a depth set by the risk of the task: a deterministic check or a cheap model for low-risk work, a strong model or a test suite for high-risk work, with the verification cost included in the routing decision. An unverified delegation must never be presented as the primary's own result, and the record must say which model produced what and how it was checked.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-122"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-gemi",
+      "--locked",
+      "-E",
+      "test(delegated_verification_by_risk)"
+    ]
+  },
+  "roadmap": "VC-202-023",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954863,
+  "closed": {
+    "at_unix": 1791177604,
+    "commit": "d9401b5012f85c9119d20a378b6f8d76b66abc4d",
+    "by": "DEEPSEEK"
+  }
+}

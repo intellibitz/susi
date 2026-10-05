@@ -130,6 +130,9 @@ mod capability_floor_tests;
 #[cfg(test)]
 #[path = "tests/capability_matrix_by_class.rs"]
 mod capability_matrix_by_class_tests;
+#[cfg(test)]
+#[path = "tests/delegated_verification_by_risk.rs"]
+mod delegated_verification_by_risk_tests;
 pub mod eco_capability_routing;
 pub mod eco_compat_gate;
 pub mod eco_limits_lookup;

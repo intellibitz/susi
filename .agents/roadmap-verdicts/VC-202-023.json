@@ -1,0 +1,9 @@
+{
+  "vector": "VC-202-023",
+  "verdict": "delivered",
+  "evidence": "crates/susi-gemi/src/tests/delegated_verification_by_risk.rs \u2014 delegated_verification_by_risk_* (7 tests): a low-risk chat/reflex goal binds no model verifier and passes the deterministic check with zero extra calls; a code/reasoning goal binds an independent floor-meeting verifier at assignment \u2014 never the producer \u2014 and the record names the checker and its verbatim verdict; the verifier's marginal price is inside the delegation bound so a metered secondary plus its verifier never undercuts doing the work on the primary while a zero-marginal subscription seat still delegates; a secondary with no independent working checker is never delegated to (HeldBack::NoVerifier); a REFUTED result is rescued by the primary itself \u2014 the refuted text never reaches the synthesis brief, the record keeps who produced it, who refuted it and who rescued it; the journaled topology round-trips producer and checker; production wiring pinned by source scan",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791174235
+}
