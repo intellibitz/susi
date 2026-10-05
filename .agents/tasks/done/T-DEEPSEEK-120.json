@@ -1,0 +1,31 @@
+{
+  "id": "T-DEEPSEEK-120",
+  "title": "Rank by marginal cost and cap scarcity, not price per token",
+  "goal": "Rank candidates by expected marginal cost of the next call plus the scarcity of their remaining cap, so a subscription allowance is drained deliberately rather than accidentally and pay-as-you-go credit is held for work that deserves it. Cost stays paramount; what changes is that the number is the marginal one, computed from the billing mode, the quota window and the cache-adjusted token estimate.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-118",
+    "T-DEEPSEEK-119",
+    "T-DEEPSEEK-88"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "-E",
+      "test(ranking_by_marginal_cost)"
+    ]
+  },
+  "roadmap": "VC-202-021",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862,
+  "closed": {
+    "at_unix": 1791169841,
+    "commit": "566c176d15a48982ffb43649c1e0e35ceb5fee31",
+    "by": "DEEPSEEK"
+  }
+}
