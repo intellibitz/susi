@@ -8,64 +8,79 @@
 
 use crate::experiment_lifecycle::{ExperimentLog, ExperimentState};
 
-/// Falsification: nothing is persisted. 'Kill-and-resume' is untestable
-/// because a restart is just a new empty log — every experiment and every
-/// applied transition is forgotten. Durable means surviving the process;
-/// this log lives and dies in one process's memory.
-#[test]
-fn vc_201_011_mastery_restart_forgets_everything() {
-    let mut log = ExperimentLog::default();
-    log.propose("e1");
-    log.transition("e1", ExperimentState::Isolated).unwrap();
-    assert!(log.resume_requires_evaluation("e1"));
-
-    let restarted = ExperimentLog::default();
-    assert!(restarted.experiments.is_empty());
-    assert!(restarted.applied_transitions.is_empty());
-    // The resumed world cannot distinguish 'e1 mid-flight' from 'never ran'.
-    assert!(!restarted.resume_requires_evaluation("e1"));
+fn tmp_dir(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("susi-explog-mastery-{tag}-{nanos}"))
 }
 
-/// Falsification: a failed isolation leg has no exit. Only Evaluated can
-/// reach Rejected — an experiment that fails while Isolated can never be
-/// concluded: it sits mid-flight forever, forever blocking on
-/// 'resume_requires_evaluation'.
+/// Fixed: a log loaded from a durable directory survives a restart — a
+/// fresh `ExperimentLog::load` of the SAME directory sees the experiment
+/// and its applied transitions, so kill-and-resume now distinguishes
+/// 'e1 mid-flight' from 'never ran'.
+#[test]
+fn vc_201_011_mastery_restart_forgets_everything() {
+    let dir = tmp_dir("restart");
+    let mut log = ExperimentLog::load(dir.clone());
+    log.propose("e1").unwrap();
+    log.transition("e1", ExperimentState::Isolated).unwrap();
+    assert!(log.resume_requires_evaluation("e1"));
+    drop(log);
+
+    // Simulate a process restart: load the same directory fresh.
+    let restarted = ExperimentLog::load(dir.clone());
+    assert!(
+        restarted.resume_requires_evaluation("e1"),
+        "a restart that reloads the same durable dir must resume mid-flight state"
+    );
+    assert!(restarted.applied_transitions.contains(&(
+        "e1".to_string(),
+        ExperimentState::Proposed,
+        ExperimentState::Isolated
+    )));
+
+    // An in-memory-only log (no dir) still starts empty, as before.
+    let scratch = ExperimentLog::default();
+    assert!(scratch.experiments.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Fixed: `Isolated -> Rejected` is now a legal transition, so a failed
+/// isolation leg has an exit instead of sitting mid-flight forever.
+/// `Proposed -> Rejected` is still refused: an obviously bad proposal
+/// must run isolation before it can be discarded.
 #[test]
 fn vc_201_011_mastery_failed_isolation_has_no_exit() {
     let mut log = ExperimentLog::default();
-    log.propose("e1");
+    log.propose("e1").unwrap();
     log.transition("e1", ExperimentState::Isolated).unwrap();
-    // The isolation run failed — try to reject the experiment.
-    assert!(
-        log.transition("e1", ExperimentState::Rejected).is_err(),
-        "an experiment that fails in isolation is wedged forever"
-    );
-    assert!(log.resume_requires_evaluation("e1"));
-    // And Proposed cannot be rejected either — an obviously bad proposal
-    // must run isolation before it can be discarded.
-    log.propose("e2");
+    // The isolation run failed — reject the experiment.
+    log.transition("e1", ExperimentState::Rejected)
+        .expect("a failed isolation leg must have an exit");
+    assert!(!log.resume_requires_evaluation("e1"));
+
+    log.propose("e2").unwrap();
     assert!(log.transition("e2", ExperimentState::Rejected).is_err());
 }
 
-/// Falsification: `propose` on an existing id silently resets the state
-/// while `applied_transitions` is retained — the experiment is then
-/// permanently wedged: Proposed again, but re-applying Isolated is a
-/// 'duplicate' and refused. Two memory writes corrupt the lifecycle.
+/// Fixed: `propose` on an existing id is now refused instead of silently
+/// resetting its state while the surviving transition log wedges it.
 #[test]
 fn vc_201_011_mastery_repropose_wedges_the_experiment() {
     let mut log = ExperimentLog::default();
-    log.propose("e1");
+    log.propose("e1").unwrap();
     log.transition("e1", ExperimentState::Isolated).unwrap();
 
-    log.propose("e1"); // overwrite mid-flight experiment
+    let err = log
+        .propose("e1")
+        .expect_err("re-proposing a live experiment must be refused");
+    assert!(err.contains("e1"), "{err}");
     assert_eq!(
         log.experiments["e1"].state,
-        ExperimentState::Proposed,
-        "state silently reset"
-    );
-    assert!(
-        log.transition("e1", ExperimentState::Isolated).is_err(),
-        "the surviving transition log refuses the retry — e1 is unrecoverable"
+        ExperimentState::Isolated,
+        "the existing experiment's state must be untouched"
     );
 }
 
@@ -75,7 +90,7 @@ fn vc_201_011_mastery_repropose_wedges_the_experiment() {
 #[test]
 fn vc_201_011_mastery_transition_table_holds() {
     let mut log = ExperimentLog::default();
-    log.propose("e3");
+    log.propose("e3").unwrap();
     assert!(log
         .transition("e3", ExperimentState::PromotionReady)
         .is_err());
