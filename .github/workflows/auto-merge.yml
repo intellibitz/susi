@@ -7,7 +7,7 @@ name: Auto PR + Merge
 #                              beat the PR), merge it right away
 #   Test workflow succeeds  -> merge that PR (merge commit, repo convention),
 #                              then dispatch the full Test suite on main
-#   every 15 minutes        -> reconcile all open PRs (scripts/reconcile-prs.sh):
+#   every 5 minutes         -> reconcile all open PRs (scripts/reconcile-prs.sh):
 #                              merge any that are green but were missed, comment
 #                              once on red/conflicting ones, close ones idle for
 #                              7 days — so no PR waits in the queue forever
@@ -32,7 +32,7 @@ on:
     workflows: [Test]
     types: [completed]
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
