@@ -1,0 +1,29 @@
+{
+  "id": "T-DEEPSEEK-111",
+  "title": "Retention that actually prunes, with a measured budget",
+  "goal": "Give each tier an explicit retention and size cap and make rotation prune: five audit files from five days sit unpruned today, and a debug tier with no policy would fill the disk the six agents share. Publication states the measured cost of observation in bytes and CPU overhead, and that overhead is attributed in the cost ledger like any other spend.",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-110"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-sandbox-client",
+      "--locked",
+      "-E",
+      "test(audit_retention_prune)"
+    ]
+  },
+  "roadmap": "VC-202-018",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954195,
+  "closed": {
+    "at_unix": 1791182947,
+    "commit": "6ea7d663a1d07768138e4f5b4ebc59dd23d34526",
+    "by": "DEEPSEEK"
+  }
+}
