@@ -1,0 +1,43 @@
+{
+  "schema": "susi.intent_ladder/v1",
+  "revision": 1,
+  "authored_by": "DEEPSEEK",
+  "rationale": "VC-201-001: a versioned ladder of real user intents from trivial to extreme. Every rung's outcome is checkable without trusting the runner — a file it must leave in the throwaway workspace or a marker it must print — and every run is hermetic: scratch SUSI_HOME, scrubbed environment, no live estate, no real egress.",
+  "intents": [
+    {
+      "id": "trivial.note.write",
+      "grade": "trivial",
+      "intent": "Create a file named ladder-note.txt containing the word susi.",
+      "check": { "kind": "file_contains", "path": "ladder-note.txt", "needle": "susi" },
+      "budget": { "seconds": 120, "micros": 0 }
+    },
+    {
+      "id": "easy.greet.marker",
+      "grade": "easy",
+      "intent": "Greet me and make sure your answer includes the word LADDER-OK.",
+      "check": { "kind": "stdout_marker", "needle": "LADDER-OK" },
+      "budget": { "seconds": 180, "micros": 0 }
+    },
+    {
+      "id": "moderate.primes.file",
+      "grade": "moderate",
+      "intent": "Write every prime number below 20 into primes.txt, one number per line.",
+      "check": { "kind": "file_contains", "path": "primes.txt", "needle": "19" },
+      "budget": { "seconds": 300, "micros": 0 }
+    },
+    {
+      "id": "hard.makefile.build",
+      "grade": "hard",
+      "intent": "Write a Makefile whose default target builds main.c into an executable named main, and a main.c that prints the word ladder when run.",
+      "check": { "kind": "file_contains", "path": "Makefile", "needle": "main" },
+      "budget": { "seconds": 600, "micros": 0 }
+    },
+    {
+      "id": "extreme.migration.plan",
+      "grade": "extreme",
+      "intent": "Write a plan.md for migrating this workspace to a fully tested Rust service, with sections Goals, Steps, and Risks.",
+      "check": { "kind": "file_contains", "path": "plan.md", "needle": "Risks" },
+      "budget": { "seconds": 900, "micros": 0 }
+    }
+  ]
+}

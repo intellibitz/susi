@@ -512,6 +512,18 @@ pub(crate) enum AdminCommands {
     /// credentialed live probes when SUSI_PROVIDER_PROBE=1
     #[command(name = "provider-contract")]
     ProviderContract,
+    /// The graded user-intent ladder: print the last scorecard (default),
+    /// run the full ladder hermetically (--run), or just the bounded
+    /// start-up slice (--slice).
+    #[command(name = "intent-ladder")]
+    IntentLadder {
+        /// Run every rung now — hermetic, wall-clock bounded
+        #[arg(long)]
+        run: bool,
+        /// Run only the start-up slice
+        #[arg(long)]
+        slice: bool,
+    },
 }
 
 #[derive(Subcommand)]

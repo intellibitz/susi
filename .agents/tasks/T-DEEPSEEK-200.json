@@ -12,6 +12,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gawd",
       "-E",
       "test(intent_ladder_startup)"
     ]
