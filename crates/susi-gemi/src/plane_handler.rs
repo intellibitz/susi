@@ -327,6 +327,20 @@ impl PlaneHandler for GemiPlaneHandler {
                 let plan = eai_to_string(MissionPlanner::plan_mission(goal, &ws))?;
                 Ok(json!({ "goals": plan.goals }))
             }
+            // `gemi.orchestrate.mission` is matched literally here rather
+            // than through `susi_core::plane_bus::topics`: that module is
+            // under another claim; the `gemi.` prefix registration already
+            // routes it, and the constant can land when the crate frees up.
+            "gemi.orchestrate.mission" => {
+                let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+                let ws = workspace_path(&payload);
+                let (topology, answer) = crate::orchestration::orchestrate_mission(
+                    goal,
+                    &ws,
+                    &crate::orchestration::default_journal_path(),
+                )?;
+                Ok(json!({ "text": answer, "topology": topology }))
+            }
             topics::GEMI_PLAN_REFINE => {
                 let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
                 let plan = payload.get("plan").cloned().unwrap_or(json!({}));

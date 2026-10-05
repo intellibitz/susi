@@ -68,6 +68,7 @@ pub mod learned_classifier;
 pub mod model_preload;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
+pub mod orchestration;
 pub mod primary_election;
 pub mod prompt_caching;
 pub mod provider_contract;
@@ -150,6 +151,9 @@ mod model_preload_tests;
 #[cfg(test)]
 #[path = "tests/model_pricing_cache_rates.rs"]
 mod model_pricing_cache_rates_tests;
+#[cfg(test)]
+#[path = "tests/orchestration_topology.rs"]
+mod orchestration_topology_tests;
 #[cfg(test)]
 #[path = "tests/primary_election.rs"]
 mod primary_election_tests;
