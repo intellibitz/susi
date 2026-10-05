@@ -27,10 +27,23 @@ pub enum TaskClass {
     Code,
     /// Long or analytical prompts that need the strongest model available.
     Reasoning,
+    /// Planning a multi-step change to a live estate — ordering restarts,
+    /// preserving a warm cache, spending the last of a quota deliberately —
+    /// is reasoning work however short the prompt, so the cheapest model is
+    /// not eligible however cheap it is (VC-202-024). The class is assigned
+    /// by the caller (the estate loop, a `requires` token); prompt text
+    /// alone never classifies into it.
+    EstateOps,
 }
 
 impl TaskClass {
-    pub const ALL: [Self; 4] = [Self::Reflex, Self::Chat, Self::Code, Self::Reasoning];
+    pub const ALL: [Self; 5] = [
+        Self::Reflex,
+        Self::Chat,
+        Self::Code,
+        Self::Reasoning,
+        Self::EstateOps,
+    ];
 
     /// The minimum capability work in this class needs, declared as data
     /// beside the class (VC-202-004). Routing checks this floor before the
@@ -40,18 +53,19 @@ impl TaskClass {
         match self {
             Self::Reflex | Self::Chat => super::capability::ModelCapability::Basic,
             Self::Code => super::capability::ModelCapability::Coding,
-            Self::Reasoning => super::capability::ModelCapability::Reasoning,
+            Self::Reasoning | Self::EstateOps => super::capability::ModelCapability::Reasoning,
         }
     }
 
-    /// The routing `requires` token's class: `code`/`reasoning` map to their
-    /// classes; everything else supported (`text`, `chat`, `vision`) runs at
-    /// the chat floor — modality gating is `supports_requirement`'s job, not
-    /// the capability floor's.
+    /// The routing `requires` token's class: `code`/`reasoning`/`estate`
+    /// map to their classes; everything else supported (`text`, `chat`,
+    /// `vision`) runs at the chat floor — modality gating is
+    /// `supports_requirement`'s job, not the capability floor's.
     pub fn from_requires(requires: Option<&str>) -> Self {
         match requires.map(|r| r.to_ascii_lowercase()).as_deref() {
             Some("reasoning") => Self::Reasoning,
             Some("code") => Self::Code,
+            Some("estate") | Some("estate_ops") => Self::EstateOps,
             _ => Self::Chat,
         }
     }
@@ -62,6 +76,7 @@ impl TaskClass {
             Self::Chat => "chat",
             Self::Code => "code",
             Self::Reasoning => "reasoning",
+            Self::EstateOps => "estate_ops",
         }
     }
 
