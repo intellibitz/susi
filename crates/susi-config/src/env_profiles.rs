@@ -145,7 +145,11 @@ impl ProfileSet {
         let Some(p) = self.profiles.get(name) else {
             return;
         };
-        for parent in &p.extends {
+        // Reverse order: a later `apply` call overwrites an earlier one on
+        // key collision, so applying the LAST-listed parent first and the
+        // FIRST-listed parent last is what makes the earlier parent win
+        // ties, matching the documented contract.
+        for parent in p.extends.iter().rev() {
             self.apply(parent, acc);
         }
         acc.chain.push(name.to_string());
