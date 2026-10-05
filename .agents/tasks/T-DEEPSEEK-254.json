@@ -10,8 +10,10 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gemi",
       "-E",
-      "test(vc_201_045_mastery)"
+      "test(/vc_201_045_mastery/)"
     ]
   },
   "roadmap": "VC-201-045",
