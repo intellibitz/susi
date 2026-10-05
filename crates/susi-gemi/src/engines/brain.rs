@@ -338,9 +338,36 @@ pub struct Ranked {
     /// class prior. `None` for unpriced providers.
     #[serde(default)]
     pub cost_per_outcome_usd: Option<f64>,
+    /// Billing mode the marginal cost was priced under —
+    /// `metered`/`subscription`/`free-tier`/`prepaid`
+    /// (VC-202-021/T-DEEPSEEK-120).
+    #[serde(default)]
+    pub billing: &'static str,
+    /// Remaining fraction of the provider's tightest cap — a worker
+    /// subscription/free-tier window, a prepaid balance, or the key
+    /// arbiter's tightest quota window: `1.0` untouched, `0.0` spent.
+    /// `None` for an uncapped provider.
+    #[serde(default)]
+    pub quota_remaining: Option<f64>,
+    /// The number the comparator actually orders by: marginal
+    /// `cost_per_outcome_usd` scaled by the scarcity penalty on
+    /// `quota_remaining`. An untouched cap is unchanged; a nearly-spent
+    /// allowance is priced as the scarce resource it is, and an exhausted
+    /// one is unaffordable at any price.
+    #[serde(default)]
+    pub effective_cost_usd: Option<f64>,
     pub samples: u32,
     pub success_rate: Option<f32>,
     pub avg_latency_ms: Option<u32>,
+}
+
+/// True when the candidate's tightest cap reports nothing left — a spent
+/// quota window or prepaid balance (`quota_remaining == 0`), or a billing
+/// mode whose marginal cost has saturated (the `f64::MAX` sentinel, which
+/// the per-outcome division can push to `inf`). Such a candidate can
+/// never lead, on any budget.
+fn quota_exhausted(r: &Ranked) -> bool {
+    r.quota_remaining == Some(0.0) || r.effective_cost_usd.is_some_and(|c| c >= f64::MAX)
 }
 
 impl Store {
@@ -444,6 +471,26 @@ impl Store {
         class: TaskClass,
         budget: Budget,
     ) -> Vec<Ranked> {
+        self.rank_with_quota(
+            providers,
+            class,
+            budget,
+            &crate::worker::remaining_fraction_unified,
+        )
+    }
+
+    /// `rank_with_budget` with the remaining-cap fraction injected — the
+    /// production path supplies `worker::remaining_fraction_unified` (worker
+    /// windows and prepaid balances, then the key arbiter's quota windows);
+    /// tests inject a deterministic view. `None` from `fraction` means
+    /// uncapped.
+    pub fn rank_with_quota(
+        &self,
+        providers: &[String],
+        class: TaskClass,
+        budget: Budget,
+        fraction: &dyn Fn(&str) -> Option<f64>,
+    ) -> Vec<Ranked> {
         let catalog = cost::price_catalog();
         let mut out: Vec<Ranked> = providers
             .iter()
@@ -459,6 +506,9 @@ impl Store {
                 };
                 let cost_per_outcome_usd =
                     expected_cost_usd.map(|usd| usd / f64::from(p_success.max(1e-3)));
+                let quota_remaining = fraction(p);
+                let effective_cost_usd =
+                    crate::worker::effective_cost_usd(cost_per_outcome_usd, quota_remaining);
                 Ranked {
                     provider: p.clone(),
                     meets_floor: super::capability::meets_floor(p, class),
@@ -471,6 +521,9 @@ impl Store {
                     cost_tier: cost::tier_of(p).label(),
                     expected_cost_usd,
                     cost_per_outcome_usd,
+                    billing: crate::worker::billing_mode(p).label(),
+                    quota_remaining,
+                    effective_cost_usd,
                     samples,
                     success_rate: rec
                         .filter(|r| r.samples() > 0)
@@ -481,29 +534,36 @@ impl Store {
             .collect();
         // Floor first — a cheap weak model can never outrank a floor-meeting
         // one (the floor is checked before the price is compared), and
-        // below-floor candidates still appear at the tail. Then, unless the
-        // budget dial is pinned to pure quality (Max), cost per verified
-        // outcome decides: the ranking currency is a verified answer per
-        // dollar, not reputation (VC-202-003). Unpriced candidates, and Max
-        // budget, keep the evidence-score ordering.
+        // below-floor candidates still appear at the tail. Then a spent cap
+        // steps down ahead of every comparison: a provider with nothing left
+        // cannot win on raw capability or a user pin (VC-202-021). Then,
+        // unless the budget dial is pinned to pure quality (Max), the
+        // scarcity-adjusted cost per verified outcome decides: the ranking
+        // currency is the marginal cost of the next call plus the scarcity
+        // of the remaining cap, not reputation and not the sticker price.
+        // Unpriced candidates, and Max budget, keep the evidence-score
+        // ordering.
         let cost_first = budget != Budget::Max;
         out.sort_by(|a, b| {
-            b.meets_floor.cmp(&a.meets_floor).then_with(|| {
-                match (cost_first, a.cost_per_outcome_usd, b.cost_per_outcome_usd) {
-                    (true, Some(x), Some(y)) => x
-                        .partial_cmp(&y)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| {
-                            b.score
-                                .partial_cmp(&a.score)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        }),
-                    _ => b
-                        .score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal),
-                }
-            })
+            b.meets_floor
+                .cmp(&a.meets_floor)
+                .then_with(|| quota_exhausted(a).cmp(&quota_exhausted(b)))
+                .then_with(
+                    || match (cost_first, a.effective_cost_usd, b.effective_cost_usd) {
+                        (true, Some(x), Some(y)) => x
+                            .partial_cmp(&y)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| {
+                                b.score
+                                    .partial_cmp(&a.score)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            }),
+                        _ => b
+                            .score
+                            .partial_cmp(&a.score)
+                            .unwrap_or(std::cmp::Ordering::Equal),
+                    },
+                )
         });
         out
     }
@@ -644,6 +704,21 @@ fn persist(store: &Store) {
 pub fn rank(providers: &[String], class: TaskClass) -> Vec<Ranked> {
     let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
     guard.get_or_insert_with(load).rank(providers, class)
+}
+
+/// `rank` with the remaining-cap fraction injected — the production
+/// failover path supplies its own headroom view; see
+/// [`Store::rank_with_quota`].
+pub fn rank_with_quota(
+    providers: &[String],
+    class: TaskClass,
+    budget: Budget,
+    fraction: &dyn Fn(&str) -> Option<f64>,
+) -> Vec<Ranked> {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .get_or_insert_with(load)
+        .rank_with_quota(providers, class, budget, fraction)
 }
 
 /// Learn from the verified outcomes of this workspace's recent missions.

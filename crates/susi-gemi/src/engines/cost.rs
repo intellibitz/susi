@@ -248,15 +248,15 @@ pub fn expected_task_cost_usd_in(
     provider: &str,
     class: super::brain::TaskClass,
 ) -> Option<f64> {
-    // A configured agent seat is billed by subscription, not by token: its
-    // marginal cost is zero until the declared window cap is spent, then
-    // unaffordable — so at equal capability a seat outranks a metered
-    // model, and a saturated seat steps down every cost surface (VC-202-022).
-    if let Some(marginal) = crate::worker::seat_marginal_cost_usd(provider, unix_now()) {
-        return Some(marginal);
-    }
     let (prompt, completion, hit_ratio) = task_token_profile(class);
-    expected_call_cost_usd_in(catalog, provider, prompt, completion, hit_ratio)
+    let base = expected_call_cost_usd_in(catalog, provider, prompt, completion, hit_ratio);
+    // Billing decides the marginal number (VC-202-021): a subscription
+    // seat or free tier is zero under its cap, prepaid is the smaller of
+    // the expected cost and the remaining stock, and anything saturated is
+    // unaffordable — so the ranking currency is the marginal cost of the
+    // next call, computed from billing mode and quota window, not the
+    // price-per-token sticker.
+    crate::worker::marginal_cost_usd(provider, base, unix_now())
 }
 
 /// As [`expected_task_cost_usd_in`], priced against the installed catalog.

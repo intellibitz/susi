@@ -5,6 +5,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gemi",
       "-E",
       "test(ranking_by_marginal_cost)"
     ]

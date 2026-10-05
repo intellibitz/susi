@@ -980,18 +980,42 @@ impl InferenceRouter {
         let mut providers = Self::list_cloud_providers_from_registry(registry);
         providers.retain(|name| !Self::provider_cooled(name));
         // Order by the brain's ranking of this task class — its position
-        // already folds in the capability floor, cost per verified outcome
-        // (or evidence score when unpriced / Budget::Max), and the static
-        // rank as the tiebreaker (VC-202-003). The rank call is fed the
+        // already folds in the capability floor, quota exhaustion, the
+        // scarcity-adjusted marginal cost per verified outcome (or evidence
+        // score when unpriced / Budget::Max), and the static rank as the
+        // tiebreaker (VC-202-003, VC-202-021). The rank call is fed the
         // canonical static order first so a brain tie breaks
         // deterministically — `providers` arrives in registry (hash) order.
         providers.sort_by_key(|name| (Self::cloud_rank(name), name.clone()));
+        // The injected headroom feeds the ranking's scarcity signal: a
+        // worker's own cap (subscription window, prepaid balance) wins when
+        // it declares one; the quota headroom covers everything else.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let fraction = |name: &str| -> Option<f64> {
+            crate::worker::remaining_fraction(name, now).or_else(|| {
+                headroom(name).map(|(remaining, allowance)| {
+                    if allowance == 0 {
+                        0.0
+                    } else {
+                        remaining as f64 / allowance as f64
+                    }
+                })
+            })
+        };
         let ranked: std::collections::HashMap<String, (bool, usize)> =
-            crate::engines::brain::rank(&providers, class)
-                .into_iter()
-                .enumerate()
-                .map(|(pos, r)| (r.provider, (r.meets_floor, pos)))
-                .collect();
+            crate::engines::brain::rank_with_quota(
+                &providers,
+                class,
+                crate::engines::cost::Budget::from_env(),
+                &fraction,
+            )
+            .into_iter()
+            .enumerate()
+            .map(|(pos, r)| (r.provider, (r.meets_floor, pos)))
+            .collect();
         providers.sort_by_key(|name| {
             let preferred = pref.preferred_cloud.as_ref().is_some_and(|preferred| {
                 name.to_ascii_lowercase()
@@ -1001,7 +1025,6 @@ impl InferenceRouter {
             (
                 !preferred,
                 !meets_floor,
-                Self::quota_scarcity_tier(headroom(name)),
                 pos,
                 Self::cloud_rank(name),
                 name.clone(),

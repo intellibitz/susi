@@ -243,8 +243,11 @@ pub struct SpendWrite<'a> {
 
 /// Append one attributed spend record to the persisted ledger. Called for
 /// every dispatch that reached `provider.generate` — success or failure,
-/// the vendor billed the attempt.
+/// the vendor billed the attempt. The same attribution also depletes the
+/// worker's cap: a subscription window or prepaid balance is spent by real
+/// dispatch, not by bookkeeping no caller performs (VC-202-021).
 pub fn record(spend: &SpendWrite<'_>) {
+    crate::worker::record_spend(spend.provider, spend.usd, now_ms() / 1_000);
     let Some(path) = ledger_path() else {
         return;
     };

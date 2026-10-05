@@ -78,7 +78,7 @@ fn clear_seats_env() {
 fn worker_may_be_an_agent_descriptor_carries_the_whole_worker() {
     let _env = crate::engines::env_test_lock();
     seats_env();
-    worker::reset_seat_usage_for_test();
+    worker::reset_usage_for_test();
 
     let mut s = Store::default();
     s.record("seat-wagent", TaskClass::Chat, true, 40);
@@ -103,8 +103,8 @@ fn worker_may_be_an_agent_descriptor_carries_the_whole_worker() {
     assert_eq!(seat.success_rate, Some(1.0));
     assert!(seat.healthy);
     assert!(!seat.saturated);
-    assert_eq!(seat.window_used, Some(0));
-    assert_eq!(seat.window_cap, Some(2));
+    assert_eq!(seat.window_used, Some(0.0));
+    assert_eq!(seat.window_cap, Some(2.0));
 
     let model = worker::descriptor(&s, "acme-model-b", TaskClass::Chat, now);
     assert_eq!(model.kind, WorkerKind::ModelApi);
@@ -121,7 +121,7 @@ fn worker_may_be_an_agent_same_capability_ranks_by_marginal_cost() {
     let _env = crate::engines::env_test_lock();
     install_shared_catalog();
     seats_env();
-    worker::reset_seat_usage_for_test();
+    worker::reset_usage_for_test();
 
     // Identical measured capability: same class, same samples, same rate.
     let mut s = Store::default();
@@ -170,7 +170,7 @@ fn worker_may_be_an_agent_capped_seat_steps_down_the_ladder() {
     let _env = crate::engines::env_test_lock();
     install_shared_catalog();
     seats_env();
-    worker::reset_seat_usage_for_test();
+    worker::reset_usage_for_test();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -222,7 +222,7 @@ fn worker_may_be_an_agent_capped_seat_steps_down_the_ladder() {
 fn worker_may_be_an_agent_surfaces_treat_a_worker_uniformly() {
     let _env = crate::engines::env_test_lock();
     seats_env();
-    worker::reset_seat_usage_for_test();
+    worker::reset_usage_for_test();
     let registry = crate::susi_core::registry::CapabilityRegistry::new();
     crate::seat_provider::register_configured_seats(&registry);
     assert!(
@@ -295,7 +295,7 @@ fn worker_may_be_an_agent_production_wiring() {
     let cost = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/engines/cost.rs"))
         .expect("cost.rs readable");
     assert!(
-        cost.contains("seat_marginal_cost_usd"),
-        "the expected-cost funnel carries subscription marginal cost"
+        cost.contains("worker::marginal_cost_usd"),
+        "the expected-cost funnel carries billing-mode marginal cost"
     );
 }
