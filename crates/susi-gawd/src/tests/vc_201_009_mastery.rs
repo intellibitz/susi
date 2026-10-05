@@ -9,23 +9,43 @@
 //! and that 'excluded from improvement evidence' is enforced somewhere,
 //! not just flagged in a report nobody consumes.
 
-use crate::eval_contamination::detect;
+use crate::eval_contamination::{detect, detect_in_corpus, exclude_if_contaminated};
+use crate::rsi_corpus::{make_fixture, FixtureClass, FixtureSpec, FixtureSplit, RsiCorpus};
 use std::collections::BTreeSet;
 
 fn set(ids: &[&str]) -> BTreeSet<String> {
     ids.iter().map(|s| s.to_string()).collect()
 }
 
-/// Falsification: detection compares caller-supplied id sets. If the
-/// access log simply doesn't record the held-out read — the realistic
-/// contamination mode, since 'tracking' is entirely on the caller's
-/// word — the run reports clean. There is no tracking mechanism to
-/// contradict a missing entry.
+fn fx(id: &str, input: &str, split: FixtureSplit) -> crate::rsi_corpus::CorpusFixture {
+    make_fixture(FixtureSpec {
+        id,
+        class: FixtureClass::Coding,
+        input,
+        split,
+        seed: 1,
+        evaluator_expected: None,
+    })
+}
+
+fn corpus(fixtures: Vec<crate::rsi_corpus::CorpusFixture>) -> RsiCorpus {
+    RsiCorpus {
+        schema_version: crate::rsi_corpus::RSI_CORPUS_SCHEMA.into(),
+        revision: "rev-1".into(),
+        fixtures,
+    }
+}
+
+/// Still true: `detect()` is a pure id-set comparison, and a real access
+/// log that simply never records a held-out read is indistinguishable
+/// from a clean run at this layer — tracking *access* (not a
+/// caller-assembled list) has to live upstream of this function, at the
+/// read path itself. This falsification stands as a documented residual
+/// gap, not something `detect`/`detect_in_corpus` can close by
+/// construction.
 #[test]
 fn vc_201_009_mastery_unrecorded_access_is_undetectable() {
     let held = set(&["h1"]);
-    // The candidate read h1, but the training/memory access sets the
-    // caller assembles omit it.
     let r = detect(&held, &set(&["t1"]), &set(&["m1"]));
     assert!(
         !r.contaminated,
@@ -33,32 +53,45 @@ fn vc_201_009_mastery_unrecorded_access_is_undetectable() {
     );
 }
 
-/// Falsification: overlap is by fixture *id* only. The identical held-out
-/// content present in training under a different id — a deduplicated
-/// copy, a re-exported fixture — reports clean.
+/// Fixed: `detect_in_corpus` resolves every accessed id that names a
+/// known corpus fixture to its content hash before comparing, so
+/// identical held-out content reachable under a different id (a fixture
+/// duplicated into the train split) is now caught — not just a literal
+/// id match.
 #[test]
 fn vc_201_009_mastery_content_contamination_under_another_id_is_clean() {
-    let held = set(&["h1", "h2"]);
-    // 'h1-copy' is byte-identical content to h1 under a fresh id.
-    let r = detect(&held, &set(&["h1-copy"]), &set(&[]));
+    let c = corpus(vec![
+        fx("h1", "the secret held-out input", FixtureSplit::HeldOut),
+        fx("h2", "another held-out input", FixtureSplit::HeldOut),
+        // Same content as h1, duplicated into train under a fresh id.
+        fx("h1-copy", "the secret held-out input", FixtureSplit::Train),
+    ]);
+    let r = detect_in_corpus(&c, &set(&["h1-copy"]), &set(&[])).unwrap();
     assert!(
-        !r.contaminated,
-        "content-level contamination under a different id reports clean"
+        r.contaminated,
+        "identical held-out content reachable under a different id must be caught"
     );
 }
 
-/// Falsification: 'excluded from improvement evidence' is a flag nothing
-/// consumes — detect() returns a report and there is no gate, no caller,
-/// no exclusion path. A contaminated run's evidence flows onward with a
-/// `contaminated` boolean attached.
+/// Fixed: `exclude_if_contaminated` is a real gate — a contaminated
+/// report refuses the evidence outright instead of letting it flow
+/// onward with a boolean nobody is required to check.
 #[test]
 fn vc_201_009_mastery_exclusion_is_a_flag_not_an_exclusion() {
     let held = set(&["h1"]);
     let r = detect(&held, &set(&["h1"]), &set(&[]));
-    // The report exists — but excluding the run is somebody else's job,
-    // and nobody's job exists: detect() has no production caller.
     assert!(r.contaminated);
     assert_eq!(r.reason.as_deref(), Some("held-out overlap: h1"));
+
+    let excluded = exclude_if_contaminated(&r, "evidence-payload")
+        .expect_err("a contaminated report must refuse the evidence, not pass it through");
+    assert!(excluded.contains("h1"));
+
+    let clean = detect(&held, &set(&[]), &set(&[]));
+    assert_eq!(
+        exclude_if_contaminated(&clean, "evidence-payload"),
+        Ok("evidence-payload")
+    );
 }
 
 /// What does hold: a genuine id overlap in training or memory flags with
