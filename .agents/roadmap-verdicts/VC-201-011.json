@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-011",
-  "verdict": "not-delivered",
-  "evidence": "crates/susi-gawd/src/tests/vc_201_011_mastery.rs",
-  "missing": "Three refutations fixed: ExperimentLog::load(dir) now persists one JSON file per experiment (state plus its own applied transitions), so a fresh load of the same dir after a restart resumes exactly where it left off; Isolated -> Rejected is now a legal transition, so a failed isolation leg has an exit instead of wedging forever; and propose() now refuses an already-registered id instead of silently resetting its state while the surviving transition history wedges it. Still missing: nothing outside tests calls ExperimentLog. Holds: the legal transition chain, evaluation-skip refusal, and duplicate-edge refusal (vc_201_011_mastery_transition_table_holds).",
-  "tracked_by": [
-    "T-DEVIN20261002053148-21"
-  ],
-  "recorded_by": "INTELLIBITZWT20261005035445",
-  "recorded_unix": 1791158541
+  "verdict": "delivered",
+  "evidence": "crates/susi-gawd/src/tests/vc_201_011_mastery.rs — transition table holds, kill-and-resume reloads durable per-experiment records (restart_forgets_everything), failed isolation legs exit via Isolated->Rejected, re-proposing a live id wedges nothing, and the lifecycle is consumed by production: crates/susi-gawd/src/eval_separation.rs advance_experiment (the susi tasks eval-corpus path) proposes, isolates, evaluates, rejects and promotes each candidate's experiment under .susi/experiments/, surviving a fresh load (production_path_persists_the_lifecycle).",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791211821
 }
