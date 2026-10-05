@@ -1484,7 +1484,7 @@
       "id": "VC-202-018",
       "mastery_target": "A stated policy separates the audit tier - durable, signed and payload-free, holding what happened but never what was said or read - from the trace tier, which is levelled, opt-in per subsystem, rotated and TTL'd under a measured bytes-per-day budget. Proven with canaries: a secret, a prompt and a tool output must not reach the audit tier, and trace redaction is structural rather than a filter. Retention and size caps actually prune, and the measured cost of observation is attributed like any other spend.",
       "priority": "P0",
-      "progress": "PARTIAL: tier split delivered (T-DEEPSEEK-110) - typed AuditDetails makes the durable signed tier structurally payload-free (canaries: secret, prompt, tool output cannot reach it), trace is opt-in per subsystem, levelled, per-day rotated, TTL-swept and bytes/day-bounded; the susi-server prompt leak is migrated. Remaining: audit-tier retention/size caps and observation cost attributed in the ledger (T-DEEPSEEK-111).",
+      "progress": "DELIVERED: tier split (T-DEEPSEEK-110) - payload-free signed audit via typed AuditDetails, opt-in levelled rotated TTL'd bytes/day-bounded trace, canaries proven. Retention + measured observation cost (T-DEEPSEEK-111) - audit segments rotate at a byte cap with signed tip attestation, archives prune by days and total bytes, trace prunes by a tier-wide cap, and every write lands an agent-attributed observation record published by susi status.",
       "type": "GOVERNANCE",
       "vector": "Two tiers of observation: payload-free audit, opt-in bounded trace"
     },

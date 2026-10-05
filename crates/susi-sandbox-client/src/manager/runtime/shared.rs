@@ -121,8 +121,24 @@ impl SusiAuditLogger {
             "audit_event"
         );
 
+        // Retention (VC-202-018): rotate a full segment and prune expired
+        // archives before this write lands — the policy bounds the tier,
+        // and a rotation attests the archived tip in the new segment's
+        // first entry so a rewritten or deleted archive is detectable.
+        if let Some(attestation) = crate::audit_fidelity::apply_audit_retention(workspace) {
+            let _ = super::super::super::audit_chain::append_signed_entry(
+                &audit_file,
+                "Info",
+                "AUDIT_ROTATE",
+                &attestation.details().to_string(),
+                std::process::id(),
+            );
+        }
+
         // Cryptographic accountability chain: hash-linked + HMAC-SHA256 under
         // ~/.susi/audit.hmac.key (immutable without the host key).
+        let before = std::fs::metadata(&audit_file).map(|m| m.len()).unwrap_or(0);
+        let started = std::time::Instant::now();
         if let Err(e) = super::super::super::audit_chain::append_signed_entry(
             &audit_file,
             &format!("{:?}", level),
@@ -136,6 +152,18 @@ impl SusiAuditLogger {
                 e
             );
         }
+        // The measured cost of observation: bytes persisted + the overhead
+        // of persisting them, attributed to the agent like any other spend.
+        let written = std::fs::metadata(&audit_file)
+            .map(|m| m.len().saturating_sub(before))
+            .unwrap_or(0);
+        crate::audit_fidelity::record_observation(
+            workspace,
+            "audit",
+            event_type,
+            written,
+            started.elapsed(),
+        );
     }
 
     /// The last `limit` lines of the workspace audit log. The log is an
