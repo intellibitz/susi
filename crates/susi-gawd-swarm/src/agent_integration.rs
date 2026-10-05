@@ -174,12 +174,43 @@ pub enum MergeResult {
     Conflict(Vec<String>),
 }
 
+/// What the integration adapter observed after creating a local merge.
+///
+/// A clean local merge is not yet a published task. Production adapters use
+/// this boundary to push the worker branch, wait for the remote merge, and
+/// only then allow the queue's close receipt to be written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PublicationStatus {
+    /// The tested source revision and resulting merge are visible remotely.
+    Published,
+    /// Publication is still in progress; ownership must remain with the
+    /// worker so another agent cannot duplicate the task.
+    Awaiting { reason: String },
+    /// The adapter cannot tell whether the remote accepted the merge.
+    Uncertain { reason: String },
+}
+
 /// Merge executor (real git in production and tests).
 pub trait Integrator: Send + Sync {
     /// Merge `branch` into the repository at `repo`, current with its base.
     /// Must refuse a dirty result silently — conflicts are reported, not
     /// resolved by overwrite.
     fn integrate(&self, repo: &Path, branch: &str) -> Result<MergeResult, String>;
+
+    /// Publish a clean merge and wait until the remote observes it.
+    ///
+    /// Local/test integrators that already represent a published remote may
+    /// keep the compatibility default. A real branch adapter overrides this
+    /// method to push, monitor the merge, and return `Awaiting` or `Uncertain`
+    /// instead of claiming success on a local commit alone.
+    fn publish_and_wait(
+        &self,
+        _repo: &Path,
+        _branch: &str,
+        _merge_sha: &str,
+    ) -> Result<PublicationStatus, String> {
+        Ok(PublicationStatus::Published)
+    }
 }
 
 /// The integration outcome for one job.
@@ -192,6 +223,12 @@ pub enum IntegrateOutcome {
         merge_sha: String,
         source_sha: String,
     },
+    /// A clean local merge exists, but the remote merge is still pending.
+    /// The queue remains claimed and the task is not finished.
+    AwaitingPublication { merge_sha: String, reason: String },
+    /// Publication outcome is ambiguous; retry/reconciliation must resolve it
+    /// before ownership can be released.
+    PublicationUncertain { merge_sha: String, reason: String },
     /// Worker reported done but acceptance fails — reopened.
     AcceptanceFailed { output: String },
     /// Worker itself reported failure — reopened.
@@ -357,10 +394,21 @@ impl Gate<'_> {
         }
         match integrator.integrate(&a.worktree, branch) {
             Ok(MergeResult::Clean(merge_sha)) => {
-                queue.finish(job_id);
-                IntegrateOutcome::Integrated {
-                    merge_sha,
-                    source_sha,
+                match integrator.publish_and_wait(&a.worktree, branch, &merge_sha) {
+                    Ok(PublicationStatus::Published) => {
+                        queue.finish(job_id);
+                        IntegrateOutcome::Integrated {
+                            merge_sha,
+                            source_sha,
+                        }
+                    }
+                    Ok(PublicationStatus::Awaiting { reason }) => {
+                        IntegrateOutcome::AwaitingPublication { merge_sha, reason }
+                    }
+                    Ok(PublicationStatus::Uncertain { reason }) => {
+                        IntegrateOutcome::PublicationUncertain { merge_sha, reason }
+                    }
+                    Err(reason) => IntegrateOutcome::PublicationUncertain { merge_sha, reason },
                 }
             }
             Ok(MergeResult::Conflict(files)) => IntegrateOutcome::ConflictReview { files },
