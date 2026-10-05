@@ -1,0 +1,9 @@
+{
+  "vector": "VC-202-006",
+  "verdict": "delivered",
+  "evidence": "crates/susi-gemi/src/tests/cache_first_context.rs — cache_first_context_* (6 tests): context_assembly::assemble hoists instruction turns to a stable head so turn N's prompt is a byte-identical prefix of turn N+1's — the property provider prompt caches pay on; a late system message is reordered with the input order journaled as a defect; a no-instruction or sub-threshold context is flagged as a cache-defeating shape with evidence; each assembled context is journaled to context_cache.jsonl (payload-free: token counts, defect labels, priced hit-vs-miss saving on the placed provider's catalog entry), cache_report reports the measured hit rate and realised saving, and susi brain cache surfaces it; production wiring pinned by source scan: the chat-completions endpoint assembles multi-turn context through the gemi.context.assemble plane arm, which journals the measurement with the placed provider.",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791179809
+}

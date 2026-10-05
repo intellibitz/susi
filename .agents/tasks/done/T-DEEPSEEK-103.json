@@ -1,0 +1,28 @@
+{
+  "id": "T-DEEPSEEK-103",
+  "title": "Cache-first context assembly, measured",
+  "goal": "Assemble agent context with stable prefixes and cache-safe ordering so repeated turns hit the provider's prompt cache, and measure the realised hit rate and saving. A context shape that defeats caching is a defect with evidence: the difference between the cached and uncached price of the same work is the difference between affording a swarm and not.",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-88"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--workspace",
+      "--locked",
+      "-E",
+      "test(cache_first_context)"
+    ]
+  },
+  "roadmap": "VC-202-006",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953358,
+  "closed": {
+    "at_unix": 1791179871,
+    "commit": "c847b9657ec153031a263e11ec02fe6dd274fb60",
+    "by": "DEEPSEEK"
+  }
+}

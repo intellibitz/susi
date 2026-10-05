@@ -1358,7 +1358,7 @@
       "id": "VC-202-006",
       "mastery_target": "Agent context is assembled with stable prefixes and cache-safe ordering so repeated turns hit the provider's prompt cache; the hit rate and the realised saving are measured and reported, and a context shape that defeats caching is a defect with evidence rather than an accident.",
       "priority": "P0",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-006.json, T-DEEPSEEK-103, 2026-10-05): cache-first context assembly on the production chat path — the GEMI plane's gemi.context.assemble arm hoists instruction turns to a stable head so every next turn shares a byte-identical prefix; each assembled context journals its measured cacheable fraction and priced hit-vs-miss saving (context_cache.jsonl), cache-defeating shapes (late instructions, no instruction block, sub-threshold prefix) are journaled defects, and susi brain cache reports the measured hit rate and saving. Provider-reported usage still pending — the journal marks every saving estimate.",
       "type": "CLOUD_HOSTING",
       "vector": "Cache-first context assembly"
     },

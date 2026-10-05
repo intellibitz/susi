@@ -341,6 +341,40 @@ impl PlaneHandler for GemiPlaneHandler {
                 )?;
                 Ok(json!({ "text": answer, "topology": topology }))
             }
+            // Literal like `gemi.orchestrate.mission` above — the topics
+            // module is under another claim; the `gemi.` prefix routes it.
+            "gemi.context.assemble" => {
+                let turns: Vec<(String, String)> = payload
+                    .get("turns")
+                    .and_then(|v| v.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|t| {
+                                let role = t
+                                    .get("role")
+                                    .and_then(|v| v.as_str())
+                                    .or_else(|| t.get(0).and_then(|v| v.as_str()))?;
+                                let content = t
+                                    .get("content")
+                                    .and_then(|v| v.as_str())
+                                    .or_else(|| t.get(1).and_then(|v| v.as_str()))?;
+                                Some((role.to_string(), content.to_string()))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let provider = payload.get("provider").and_then(|v| v.as_str());
+                let ctx = crate::context_assembly::assemble(&turns);
+                crate::context_assembly::record_assembly(provider, &ctx);
+                Ok(json!({
+                    "prompt": ctx.prompt,
+                    "stable_prefix_tokens": ctx.stable_prefix_tokens,
+                    "total_tokens": ctx.total_tokens,
+                    "cacheable_fraction": ctx.cacheable_fraction,
+                    "defects": ctx.defects.iter().map(|d| d.label()).collect::<Vec<_>>(),
+                }))
+            }
             topics::GEMI_PLAN_REFINE => {
                 let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
                 let plan = payload.get("plan").cloned().unwrap_or(json!({}));
