@@ -129,6 +129,31 @@ pub struct Delegation {
     pub answer: Option<String>,
 }
 
+/// A recorded mid-mission switch (VC-202-022/T-DEEPSEEK-124): the primary
+/// timed out or died, the next fully-working candidate was elected, and
+/// the mission resumed from the work already done — completed goals are
+/// never re-served. The journal keeps the switch, the work done at the
+/// moment of failure, and both models so the cost on each is
+/// reconstructible from the delegations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Failover {
+    /// The primary that failed.
+    pub from: String,
+    /// The elected successor — `None` when the fully-working field was
+    /// exhausted; the remaining work then stays undone and the record
+    /// says so.
+    pub to: Option<String>,
+    /// The verbatim dispatch failure that caused the switch.
+    pub reason: String,
+    /// Goals already served when the switch happened — the work the
+    /// resume kept instead of redoing.
+    pub completed_goals: usize,
+    /// The goal in flight when the primary died — `None` for the
+    /// synthesis call.
+    pub goal: Option<String>,
+    pub unix: u64,
+}
+
 /// The recorded shape of one orchestrated mission — who did what, on
 /// which model, at what cost. Appended to the journal, one line per run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -145,6 +170,10 @@ pub struct Topology {
     /// Number of goals a secondary actually served — the realized fan-out.
     pub fanned_out: usize,
     pub synthesis_ok: bool,
+    /// Every mid-mission primary switch — empty when the elected primary
+    /// served the whole mission.
+    #[serde(default)]
+    pub failovers: Vec<Failover>,
 }
 
 /// The marginal price of the next call on a ranked worker, for the
@@ -300,11 +329,62 @@ pub fn assign(
         delegations,
         fanned_out,
         synthesis_ok: false,
+        failovers: Vec::new(),
     })
 }
 
 fn brain_quota_exhausted(r: &Ranked) -> bool {
     r.quota_remaining == Some(0.0) || r.effective_cost_usd.is_some_and(|c| c >= f64::MAX)
+}
+
+/// Serve `prompt` on the current primary, failing over on a dead or
+/// timed-out primary (T-DEEPSEEK-124): mark it dead, elect the next
+/// fully-working candidate for the mission class over the survivors —
+/// the same [`primary_election::elect`] the scout ballots — record the
+/// switch, and retry on the successor. The dead set only grows, so the
+/// loop ends: `Err` only when the field is exhausted.
+#[allow(clippy::too_many_arguments)] // failover state is the injection
+                                     // surface — bundling it would only
+                                     // rename the six slots
+fn serve_on_primary(
+    dispatch: &PinnedDispatch<'_>,
+    ranked_for: &RankedFor<'_>,
+    mission_class: TaskClass,
+    current_primary: &mut String,
+    dead: &mut std::collections::BTreeSet<String>,
+    failovers: &mut Vec<Failover>,
+    goal: Option<&str>,
+    prompt: &str,
+    completed_goals: usize,
+    now: u64,
+) -> Result<String, String> {
+    loop {
+        match dispatch(current_primary, prompt) {
+            Ok(text) => return Ok(text),
+            Err(e) => {
+                let from = current_primary.clone();
+                dead.insert(from.clone());
+                let survivors: Vec<Ranked> = ranked_for(mission_class)
+                    .into_iter()
+                    .filter(|r| !dead.contains(&r.provider))
+                    .collect();
+                let successor = primary_election::elect(&survivors, mission_class, now);
+                let to = successor.map(|el| el.primary);
+                failovers.push(Failover {
+                    from,
+                    to: to.clone(),
+                    reason: e.clone(),
+                    completed_goals,
+                    goal: goal.map(str::to_string),
+                    unix: now,
+                });
+                match to {
+                    Some(next) => *current_primary = next,
+                    None => return Err(e),
+                }
+            }
+        }
+    }
 }
 
 /// Run the assigned topology: dispatch each goal to its worker, then ask
@@ -327,22 +407,54 @@ pub fn orchestrate(
     let mission_class = TaskClass::classify(mission);
     let mut topology = assign(ranked_for, headroom, mission_class, goals, now)
         .ok_or_else(|| "no fully-working primary for this mission".to_string())?;
-    let primary = topology.primary.clone();
+    let mut current_primary = topology.primary.clone();
+    // Providers that failed mid-mission — a dead primary is never
+    // re-elected and never retried (T-DEEPSEEK-124).
+    let mut dead = std::collections::BTreeSet::new();
+    let mut failovers = Vec::new();
+    let mut completed_goals = 0usize;
     for d in &mut topology.delegations {
-        let produced = dispatch(&d.provider, &d.goal);
         if !d.delegated {
-            match produced {
+            match serve_on_primary(
+                dispatch,
+                ranked_for,
+                mission_class,
+                &mut current_primary,
+                &mut dead,
+                &mut failovers,
+                Some(&d.goal),
+                &d.goal,
+                completed_goals,
+                now,
+            ) {
                 Ok(text) => {
                     d.ok = true;
                     d.answer = Some(text);
+                    // The record names the worker that actually served —
+                    // the successor after a failover, not the dead
+                    // primary the goal was assigned to — and prices the
+                    // call at that worker, so the cost on each model is
+                    // attributable.
+                    if d.provider != current_primary {
+                        let goal_class = TaskClass::classify(&d.goal);
+                        d.effective_cost_usd = ranked_for(goal_class)
+                            .iter()
+                            .find(|r| r.provider == current_primary)
+                            .and_then(|r| r.effective_cost_usd);
+                        d.provider = current_primary.clone();
+                    }
                 }
                 Err(e) => {
                     d.ok = false;
                     d.answer = Some(format!("[delegation failed: {e}]"));
                 }
             }
+            if d.ok {
+                completed_goals += 1;
+            }
             continue;
         }
+        let produced = dispatch(&d.provider, &d.goal);
         match produced {
             Err(e) => {
                 d.ok = false;
@@ -391,14 +503,28 @@ pub fn orchestrate(
                     // An unverified or refuted delegation is never
                     // presented as the primary's own result — the primary
                     // re-serves the goal itself and the record shows who
-                    // produced the refuted answer and who rescued it.
-                    d.rescued_by = Some(primary.clone());
-                    match dispatch(&primary, &d.goal) {
+                    // produced the refuted answer and who rescued it. The
+                    // rescue goes through the failover path too: a dead
+                    // primary cannot rescue.
+                    match serve_on_primary(
+                        dispatch,
+                        ranked_for,
+                        mission_class,
+                        &mut current_primary,
+                        &mut dead,
+                        &mut failovers,
+                        Some(&d.goal),
+                        &d.goal,
+                        completed_goals,
+                        now,
+                    ) {
                         Ok(rescued) => {
+                            d.rescued_by = Some(current_primary.clone());
                             d.ok = true;
                             d.answer = Some(rescued);
                         }
                         Err(e) => {
+                            d.rescued_by = Some(current_primary.clone());
                             d.ok = false;
                             d.answer = Some(format!("[unverified: {e}]"));
                         }
@@ -406,7 +532,11 @@ pub fn orchestrate(
                 }
             }
         }
+        if d.ok {
+            completed_goals += 1;
+        }
     }
+    topology.failovers = failovers;
     let mut brief = format!("Mission: {mission}\n\nResults to synthesize into one final answer:\n");
     for d in &topology.delegations {
         let checked = match &d.verification {
@@ -422,7 +552,18 @@ pub fn orchestrate(
             d.answer.as_deref().unwrap_or("(no answer)")
         ));
     }
-    let synthesis = dispatch(&topology.primary.clone(), &brief);
+    let synthesis = serve_on_primary(
+        dispatch,
+        ranked_for,
+        mission_class,
+        &mut current_primary,
+        &mut dead,
+        &mut topology.failovers,
+        None,
+        &brief,
+        completed_goals,
+        now,
+    );
     topology.synthesis_ok = synthesis.is_ok();
     let answer = synthesis.unwrap_or_else(|_| {
         topology
