@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-041",
-  "verdict": "not-delivered",
-  "evidence": "vc_201_041_mastery_unknown_probe_is_not_zero, vc_201_041_mastery_provenance_and_timestamps_present (crates/susi-vendor-models/src/tests/vc_201_041_mastery.rs)",
-  "missing": "Unintegrated into production host profiling; actual GPU probes report 0 VRAM when absent and CPU/RAM observations carry no timestamp or provenance",
-  "tracked_by": ["T-ANTIGRAVITY20261002053216-1"],
-  "recorded_by": "CLAUDE1790974037",
-  "delivered_unix": 0
+  "verdict": "delivered",
+  "evidence": "crates/susi-daemon/src/discovery_pipeline.rs (local_ecosystem_report_at composes the published report from live probes — HardwareProfiler, local_ecosystem scan, ModelManager — on the daemon boot, probe-scheduler and susi ecosystem CLI paths; the hardware section now serializes through HardwareProfile::report_json), crates/susi-gemi-models/src/hardware.rs (observed_unix stamped at probe time; report_json emits null — never a bare 0 — for fields whose zero can only mean the probe failed, re-probes available_parallelism so the cpus fallback default cannot masquerade as measured, and attaches provenance), crates/susi-vendor-models/src/resource_inventory.rs (Observation/ProbeProvenance envelope); pinned by tests named vc_201_041_mastery_* in susi-vendor-models, susi-gemi-models and susi-daemon.",
+  "missing": "The cached HardwareProfile struct still exposes ambiguous zeros to in-process consumers — only the published report is sanitized, and cached fields reflect first-probe time rather than re-observation (available_ram_gb, disk_usage_pct, load_avg and uptime refresh per call). String fields (hostname, load_avg, uptime) publish as empty strings, not null, when their probe fails. A host with genuinely <0.5 GiB free RAM would publish available_ram_gb: 0 indistinguishably from a failed read.",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791223229
 }

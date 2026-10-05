@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-018",
-  "verdict": "not-delivered",
-  "evidence": "passing_experiment_yields_reviewable_rc and rejects_target_bin_install_into_susi_home (crates/susi-gawd/src/tests/vc_201_018.rs); refutations (crates/susi-gawd/src/tests/vc_201_018_mastery.rs)",
-  "missing": "Fixed: produce_release_candidate now requires the experiment's independent Verification outcome and refuses unless it actually verified=true, so a failed/never-run/unreviewed experiment can no longer mint a candidate; decide_promotion now trims evidence/digest before the emptiness check, so whitespace-only values are refused; rejects_target_install is now a component-wise, fail-closed check on the destination alone (a relative dest or a staged src no longer evades it); promote_via threads the same Verification check. Nominal direct-target refusals still hold.",
-  "tracked_by": [
-    "T-DEVIN20261002053148-25"
-  ],
-  "recorded_by": "INTELLIBITZWT20261005035445",
-  "recorded_unix": 1791160429
+  "verdict": "delivered",
+  "evidence": "crates/susi-gawd/src/eval_separation.rs (record_release_candidate wired into evaluate_and_record on PromotionReady) and crates/susi-gawd/src/rsi_promotion.rs (produce_release_candidate, decide_promotion, rejects_target_install); pinned by crates/susi-gawd/src/tests/vc_201_018_mastery.rs",
+  "missing": "The release candidate is produced with its manifest and recorded decision, but nothing yet consumes it end-to-end: cloud_rsi_delivery::deliver_candidate (feature-branch commit, PR merge, tagged release) still has no production caller, so PR/release automation remains outside this vector's reach. Promotion into ~/.susi/bin is guarded structurally (release-sync builds in a private release-src tree) and by rejects_target_install/refuse_dev_binary_install on the Rust path.",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791218938
 }

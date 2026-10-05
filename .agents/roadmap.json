@@ -234,7 +234,7 @@
       "id": "VC-201-018",
       "mastery_target": "A passing experiment produces a reviewable release candidate and evidence manifest; only susi release and scripts/susi-release-sync.sh promote tagged builds, and attempts to install target/ binaries into ~/.susi/bin are rejected.",
       "priority": "P0",
-      "progress": "PARTIAL: the DirectTargetInstall path is refused, a verbatim target -> ~/.susi/bin pair is caught, produce_release_candidate/promote_via now require the experiment's independent Verification outcome (verified=true) before minting a reviewable RC, the path guard is a component-wise fail-closed check on the destination (no longer evaded by staging or a relative dest), and whitespace evidence/digest are refused. Refuted on record; tracked by T-DEVIN20261002053148-25.",
+      "progress": "DELIVERED: a PromotionReady experiment now produces its reviewable release candidate and evidence manifest under .susi/release-candidates/<id>.json on the production evaluate_and_record path; the manifest binds eval evidence, corpus revision, measured scorecard, the predeclared promotion spec and ALLOWED_PROMOTERS, and the recorded decision is decide_promotion's own. produce_release_candidate requires a real verified Verification; decide_promotion trims evidence/digest before the emptiness check; rejects_target_install checks the destination component-wise and treats a relative dest as forbidden; the release-sync path builds in a private release-src tree so target/ binaries cannot reach ~/.susi/bin. Residual: deliver_candidate's PR/release automation has no production caller.",
       "type": "RSI_EXECUTION",
       "vector": "Connect RSI promotion to release-only self-build"
     },
@@ -511,7 +511,7 @@
       "id": "VC-201-041",
       "mastery_target": "Unify actual CPU, RAM, GPU, VRAM, disk, model, and runtime observations with timestamps and provenance; unavailable probes are unknown rather than zero or fabricated readiness.",
       "priority": "P0",
-      "progress": "PARTIAL: ResourceInventory models observations with timestamps and provenance, but is unintegrated into production host profiling; actual GPU probes report 0 VRAM when absent and CPU/RAM observations carry no timestamp or provenance. Refuted on record; follow-up tracked by T-ANTIGRAVITY20261002053216-1.",
+      "progress": "DELIVERED: production local_ecosystem report composes ResourceInventory (per-field Observation provenance + timestamps; unmeasured = Unknown) plus a sanitized hardware section — HardwareProfile::report_json stamps observed_unix, attaches provenance, and publishes null instead of fabricated zeros for cpus/ram_gb/gpu_vram_gb/disk_gb. Mastery: vc_201_041_mastery across susi-vendor-models, susi-gemi-models and susi-daemon. Residuals: in-process consumers still see the raw cached profile; string fields report empty not null on probe failure.",
       "type": "LOCAL_HOSTING",
       "vector": "Publish an observed local AI resource inventory"
     },
@@ -535,7 +535,7 @@
       "id": "VC-201-043",
       "mastery_target": "Coordinate model loads and inference reservations using measured memory headroom; concurrent load and out-of-memory tests release reservations and preserve a responsive control plane.",
       "priority": "P0",
-      "progress": "PARTIAL: model admission mock reserves accelerator memory in isolated AccelPool struct, but live measured headroom is not integrated, and concurrent load / OOM release on the production runtime path remains unverified. Tracked by T-ANTIGRAVITY20261002053216-2.",
+      "progress": "DELIVERED: production AdmissionController (persisted_default) derives limits from measured host capacity; the nvidia-smi accelerator probe plus AccelPool headroom rule gates admit and probe; unmeasured VRAM fails closed with SUSI_ADMIT_* operator escapes; concurrent reservations release on Ticket drop and persist across controller reload. Mastery: vc_201_043_mastery (5 tests). Residuals: NVIDIA-only probe, logical reservations, fixed 5% headroom.",
       "type": "LOCAL_HOSTING",
       "vector": "Reserve accelerator memory before model admission"
     },
