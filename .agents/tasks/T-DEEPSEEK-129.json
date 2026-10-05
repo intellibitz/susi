@@ -5,6 +5,7 @@
       "nextest",
       "run",
       "--locked",
+      "--workspace",
       "-E",
       "test(worker_may_be_an_agent)"
     ]
