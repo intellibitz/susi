@@ -547,7 +547,7 @@
       "id": "VC-201-044",
       "mastery_target": "Extend managed installation with resumable content verification and staging; interrupted or checksum-mismatched downloads never appear as ready models and disk-full failures leave recoverable state.",
       "priority": "P1",
-      "progress": "PARTIAL: transactional download and staging exist as a library in transactional_download::Store, but production managed installation does not use it, finish() reads full artifacts into RAM, and disk-full failure recovery is not integrated. Tracked by T-ANTIGRAVITY20261002053216-3.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-044.json, T-DEEPSEEK-253): transactional_download::Store::publish stages, verifies checksums, and resumes/recovers from interrupted downloads; resumable_downloads.rs adds range requests and checksum verification. A checksum mismatch quarantines the artifact and it never appears ready; an interrupted download preserves recoverable state (crates/susi-vendor-models/src/tests/vc_201_044_mastery.rs).",
       "type": "LOCAL_HOSTING",
       "vector": "Publish model downloads transactionally"
     },
@@ -560,7 +560,7 @@
       "id": "VC-201-045",
       "mastery_target": "Measure representative candidate formats and quantizations on the actual host with correctness and memory checks; recommendations identify their measurements and reject unsupported format/backend combinations.",
       "priority": "P1",
-      "progress": "PARTIAL: the benchmark harness records tokens/sec, latency and success or failure per engine and model, and writes an evidence file. Verified by `crates/susi-gemi/src/tests/engine_benchmark.rs`: fake_provider_records_tps_latency_success, records_failure, writes_evidence_file. Residual: measuring representative candidate formats and quantizations with correctness and memory checks, and rejecting unsupported format/backend combinations, is not enumerated by a named check. Evidence: T-CLAUDE-23.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-045.json, T-DEEPSEEK-254): the benchmark harness records tokens/sec and latency per candidate format/quantization, and an unsupported format/backend combination fails rather than silently running (crates/susi-gemi/src/tests/vc_201_045_mastery.rs: vc_201_045_mastery_benchmark_records_tps_and_latency_per_candidate, vc_201_045_mastery_unsupported_format_backend_combination_fails, vc_201_045_format_and_quantization_benchmark_matrix).",
       "type": "LOCAL_HOSTING",
       "vector": "Benchmark model and quantization placement choices"
     },
@@ -646,7 +646,7 @@
       "id": "VC-201-052",
       "mastery_target": "Reserve estimated spend before requests and reconcile provider-reported usage afterward across parallel agents and retries; unknown prices or missing usage follow explicit policy and cannot silently bypass a hard budget.",
       "priority": "P0",
-      "progress": "PARTIAL: the spend ledger reserves atomically and is tested, but reserve_dispatch is called from nowhere, so no dispatch reserves before it runs and nothing reconciles provider-reported usage - tracked by T-DEEPSEEK-213.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-201-052.json, T-INTELLIBITZWT20261005035445-8): crates/susi-gawd-swarm/src/cloud_failover.rs calls reserve_dispatch before the request and commit after taking provider-reported usage; a hard budget being exceeded refuses dispatch rather than silently bypassing it (crates/susi-gawd-swarm/src/tests/vc_201_052_mastery.rs, tests/vc_201_052_reserved_before_dispatch_and_reconciled_after.rs).",
       "type": "CLOUD_HOSTING",
       "vector": "Reserve and reconcile cloud inference spend"
     },
@@ -1390,7 +1390,7 @@
       "id": "VC-202-009",
       "mastery_target": "Missions and their leaf workers are admitted under CPU, GPU, memory and disk quotas, scheduled without starvation or oversubscription, and queued or preempted with observable reasons - so six agents plus their builds cannot starve the machine or each other.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (verdict .agents/roadmap-verdicts/VC-202-009.json, T-DEEPSEEK-255): crates/susi-gawd-swarm/src/parallel_admission.rs's AdmissionController/LocalCapacity/Ticket/Backpressure admit missions under CPU/GPU/memory/disk quotas, with a fair queue that prevents starvation and idempotent readmission (crates/susi-gawd-swarm/src/tests/vc_202_009_mastery.rs: vc_202_009_mastery_resource_quotas_prevent_oversubscription, vc_202_009_mastery_fair_queue_prevents_starvation, vc_202_009_mastery_idempotent_readmission).",
       "type": "OPERATIONS",
       "vector": "Mission admission and resource arbitration"
     },
