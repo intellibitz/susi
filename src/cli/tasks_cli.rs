@@ -60,6 +60,20 @@ pub enum TaskCommands {
     },
     /// List open machine-authored tasks — the review surface for the author path
     Authored,
+    /// Load the versioned RSI corpus, judge one candidate run against its
+    /// held-out suite, and durably record the contamination/promotion
+    /// evidence (VC-201-001). `--input` is a JSON file shaped
+    /// {"candidate":{"id","actual_output","expected_results"},
+    ///  "candidate_can_write","training_access","memory_access"}.
+    #[command(name = "eval-corpus")]
+    EvalCorpus {
+        /// Path to the corpus JSON document
+        #[arg(long, value_name = "FILE")]
+        corpus: PathBuf,
+        /// Path to the JSON-encoded eval run (candidate + access sets)
+        #[arg(long, value_name = "FILE")]
+        input: PathBuf,
+    },
     /// Roadmap coverage and mastery: which vectors have tasks, and which of
     /// them claim delivery in their own narrative
     Roadmap {
@@ -450,6 +464,20 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                 })
                 .collect();
             print_json(&serde_json::json!({ "authored_open": rows }))?;
+        }
+        TaskCommands::EvalCorpus { corpus, input } => {
+            let corpus_json = std::fs::read_to_string(&corpus)
+                .map_err(|e| anyhow::anyhow!("{}: {e}", corpus.display()))?;
+            let corpus = susi_gawd::rsi_corpus::RsiCorpus::from_json(&corpus_json)
+                .map_err(|e| anyhow::anyhow!("corpus {}: {e}", corpus.display()))?;
+            let input_json = std::fs::read_to_string(&input)
+                .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+            let run_input: susi_gawd::eval_separation::EvalRunInput =
+                serde_json::from_str(&input_json)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+            let evidence =
+                susi_gawd::eval_separation::evaluate_and_record(&root, &corpus, &run_input)?;
+            print_json(&evidence)?;
         }
         TaskCommands::Claim {
             id,
