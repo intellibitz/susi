@@ -1,0 +1,11 @@
+{
+  "vector": "VC-202-013",
+  "verdict": "not-delivered",
+  "evidence": "crates/susi-core/src/tests/cost_ledger_trace.rs",
+  "missing": "The pre-existing mission_trace.rs module (production-wired from crates/susi-gawd-swarm/src/ama/report.rs's emit_mission_trace, every mission's terminal choke point) already linked intent/plan/agents/outcome into a durable, append-only JSONL trace, but carried no task_id, node, or per-model token/cost attribution, so a spend figure could not be broken down per mission. Fixed: MissionTrace now carries task_id, node, and model_calls (Vec<ModelCallCost>, each with node/model/tokens/cost_micros); total_cost_micros()/total_tokens() sum them; read_all_for_agent/read_all_for_task make the trace queryable per agent and per task. node is wired to the real cluster-membership identity (cluster_key::node_id()) at the production call site. Still missing: no per-call site anywhere in the codebase currently reports tokens/cost at dispatch time (ToolReceipt itself carries no cost fields), so model_calls is a real, tested, but currently always-empty field in production until a dispatch path populates it — that wiring is a follow-up, not invented here to avoid widening this change's blast radius across the whole evidence/capture system. task_id is similarly real but unpopulated at the one existing call site (no accessor for 'the task id this mission serves' exists yet).",
+  "tracked_by": [
+    "T-DEEPSEEK-96"
+  ],
+  "recorded_by": "INTELLIBITZWT20261005035445",
+  "recorded_unix": 1791189959
+}
