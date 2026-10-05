@@ -146,6 +146,9 @@ pub mod eco_qa_cited;
 #[path = "tests/engine_benchmark.rs"]
 mod engine_benchmark_tests;
 #[cfg(test)]
+#[path = "tests/estate_operations_capability_floor.rs"]
+mod estate_operations_capability_floor_tests;
+#[cfg(test)]
 #[path = "tests/expected_cost_with_cache.rs"]
 mod expected_cost_with_cache_tests;
 #[cfg(test)]
