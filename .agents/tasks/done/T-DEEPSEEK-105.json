@@ -1,0 +1,29 @@
+{
+  "id": "T-DEEPSEEK-105",
+  "title": "Admit missions under CPU, GPU, memory and disk quotas",
+  "goal": "Admit missions and their leaf workers under CPU, GPU, memory and disk quotas, scheduled without starvation or oversubscription, with queue position and preemption observable. Six agents and their cargo builds share one machine, and today only cargo's own file locking keeps them from thrashing each other.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-89"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "-E",
+      "test(mission_admission_quota)"
+    ]
+  },
+  "roadmap": "VC-202-009",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790953358,
+  "closed": {
+    "at_unix": 1791208700,
+    "commit": "421418521a12f470f5a533c236dc53fa299c8856",
+    "by": "PRIMARY202610051809451758787"
+  }
+}
