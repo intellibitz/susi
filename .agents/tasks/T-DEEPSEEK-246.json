@@ -10,6 +10,12 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-vendor-models",
+      "-p",
+      "susi-gemi-models",
+      "-p",
+      "susi-daemon",
       "-E",
       "test(vc_201_041_mastery)"
     ]

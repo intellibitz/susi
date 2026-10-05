@@ -24,6 +24,43 @@ pub struct HardwareProfile {
     pub load_avg: String,
     pub uptime: String,
     pub hostname: String,
+    /// When the host was actually probed. `#[serde(default)]` keeps
+    /// profiles serialized before the field existed loadable.
+    #[serde(default)]
+    pub observed_unix: u64,
+}
+
+impl HardwareProfile {
+    /// Serialize for publication: ambiguous zeros become null — an
+    /// unmeasured field is unknown, never a fabricated measurement — and
+    /// the section carries its capture time and provenance.
+    ///
+    /// `cpus`, `ram_gb`, `gpu_vram_gb` and `disk_gb` cannot truthfully be
+    /// zero on a running host, so zero there means the probe failed.
+    /// `cpus` is additionally nulled when the live parallelism probe
+    /// fails, because the profile's fallback substitutes a plausible
+    /// default that a failed probe cannot be told apart from.
+    /// `swap_gb` and `disk_usage_pct` keep real zeros: a host without
+    /// swap or with an empty disk measures 0.
+    #[must_use]
+    pub fn report_json(&self) -> serde_json::Value {
+        let mut v = serde_json::to_value(self).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(obj) = v.as_object_mut() {
+            for key in ["cpus", "ram_gb", "gpu_vram_gb", "disk_gb"] {
+                if obj.get(key).and_then(serde_json::Value::as_u64) == Some(0) {
+                    obj.insert(key.to_string(), serde_json::Value::Null);
+                }
+            }
+            if std::thread::available_parallelism().is_err() {
+                obj.insert("cpus".to_string(), serde_json::Value::Null);
+            }
+            obj.insert(
+                "provenance".to_string(),
+                serde_json::json!({"observed": {"source": "hardware_profiler"}}),
+            );
+        }
+        v
+    }
 }
 
 pub struct HardwareProfiler;
@@ -70,6 +107,10 @@ impl HardwareProfiler {
                     load_avg: String::new(),
                     uptime: String::new(),
                     hostname: Self::get_hostname(),
+                    observed_unix: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
                 }
             })
             .clone();
@@ -731,6 +772,73 @@ mod tests {
         let profile = HardwareProfiler::get_profile();
         assert!(profile.cpus > 0);
         assert!(profile.ram_gb > 0);
+        assert!(profile.observed_unix > 0);
+    }
+
+    #[test]
+    fn vc_201_041_mastery_report_json_never_publishes_fabricated_zeros() {
+        let zeroed = HardwareProfile {
+            cpus: 0,
+            cpu_brand: String::new(),
+            gpu_info: "none".into(),
+            ram_gb: 0,
+            available_ram_gb: 0,
+            gpu_vram_gb: 0,
+            swap_gb: 0,
+            nvme_active: false,
+            acceleration_active: false,
+            native_acceleration: "None".into(),
+            os_info: "test".into(),
+            arch: "x86_64".into(),
+            disk_gb: 0,
+            disk_usage_pct: 0,
+            load_avg: String::new(),
+            uptime: String::new(),
+            hostname: String::new(),
+            observed_unix: 1_700_000_000,
+        };
+        let v = zeroed.report_json();
+        // A field the probe could not measure publishes null — never a
+        // fabricated measurement.
+        for key in ["cpus", "ram_gb", "gpu_vram_gb", "disk_gb"] {
+            assert!(v.get(key).is_some_and(serde_json::Value::is_null), "{key}");
+        }
+        // Zero is a real measurement for swap and disk usage — kept.
+        assert_eq!(
+            v.get("swap_gb").and_then(serde_json::Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            v.get("disk_usage_pct").and_then(serde_json::Value::as_u64),
+            Some(0)
+        );
+        // The section carries its observation time and provenance.
+        assert_eq!(
+            v.get("observed_unix").and_then(serde_json::Value::as_u64),
+            Some(1_700_000_000)
+        );
+        assert!(v.get("provenance").is_some());
+
+        let measured = HardwareProfile {
+            cpus: 8,
+            ram_gb: 32,
+            gpu_vram_gb: 24,
+            disk_gb: 512,
+            ..zeroed
+        };
+        let v = measured.report_json();
+        for (key, want) in [
+            ("cpus", 8),
+            ("ram_gb", 32),
+            ("gpu_vram_gb", 24),
+            ("disk_gb", 512),
+        ] {
+            assert_eq!(
+                v.get(key).and_then(serde_json::Value::as_u64),
+                Some(want),
+                "{key}"
+            );
+        }
     }
 
     fn fixture_config_step(
