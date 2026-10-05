@@ -2,8 +2,8 @@
   "vector": "VC-201-005",
   "verdict": "not-delivered",
   "evidence": "",
-  "missing": "Three refutations. (1) The gate judges declared expectations, not output: CandidateArtifact has no field for what the candidate produced, so a patch with wrong output passes as long as its declared expectations are a subset of the suite's (vc_201_005_mastery_wrong_output_still_passes_the_gate). (2) A candidate that did nothing passes — an empty expected_results is trivially a subset (vc_201_005_mastery_empty_candidate_passes). (3) The write-permission separation is asserted, not enforced: candidate_can_write is a caller-supplied bool and the artifact is a plain struct (vc_201_005_mastery_write_boundary_is_a_caller_flag). Additionally eval_separation has no production caller and 'held-out inputs' are just a struct field — no isolation mechanism exists. Holds: invented expectations absent from the suite fail, and the write flag fails closed (vc_201_005_mastery_invented_expectations_and_write_flag_fail).",
+  "missing": "Two refutations fixed: CandidateArtifact now carries actual_output (what the candidate produced), and judge() requires suite.expected to be a subset of it — a patch whose output is wrong, or empty, now fails with FailWrongOutput instead of passing on a merely plausible declared expected_results. Still missing: the write-permission separation is asserted, not enforced (candidate_can_write is a caller-supplied bool, by design — the gate has no way to observe isolation itself); eval_separation has no production caller. Holds: invented expectations absent from the suite fail, and the write flag fails closed (vc_201_005_mastery_invented_expectations_and_write_flag_fail).",
   "tracked_by": ["T-DEVIN20261002053148-18"],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790988538
+  "recorded_by": "INTELLIBITZWT20261005035445",
+  "recorded_unix": 1791164526
 }

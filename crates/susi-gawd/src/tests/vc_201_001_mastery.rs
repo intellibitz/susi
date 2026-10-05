@@ -138,6 +138,7 @@ fn vc_201_001_mastery_corpus_feeds_the_eval_path() {
     assert!(suite.expected.contains("rubric"));
     let candidate = CandidateArtifact {
         id: "cand".into(),
+        actual_output: BTreeSet::from(["rubric".to_string()]),
         expected_results: BTreeSet::from(["rubric".to_string()]),
     };
     assert_eq!(judge(&candidate, &suite, false), PromotionGate::Pass);
