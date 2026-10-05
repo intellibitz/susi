@@ -2,10 +2,10 @@
   "vector": "VC-201-077",
   "verdict": "not-delivered",
   "evidence": "crates/susi-config/src/tests/vc_201_077_mastery.rs",
-  "missing": "evaluate_rekey_policy is advisory-only with no production callers and no overlap/revocation/cert surface (vc_201_077_mastery_decision_has_no_overlap_revocation_or_cert_surface). The rotated-out key persists indefinitely \u2014 overlap unbounded (vc_201_077_mastery_prev_key_never_expires). No expiry concept \u2014 stale staged key activates on fingerprint match (vc_201_077_mastery_expired_credential_concept_absent). A torn staged file wedges with no self-recovery (vc_201_077_mastery_torn_stage_wedges_until_outside_repair). No transport-certificate rotation exists. Holds: wrong-fingerprint refusal (vc_201_077_mastery_wrong_fingerprint_refuses_holds), honest trigger reporting (vc_201_077_mastery_triggers_report_holds).",
+  "missing": "Three refutations fixed in cluster_key.rs (the real stage/activate protocol, used by cluster_rekey_stage/commit and commit_log's apply path): the rotated-out key now expires out of `prev_key`/`prev_key_at` after a bounded overlap window (PREV_KEY_OVERLAP_SECS) instead of persisting indefinitely, and `revoke_prev_key`/`revoke_prev_key_at` drop it explicitly before that window elapses (vc_201_077_mastery_prev_key_never_expires, vc_201_077_mastery_explicit_revocation); a staged key now records when it was staged and `activate_staged_key_at` refuses one that has waited past MAX_STAGE_AGE_SECS, instead of activating on fingerprint match alone regardless of age (vc_201_077_mastery_expired_credential_concept_absent); a torn/corrupt staged file is now cleared as a side effect of the failed activation attempt, so a future legitimate stage self-heals instead of wedging until outside repair (vc_201_077_mastery_torn_stage_wedges_until_outside_repair). Verified against the live two-phase protocol: `tests/cluster_rekey.rs` and the full susi-config/susi-core/susi-gmcp suites still pass. Still missing: evaluate_rekey_policy (the scheduling decision) intentionally stays schedule-only and carries no overlap/revocation/cert fields of its own \u2014 that surface now lives in cluster_key.rs instead (vc_201_077_mastery_decision_has_no_overlap_revocation_or_cert_surface still holds, by design); no transport-certificate rotation exists anywhere. Holds: wrong-fingerprint refusal, honest trigger reporting.",
   "tracked_by": [
     "T-DEVIN20261002053148-37"
   ],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1791000045
+  "recorded_by": "INTELLIBITZWT20261005035445",
+  "recorded_unix": 1791187082
 }

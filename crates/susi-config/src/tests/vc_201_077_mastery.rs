@@ -41,9 +41,11 @@ fn vc_201_077_mastery_decision_has_no_overlap_revocation_or_cert_surface() {
     assert!(!pj.contains("cert"));
 }
 
-/// "Bounded overlap": the previous key is retained indefinitely. After a
-/// rotation, `cluster.key.prev` persists with no expiry, no bound, and no
-/// scheduled deletion — the overlap is unbounded.
+/// Fixed: "bounded overlap". After a rotation, `cluster.key.prev`
+/// persists on disk (pre-rotation history must stay byte-verifiable),
+/// but `prev_key_at` now refuses to return it once its recorded
+/// overlap window has elapsed — the retired key is no longer usable
+/// through this path at any age, only within its bound.
 #[test]
 fn vc_201_077_mastery_prev_key_never_expires() {
     let dir = tmp("overlap");
@@ -53,43 +55,89 @@ fn vc_201_077_mastery_prev_key_never_expires() {
     cluster_key::stage_key_to(&new, &dir.join("cluster.key.next"));
     let fp = cluster_key::key_fingerprint(&new);
     assert!(cluster_key::activate_staged_key_at(&fp, &dir));
-    // The rotated-out key is still on disk — and nothing in the API carries
-    // a not-after bound. Reading it later, at any age, works identically.
     let prev_bytes = std::fs::read_to_string(dir.join("cluster.key.prev")).unwrap();
     assert_eq!(prev_bytes.trim(), hex::encode(old));
+    // Within the overlap window the retired key is still usable...
+    assert_eq!(cluster_key::prev_key_at(&dir, 0), Some(old));
+    // ...but once the recorded window has elapsed, it is not — bounded,
+    // not indefinite, overlap.
+    assert_eq!(cluster_key::prev_key_at(&dir, u64::MAX), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// "Expired credentials cannot trigger plaintext or unauthenticated
-/// fallback": keys carry no expiry at all — a staged key activates on
-/// fingerprint match alone regardless of age. There is no `not_after`, no
-/// expiry field, no refusal for a stale credential.
+/// Fixed: "expired credentials cannot trigger plaintext or
+/// unauthenticated fallback". A staged key now records when it was
+/// staged, and activation refuses a key that has waited past the
+/// staging bound — a credential staged long ago cannot activate on
+/// fingerprint match alone.
 #[test]
 fn vc_201_077_mastery_expired_credential_concept_absent() {
     let dir = tmp("expiry");
     let old: [u8; 32] = [0x33; 32];
-    let ancient: [u8; 32] = [0x44; 32]; // imagine: staged a year ago
+    let ancient: [u8; 32] = [0x44; 32];
     std::fs::write(dir.join("cluster.key"), hex::encode(old)).unwrap();
     cluster_key::stage_key_to(&ancient, &dir.join("cluster.key.next"));
     let fp = cluster_key::key_fingerprint(&ancient);
-    // No expiry is consulted — the stale staged key activates.
+    // Back-date the staged-at record to simulate "staged a year ago".
+    std::fs::write(
+        format!("{}.staged_at", dir.join("cluster.key.next").display()),
+        "0",
+    )
+    .unwrap();
+    assert!(
+        !cluster_key::activate_staged_key_at(&fp, &dir),
+        "a staged key past the age bound must not activate regardless of fingerprint match"
+    );
+    // A freshly staged key, right now, still activates normally.
+    cluster_key::stage_key_to(&ancient, &dir.join("cluster.key.next"));
     assert!(cluster_key::activate_staged_key_at(&fp, &dir));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Interrupted rotation: a torn stage (corrupt staged file) is a permanent
-/// wedge — `activate_staged_key_at` returns false forever and nothing
-/// recovers or clears it; the next `stage_key_to` *overwrites* it, but no
-/// recovery path exists inside the protocol itself.
+/// Fixed: interrupted rotation self-heals. A torn (corrupt) staged file
+/// still refuses activation, but `activate_staged_key_at` now clears it
+/// as a side effect, so the next legitimate `stage_key_to` is never
+/// blocked by leftover garbage from a crash mid-stage — no outside
+/// repair is needed.
 #[test]
 fn vc_201_077_mastery_torn_stage_wedges_until_outside_repair() {
     let dir = tmp("torn");
     let old: [u8; 32] = [0x55; 32];
+    let fresh: [u8; 32] = [0x66; 32];
     std::fs::write(dir.join("cluster.key"), hex::encode(old)).unwrap();
     // Simulate a crash mid-stage: truncated/corrupt staged file.
     std::fs::write(dir.join("cluster.key.next"), "deadbeef").unwrap();
-    // Every subsequent activation attempt fails — nothing self-heals it.
     assert!(!cluster_key::activate_staged_key_at("anything", &dir));
+    assert!(
+        !dir.join("cluster.key.next").exists(),
+        "a torn staged file must be cleared, not left to wedge future stages"
+    );
+    // A fresh, legitimate stage now proceeds cleanly with no outside repair.
+    cluster_key::stage_key_to(&fresh, &dir.join("cluster.key.next"));
+    let fp = cluster_key::key_fingerprint(&fresh);
+    assert!(cluster_key::activate_staged_key_at(&fp, &dir));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// New: explicit revocation drops the retired key before its overlap
+/// window elapses, regardless of how much of the window remained.
+#[test]
+fn vc_201_077_mastery_explicit_revocation() {
+    let dir = tmp("revoke");
+    let old: [u8; 32] = [0x77; 32];
+    let new: [u8; 32] = [0x88; 32];
+    std::fs::write(dir.join("cluster.key"), hex::encode(old)).unwrap();
+    cluster_key::stage_key_to(&new, &dir.join("cluster.key.next"));
+    let fp = cluster_key::key_fingerprint(&new);
+    assert!(cluster_key::activate_staged_key_at(&fp, &dir));
+    assert_eq!(cluster_key::prev_key_at(&dir, 0), Some(old));
+    assert!(cluster_key::revoke_prev_key_at(&dir));
+    assert_eq!(
+        cluster_key::prev_key_at(&dir, 0),
+        None,
+        "a revoked key must be unusable immediately, not just after its overlap window"
+    );
+    assert!(!dir.join("cluster.key.prev").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

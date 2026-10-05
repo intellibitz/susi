@@ -143,13 +143,49 @@ fn staged_key_path() -> PathBuf {
     susi_paths::SusiDirs::config_dir().join("cluster.key.next")
 }
 
-/// Prior-epoch key retained on activation. Verification accepts it
-/// only for chain-pinned history fills — see
+/// Prior-epoch key retained on activation (`prev_key_at`). Verification
+/// accepts it only for chain-pinned history fills — see
 /// `commit_log::append_to`'s epoch rule — so a revoked key can never
-/// authorize new records but the pre-rotation ledger stays
-/// verifiable for audit.
-fn prev_key_path() -> PathBuf {
-    susi_paths::SusiDirs::config_dir().join("cluster.key.prev")
+/// authorize new records. It stays verifiable for audit only within
+/// its bounded overlap window (see [`PREV_KEY_OVERLAP_SECS`]), or
+/// until [`revoke_prev_key`] drops it early.
+///
+/// How long a staged next-epoch key may wait before activation is
+/// refused. A credential staged longer ago than this cannot silently
+/// activate on fingerprint match alone — the coordinator must re-stage
+/// with a fresh fingerprint, closing the "stale staged key activates
+/// regardless of age" gap.
+const MAX_STAGE_AGE_SECS: u64 = 24 * 60 * 60;
+
+/// How long a retired key remains usable for verifying pre-rotation
+/// history after a rotation — bounded overlap, not indefinite
+/// retention of old key material.
+const PREV_KEY_OVERLAP_SECS: u64 = 7 * 24 * 60 * 60;
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Companion path for a timestamp sidecar file next to `path`.
+fn sibling(path: &Path, suffix: &str) -> PathBuf {
+    let mut s = path.as_os_str().to_os_string();
+    s.push(suffix);
+    PathBuf::from(s)
+}
+
+fn write_timestamp_file(path: &Path, unix_secs: u64) -> bool {
+    super::json_util::atomic_write_bytes(path, unix_secs.to_string().as_bytes()).is_ok()
+}
+
+fn read_timestamp_file(path: &Path) -> Option<u64> {
+    String::from_utf8(cached_file_bytes(path)?)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 fn key_bytes_from_file(path: &std::path::Path) -> Option<[u8; 32]> {
@@ -190,9 +226,11 @@ pub fn stage_key(key: &[u8; 32]) -> bool {
     stage_key_to(key, &staged_key_path())
 }
 
-/// Test seam: stage to an explicit path.
+/// Test seam: stage to an explicit path. Also records when the key was
+/// staged, so a stale staged key cannot activate indefinitely — see
+/// [`MAX_STAGE_AGE_SECS`].
 pub fn stage_key_to(key: &[u8; 32], path: &Path) -> bool {
-    write_key_file(path, key)
+    write_key_file(path, key) && write_timestamp_file(&sibling(path, ".staged_at"), now_unix())
 }
 
 /// Load a staged next-epoch key, if one is waiting for activation.
@@ -201,17 +239,47 @@ pub fn staged_key() -> Option<[u8; 32]> {
 }
 
 /// The prior-epoch key, retained after activation for verifying
-/// pre-rotation history. `None` when no rotation has happened.
+/// pre-rotation history — but only within its bounded overlap window.
+/// `None` when no rotation has happened, the window has elapsed, or
+/// the key was explicitly revoked.
 pub fn prev_key() -> Option<[u8; 32]> {
-    key_bytes_from_file(&prev_key_path())
+    prev_key_at(&susi_paths::SusiDirs::config_dir(), now_unix())
+}
+
+/// Test seam: as [`prev_key`], against an explicit directory and clock.
+pub fn prev_key_at(dir: &Path, now_unix_secs: u64) -> Option<[u8; 32]> {
+    let prev_path = dir.join("cluster.key.prev");
+    let key = key_bytes_from_file(&prev_path)?;
+    let expires_at = read_timestamp_file(&sibling(&prev_path, ".expires_at"))?;
+    if now_unix_secs >= expires_at {
+        return None;
+    }
+    Some(key)
+}
+
+/// Explicitly revoke the retired key before its overlap window elapses
+/// — e.g. a suspected-compromised member. After this, [`prev_key`] can
+/// no longer verify pre-rotation history through this path, regardless
+/// of how much of the overlap window remained.
+pub fn revoke_prev_key() -> bool {
+    revoke_prev_key_at(&susi_paths::SusiDirs::config_dir())
+}
+
+/// Test seam: as [`revoke_prev_key`], against an explicit directory.
+pub fn revoke_prev_key_at(dir: &Path) -> bool {
+    let prev_path = dir.join("cluster.key.prev");
+    let removed = fs::remove_file(&prev_path).is_ok();
+    let _ = fs::remove_file(sibling(&prev_path, ".expires_at"));
+    removed
 }
 
 /// Activate the staged key iff its fingerprint matches `fingerprint`
 /// — the committed rekey record's value. On success the current key
-/// rotates to `cluster.key.prev` and the staged key becomes current.
-/// Returns false when no staged key exists or the fingerprint does
-/// not match: applying a rekey record can never clear the key or
-/// activate an unexpected one.
+/// rotates to `cluster.key.prev` (with a fresh bounded-overlap expiry)
+/// and the staged key becomes current. Returns false when no staged
+/// key exists, the fingerprint does not match, or the staged key has
+/// waited past [`MAX_STAGE_AGE_SECS`]: applying a rekey record can
+/// never clear the key or activate an unexpected or stale one.
 pub fn activate_staged_key(fingerprint: &str) -> bool {
     activate_staged_key_at(fingerprint, &susi_paths::SusiDirs::config_dir())
 }
@@ -219,22 +287,47 @@ pub fn activate_staged_key(fingerprint: &str) -> bool {
 /// Test seam: activate against an explicit directory.
 pub fn activate_staged_key_at(fingerprint: &str, dir: &std::path::Path) -> bool {
     let staged_path = dir.join("cluster.key.next");
+    let staged_at_path = sibling(&staged_path, ".staged_at");
     let Some(staged) = key_bytes_from_file(&staged_path) else {
+        // Nothing staged, or a torn/corrupt staged file. Self-heal the
+        // latter so a future legitimate stage is never blocked by
+        // leftover garbage from an interrupted rotation.
+        if staged_path.exists() {
+            let _ = fs::remove_file(&staged_path);
+            let _ = fs::remove_file(&staged_at_path);
+        }
         return false;
     };
     if key_fingerprint(&staged) != fingerprint {
         return false;
     }
+    let staged_at = read_timestamp_file(&staged_at_path).unwrap_or(0);
+    if now_unix().saturating_sub(staged_at) > MAX_STAGE_AGE_SECS {
+        // Stale: too old to activate on fingerprint match alone. Clear
+        // it rather than leave it wedged — a fresh stage must re-run.
+        let _ = fs::remove_file(&staged_path);
+        let _ = fs::remove_file(&staged_at_path);
+        return false;
+    }
     let current_path = dir.join("cluster.key");
     let prev_path = dir.join("cluster.key.prev");
     if let Some(current) = key_bytes_from_file(&current_path) {
-        if !write_key_file(&prev_path, &current) {
+        if !write_key_file(&prev_path, &current)
+            || !write_timestamp_file(
+                &sibling(&prev_path, ".expires_at"),
+                now_unix() + PREV_KEY_OVERLAP_SECS,
+            )
+        {
             return false;
         }
     }
     // rename, not copy — the staged key must not linger beside the
     // active one after rotation.
-    fs::rename(&staged_path, &current_path).is_ok()
+    let rotated = fs::rename(&staged_path, &current_path).is_ok();
+    if rotated {
+        let _ = fs::remove_file(&staged_at_path);
+    }
+    rotated
 }
 
 /// Fresh random nonce for one handshake exchange (128-bit).
