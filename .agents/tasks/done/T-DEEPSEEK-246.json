@@ -10,6 +10,12 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-vendor-models",
+      "-p",
+      "susi-gemi-models",
+      "-p",
+      "susi-daemon",
       "-E",
       "test(vc_201_041_mastery)"
     ]
@@ -17,5 +23,10 @@
   "roadmap": "VC-201-041",
   "created_by": "DEEPSEEK",
   "created_unix": 1791222655,
-  "authored": true
+  "authored": true,
+  "closed": {
+    "at_unix": 1791223407,
+    "commit": "c69d91f5f93c8b38799850e516f5ece38b5ce250",
+    "by": "DEEPSEEK"
+  }
 }
