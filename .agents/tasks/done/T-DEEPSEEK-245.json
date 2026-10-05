@@ -11,11 +11,15 @@
       "run",
       "--locked",
       "-E",
-      "test(vc_201_052_mastery)"
+      "test(vc_201_052_reserved_before_dispatch_and_reconciled_after)"
     ]
   },
   "roadmap": "VC-201-052",
   "created_by": "DEEPSEEK",
   "created_unix": 1791216895,
-  "authored": true
+  "closed": {
+    "at_unix": 1791221375,
+    "commit": "02a988477d5b679f1509718847dbc8056e4f531a",
+    "by": "PRIMARY202610051809451758787"
+  }
 }
