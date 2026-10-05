@@ -5,6 +5,7 @@
 //! or deleting any historical line breaks the chain or the MAC — the history is
 //! cryptographically immutable under the host key.
 
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
@@ -195,6 +196,164 @@ pub fn verify_chain_since(audit_file: &Path, since: Option<u64>) -> Result<usize
     verify_with_key_since(audit_file, &key, since)
 }
 
+/// Filters for the structured action history query surface.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AuditQuery {
+    pub actor: Option<String>,
+    pub mission: Option<String>,
+    pub kind: Option<String>,
+    pub since: Option<u64>,
+    pub until: Option<u64>,
+}
+
+/// Redacted, queryable metadata from one signed audit entry.
+///
+/// Raw details are intentionally excluded. Structured action records expose
+/// only their bounded metadata; legacy records retain their event type and
+/// timestamp without pretending that unstructured text has an actor, mission,
+/// or cost.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuditRecord {
+    pub ts: u64,
+    pub level: String,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub actor: Option<String>,
+    pub mission: Option<String>,
+    pub kind: String,
+    pub outcome: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub cost_micros: Option<u64>,
+    pub correlation_id: Option<String>,
+    pub pid: u64,
+    pub entry_hash: String,
+}
+
+/// Verify the complete chain and return its redacted, filterable history.
+///
+/// The entire chain is verified before any records are returned, including
+/// entries outside the requested time window. A missing log is an empty
+/// history; an unreadable or damaged existing log is an error.
+pub fn query_chain(audit_file: &Path, query: &AuditQuery) -> Result<Vec<AuditRecord>, String> {
+    let content = match fs::read_to_string(audit_file) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("cannot read {}: {error}", audit_file.display())),
+    };
+    let key = load_or_create_hmac_key().map_err(|e| e.to_string())?;
+    verify_content(&content, &key, None)?;
+
+    let mut records = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            // The complete-chain verification above already rejected this
+            // line. Keep the parser defensive if that implementation changes.
+            continue;
+        };
+        let Some(entry_hash) = value.get("entry_hash").and_then(|v| v.as_str()) else {
+            // Unsigned legacy records are accepted only before the signed
+            // chain begins, and have no integrity-backed query metadata.
+            continue;
+        };
+        let ts = value.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+        if !query.since.is_none_or(|minimum| ts >= minimum)
+            || !query.until.is_none_or(|maximum| ts <= maximum)
+        {
+            continue;
+        }
+
+        let level = value
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let event_type = value
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let details = value.get("details").and_then(|v| v.as_str());
+        let structured = details
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .filter(serde_json::Value::is_object);
+        let actor = structured
+            .as_ref()
+            .and_then(|details| first_string(details, &["actor"]));
+        let correlation_id = structured
+            .as_ref()
+            .and_then(|details| first_string(details, &["correlation_id"]));
+        let mission = structured.as_ref().and_then(|details| {
+            first_string(details, &["mission", "mission_id"])
+                .or_else(|| correlation_id.clone())
+                .or_else(|| {
+                    details
+                        .get("target")
+                        .and_then(|target| first_string(target, &["mission", "mission_id"]))
+                })
+        });
+        let action_kind = structured
+            .as_ref()
+            .and_then(|details| first_string(details, &["action_kind", "kind"]));
+        let kind = action_kind.clone().unwrap_or_else(|| event_type.clone());
+        let outcome = structured
+            .as_ref()
+            .and_then(|details| first_string(details, &["outcome"]));
+        let duration_ms = structured
+            .as_ref()
+            .and_then(|details| details.get("duration_ms"))
+            .and_then(serde_json::Value::as_u64);
+        let cost_micros = structured
+            .as_ref()
+            .and_then(|details| details.get("cost_micros"))
+            .and_then(serde_json::Value::as_u64);
+
+        if !query
+            .actor
+            .as_deref()
+            .is_none_or(|expected| actor.as_deref() == Some(expected))
+            || !query
+                .mission
+                .as_deref()
+                .is_none_or(|expected| mission.as_deref() == Some(expected))
+            || !query
+                .kind
+                .as_deref()
+                .is_none_or(|expected| kind == expected)
+        {
+            continue;
+        }
+
+        records.push(AuditRecord {
+            ts,
+            level,
+            event_type,
+            actor,
+            mission,
+            kind,
+            outcome,
+            duration_ms,
+            cost_micros,
+            correlation_id,
+            pid: value.get("pid").and_then(|v| v.as_u64()).unwrap_or(0),
+            entry_hash: entry_hash.to_string(),
+        });
+    }
+    Ok(records)
+}
+
+fn first_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(|candidate| candidate.as_str())
+            .map(str::to_string)
+    })
+}
+
 pub(crate) fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize, String> {
     verify_with_key_since(audit_file, key, None)
 }
@@ -206,6 +365,10 @@ pub(crate) fn verify_with_key_since(
 ) -> Result<usize, String> {
     let content = fs::read_to_string(audit_file)
         .map_err(|e| format!("cannot read {}: {e}", audit_file.display()))?;
+    verify_content(&content, key, since)
+}
+
+fn verify_content(content: &str, key: &[u8; 32], since: Option<u64>) -> Result<usize, String> {
     if content.trim().is_empty() {
         return Ok(0);
     }

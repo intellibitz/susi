@@ -314,6 +314,52 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     }
                 }
             }
+            Some(AuditCommands::Query {
+                actor,
+                mission,
+                kind,
+                since,
+                until,
+                json,
+            }) => {
+                let audit_file = cwd.join(".susi").join("audit.log");
+                let query = susi_sandbox::audit_chain::AuditQuery {
+                    actor,
+                    mission,
+                    kind,
+                    since,
+                    until,
+                };
+                match susi_sandbox::audit_chain::query_chain(&audit_file, &query) {
+                    Ok(records) if json => match serde_json::to_string_pretty(&records) {
+                        Ok(output) => println!("{output}"),
+                        Err(error) => {
+                            eprintln!("Audit query serialization failed: {error}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Ok(records) => {
+                        for record in records {
+                            println!(
+                                "{} {} actor={} mission={} kind={} outcome={} cost_micros={}",
+                                record.ts,
+                                record.event_type,
+                                record.actor.as_deref().unwrap_or("-"),
+                                record.mission.as_deref().unwrap_or("-"),
+                                record.kind,
+                                record.outcome.as_deref().unwrap_or("-"),
+                                record
+                                    .cost_micros
+                                    .map_or_else(|| "-".to_string(), |cost| cost.to_string()),
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("Audit query failed: {error}");
+                        std::process::exit(1);
+                    }
+                }
+            }
         },
         Commands::Keys { action } => keys_cli::run(action),
         Commands::Admin { subcommand } => admin_cli::run(subcommand, host),
