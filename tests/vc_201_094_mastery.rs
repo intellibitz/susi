@@ -1,4 +1,5 @@
 #![allow(missing_docs)] // integration test crate: no public API to document
+#![allow(clippy::expect_used)] // deterministic fixture transitions are asserted below
 
 use susi_gawd::capacity_limits::{
     CapacityError, CapacityLimits, ControlPlaneCapacity, LoadPoint, RECORDED_HARDWARE_PROFILE,
@@ -53,12 +54,13 @@ fn vc_201_094_mastery() {
         peer_repair: 0,
         model_churn: 0,
     });
+    assert!(
+        matches!(&overload, Err(CapacityError::Overloaded { .. })),
+        "saturation must reject before dispatch"
+    );
     let report = match overload {
         Err(CapacityError::Overloaded { report }) => report,
-        _ => {
-            assert!(false, "saturation must reject before dispatch");
-            return;
-        }
+        _ => return,
     };
     assert_eq!(report.saturated_on, Some("missions"));
     assert!(report.healthy && report.cancel_responsive);
