@@ -22,6 +22,7 @@ fn run(
             .map(|(k, v)| (k.to_string(), v.map(str::to_string)))
             .collect::<BTreeMap<_, _>>(),
         providers,
+        catalogue: BTreeMap::new(),
     }
 }
 

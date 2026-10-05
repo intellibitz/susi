@@ -1,11 +1,19 @@
 {
   "vector": "VC-202-003",
-  "verdict": "not-delivered",
-  "evidence": "brain_scout_schedule_* (crates/susi-gemi/src/tests/brain_scout_schedule.rs — 6 tests: leader change and provider death are reported drift, identical runs report none, the journal keeps every previous ranking as one JSON line per run and the diff against an earlier run reproduces the recorded drift, the cadence is bounded and env-overridable, production-wiring scan). `run_scheduled` production-reached from the daemon maintenance tick (crates/susi-daemon/src/runtime_admin.rs — the brain_scout subject goes through the shared probe scheduler's decide/record_run, so the sweep is cadence-gated, jittered, budgeted and offline-aware like every other scheduled probe).",
-  "missing": "Scheduled scouting is now production-wired (T-DEEPSEEK-107): Maintenance::tick carries a `brain_scout` subject on the shared ProbeScheduler (interval + deterministic jitter + budget, default 6h via SUSI_BRAIN_SCOUT_INTERVAL_SECS); each run probes every registered provider through the same registry and key arbiter as dispatch (scout_probe::probe_registered, T-DEEPSEEK-99), records verified outcomes into the brain evidence store, snapshots the fit leader per task class, diffs against the journal's last run, and appends the run to ~/.susi/brain_scout_runs.jsonl — the previous ranking kept as evidence, not memory. Drift is reported two ways: LeaderChanged when a task class's leader differs from the last run, ProviderDied when a provider that answered before now fails every transport (a dead key/expired quota) — each event appended to the daemon's drift-alerts.jsonl and warned. The ranking core itself was delivered earlier (T-DEEPSEEK-98: cost per verified outcome, floor before price, unfit never leads) and the deterministic probe set (T-DEEPSEEK-99). What remains undelivered: catalogue-diff discovery — the sweep probes whatever is registered, but nothing snapshots each provider's catalogue, diffs new/retired models since the last scout, or re-triggers ranking on a catalogue event (price/context changes, a model appearing that could outrank the incumbent). Tracked by T-DEEPSEEK-128.",
-  "tracked_by": [
+  "verdict": "delivered",
+  "evidence": "brain_scout_schedule_* (crates/susi-gemi/src/tests/brain_scout_schedule.rs — 6 tests: leader change and provider death reported drift, identical runs report none, the journal keeps every previous ranking, cadence bounded and overridable, production-wiring scan) and model_catalogue_drift_* (crates/susi-gemi/src/tests/model_catalogue_drift.rs — 4 tests: appeared/retired/re-priced models are drift, a retired model is marked Gone in persisted brain health without deleting history, finish_run snapshots every registered provider). `run_scheduled` production-reached from the daemon maintenance tick (crates/susi-daemon/src/runtime_admin.rs).",
+  "delivered_by": [
+    "T-DEEPSEEK-98",
+    "T-DEEPSEEK-99",
+    "T-DEEPSEEK-107",
     "T-DEEPSEEK-128"
   ],
-  "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1791300000
+  "recorded_unix": 1791302000,
+  "check": [
+    "scripts/check-reachability.py",
+    "--delivered",
+    "run_scheduled"
+  ],
+  "notes": "All four axes are production-wired. Ranking (T-98): Store::rank orders floor-meeting candidates by cost_per_outcome_usd and the cascade consumes the rank position; unfit never leads. Probing (T-99): scout_probe's fixed 6-prompt set is offline-checkable and feeds verified outcomes into brain evidence through the same registry and arbiter as dispatch. Schedule + drift + evidence (T-107): the daemon's maintenance tick runs a brain_scout subject on the shared ProbeScheduler (default 6h, env-overridable, jittered, budgeted, offline/consent-gated); each run snapshots per-class leaders, diffs against the journal's previous run (LeaderChanged, ProviderDied), and appends one JSON line per run to ~/.susi/brain_scout_runs.jsonl. Candidate freshness (T-128): every run also snapshots the catalogue — registered providers plus the price the ranker would charge them (same catalog_entry_for matching as the cost ranking) — and the diff produces ModelAppeared (already probed by the same sweep, so a new candidate does not wait for a human), ModelRetired (marked FailureKind::Gone in persisted brain health so a re-appearance starts from evidence, and nothing is ever deleted), and ModelPriceChanged. Honest limits: the catalogue is the substrate's candidate set — registry membership plus catalog price; there is no per-model context-limit field in production config (context_length_routing's ModelWindow is test scaffolding), so a context-limit change is not a detectable drift axis until a real limit source exists; and upstream models a provider offers but the user never configured are outside the registry by design — discovery means the registered candidate set keeps itself current, not crawling vendor catalogues.",
+  "recorded_by": "DEEPSEEK"
 }

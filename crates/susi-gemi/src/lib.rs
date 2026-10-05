@@ -132,6 +132,9 @@ mod engine_benchmark_tests;
 #[path = "tests/expected_cost_with_cache.rs"]
 mod expected_cost_with_cache_tests;
 #[cfg(test)]
+#[path = "tests/model_catalogue_drift.rs"]
+mod model_catalogue_drift_tests;
+#[cfg(test)]
 #[path = "tests/model_preload.rs"]
 mod model_preload_tests;
 #[cfg(test)]
