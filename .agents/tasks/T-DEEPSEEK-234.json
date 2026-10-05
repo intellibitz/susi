@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-234",
+  "title": "Wire the RSI corpus into a production eval surface",
+  "goal": "RsiCorpus verification (hash checks, typed held-out splits, revision-bound replay) is only exercised by tests — eval_separation/eval_contamination have no production caller. Wire a real surface: a 'susi' eval/replay command or a scheduled evaluation that loads a corpus, judges candidates against the held-out suite, and records contamination/promotion evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(rsi_corpus_production_eval)"
+    ]
+  },
+  "roadmap": "VC-201-001",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791204173
+}

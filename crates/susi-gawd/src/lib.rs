@@ -101,6 +101,7 @@ pub mod formal_invariants;
 pub mod gap_priority;
 pub mod genome_distiller;
 pub mod intent_invariants;
+pub mod intent_ladder;
 pub mod kernel_loader;
 pub mod lane_overlap_warning;
 pub mod model_rate_arbitration;
@@ -385,6 +386,9 @@ pub fn init_hooks() {
         susi_gawd_swarm::host_hooks::init(Box::new(GawdHostHooks));
     });
 }
+#[cfg(test)]
+#[path = "tests/intent_ladder_startup.rs"]
+mod intent_ladder_startup_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_008.rs"]
 mod vc_202_008_tests;
