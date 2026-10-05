@@ -8,6 +8,7 @@ use susi_gawd::dev_canary::{evaluate_canary, CanaryResult, CanaryTrial};
 
 #[test]
 fn intent_ladder_canaries() {
+    // Primary regression canary: candidate degrades beyond allowed threshold.
     // candidate_metric (0.5) is worse than baseline_metric (1.0) by 0.5,
     // which exceeds regression_limit (0.4) — the scorer must stop.
     let trial = CanaryTrial {
