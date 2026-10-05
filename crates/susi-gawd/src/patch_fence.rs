@@ -57,7 +57,7 @@ fn next_nonce() -> u64 {
 /// Resolve `.`/`..`/`.` components against a stack, with no filesystem
 /// access — the path (or its parent) may not exist yet, so `canonicalize`
 /// cannot be used here the way it is for paths that are already on disk.
-fn normalize_lexically(path: &Path) -> PathBuf {
+pub(crate) fn normalize_lexically(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {
         match component {

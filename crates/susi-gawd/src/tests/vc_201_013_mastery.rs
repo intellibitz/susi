@@ -2,6 +2,7 @@
 //! isolated workspaces that cannot write the installed release, user
 //! files, or another experiment's workspace.
 
+use crate::patch_cycle::{apply_patch_cycle, FilePatch, PatchRequest};
 use crate::patch_fence::PatchFence;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,6 +12,28 @@ fn tmp_root(tag: &str) -> std::path::PathBuf {
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!("susi-fence-mastery-{tag}-{nanos}"))
+}
+
+fn fixture(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let root = tmp_root(tag);
+    let ws = root.join("repo");
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join("a.txt"), "old\n").unwrap();
+    (root, ws)
+}
+
+fn request(patch_id: Option<&str>, test_cmd: &str) -> PatchRequest {
+    PatchRequest {
+        files: vec![FilePatch {
+            path: "a.txt".into(),
+            old: "old\n".into(),
+            new: "new\n".into(),
+        }],
+        test_command: Some(test_cmd.into()),
+        auto_apply: true,
+        description: "mastery".into(),
+        isolate: patch_id.map(str::to_string),
+    }
 }
 
 /// Fixed: `patch_id` is validated as a single path segment before it is
@@ -109,5 +132,112 @@ fn vc_201_013_mastery_basics_hold() {
     assert!(fence.apply_in_isolation("diff.patch", b"x").is_err());
     fence.ensure_isolated().unwrap();
     fence.apply_in_isolation("diff.patch", b"x").unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Production wiring: the real `apply_patch_cycle` runs the candidate
+/// inside a fenced workspace under `<root>/patches/` — its name is
+/// reported back — and a passing run promotes the patched contents into
+/// the real tree. A byproduct the test command writes lands in the
+/// fence only, proving the command's cwd was the candidate checkout and
+/// not the live workspace.
+#[test]
+fn vc_201_013_mastery_patch_cycle_runs_fenced_and_promotes_on_pass() {
+    let (root, ws) = fixture("prod");
+    let outcome = apply_patch_cycle(
+        &ws,
+        &request(
+            Some("exp1"),
+            "test \"$(cat a.txt)\" = new && echo x > byproduct.txt",
+        ),
+        "autonomous",
+    )
+    .unwrap();
+
+    assert!(outcome.test_passed, "fenced run must pass: {outcome:?}");
+    let iso = outcome
+        .isolated_workspace
+        .as_deref()
+        .expect("an isolated run must name its fenced workspace");
+    assert!(
+        std::path::Path::new(iso).starts_with(root.join("patches")),
+        "fence must live under root/patches, got {iso}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(ws.join("a.txt")).unwrap(),
+        "new\n",
+        "a passing fenced run promotes the patch into the real tree"
+    );
+    assert!(
+        !ws.join("byproduct.txt").exists(),
+        "a test-command byproduct must land in the fence, never the live tree"
+    );
+    assert!(
+        std::path::Path::new(iso).join("byproduct.txt").is_file(),
+        "the byproduct is evidence inside the fenced workspace"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Production wiring: a candidate whose verify step fails leaves the
+/// live workspace byte-identical — the apply happened only inside the
+/// fence — while the fenced workspace is retained as evidence.
+#[test]
+fn vc_201_013_mastery_failed_candidate_never_touches_the_live_tree() {
+    let (root, ws) = fixture("fail");
+    let outcome = apply_patch_cycle(&ws, &request(Some("exp2"), "false"), "autonomous").unwrap();
+
+    assert!(!outcome.test_passed);
+    assert!(outcome.reverted);
+    assert!(
+        outcome.isolated_workspace.is_some(),
+        "the fenced workspace must be named even on failure"
+    );
+    assert_eq!(
+        std::fs::read_to_string(ws.join("a.txt")).unwrap(),
+        "old\n",
+        "a rejected candidate must not mutate the live workspace"
+    );
+    assert!(
+        ws.read_dir().unwrap().count() == 1,
+        "no tx journals or byproducts may leak into the live tree"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Production wiring: two candidates for the same patch id still get
+/// distinct fenced workspaces (the nonce holds through the whole
+/// apply_patch_cycle path), so concurrent experiments can never collide
+/// on — or write into — one another's checkout.
+#[test]
+fn vc_201_013_mastery_concurrent_candidates_get_disjoint_fences() {
+    let (root, ws) = fixture("conc");
+    let a = apply_patch_cycle(&ws, &request(Some("shared"), "true"), "autonomous").unwrap();
+    let mut req2 = request(Some("shared"), "true");
+    req2.files[0].old = "new\n".into();
+    req2.files[0].new = "newer\n".into();
+    let b = apply_patch_cycle(&ws, &req2, "autonomous").unwrap();
+    let (a, b) = (a.isolated_workspace.unwrap(), b.isolated_workspace.unwrap());
+    assert_ne!(
+        a, b,
+        "two candidates for the same patch id must not share one workspace"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Production wiring: a candidate patch whose declared target climbs out
+/// of the workspace is refused on the isolated path exactly as on the
+/// direct path — `..` never resolves onto the live tree's parent or a
+/// sibling experiment's fence.
+#[test]
+fn vc_201_013_mastery_candidate_patch_paths_stay_confined() {
+    let (root, ws) = fixture("conf");
+    let mut req = request(Some("exp3"), "true");
+    req.files[0].path = "../escaped.txt".into();
+    assert!(
+        apply_patch_cycle(&ws, &req, "autonomous").is_err(),
+        "a patch path that climbs out must be refused"
+    );
+    assert!(!root.join("escaped.txt").exists());
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -26,6 +26,14 @@ pub struct PatchRequest {
     pub auto_apply: bool,
     #[serde(default)]
     pub description: String,
+    /// Run the apply+test inside an isolated copy of the workspace — a
+    /// `PatchFence` sibling — and promote the changed files into the real
+    /// tree only when the fenced run passes. `Some(id)` names the
+    /// experiment; the fence sanitizes it to a single path segment, so a
+    /// patch id can never escape the fences root or collide with a
+    /// sibling experiment's workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub isolate: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -37,6 +45,11 @@ pub struct PatchOutcome {
     pub test_stderr: String,
     pub reverted: bool,
     pub error: Option<String>,
+    /// The fenced workspace an isolated run executed in — set only for
+    /// `request.isolate`, and retained (never cleaned) so a rejected run
+    /// leaves inspectable evidence rather than silent absence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub isolated_workspace: Option<String>,
 }
 
 /// Returns the absolute, normalized path only if it is inside `workspace`.
@@ -65,6 +78,114 @@ fn read_file(path: &Path) -> EaiResult<String> {
 fn write_file(path: &Path, content: &str) -> EaiResult<()> {
     crate::susi_config::atomic_replace_file(path, content.as_bytes())
         .map_err(|e| EaiError::filesystem(format!("write {path:?}: {e}")))
+}
+
+/// Populate `dst` as a candidate checkout of `src`: every file is copied
+/// (never hard-linked — a shared inode would leak the candidate's
+/// in-place writes into the live tree before promotion), `.git`/
+/// `target`/`node_modules` are skipped, and every symlink is normalized
+/// to an absolute target inside the fence — or dropped when it resolves
+/// outside `src`, since an escaping link would hand the fenced run a
+/// write channel out of isolation.
+fn stage_candidate(src: &Path, dst: &Path) -> EaiResult<()> {
+    let rd = std::fs::read_dir(src)
+        .map_err(|e| EaiError::filesystem(format!("fence link read {src:?}: {e}")))?;
+    for entry in rd {
+        let entry = entry.map_err(|e| EaiError::filesystem(format!("fence link entry: {e}")))?;
+        let name = entry.file_name();
+        if matches!(name.to_str(), Some(".git" | "target" | "node_modules")) {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(&name);
+        let ft = entry
+            .file_type()
+            .map_err(|e| EaiError::filesystem(format!("fence link stat {from:?}: {e}")))?;
+        if ft.is_dir() {
+            std::fs::create_dir_all(&to)
+                .map_err(|e| EaiError::filesystem(format!("fence mkdir {to:?}: {e}")))?;
+            stage_candidate(&from, &to)?;
+        } else if ft.is_symlink() {
+            link_symlink(&from, src, &to, dst)?;
+        } else if ft.is_file() {
+            std::fs::copy(&from, &to)
+                .map_err(|e| EaiError::filesystem(format!("fence copy {from:?}: {e}")))?;
+        }
+    }
+    Ok(())
+}
+
+/// Recreate a symlink inside the fence — normalized to an absolute
+/// in-fence target, or dropped when it resolves outside `src`: a link
+/// that escapes would hand the fenced run a write channel out of
+/// isolation, and one left pointing at `src` would leak writes back
+/// into the real tree.
+#[cfg(unix)]
+fn link_symlink(from: &Path, src: &Path, to: &Path, dst: &Path) -> EaiResult<()> {
+    let text = std::fs::read_link(from)
+        .map_err(|e| EaiError::filesystem(format!("fence readlink {from:?}: {e}")))?;
+    let resolved = crate::patch_fence::normalize_lexically(
+        &from
+            .parent()
+            .map_or_else(|| text.clone(), |p| p.join(&text)),
+    );
+    let Ok(rel) = resolved.strip_prefix(crate::patch_fence::normalize_lexically(src)) else {
+        return Ok(()); // escapes the workspace: no such link in the fence
+    };
+    std::os::unix::fs::symlink(dst.join(rel), to)
+        .map_err(|e| EaiError::filesystem(format!("fence symlink {to:?}: {e}")))
+}
+
+/// Non-unix fallback: symlinks are not recreated in the fence.
+#[cfg(not(unix))]
+fn link_symlink(_from: &Path, _src: &Path, _to: &Path, _dst: &Path) -> EaiResult<()> {
+    Ok(())
+}
+
+/// Promote the fenced run's changed files into the real workspace under
+/// its own transaction — every target is re-validated first, because the
+/// tree may have drifted while the fenced apply+test executed and a
+/// stale later file must not leave earlier promotes half-written.
+fn promote_into(workspace: &Path, files: &[FilePatch]) -> EaiResult<Vec<String>> {
+    let mut targets: Vec<(PathBuf, &str)> = Vec::new();
+    for fp in files {
+        let path = confined_path(workspace, &fp.path)?;
+        let current = if path.is_file() {
+            read_file(&path)?
+        } else {
+            String::new()
+        };
+        if current != fp.old {
+            return Err(EaiError::governance(format!(
+                "promote refused: {} drifted during the fenced run",
+                path.display()
+            )));
+        }
+        targets.push((path, fp.new.as_str()));
+    }
+    let file_rels: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+    let txm = crate::susi_core::agent_tx::TxManager::global();
+    let tx = txm.begin(
+        workspace,
+        "promote fenced patch",
+        &file_rels,
+        Default::default(),
+    )?;
+    let mut changed = Vec::new();
+    for (path, new) in &targets {
+        if let Err(e) = write_file(path, new) {
+            let _ = txm.abort(&tx.id, workspace);
+            return Err(EaiError::filesystem(format!("promote write failed: {e}")));
+        }
+        changed.push(
+            path.strip_prefix(workspace)
+                .unwrap_or(path)
+                .display()
+                .to_string(),
+        );
+    }
+    txm.commit(&tx.id, workspace)?;
+    Ok(changed)
 }
 
 fn detect_test_command(workspace: &Path) -> String {
@@ -101,6 +222,7 @@ pub fn apply_patch_cycle(
             error: Some(format!(
                 "Patch requires auto_apply=true or trust_level=autonomous (current: {trust_level})"
             )),
+            isolated_workspace: None,
         });
     }
 
@@ -113,8 +235,32 @@ pub fn apply_patch_cycle(
             test_stderr: String::new(),
             reverted: false,
             error: Some("no files in patch request".into()),
+            isolated_workspace: None,
         });
     }
+
+    // Stage the execution workspace. In isolated mode the candidate runs
+    // inside a PatchFence sibling — a full copy of the workspace — so the
+    // apply and its test run can never write the real tree: only a
+    // passing fenced run promotes its changed files back, under a fresh
+    // staleness check and transaction of their own.
+    let fence = match &request.isolate {
+        Some(patch_id) => {
+            let root = workspace
+                .parent()
+                .map_or_else(|| workspace.to_path_buf(), Path::to_path_buf);
+            let f = crate::patch_fence::PatchFence::isolate(&root, patch_id)
+                .map_err(EaiError::governance)?;
+            f.ensure_isolated()
+                .map_err(|e| EaiError::filesystem(format!("fence workspace create: {e}")))?;
+            stage_candidate(workspace, &f.workspace)?;
+            Some(f)
+        }
+        None => None,
+    };
+    let exec_ws = fence
+        .as_ref()
+        .map_or_else(|| workspace.to_path_buf(), |f| f.workspace.clone());
 
     // Validate and confine every target path, and check every file for
     // staleness before anything is written: a stale later file must not
@@ -122,7 +268,7 @@ pub fn apply_patch_cycle(
     // empty `old` only creates a missing (or empty) file.
     let mut targets: Vec<(PathBuf, &str)> = Vec::new();
     for fp in &request.files {
-        let path = confined_path(workspace, &fp.path)?;
+        let path = confined_path(&exec_ws, &fp.path)?;
         let current = if path.is_file() {
             read_file(&path)?
         } else {
@@ -141,13 +287,13 @@ pub fn apply_patch_cycle(
     let file_rels: Vec<String> = request.files.iter().map(|f| f.path.clone()).collect();
     let txm = crate::susi_core::agent_tx::TxManager::global();
     let tx = txm.begin(
-        workspace,
+        &exec_ws,
         &request.description,
         &file_rels,
         Default::default(),
     )?;
     let rollback = |cause: String| -> EaiError {
-        match txm.abort(&tx.id, workspace) {
+        match txm.abort(&tx.id, &exec_ws) {
             Ok(_) => EaiError::filesystem(format!("{cause}; patch reverted")),
             Err(e) => EaiError::filesystem(format!("{cause}; ROLLBACK FAILED: {e}")),
         }
@@ -159,7 +305,7 @@ pub fn apply_patch_cycle(
             return Err(rollback(e.to_string()));
         }
         files_changed.push(
-            path.strip_prefix(workspace)
+            path.strip_prefix(&exec_ws)
                 .unwrap_or(path)
                 .display()
                 .to_string(),
@@ -167,7 +313,7 @@ pub fn apply_patch_cycle(
     }
 
     // Run tests.
-    let susi_repo = crate::susi_core::self_build::is_susi_repo(workspace);
+    let susi_repo = crate::susi_core::self_build::is_susi_repo(&exec_ws);
     let mut test_passed = true;
     let mut test_stdout = String::new();
     let mut test_stderr = String::new();
@@ -175,7 +321,7 @@ pub fn apply_patch_cycle(
         let output = match Command::new("sh")
             .arg("-c")
             .arg(&test_cmd)
-            .current_dir(workspace)
+            .current_dir(&exec_ws)
             .output()
         {
             Ok(output) => output,
@@ -185,11 +331,11 @@ pub fn apply_patch_cycle(
         test_stdout.push_str(&String::from_utf8_lossy(&output.stdout));
         test_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
     } else if !susi_repo {
-        let test_cmd = detect_test_command(workspace);
+        let test_cmd = detect_test_command(&exec_ws);
         let output = match Command::new("sh")
             .arg("-c")
             .arg(&test_cmd)
-            .current_dir(workspace)
+            .current_dir(&exec_ws)
             .output()
         {
             Ok(output) => output,
@@ -200,7 +346,7 @@ pub fn apply_patch_cycle(
         test_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
     }
     if susi_repo {
-        match crate::repo_gate::run_repository_gate(workspace) {
+        match crate::repo_gate::run_repository_gate(&exec_ws) {
             Ok(report) => {
                 test_passed &= report.promotion_ready();
                 test_stdout.push_str(&format!("repository gate executed: {report:?}"));
@@ -215,9 +361,15 @@ pub fn apply_patch_cycle(
     let mut reverted = false;
     let mut error = None;
     if test_passed {
-        txm.commit(&tx.id, workspace)?;
+        txm.commit(&tx.id, &exec_ws)?;
+        if fence.is_some() {
+            // The fenced run passed: promote the same contents into the
+            // real workspace — under its own staleness check and
+            // transaction, since the tree may have drifted mid-run.
+            files_changed = promote_into(workspace, &request.files)?;
+        }
     } else {
-        match txm.abort(&tx.id, workspace) {
+        match txm.abort(&tx.id, &exec_ws) {
             Ok(_) => {
                 files_changed.clear();
                 reverted = true;
@@ -235,6 +387,7 @@ pub fn apply_patch_cycle(
         test_stderr,
         reverted,
         error,
+        isolated_workspace: fence.as_ref().map(|f| f.workspace.display().to_string()),
     };
 
     // Record the feedback cycle outcome in the context graph.
@@ -290,6 +443,7 @@ mod tests {
             test_command: Some("true".into()),
             auto_apply: false,
             description: "test".into(),
+            isolate: None,
         };
         let out = apply_patch_cycle(&ws, &req, "balanced").unwrap();
         assert!(!out.applied);
@@ -310,6 +464,7 @@ mod tests {
             test_command: Some("true".into()),
             auto_apply: true,
             description: "test".into(),
+            isolate: None,
         };
         let out = apply_patch_cycle(&ws, &req, "balanced").unwrap();
         assert!(out.applied);
@@ -342,6 +497,7 @@ mod tests {
             test_command: Some("true".into()),
             auto_apply: true,
             description: "test".into(),
+            isolate: None,
         };
         let out = apply_patch_cycle(&ws, &req, "balanced").unwrap();
         assert!(out.applied);
@@ -366,6 +522,7 @@ mod tests {
             test_command: Some("false".into()),
             auto_apply: true,
             description: "test".into(),
+            isolate: None,
         };
         let out = apply_patch_cycle(&ws, &req, "balanced").unwrap();
         assert!(out.applied);
@@ -398,6 +555,7 @@ mod tests {
             test_command: Some("true".into()),
             auto_apply: true,
             description: "test".into(),
+            isolate: None,
         };
         assert!(apply_patch_cycle(&ws, &req, "balanced").is_err());
         assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "old");
@@ -418,6 +576,7 @@ mod tests {
             test_command: Some("true".into()),
             auto_apply: true,
             description: "test".into(),
+            isolate: None,
         };
         assert!(apply_patch_cycle(&ws, &req, "balanced").is_err());
         assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "keep");
@@ -437,6 +596,7 @@ mod tests {
             test_command: Some("false".into()),
             auto_apply: true,
             description: "test".into(),
+            isolate: None,
         };
         let out = apply_patch_cycle(&ws, &req, "balanced").unwrap();
         assert!(out.reverted);
@@ -457,6 +617,7 @@ mod tests {
             test_command: Some("true".into()),
             auto_apply: true,
             description: "test".into(),
+            isolate: None,
         };
         assert!(apply_patch_cycle(&ws, &req, "autonomous").is_err());
         let _ = std::fs::remove_dir_all(&ws);
