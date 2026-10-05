@@ -5,7 +5,7 @@
 use super::admin_cli;
 use super::commits_cli;
 use super::control_plane_cli::{control_plane_start, control_plane_stop};
-use super::defs::Commands;
+use super::defs::{AuditCommands, Commands};
 use super::keys_cli;
 use super::mcp_cli;
 use super::os_cli;
@@ -288,11 +288,31 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         // the swarm to narrate a compliance audit, which a model answers
         // with unverified figures (the Mandate 2 failure recorded on
         // SovereignDashboard below).
-        Commands::Audit => match susi_gawd::admin::SusiAdmin::audit_compliance(cwd, Some("push")) {
-            Ok(report) => println!("{}", report),
-            Err(e) => {
-                eprintln!("Compliance audit failed: {}", e);
-                std::process::exit(1);
+        Commands::Audit { action } => match action {
+            None => match susi_gawd::admin::SusiAdmin::audit_compliance(cwd, Some("push")) {
+                Ok(report) => println!("{}", report),
+                Err(e) => {
+                    eprintln!("Compliance audit failed: {}", e);
+                    std::process::exit(1);
+                }
+            },
+            Some(AuditCommands::Verify { since }) => {
+                let audit_file = cwd.join(".susi").join("audit.log");
+                match susi_sandbox::audit_chain::verify_chain_since(&audit_file, since) {
+                    Ok(count) => {
+                        if let Some(since) = since {
+                            println!(
+                                "Audit chain verified: {count} record(s) at or after Unix timestamp {since}"
+                            );
+                        } else {
+                            println!("Audit chain verified: {count} record(s)");
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("Audit chain verification failed: {error}");
+                        std::process::exit(1);
+                    }
+                }
             }
         },
         Commands::Keys { action } => keys_cli::run(action),
