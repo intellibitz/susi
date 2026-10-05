@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-012",
   "verdict": "delivered",
-  "evidence": "dedupes_and_ranks_by_impact (crates/susi-gawd/src/tests/vc_201_012.rs)",
+  "evidence": "crates/susi-gawd/src/tests/vc_201_012.rs dedupes_and_ranks_by_impact (earlier axis: recurring typed failures deduplicated and ranked by measured impact). crates/susi-gawd/src/tests/gap_task_from_failure.rs gap_task_from_failure_* (6 tests, T-DEEPSEEK-201): every fail/partial scorecard entry authors an evidence-backed task through tasks::author \u2014 the intent named, its trace, expected against observed \u2014 deduplicated against open tasks and vectors, triaged by grade, capped at GAP_TASKS_PER_RUN atop the authored-open bound; the task's acceptance is `susi admin intent-ladder --verify <id>` so closing it requires the intent itself to pass (the corpus as a growing regression suite); the daemon authors after both the boot slice and the scheduled full run, and outside a checkout it is a deliberate no-op.",
   "missing": "",
   "tracked_by": [],
-  "recorded_by": "INTELLIBITZ202610030140553714905",
-  "recorded_unix": 1790990433
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791206301
 }

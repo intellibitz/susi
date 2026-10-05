@@ -52,10 +52,12 @@ impl SusiRuntimeAdmin {
                     // hermetically — scratch SUSI_HOME, throwaway
                     // workspace, no live estate, no egress — and the
                     // scorecard lands under the susi home.
-                    let _ = susi_gawd::intent_ladder::startup_slice(
-                        &home,
-                        &susi_gawd::intent_ladder::repo_root(),
-                    );
+                    let root = susi_gawd::intent_ladder::repo_root();
+                    if let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &root) {
+                        // A failed rung becomes a repair task whose close
+                        // is the intent passing again (VC-201-012).
+                        let _ = susi_gawd::intent_ladder::gap_tasks(&root, &card, "SUSI");
+                    }
 
                     let mut last_pulse = std::time::Instant::now();
                     let mut tuned_at_completed = 0usize;
@@ -679,15 +681,19 @@ impl Maintenance {
         if let crate::eco_probe_scheduler::Decision::Run { .. } =
             self.probes.decide(&ladder, now, cond)
         {
-            match susi_gawd::intent_ladder::full_run(
-                &self.home,
-                &susi_gawd::intent_ladder::repo_root(),
-            ) {
+            let root = susi_gawd::intent_ladder::repo_root();
+            match susi_gawd::intent_ladder::full_run(&self.home, &root) {
                 Ok(card) => {
                     self.probes.record_run(&ladder, now, card.entries.len());
                     self.changes_last = self.changes_last.saturating_add(
                         card.entries.iter().filter(|e| e.verdict == "fail").count() as u32,
                     );
+                    // Every failing rung becomes an evidence-backed repair
+                    // task — deduplicated, triaged by grade, rate-limited —
+                    // whose close is the intent passing again (VC-201-012).
+                    if let Err(e) = susi_gawd::intent_ladder::gap_tasks(&root, &card, "SUSI") {
+                        warn!("[runtime-admin] intent ladder gap tasking failed: {e}");
+                    }
                 }
                 Err(e) => warn!("[runtime-admin] intent ladder run failed: {e}"),
             }
