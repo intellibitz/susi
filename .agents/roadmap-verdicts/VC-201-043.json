@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-043",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "Model admission does not observe or coordinate live accelerator headroom; AccelPool is an uncalled mock struct in susi-vendor-models; swarm AdmissionController uses hardcoded default capacity rather than measured accelerator headroom; concurrent load and out-of-memory tests do not exercise live reservation release on the production runtime path.",
-  "tracked_by": [
-    "T-ANTIGRAVITY20261002053216-2"
-  ],
-  "recorded_by": "ANTIGRAVITY20261002053216",
-  "recorded_unix": 1790964500
+  "verdict": "delivered",
+  "evidence": "crates/susi-gawd-swarm/src/parallel_admission.rs (AdmissionLimits::measured derives capacity from the live host — available_parallelism, /proc/meminfo MemAvailable, and the accelerator probe — and persisted_default constructs the production AdmissionController with it; admit and probe both apply the AccelPool headroom rule before granting VRAM) and crates/susi-vendor-models/src/accel_reserve.rs (AccelPool headroom/admit/release, probe_vram_free_mb via nvidia-smi); pinned by crates/susi-gawd-swarm/src/tests/vc_201_043_mastery.rs (measured limits from host, operator override wins, unmeasured accelerator fails closed, concurrent reservations release and persist).",
+  "missing": "VRAM probing covers NVIDIA via nvidia-smi only; non-NVIDIA accelerators report unmeasured and fail closed unless the operator sets SUSI_ADMIT_VRAM_MB. Reservations are controller bookkeeping — they gate susi-admitted work but do not stop an external process from consuming VRAM after admission. The safety headroom is a fixed 5% of measured capacity, not adaptive to device count or load.",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791221068
 }

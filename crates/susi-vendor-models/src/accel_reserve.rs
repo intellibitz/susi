@@ -44,6 +44,32 @@ impl AccelPool {
     }
 }
 
+/// Live accelerator probe: free VRAM across all NVIDIA GPUs in MiB, via
+/// `nvidia-smi` — `None` when no probe exists (no GPU, no driver, no
+/// binary). Callers must treat `None` as unmeasured, never as capacity
+/// to assume: accelerator-hungry work fails closed when headroom cannot
+/// be observed.
+#[must_use]
+pub fn probe_vram_free_mb() -> Option<u64> {
+    let out = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut total = 0u64;
+    let mut seen = false;
+    for line in text.lines() {
+        if let Ok(mb) = line.trim().parse::<u64>() {
+            total = total.saturating_add(mb);
+            seen = true;
+        }
+    }
+    seen.then_some(total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
