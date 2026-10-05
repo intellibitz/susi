@@ -32,6 +32,7 @@ pub mod embed_provider {
     pub fn register_local_embed_provider() {}
 }
 pub mod mcp_call_budgets;
+pub mod mcp_probe;
 pub mod mcp_profile;
 pub mod mcp_registry_trust;
 pub mod mcp_wrapper;
