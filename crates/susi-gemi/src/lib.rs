@@ -52,6 +52,7 @@ pub mod brain_explain;
 pub mod brain_exploration;
 pub mod brain_export;
 pub mod brain_per_workspace;
+pub mod capability_matrix;
 pub mod coding_models_ext;
 pub mod confidence_escalation;
 pub mod consensus_mode;
@@ -119,6 +120,9 @@ mod budget_ceiling_tests;
 #[cfg(test)]
 #[path = "tests/capability_floor.rs"]
 mod capability_floor_tests;
+#[cfg(test)]
+#[path = "tests/capability_matrix_by_class.rs"]
+mod capability_matrix_by_class_tests;
 pub mod eco_capability_routing;
 pub mod eco_compat_gate;
 pub mod eco_limits_lookup;
