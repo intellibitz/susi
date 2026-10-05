@@ -172,7 +172,7 @@ fn availability_not_capability_bad_answer_still_records() {
     struct EmptyProvider;
     impl Provider for EmptyProvider {
         fn name(&self) -> &str {
-            "avstorm-empty"
+            "avlone-empty"
         }
         fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
             Box::pin(async { Ok(true) })
@@ -191,7 +191,7 @@ fn availability_not_capability_bad_answer_still_records() {
     registry.register_provider(EmptyProvider);
     let _ = GemiEngine::try_providers(&registry, "ping availability", None, None, &|_| {}, &|_| {});
     let store = crate::engines::brain::load();
-    let ranked = store.rank(&["avstorm-empty".to_string()], TaskClass::Reflex);
+    let ranked = store.rank(&["avlone-empty".to_string()], TaskClass::Reflex);
     assert_eq!(
         ranked[0].samples, 1,
         "a reached-but-empty answer is capability evidence — it counts"
