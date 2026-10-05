@@ -1,4 +1,5 @@
 #![allow(missing_docs)] // integration test crate: no public API to document
+#![allow(clippy::expect_used)] // the checked-in chaos matrix must contain every required fault
 
 use susi_gawd_swarm::chaos_deployment::{
     run_dev_matrix, DegradedReason, DeploymentState, DevFault,
