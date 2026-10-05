@@ -147,6 +147,29 @@ pub struct RouteStep {
     pub reason: String,
 }
 
+/// Why one candidate did not serve — verbatim from its recorded step, so
+/// the mission's "worked alone" answer is checkable, not paraphrased.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AloneCause {
+    pub candidate: String,
+    pub outcome: StepOutcome,
+    pub reason: String,
+}
+
+/// The mission's "the primary worked alone" record (VC-202-022/T-123).
+/// Solo is a first-class path — on a bad day it is most missions — so the
+/// trace names who served and *why nobody else did*: not available, not
+/// healthy, or not worth its cost, one cause per considered candidate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SoloReport {
+    pub served_by: String,
+    pub rung: LadderRung,
+    /// Every other candidate the request considered and why it did not
+    /// serve. Empty means the primary was the only candidate — alone by
+    /// default, not by exception.
+    pub alone_because: Vec<AloneCause>,
+}
+
 /// The complete routing trace for one request: the task class that shaped
 /// it and every rung stepped down, each carrying its reason (VC-202-004).
 /// Persisted as one JSON line per request so an operator can ask "which
@@ -157,6 +180,10 @@ pub struct RoutingLadder {
     pub recorded_at_unix: u64,
     pub task_class: String,
     pub steps: Vec<RouteStep>,
+    /// Set at persist time: present whenever exactly one candidate served —
+    /// the primary working alone is a recorded outcome, not a silent gap.
+    #[serde(default)]
+    pub solo: Option<SoloReport>,
 }
 
 impl RoutingLadder {
@@ -166,6 +193,7 @@ impl RoutingLadder {
             recorded_at_unix: now_unix(),
             task_class: class.label().to_string(),
             steps: Vec::new(),
+            solo: None,
         }
     }
 
@@ -201,14 +229,49 @@ impl RoutingLadder {
             .count()
     }
 
+    /// `Some` when exactly one candidate served — the primary working
+    /// alone, a first-class outcome rather than a degraded one. The report
+    /// names who served and carries every other candidate's reason for
+    /// not serving, so "why it worked alone" is a record, not an inference.
+    #[must_use]
+    pub fn served_alone(&self) -> Option<SoloReport> {
+        let mut selected = self
+            .steps
+            .iter()
+            .filter(|step| step.outcome == StepOutcome::Selected);
+        let winner = selected.next()?;
+        if selected.next().is_some() {
+            return None;
+        }
+        Some(SoloReport {
+            served_by: winner.candidate.clone(),
+            rung: winner.rung,
+            alone_because: self
+                .steps
+                .iter()
+                .filter(|step| step.outcome != StepOutcome::Selected)
+                .map(|step| AloneCause {
+                    candidate: step.candidate.clone(),
+                    outcome: step.outcome,
+                    reason: step.reason.clone(),
+                })
+                .collect(),
+        })
+    }
+
     /// One-line operator trace: which candidate served and why, followed by
     /// every rung stepped down with its reason.
     pub fn summary(&self) -> String {
         let head = match self.selected() {
             Some(step) => format!(
-                "{} '{}' selected: {}",
+                "{} '{}' selected{}: {}",
                 step.rung.label(),
                 step.candidate,
+                if self.served_alone().is_some() {
+                    " (served alone)"
+                } else {
+                    ""
+                },
                 step.reason
             ),
             None => "no candidate selected".to_string(),
@@ -234,10 +297,13 @@ impl RoutingLadder {
         }
     }
 
-    /// Append the ladder as one JSON line to the routing trace file. Hermetic
-    /// under `cargo test` (Mandate 52): nothing writes unless the test sets
+    /// Append the ladder as one JSON line to the routing trace file — the
+    /// solo verdict is computed here so every persisted mission carries
+    /// "who served alone and why" (VC-202-022/T-123). Hermetic under
+    /// `cargo test` (Mandate 52): nothing writes unless the test sets
     /// `SUSI_ROUTING_TRACE_FILE`, exactly like the brain evidence store.
-    pub fn persist(&self) {
+    pub fn persist(&mut self) {
+        self.solo = self.served_alone();
         if cfg!(test) && std::env::var_os("SUSI_ROUTING_TRACE_FILE").is_none() {
             return;
         }
