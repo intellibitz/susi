@@ -2,8 +2,8 @@
   "vector": "VC-201-009",
   "verdict": "not-delivered",
   "evidence": "",
-  "missing": "Three refutations. (1) Detection trusts caller-assembled access sets — an unrecorded held-out read reports clean; there is no tracking mechanism to contradict a missing entry (vc_201_009_mastery_unrecorded_access_is_undetectable). (2) Overlap is by fixture id only — byte-identical held-out content present under another id is invisible (vc_201_009_mastery_content_contamination_under_another_id_is_clean). (3) 'Excluded from improvement evidence' is an unconsumed flag — detect() returns a report and no gate or caller excludes the run; eval_contamination has no production caller (vc_201_009_mastery_exclusion_is_a_flag_not_an_exclusion). Holds: a genuine id overlap flags with a reason naming the ids, disjoint sets report clean (vc_201_009_mastery_id_overlap_flags_with_reason).",
+  "missing": "Two refutations fixed: detect_in_corpus now resolves every accessed id that names a known corpus fixture to its content hash before comparing, so held-out content duplicated into the train split under a different id is caught, not just a literal id match (vc_201_009_mastery_content_contamination_under_another_id_is_clean); exclude_if_contaminated is a real gate that refuses evidence outright on a contaminated report instead of leaving an unconsumed flag (vc_201_009_mastery_exclusion_is_a_flag_not_an_exclusion). Still missing: detection trusts caller-assembled access sets — an unrecorded held-out read reports clean, since nothing tracks real access at the read path itself (vc_201_009_mastery_unrecorded_access_is_undetectable); eval_contamination has no production caller. Holds: a genuine id overlap flags with a reason naming the ids, disjoint sets report clean (vc_201_009_mastery_id_overlap_flags_with_reason).",
   "tracked_by": ["T-DEVIN20261002053148-20"],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790989695
+  "recorded_by": "INTELLIBITZWT20261005035445",
+  "recorded_unix": 1791167229
 }
