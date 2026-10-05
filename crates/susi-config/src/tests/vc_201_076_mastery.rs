@@ -8,6 +8,11 @@
 use crate::extensions::*;
 use std::collections::BTreeMap;
 
+fn digest(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
+}
+
 fn with_temp_home<F: FnOnce()>(f: F) {
     let _guard = crate::env_test_lock();
     let tmp = std::env::temp_dir().join(format!(
@@ -43,6 +48,9 @@ fn pack(id: &str, files: &[(&str, &str)]) -> ExtensionManifest {
         optional: Vec::new(),
         permissions: Vec::new(),
         files: BTreeMap::new(),
+        checksums: BTreeMap::new(),
+        signatures: BTreeMap::new(),
+        signer: None,
         extra: Default::default(),
     };
     for (k, v) in files {
@@ -51,39 +59,45 @@ fn pack(id: &str, files: &[(&str, &str)]) -> ExtensionManifest {
     m
 }
 
-/// The claim requires manifests *bound to checksums* and "signatures where
-/// available". `ExtensionManifest` has no checksum, digest, or signature
-/// field at all — `files` maps names to relative paths only, and
-/// `validate_manifest` never consults any content binding.
 #[test]
-fn vc_201_076_mastery_manifest_has_no_checksum_or_signature_fields() {
-    let m = pack("p", &[("data.json", "data.json")]);
-    let json = serde_json::to_value(&m).expect("serializes");
-    let keys: Vec<&str> = json
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    for k in &keys {
-        assert!(!k.contains("checksum"), "no checksum binding: {k}");
-        assert!(!k.contains("digest"), "no digest binding: {k}");
-        assert!(!k.contains("signature"), "no signature binding: {k}");
-    }
-    // An attacker may put a "checksum" under `extra`; validate ignores it.
-    let mut m2 = pack("p", &[("data.json", "data.json")]);
-    m2.extra.insert(
-        "checksums".into(),
-        serde_json::json!({"data.json": "sha256:00000000"}),
-    );
-    assert!(validate_manifest(&m2).is_ok());
+fn vc_201_076_mastery_manifest_binds_artifacts_to_checksums() {
+    let mut m = pack("p", &[("data.json", "data.json")]);
+    m.checksums.insert("data.json".into(), digest(b"original"));
+    assert!(validate_manifest(&m).is_ok());
+    m.checksums
+        .insert("data.json".into(), "not-a-digest".into());
+    assert!(validate_manifest(&m).is_err());
 }
 
-/// "A changed artifact is quarantined until re-admitted": nothing tracks
-/// artifact content after admission. Drop a pack, admit it, then tamper with
-/// the admitted file — a second load succeeds with no quarantine, no error.
 #[test]
-fn vc_201_076_mastery_tampered_artifact_still_loads() {
+fn vc_201_076_mastery_validates_optional_ed25519_signatures() {
+    use ed25519_dalek::Signer;
+
+    with_temp_home(|| {
+        let root = extensions_root().join("signed");
+        std::fs::create_dir_all(&root).unwrap();
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let mut m = pack("signed", &[("data.json", "data.json")]);
+        m.signer = Some(hex::encode(signing_key.verifying_key().to_bytes()));
+        m.signatures.insert(
+            "data.json".into(),
+            hex::encode(signing_key.sign(b"original").to_bytes()),
+        );
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string_pretty(&m).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(root.join("data.json"), b"original").unwrap();
+        load_pack("signed").expect("valid signature admits");
+        std::fs::write(root.join("data.json"), b"tampered").unwrap();
+        let err = load_pack("signed").expect_err("tampering breaks the signature");
+        assert!(err.contains("quarantined") || err.contains("mismatch"));
+    });
+}
+
+#[test]
+fn vc_201_076_mastery_tampered_artifact_is_quarantined_until_readmitted() {
     with_temp_home(|| {
         let root = extensions_root().join("evil");
         std::fs::create_dir_all(&root).unwrap();
@@ -97,46 +111,45 @@ fn vc_201_076_mastery_tampered_artifact_still_loads() {
         load_pack("evil").expect("pack admits");
         // Tamper with the admitted artifact.
         std::fs::write(root.join("data.json"), b"TAMPERED-payload").unwrap();
-        // Claim requires quarantine; reality: it loads again, unchanged.
-        load_pack("evil").expect("tampered artifact loads unchallenged");
+        let err = load_pack("evil").expect_err("tampered artifact must quarantine");
+        assert!(err.contains("quarantined") || err.contains("mismatch"));
+        assert!(list_packs()
+            .into_iter()
+            .any(|status| status.id == "evil" && status.quarantined));
+        readmit_pack("evil").expect("explicit inspection re-admits current bytes");
+        load_pack("evil").expect("re-admitted artifact loads");
     });
 }
 
-/// The digest ledger that does exist is only for the *default* pack's reseed
-/// heuristic, and tampering there is indistinguishable from "operator
-/// customization": a mutated default-pack file survives `seed_default_pack`
-/// and is re-recorded as the new current digest — the change is preserved,
-/// not quarantined.
 #[test]
-fn vc_201_076_mastery_tampered_default_file_is_preserved_not_quarantined() {
+fn vc_201_076_mastery_tampered_default_file_is_not_served() {
     with_temp_home(|| {
         let root = seed_default_pack().expect("seeded");
         let target = root.join("cloud-vendors.json");
         std::fs::write(&target, b"{\"vendors\":[{\"id\":\"evil\"}]}").unwrap();
-        seed_default_pack().expect("reseed keeps the tampered file");
-        let text = std::fs::read_to_string(&target).unwrap();
-        assert_eq!(text, "{\"vendors\":[{\"id\":\"evil\"}]}");
+        seed_default_pack().expect("reseed does not overwrite operator bytes");
+        assert!(pack_file("cloud-vendors.json").is_none());
     });
 }
 
-/// The substrate state has only active/loaded/unloaded — there is no
-/// quarantine lane for a changed artifact to sit in pending re-admission.
 #[test]
-fn vc_201_076_mastery_no_quarantine_state_exists() {
+fn vc_201_076_mastery_quarantine_is_persisted_in_state() {
     with_temp_home(|| {
         let root = extensions_root().join("evil2");
         std::fs::create_dir_all(&root).unwrap();
-        let m = pack("evil2", &[]);
+        let m = pack("evil2", &[("data.json", "data.json")]);
         std::fs::write(
             root.join("manifest.json"),
             serde_json::to_string_pretty(&m).unwrap(),
         )
         .unwrap();
+        std::fs::write(root.join("data.json"), b"initial").unwrap();
         load_pack("evil2").expect("admits");
+        std::fs::write(root.join("data.json"), b"changed").unwrap();
+        let _ = load_pack("evil2");
         let state_text = std::fs::read_to_string(extensions_root().join("state.json")).unwrap();
-        assert!(!state_text.contains("quarantine"));
-        assert!(!state_text.contains("revoked"));
-        assert!(!state_text.contains("trust"));
+        assert!(state_text.contains("quarantined"));
+        assert!(state_text.contains("trusted_digests"));
     });
 }
 
