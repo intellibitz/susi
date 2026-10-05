@@ -143,7 +143,7 @@ pub fn local_ecosystem_report_at(config_dir: &Path) -> serde_json::Value {
     });
     let report = serde_json::json!({
         "kind": "local_ecosystem",
-        "hardware": profile,
+        "hardware": profile.report_json(),
         "resource_inventory": inventory,
         "engines": eco.engines,
         "accelerators": eco.accelerators,
@@ -193,6 +193,39 @@ mod resource_inventory_tests {
         assert!(inventory.contains_key("vram_bytes"));
         assert!(inventory.contains_key("disk_free_bytes"));
         assert!(config_dir.join("local_ecosystem.json").is_file());
+
+        std::fs::remove_dir_all(config_dir).expect("test report directory should be removable");
+    }
+
+    #[test]
+    fn vc_201_041_mastery_production_hardware_section_is_observed() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after epoch")
+            .as_nanos();
+        let config_dir = std::env::temp_dir().join(format!("susi-vc-201-041m-{nonce}"));
+        std::fs::create_dir(&config_dir).expect("test config directory should be unique");
+
+        let report = local_ecosystem_report_at(&config_dir);
+        let hardware = report
+            .get("hardware")
+            .and_then(serde_json::Value::as_object)
+            .expect("production report must publish a hardware section");
+
+        // Every published hardware observation carries when it was taken
+        // and where it came from.
+        assert!(hardware.contains_key("observed_unix"));
+        assert!(hardware.contains_key("provenance"));
+
+        // Fields whose zero can only mean "the probe failed" must never
+        // publish a bare 0 as if it were measured — unmeasured is null.
+        for key in ["cpus", "ram_gb", "gpu_vram_gb", "disk_gb"] {
+            assert_ne!(
+                hardware.get(key).and_then(serde_json::Value::as_u64),
+                Some(0),
+                "{key} must be a real measurement or null, never a bare 0"
+            );
+        }
 
         std::fs::remove_dir_all(config_dir).expect("test report directory should be removable");
     }

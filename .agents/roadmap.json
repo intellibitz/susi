@@ -511,7 +511,7 @@
       "id": "VC-201-041",
       "mastery_target": "Unify actual CPU, RAM, GPU, VRAM, disk, model, and runtime observations with timestamps and provenance; unavailable probes are unknown rather than zero or fabricated readiness.",
       "priority": "P0",
-      "progress": "PARTIAL: ResourceInventory models observations with timestamps and provenance, but is unintegrated into production host profiling; actual GPU probes report 0 VRAM when absent and CPU/RAM observations carry no timestamp or provenance. Refuted on record; follow-up tracked by T-ANTIGRAVITY20261002053216-1.",
+      "progress": "DELIVERED: production local_ecosystem report composes ResourceInventory (per-field Observation provenance + timestamps; unmeasured = Unknown) plus a sanitized hardware section — HardwareProfile::report_json stamps observed_unix, attaches provenance, and publishes null instead of fabricated zeros for cpus/ram_gb/gpu_vram_gb/disk_gb. Mastery: vc_201_041_mastery across susi-vendor-models, susi-gemi-models and susi-daemon. Residuals: in-process consumers still see the raw cached profile; string fields report empty not null on probe failure.",
       "type": "LOCAL_HOSTING",
       "vector": "Publish an observed local AI resource inventory"
     },
