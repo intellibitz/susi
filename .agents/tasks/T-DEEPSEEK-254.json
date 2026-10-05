@@ -1,0 +1,21 @@
+{
+  "id": "T-DEEPSEEK-254",
+  "title": "Verify mastery: Benchmark model and quantization placement choices",
+  "goal": "Measure representative candidate formats and quantizations on the actual host with correctness and memory checks; recommendations identify their measurements and reject unsupported format/backend combinations.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_045_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-045",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791227856,
+  "authored": true
+}
