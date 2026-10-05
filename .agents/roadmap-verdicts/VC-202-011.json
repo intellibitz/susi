@@ -1,0 +1,11 @@
+{
+  "vector": "VC-202-011",
+  "verdict": "not-delivered",
+  "evidence": "durable_mission_state_* (crates/susi-gawd-swarm/src/tests/durable_mission_state.rs — 4 tests: a mission persisted with a completed root and a crash-interrupted `Running` child resumes on the production dispatch path — recovery folds the interrupted node back to Pending inside the same atomic transaction that advances ownership, the child is re-dispatched exactly once while the completed root and its output are preserved and never re-run, the fold is recorded on the mission's `interruptions` list so the resume point is durable, and the report carries `[MISSION_RESUMED]` naming re-dispatched and preserved nodes; a mission whose record carries a terminal `Failed` verdict fails cleanly naming the node and its recorded output — no silent retry and no `refuse dispatch` wedge — and the verdict is preserved, never rewritten; `mission_resume::resumable_missions` enumerates only the interrupted mission in a mixed workspace (complete and terminal-failed missions are excluded), `MissionView::from_persisted` maps persisted state to the operator view and `cli_status_line` names the resumable nodes without claiming full success; the production wiring is pinned by source scan — the recovery transaction calls `reconcile_interrupted`, dispatch gates on `resume_verdict`, and `susi status` enumerates and renders resumable DAG missions from the same `<workspace>/.susi/missions` records).",
+  "missing": "Delivered: workspace mission state survives process restart and host reboot — persisted `Running` nodes are folded back to `Pending` and re-dispatched inside the same atomic recovery transaction that advances ownership (T-DEEPSEEK-93), completed nodes and outputs are preserved, every fold is recorded on the mission's `interruptions` so the resume point is explicit and durable, a recorded `Failed` verdict fails cleanly by name rather than wedging, and the operator sees resumable missions and their resume nodes in `susi status`. What remains undelivered: snapshot, restore and single-mission rollback to a known-good state without touching another mission's state (T-DEEPSEEK-94).",
+  "tracked_by": [
+    "T-DEEPSEEK-94"
+  ],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791185308
+}

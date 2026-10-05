@@ -840,10 +840,28 @@ impl MissionDag {
         tool_executor: DagToolExecutor,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         self.seed_persist(persist.mission);
+        // A recorded terminal `Failed` verdict is the mission's outcome:
+        // report it cleanly, naming the node and its recorded output,
+        // rather than re-running to a dispatch refusal wedge (T-DEEPSEEK-93).
+        if let crate::mission_persist::ResumeVerdict::TerminalFailed(failed) =
+            persist.mission.resume_verdict()
+        {
+            let detail = failed
+                .iter()
+                .map(|(id, out)| format!("{id}: {out}"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(EaiError::governance(format!(
+                "DAG_EXECUTION_FAILED: mission {} resumed with recorded failure at {detail}",
+                persist.mission.mission_id
+            )));
+        }
         // Recovery is an atomic authority transition.  It advances both
-        // epochs, records the restart, invalidates old leases and turns any
-        // in-flight scope into a cancellation/quarantine candidate before a
-        // new worker can be dispatched.
+        // epochs, records the restart, invalidates old leases, folds
+        // crash-interrupted `Running` nodes back to dispatchable `Pending`
+        // (recording the fold on the mission), and turns any in-flight
+        // scope into a cancellation/quarantine candidate before a new
+        // worker can be dispatched.
         let stale_scopes: Vec<String> = persist
             .mission
             .leases
@@ -861,6 +879,7 @@ impl MissionDag {
             mission.leases.begin_recovery(next_ownership, now);
             mission.leases.recovery.active_scopes.clear();
             mission.recovery = mission.leases.recovery.clone();
+            mission.reconcile_interrupted(now);
             mission.side_effect_journal.reconcile_after_crash();
             Ok(())
         })?;
@@ -1677,6 +1696,36 @@ fn dispatch_mission_dag_inner(
     } else {
         MissionDag::from_persisted(&persist)
     };
+
+    // The resume point is explicit (T-DEEPSEEK-93): a loaded mission that
+    // found nodes mid-flight says which interrupted nodes are re-dispatched
+    // and which completed work is preserved — before anything re-runs, so
+    // the report survives even a failing resume.
+    let resumed_nodes: Vec<String> = persist
+        .nodes
+        .values()
+        .filter(|n| n.state == NodeTerminal::Running)
+        .map(|n| n.id.clone())
+        .collect();
+    let prior_interruptions = persist.interruptions.len();
+    let preserved_nodes: Vec<String> = persist
+        .nodes
+        .values()
+        .filter(|n| n.state == NodeTerminal::Completed)
+        .map(|n| n.id.clone())
+        .collect();
+    if !resumed_nodes.is_empty() || prior_interruptions > 0 {
+        results.push((
+            "MissionDag".to_string(),
+            format!(
+                "[MISSION_RESUMED] mission {mission_id}: re-dispatched {} interrupted node(s) [{}]; {} completed node(s) preserved [{}]",
+                resumed_nodes.len(),
+                resumed_nodes.join(","),
+                preserved_nodes.len(),
+                preserved_nodes.join(",")
+            ),
+        ));
+    }
 
     let (event_tx, _event_rx) = crate::susi_core::bus::create_swarm_bus();
     let mut persist_ctx = MissionPersistCtx {

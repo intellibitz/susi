@@ -6,6 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::Path;
+
+use crate::mission_persist::{NodeTerminal, PersistedMission, ResumeVerdict};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -15,6 +18,8 @@ pub enum NodeView {
     Cancelled,
     Uncertain,
     Completed,
+    /// Terminal recorded failure — never resumable, never silent.
+    Failed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +96,59 @@ impl MissionView {
     pub fn reports_full_success(&self) -> bool {
         self.summary() == MissionSummary::FullyComplete
     }
+
+    /// Rebuild the operator view from the durable mission record
+    /// (T-DEEPSEEK-93, VC-202-011): the resume point comes from persisted
+    /// node state — what a restart actually sees — not an in-memory guess.
+    /// `Pending` and crash-interrupted `Running` nodes are resumable
+    /// (recovery folds `Running` back to `Pending`); `Failed` is a
+    /// recorded terminal verdict and is never silently retried.
+    #[must_use]
+    pub fn from_persisted(mission: &PersistedMission) -> Self {
+        let mut view = Self::new(mission.mission_id.clone());
+        for node in mission.nodes.values() {
+            let (nv, resumable) = match node.state {
+                NodeTerminal::Pending => (NodeView::Blocked, true),
+                NodeTerminal::Running => (NodeView::Running, true),
+                NodeTerminal::Completed => (NodeView::Completed, false),
+                NodeTerminal::Failed => (NodeView::Failed, false),
+            };
+            view.upsert(DagNodeView {
+                id: node.id.clone(),
+                view: nv,
+                resumable,
+                output: node.output.clone(),
+            });
+        }
+        view
+    }
+}
+
+/// Enumerate every workspace mission whose durable record says a restart
+/// may resume it — unfinished nodes remain and none carries a recorded
+/// terminal `Failed` verdict (T-DEEPSEEK-93). This is the production
+/// enumeration that makes the resume point explicit rather than silent.
+#[must_use]
+pub fn resumable_missions(workspace: &Path) -> Vec<MissionView> {
+    let dir = PersistedMission::missions_dir(workspace);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(mission) = PersistedMission::load(&path) else {
+            continue;
+        };
+        if mission.resume_verdict() == ResumeVerdict::Resumable {
+            out.push(MissionView::from_persisted(&mission));
+        }
+    }
+    out.sort_by(|a, b| a.mission_id.cmp(&b.mission_id));
+    out
 }
 
 /// One-line CLI status for durable mission resume. Partial/resumable missions
