@@ -34,6 +34,7 @@ fn corpus(revision: &str, fixtures: Vec<crate::rsi_corpus::CorpusFixture>) -> Rs
         schema_version: RSI_CORPUS_SCHEMA.into(),
         revision: revision.into(),
         fixtures,
+        promotion_spec: None,
     }
 }
 

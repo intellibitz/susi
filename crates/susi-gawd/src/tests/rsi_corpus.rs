@@ -30,6 +30,7 @@ fn vc_201_001_input_hash_and_held_out_split() {
                 evaluator_expected: Some("patch".into()),
             }),
         ],
+        promotion_spec: None,
     };
     assert_eq!(corpus.held_out().len(), 1);
     assert_eq!(corpus.held_out()[0].id, "c1");
@@ -51,6 +52,7 @@ fn vc_201_001_candidate_view_hides_evaluator_expected() {
             seed: 99,
             evaluator_expected: Some("secret-rubric".into()),
         })],
+        promotion_spec: None,
     };
     let view = corpus.candidate_view();
     assert!(view.fixtures[0].evaluator_expected.is_none());
@@ -82,6 +84,7 @@ fn vc_201_001_replay_seeds_cover_all_classes() {
                 evaluator_expected: None,
             }),
         ],
+        promotion_spec: None,
     };
     let seeds = corpus.replay_seeds("rev-3").unwrap();
     assert_eq!(seeds.len(), 2);
@@ -100,6 +103,7 @@ fn vc_201_001_from_json_round_trip_verified() {
             seed: 3,
             evaluator_expected: Some("prints".into()),
         })],
+        promotion_spec: None,
     };
     let json = serde_json::to_string(&corpus).unwrap();
     let loaded = RsiCorpus::from_json(&json).unwrap();

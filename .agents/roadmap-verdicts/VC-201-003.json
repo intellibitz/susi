@@ -1,9 +1,9 @@
 {
   "vector": "VC-201-003",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "Four refutations. (1) The summary verdict gates only three of the five claimed dimensions — resource and operator_effort regressions are invisible to summary_ok (vc_201_003_mastery_regressed_dimensions_do_not_block_the_verdict). (2) 'Undersampled cannot claim' has no mechanism: task_count is never consulted and a zero-task scorecard declares improvement; uncertainty is caller-supplied, not measured (vc_201_003_mastery_zero_tasks_claims_improvement). (3) Thresholds are not predeclared in any enforceable sense — they are fields on the same record as the value they judge, so post-hoc edits flip the verdict (vc_201_003_mastery_thresholds_are_post_hoc_not_predeclared). (4) refuses_task_count_as_percent is a constant true — a tautology, not enforcement. Additionally ImprovementScorecard has no production caller. Holds: caller-supplied uncertainty blocks a marginal claim on a gated dimension (vc_201_003_mastery_uncertainty_blocks_gated_dimensions).",
-  "tracked_by": ["T-DEVIN20261002053148-17"],
-  "recorded_by": "DEVIN20261002053148",
-  "recorded_unix": 1790987957
+  "verdict": "delivered",
+  "evidence": "crates/susi-gawd/src/tests/vc_201_003_mastery.rs — all five dimensions gate the verdict (all_five_dimensions_gate_the_verdict), undersampled runs cannot claim (undersampled_cannot_claim), thresholds live on the predeclared spec not the judged record (thresholds_live_on_the_predeclared_spec), task count cannot pass as a percent (task_count_cannot_pass_as_a_percent), uncertainty blocks a marginal claim, and the scorecard gates the production promotion path: crates/susi-gawd/src/eval_separation.rs advance_experiment drives the durable ExperimentLog on every eval-corpus run — PromotionReady only via promote_with_scorecard against the corpus's predeclared promotion_spec, failed verdicts reject, a bare Pass without measurements never promotes (production_eval_path_gates_promotion).",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "DEEPSEEK",
+  "recorded_unix": 1791210093
 }
