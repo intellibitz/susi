@@ -421,11 +421,18 @@ pub fn deliver_candidate(
             req.binding.reviewer,
             req.binding.acceptance_receipts.join("|")
         );
-        let rc = produce_release_candidate(
+        let rc = match produce_release_candidate(
+            req.verification,
             &req.binding.candidate_id,
             &req.binding.artifact_digest,
             &evidence,
-        );
+        ) {
+            Ok(rc) => rc,
+            Err(why) => {
+                report.reasons.push(format!("release refused: {why}"));
+                return Ok(report);
+            }
+        };
         let decision = decide_promotion(&PromotionAttempt {
             candidate: rc.clone(),
             via: PromotionPath::SusiRelease,
@@ -471,15 +478,19 @@ pub fn refuse_dev_binary_install(
 }
 
 /// Attempt promotion via an explicit path — DirectTargetInstall is always
-/// rejected; only SusiRelease / ReleaseSyncScript may succeed.
+/// rejected; only SusiRelease / ReleaseSyncScript may succeed, and only
+/// when `verification` actually passed.
+#[allow(clippy::too_many_arguments)] // every parameter is an injected seam
 pub fn promote_via(
     release: &mut dyn ReleaseBoundary,
     path: PromotionPath,
+    verification: &Verification,
     tag: &str,
     digest: &str,
     evidence: &str,
 ) -> Result<(), DeliveryError> {
-    let rc = produce_release_candidate(tag, digest, evidence);
+    let rc = produce_release_candidate(verification, tag, digest, evidence)
+        .map_err(|why| DeliveryError::ForbiddenPromotion(why.into()))?;
     match decide_promotion(&PromotionAttempt {
         candidate: rc,
         via: path,
@@ -854,16 +865,18 @@ mod tests {
         let bad = promote_via(
             &mut release,
             PromotionPath::DirectTargetInstall,
+            &verified(),
             "v0.1.0",
             "digest",
             "evidence",
         );
         assert!(matches!(bad, Err(DeliveryError::ForbiddenPromotion(_))));
 
-        // Allowed path succeeds on the fake.
+        // Allowed path succeeds on the fake, given real passing verification.
         promote_via(
             &mut release,
             PromotionPath::ReleaseSyncScript,
+            &verified(),
             "v0.20.1",
             "digest",
             "evidence",
