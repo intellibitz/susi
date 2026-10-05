@@ -15,6 +15,9 @@ pub enum BrainCommands {
         #[arg(trailing_var_arg = true)]
         prompt: Vec<String>,
     },
+    /// Show the measured capability matrix: every model's success rate,
+    /// latency and cost per verified outcome at each task class
+    Matrix,
     /// Forget all recorded outcomes (new account, changed model lineup)
     Reset,
     /// Run the fixed prompt set against a fake or configured engine; record evidence
@@ -70,6 +73,9 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
                 "auto_switched_from": pref.auto_switched_from,
                 "cooled_providers": cooled_providers,
             }))?;
+        }
+        BrainCommands::Matrix => {
+            print_json(&serde_json::to_value(susi_gemi::capability_matrix::build())?)?;
         }
         BrainCommands::Classify { prompt } => {
             let text = prompt.join(" ");
