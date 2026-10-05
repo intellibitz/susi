@@ -184,6 +184,35 @@ impl CapabilityRegistry {
         }
         out
     }
+
+    /// Build the shared typed bus view of the registry's discovered entries.
+    ///
+    /// Existing registry kinds map to their owning surface; HTTP capabilities
+    /// can register directly with [`crate::capability_bus::CapabilityBus`]
+    /// because they are not necessarily local registry objects.
+    #[must_use]
+    pub fn typed_bus(&self) -> crate::capability_bus::CapabilityBus {
+        use crate::capability_bus::{CapabilityBus, CapabilityDescriptor, CapabilitySurface};
+
+        let mut bus = CapabilityBus::new();
+        for (name, kind) in self.list_all_capabilities() {
+            let surface = match kind {
+                "agent" => CapabilitySurface::A2a,
+                "tool" => CapabilitySurface::Mcp,
+                "provider" => CapabilitySurface::Adapter,
+                _ => continue,
+            };
+            let _ = bus.register(CapabilityDescriptor::new(
+                name.clone(),
+                surface,
+                name,
+                format!("capability:{kind}"),
+                30_000,
+                0,
+            ));
+        }
+        bus
+    }
 }
 
 impl Default for CapabilityRegistry {
