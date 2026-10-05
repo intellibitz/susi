@@ -71,6 +71,42 @@ pub enum OsCommands {
         #[command(subcommand)]
         action: OsProvisionAction,
     },
+    /// The unified capability bus: discover every A2A/MCP/HTTP/adapter
+    /// capability through one typed catalog, or dispatch one through its
+    /// permission/timeout/cost contract (Mcp tools only today).
+    Capabilities {
+        #[command(subcommand)]
+        action: Option<Box<OsCapabilitiesAction>>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OsCapabilitiesAction {
+    /// List every discovered capability (default)
+    Discover {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Dispatch one capability through its permission/timeout/cost contract
+    Invoke {
+        /// Capability id to dispatch (as shown by discover)
+        id: String,
+        /// Subject credited/audited for the invocation
+        #[arg(long, default_value = "operator")]
+        subject: String,
+        /// Permission held by the subject, e.g. `capability:tool`
+        #[arg(long)]
+        permission: String,
+        /// JSON args passed to the invoked tool
+        #[arg(long, default_value = "{}")]
+        args: String,
+        #[arg(long, default_value_t = 30_000)]
+        timeout_ms: u64,
+        #[arg(long, default_value_t = u64::MAX)]
+        budget_micros: u64,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -268,6 +304,66 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, workspace: &Path) -> 
         OsCommands::RouteReset { provider } => route_reset(&provider, top_json, workspace),
         OsCommands::Manage { resource } => manage(resource, workspace),
         OsCommands::Provision { action } => provision(action, top_json),
+        OsCommands::Capabilities { action } => capabilities(action, top_json, workspace),
+    }
+}
+
+fn capabilities(
+    action: Option<Box<OsCapabilitiesAction>>,
+    top_json: bool,
+    workspace: &Path,
+) -> Result<()> {
+    use susi_core::capability_bus::CapabilityRequest;
+    use susi_core::registry::CapabilityRegistry;
+
+    let registry = CapabilityRegistry::global();
+    match action.map_or(OsCapabilitiesAction::Discover { json: false }, |a| *a) {
+        OsCapabilitiesAction::Discover { json } => {
+            let discovered = registry.typed_bus().discover();
+            if json || top_json {
+                println!("{}", serde_json::to_string_pretty(&discovered)?);
+            } else {
+                println!("SUSI OS — capability bus ({} discovered)", discovered.len());
+                for d in &discovered {
+                    println!(
+                        "  {id:<28} {surface:?} permission={permission} timeout_ms={timeout_ms} cost_micros={cost_micros}",
+                        id = d.id,
+                        surface = d.surface,
+                        permission = d.permission,
+                        timeout_ms = d.timeout_ms,
+                        cost_micros = d.cost_micros,
+                    );
+                }
+            }
+            Ok(())
+        }
+        OsCapabilitiesAction::Invoke {
+            id,
+            subject,
+            permission,
+            args,
+            timeout_ms,
+            budget_micros,
+            json,
+        } => {
+            let args: serde_json::Value = serde_json::from_str(&args)
+                .map_err(|e| anyhow::anyhow!("--args is not valid JSON: {e}"))?;
+            let request =
+                CapabilityRequest::new(id, subject, [permission], timeout_ms, budget_micros);
+            let receipt = registry
+                .dispatch_capability(&request, &args, workspace)
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            if json || top_json {
+                println!("{}", serde_json::to_string_pretty(&receipt)?);
+            } else {
+                println!(
+                    "dispatched {} on {:?}: {}ms, {} micros",
+                    receipt.capability_id, receipt.surface, receipt.elapsed_ms, receipt.cost_micros
+                );
+                println!("{}", receipt.output);
+            }
+            Ok(())
+        }
     }
 }
 

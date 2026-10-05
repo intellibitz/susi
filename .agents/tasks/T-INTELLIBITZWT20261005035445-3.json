@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZWT20261005035445-3",
+  "title": "Fix capability-bus verdict evidence citation",
+  "goal": "VC-202-012.json's evidence field contained a parenthetical listing two .rs paths, which check-roadmap-verdict.py's citation regex greedily parsed as one bogus combined path, failing CI's Tracked Artifacts job. Rewrite the evidence to the test_name (single/path.rs) convention.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_202_012_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-012",
+  "created_by": "INTELLIBITZWT20261005035445",
+  "created_unix": 1791212033
+}
