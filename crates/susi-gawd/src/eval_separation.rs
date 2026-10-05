@@ -6,6 +6,13 @@ use std::collections::BTreeSet;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CandidateArtifact {
     pub id: String,
+    /// What the candidate actually produced on the suite's inputs. The
+    /// gate judges this, never `expected_results` — a candidate's own
+    /// claim about what it expects is not evidence of what it did.
+    pub actual_output: BTreeSet<String>,
+    /// The candidate's own claim about what it expects to satisfy. Used
+    /// only to catch a candidate inventing truth outside the held-out
+    /// suite — it never substitutes for `actual_output` in the verdict.
     pub expected_results: BTreeSet<String>,
 }
 
@@ -41,10 +48,19 @@ impl HeldOutSuite {
 pub enum PromotionGate {
     Pass,
     FailSelfAlteredExpectations,
+    /// The candidate's actual output does not cover the held-out truth —
+    /// including producing nothing at all.
+    FailWrongOutput,
     FailWriteAttempt,
 }
 
 /// Evaluator: held-out inputs; candidate write perms unavailable.
+///
+/// Judges what the candidate actually produced, not what it claims: a
+/// candidate inventing self-reported expectations outside the held-out
+/// suite is caught first, and only a candidate whose `actual_output`
+/// genuinely covers the suite's `expected` set — not an empty or partial
+/// run — passes.
 pub fn judge(
     candidate: &CandidateArtifact,
     suite: &HeldOutSuite,
@@ -54,19 +70,6 @@ pub fn judge(
         return PromotionGate::FailWriteAttempt;
     }
     // Patch altering its own expected results cannot satisfy the gate.
-    if !candidate.expected_results.is_subset(&suite.expected)
-        && candidate
-            .expected_results
-            .difference(&suite.expected)
-            .next()
-            .is_some()
-    {
-        // Candidate invented expectations not in held-out suite.
-        return PromotionGate::FailSelfAlteredExpectations;
-    }
-    if candidate.expected_results == suite.expected {
-        // Matching by rewriting expectations is still a fail if they diverge from held-out truth.
-    }
     let invented: BTreeSet<_> = candidate
         .expected_results
         .difference(&suite.expected)
@@ -74,6 +77,13 @@ pub fn judge(
         .collect();
     if !invented.is_empty() {
         return PromotionGate::FailSelfAlteredExpectations;
+    }
+    // The gate must judge what the candidate actually produced. A
+    // candidate that produced nothing, or whose output does not cover
+    // the held-out truth, fails — declaring a correct expectation is not
+    // evidence of a correct result.
+    if !suite.expected.is_subset(&candidate.actual_output) {
+        return PromotionGate::FailWrongOutput;
     }
     PromotionGate::Pass
 }

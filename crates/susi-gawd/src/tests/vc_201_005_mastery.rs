@@ -17,55 +17,52 @@ fn suite(expected: &[&str]) -> HeldOutSuite {
     }
 }
 
-/// Falsification: the gate judges declared expectations, not output.
-/// CandidateArtifact has no field for what the candidate actually
-/// produced — so a patch whose output is *wrong*, as long as it declares
-/// expected_results that are a subset of the suite's, passes. The
-/// 'evaluation' compares claims, not results.
+/// Fixed: the gate now judges `actual_output`, not declared
+/// expectations. A candidate that declares a correct-looking
+/// `expected_results` subset but whose actual output is wrong (or
+/// missing) now fails.
 #[test]
 fn vc_201_005_mastery_wrong_output_still_passes_the_gate() {
-    // The candidate declares a subset of the suite's expectations. Its
-    // actual output — whatever it was — is never examined; there is no
-    // field for it.
     let c = CandidateArtifact {
         id: "c-empty-run".into(),
+        // Output never covers "other" — the suite's full held-out truth.
+        actual_output: BTreeSet::from(["real".into()]),
         expected_results: BTreeSet::from(["real".into()]),
     };
     assert_eq!(
         judge(&c, &suite(&["real", "other"]), false),
-        PromotionGate::Pass,
-        "a candidate passes on declared expectations with no output check"
+        PromotionGate::FailWrongOutput,
+        "actual output not covering the held-out truth must fail"
     );
 }
 
-/// Falsification: a candidate that produced nothing passes. An empty
-/// expected_results set is trivially a subset — the gate cannot tell
-/// 'did nothing' from 'satisfied the suite'.
+/// Fixed: a candidate that produced nothing now fails — an empty
+/// `actual_output` cannot cover a non-empty `suite.expected`.
 #[test]
 fn vc_201_005_mastery_empty_candidate_passes() {
     let c = CandidateArtifact {
         id: "did-nothing".into(),
+        actual_output: BTreeSet::new(),
         expected_results: BTreeSet::new(),
     };
     assert_eq!(
         judge(&c, &suite(&["real"]), false),
-        PromotionGate::Pass,
-        "a candidate with no results satisfies the promotion gate"
+        PromotionGate::FailWrongOutput,
+        "a candidate with no output must not satisfy the promotion gate"
     );
 }
 
-/// Falsification: write-permission separation is asserted, not enforced.
-/// `candidate_can_write` is a bool the *caller* supplies; the candidate
-/// artifact is a plain struct — nothing prevents the same code path from
-/// running the gate with the flag simply flipped.
+/// Holds (by design, not by enforcement): `candidate_can_write` is the
+/// gate's declared write-permission input — the gate itself has no way
+/// to observe isolation, so callers must supply it from an actually
+/// enforced sandbox boundary. The gate still fails closed on `true`.
 #[test]
 fn vc_201_005_mastery_write_boundary_is_a_caller_flag() {
     let c = CandidateArtifact {
         id: "c1".into(),
+        actual_output: BTreeSet::from(["real".into()]),
         expected_results: BTreeSet::from(["real".into()]),
     };
-    // Same artifact, same suite — the 'separation' flips with a bool the
-    // harness passes, not with any isolation the gate can observe.
     assert_eq!(
         judge(&c, &suite(&["real"]), true),
         PromotionGate::FailWriteAttempt
@@ -79,6 +76,7 @@ fn vc_201_005_mastery_write_boundary_is_a_caller_flag() {
 fn vc_201_005_mastery_invented_expectations_and_write_flag_fail() {
     let forged = CandidateArtifact {
         id: "c1".into(),
+        actual_output: BTreeSet::from(["real".into()]),
         expected_results: BTreeSet::from(["forged-pass".into()]),
     };
     assert_eq!(
