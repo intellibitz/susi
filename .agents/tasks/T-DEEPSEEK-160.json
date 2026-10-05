@@ -13,6 +13,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-daemon",
       "-E",
       "test(estate_loop_unattended)"
     ]
