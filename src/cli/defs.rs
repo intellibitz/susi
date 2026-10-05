@@ -421,8 +421,11 @@ pub(crate) enum Commands {
     /// Remove SUSI-owned residue (never host or other apps' caches) and report bytes freed
     #[command(name = "os-clean")]
     OsClean,
-    /// Perform compliance audit and technical verification
-    Audit,
+    /// Perform compliance audit and verify the tamper-evident audit chain
+    Audit {
+        #[command(subcommand)]
+        action: Option<AuditCommands>,
+    },
     /// Administrative commands
     Admin {
         #[command(subcommand)]
@@ -533,6 +536,16 @@ pub(crate) enum AuditEvidenceCommands {
     },
 }
 
+#[derive(Subcommand)]
+pub(crate) enum AuditCommands {
+    /// Verify every audit record, optionally reporting entries since a Unix timestamp
+    Verify {
+        /// Only count verified entries at or after this Unix timestamp; the full chain is checked
+        #[arg(long)]
+        since: Option<u64>,
+    },
+}
+
 /// Mandate 32: only ensure the daemon for commands that need the background
 /// substrate. Local-only admin/workspace ops must return without blocking on
 /// binary integrity checks or daemon restart.
@@ -597,7 +610,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Services { .. }
         | Commands::Commits { .. }
         | Commands::Os { .. }
-        | Commands::Peers { .. } => false,
+        | Commands::Peers { .. }
+        | Commands::Audit { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,

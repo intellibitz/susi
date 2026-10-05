@@ -182,18 +182,36 @@ pub(crate) fn append_with_key(
 
 /// Verify the HMAC + hash-link chain in an audit log.
 pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
+    verify_chain_since(audit_file, None)
+}
+
+/// Verify the complete chain while counting entries at or after `since`.
+///
+/// Verification always starts at the beginning of the file: a caller may
+/// filter the reported count by time, but cannot use that filter to skip a
+/// predecessor whose link or signature has been damaged.
+pub fn verify_chain_since(audit_file: &Path, since: Option<u64>) -> Result<usize, String> {
     let key = load_or_create_hmac_key().map_err(|e| e.to_string())?;
-    verify_with_key(audit_file, &key)
+    verify_with_key_since(audit_file, &key, since)
 }
 
 pub(crate) fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize, String> {
+    verify_with_key_since(audit_file, key, None)
+}
+
+pub(crate) fn verify_with_key_since(
+    audit_file: &Path,
+    key: &[u8; 32],
+    since: Option<u64>,
+) -> Result<usize, String> {
     let content = fs::read_to_string(audit_file)
         .map_err(|e| format!("cannot read {}: {e}", audit_file.display()))?;
     if content.trim().is_empty() {
         return Ok(0);
     }
     let mut expected_prev = GENESIS.to_string();
-    let mut count = 0usize;
+    let mut signed_count = 0usize;
+    let mut matching_count = 0usize;
     for (idx, line) in content.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() {
@@ -203,7 +221,7 @@ pub(crate) fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize
             return Err(format!("line {}: invalid JSON", idx + 1));
         };
         let Some(entry_hash) = v.get("entry_hash").and_then(|x| x.as_str()) else {
-            if count > 0 {
+            if signed_count > 0 {
                 return Err(format!(
                     "line {}: unsigned entry after signed chain began",
                     idx + 1
@@ -219,7 +237,7 @@ pub(crate) fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize
         let pid = v.get("pid").and_then(|x| x.as_u64()).unwrap_or(0);
         let ts = v.get("ts").and_then(|x| x.as_u64()).unwrap_or(0);
 
-        if count == 0 && prev == GENESIS {
+        if signed_count == 0 && prev == GENESIS {
             expected_prev = GENESIS.to_string();
         }
         if prev != expected_prev {
@@ -251,9 +269,12 @@ pub(crate) fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize
             return Err(format!("line {}: HMAC signature invalid", idx + 1));
         }
         expected_prev = entry_hash.to_string();
-        count += 1;
+        signed_count += 1;
+        if since.is_none_or(|minimum| ts >= minimum) {
+            matching_count += 1;
+        }
     }
-    Ok(count)
+    Ok(matching_count)
 }
 
 #[cfg(test)]
