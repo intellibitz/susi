@@ -30,7 +30,7 @@
       "id": "VC-201-001",
       "mastery_target": "Create versioned coding, repair, orchestration, and local/cloud operations fixtures with input hashes and held-out splits; replay the same revision with recorded seeds and no evaluator-data exposure to the candidate.",
       "priority": "P0",
-      "progress": "PARTIAL: graded intent ladder delivered (T-DEEPSEEK-200): versioned .agents/intent-ladder.json, bounded hermetic start-up slice + daily full run + 'susi admin intent-ladder', independent outcome checks, durable scorecard. Corpus structure verified (hash checks, typed splits, revision-bound replay). Remaining: corpus has no production eval caller (T-DEEPSEEK-234).",
+      "progress": "DELIVERED: graded intent ladder delivered (T-DEEPSEEK-200): versioned .agents/intent-ladder.json, bounded hermetic start-up slice + daily full run + 'susi admin intent-ladder', independent outcome checks, durable scorecard. Corpus structure verified (hash checks, typed splits, revision-bound replay). Production eval caller delivered (T-DEEPSEEK-234): 'susi tasks eval-corpus' loads a corpus, checks contamination, judges the candidate against the held-out suite, and records durable JSONL promotion evidence under .susi/eval_evidence.jsonl.",
       "type": "RSI_EVALUATION",
       "vector": "Version the RSI evaluation corpus"
     },
