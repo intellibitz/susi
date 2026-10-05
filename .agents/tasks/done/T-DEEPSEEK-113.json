@@ -1,0 +1,27 @@
+{
+  "id": "T-DEEPSEEK-113",
+  "title": "Query the action history by actor, mission, kind and time",
+  "goal": "Provide a read surface - CLI first, with JSON output - answering what an agent did, what happened in a mission, which actions of a given kind ran in a window, and what each cost. A log nobody can interrogate is storage: the query surface is what makes the audit tier useful during an incident.",
+  "size": "m",
+  "deps": [
+    "T-DEEPSEEK-112"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(audit_query_surface)"
+    ]
+  },
+  "roadmap": "VC-202-019",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954195,
+  "closed": {
+    "at_unix": 1791188076,
+    "commit": "490f21660e679be6286357a21b9f5c584407e580",
+    "by": "INTELLIBITZ20261005030120687099"
+  }
+}
