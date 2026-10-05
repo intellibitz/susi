@@ -172,7 +172,7 @@
       "id": "VC-201-013",
       "mastery_target": "Create a candidate checkout with explicit path and command scope for each experiment; concurrent experiments preserve user changes and cannot write the installed release or another experiment's workspace.",
       "priority": "P0",
-      "progress": "PARTIAL: patch ids are now sanitized to a single path segment (escapes and sibling-workspace collisions are refused), is_inside_fence resolves '.'/'..' lexically before comparing, apply_in_isolation validates and actually writes the target inside the fence, and a per-call nonce keeps repeated patch ids from sharing a workspace. Still refuted: PatchFence has no production caller, pending the experiment orchestration in VC-201-011. Tracked by T-DEVIN20261002053148-22.",
+      "progress": "DELIVERED: apply_patch_cycle stages each isolated candidate in a PatchFence workspace (a full copy under root/patches/<patch-id>-<nonce>), applies and runs the declared test command or the mandatory repository gate inside it, and promotes the declared files into the live tree only on pass under a fresh staleness check and transaction; a failed run leaves the workspace byte-identical and the fence retained as evidence. cloud_rsi::apply_plan always isolates model-authored patches by brief.task_id, so the autonomous path is fenced by construction; susi patch accepts the isolate field from the request file. Mastery tests pin fenced execution, promotion-on-pass, failure isolation, disjoint sibling workspaces, and path confinement. Limitation: the fence is a filesystem namespace, not a syscall sandbox.",
       "type": "RSI_EXECUTION",
       "vector": "Fence autonomous patches into isolated workspaces"
     },

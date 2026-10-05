@@ -445,6 +445,10 @@ fn apply_plan(brief: &ImplBrief, json: &str) -> Result<String, String> {
             test_command: Some(brief.verify_cmd.join(" ")),
             auto_apply: true,
             description: brief.title.clone(),
+            // The model-authored patch always runs inside a fenced
+            // candidate workspace named for the experiment — concurrent
+            // attempts can never write the live tree or one another's.
+            isolate: Some(brief.task_id.clone()),
         },
         "autonomous",
     )
