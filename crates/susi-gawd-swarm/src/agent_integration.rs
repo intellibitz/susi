@@ -26,6 +26,9 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+use crate::independent_verify::{
+    acceptance_arguments_digest, acceptance_success_digest, ReviewReceipt,
+};
 use crate::roadmap_agents::TaskSpec;
 use crate::worker_recovery::{JobLedger, JobState};
 
@@ -46,6 +49,46 @@ pub trait IntegrationQueue: Send + Sync {
 pub trait AcceptRunner: Send + Sync {
     /// `Ok(())` only on exit-0.
     fn run(&self, worktree: &Path, cmd: &[String]) -> Result<(), String>;
+
+    /// Run acceptance and return the observed command/result boundary. The
+    /// default keeps existing runners source-compatible while making the
+    /// production gate reject explicit zero-test observations.
+    fn run_with_evidence(
+        &self,
+        worktree: &Path,
+        cmd: &[String],
+    ) -> Result<AcceptanceObservation, String> {
+        self.run(worktree, cmd)?;
+        Ok(AcceptanceObservation::successful(cmd))
+    }
+}
+
+/// Evidence from one successful acceptance invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcceptanceObservation {
+    /// Program/tool at argv[0].
+    pub tool: String,
+    /// Digest of the exact argv passed to the runner.
+    pub arguments_digest: String,
+    /// Digest of the observed successful result.
+    pub result_digest: String,
+    /// Number of tests actually observed by the runner.
+    pub tests_run: usize,
+}
+
+impl AcceptanceObservation {
+    /// Conservative default for compatibility runners: an exit-0 command
+    /// reports one test/result unit. Real command runners may override
+    /// [`AcceptRunner::run_with_evidence`] with the parsed test count.
+    #[must_use]
+    pub fn successful(cmd: &[String]) -> Self {
+        Self {
+            tool: cmd.first().cloned().unwrap_or_default(),
+            arguments_digest: acceptance_arguments_digest(cmd),
+            result_digest: acceptance_success_digest(),
+            tests_run: 1,
+        }
+    }
 }
 
 /// Independent model-backed verification verdict.
@@ -60,6 +103,27 @@ pub enum Verdict {
 /// The independent reviewer (a different model in production).
 pub trait Verifier: Send + Sync {
     fn verify(&self, worktree: &Path, task: &TaskSpec) -> Verdict;
+
+    /// Authenticated identity of the reviewer at this verifier boundary.
+    /// An opaque name in a model response is not authentication.
+    fn authenticated_identity(&self) -> Option<&str> {
+        None
+    }
+
+    /// Receipt bound to the exact acceptance and source revision reviewed.
+    /// Production verifiers must persist/return the receipt they observed;
+    /// the default is deliberately insufficient for closure.
+    #[allow(clippy::too_many_arguments)] // verifier seams expose each provenance boundary explicitly
+    fn review_receipt(
+        &self,
+        _worktree: &Path,
+        _task: &TaskSpec,
+        _implementer: &str,
+        _source_sha: &str,
+        _acceptance: &AcceptanceObservation,
+    ) -> Option<ReviewReceipt> {
+        None
+    }
 }
 
 /// Revision provenance for a worktree: the exact commit/content revision
@@ -198,16 +262,79 @@ impl Gate<'_> {
                 };
             }
         };
-        // Acceptance is the arbiter of "done" — self-reports are just claims.
-        if let Err(out) = accept.run(&a.worktree, &task.accept) {
-            queue.reopen(job_id, "acceptance failed");
-            return IntegrateOutcome::AcceptanceFailed { output: out };
+        // A closure acceptance must be a real test-shaped command. Empty or
+        // arbitrary successful commands are not a task proof.
+        if !is_test_acceptance(&task.accept) {
+            queue.reopen(job_id, "acceptance is not a nonzero test command");
+            return IntegrateOutcome::AcceptanceFailed {
+                output: "acceptance must execute a test command".into(),
+            };
         }
-        if let Some(v) = verifier {
-            if let Verdict::Reject { reasons } = v.verify(&a.worktree, task) {
-                queue.reopen(job_id, "independent verification rejected");
-                return IntegrateOutcome::VerifyRejected { reasons };
+        // Acceptance is the arbiter of "done" — self-reports are just claims.
+        let acceptance = match accept.run_with_evidence(&a.worktree, &task.accept) {
+            Ok(observation) if observation.tests_run > 0 => observation,
+            Ok(_) => {
+                queue.reopen(job_id, "acceptance ran zero tests");
+                return IntegrateOutcome::AcceptanceFailed {
+                    output: "acceptance ran zero tests".into(),
+                };
             }
+            Err(out) => {
+                queue.reopen(job_id, "acceptance failed");
+                return IntegrateOutcome::AcceptanceFailed { output: out };
+            }
+        };
+        let Some(v) = verifier else {
+            queue.reopen(job_id, "independent authenticated verifier required");
+            return IntegrateOutcome::VerifyRejected {
+                reasons: vec!["no independent authenticated verifier".into()],
+            };
+        };
+        if let Verdict::Reject { reasons } = v.verify(&a.worktree, task) {
+            queue.reopen(job_id, "independent verification rejected");
+            return IntegrateOutcome::VerifyRejected { reasons };
+        }
+        let Some(reviewer) = v.authenticated_identity() else {
+            queue.reopen(job_id, "reviewer identity is not authenticated");
+            return IntegrateOutcome::VerifyRejected {
+                reasons: vec!["reviewer identity is not authenticated".into()],
+            };
+        };
+        let Some(receipt) =
+            v.review_receipt(&a.worktree, task, &a.worker, &source_sha, &acceptance)
+        else {
+            queue.reopen(job_id, "independent review receipt missing");
+            return IntegrateOutcome::VerifyRejected {
+                reasons: vec!["independent review receipt missing".into()],
+            };
+        };
+        if !receipt.verifies(
+            reviewer,
+            &a.worker,
+            &task.id,
+            &acceptance.tool,
+            &acceptance.arguments_digest,
+            &acceptance.result_digest,
+            &source_sha,
+        ) {
+            queue.reopen(job_id, "independent review receipt is not bound");
+            return IntegrateOutcome::VerifyRejected {
+                reasons: vec![
+                    "review receipt does not bind reviewer, acceptance, task, or commit".into(),
+                ],
+            };
+        }
+        // Store the verified receipt under the current fence before any merge
+        // side effect. This remains auditable even when integration conflicts.
+        if let Err(error) = ledger.record_terminal_receipt(
+            job_id,
+            a.fence,
+            &format!("verified review {}", receipt.review_digest),
+        ) {
+            queue.reopen(job_id, "could not persist independent review receipt");
+            return IntegrateOutcome::VerifyRejected {
+                reasons: vec![format!("review receipt persistence failed: {error:?}")],
+            };
         }
         // Re-probe before merging: acceptance+verify bound to source_sha;
         // a branch that moved under verification was never verified.
@@ -242,6 +369,16 @@ impl Gate<'_> {
             },
         }
     }
+}
+
+fn is_test_acceptance(command: &[String]) -> bool {
+    !command.is_empty()
+        && command.iter().any(|part| {
+            let lower = part.to_ascii_lowercase();
+            lower
+                .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                .any(|token| token == "test" || token == "nextest")
+        })
 }
 
 /// Assign a fenced ledger entry for every claimed task before dispatch —
@@ -484,6 +621,36 @@ mod tests {
             }
         }
     }
+
+    struct ApproveVerifier;
+    impl Verifier for ApproveVerifier {
+        fn verify(&self, _w: &Path, _t: &TaskSpec) -> Verdict {
+            Verdict::Approve
+        }
+
+        fn authenticated_identity(&self) -> Option<&str> {
+            Some("reviewer-1")
+        }
+
+        fn review_receipt(
+            &self,
+            _w: &Path,
+            task: &TaskSpec,
+            implementer: &str,
+            source_sha: &str,
+            acceptance: &AcceptanceObservation,
+        ) -> Option<ReviewReceipt> {
+            Some(ReviewReceipt::new(
+                "reviewer-1",
+                implementer,
+                &task.id,
+                &acceptance.tool,
+                &acceptance.arguments_digest,
+                &acceptance.result_digest,
+                source_sha,
+            ))
+        }
+    }
     /// Fixed revision — for worktrees that are plain dirs.
     struct StaticProbe;
     impl HeadProbe for StaticProbe {
@@ -588,12 +755,13 @@ mod tests {
             deps: BTreeMap::new(),
             done: Mutex::new(BTreeMap::new()),
         };
+        let approve = ApproveVerifier;
         let gate = Gate {
             ledger: &l,
             queue: &q,
             accept: &PassAccept,
             integrator: &GitIntegrator,
-            verifier: None,
+            verifier: Some(&approve),
             head: &GitHeadProbe,
         };
         let out = gate.integrate_job("j1", &branch, &task("j1"));
@@ -625,12 +793,13 @@ mod tests {
             deps: BTreeMap::new(),
             done: Mutex::new(BTreeMap::new()),
         };
+        let approve = ApproveVerifier;
         let gate = Gate {
             ledger: &l,
             queue: &q,
             accept: &PassAccept,
             integrator: &GitIntegrator,
-            verifier: None,
+            verifier: Some(&approve),
             head: &GitHeadProbe,
         };
         let out = gate.integrate_job("j1", &branch, &task("j1"));
@@ -657,12 +826,13 @@ mod tests {
             deps: BTreeMap::new(),
             done: Mutex::new(BTreeMap::new()),
         };
+        let approve = ApproveVerifier;
         let gate = Gate {
             ledger: &l,
             queue: &q,
             accept: &FailAccept,
             integrator: &NoMerge,
-            verifier: None,
+            verifier: Some(&approve),
             head: &StaticProbe,
         };
         let out = gate.integrate_job("j1", "b", &task("j1"));
@@ -679,12 +849,13 @@ mod tests {
             deps,
             done: Mutex::new(BTreeMap::new()),
         };
+        let approve = ApproveVerifier;
         let gate = Gate {
             ledger: &l,
             queue: &q,
             accept: &PassAccept,
             integrator: &NoMerge,
-            verifier: None,
+            verifier: Some(&approve),
             head: &StaticProbe,
         };
         let out = gate.integrate_job("j1", "b", &task("j1"));
@@ -743,12 +914,13 @@ mod tests {
             deps: BTreeMap::new(),
             done: Mutex::new(BTreeMap::new()),
         };
+        let approve = ApproveVerifier;
         let gate = Gate {
             ledger: &l,
             queue: &q,
             accept: &PassAccept,
             integrator: &GitIntegrator,
-            verifier: None,
+            verifier: Some(&approve),
             head: &GitHeadProbe,
         };
         match gate.integrate_job("j1", &branch, &task("j1")) {
@@ -774,12 +946,13 @@ mod tests {
             deps: BTreeMap::new(),
             done: Mutex::new(BTreeMap::new()),
         };
+        let approve = ApproveVerifier;
         let gate = Gate {
             ledger: &l,
             queue: &q,
             accept: &PassAccept,
             integrator: &NoMerge,
-            verifier: None,
+            verifier: Some(&approve),
             head: &DriftProbe {
                 calls: std::sync::atomic::AtomicUsize::new(0),
             },

@@ -28,10 +28,12 @@ use susi_vendor_models::cloud_eligibility::{EligibilityStore, InferenceResult};
 use susi_vendor_models::cloud_quota::QuotaInventory;
 
 use crate::agent_integration::{
-    AcceptRunner, Gate, IntegrateOutcome, IntegrationQueue, MergeResult,
+    AcceptRunner, AcceptanceObservation, Gate, IntegrateOutcome, IntegrationQueue, MergeResult,
+    Verdict, Verifier,
 };
 use crate::cloud_failover::{FailoverBudget, FailoverStop};
 use crate::cloud_lockout::{now_unix, LockoutPolicy, LockoutTracker};
+use crate::independent_verify::ReviewReceipt;
 use crate::parallel_admission::{AdmissionController, AdmissionLimits, ScopeLimits};
 use crate::parallel_dispatch::{DispatchPlan, Shared};
 use crate::roadmap_agents::{
@@ -67,12 +69,12 @@ impl E2eQueue {
     }
     fn add(&self, id: &str, deps: &[&str], git_accept: bool) {
         let accept = if git_accept {
-            // Prove the artifact exists on the worker's branch — works from
-            // any worktree of the repo, including the main checkout.
+            // Prove the artifact exists on the worker's branch using a real
+            // test-shaped acceptance command.
             vec![
-                "git".into(),
-                "show".into(),
-                format!("w-{id}:done-{id}.marker"),
+                "sh".into(),
+                "-c".into(),
+                format!("test -n \"$(git show w-{id}:done-{id}.marker)\""),
             ]
         } else {
             vec![
@@ -474,6 +476,38 @@ impl AcceptRunner for CmdAccept {
     }
 }
 
+struct ApproveVerifier;
+impl Verifier for ApproveVerifier {
+    fn verify(&self, _worktree: &Path, _task: &TaskSpec) -> Verdict {
+        Verdict::Approve
+    }
+
+    fn authenticated_identity(&self) -> Option<&str> {
+        Some("reviewer-1")
+    }
+
+    fn review_receipt(
+        &self,
+        _worktree: &Path,
+        task: &TaskSpec,
+        implementer: &str,
+        source_sha: &str,
+        acceptance: &AcceptanceObservation,
+    ) -> Option<ReviewReceipt> {
+        Some(ReviewReceipt::new(
+            "reviewer-1",
+            implementer,
+            &task.id,
+            &acceptance.tool,
+            &acceptance.arguments_digest,
+            &acceptance.result_digest,
+            source_sha,
+        ))
+    }
+}
+
+static APPROVE_VERIFIER: ApproveVerifier = ApproveVerifier;
+
 /// Merges the worker branch into the repo's MAIN checkout — the real
 /// convergence point, so overlapping edits genuinely conflict.
 struct MainIntegrator(PathBuf);
@@ -575,7 +609,7 @@ fn finish_all(
         queue,
         accept: &CmdAccept,
         integrator,
-        verifier: None,
+        verifier: Some(&APPROVE_VERIFIER),
         head,
     };
     let mut out = BTreeMap::new();
@@ -755,7 +789,7 @@ fn parallel_roadmap_e2e_dependency_chain_stays_blocked_until_dep_closes() {
         queue: &queue,
         accept: &CmdAccept,
         integrator: &main,
-        verifier: None,
+        verifier: Some(&APPROVE_VERIFIER),
         head: &crate::agent_integration::GitHeadProbe,
     };
     ledger.assign(Assign {
@@ -1032,7 +1066,7 @@ fn parallel_roadmap_e2e_accept_failure_conflict_cancel_and_restart() {
         queue: &queue,
         accept: &CmdAccept,
         integrator: &main,
-        verifier: None,
+        verifier: Some(&APPROVE_VERIFIER),
         // bad_wt is a plain dir — content revision, not git HEAD.
         head: &crate::agent_integration::ManifestProbe,
     };
