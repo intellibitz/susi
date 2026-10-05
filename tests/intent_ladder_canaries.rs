@@ -21,6 +21,7 @@ fn intent_ladder_canaries() {
 
 #[test]
 fn intent_ladder_canaries_nan_candidate() {
+    // NaN candidate metric represents non-evaluable score and must trigger StopTrial.
     let trial = CanaryTrial {
         candidate_metric: f64::NAN,
         baseline_metric: 1.0,
@@ -31,6 +32,7 @@ fn intent_ladder_canaries_nan_candidate() {
 
 #[test]
 fn intent_ladder_canaries_nan_baseline() {
+    // NaN baseline metric prevents reliable delta measurement and must trigger StopTrial.
     let trial = CanaryTrial {
         candidate_metric: 0.9,
         baseline_metric: f64::NAN,
