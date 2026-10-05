@@ -1,0 +1,29 @@
+{
+  "id": "T-DEEPSEEK-121",
+  "title": "Elect the primary brain from the fully-working candidates",
+  "goal": "Elect the primary from the models that are both available (health) and capable above the floor for the work at hand, choosing by expected cost per verified outcome, recording the evidence for the choice, and re-electing when health, price or capability moves. If only one model is fully working, it is primary by default rather than by exception.",
+  "size": "l",
+  "deps": [
+    "T-DEEPSEEK-98",
+    "T-DEEPSEEK-101"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "--workspace",
+      "-E",
+      "test(primary_election)"
+    ]
+  },
+  "roadmap": "VC-202-022",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1790954862,
+  "closed": {
+    "at_unix": 1791163388,
+    "commit": "808ca91953e2c8d79921ec28922531c54f45c10f",
+    "by": "DEEPSEEK"
+  }
+}
