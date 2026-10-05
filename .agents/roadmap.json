@@ -1125,7 +1125,7 @@
       "id": "VC-201-089",
       "mastery_target": "Install an adapter revision beside the active one, run contract checks, and switch only after success; a failed upgrade preserves the working revision and in-flight session ownership.",
       "priority": "P1",
-      "progress": "PARTIAL: a failed contract flag preserves the active revision, clears the staged candidate and keeps session ownership — verified by `crates/susi-core/src/tests/vc_201_089_mastery.rs`. Refuted on record 2026-10-03: contract checks are a caller-supplied bool never executed, install_active bypasses the sandbox entirely, a downgrade switches in as an upgrade (version unconsulted), and AdapterUpgrade has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-089.json`. Follow-up tracked by T-DEVIN20261002053148-15.",
+      "progress": "PARTIAL: a failed contract result preserves the active revision, clears the staged candidate and keeps session ownership; switch_if_contracts_pass now takes real named ContractResults (empty is refused), install_active refuses to replace an already-installed active revision, and a downgrade is rejected via its own version check instead of switching in unconsulted. Verified by `crates/susi-core/src/tests/vc_201_089_mastery.rs`. Residual: AdapterUpgrade has no production caller. Verdict `.agents/roadmap-verdicts/VC-201-089.json`. Follow-up tracked by T-DEVIN20261002053148-15.",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Sandbox and roll back adapter upgrades"
     },
