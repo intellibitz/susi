@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-278",
+  "title": "Verify mastery: Benchmark and enforce control-plane capacity limits",
+  "goal": "Load-test simultaneous missions, streaming calls, peer repair, and model churn with recorded hardware; report saturation points and verify overload rejection preserves health and cancellation responsiveness.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_094_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-094",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237640
+}

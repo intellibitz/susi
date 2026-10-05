@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-268",
+  "title": "Verify mastery: Separate workspace and environment configuration profiles",
+  "goal": "Support explicit development, staging, and production profiles with inspectable inheritance; a dev mission cannot accidentally resolve production endpoints or credentials from ambient configuration.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-067"
+    ]
+  },
+  "roadmap": "VC-201-067",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237634
+}

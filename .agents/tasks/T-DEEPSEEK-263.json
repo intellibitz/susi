@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-263",
+  "title": "Verify mastery: Batch compatible local inference requests",
+  "goal": "Introduce bounded batching only for backends that support it, with per-request deadlines and cancellation; load tests demonstrate throughput changes without violating configured latency or memory limits.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-vendor-models",
+      "--locked",
+      "-E",
+      "test(vc_201_046_batcher_called_by_a_production_backend)"
+    ]
+  },
+  "roadmap": "VC-201-046",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237631
+}

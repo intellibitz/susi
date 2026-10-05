@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-256",
+  "title": "Verify mastery: Detect evaluation contamination",
+  "goal": "Track evaluation-data access and overlaps between training, memory, and held-out fixtures; a contaminated run is excluded from improvement evidence with an inspectable reason.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_009_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-009",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237627
+}
