@@ -78,6 +78,7 @@ pub mod region_failover;
 pub mod retry_policy;
 pub mod scout_probe;
 pub mod scout_schedule;
+pub mod seat_provider;
 pub mod speculative_routing;
 pub mod spend_tracker;
 pub mod sse_streaming;
@@ -89,6 +90,7 @@ pub mod tui_top;
 pub mod usage_accounting;
 pub mod verifier_escalation;
 pub mod vision_routing;
+pub mod worker;
 pub mod zc_budget_derived;
 pub mod zc_chat_templates;
 pub mod zc_cost_from_catalog;
@@ -193,3 +195,6 @@ mod vc_202_001_mastery_tests;
 #[cfg(test)]
 #[path = "tests/vc_202_020_rate_mastery.rs"]
 mod vc_202_020_rate_mastery_tests;
+#[cfg(test)]
+#[path = "tests/worker_may_be_an_agent.rs"]
+mod worker_may_be_an_agent_tests;
