@@ -213,6 +213,47 @@ impl CapabilityRegistry {
         }
         bus
     }
+
+    /// Dispatch one `Mcp`-surfaced capability through the shared typed bus:
+    /// resolve the descriptor from the current discovery snapshot, then
+    /// invoke the live registered tool (already MAC-enforced and
+    /// evidence-captured by [`Self::register_tool`]) under the bus's
+    /// permission/timeout/cost contract — the production caller
+    /// `typed_bus()` otherwise lacked.
+    pub fn dispatch_capability(
+        &self,
+        request: &crate::capability_bus::CapabilityRequest,
+        args: &serde_json::Value,
+        workspace: &std::path::Path,
+    ) -> Result<crate::capability_bus::CapabilityReceipt, crate::capability_bus::CapabilityError>
+    {
+        use crate::capability_bus::{CapabilityError, CapabilityInvocation, CapabilitySurface};
+
+        let bus = self.typed_bus();
+        let descriptor = bus
+            .discover()
+            .into_iter()
+            .find(|d| d.id == request.capability_id)
+            .ok_or_else(|| CapabilityError::UnknownCapability(request.capability_id.clone()))?;
+        if descriptor.surface != CapabilitySurface::Mcp {
+            return Err(CapabilityError::InvalidDescriptor(format!(
+                "{:?}-surfaced capabilities cannot be dispatched yet; only mcp tools can",
+                descriptor.surface
+            )));
+        }
+        let tool = self
+            .get_tool(&descriptor.id)
+            .ok_or_else(|| CapabilityError::UnknownCapability(request.capability_id.clone()))?;
+        bus.dispatch(request, |_descriptor| {
+            let started = std::time::Instant::now();
+            let output = tool.execute(args, workspace).map_err(|e| e.to_string())?;
+            Ok(CapabilityInvocation {
+                output: serde_json::Value::String(output),
+                elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                cost_micros: 0,
+            })
+        })
+    }
 }
 
 impl Default for CapabilityRegistry {
