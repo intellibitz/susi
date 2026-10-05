@@ -9,6 +9,8 @@
       "cargo",
       "nextest",
       "run",
+      "-p",
+      "susi-sandbox-client",
       "--locked",
       "-E",
       "test(audit_payload_free_policy)"

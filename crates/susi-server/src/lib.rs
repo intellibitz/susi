@@ -843,10 +843,16 @@ async fn handle_gemi_request(
                 gemi::ModelManager::get_active_engine_and_model(Some(&intent)).1
             });
             let active_model = model_display_id(&resolved_model).to_string();
-            crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+            // The durable audit tier is payload-free: a prompt rides as a
+            // digest plus byte length — provable, never readable (VC-202-018).
+            crate::susi_sandbox::manager::SusiAuditLogger::log_details(
                 &workspace,
+                crate::susi_sandbox::manager::LogLevel::Info,
                 "WEB_MISSION_START",
-                &pulse_intent,
+                &crate::susi_sandbox::audit_fidelity::AuditDetails::payload_ref(
+                    &pulse_intent,
+                    "prompt",
+                ),
             );
             crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
