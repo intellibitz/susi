@@ -22,5 +22,5 @@ fn vc_201_017_within_limit_continues() {
 
 #[test]
 fn vc_201_017_dev_ports_are_9190_range() {
-    assert_eq!(dev_instance_ports(9190), [9190, 9191, 9192, 9193, 9194]);
+    assert_eq!(dev_instance_ports(), [9190, 9191, 9192, 9193, 9194]);
 }
