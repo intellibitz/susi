@@ -22,7 +22,10 @@ use crate::context_graph::ContextGraph;
 /// v2: `tools` now carries real dispatched-tool names from evidence
 /// receipts (was: interaction action labels); interaction actions moved to
 /// `signals`.
-pub const SCHEMA_VERSION: u32 = 2;
+/// v3: adds `task_id`, `node`, and `model_calls` — per-model token/cost
+/// attribution, so a spend figure can be broken down per mission instead
+/// of only observed as an aggregate nobody can trace back.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// The trace is a learning record, not a transcript — goals bound at this
 /// length so a pasted document cannot dominate the file.
@@ -33,12 +36,43 @@ const MAX_LISTED: usize = 64;
 /// ~8 MiB ≈ 16k typical records; past it the oldest half is dropped.
 const MAX_TRACE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// One model dispatch's token/cost attribution — the unit `MissionTrace`
+/// sums to answer "what did this mission cost and where did it go".
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ModelCallCost {
+    /// Which node/host ran this call — a mission that fanned out across
+    /// hosts attributes cost per node, not just per mission.
+    #[serde(default)]
+    pub node: Option<String>,
+    /// Opaque model id (e.g. `provider/model`), matching `brain_served`'s
+    /// `provider|task_class` provenance strings where available.
+    pub model: String,
+    pub tokens: u64,
+    /// Millionths of a currency unit — same unit as
+    /// `susi_gawd_agents::cloud_budget::Micros`, so a trace's total is
+    /// directly comparable to the budget ledger it drew from.
+    pub cost_micros: u64,
+}
+
 /// One mission's outcome record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissionTrace {
     pub schema_version: u32,
     /// Evidence-session id when one was active, else `"mission-<ts>"`.
     pub mission_id: String,
+    /// The queue task (`T-<AGENT>-<n>`) this mission served, when the
+    /// mission was dispatched on behalf of one — lets cost and outcome be
+    /// queried per task, not only per mission or per agent.
+    #[serde(default)]
+    pub task_id: Option<String>,
+    /// The node that ran the mission's own supervising agent (distinct
+    /// from `model_calls[].node`, which attributes each dispatched call).
+    #[serde(default)]
+    pub node: Option<String>,
+    /// Every model dispatch this mission made, in dispatch order — the
+    /// trace's own cost ledger. Empty when no call reported usage.
+    #[serde(default)]
+    pub model_calls: Vec<ModelCallCost>,
     /// Bounded, credential-redacted goal text.
     pub goal: String,
     /// Terminal report status (`COMPLETE`, `FAILED`, `BLOCKED`, ...).
@@ -102,6 +136,9 @@ impl MissionTrace {
             .redacted_for_sink(),
             outcome: bound_chars(outcome, MAX_FIELD_CHARS),
             route: bound_chars(route, MAX_FIELD_CHARS),
+            task_id: None,
+            node: None,
+            model_calls: Vec::new(),
             tools: Vec::new(),
             signals: Vec::new(),
             reflex_served: Vec::new(),
@@ -140,6 +177,24 @@ impl MissionTrace {
     /// intent class (the block itself stays visible via signals).
     pub fn capability_outcome(&self) -> bool {
         !self.signals.iter().any(|s| s == "GOVERNANCE_BLOCK")
+    }
+
+    /// Sum of every attributed model call's cost — a spend figure this
+    /// mission can always be broken down into, never an unattributed
+    /// aggregate.
+    #[must_use]
+    pub fn total_cost_micros(&self) -> u64 {
+        self.model_calls
+            .iter()
+            .fold(0u64, |acc, c| acc.saturating_add(c.cost_micros))
+    }
+
+    /// Sum of every attributed model call's tokens.
+    #[must_use]
+    pub fn total_tokens(&self) -> u64 {
+        self.model_calls
+            .iter()
+            .fold(0u64, |acc, c| acc.saturating_add(c.tokens))
     }
 
     /// Emit the record to its sinks. Best-effort at each sink — a full disk
@@ -216,6 +271,26 @@ pub fn read_all(workspace: &Path) -> Vec<MissionTrace> {
     content
         .lines()
         .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
+/// Every durably recorded trace that recruited `agent` — survives
+/// restart because it reads straight from the append-only file, never
+/// from in-memory state.
+#[must_use]
+pub fn read_all_for_agent<'a>(traces: &'a [MissionTrace], agent: &str) -> Vec<&'a MissionTrace> {
+    traces
+        .iter()
+        .filter(|t| t.agents.iter().any(|a| a == agent))
+        .collect()
+}
+
+/// Every durably recorded trace that served `task_id`.
+#[must_use]
+pub fn read_all_for_task<'a>(traces: &'a [MissionTrace], task_id: &str) -> Vec<&'a MissionTrace> {
+    traces
+        .iter()
+        .filter(|t| t.task_id.as_deref() == Some(task_id))
         .collect()
 }
 

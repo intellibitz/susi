@@ -163,6 +163,9 @@ pub use truth::TruthTransformer;
 #[path = "tests/audit_action_choke_point.rs"]
 mod audit_action_choke_point_tests;
 #[cfg(test)]
+#[path = "tests/cost_ledger_trace.rs"]
+mod cost_ledger_trace_tests;
+#[cfg(test)]
 #[path = "tests/vc_200_001.rs"]
 mod vc_200_001_tests;
 #[cfg(test)]
