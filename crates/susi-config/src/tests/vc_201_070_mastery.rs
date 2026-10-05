@@ -6,86 +6,69 @@
 //! Every test name starts `vc_201_070_mastery_` so the vector's evidence is
 //! enumerable with `cargo test -p susi-config vc_201_070`.
 
-use crate::state_backup::{backup, collect_sections, restore, BACKUP_FORMAT_VERSION};
+use crate::state_backup::{
+    backup, backup_with_options, collect_sections, collect_sections_report, restore, BackupOptions,
+    BACKUP_FORMAT_VERSION,
+};
 use std::collections::BTreeMap;
 
-/// The claim says secret material is included "only when explicitly
-/// included". `backup` takes a flat section map — there is no
-/// include-secrets flag, no per-section sensitivity, no gate: a `keys`
-/// section rides the export identically to `config`.
 #[test]
-fn vc_201_070_mastery_secret_sections_have_no_inclusion_gate() {
+fn vc_201_070_mastery_secret_sections_require_explicit_inclusion() {
     let mut sections = BTreeMap::new();
     sections.insert("config".to_string(), b"{}".to_vec());
     sections.insert("keys".to_string(), b"sk-live-secret".to_vec());
-    let blob = backup(&sections, 0x42, false).expect("backup succeeds");
-    // No opt-in was ever expressed, yet the secret section exported.
+    let refused = backup(&sections, 0x42, false).expect_err("secret export must be opt-in");
+    assert!(refused.contains("keys"));
+    let blob = backup_with_options(&sections, 0x42, BackupOptions::new(false).with_secrets())
+        .expect("explicit secret inclusion succeeds");
     assert!(blob.sections.contains_key("keys"));
     assert!(blob.manifest.sections.contains(&"keys".to_string()));
 }
 
-/// "Encrypted" is `xor_hex` with a single u8 byte — the code's own comment
-/// calls it "test-grade encryption". A 255-key keyspace: every candidate key
-/// restores *successfully* because restore applies `key.max(1)` and has no
-/// authentication or integrity check at all. Wrong key → silent garbage.
 #[test]
-fn vc_201_070_mastery_wrong_key_restores_garbage_without_error() {
+fn vc_201_070_mastery_wrong_key_is_authenticated_and_refused() {
     let mut sections = BTreeMap::new();
     sections.insert("config".to_string(), b"{\"a\":1}".to_vec());
     let blob = backup(&sections, 0x42, false).expect("backup");
-    let back = restore(&blob, 0x99).expect("wrong key still 'restores'");
-    assert_eq!(
-        back["config"],
-        b"{\"a\":1}"
-            .iter()
-            .map(|b| b ^ 0x42 ^ 0x99)
-            .collect::<Vec<u8>>(),
-        "restore produced corrupted plaintext and reported no error"
-    );
+    let error = restore(&blob, 0x99).expect_err("wrong key must fail authentication");
+    assert!(error.contains("authentication"));
 }
 
-/// Any known plaintext byte recovers the key: a zero byte encrypts to the key
-/// itself. This is not encryption in any sense the claim implies.
 #[test]
-fn vc_201_070_mastery_known_plaintext_recovers_key() {
+fn vc_201_070_mastery_known_plaintext_does_not_reveal_key() {
     let mut sections = BTreeMap::new();
     sections.insert("config".to_string(), vec![0u8; 4]);
     let blob = backup(&sections, 0xAB, false).expect("backup");
-    assert_eq!(blob.sections["config"], "abababab");
+    assert_ne!(blob.sections["config"], "abababab");
+    assert_eq!(restore(&blob, 0xAB).unwrap()["config"], vec![0; 4]);
 }
 
-/// The claim requires "reports unavailable external resources".
-/// `collect_sections` silently skips missing files — a section the caller
-/// named simply isn't in the map, with no report, no list of absent inputs.
 #[test]
-fn vc_201_070_mastery_missing_resources_are_silently_dropped() {
+fn vc_201_070_mastery_missing_resources_are_reported() {
     let dir = std::env::temp_dir().join(format!("vc070-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("present"), b"x").unwrap();
-    let map = collect_sections(&dir, &["present", "absent", "also-absent"]).unwrap();
-    assert_eq!(map.len(), 1);
-    assert!(map.contains_key("present"));
-    // `absent` / `also-absent` were requested and are missing — nothing
-    // reported that; the caller cannot distinguish "not present" from
-    // "not requested".
+    let error = collect_sections(&dir, &["present", "absent", "also-absent"])
+        .expect_err("missing requested resources must be reported");
+    assert!(error.contains("absent"));
+    assert!(error.contains("also-absent"));
+    let report = collect_sections_report(&dir, &["present", "absent"]).unwrap();
+    assert_eq!(report.sections.len(), 1);
+    assert_eq!(report.missing, vec!["absent"]);
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Restore verifies nothing about references: a section whose payload is a
-/// dangling artifact reference restores "successfully" with no reference
-/// check and no unavailable-resource report.
 #[test]
-fn vc_201_070_mastery_restore_verifies_no_references() {
+fn vc_201_070_mastery_restore_reports_dangling_references() {
     let mut sections = BTreeMap::new();
     sections.insert(
         "artifacts".to_string(),
         b"{\"ref\": \"file:///does/not/exist.bin\"}".to_vec(),
     );
     let blob = backup(&sections, 0x42, false).expect("backup");
-    let back = restore(&blob, 0x42).expect("dangling ref restores fine");
-    assert!(back["artifacts"]
-        .windows(b"does/not/exist".len())
-        .any(|w| w == b"does/not/exist"));
+    let error = restore(&blob, 0x42).expect_err("dangling reference must be refused");
+    assert!(error.contains("unavailable external resource"));
+    assert!(error.contains("does/not/exist.bin"));
 }
 
 /// Holds: format-version mismatch is refused.

@@ -877,7 +877,7 @@
       "id": "VC-201-070",
       "mastery_target": "Export versioned configuration, artifact references, and encrypted secret material only when explicitly included; restore to a clean dev instance verifies references and reports unavailable external resources.",
       "priority": "P1",
-      "progress": "PARTIAL: backup and restore is version-checked, has a dry run, and encrypts its sections on round-trip. Verified by `crates/susi-config/src/tests/state_backup.rs`: state_backup_dry_run_and_version_checks, state_backup_roundtrip_encrypts_sections. Residual: restoring to a clean dev instance, verifying artifact references there, and reporting unavailable external resources, are not enumerated by a named check. Evidence: T-CLAUDE-86.",
+  "progress": "DELIVERED: backup and restore uses versioned authenticated encryption, requires explicit secret-section inclusion, reports unavailable requested resources, and verifies file/artifact references before returning restored state. Verified by `crates/susi-config/src/tests/vc_201_070_mastery.rs`: explicit inclusion, wrong-key authentication, known-plaintext resistance, missing-resource reporting, dangling-reference refusal, version checks, and dry-run refusal. Evidence: T-DEVIN20261002053148-34.",
       "type": "CONFIGURATION",
       "vector": "Back up and restore ecosystem configuration"
     },

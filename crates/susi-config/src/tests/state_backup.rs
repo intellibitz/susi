@@ -11,6 +11,14 @@ fn state_backup_roundtrip_encrypts_sections() {
     assert!(!blob.sections["config"].contains("a\":1"));
     let back = restore(&blob, 0x3C).unwrap();
     assert_eq!(back.get("config").unwrap(), b"{\"a\":1}");
+    let mut tampered = blob.clone();
+    let payload = tampered.sections.get_mut("config").unwrap();
+    let replacement = if payload.ends_with('0') { '1' } else { '0' };
+    payload.pop();
+    payload.push(replacement);
+    assert!(restore(&tampered, 0x3C)
+        .unwrap_err()
+        .contains("authentication"));
 }
 
 #[test]

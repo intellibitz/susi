@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN20261002053148-34",
+  "title": "Real export/restore: inclusion gate, authenticated encryption, reference verification (VC-201-070)",
+  "goal": "VC-201-070 refuted: backup() has no explicit-inclusion gate — a `keys` section exports identically to config; 'encryption' is single-byte XOR (the field comment says 'test-grade'): any wrong key restores garbage with no error (no authentication), and one known plaintext byte recovers the key; collect_sections silently drops missing files instead of reporting unavailable resources; restore verifies no references — dangling artifact refs restore fine; library-only, no production caller. Evidence: crates/susi-config/src/tests/vc_201_070_mastery.rs.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_070",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790998314,
+  "closed": {
+    "at_unix": 1791170903,
+    "commit": "9b7045d6b4acf93dfe4f59b2524040fbf7834e69",
+    "by": "INTELLIBITZ20261005030120687099"
+  }
+}
