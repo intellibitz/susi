@@ -127,6 +127,88 @@ impl Default for AdmissionLimits {
     }
 }
 
+const MIB: u64 = 1024 * 1024;
+
+fn env_u64(key: &str) -> Option<u64> {
+    std::env::var(key).ok()?.trim().parse::<u64>().ok()
+}
+
+fn host_parallelism() -> Option<u64> {
+    std::thread::available_parallelism()
+        .ok()
+        .map(|n| n.get() as u64)
+}
+
+/// `MemAvailable` from `/proc/meminfo`, in MiB — `None` when the host
+/// exposes no readable figure (non-Linux, restricted procfs). Callers
+/// treat `None` as unmeasurable, not as zero memory.
+fn host_ram_mb() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            let kib = rest.split_whitespace().next()?.parse::<u64>().ok()?;
+            return Some(kib / 1024);
+        }
+    }
+    None
+}
+
+fn clamp_u32(v: u64) -> u32 {
+    v.min(u64::from(u32::MAX)) as u32
+}
+
+/// The VRAM dimension runs through `AccelPool`'s headroom rule: a request
+/// is admitted only when the free remainder after it stays at or above
+/// the pool's reserve — the control plane keeps accelerator room even
+/// under full model admission (VC-201-043).
+fn vram_admits(total_mb: u32, used_mb: u32, need_mb: u32) -> bool {
+    if need_mb == 0 {
+        return true;
+    }
+    let mut pool = susi_vendor_models::accel_reserve::AccelPool {
+        total_bytes: u64::from(total_mb) * MIB,
+        reserved_bytes: u64::from(used_mb) * MIB,
+    };
+    matches!(
+        pool.admit(u64::from(need_mb) * MIB),
+        susi_vendor_models::accel_reserve::AdmitDecision::Admitted { .. }
+    )
+}
+
+impl AdmissionLimits {
+    /// Limits whose `local` capacity is measured from this host right
+    /// now: CPU parallelism, `MemAvailable` RAM, and free VRAM through
+    /// the accelerator probe. `SUSI_ADMIT_CPU_MILLIS`, `SUSI_ADMIT_RAM_MB`
+    /// and `SUSI_ADMIT_VRAM_MB` are explicit operator escapes for
+    /// containers and CI, never defaults. A dimension that cannot be
+    /// measured fails in the honest direction: unmeasurable RAM does not
+    /// gate (`u32::MAX`), while unmeasurable VRAM is 0 — accelerator-hungry
+    /// jobs queue instead of overcommitting phantom capacity.
+    #[must_use]
+    pub fn measured() -> Self {
+        let parallelism = host_parallelism().unwrap_or(1);
+        Self {
+            local: LocalCapacity {
+                cpu_millis: clamp_u32(
+                    env_u64("SUSI_ADMIT_CPU_MILLIS").unwrap_or(parallelism * 1000),
+                ),
+                ram_mb: clamp_u32(
+                    env_u64("SUSI_ADMIT_RAM_MB")
+                        .or_else(host_ram_mb)
+                        .unwrap_or(u64::from(u32::MAX)),
+                ),
+                vram_mb: clamp_u32(
+                    env_u64("SUSI_ADMIT_VRAM_MB")
+                        .or_else(susi_vendor_models::accel_reserve::probe_vram_free_mb)
+                        .unwrap_or(0),
+                ),
+                subprocesses: clamp_u32(parallelism),
+            },
+            ..Self::default()
+        }
+    }
+}
+
 /// Why admission didn't grant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Backpressure {
@@ -304,7 +386,7 @@ impl AdmissionController {
             };
             if after.cpu_millis > self.limits.local.cpu_millis
                 || after.ram_mb > self.limits.local.ram_mb
-                || after.vram_mb > self.limits.local.vram_mb
+                || !vram_admits(self.limits.local.vram_mb, st.local.vram_mb, req.vram_mb)
                 || after.subprocesses > self.limits.local.subprocesses
             {
                 Some(Backpressure::LocalExhausted)
@@ -454,7 +536,7 @@ impl AdmissionController {
         };
         if after.cpu_millis > self.limits.local.cpu_millis
             || after.ram_mb > self.limits.local.ram_mb
-            || after.vram_mb > self.limits.local.vram_mb
+            || !vram_admits(self.limits.local.vram_mb, st.local.vram_mb, req.vram_mb)
             || after.subprocesses > self.limits.local.subprocesses
         {
             return Err(Backpressure::LocalExhausted);
@@ -568,10 +650,13 @@ pub fn default_path() -> PathBuf {
     susi_paths::SusiDirs::data_dir().join("parallel_admission.json")
 }
 
-/// Load (or create) the persisted global controller.
+/// Load (or create) the persisted global controller — the production
+/// admission ledger runs against *measured* local capacity (VC-201-043):
+/// operator escapes are the `SUSI_ADMIT_*` env vars, never baked-in
+/// defaults.
 #[must_use]
 pub fn persisted_default() -> AdmissionController {
-    AdmissionController::persisted(default_path(), AdmissionLimits::default())
+    AdmissionController::persisted(default_path(), AdmissionLimits::measured())
 }
 
 #[cfg(test)]
