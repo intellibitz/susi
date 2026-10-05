@@ -1379,7 +1379,7 @@
       "id": "VC-202-008",
       "mastery_target": "susi writes new roadmap vectors and queue tasks - scopes, acceptance, dependencies and rationale included - from its own analysis of failures and gaps, and those artifacts pass the same schema and queue gates as human-authored ones, under a reviewed rate limit.",
       "priority": "P1",
-      "progress": "PARTIAL: self-authored backlog path delivered (T-DEEPSEEK-104): tasks author batches vectors+tasks through the same schema/queue gates with rationale, batch pre-flight, the AUTHORED_OPEN_MAX bound and a tasks authored review surface; author_unqueued drafts verification work from the coverage audit. Remaining: failure-analysis authoring (T-DEEPSEEK-233).",
+      "progress": "PARTIAL: self-authored backlog path delivered (T-DEEPSEEK-104): tasks author batches vectors+tasks through the same schema/queue gates with rationale, batch pre-flight, the AUTHORED_OPEN_MAX bound and a tasks authored review surface; author_unqueued drafts verification work from the coverage audit; author_from_failures (T-DEEPSEEK-233) drafts one deduplicated repair task per failure kind from the durable mission trace, exposed via `susi tasks author --from-failures`. Remaining: audit-log denials and roadmap-verdict drift are not yet read as failure sources.",
       "type": "RSI_EXECUTION",
       "vector": "The system authors its own backlog"
     },

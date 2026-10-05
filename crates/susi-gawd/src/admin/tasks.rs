@@ -712,6 +712,120 @@ pub fn author_unqueued(ws: &Path, agent: &str) -> EaiResult<AuthoredReport> {
     )
 }
 
+/// A distinct, reproducible failure a repair task gets drafted for — one
+/// per failure *kind*, not one per occurrence (an intent that fails the
+/// same way fifty times is one bug, not fifty).
+struct FailureSignature {
+    /// Stable identity used for dedup and the derived test slug.
+    slug: String,
+    title: String,
+    goal: String,
+}
+
+/// Lowercase ASCII alphanumerics; every other run of characters collapses
+/// to one `_`; bounded so a pasted goal cannot produce an unusable title.
+fn failure_slug(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('_') && !out.is_empty() {
+            out.push('_');
+        }
+        if out.len() >= 48 {
+            break;
+        }
+    }
+    out.trim_matches('_').to_string()
+}
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
+/// Refused and failed missions from the durable mission trace — the same
+/// append-only record `mission_trace::read_all` survives a restart on.
+/// A governance refusal is repair-worthy too: one that recurs may mean
+/// the policy is wrong, not just the request.
+fn mission_failure_signatures(ws: &Path) -> Vec<FailureSignature> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for t in crate::susi_core::mission_trace::read_all(ws) {
+        if t.succeeded() {
+            continue;
+        }
+        let slug = failure_slug(&format!("{}_{}", t.outcome, t.goal));
+        if slug.is_empty() || !seen.insert(slug.clone()) {
+            continue; // same failure kind already represented in this batch
+        }
+        out.push(FailureSignature {
+            slug,
+            title: format!(
+                "Repair: {} mission \"{}\"",
+                t.outcome,
+                truncate_chars(&t.goal, 60)
+            ),
+            goal: format!(
+                "Mission `{}` ended {} and must be repaired, or its refusal justified as \
+                 correct. Evidence: crates/susi-core/src/mission_trace.rs (mission_id={}).",
+                t.goal, t.outcome, t.mission_id
+            ),
+        });
+    }
+    out
+}
+
+/// Susi's own failure analysis as an authored batch: a mission that did
+/// not succeed — today's recorded source is the durable mission trace;
+/// audit-log denials and roadmap-verdict drift are not read yet, see the
+/// module-level note — drafts its own repair task through [`author`],
+/// under the same gates and the same per-author bound as a human's
+/// `tasks add`. A failure already named by an open or done task's title
+/// is not re-authored, so a recurring failure stays one task, never one
+/// per occurrence.
+///
+/// # Errors
+/// As [`author`]: an over-bound batch is refused whole.
+pub fn author_from_failures(ws: &Path, agent: &str) -> EaiResult<AuthoredReport> {
+    let existing: std::collections::BTreeSet<String> = list_open(ws)
+        .into_iter()
+        .chain(list_done(ws))
+        .map(|t| t.title)
+        .collect();
+
+    let tasks: Vec<NewTask> = mission_failure_signatures(ws)
+        .into_iter()
+        .filter(|f| !existing.contains(&f.title))
+        .map(|f| NewTask {
+            title: f.title,
+            goal: f.goal,
+            size: "m".into(),
+            deps: vec![],
+            accept: vec![
+                "cargo".into(),
+                "nextest".into(),
+                "run".into(),
+                "--locked".into(),
+                "-E".into(),
+                format!("test({}_repaired)", f.slug),
+            ],
+            roadmap: None,
+        })
+        .collect();
+
+    author(
+        ws,
+        agent,
+        &AuthoredSpec {
+            rationale: "failure analysis: a mission that did not succeed drafts its own repair \
+                        task, deduplicated by failure kind"
+                .into(),
+            vectors: vec![],
+            tasks,
+        },
+    )
+}
+
 /// One vector's coverage by tasks.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Coverage {
@@ -3234,5 +3348,108 @@ mod tests {
             "binary(x)".into(),
         ]);
         assert!(add(&a, "test", plain).is_ok());
+    }
+
+    // ---- T-DEEPSEEK-233 / VC-202-008: author repair tasks from failures ---
+
+    fn failure_ws(tag: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("susi-author-failures-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".agents/tasks")).unwrap();
+        std::fs::write(root.join(".agents/roadmap.json"), r#"{"vectors": []}"#).unwrap();
+        root
+    }
+
+    fn record_mission(ws: &Path, mission_id: &str, goal: &str, outcome: &str) {
+        crate::susi_core::mission_trace::MissionTrace::new(mission_id, goal, outcome, "swarm")
+            .emit(ws)
+            .unwrap();
+    }
+
+    #[test]
+    fn self_authored_failure_backlog_drafts_a_repair_task_per_failure_kind() {
+        let ws = failure_ws("drafts");
+        record_mission(&ws, "m-1", "deploy the api", "FAILED");
+        record_mission(&ws, "m-2", "deploy the api", "FAILED"); // same kind: not a second task
+        record_mission(&ws, "m-3", "rotate the cluster key", "BLOCKED");
+        record_mission(&ws, "m-4", "migrate the database", "COMPLETE"); // succeeded: no task
+
+        let report = author_from_failures(&ws, "deepseek").unwrap();
+        assert_eq!(
+            report.tasks.len(),
+            2,
+            "one task per distinct failure kind, not per occurrence"
+        );
+        let open = list_open(&ws);
+        assert_eq!(open.len(), 2);
+        assert!(open
+            .iter()
+            .any(|t| t.title.contains("FAILED") && t.title.contains("deploy the api")));
+        assert!(open
+            .iter()
+            .any(|t| t.title.contains("BLOCKED") && t.title.contains("rotate the cluster key")));
+        assert!(open.iter().all(|t| t.authored));
+    }
+
+    #[test]
+    fn self_authored_failure_backlog_does_not_redraft_an_already_queued_failure() {
+        let ws = failure_ws("dedup");
+        record_mission(&ws, "m-1", "deploy the api", "FAILED");
+        author_from_failures(&ws, "deepseek").unwrap();
+        assert_eq!(list_open(&ws).len(), 1);
+
+        // The same failure kind recurs; it must not grow the queue again.
+        record_mission(&ws, "m-2", "deploy the api", "FAILED");
+        let report = author_from_failures(&ws, "deepseek").unwrap();
+        assert!(
+            report.tasks.is_empty(),
+            "already-queued failure kind is not re-authored"
+        );
+        assert_eq!(list_open(&ws).len(), 1);
+    }
+
+    #[test]
+    fn self_authored_failure_backlog_is_bound_like_any_other_authored_work() {
+        let ws = failure_ws("bound");
+        for i in 0..(AUTHORED_OPEN_MAX + 1) {
+            record_mission(
+                &ws,
+                &format!("m-{i}"),
+                &format!("distinct goal {i}"),
+                "FAILED",
+            );
+        }
+        let err = author_from_failures(&ws, "deepseek")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("bound"), "{err}");
+        assert_eq!(
+            list_open(&ws).len(),
+            0,
+            "an over-bound batch writes nothing"
+        );
+    }
+
+    #[test]
+    fn self_authored_failure_backlog_accept_targets_a_derivable_regression_test() {
+        let ws = failure_ws("accept");
+        record_mission(&ws, "m-1", "deploy the api", "FAILED");
+        author_from_failures(&ws, "deepseek").unwrap();
+        let drafted = &list_open(&ws)[0];
+        assert!(drafted.accept.cmd.last().unwrap().ends_with("_repaired)"));
+        assert_eq!(drafted.accept.cmd[0], "cargo");
+    }
+
+    #[test]
+    fn self_authored_failure_backlog_wiring_is_on_the_cli_path() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../src/cli/tasks_cli.rs"
+        ))
+        .unwrap();
+        for needle in ["from_failures", "author_from_failures("] {
+            assert!(src.contains(needle), "tasks_cli.rs is missing `{needle}`");
+        }
     }
 }
