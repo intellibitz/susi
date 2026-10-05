@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN20261002053148-35",
+  "title": "Setup completion check: real mission + prerequisite reporting (VC-201-069)",
+  "goal": "VC-201-069 refuted: apply() runs no mission and reports no missing prerequisites — the completion check is a list of filesystem mutations; cloud_opt_in applies with keys_present empty (missing prerequisite neither checked nor reported); default_config writes a bare {} not bundled defaults; susi-native is listed without an availability check; the plan has no tools or policy steps. Evidence: crates/susi-config/src/tests/vc_201_069_mastery.rs.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-config",
+      "vc_201_069",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261002053148",
+  "created_unix": 1790998888,
+  "closed": {
+    "at_unix": 1791161471,
+    "commit": "7ac9f8bccfdcf76cc7b0576fbbc4179d6caeef67",
+    "by": "INTELLIBITZ20261005030120687099"
+  }
+}
