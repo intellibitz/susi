@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-280",
+  "title": "Verify mastery: Verify host-platform lifecycle compatibility",
+  "goal": "Run supported Linux, macOS, and Windows install, start, stop, upgrade, and local-runtime smoke cases in isolated environments; the published matrix distinguishes tested features from unsupported GPU or sandbox paths.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_098_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-098",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237641
+}

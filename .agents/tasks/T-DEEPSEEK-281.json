@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-281",
+  "title": "Verify mastery: Provide a unified operator control surface",
+  "goal": "Expose actual workload, resource, provider, configuration, federation, and evidence state through consistent CLI/API views; drill-down explains blocked work and actions obey the same grants and preconditions as automation.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-099"
+    ]
+  },
+  "roadmap": "VC-201-099",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237642
+}

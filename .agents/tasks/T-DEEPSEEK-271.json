@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-271",
+  "title": "Verify mastery: Verify extension and adapter supply-chain provenance",
+  "goal": "Bind admitted extension manifests and managed adapter artifacts to checksums, signatures where available, and explicit trust policy; a changed artifact is quarantined until re-admitted.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-076"
+    ]
+  },
+  "roadmap": "VC-201-076",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237636
+}

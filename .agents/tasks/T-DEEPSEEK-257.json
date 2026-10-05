@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-257",
+  "title": "Verify mastery: Run candidate canaries on the dev instance",
+  "goal": "Compare a candidate on ~/.susi-dev and ports 9190-9194 using an isolated evaluation workload; crossing a declared regression limit stops the trial without replacing the installed release.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(vc_201_017_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-017",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237628
+}

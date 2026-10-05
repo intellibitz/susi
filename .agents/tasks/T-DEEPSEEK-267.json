@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-267",
+  "title": "Verify mastery: Reconcile managed cloud inference deployments",
+  "goal": "Extend the existing provisioning path with desired/observed state, stable operation IDs, health checks, and rollback for an explicitly supported backend; repeated apply and crash recovery do not create duplicate resources.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-vendor-models",
+      "--locked",
+      "-E",
+      "test(vc_201_055_cloud_reconciler_desired_observed_state)"
+    ]
+  },
+  "roadmap": "VC-201-055",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237634
+}

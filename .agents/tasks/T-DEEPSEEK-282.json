@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-282",
+  "title": "Verify mastery: The system authors its own backlog",
+  "goal": "susi writes new roadmap vectors and queue tasks - scopes, acceptance, dependencies and rationale included - from its own analysis of failures and gaps, and those artifacts pass the same schema and queue gates as human-authored ones, under a reviewed rate limit.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(author_unqueued_trims)"
+    ]
+  },
+  "roadmap": "VC-202-008",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237643
+}

@@ -1,0 +1,22 @@
+{
+  "id": "T-DEEPSEEK-266",
+  "title": "Verify mastery: Support verified offline bootstrap and recovery",
+  "goal": "Import a checksummed bundle of supported binaries, models, and extension metadata into an isolated host; a network-disabled drill boots, serves a local mission, and diagnoses missing artifacts without cloud fallback.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-vendor-models",
+      "--locked",
+      "-E",
+      "test(vc_201_050_offline_bundle_pack_and_import_checksummed)"
+    ]
+  },
+  "roadmap": "VC-201-050",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237633
+}

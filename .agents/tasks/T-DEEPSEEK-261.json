@@ -1,0 +1,20 @@
+{
+  "id": "T-DEEPSEEK-261",
+  "title": "Verify mastery: Schedule by live resource and capability constraints",
+  "goal": "Use measured CPU, GPU memory, model readiness, and tool grants to admit runnable DAG nodes; oversubscribed fixtures queue work and never exceed declared resource reservations.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-swarm",
+      "swarm_gap_live_admission",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-024",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237630
+}

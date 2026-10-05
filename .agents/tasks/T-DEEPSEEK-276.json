@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-276",
+  "title": "Verify mastery: Define and measure operating-layer service objectives",
+  "goal": "Measure availability, task success, queue delay, inference latency, and recovery duration from actual events; publish windows and denominators with explicit unknowns when samples are insufficient.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-092"
+    ]
+  },
+  "roadmap": "VC-201-092",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237639
+}

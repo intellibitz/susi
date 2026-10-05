@@ -1,0 +1,16 @@
+{
+  "id": "T-DEEPSEEK-269",
+  "title": "Verify mastery: Roll configuration changes across a fleet in stages",
+  "goal": "Apply a pinned configuration revision to selected canary nodes, verify health, then advance bounded waves; a failing wave pauses rollout and exposes rollback state per node.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-verdict.py",
+      "VC-201-068"
+    ]
+  },
+  "roadmap": "VC-201-068",
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791237635
+}
