@@ -135,7 +135,7 @@ pub fn penalty(tier: CostTier, class: super::brain::TaskClass, budget: Budget) -
         TaskClass::Reflex => 0.04,
         TaskClass::Chat => 0.03,
         TaskClass::Code => 0.012,
-        TaskClass::Reasoning => 0.004,
+        TaskClass::Reasoning | TaskClass::EstateOps => 0.004,
     };
     tier.steps() * per_step * budget.weight()
 }
@@ -154,6 +154,10 @@ pub fn task_token_profile(class: super::brain::TaskClass) -> (u64, u64, f64) {
         TaskClass::Chat => (2_048, 384, 0.25),
         TaskClass::Code => (16_384, 1_536, 0.6),
         TaskClass::Reasoning => (49_152, 3_072, 0.75),
+        // An estate plan carries the observed inventory and the declared
+        // desired state as structured context — smaller than a deep
+        // reasoning prompt, with moderate repeat-prefix reuse.
+        TaskClass::EstateOps => (8_192, 1_024, 0.5),
     }
 }
 
