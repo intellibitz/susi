@@ -102,3 +102,94 @@ fn vc_201_011_mastery_transition_table_holds() {
         .transition("e3", ExperimentState::PromotionReady)
         .is_err());
 }
+
+/// The lifecycle is not a test-only ornament: the production eval path
+/// (`evaluate_and_record`, reached by `susi tasks eval-corpus`) writes
+/// each candidate's experiment under `.susi/experiments/`, and a fresh
+/// process loading that directory resumes exactly where the run left
+/// it — promotion gated by the corpus's predeclared spec.
+#[test]
+fn vc_201_011_mastery_production_path_persists_the_lifecycle() {
+    use crate::eval_separation::{evaluate_and_record, CandidateArtifact, EvalRunInput};
+    use crate::rsi_corpus::{
+        make_fixture, FixtureClass, FixtureSpec, FixtureSplit, RsiCorpus, RSI_CORPUS_SCHEMA,
+    };
+    use crate::scorecard::{DimensionScore, DimensionSpec, ImprovementScorecard, ScorecardSpec};
+    use std::collections::BTreeSet;
+
+    let root = tmp_dir("prod");
+    std::fs::create_dir_all(&root).unwrap();
+    let spec = ScorecardSpec {
+        quality: DimensionSpec {
+            threshold: 0.8,
+            lower_is_better: false,
+        },
+        reliability: DimensionSpec {
+            threshold: 0.9,
+            lower_is_better: false,
+        },
+        latency: DimensionSpec {
+            threshold: 100.0,
+            lower_is_better: true,
+        },
+        resource: DimensionSpec {
+            threshold: 0.9,
+            lower_is_better: false,
+        },
+        operator_effort: DimensionSpec {
+            threshold: 5.0,
+            lower_is_better: true,
+        },
+        min_task_count: 1,
+    };
+    let corpus = RsiCorpus {
+        schema_version: RSI_CORPUS_SCHEMA.into(),
+        revision: "rev-1".into(),
+        fixtures: vec![make_fixture(FixtureSpec {
+            id: "h1",
+            class: FixtureClass::Coding,
+            input: "held-out input",
+            split: FixtureSplit::HeldOut,
+            seed: 1,
+            evaluator_expected: Some("out".into()),
+        })],
+        promotion_spec: Some(spec),
+    };
+    let dim = |name: &str, value: f64, uncertainty: f64| DimensionScore {
+        name: name.into(),
+        value,
+        uncertainty,
+    };
+    let measured = ImprovementScorecard {
+        quality: dim("quality", 0.95, 0.01),
+        reliability: dim("reliability", 0.99, 0.01),
+        latency: dim("latency", 50.0, 5.0),
+        resource: dim("resource", 0.99, 0.01),
+        operator_effort: dim("operator_effort", 1.0, 0.1),
+        task_count: 4,
+    };
+    let input = EvalRunInput {
+        candidate: CandidateArtifact {
+            id: "cand-1".into(),
+            actual_output: BTreeSet::from(["out".to_string()]),
+            expected_results: BTreeSet::new(),
+        },
+        candidate_can_write: false,
+        training_access: BTreeSet::new(),
+        memory_access: BTreeSet::new(),
+        measured: Some(measured),
+    };
+    evaluate_and_record(&root, &corpus, &input).unwrap();
+
+    // A fresh process (fresh log load) resumes the experiment mid-lifecycle.
+    let resumed = ExperimentLog::load(root.join(".susi").join("experiments"));
+    let exp = resumed.experiments.get("cand-1").unwrap();
+    assert_eq!(exp.state, ExperimentState::PromotionReady);
+    assert!(resumed.applied_transitions.contains(&(
+        "cand-1".to_string(),
+        ExperimentState::Evaluated,
+        ExperimentState::PromotionReady,
+    )));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
