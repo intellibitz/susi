@@ -44,12 +44,17 @@ pub enum TaskCommands {
     /// rate-bound: an agent may hold AUTHORED_OPEN_MAX open authored tasks.
     /// With --unqueued and no file, susi's own coverage audit drafts a
     /// "Verify mastery" task for every unqueued vector through the same path.
+    /// With --from-failures and no file, a mission that did not succeed
+    /// drafts its own repair task, deduplicated by failure kind.
     Author {
-        /// Spec JSON file (omit with --unqueued)
+        /// Spec JSON file (omit with --unqueued / --from-failures)
         file: Option<PathBuf>,
         /// Author verification tasks for every unqueued roadmap vector
         #[arg(long)]
         unqueued: bool,
+        /// Author repair tasks from recorded mission failures
+        #[arg(long)]
+        from_failures: bool,
         #[arg(long)]
         agent: Option<String>,
     },
@@ -410,18 +415,20 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
         TaskCommands::Author {
             file,
             unqueued,
+            from_failures,
             agent,
         } => {
             let agent_name = who(agent, &root);
-            let report = match (file, unqueued) {
-                (Some(file), false) => {
+            let report = match (file, unqueued, from_failures) {
+                (Some(file), false, false) => {
                     let body = std::fs::read_to_string(&file)
                         .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
                     let spec: tasks::AuthoredSpec = serde_json::from_str(&body)?;
                     tasks::author(&root, &agent_name, &spec)?
                 }
-                (None, true) => tasks::author_unqueued(&root, &agent_name)?,
-                _ => bail!("pass a spec file or --unqueued, not both"),
+                (None, true, false) => tasks::author_unqueued(&root, &agent_name)?,
+                (None, false, true) => tasks::author_from_failures(&root, &agent_name)?,
+                _ => bail!("pass a spec file, --unqueued, or --from-failures — exactly one"),
             };
             print_json(&serde_json::json!({
                 "vectors": report.vectors,
