@@ -337,6 +337,7 @@ impl SusiRuntimeAdmin {
 /// is gated by [`crate::resource_governor`] so background work defers
 /// while the host is under pressure.
 struct Maintenance {
+    home: std::path::PathBuf,
     watchdog: crate::engine_watchdog::EngineWatchdog,
     probes: crate::eco_probe_scheduler::ProbeScheduler,
     missions_path: std::path::PathBuf,
@@ -361,6 +362,7 @@ impl Maintenance {
             .and_then(|m| m.modified())
             .ok();
         Self {
+            home: home.to_path_buf(),
             watchdog: crate::engine_watchdog::EngineWatchdog::new(3, 500, 60_000),
             probes: crate::eco_probe_scheduler::ProbeScheduler::default(),
             missions_path: crate::scheduled_missions::ScheduleStore::path_in(home),
@@ -610,6 +612,45 @@ impl Maintenance {
                     {
                         let _ = writeln!(f, "{line}");
                     }
+                }
+            }
+        }
+
+        // Estate reconciliation on its own cadence (default 5 min,
+        // SUSI_ESTATE_INTERVAL_SECS): observe the local estate, diff it
+        // against the declared desired state, act within policy — warm or
+        // evict a model, start or drain a leaf runtime, rotate away from
+        // a dead credential, collect orphan weights — and sign every pass
+        // into the audit chain. The pass journal makes a crash a resume,
+        // not a restart of the work (VC-202-024, T-DEEPSEEK-160).
+        let estate = crate::eco_probe_scheduler::Subject {
+            id: "estate_reconcile".to_string(),
+            interval_secs: crate::estate_loop::interval_secs(),
+            budget: 8,
+            needs_consent: false, // everything it touches is daemon-local
+        };
+        if let crate::eco_probe_scheduler::Decision::Run { .. } =
+            self.probes.decide(&estate, now, cond)
+        {
+            match crate::estate_loop::run_pass(&self.home, now) {
+                Ok(report) => {
+                    self.probes.record_run(&estate, now, report.receipts.len());
+                    self.changes_last = self.changes_last.saturating_add(
+                        report
+                            .receipts
+                            .iter()
+                            .filter(|r| {
+                                matches!(
+                                    r.verdict,
+                                    crate::estate_loop::Verdict::Applied(_)
+                                        | crate::estate_loop::Verdict::Failed(_)
+                                )
+                            })
+                            .count() as u32,
+                    );
+                }
+                Err(e) => {
+                    warn!("[runtime-admin] estate reconciliation pass failed: {e}");
                 }
             }
         }

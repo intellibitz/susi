@@ -13,11 +13,18 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-daemon",
       "-E",
       "test(estate_loop_unattended)"
     ]
   },
   "roadmap": "VC-202-024",
   "created_by": "DEEPSEEK",
-  "created_unix": 1790956284
+  "created_unix": 1790956284,
+  "closed": {
+    "at_unix": 1791194550,
+    "commit": "73e717f2b466393126ca2ae22457859cf373e423",
+    "by": "DEEPSEEK"
+  }
 }
