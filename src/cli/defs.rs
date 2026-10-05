@@ -544,6 +544,22 @@ pub(crate) enum AuditCommands {
         #[arg(long)]
         since: Option<u64>,
     },
+    /// Query redacted action history by actor, mission, kind, and time
+    Query {
+        #[arg(long)]
+        actor: Option<String>,
+        #[arg(long)]
+        mission: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        since: Option<u64>,
+        #[arg(long)]
+        until: Option<u64>,
+        /// Emit the query result as a JSON array
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Mandate 32: only ensure the daemon for commands that need the background
