@@ -1358,7 +1358,7 @@
       "id": "VC-202-006",
       "mastery_target": "Agent context is assembled with stable prefixes and cache-safe ordering so repeated turns hit the provider's prompt cache; the hit rate and the realised saving are measured and reported, and a context shape that defeats caching is a defect with evidence rather than an accident.",
       "priority": "P0",
-      "progress": "DELIVERED (T-126): orchestrated delegations are verified to a depth set by the goal's risk — deterministic check for reflex/chat, an independent working model verifier for code/reasoning; the verifier's marginal cost is inside the delegation bound, a goal with no independent checker is never delegated (HeldBack::NoVerifier), a REFUTED result is rescued by the primary and never presented as its own, and the journaled topology names who produced what and who checked it.",
+      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
       "type": "CLOUD_HOSTING",
       "vector": "Cache-first context assembly"
     },
@@ -1540,7 +1540,7 @@
       "id": "VC-202-023",
       "mastery_target": "Work a secondary produced is verified to a depth set by its risk, the cost of that verification enters the routing decision, and an unverified delegation is never presented as though the primary had done it. Verification is where a cheap secondary stops being a quality leak: the mission's result is only as good as what the primary checked.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED (T-126): orchestrated delegations are verified to a depth set by the goal's risk — deterministic check for reflex/chat, an independent working model verifier for code/reasoning; the verifier's marginal cost is inside the delegation bound, a goal with no independent checker is never delegated (HeldBack::NoVerifier), a REFUTED result is rescued by the primary and never presented as its own, and the journaled topology names who produced what and who checked it.",
       "type": "RSI_EVALUATION",
       "vector": "Delegated work is verified proportionally to risk"
     },
