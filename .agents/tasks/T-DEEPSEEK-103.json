@@ -4,6 +4,7 @@
       "cargo",
       "nextest",
       "run",
+      "--workspace",
       "--locked",
       "-E",
       "test(cache_first_context)"

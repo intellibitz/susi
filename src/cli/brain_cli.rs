@@ -18,6 +18,9 @@ pub enum BrainCommands {
     /// Show the measured capability matrix: every model's success rate,
     /// latency and cost per verified outcome at each task class
     Matrix,
+    /// Show the measured prompt-cache hit rate and the estimated saving
+    /// cache-first context assembly has realised so far
+    Cache,
     /// Forget all recorded outcomes (new account, changed model lineup)
     Reset,
     /// Run the fixed prompt set against a fake or configured engine; record evidence
@@ -76,6 +79,13 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
         }
         BrainCommands::Matrix => {
             print_json(&serde_json::to_value(susi_gemi::capability_matrix::build())?)?;
+        }
+        BrainCommands::Cache => {
+            print_json(&serde_json::json!({
+                "report": susi_gemi::context_assembly::cache_report(),
+                "estimated": true,
+                "journal": susi_gemi::context_assembly::default_journal_path(),
+            }))?;
         }
         BrainCommands::Classify { prompt } => {
             let text = prompt.join(" ");
