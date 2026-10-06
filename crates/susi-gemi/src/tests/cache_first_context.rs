@@ -127,9 +127,10 @@ fn cache_first_context_saving_priced_against_catalog() {
     // re-points or clears SUSI_PRICE_CATALOG_FILE mid-flight makes a
     // sibling cost test price a model at 0 (observed on the remote gate).
     let _env = crate::engines::env_test_lock();
-    // Same shared-catalog convention the cost tests use — identical path
-    // and bytes make parallel writers consistent.
-    let dir = std::env::temp_dir().join("susi-budget-shared");
+    // Process-private dir, atomically replaced file: nextest runs sibling
+    // tests as separate processes, and a shared path truncated by another
+    // writer reads back as an empty (unpriced) catalog.
+    let dir = std::env::temp_dir().join(format!("susi-cache-first-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = dir.join("model_prices.json");
     let mut cat = crate::models::price_catalog::PriceCatalog::empty(1);
@@ -150,9 +151,9 @@ fn cache_first_context_saving_priced_against_catalog() {
             cache_miss_usd_per_1m: miss,
         });
     }
-    std::fs::write(&path, cat.to_json().expect("catalog json")).expect("catalog file");
-    // SAFETY: test-only env mutation; identical path and content as the
-    // sibling cost tests, so a torn write still reads the same catalog.
+    crate::susi_config::atomic_write_bytes(&path, cat.to_json().expect("catalog json").as_bytes())
+        .expect("catalog file");
+    // SAFETY: test-only env mutation, serialized by the env lock held above.
     unsafe {
         std::env::set_var("SUSI_PRICE_CATALOG_FILE", &path);
     }
