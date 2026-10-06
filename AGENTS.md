@@ -21,12 +21,15 @@ The agent loop is **atomic per task** (own worktree, always synced with
    commit-msg hook, the pre-push hook and the CI job "Workflow Compliance"
    reject commits without it.
 4. **Sync again, then push:** `git fetch && git merge origin/main`, pass the
-   gate — `cargo fmt --all --check`, then clippy and tests for the crates the
-   branch actually touches (`scripts/ci-changed-crates.sh` names them; the
-   full workspace suite still runs for workspace-wide inputs like the
-   lockfile or toolchain, and `SUSI_LOCAL_GATE=full` forces it) — then push
-   the branch. Tests are
-   hermetic (never touch `~/.susi` or an inherited `SUSI_HOME`).
+   gate — `cargo fmt --all --check`, then clippy for the crates the branch
+   touches **and their dependents**, and **their tests, once**
+   (`scripts/ci-changed-crates.sh` names them; the tests run hermetically under
+   nextest with per-test retries, plus the doc-tests; the full workspace suite
+   still runs for workspace-wide inputs like the lockfile or toolchain, and
+   `SUSI_LOCAL_GATE=full` forces it — as plain `cargo test`, not the hermetic
+   run: a whole-workspace hermetic sweep is not yet clean, see the ratchet list) — then push the branch. This gate is the
+   only place a branch's tests run before it merges. Tests are hermetic (never
+   touch `~/.susi` or an inherited `SUSI_HOME`).
 5. **Close when acceptance passes** (`susi tasks close <id>`), sync again,
    and take the next claim. Do not push to `main`, tag, or cut a release;
    pushed branches open and merge their own PR.
@@ -414,8 +417,14 @@ convergent:
   tree matched the tested head is gone, because its premise (the branch run had
   proven that tree) no longer holds — attributed to the pull request by
   `Main Failure Attribution`, and fixed forward: a red `main` is a defect. The
-  hermetic check (`scripts/check-hermetic-tests.sh`, Mandate 52) is not part of
-  the branch push any more. Clippy is here because the
+  main shards run `cargo nextest --retries 2`, so a flaky test is retried alone
+  and reported FLAKY instead of reddening `main` and drawing a misattributed
+  comment onto whichever pull request merged just before it. The hermetic
+  check (`scripts/check-hermetic-tests.sh`, Mandate 52) is the local gate's
+  single test run — a throwaway `HOME`/`XDG`/`SUSI_HOME`, and a failure if a
+  test writes into it — not a CI step. The pre-push hook lints the same scoped
+  set with the same command line as that gate, so it is a cache hit rather than
+  a second compile. Clippy is here because the
   `lint` job is main-only: 1.99.0 deprecated `Atomic::fetch_update` and it
   failed on code nobody had touched. **The compiler is pinned** in
   `rust-toolchain.toml`, and the `Toolchain Pin` job asserts that a runner
@@ -447,6 +456,17 @@ convergent:
 
 ## Ratchet items (not yet at zero — do not regress)
 
+- Whole-workspace hermetic sweep (`SUSI_HERMETIC_RUNNER=nextest
+  scripts/check-hermetic-tests.sh --workspace`): 3,654 of 3,657 tests pass
+  under the throwaway `HOME`/`SUSI_HOME` (92 s of test time). The one real
+  failure is `susi-paths tests::substrate_home_is_not_a_project_cwd`, which
+  asserts that a pinned `SUSI_HOME` is the substrate home verbatim - exactly
+  what Mandate 52 makes `SusiDirs::instance_root()` ignore under the wrapper
+  (the test should ask `instance_root()`, not re-read the env). It also failed
+  the old branch-push hermetic step for any push touching `susi-paths`. The
+  empty-`SUSI_HOME` assertion has not yet run workspace-wide, because that
+  failure stops the script first. Until the sweep is clean the workspace-wide
+  local gate stays plain `cargo test`; flip it to the hermetic runner then.
 - `clippy::pedantic` + `clippy::nursery`: ~2.4k warnings baseline; new code
   should be pedantic-clean even though the lint isn't denied workspace-wide.
 - `Mutex`/`RwLock` in hot paths: prefer bounded `flume`/tokio channels for new

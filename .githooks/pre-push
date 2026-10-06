@@ -36,7 +36,19 @@ PUSHED_RUST_FILES=$(git diff --name-only origin/main..HEAD -- '*.rs' 'Cargo.toml
 
 if [ -n "$PUSHED_RUST_FILES" ]; then
     echo "- Checking Clippy lints..."
-    cargo clippy --workspace --all-targets --locked -- -D warnings
+    # The crates the push touches and their dependents - the same set, and the
+    # same command line, as `susi workflow finish`'s gate, which has just linted
+    # it: this run is then a cache hit. `--workspace` here compiled every other
+    # crate's test targets as well, a cold build the gate never needed. A
+    # workspace-wide input (lockfile, toolchain, root build.rs) is `ALL` and keeps
+    # the whole-workspace lint.
+    LINT_PKGS=$("$(git rev-parse --show-toplevel)/scripts/ci-changed-crates.sh" --dependents)
+    if [ "$LINT_PKGS" = ALL ] || [ -z "$LINT_PKGS" ]; then
+        cargo clippy --workspace --all-targets --locked -- -D warnings
+    else
+        # shellcheck disable=SC2046 - one `-p` per word is the point.
+        cargo clippy --locked --all-targets $(printf ' -p %s' $LINT_PKGS) -- -D warnings
+    fi
     if [ $? -ne 0 ]; then
         echo "❌ Compliance Violation: Clippy found warnings/errors."
         echo "👉 Fix the clippy issues before pushing."

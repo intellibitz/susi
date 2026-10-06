@@ -46,8 +46,11 @@ impl World {
         } else {
             ""
         };
-        let body =
-            format!("#!/usr/bin/env bash\necho \"$*\" >>\"$TEST_CARGO_CALLS\"\n{leak}exit 0\n");
+        // `metadata` is answered by the real cargo: the nextest runner reads the
+        // workspace to pick the doc-test packages, and a fake has no workspace.
+        let body = format!(
+            "#!/usr/bin/env bash\nif [ \"$1\" = metadata ]; then exec \"$TEST_REAL_CARGO\" \"$@\"; fi\necho \"$*\" >>\"$TEST_CARGO_CALLS\"\n{leak}exit 0\n"
+        );
         let path = bins.join("cargo");
         std::fs::write(&path, body).unwrap();
         #[cfg(unix)]
@@ -63,11 +66,19 @@ impl World {
     }
 
     fn run(&self, args: &[&str]) -> (i32, String) {
+        self.run_with(&[], args)
+    }
+
+    fn run_with(&self, envs: &[(&str, &str)], args: &[&str]) -> (i32, String) {
         let out = Command::new(script())
             .args(args)
             .env("CARGO_HOME", self.bins.parent().unwrap())
             .env("PATH", format!("{}:/usr/bin:/bin", self.bins.display()))
             .env("TEST_CARGO_CALLS", &self.home)
+            .env("TEST_REAL_CARGO", env!("CARGO"))
+            .env_remove("SUSI_HERMETIC_RUNNER")
+            .env_remove("SUSI_HERMETIC_RETRIES")
+            .envs(envs.iter().copied())
             .output()
             .unwrap();
         (
@@ -131,4 +142,77 @@ fn a_test_that_writes_into_the_instance_fails_the_check() {
         "{out}"
     );
     assert!(out.contains("leaked"), "it names what leaked: {out}");
+}
+
+/// The local finish gate's single test run. nextest retries a failing *test*
+/// alone and runs one process per test, so the gate does not rerun a whole crate
+/// for one flake; the doc-tests nextest never runs follow for the selected crates
+/// that have a library (`-p` on a bin-only package is a cargo error).
+#[test]
+fn the_nextest_runner_retries_per_test_and_runs_doc_tests_for_library_crates_only() {
+    let w = World::new("nextest", false);
+    let (code, out) = w.run_with(
+        &[("SUSI_HERMETIC_RUNNER", "nextest")],
+        &["-p", "susi-paths", "-p", "xtask"],
+    );
+    assert_eq!(code, 0, "{out}");
+    let calls = w.cargo_calls();
+    assert!(
+        calls.contains(
+            "nextest run --locked --no-fail-fast --no-tests=pass --retries 2 -p susi-paths -p xtask"
+        ),
+        "one hermetic nextest pass over the selection, a crate with no tests passing: {calls}"
+    );
+    let doc_calls: Vec<&str> = calls.lines().filter(|l| l.contains("--doc")).collect();
+    assert_eq!(
+        doc_calls,
+        ["test --locked --doc -p susi-paths"],
+        "doc-tests for the library crate only - xtask is bin-only, and asking cargo for \
+         its doc-tests is an error: {calls}"
+    );
+    assert!(
+        !calls.contains("test --locked --no-fail-fast"),
+        "the tests run once, under nextest, not again under cargo test: {calls}"
+    );
+}
+
+#[test]
+fn the_nextest_runner_keeps_the_leak_assertion() {
+    let w = World::new("nextest-leak", true);
+    let (code, out) = w.run_with(
+        &[("SUSI_HERMETIC_RUNNER", "nextest")],
+        &["-p", "susi-paths"],
+    );
+    assert_eq!(code, 1, "a leak must fail under nextest too: {out}");
+    assert!(
+        out.contains("tests wrote into the inherited SUSI_HOME"),
+        "{out}"
+    );
+}
+
+#[test]
+fn the_retry_count_is_configurable() {
+    let w = World::new("retries", false);
+    let (code, out) = w.run_with(
+        &[
+            ("SUSI_HERMETIC_RUNNER", "nextest"),
+            ("SUSI_HERMETIC_RETRIES", "5"),
+        ],
+        &["-p", "susi-paths"],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        w.cargo_calls().contains("--retries 5"),
+        "{}",
+        w.cargo_calls()
+    );
+}
+
+#[test]
+fn an_unknown_runner_is_refused_before_anything_runs() {
+    let w = World::new("badrunner", false);
+    let (code, out) = w.run_with(&[("SUSI_HERMETIC_RUNNER", "bazel")], &["-p", "susi-paths"]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("SUSI_HERMETIC_RUNNER"), "{out}");
+    assert_eq!(w.cargo_calls(), "", "no cargo call before the refusal");
 }
