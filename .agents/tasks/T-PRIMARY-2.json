@@ -1,0 +1,20 @@
+{
+  "id": "T-PRIMARY-2",
+  "title": "Cut CI and agent-loop wall time: complete main runs, restore caches per shard, cache geiger and Kani",
+  "goal": "Measured on the last 70 Test runs: no main run completed (34 cancelled; Kani sat queued on the retired ubuntu-20.04 runner, cancel-in-progress cancelled the rest), the six matrix shards shared one 402 MB rust-cache key so root-cli rebuilt for 12 min while its tests ran 40 s, cargo-geiger recompiled on every push (5-7 min, the branch critical path), and workflow check made four sequential 3 s fetches. Fix each, and pin the invariants with a regression test.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf",
+      "--test",
+      "parallel_workflow"
+    ]
+  },
+  "created_by": "PRIMARY",
+  "created_unix": 1791269956
+}
