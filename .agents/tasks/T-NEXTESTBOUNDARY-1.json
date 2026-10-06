@@ -1,0 +1,23 @@
+{
+  "id": "T-NEXTESTBOUNDARY-1",
+  "title": "Agent detection's process-chain boundary includes cargo-nextest; the susi-paths substrate-home test honours the hermetic wrapper",
+  "goal": "Two defects found by running the local gate under nextest, hermetically (T-CLAUDECHARMINGCURIE-2). (1) tool_process_chain stops the ancestor walk at the first cargo/rustc/rustdoc process, so a developer's Claude/Codex shell above cargo is not mistaken for the wrapper under test. But cargo REPLACES itself with cargo-nextest (exec), so under nextest the boundary is never seen and the walk reaches 'bash /abs/.claude/worktrees/<name>/scripts/<x>.sh', whose script path contains 'claude': tasks_cli the_tool_in_the_process_tree_names_the_agent then fails with (agent CLAUDE) in every agent worktree - the standing 'fails only inside an agent process tree' note on four closed tasks' binary(tasks_cli) acceptances. cargo-nextest is a boundary too. (2) susi-paths tests::substrate_home_is_not_a_project_cwd asserts a pinned SUSI_HOME is the substrate home verbatim, which scripts/check-hermetic-tests.sh deliberately makes SusiDirs::instance_root() ignore (Mandate 52); it failed the old branch-push hermetic step for any push touching susi-paths. It should ask instance_root(), not re-read the env.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-p",
+      "susi-paths",
+      "-E",
+      "binary(tasks_cli)|test(/tool_process_chain|substrate_home_is_not_a_project_cwd/)"
+    ]
+  },
+  "created_by": "NEXTESTBOUNDARY",
+  "created_unix": 1791314545
+}
