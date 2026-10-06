@@ -16,30 +16,58 @@ on:
     branches: ['**']
   workflow_dispatch:
 
+# A branch's newer push supersedes its older run, so that stays cancelling. A run
+# on `main` must NOT be cancelled by the next merge: merges land every few
+# minutes while the full suite takes ~15, so with `cancel-in-progress: true`
+# every main run was cancelled before it finished (34 of 34 in one six-hour
+# window) - the integration gate never reported, the post-merge acceptance never
+# recorded `refs/verified/*`, and Swatinem/rust-cache never saved a cache (it
+# saves in a post-step a cancelled job never reaches), so the next run started
+# cold and was slower still. Without cancellation GitHub keeps one run going and
+# one pending - the newest - so each completed run validates a recent main tip
+# and the intermediate merges are covered by it rather than raced.
 concurrency:
   group: test-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
+  # This job gates every merge and used to be the slowest thing on a branch push
+  # by a wide margin (5-7.5 min against ~1 min for everything else): it compiled
+  # cargo-geiger from source (~3 min, release profile) and then built the
+  # `unsafe_ratchet` binary's 329-crate dependency closure cold, because it had no
+  # cargo cache at all. Both are now cached. geiger is pinned to the version CI
+  # resolved when the baseline was recorded, so a new release cannot silently
+  # move `.agents/baseline/unsafe-default.json`.
   unsafe-ratchet:
     name: Unsafe Exposure Ratchet
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo-geiger
+        id: geiger
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-geiger
+          key: cargo-geiger-0.13.0-${{ runner.os }}-${{ runner.arch }}
       - name: Install cargo-geiger
-        run: cargo install cargo-geiger --locked
+        if: steps.geiger.outputs.cache-hit != 'true'
+        run: cargo install cargo-geiger --locked --version 0.13.0
       - name: Run unsafe exposure ratchet
         run: .github/workflows/unsafe-exposure-ratchet.sh
 
   fmt:
     name: Format Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -60,6 +88,7 @@ jobs:
   toolchain:
     name: Toolchain Pin
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -77,6 +106,7 @@ jobs:
     name: Workflow Compliance
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -95,6 +125,7 @@ jobs:
   roadmap:
     name: Roadmap Progress
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -105,6 +136,7 @@ jobs:
   artifacts:
     name: Tracked Artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -138,6 +170,7 @@ jobs:
   deny:
     name: cargo deny (licenses + advisories)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -157,6 +190,7 @@ jobs:
     name: Compile Check (branch pushes)
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -175,11 +209,25 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # A cache is only readable from the ref that wrote it or from main, and this
+      # job never runs on main - so the cache it used to write could only be read
+      # by later pushes of the *same* branch. Every fresh agent branch (a new
+      # branch per task) therefore started cold on its first push: 7.5 min against
+      # 0.7-1.1 min once warm, 111 s of it the ONNX fetch alone. `lint` runs on main
+      # and builds the same dependency closure (clippy over the workspace plus the
+      # doc-test build), so read its cache and never write one of our own: saving
+      # per branch only filled the cache quota with one entry per task.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+        run: scripts/ci-system-deps.sh
+
+      - name: Install mold (Linux)
+        run: scripts/ci-install-mold.sh
 
       - name: Resolve affected crates
         id: affected
@@ -254,13 +302,24 @@ jobs:
         run: scripts/check-hermetic-tests.sh $(printf ' -p %s' ${{ steps.affected.outputs.pkgs }})
 
   # The suite is sharded by area so each runner compiles only its dep
-  # closure; the gate is the slowest shard (~4min warm) rather than one
-  # serial workspace build. Keep shards roughly balanced: gemi pulls the
-  # candle/ort vendors, daemon the service shells, gawd the swarm crates.
+  # closure; the gate is the slowest shard rather than one serial workspace
+  # build. Keep shards roughly balanced: gemi pulls the candle/ort vendors,
+  # daemon the service shells, gawd the swarm crates.
+  #
+  # Compiling is the cost, not testing: nextest runs the foundation shard's 690
+  # tests in 6 s, daemon's 358 in 4 s, root-cli's 268 in 40 s, while their test
+  # profiles take minutes to build on a 4-vCPU runner. So the lever is what the
+  # cache holds. Every shard is its own cache (`shared-key` below): they used to
+  # share the single key `v0-rust-test-*` (all six matrix jobs have the job id
+  # `test`), the first shard to finish saved it - always a small one - and the
+  # rest restored a 402 MB cache that did not hold their dependencies and rebuilt
+  # them anyway (root-cli: a cache "hit", then a 12 min test-profile build for
+  # 40 s of tests).
   test:
     name: Test (${{ matrix.shard.name }})
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -277,6 +336,15 @@ jobs:
             pkgs: -p susi-vendor-wasmer -p susi-vendor-candle -p susi-vendor-fastembed -p susi-vendor-tantivy -p susi-vendor-chrome -p susi-vendor-syn -p susi-vendor-mcp -p susi-vendor-mcp-server -p susi-vendor-cloud -p susi-vendor-agents -p susi-vendor-models -p susi-vendor-web -p susi-dsh-cell -p susi-universal-cell -p susi-vendor-anyhow -p susi-vendor-axum -p susi-vendor-base64 -p susi-vendor-bollard -p susi-vendor-bytes -p susi-vendor-chacha20poly1305 -p susi-vendor-clap -p susi-vendor-console-subscriber -p susi-vendor-criterion -p susi-vendor-dashmap -p susi-vendor-ed25519-dalek -p susi-vendor-flume -p susi-vendor-futures -p susi-vendor-getrandom -p susi-vendor-hex -p susi-vendor-http-body-util -p susi-vendor-hyper -p susi-vendor-hyper-util -p susi-vendor-indicatif -p susi-vendor-jsonschema -p susi-vendor-libc -p susi-vendor-md-5 -p susi-vendor-parking-lot -p susi-vendor-proptest -p susi-vendor-ra2a -p susi-vendor-rayon -p susi-vendor-rcgen -p susi-vendor-regex -p susi-vendor-serde -p susi-vendor-serde-json -p susi-vendor-sha1 -p susi-vendor-sha2 -p susi-vendor-shlex -p susi-vendor-signal-hook -p susi-vendor-sysinfo -p susi-vendor-tempfile -p susi-vendor-tokio -p susi-vendor-tokio-rustls -p susi-vendor-tokio-stream -p susi-vendor-tower -p susi-vendor-tower-service -p susi-vendor-tracing -p susi-vendor-tracing-appender -p susi-vendor-tracing-subscriber -p susi-vendor-ureq -p susi-vendor-url -p susi-vendor-winapi -p susi-vendor-x25519-dalek
           - name: root-cli
             pkgs: -p susi -p xtask
+          # susi-leaf-services feature-gates every service shell; the router
+          # tests only exist under --all-features (zero-feature builds compile
+          # them out by design so vendor backends stay out of unrelated
+          # binaries). Its own shard because the all-features build pulls
+          # wasmer's cranelift backend and cost ~7.5 min on its own - run as a
+          # second step of `foundation` it made that shard ~10 min against ~2.5
+          # min for the rest of it.
+          - name: leaf-all-features
+            pkgs: -p susi-leaf-services --all-features
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -286,24 +354,14 @@ jobs:
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test-${{ matrix.shard.name }}
 
       - name: Install Linux System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+        run: scripts/ci-system-deps.sh
 
       - name: Install mold (Linux)
-        run: |
-          set -euo pipefail
-          VER=2.40.4
-          ARCH="$(uname -m)"
-          case "$ARCH" in
-            x86_64|aarch64) ;;
-            *) echo "Skipping mold on $ARCH"; exit 0 ;;
-          esac
-          NAME="mold-${VER}-${ARCH}-linux"
-          curl -sSfL "https://github.com/rui314/mold/releases/download/v${VER}/${NAME}.tar.gz" \
-            | sudo tar -xz -C /usr/local --strip-components=1
-          mold --version
-          command -v ld.mold
+        run: scripts/ci-install-mold.sh
 
       # wasm32-wasip1 lets the reflex tests take the real compile+execute
       # branch instead of skipping (VC-200-002 evidence).
@@ -332,19 +390,13 @@ jobs:
       - name: cargo nextest
         run: cargo nextest run --locked ${{ matrix.shard.pkgs }} -E 'not binary(capability_gap_e2e)'
 
-      # susi-leaf-services feature-gates every service shell; the router tests
-      # only exist under --all-features (zero-feature builds compile them out
-      # by design so vendor backends stay out of unrelated binaries).
-      - name: cargo nextest (leaf-services all-features)
-        if: matrix.shard.name == 'foundation'
-        run: cargo nextest run --locked -p susi-leaf-services --all-features
-
   # Per-crate coverage floor: coverage can only rise. Parallel with the
   # shards so it adds no wall time; instrumented build is the cost.
   coverage:
     name: Coverage Ratchet
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -369,7 +421,7 @@ jobs:
           restore-keys: llvm-cov-
 
       - name: Install Linux System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+        run: scripts/ci-system-deps.sh
 
       - name: Install wasm32-wasip1 target
         run: rustup target add wasm32-wasip1
@@ -393,6 +445,7 @@ jobs:
     name: Doc Tests + Clippy
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -402,11 +455,18 @@ jobs:
         with:
           components: clippy
 
+      # Branch pushes' `check` job restores this exact cache (same shared-key), so
+      # what this job leaves on main is what every new agent branch starts from.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
 
       - name: Install Linux System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+        run: scripts/ci-system-deps.sh
+
+      - name: Install mold (Linux)
+        run: scripts/ci-install-mold.sh
 
       # nextest does not run doc-tests; keep the door open for them.
       - name: cargo test --doc
@@ -426,10 +486,20 @@ jobs:
   # bounded inputs without starting the daemon or contacting a provider. Keep
   # the proof on main only: branch pushes already run the affected crate gate,
   # while this job records the merged-tree proof and its bound for audit.
+  #
+  # This job was pinned to `ubuntu-20.04`, an image GitHub has retired. No runner
+  # carries that label any more, so the job never started - no runner, no steps -
+  # and sat queued for hours (153 min in one run), which kept every `main` run
+  # "in progress" until the next merge cancelled it. Do not pin a hosted-runner
+  # image that can be retired: tests/ci_workflow_perf.rs refuses the known-dead
+  # labels. `cargo install kani-verifier` is a ~3 min source build, so the binaries
+  # are cached; `cargo kani setup` still runs every time because it is
+  # idempotent and where it unpacks its bundle is Kani's business, not ours.
   kani:
     name: Kani Bounded Proofs
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -437,10 +507,21 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Kani binaries
+        id: kani
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-kani
+            ~/.cargo/bin/kani
+          key: kani-0.68.0-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install Kani
-        run: |
-          cargo install --locked kani-verifier --version 0.68.0
-          cargo kani setup
+        if: steps.kani.outputs.cache-hit != 'true'
+        run: cargo install --locked kani-verifier --version 0.68.0
+
+      - name: Set up Kani
+        run: cargo kani setup
 
       - name: Verify bounded harnesses and retain proof output
         run: |
@@ -479,6 +560,7 @@ jobs:
     name: Post-merge acceptance
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: write # push the refs/verified/<id> records
     steps:
@@ -490,11 +572,20 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Builds `susi` and then each merged task's own test target: 24 min cold, all
+      # of it compiling. The root-cli shard has just built the same dependency
+      # closure, so start from its cache and leave writing it to that shard.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test-root-cli
+          save-if: false
 
       - name: Install Linux System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+        run: scripts/ci-system-deps.sh
+
+      - name: Install mold (Linux)
+        run: scripts/ci-install-mold.sh
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
@@ -511,6 +602,7 @@ jobs:
     name: capability_gap_e2e (live susi-native)
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -522,7 +614,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install Linux System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+        run: scripts/ci-system-deps.sh
+
+      - name: Install mold (Linux)
+        run: scripts/ci-install-mold.sh
 
       - name: Install wasm32-wasip1 target
         run: rustup target add wasm32-wasip1
