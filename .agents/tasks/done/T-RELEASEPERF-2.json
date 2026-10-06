@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "RELEASEPERF",
-  "created_unix": 1791301586
+  "created_unix": 1791301586,
+  "closed": {
+    "at_unix": 1791301873,
+    "commit": "f82c88fa07a084077ebbcccc1211fe112abb691c",
+    "by": "RELEASEPERF"
+  }
 }
