@@ -741,6 +741,63 @@ fn finish_hands_off_once_the_run_is_green() {
     );
 }
 
+/// A re-run of `finish` repays the whole gate even when nothing it judges
+/// changed — a push rejected non-fast-forward by a stale remote head costs a
+/// full scoped suite again. The stamp hashes the diff to origin/main with
+/// `.agents/` bookkeeping excluded, so merging a remote head that only moves
+/// task JSON leaves the verdict valid and the second finish skips the suite.
+#[test]
+fn a_gate_cache_hit_skips_the_scoped_suite() {
+    let w = World::new("gate-cache");
+    // A head already on our remote branch carrying only task bookkeeping, so
+    // the first finish's push is rejected non-fast-forward.
+    std::fs::write(
+        w.primary.join(".agents/tasks/T-STALE-1.json"),
+        "{\"id\":\"T-STALE-1\"}\n",
+    )
+    .unwrap();
+    git(&w.primary, &["add", ".agents/tasks/T-STALE-1.json"]);
+    git(&w.primary, &["commit", "-qm", "stale remote head"]);
+    git(
+        &w.primary,
+        &["push", "-q", "origin", "HEAD:refs/heads/worker"],
+    );
+    git(&w.primary, &["reset", "--hard", "-q", "HEAD~1"]);
+
+    let out = w.finish(false);
+    assert!(
+        !out.status.success(),
+        "the non-fast-forward push must stop the first finish"
+    );
+    let gates_after_first = std::fs::read_to_string(w.root.join("gates")).unwrap();
+
+    git(&w.work, &["fetch", "-q", "origin"]);
+    git(
+        &w.work,
+        &["merge", "-q", "-m", "merge stale head", "origin/worker"],
+    );
+    let out = w.finish(false);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "the retry must publish: {err}");
+    assert!(
+        err.contains("already passed"),
+        "the second finish must not repay the suite: {err}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(w.root.join("gates")).unwrap(),
+        gates_after_first,
+        "a stamp hit runs no gate commands at all"
+    );
+    let claims = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/claims/"],
+    );
+    assert!(
+        !claims.contains("refs/claims/T-WORKER-1"),
+        "the merged close releases the claim: {claims}"
+    );
+}
+
 /// A branch whose run has already failed will not merge, so waiting out the
 /// budget is two hours of the agent's time spent not fixing it. `finish` stops
 /// as soon as `gh` reports the failure for the sha it pushed — the same
