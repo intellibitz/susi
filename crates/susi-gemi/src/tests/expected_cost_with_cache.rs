@@ -104,13 +104,13 @@ fn expected_cost_with_cache_composite_provider_names_resolve() {
     );
 }
 
-/// Install the shared test catalog: one fixed path, one fixed content, so
-/// parallel tests that set `SUSI_PRICE_CATALOG_FILE` write identical bytes
-/// and cannot corrupt each other's lookups. Entries cover every model_id
-/// the suite prices — including the budget_ceiling cascade tests, which
-/// install an identical superset at their own path.
+/// Install the test catalog under a process-private directory, replaced
+/// atomically so a concurrent reader in this process (tests here take no env
+/// lock) never sees an empty or partial file, and sibling nextest processes
+/// never share the path at all. Entries cover every model_id the suite
+/// prices.
 fn install_catalog() -> PriceCatalog {
-    let dir = std::env::temp_dir().join("susi-prices-shared");
+    let dir = std::env::temp_dir().join(format!("susi-prices-shared-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = dir.join("model_prices.json");
     let mut cat = PriceCatalog::empty(1);
@@ -121,9 +121,10 @@ fn install_catalog() -> PriceCatalog {
     cat.insert(entry("bargainmodel", 0.01, 0.01, None, None));
     cat.insert(entry("spendmodel", 0.01, 0.01, None, None));
     cat.insert(entry("doommodel", 5.0, 50.0, None, None));
-    std::fs::write(&path, cat.to_json().expect("catalog json")).expect("catalog file");
-    // SAFETY: test-only env mutation; every caller writes the same path and
-    // the same content, so a torn set/write pair is still consistent.
+    crate::susi_config::atomic_write_bytes(&path, cat.to_json().expect("catalog json").as_bytes())
+        .expect("catalog file");
+    // SAFETY: test-only env mutation; every caller sets the same path, whose
+    // content is identical across writers and replaced atomically.
     unsafe {
         std::env::set_var("SUSI_PRICE_CATALOG_FILE", &path);
     }
