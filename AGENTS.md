@@ -43,6 +43,18 @@ SessionStart hooks (Claude Code: `.claude/settings.json`; Codex:
 `workflow start` assigns a unique identity in worktree-local Git config,
 including when workers share a Git login. Explicit `SUSI_AGENT` overrides
 must also be unique per worker (`CODEX1`, `CODEX2`, etc.).
+
+The identity is `<TOOL><WORKTREE-ID>` — the agent tool you run inside plus your
+worktree's own name, e.g. `CLAUDESWEETKHORANA5D3FC4` — and it is both your claim
+token and your Git author. It is never the shared Git login (`INTELLIBITZ`) and
+never `PRIMARY`. Task ids are `T-<identity>-<n>`, so they are unique per worker
+by construction: two workers cannot mint the same id or hold each other's claim.
+A worktree that arrives without one (the desktop app's `.claude/worktrees/<name>`
+inherits `PRIMARY` and commits as the login) is given one by `susi workflow
+check`, or by `susi workflow identity`. The check's `own identity` row fails when
+it cannot — a claim travels with its token, so `susi tasks release <id>` first —
+and the commit hook rejects a worktree whose token is the login or a role
+(`PRIMARY`, `MAIN`, …) or whose commits are authored by the login.
 A worker owns one linked worktree and one live task claim. Several workers
 contribute to one larger goal through separate subtasks with explicit
 `--dep` dependencies and disjoint `--scope` files/directories; never share a
