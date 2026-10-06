@@ -1,46 +1,36 @@
 {
-  "comment": "Fresh-environment matrix: the clean-HOME journey (tests/zc_fresh_home.rs + zc_time_to_answer.rs) runs per profile on a clean container; the check script validates this definition's shape and expected outcomes.",
-  "version": 1,
+  "comment": "Fresh-environment matrix: per-OS lifecycle smoke. Each profile runs the installer/lifecycle journey (tests/zc_platform_installers.rs + tests/vc_201_098_mastery.rs) under a clean HOME on that OS family; the check script validates this definition's shape and that the workflow runs every declared profile.",
+  "version": 2,
   "journey": {
-    "script": "cargo test --test zc_time_to_answer --test zc_fresh_home --test zc_hooks_on_clone",
+    "script": "cargo test --test zc_platform_installers --test vc_201_098_mastery --locked",
     "budget_seconds": 900
   },
   "profiles": [
     {
-      "id": "cpu-only",
-      "image": "rust:bookworm",
-      "memory_mb": 4096,
-      "gpus": 0,
-      "env": {"SUSI_PROFILE": "cpu"},
+      "id": "linux-cpu",
+      "runner": "ubuntu-latest",
+      "env": {"SUSI_PROFILE": "linux-cpu"},
       "expect": {
-        "first_answer": true,
-        "local_model": "qwen2.5-0.5b-instruct-q4",
-        "offline_fallback": false
+        "installer_plan": true,
+        "lifecycle_smoke": true
       }
     },
     {
-      "id": "emulated-gpu",
-      "image": "rust:bookworm",
-      "memory_mb": 8192,
-      "gpus": 1,
-      "emulated": true,
-      "env": {"SUSI_PROFILE": "emulated-gpu"},
+      "id": "macos-cpu",
+      "runner": "macos-latest",
+      "env": {"SUSI_PROFILE": "macos-cpu"},
       "expect": {
-        "first_answer": true,
-        "local_model": "qwen2.5-3b-instruct-q4",
-        "offline_fallback": false
+        "installer_plan": true,
+        "lifecycle_smoke": true
       }
     },
     {
-      "id": "low-memory",
-      "image": "rust:bookworm",
-      "memory_mb": 1536,
-      "gpus": 0,
-      "env": {"SUSI_PROFILE": "low-memory"},
+      "id": "windows-cpu",
+      "runner": "windows-latest",
+      "env": {"SUSI_PROFILE": "windows-cpu"},
       "expect": {
-        "first_answer": true,
-        "local_model": "qwen2.5-0.5b-instruct-q4",
-        "offline_fallback": true
+        "installer_plan": true,
+        "lifecycle_smoke": true
       }
     }
   ]
