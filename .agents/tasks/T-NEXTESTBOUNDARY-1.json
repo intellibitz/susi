@@ -15,7 +15,7 @@
       "-p",
       "susi-paths",
       "-E",
-      "binary(tasks_cli)|test(/tool_process_chain|substrate_home_is_not_a_project_cwd/)"
+      "binary(tasks_cli)|test(/cargo_nextest_is_the_same_boundary|cargo_test_harness_does_not_inherit|substrate_home_is_not_a_project_cwd/)"
     ]
   },
   "created_by": "NEXTESTBOUNDARY",

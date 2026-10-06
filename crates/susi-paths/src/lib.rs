@@ -396,11 +396,11 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let home = SusiDirs::substrate_home();
         // A pinned instance root (`SUSI_HOME`, e.g. a dev instance) is the
-        // substrate home verbatim, whatever it is named.
-        if let Some(root) = std::env::var_os("SUSI_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-        {
+        // substrate home verbatim, whatever it is named. Ask `instance_root()`,
+        // not the environment: under `scripts/check-hermetic-tests.sh` the
+        // `SUSI_HOME` it sets is the one Mandate 52 makes `instance_root()`
+        // ignore, and re-reading the variable here asserted the opposite.
+        if let Some(root) = LocalDirs::instance_root() {
             assert_eq!(home, root);
             return;
         }
