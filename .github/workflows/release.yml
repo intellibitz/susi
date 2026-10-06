@@ -1,5 +1,19 @@
 name: Release Binaries
 
+# A pushed `v*.*.*` tag builds and PUBLISHES. `workflow_dispatch` builds only: it
+# has no tag, and `softprops/action-gh-release` falls back to the ref name, so a
+# dispatch from any branch used to publish a GitHub release named after that
+# branch. A build-only dispatch is how a change to this pipeline is proven
+# (`gh workflow run release.yml --ref <branch>`) without releasing anything.
+#
+# Wall time (v0.21.12, 31.7 min tag to published): macOS 31.2, CUDA 23.0, linux
+# x86_64 16.6, linux aarch64 14.8 - the slowest leg is the release. In every leg
+# the single `susi` binary unit (fat LTO, one codegen unit) is the long pole: it
+# starts only after all ~700 dependency crates finish and runs on one thread
+# (988 s of a 1548 s cold build, measured on 28 cores). Caching dependencies would not shorten it, and
+# it cannot be bought here: a cache written by a tag run is readable only by that
+# tag, one written on main would need ~2 GB per leg against a 10 GB repository
+# quota that Test already fills (see test.yml).
 on:
   push:
     tags:
@@ -16,6 +30,7 @@ jobs:
   verify-tag:
     name: Verify release tag
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -34,6 +49,8 @@ jobs:
     name: Build ${{ matrix.name }}
     needs: [verify-tag]
     runs-on: ${{ matrix.os }}
+    # Slowest leg 31 min: a hung build must not hold a release for the 6 h default.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -67,24 +84,16 @@ jobs:
 
       - name: Install Linux System Dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake clang
+        # Installs only what the runner image lacks, so the common case skips the
+        # 15-25 s `apt-get update`. clang is not in that list (the linker wrapper
+        # wants it); the image ships it, and this keeps the old guarantee anyway.
+        run: |
+          scripts/ci-system-deps.sh
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang; }
 
       - name: Install mold (Linux)
         if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          VER=2.40.4
-          ARCH="$(uname -m)"
-          case "$ARCH" in
-            x86_64|aarch64) ;;
-            *) echo "Skipping mold on $ARCH"; exit 0 ;;
-          esac
-          NAME="mold-${VER}-${ARCH}-linux"
-          curl -sSfL "https://github.com/rui314/mold/releases/download/v${VER}/${NAME}.tar.gz" \
-            | sudo tar -xz -C /usr/local --strip-components=1
-          mold --version
-          command -v ld.mold
-          command -v clang
+        run: scripts/ci-install-mold.sh
 
       - name: Build Engine
         # [profile.dist]: fat LTO + CGU=1 for published binaries. The one-line
@@ -101,6 +110,9 @@ jobs:
         run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
 
       - name: Upload Artifacts
+        # A dispatch is a dry run: it has no tag, so this would publish a
+        # release named after the branch.
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v3
         with:
           files: |
@@ -111,6 +123,7 @@ jobs:
     name: Build linux-x86_64-cuda
     needs: [verify-tag]
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -119,23 +132,22 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake clang
+        run: |
+          scripts/ci-system-deps.sh
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang; }
 
       - name: Install mold
-        run: |
-          set -euo pipefail
-          VER=2.40.4
-          ARCH="$(uname -m)"
-          NAME="mold-${VER}-${ARCH}-linux"
-          curl -sSfL "https://github.com/rui314/mold/releases/download/v${VER}/${NAME}.tar.gz" \
-            | sudo tar -xz -C /usr/local --strip-components=1
-          mold --version
-          command -v ld.mold
+        run: scripts/ci-install-mold.sh
 
       - name: Install CUDA Toolkit
+        # Without recommends: 80 packages / 1.6 GB instead of 375 / 2.6 GB (measured
+        # on ubuntu:24.04). The extras are Nsight, the visual profiler, cuda-gdb,
+        # Java and docs; nvcc, the headers and libcublas/cudart/curand/nvrtc/cusolver
+        # that the bundle step collects are all hard dependencies. patchelf rides
+        # along so the bundle step needs no second apt transaction.
         run: |
           sudo apt-get update
-          sudo apt-get install -y nvidia-cuda-toolkit
+          sudo apt-get install -y --no-install-recommends nvidia-cuda-toolkit patchelf
 
       - name: Build GPU-Accelerated Engine (CUDA)
         # candle-kernels' build script shells out to `nvidia-smi` to detect
@@ -161,7 +173,6 @@ jobs:
         # normal system dependency, not bundled.
         run: |
           set -e
-          sudo apt-get install -y patchelf
           mkdir -p lib
           CUDA_LIB_RE='lib(cublas|cudart|cusparse|cusolver|cufft|curand|cudnn|nvrtc|nvJitLink|nvToolsExt)'
           collect_cuda_libs() {
@@ -192,6 +203,7 @@ jobs:
         run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Upload Artifacts
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v3
         with:
           files: |
@@ -205,7 +217,9 @@ jobs:
     name: Prune old GitHub Releases
     needs: [build, build-cuda]
     runs-on: ubuntu-latest
-    if: success()
+    timeout-minutes: 10
+    # Retention applies to published releases; a dry run published nothing.
+    if: success() && github.event_name == 'push'
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6

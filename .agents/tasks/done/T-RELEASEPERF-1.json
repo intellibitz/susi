@@ -1,0 +1,26 @@
+{
+  "id": "T-RELEASEPERF-1",
+  "title": "Release pipeline: bound release.yml jobs, bootstrap via scripts, make workflow_dispatch a non-publishing dry run",
+  "goal": "release.yml (tag -> binaries) took 31.7 min for v0.21.12 (macOS 31.2, CUDA 23, linux-x86_64 16.6, aarch64 14.8). It has no job timeouts (a hung macOS build holds a release for 6 h), repeats the apt-get/mold boilerplate that test.yml already replaced with scripts/ci-system-deps.sh and scripts/ci-install-mold.sh, and workflow_dispatch on any ref runs the publishing steps, so a manual dispatch from a branch would create a GitHub release named after the branch. Make dispatch build-only so the pipeline can be validated without publishing, pin the invariants in tests/ci_workflow_perf.rs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-E",
+      "binary(ci_workflow_perf)"
+    ]
+  },
+  "created_by": "RELEASEPERF",
+  "created_unix": 1791288823,
+  "closed": {
+    "at_unix": 1791294353,
+    "commit": "12f6886615f3f84897e0be7adfe1342050c15941",
+    "by": "RELEASEPERF"
+  }
+}

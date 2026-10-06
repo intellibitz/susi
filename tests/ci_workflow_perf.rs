@@ -511,3 +511,113 @@ fn the_ratchet_script_is_unchanged_in_what_it_gates() {
         .contains(".github/workflows/unsafe-exposure-ratchet.sh"));
     assert!(Path::new(&root().join(".github/workflows/unsafe-exposure-ratchet.sh")).is_file());
 }
+
+/// The steps of one job body, each as its own text (a step starts at a line
+/// indented six spaces that opens a list item).
+fn steps(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in body.lines() {
+        if line.starts_with("      - ") {
+            out.push(String::new());
+        }
+        if let Some(step) = out.last_mut() {
+            step.push_str(line);
+            step.push('\n');
+        }
+    }
+    out
+}
+
+#[test]
+fn every_release_job_is_bounded() {
+    let text = read(".github/workflows/release.yml");
+    let all = jobs(&text);
+    assert!(!all.is_empty(), "release.yml has no jobs?");
+    for j in all {
+        assert!(
+            j.body.contains("timeout-minutes:"),
+            "release job `{}` has no timeout-minutes: the default is six hours, so a hung \
+             build holds the release (and its siblings' published assets) for that long. \
+             The slowest leg takes ~31 min",
+            j.id
+        );
+    }
+}
+
+#[test]
+fn a_manual_dispatch_of_the_release_workflow_publishes_nothing() {
+    // Without a tag, softprops/action-gh-release falls back to the ref name, so a
+    // dispatch from a branch published a GitHub release named after the branch.
+    // Every publishing step (and the retention prune that follows one) must be
+    // confined to a pushed tag, which leaves dispatch a build-only dry run.
+    let text = read(".github/workflows/release.yml");
+    let mut publishing = 0;
+    for j in jobs(&text) {
+        let prunes = j.body.contains("prune-old-github-releases.sh");
+        if prunes {
+            publishing += 1;
+            assert!(
+                j.body.contains("github.event_name == 'push'"),
+                "job `{}` prunes published releases on a dispatch that published none",
+                j.id
+            );
+        }
+        for step in steps(&j.body) {
+            if step.contains("softprops/action-gh-release") {
+                publishing += 1;
+                assert!(
+                    step.contains("if: github.event_name == 'push'"),
+                    "job `{}` publishes on workflow_dispatch: a dispatch from a branch would \
+                     create a release named after it. Gate the step on a pushed tag:\n{step}",
+                    j.id
+                );
+            }
+        }
+    }
+    assert!(
+        publishing >= 3,
+        "expected the three publish steps and the prune"
+    );
+}
+
+#[test]
+fn release_bootstrap_runs_through_the_same_scripts_as_test() {
+    let text = read(".github/workflows/release.yml");
+    let body = code(&text);
+    assert!(
+        !body.contains("rui314/mold"),
+        "release.yml downloads mold inline again: use scripts/ci-install-mold.sh"
+    );
+    assert!(
+        !body.contains("apt-get update && sudo apt-get install -y pkg-config"),
+        "release.yml refreshes the apt index unconditionally again: the runner image already \
+         carries pkg-config, libssl-dev and cmake; scripts/ci-system-deps.sh installs only \
+         what is missing (15-25 s per Linux leg)"
+    );
+    let jobs = jobs(&text);
+    for id in ["build", "build-cuda"] {
+        let j = job(&jobs, id);
+        assert!(
+            j.body.contains("scripts/ci-system-deps.sh")
+                && j.body.contains("scripts/ci-install-mold.sh"),
+            "release job `{id}` must bootstrap through scripts/ci-system-deps.sh and \
+             scripts/ci-install-mold.sh"
+        );
+    }
+}
+
+#[test]
+fn the_cuda_toolkit_is_installed_without_its_recommends() {
+    let text = read(".github/workflows/release.yml");
+    let body = code(&text);
+    let line = body
+        .lines()
+        .find(|l| l.contains("apt-get install") && l.contains("nvidia-cuda-toolkit"))
+        .expect("release.yml installs nvidia-cuda-toolkit");
+    assert!(
+        line.contains("--no-install-recommends"),
+        "`{}`: the recommends are Nsight, the profiler, cuda-gdb and Java - 295 of 375 \
+         packages and ~1 GB of download (measured on ubuntu:24.04) that no build step uses",
+        line.trim()
+    );
+}
