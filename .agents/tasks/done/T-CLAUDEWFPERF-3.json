@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "CLAUDEWFPERF",
-  "created_unix": 1791276957
+  "created_unix": 1791276957,
+  "closed": {
+    "at_unix": 1791277223,
+    "commit": "c5a5177646373dd2dbd044dab41965f7def952ea",
+    "by": "CLAUDEWFPERF"
+  }
 }
