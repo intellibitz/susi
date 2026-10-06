@@ -202,6 +202,13 @@ fn agent_from_tool_process() -> Option<String> {
 /// A test process inherits the developer's Codex/Claude shell, but that shell
 /// is not the wrapper the test is asking us to identify. Direct wrappers still
 /// appear before the Cargo boundary and remain detectable.
+///
+/// `cargo-nextest` is that boundary too, and the one that is easy to miss: cargo
+/// replaces itself with the subcommand (an `exec`, not a child), so under
+/// `cargo nextest` no process named `cargo` is ever an ancestor. Without it the
+/// walk climbs into whatever launched the run - `bash /abs/.claude/worktrees/x/
+/// scripts/gate.sh` - and a tool name in that script's path labels the test
+/// process as the tool, in every agent worktree.
 fn tool_process_chain(chain: &str) -> String {
     let mut direct = String::new();
     for line in chain.lines() {
@@ -212,7 +219,7 @@ fn tool_process_chain(chain: &str) -> String {
             .rsplit('/')
             .next()
             .unwrap_or_default();
-        if matches!(executable, "cargo" | "rustc" | "rustdoc") {
+        if matches!(executable, "cargo" | "cargo-nextest" | "rustc" | "rustdoc") {
             break;
         }
         if !direct.is_empty() {
@@ -689,6 +696,27 @@ mod tests {
         assert_eq!(
             tool_process_chain("/usr/bin/cargo test\n/usr/local/bin/codex exec"),
             ""
+        );
+    }
+
+    /// Under `cargo nextest` cargo has exec'd itself away, so the harness is
+    /// `cargo-nextest` and the process above it is whatever launched the run -
+    /// here a gate script launched by absolute path under a worktree named for
+    /// the tool. That is not the wrapper under test.
+    #[test]
+    fn cargo_nextest_is_the_same_boundary_as_cargo() {
+        let chain = "cargo-nextest nextest\n/bin/bash /home/u/susi/.claude/worktrees/x/scripts/gate.sh\n/usr/local/bin/claude -p";
+        assert_eq!(tool_process_chain(chain), "");
+        assert_eq!(
+            susi_gawd::zc_agent_identity::detect_agent_from_chain(&tool_process_chain(chain)),
+            None
+        );
+        // A wrapper that really is the tool still sits below the boundary.
+        assert_eq!(
+            tool_process_chain(
+                "/bin/bash /tmp/cursor-agent\ncargo-nextest nextest\n/usr/local/bin/codex exec"
+            ),
+            "/bin/bash /tmp/cursor-agent"
         );
     }
 
