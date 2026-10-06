@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDECHARMINGCURIE-5",
+  "title": "Cargo's linker setting no longer hashes the worktree path into every unit: a fresh worktree builds in 3 minutes, not 11",
+  "goal": "Measured: a fresh worktree's first build of the root package's test binaries compiles 716 crates in 656 s even though scripts/susi-worktree.sh points it at the primary's shared target dir (425 GB, 2,529 fingerprint dirs for the root crate alone). .cargo/config.toml sets target.x86_64-unknown-linux-gnu.linker = .cargo/fast-linker, a RELATIVE path that cargo resolves to an absolute path inside each worktree and passes as -C linker=; it is part of every unit's fingerprint, so no two worktrees can share a compiled crate - registry crates included (a second worktree restarts at unicode-ident) - and each one overwrites the other's artifacts. With the linker set to one identical absolute path in both worktrees, a worktree created after the warm build compiled 81 crates (79 workspace, 2 registry) in 176 s: 3.7x faster. Remove the x86_64 linker and rustflags (-Clinker-features=-lld existed only to hand linking to the wrapper; without it rustc uses its bundled ld.lld, verified on 1.99.0, about 0.5 s slower per large link than mold by the repo's own measurement). aarch64 keeps the wrapper (a CI release leg; one checkout there). The shared target the worktree script already sets up finally does what its comment says. One-time cost: every existing target dir and the CI caches re-key once.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-E",
+      "binary(ci_workflow_perf)"
+    ]
+  },
+  "created_by": "CLAUDECHARMINGCURIE",
+  "created_unix": 1791329663
+}
