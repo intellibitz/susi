@@ -301,6 +301,121 @@ fn ci_bootstrap_runs_through_scripts_not_per_job_boilerplate() {
     }
 }
 
+/// A scratch directory of fake executables ahead of the real PATH, plus a log
+/// every fake appends its argv to. The scripts under test run for real; only the
+/// things that would touch the machine (`apt-get`, `curl`, `sudo`) are faked.
+struct Fakes {
+    dir: PathBuf,
+}
+
+impl Fakes {
+    fn new(tag: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("susi-ci-fakes-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("log"), "").unwrap();
+        Self { dir }
+    }
+
+    fn fake(&self, name: &str, body: &str) {
+        let path = self.dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    /// Run `script` with the fakes first on PATH; returns (success, stdout, log).
+    fn run(&self, script: &str, envs: &[(&str, &str)]) -> (bool, String, String) {
+        let real_path = std::env::var("PATH").unwrap_or_default();
+        let out = std::process::Command::new("bash")
+            .arg(root().join(script))
+            .env("PATH", format!("{}:{real_path}", self.dir.display()))
+            .env("FAKE_LOG", self.dir.join("log"))
+            .envs(envs.iter().copied())
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned()
+                + &String::from_utf8_lossy(&out.stderr),
+            std::fs::read_to_string(self.dir.join("log")).unwrap(),
+        )
+    }
+}
+
+impl Drop for Fakes {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[test]
+fn system_deps_are_installed_only_when_the_runner_image_lacks_them() {
+    let f = Fakes::new("deps");
+    // dpkg -s <pkg> succeeds unless the package is listed in $FAKE_MISSING.
+    f.fake(
+        "dpkg",
+        r#"for m in $FAKE_MISSING; do [ "$2" = "$m" ] && exit 1; done; exit 0"#,
+    );
+    f.fake("sudo", r#"exec "$@""#);
+    f.fake("apt-get", r#"echo "apt-get $*" >> "$FAKE_LOG""#);
+
+    // Everything present: no package-index refresh at all.
+    let (ok, said, log) = f.run("scripts/ci-system-deps.sh", &[("FAKE_MISSING", "")]);
+    assert!(ok, "{said}");
+    assert!(
+        log.is_empty(),
+        "apt-get must not run when nothing is missing, ran: {log}"
+    );
+    assert!(said.contains("already present"), "{said}");
+
+    // One package missing: refresh, then install exactly that one.
+    let (ok, said, log) = f.run("scripts/ci-system-deps.sh", &[("FAKE_MISSING", "cmake")]);
+    assert!(ok, "{said}");
+    assert_eq!(
+        log.lines().collect::<Vec<_>>(),
+        ["apt-get update", "apt-get install -y cmake"],
+        "a job that does need a package must still get it"
+    );
+}
+
+#[test]
+fn mold_is_installed_once_and_skipped_where_it_has_no_build() {
+    let f = Fakes::new("mold");
+    f.fake("sudo", r#"exec "$@""#);
+    f.fake("curl", r#"echo "curl $*" >> "$FAKE_LOG""#);
+    f.fake("uname", r#"echo "$FAKE_ARCH""#);
+
+    // An architecture mold publishes no build for: skipped, nothing downloaded.
+    let (ok, said, log) = f.run("scripts/ci-install-mold.sh", &[("FAKE_ARCH", "riscv64")]);
+    assert!(ok, "{said}");
+    assert!(said.contains("Skipping mold"), "{said}");
+    assert!(log.is_empty(), "nothing is downloaded on riscv64: {log}");
+
+    // The pinned version is already on PATH: nothing is downloaded again.
+    f.fake("ld.mold", r#"echo "mold 2.40.4 (compatible with GNU ld)""#);
+    let (ok, said, log) = f.run("scripts/ci-install-mold.sh", &[("FAKE_ARCH", "x86_64")]);
+    assert!(ok, "{said}");
+    assert!(said.contains("already installed"), "{said}");
+    assert!(
+        log.is_empty(),
+        "the pinned mold must not be refetched: {log}"
+    );
+
+    // A different mold on PATH is not the pinned one: fetch the pinned release.
+    f.fake("ld.mold", r#"echo "mold 1.0.0""#);
+    f.fake("tar", r#"cat >/dev/null; echo "tar $*" >> "$FAKE_LOG""#);
+    f.fake("mold", r#"echo "mold 2.40.4""#);
+    let (_, said, log) = f.run("scripts/ci-install-mold.sh", &[("FAKE_ARCH", "x86_64")]);
+    assert!(
+        log.contains("mold-2.40.4-x86_64-linux.tar.gz"),
+        "expected the pinned release to be fetched: {said} {log}"
+    );
+}
+
 #[test]
 fn post_merge_acceptance_starts_from_the_root_cli_cache() {
     let text = read(".github/workflows/test.yml");
