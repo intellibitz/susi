@@ -1,0 +1,23 @@
+{
+  "id": "T-CLAUDECHARMINGCURIE-3",
+  "title": "Release gate runs the whole workspace's tests, locally and remotely; nothing builds until the suite has passed on the tagged commit",
+  "goal": "Release tests are thinner than they sound. The cut's local gate runs bare 'cargo check/test/clippy', which at this workspace root selects 1 of 86 packages (cargo metadata: workspace_default_members = 1), and release.yml runs no tests at all, so the other 85 packages are covered for a release only by whatever main's Test run happened to do. (1) release.rs: the gate's check/clippy take --workspace and its tests run the whole workspace under nextest (retries; capability_gap_e2e excluded as in CI - it needs a live leaf service and runs in the remote e2e job) plus doc-tests; the gate's argv is a pure function with unit tests. cargo-nextest is required: a silent fallback to the root package is how the gap went unnoticed. (2) release.yml: a tests job after verify-tag runs scripts/release-await-tests.sh, which reuses a passed full-suite run for the tagged sha (a workflow_dispatch run or a push run on main - a branch-push run only compiles, so it never counts) or dispatches the Test workflow on the tag ref and waits; build and build-cuda need it, so no runner minutes are spent building binaries from a red commit. (3) test.yml: on a tag ref the coverage ratchet and Kani proofs (merge gates for main) are skipped and no job writes a cache - a tag-scoped entry would be unreadable by anyone and the repo is at its 10 GB quota. Measured cost: the release waits for the suite (about 4-5 minutes warm) before the 15-31 minute builds start; publishing the binaries from a separate job after a parallel suite would hide that, but moves the upload path that cannot be exercised without cutting a real tag.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "binary(/^(ci_|release_await)/)|test(/release_gate_/)"
+    ]
+  },
+  "created_by": "CLAUDECHARMINGCURIE",
+  "created_unix": 1791317475
+}
