@@ -66,20 +66,47 @@ jobs:
         uses: actions/checkout@v6
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      # Branches read main's entries and never write their own. A cache entry is
+      # saved under the ref that wrote it, and the default (save on every push)
+      # put a 321 MB rust-cache entry plus the 10 MB geiger entry under every task
+      # branch while the repository was already over its quota (10.5 GB of 10), so
+      # eviction kept removing entries - the geiger one among them, which broke
+      # every push (see "Install cargo-geiger"). Same policy as `check` below.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Cache cargo-geiger
         id: geiger
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/cargo-geiger
           key: cargo-geiger-0.13.0-${{ runner.os }}-${{ runner.arch }}
+      # Skipped on a hit of the cache above. On a miss the binary can still be
+      # on disk: Swatinem/rust-cache saves and restores ~/.cargo/bin too, and
+      # `cargo install` refuses to overwrite a binary it did not install
+      # ("binary `cargo-geiger` already exists in destination"). Once this 10 MB
+      # entry was evicted that failed the job on every push of every branch, and
+      # a failed job never reaches the post-step that would re-save the entry, so
+      # it could not heal. Keep the restored binary when it is the pinned
+      # version; otherwise install over it. tests/ci_cached_tool_install.rs
+      # requires `--force` on every `cargo install` in a rust-cache job.
       - name: Install cargo-geiger
         if: steps.geiger.outputs.cache-hit != 'true'
-        # rust-cache restores ~/.cargo wholesale, so the binary can already be
-        # there even when the dedicated geiger cache missed; `cargo install`
-        # refuses an existing binary — check before installing instead.
-        run: "[ -x ~/.cargo/bin/cargo-geiger ] || cargo install cargo-geiger --locked --version 0.13.0"
+        run: |
+          if cargo geiger --version 2>/dev/null | grep -qx 'cargo-geiger 0.13.0'; then
+            echo "cargo-geiger 0.13.0 restored with the cargo cache"
+          else
+            cargo install cargo-geiger --locked --version 0.13.0 --force
+          fi
+      # Saved right after the install, not at job end, so a ratchet failure on
+      # main (a real unsafe regression) does not also lose the entry.
+      - name: Save cargo-geiger
+        if: github.ref == 'refs/heads/main' && steps.geiger.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin/cargo-geiger
+          key: cargo-geiger-0.13.0-${{ runner.os }}-${{ runner.arch }}
       - name: Run unsafe exposure ratchet
         run: .github/workflows/unsafe-exposure-ratchet.sh
 
