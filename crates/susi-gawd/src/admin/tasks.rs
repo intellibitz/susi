@@ -1500,12 +1500,16 @@ pub fn ensure_synced(ws: &Path) -> EaiResult<()> {
 }
 
 /// [`ensure_synced`] with the task being claimed exempted from the
-/// "unpublished completion" rule.
+/// "unpublished completion" bound.
 ///
-/// Re-adopting *your own* accepted task after a lease lapsed is the one case
-/// where the close is legitimately in this branch and not yet on main: `finish`
-/// re-adopts it to keep waiting. Exempting exactly that id keeps the rule for
-/// every other claim, and keeps a lapsed lease from stranding the work.
+/// One accepted-but-unmerged close is the pipeline: the merge machinery lands
+/// it while the agent takes the next task, so it is not a reason to refuse a
+/// claim. A second outstanding close is a pileup of accepted-but-unproven
+/// work, and that is refused. Re-adopting *your own* accepted task after a
+/// lease lapsed is the other case where a close is legitimately in this branch
+/// and not yet on main: `finish` re-adopts it to keep waiting. Exempting
+/// exactly that id keeps the bound for every other claim, and keeps a lapsed
+/// lease from stranding the work.
 pub fn ensure_synced_for(ws: &Path, claiming: Option<&str>) -> EaiResult<()> {
     git(ws, &["fetch", "--quiet", "origin"])?;
     // The dependency gate below reads task files from this checkout, so an
@@ -1538,9 +1542,10 @@ pub fn ensure_synced_for(ws: &Path, claiming: Option<&str>) -> EaiResult<()> {
         .lines()
         .filter(|path| reassuming.as_deref() != Some(*path))
         .collect();
-    if !pending.is_empty() {
+    if pending.len() > 1 {
         return Err(EaiError::config(
-            "claim refused: publish and merge the completed task before starting another",
+            "claim refused: more than one completed task is still awaiting merge — \
+             publish one first (an accepted task may pipeline one merge in flight, not two)",
         ));
     }
     match n.parse::<u64>() {
@@ -1659,19 +1664,22 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
     // An accepted task whose close is not yet on origin/main is still owned by
     // whoever accepted it, whatever happened to the claim: it may have been
     // released, or lapsed hours ago. The receipt on the shared remote is the
-    // debt, and it blocks the *agent*, not the worktree — a fresh clone cannot
-    // launder it, which is what a claim lease alone could not express. The task
-    // being claimed here is exempt: re-adopting your own accepted task is how
-    // `finish` keeps waiting, not a way to start something new.
+    // debt, and it binds the *agent*, not the worktree — a fresh clone cannot
+    // launder it, which is what a claim lease alone could not express. One
+    // owed merge is the pipeline: an agent whose close is queued may take the
+    // next task while the merge machinery lands it. Two owed merges is the
+    // pileup the receipt exists to refuse — success reported twice and never
+    // published. The task being claimed here is exempt: re-adopting your own
+    // accepted task is how `finish` keeps waiting, not a way to start
+    // something new.
     let owed = owed_closes(ws, &agent, Some(id))?;
-    if !owed.is_empty() {
+    if owed.len() > 1 {
         let list = owed.join(", ");
         let first = owed.first().map(String::as_str).unwrap_or("");
         return Err(EaiError::config(format!(
-            "{agent} owes a merge for {list} — an accepted task is not done until its close is \
-             on origin/main, and the claim is what stops another agent redoing it. Publish it: \
-             `susi workflow finish {first}` (or, to give it up deliberately: \
-             `susi tasks release {first} --abandon <reason>`)"
+            "{agent} owes merges for {list} — one accepted task may await its merge while the \
+             next is claimed, not more. Publish one: `susi workflow finish {first}` (or, to give \
+             it up deliberately: `susi tasks release {first} --abandon <reason>`)"
         )));
     }
     for other in live.iter().filter(|c| !c.expired(now)) {
@@ -3035,11 +3043,13 @@ mod tests {
         drop(r);
     }
 
-    /// The lie this closes: an agent accepts a task, never publishes the merge,
-    /// and starts the next one. Neither releasing the claim nor moving to a
-    /// fresh clone may launder that — the receipt is on the shared remote.
+    /// The pipeline bound: an agent whose accepted task still awaits its merge
+    /// may claim the next one — nobody idles on a merge queue they cannot
+    /// hurry — but the second outstanding close is the pileup the receipt
+    /// exists to refuse. Neither releasing the claim nor a fresh clone
+    /// launders the debt, and each merge that lands frees a slot.
     #[test]
-    fn an_unpublished_acceptance_blocks_the_next_claim_across_clones() {
+    fn one_unpublished_merge_pipelines_but_a_second_is_refused() {
         let (r, a, b) = Repos::new("owed-clone");
         let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
         claim(&a, &first.id, "claude", 4, now_unix()).unwrap();
@@ -3055,7 +3065,9 @@ mod tests {
         assert_eq!(owed.len(), 1, "a fresh clone sees the debt");
         assert_eq!(owed[0].agent, "CLAUDE");
 
-        // Freeing the claim does not free the agent.
+        // Freeing the claim does not free the agent — the receipt outlives it,
+        // which is exactly what lets `finish` hand a queued merge off without
+        // losing the record.
         release(&b, &first.id, "claude", true).unwrap();
         assert!(claims(&b).unwrap().is_empty());
         assert_eq!(
@@ -3073,29 +3085,52 @@ mod tests {
         )
         .unwrap();
 
+        // One merge in flight does not stall the queue: the next claim is fine.
         let second = addt!(&b, "claude", "second", "", "s", &[], true_cmd()).unwrap();
-        let err = claim(&b, &second.id, "claude", 4, now_unix())
+        claim(&b, &second.id, "claude", 4, now_unix())
+            .unwrap_or_else(|e| panic!("one merge in flight must not stall the queue: {e}"));
+
+        // Accept the second task as well: two receipts are owed now, and that
+        // is where the pipeline ends.
+        close(&b, &second.id, "claude").unwrap();
+        release(&b, &second.id, "claude", true).unwrap();
+        let third = addt!(&b, "claude", "third", "", "s", &[], true_cmd()).unwrap();
+        let err = claim(&b, &third.id, "claude", 4, now_unix())
             .unwrap_err()
             .to_string();
-        assert!(err.contains("owes a merge"), "{err}");
+        assert!(err.contains("owes merges"), "{err}");
         assert!(err.contains(&first.id), "{err}");
 
-        // The merge lands: the receipt clears itself at the next boundary.
+        // The first merge lands: back to one in flight — inside the bound.
         publish(&a);
-        let got = claim(&b, &second.id, "claude", 4, now_unix()).unwrap();
-        assert_eq!(got.task, second.id);
+        let got = claim(&b, &third.id, "claude", 4, now_unix()).unwrap();
+        assert_eq!(got.task, third.id);
+
+        // The last merge lands too: the receipts clear themselves at the next
+        // boundary (`owed_closes` prunes the published ones it observes).
+        // `publish` fast-forwards main, so the second close lands through the
+        // clone that published the first.
+        std::fs::copy(
+            done_dir(&b).join(format!("{}.json", second.id)),
+            done_dir(&a).join(format!("{}.json", second.id)),
+        )
+        .unwrap();
+        publish(&a);
+        git(&b, &["fetch", "--quiet", "origin"]).unwrap();
+        sync_queue_refs(&b).unwrap();
+        assert!(owed_closes(&b, "CLAUDE", None).unwrap().is_empty());
         assert!(
             git(&b, &["ls-remote", "origin", "refs/closed/*"])
                 .unwrap()
                 .is_empty(),
-            "observing the merge clears the receipt"
+            "observing the merges clears the receipts"
         );
         drop(r);
     }
 
     /// A lease that lapsed on your own accepted task must not strand the work:
-    /// `finish` re-adopts it to keep waiting. The debt still blocks every
-    /// *other* task, so re-adoption is not a way to start something new.
+    /// `finish` re-adopts it to keep waiting. While the re-adopted claim is
+    /// live, another claim is still refused — one live claim at a time.
     #[test]
     fn a_lapsed_lease_can_readopt_its_own_accepted_task() {
         let (r, a, _b) = Repos::new("readopt");
@@ -3117,7 +3152,7 @@ mod tests {
         let err = claim(&a, &other.id, "claude", 1, later)
             .unwrap_err()
             .to_string();
-        assert!(err.contains("owes a merge"), "{err}");
+        assert!(err.contains("already holds"), "{err}");
         drop(r);
     }
 

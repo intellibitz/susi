@@ -8,7 +8,11 @@
 # Each non-merge commit in <base>..<head> must carry a trailer
 #     Task: T-<AGENT>-<n>
 # naming a task that was OPEN in that commit's own tree and is held by a live
-# claim (refs/claims/<id> on <remote>, lease not expired). A closed task is
+# claim (refs/claims/<id> on <remote>, lease not expired) — or that carries a
+# close receipt on refs/closed/<id>: `finish` may release the claim after the
+# receipt is published, so a commit re-judged after that release is legitimate
+# whenever the receipt exists (creating one required the live owned claim).
+# A closed task is
 # judged the same way: `susi tasks close` keeps the lease until the closing
 # commit reaches main, so work -> close -> push passes, while a task file
 # hand-moved into done/ (never claimed) does not. A commit citing a task
@@ -32,13 +36,14 @@
 #       a verification verdict commits under the claim that produced it. A
 #       verdict-only commit is still work: it keeps its `Task:` trailer.
 #
-# It also refuses work on a SECOND task by an agent that still owes the first
-# one's merge. `susi tasks close` publishes a receipt (`refs/closed/<id>`) for
-# the accepted-but-unmerged state, and the client refuses a new claim while one
-# is outstanding — but that client is the agent's own binary, so a stale
-# installed release, `--no-verify`, or a hand-pushed `refs/claims/<id>` all skip
-# it. The rule can only fire where the client already refuses: a receipt whose
-# close is on `origin/main` is published work, not debt, so the normal
+# It also refuses an agent piling up accepted-but-unmerged work: `susi tasks
+# close` publishes a receipt (`refs/closed/<id>`) for that state, and the
+# client allows exactly one merge in flight — the pipeline, so nobody idles on
+# a merge queue — while refusing the second. That client is the agent's own
+# binary, so a stale installed release, `--no-verify`, or a hand-pushed
+# `refs/claims/<id>` all skip it, and the bound is enforced here too. The rule
+# can only fire where the client already refuses: a receipt whose close is on
+# `origin/main` is published work, not debt, so the normal
 # close -> merge -> next-task path never trips it.
 #
 # For the same reason it refuses an agent holding two live claims at once:
@@ -124,8 +129,9 @@ owed_merges_of() {
 }
 
 owed_reported=" "
-# The server-side half of the claim gate in `susi tasks claim`: while an agent
-# owes an earlier merge it may not start another task.
+# The server-side half of the claim gate in `susi tasks claim`: one owed merge
+# is the pipeline — the agent's next task may proceed while the merge queue
+# lands it — so only the SECOND outstanding close is refused here.
 check_no_owed_merge() {
     local task=$1 short=$2 agent=$3 owed id
     [ -n "$agent" ] || return 0
@@ -135,11 +141,12 @@ check_no_owed_merge() {
         return 0
     fi
     owed=$(owed_merges_of "$agent" "$task")
+    [ "$(printf '%s\n' "$owed" | grep -c .)" -le 1 ] && return 0
     for id in $owed; do
         [ -n "$id" ] || continue
         case "$owed_reported" in *" $agent:$id "*) continue ;; esac
         owed_reported="$owed_reported$agent:$id "
-        err "commit $short works on $task while $agent still owes the merge of $id — an accepted task is not done until its close is on origin/main. Publish it (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
+        err "commit $short works on $task while $agent still owes the merge of $id and another task — an accepted task is not done until its close is on origin/main, and one merge in flight is the bound. Publish one (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
     done
 }
 
@@ -300,8 +307,24 @@ while read -r c; do
             check_no_owed_merge "$task" "$short" "$agent"
             check_one_live_claim "$agent" "$short" "$task"
             ;;
-        expired) err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task --scope <the paths this commit changes>)" ;;
-        *) err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task --scope <path> first (Mandate 50)" ;;
+        *)
+            # The pipeline's handoff state: `finish` may release the claim once
+            # the close receipt is on refs/closed/, so a branch that is
+            # re-judged after the release — a repush, an intervening merge —
+            # finds no claim. The receipt is the stronger fact anyway:
+            # `susi tasks close` needed a live owned claim to write it, and
+            # only commits made before that close still see the task open in
+            # their trees — anything citing it later is refused by the
+            # done-file check above, before this branch runs.
+            fetch_closed
+            if git rev-parse --verify --quiet "refs/closed/$task" >/dev/null 2>&1; then
+                agent=$(jq -r '.agent // ""' <<<"$(git cat-file -p "refs/closed/$task" 2>/dev/null || true)" 2>/dev/null || true)
+                check_no_owed_merge "$task" "$short" "$agent"
+            elif [ "$(claim_state "$task")" = expired ]; then
+                err "commit $short works on $task but its claim lease has expired — re-claim it (susi tasks claim $task --scope <the paths this commit changes>)"
+            else
+                err "commit $short works on $task but nobody holds a claim on it — susi tasks claim $task --scope <path> first (Mandate 50)"
+            fi ;;
         esac
     else
         err "commit $short names $task, which is not a task in this branch (add or merge the task file first)"

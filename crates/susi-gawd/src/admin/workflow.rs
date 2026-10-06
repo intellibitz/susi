@@ -265,13 +265,27 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
             "merge published",
             "nothing accepted is waiting on origin/main",
         ),
+        // One accepted-but-unmerged close is the pipeline: the agent may claim
+        // the next task while the merge machinery lands this one, so it is a
+        // warning to watch, not a blocker. Two owed merges is the pileup the
+        // receipts exist to refuse — success claimed repeatedly and never
+        // published — and the next claim is refused until one lands.
+        Ok(owed) if owed.len() == 1 => warn(
+            "merge published",
+            format!(
+                "{} was accepted and is awaiting its merge — one may be in flight while the next \
+                 task is claimed; a second outstanding close would be refused",
+                owed.join(", ")
+            ),
+            "susi tasks audit   # the branch run lands it; a second owed merge would block",
+        ),
         Ok(owed) => {
             let first = owed.first().map(String::as_str).unwrap_or_default();
             fail(
                 "merge published",
                 format!(
-                    "{} was accepted and its close is not on origin/main; an accepted task is not \
-                     done until it is merged, and no other task may be claimed until then",
+                    "{} were accepted and their closes are not on origin/main; an accepted task \
+                     is not done until it is merged, and the pipeline is one task deep",
                     owed.join(", ")
                 ),
                 format!(
@@ -948,16 +962,26 @@ mod tests {
     }
 
     #[test]
-    fn an_accepted_task_that_did_not_merge_fails_and_says_how_to_get_out() {
+    fn an_accepted_task_that_did_not_merge_warns_and_two_fails() {
+        // One owed merge is the pipeline: a warning to watch, not a blocker.
         let f = Facts {
             owed: Ok(vec!["T-CLAUDE-7".into()]),
+            ..good()
+        };
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "merge published"), State::Warn);
+        assert!(ok(&c), "one merge in flight must not block the loop: {c:?}");
+
+        // Two is the pileup the receipts exist to refuse.
+        let f = Facts {
+            owed: Ok(vec!["T-CLAUDE-7".into(), "T-CLAUDE-8".into()]),
             ..good()
         };
         let c = evaluate(&f);
         assert_eq!(state(&c, "merge published"), State::Fail);
         assert!(
             !ok(&c),
-            "an acceptance nobody published is not a finished task: {c:?}"
+            "two acceptances nobody published is not a working pipeline: {c:?}"
         );
         assert!(
             c.iter()

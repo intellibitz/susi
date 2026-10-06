@@ -20,12 +20,9 @@ marker='<!-- susi-auto-merge -->'
 # trusting the ref. Best effort: the merge has already happened, and a missing
 # attestation costs one audit line, never a merge.
 attest_merge() {
-    local pr=$1 messages merge_sha task body blob
+    local pr=$1 merge_sha=$2 messages task body blob
     messages=$(gh api "repos/$repo/pulls/$pr/commits" --paginate \
         --jq '.[].commit.message' 2>/dev/null) || return 0
-    merge_sha=$(gh pr view "$pr" --repo "$repo" --json mergeCommit \
-        --jq '.mergeCommit.oid' 2>/dev/null) || return 0
-    [ -n "${merge_sha:-}" ] || return 0
     for task in $(printf '%s\n' "$messages" \
         | sed -n 's/^Task: *\(T-[A-Z0-9]*-[0-9]*\)$/\1/p' | sort -u); do
         body=$(printf '{"task":"%s","head":"%s","merge":"%s","pr":%s,"merged_unix":%s}' \
@@ -41,6 +38,41 @@ attest_merge() {
         fi
     done
     return 0
+}
+
+# Whether commit $1's tree is byte-identical to commit $2's. A merge whose
+# branch already contained main only gains a parent, so the merge commit's
+# tree is the tested head's tree — the green branch run already proved these
+# exact bytes, byte for byte.
+same_tree() {
+    gh api "repos/$repo/compare/$1..$2" --jq .status 2>/dev/null | grep -qx identical
+}
+
+# A tree-identical merge makes the post-merge acceptance re-run provable by
+# transitivity: `close` ran it on this very tree. Write refs/verified/<task>
+# directly instead of dispatching a second full suite to recompute a known
+# answer. Doubt is never silently skipped: unknown task set or a failed ref
+# push returns non-zero and the caller dispatches the real suite.
+attest_verified() {
+    local pr=$1 merge_sha=$2 messages task body blob rc=0
+    messages=$(gh api "repos/$repo/pulls/$pr/commits" --paginate \
+        --jq '.[].commit.message' 2>/dev/null) || return 1
+    for task in $(printf '%s\n' "$messages" \
+        | sed -n 's/^Task: *\(T-[A-Z0-9]*-[0-9]*\)$/\1/p' | sort -u); do
+        body=$(printf '{"task":"%s","head":"%s","merge":"%s","result":"passed","verified_unix":%s}' \
+            "$task" "$sha" "$merge_sha" "$(date +%s)")
+        blob=$(printf '%s' "$body" | git hash-object -w --stdin) || { rc=1; continue; }
+        # The empty lease expects the ref to be absent, as with refs/merged:
+        # a verification already recorded stands.
+        if git push --quiet "--force-with-lease=refs/verified/$task:" \
+            origin "$blob:refs/verified/$task" 2>/dev/null; then
+            echo "verified $task by tree identity (merge $merge_sha == tested head $sha)"
+        else
+            echo "note: could not record verification of $task" >&2
+            rc=1
+        fi
+    done
+    return $rc
 }
 
 pr=$(gh pr list --repo "$repo" --head "$branch" --base main --state open \
@@ -61,9 +93,22 @@ case "$comparison" in
  ahead|identical)
     if gh pr merge "$pr" --repo "$repo" --merge --match-head-commit "$sha"; then
         echo "merged #$pr"
-        attest_merge "$pr"
-        # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
-        gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
+        merge_sha=$(gh pr view "$pr" --repo "$repo" --json mergeCommit \
+            --jq '.mergeCommit.oid' 2>/dev/null || true)
+        [ -n "${merge_sha:-}" ] && attest_merge "$pr" "$merge_sha"
+        # The common case is a merge whose tree is byte-identical to the tested
+        # head's: `finish` integrates origin/main before pushing, so merging a
+        # branch that is current only adds a parent. The branch run already
+        # proved those exact bytes — attest the post-merge acceptance by
+        # identity instead of dispatching the full main suite to recompute it.
+        # A merge that raced another (different tree) still gets the suite.
+        if [ -n "${merge_sha:-}" ] && same_tree "$merge_sha" "$sha" \
+            && attest_verified "$pr" "$merge_sha"; then
+            echo "merge tree identical to the tested head — green run already proved it; main suite skipped"
+        else
+            # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
+            gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
+        fi
         exit 0
     fi
     state=$(gh pr view "$pr" --repo "$repo" --json mergeable --jq .mergeable 2>/dev/null || echo UNKNOWN)

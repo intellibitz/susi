@@ -33,7 +33,13 @@ while IFS=$'\t' read -r num branch sha updated draft; do
 
     if [ "$status" = completed ] && [ "$conclusion" = success ]; then
         echo "#$num green at ${sha:0:8}: merging"
-        "$here/auto-merge-pr.sh" "$repo" "$branch" "$sha" || rc=1
+        out=$("$here/auto-merge-pr.sh" "$repo" "$branch" "$sha" 2>&1) || rc=1
+        printf '%s\n' "$out"
+        # A green-but-behind head is re-synced, not merged — and every other
+        # green PR is now stale relative to the merge this retest becomes.
+        # Re-testing the whole queue at once burns a run per PR that the next
+        # merge invalidates; rebase the queue one candidate at a time.
+        case "$out" in *"was behind main; branch updated"*) break ;; esac
         continue
     fi
 
@@ -51,5 +57,5 @@ Fix it and push; this PR merges itself once the run is green."
     fi
 done < <(gh pr list --repo "$repo" --base main --state open \
     --json number,headRefName,headRefOid,updatedAt,isDraft \
-    --jq '.[] | [.number, .headRefName, .headRefOid, .updatedAt, .isDraft] | @tsv')
+    --jq 'sort_by(.number) | .[] | [.number, .headRefName, .headRefOid, .updatedAt, .isDraft] | @tsv')
 exit "$rc"

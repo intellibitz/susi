@@ -69,23 +69,25 @@ The concrete loop is:
    merges and repushes; the merged head is proven by its own branch CI run —
    nothing merges without a green run on that exact sha — so the local gate
    does not re-run for them (`SUSI_FINISH_REGATE=1` restores it). A failed check/conflict stops
-   for repair; rerun finish after committing the repair. Do not claim another
-   task until the completion is on remote main. Closing alone retains the
-   claim so nobody duplicates work while the PR awaits merge, and `close` also
-   pushes a **close receipt** to `refs/closed/<id>`: the accepted-but-unmerged
-   state is a fact on the shared remote, not private to one working tree. A
-   receipt blocks that agent's next claim and survives releasing the claim,
-   losing the worktree, or letting the lease lapse — so an agent that reported
-   success it never published cannot start the next task, and the failure is
-   visible in `susi workflow check` ("merge published"). It clears only when
-   the close is *observed* on `origin/main`; giving the task up is deliberate
-   and recorded (`susi tasks release <id> --abandon <reason>`, which pushes
-   `refs/abandoned/<id>`). That wait is
-   bounded (`SUSI_FINISH_WAIT_MAX`, default 2 h), and it stops early — with the
-   closure and the claim intact, saying what it saw — when the pull request is
-   closed or the run for the pushed sha has failed, so a branch that cannot
-   merge costs a minute of feedback rather than the whole budget. A lease that
-   lapsed during the wait is re-adopted rather than an abort.
+   for repair; rerun finish after committing the repair. One accepted-but-
+   unmerged close may be in flight at a time — the pipeline: nobody idles on a
+   merge queue they cannot hurry. `close` pushes a **close receipt** to
+   `refs/closed/<id>`: the accepted-but-unmerged state is a fact on the shared
+   remote, not private to one working tree. The receipt survives releasing the
+   claim, losing the worktree, or letting the lease lapse — an agent that
+   reported success it never published cannot launder the debt — and it is
+   visible in `susi workflow check` ("merge published": a warning while one is
+   owed, a failure at two). One owed merge does not block the next claim; a
+   second is refused until a merge lands. A receipt clears only when the close
+   is *observed* on `origin/main`; giving the task up is deliberate and
+   recorded (`susi tasks release <id> --abandon <reason>`, which pushes
+   `refs/abandoned/<id>`). The merge wait is bounded (`SUSI_FINISH_WAIT_MAX`,
+   default 30 min): past it, a healthy-but-queued branch is handed off — the
+   claim is released while the receipt keeps the debt — and the wait stops
+   early, with claim and receipt intact, when the pull request is closed or
+   the run for the pushed sha has failed, so a branch that cannot merge costs
+   a minute of feedback rather than the whole budget. A lease that lapsed
+   during the wait is re-adopted rather than an abort.
    **After the merge, the merge itself is attested** by the job that performs
    it (`scripts/auto-merge-pr.sh`): one `refs/merged/<id>` per task the pull
    request named, carrying the tested head and the merge commit. The attestation
@@ -102,8 +104,9 @@ The concrete loop is:
    **When the failure is found after acceptance was recorded, the close has not
    been published** (`origin/main` still shows the task open), so revert it with
    a task-only commit — exempt from the trailer rule — and keep fixing under the
-   same live claim: citing a closed task is refused, and claiming a new one is
-   refused while a completed task is unpublished, so that is the way forward.
+   same live claim: citing a closed task is refused, and a second outstanding
+   close would be refused too — fixing this one or abandoning it on the record
+   is the way forward.
 5. Repeat sync → claim. No offline freshness or unavailable claim snapshot
    counts as permission to start work.
 
