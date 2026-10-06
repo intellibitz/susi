@@ -8,6 +8,13 @@
 # installs only what is actually missing, so the common case is a few dpkg
 # lookups and a job that does need a package still gets it.
 #
+# "Already there" has to include a tool that is on PATH but not a dpkg package:
+# the image carries its own cmake under /usr/local/bin, so `dpkg -s cmake` fails
+# on every runner, which made every job refresh the index and install a second,
+# older cmake (3.28) that PATH never even picked (12-19 s a job, measured on the
+# release workflow). A package therefore counts as present when dpkg knows it or
+# when the binary it provides resolves on PATH.
+#
 #   scripts/ci-system-deps.sh
 set -euo pipefail
 
@@ -16,14 +23,26 @@ command -v dpkg >/dev/null 2>&1 || {
     exit 1
 }
 
-want=(pkg-config libssl-dev cmake)
+# package[:binary that proves it]
+want=(pkg-config:pkg-config libssl-dev cmake:cmake)
 missing=()
-for pkg in "${want[@]}"; do
-    dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+names=()
+for entry in "${want[@]}"; do
+    pkg="${entry%%:*}"
+    bin=""
+    [ "$pkg" = "$entry" ] || bin="${entry#*:}"
+    names+=("$pkg")
+    if dpkg -s "$pkg" >/dev/null 2>&1; then
+        continue
+    fi
+    if [ -n "$bin" ] && command -v "$bin" >/dev/null 2>&1; then
+        continue
+    fi
+    missing+=("$pkg")
 done
 
 if [ "${#missing[@]}" -eq 0 ]; then
-    echo "system dependencies already present: ${want[*]}"
+    echo "system dependencies already present: ${names[*]}"
     exit 0
 fi
 
