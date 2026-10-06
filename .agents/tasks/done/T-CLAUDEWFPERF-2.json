@@ -1,0 +1,30 @@
+{
+  "id": "T-CLAUDEWFPERF-2",
+  "title": "Make Kani's proofs build and keep CI caches inside the 10 GB quota",
+  "goal": "The second completed main run (37434078991) showed warm shards at 1.2-3.3 min and post-merge acceptance passing, and three remaining problems: (1) Kani's harnesses never compiled (PolicyClass lacked kani::Arbitrary; all 3 proofs verify once it does); (2) the torn-record regression test counted other tests' records in the process-global journal; (3) ~16 GB of cache demand against GitHub's 10 GB limit, so LRU eviction cold-starts ~40% of jobs each run (e2e went 3.4 -> 13.8 min).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-p",
+      "susi-sandbox-client",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "binary(ci_workflow_perf)|test(audit_retention_prune)|test(formal_invariants)"
+    ]
+  },
+  "created_by": "CLAUDEWFPERF",
+  "created_unix": 1791275406,
+  "closed": {
+    "at_unix": 1791276253,
+    "commit": "b409d98c01010276eefa68fafc7c8d1110456cde",
+    "by": "CLAUDEWFPERF"
+  }
+}

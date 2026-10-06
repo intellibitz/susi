@@ -19,7 +19,13 @@ pub enum BudgetTransition {
 }
 
 /// Policy classes used by the bounded policy-precedence model.
+///
+/// `kani::Arbitrary` only exists under `cfg(kani)`; the proof harness draws an
+/// arbitrary policy with `kani::any()`, which needs it. Without it the proofs do
+/// not compile - and nothing noticed, because the job that builds them never had
+/// a runner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(kani, derive(kani::Arbitrary))]
 pub enum PolicyClass {
     /// Paid work is never permitted.
     FreeOnly,
