@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "PRIMARY",
-  "created_unix": 1791306011
+  "created_unix": 1791306011,
+  "closed": {
+    "at_unix": 1791306848,
+    "commit": "39ce97ff6d20afb25980c418ae6c395cad98a985",
+    "by": "CLAUDECHARMINGCURIE"
+  }
 }
