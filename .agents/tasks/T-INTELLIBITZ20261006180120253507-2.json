@@ -1,0 +1,17 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-2",
+  "title": "finish: scope the local gate to the diff, skip re-gating on intervening merges",
+  "goal": "Run fmt always; run clippy/check/test only for crates affected by the branch diff (scripts/ci-changed-crates.sh), full workspace only for ALL diffs or SUSI_LOCAL_GATE=full. Do not re-run the gate when origin/main moved during the wait (merge+push; the branch CI run is authoritative), SUSI_FINISH_REGATE=1 escape.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "parallel_workflow"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791295805
+}
