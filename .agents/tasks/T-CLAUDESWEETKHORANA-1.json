@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDESWEETKHORANA-1",
+  "title": "ci: unsafe-ratchet tolerates a restored cargo-geiger and stops saving a cache per branch",
+  "goal": "Every Test run failed in Unsafe Exposure Ratchet (binary cargo-geiger already exists in destination) once the 10 MB geiger cache entry was evicted: rust-cache also restores ~/.cargo/bin, cargo install refuses to overwrite, and a failed job never re-saves the entry. main now carries an existence check (-x) from the convoy commit, which accepts a restored binary of any version. Root cause of the eviction: the repo cache quota (10 GB) sits at 10.5 GB because the ratchet job saves a 321 MB + 10 MB entry per branch. Fix in test.yml: keep a restored binary only when it is the pinned version else cargo install --force; save-if main on the ratchet rust-cache; split the geiger cache into restore + main-only save. Pins: tests/ci_cached_tool_install.rs (every cargo install in a rust-cache job has --force) and a ratchet save-if pin in tests/ci_workflow_perf.rs.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf",
+      "--test",
+      "ci_cached_tool_install"
+    ]
+  },
+  "created_by": "CLAUDESWEETKHORANA",
+  "created_unix": 1791307205
+}
