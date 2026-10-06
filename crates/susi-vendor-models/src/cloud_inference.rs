@@ -53,6 +53,13 @@ struct Request<'a> {
     prompt: &'a str,
 }
 
+struct DispatchBudget {
+    path: std::path::PathBuf,
+    eligibility: crate::cloud_eligibility::Eligibility,
+    target: Target,
+    price: Option<crate::cloud_budget::Price>,
+}
+
 fn generate_observed(
     request: Request<'_>,
     path: &std::path::Path,
@@ -75,7 +82,32 @@ fn generate_observed(
         target
     };
     let mut quota = crate::cloud_quota::Quota::default();
-    let result = generate_wire(&request, &mut quota);
+    let budget = if track {
+        let rows = crate::cloud_contracts::load(
+            &crate::cloud_contracts::directory(),
+            api_base.trim_end_matches('/'),
+        )?;
+        let price = rows
+            .into_iter()
+            .find(|c| c.model == model && c.observed_at <= now && now < c.expires_at)
+            .and_then(|c| c.price);
+        Some(DispatchBudget {
+            path: crate::cloud_budget::path(),
+            eligibility: crate::cloud_eligibility::Eligibility::load(path)?,
+            target: target.clone(),
+            price,
+        })
+    } else {
+        None
+    };
+    let result = generate_wire(&request, &mut quota, budget.as_ref());
+    if result
+        .as_ref()
+        .err()
+        .is_some_and(|e| e.starts_with("[local-budget]"))
+    {
+        return Err(EaiError::config(result.err().unwrap_or_default()));
+    }
     if track {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -100,6 +132,7 @@ fn generate_observed(
 fn generate_wire(
     request: &Request<'_>,
     quota: &mut crate::cloud_quota::Quota,
+    budget: Option<&DispatchBudget>,
 ) -> Result<String, String> {
     let Request {
         api_base,
@@ -108,9 +141,10 @@ fn generate_wire(
         protocol,
         prompt,
     } = *request;
-    let mut post = |url: &str, headers: &[(&str, &str)], body: &serde_json::Value, timeout: u64| {
-        post_json(url, headers, body, timeout, quota)
-    };
+    let mut post =
+        |url: &str, headers: &[(&str, &str)], body: &serde_json::Value, _timeout: u64| {
+            post_json(url, headers, body, quota, budget)
+        };
     match protocol {
         InferenceProtocol::OpenAiChat => {
             let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
@@ -160,7 +194,8 @@ fn generate_wire(
             let body = serde_json::json!({
                 "contents": [{
                     "parts": [{"text": prompt}]
-                }]
+                }],
+                "generationConfig": {"maxOutputTokens": 2048}
             });
             let json = post(&url, &[("x-goog-api-key", api_key)], &body, 120)?;
             wire::gemini_text(&json)
@@ -176,19 +211,45 @@ fn post_json(
     url: &str,
     headers: &[(&str, &str)],
     body: &serde_json::Value,
-    timeout: u64,
     quota: &mut crate::cloud_quota::Quota,
+    budget: Option<&DispatchBudget>,
 ) -> Result<serde_json::Value, String> {
     let send = |value: &serde_json::Value, quota: &mut crate::cloud_quota::Quota| {
         let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
-        let call = susi_http_transport::http_call_with_body(
-            "POST",
-            url,
-            headers,
-            Some(&bytes),
-            timeout,
-            0,
-        )?;
+        let reservation = if let Some(budget) = budget {
+            // UTF-8 bytes plus fixed protocol overhead conservatively bound
+            // text input tokens. Every protocol explicitly caps output.
+            let estimate = crate::cloud_budget::Usage {
+                input_tokens: (bytes.len() as u64).saturating_add(512),
+                output_tokens: 2048,
+            };
+            let spend = budget
+                .price
+                .as_ref()
+                .and_then(|p| p.cost(estimate.input_tokens, estimate.output_tokens));
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let allowances =
+                budget
+                    .eligibility
+                    .budget_allowances(&budget.target, now, &estimate, spend);
+            Some(
+                crate::cloud_budget::reserve_with_allowances(
+                    &budget.path,
+                    estimate,
+                    budget.price.clone(),
+                    &allowances,
+                    now,
+                )
+                .map_err(|e| format!("[local-budget] {e}"))?,
+            )
+        } else {
+            None
+        };
+        let call =
+            susi_http_transport::http_call_with_body("POST", url, headers, Some(&bytes), 120, 0)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -199,6 +260,18 @@ fn post_json(
         let bytes = call
             .into_bytes(16 * 1024 * 1024)
             .map_err(|e| e.to_string())?;
+        if let Some(reservation) = reservation {
+            let usage = if (200..300).contains(&status) {
+                serde_json::from_slice::<serde_json::Value>(&bytes)
+                    .ok()
+                    .and_then(|v| crate::cloud_budget::Usage::from_response(&v))
+            } else {
+                None
+            };
+            reservation
+                .complete(usage)
+                .map_err(|e| format!("[local-budget] {e}"))?;
+        }
         Ok::<_, String>((status, bytes))
     };
     let (mut status, mut bytes) = send(body, quota)?;
