@@ -265,6 +265,85 @@ fn a_branch_push_starts_from_the_cache_main_writes() {
     );
 }
 
+/// The merge gate is also the unit of the serialized merge queue: every merge
+/// turns the next green head stale and each stale head costs one more run, so a
+/// gate that executes tests multiplies the suite by the length of the queue.
+/// Measured on a code-changing branch push: `cargo nextest` 173-267 s plus the
+/// hermetic re-run 18-67 s of a 308-446 s job, against 96 s when no crate was
+/// touched. It compiles and lints; the tests run in the agent's local gate, in
+/// the sharded suite on main after every merge, and at release.
+#[test]
+fn the_branch_gate_compiles_and_lints_but_never_executes_tests() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    for executes_tests in ["nextest", "cargo test", "check-hermetic-tests"] {
+        assert!(
+            !check.body.contains(executes_tests),
+            "the branch-push `check` job must not execute tests (`{executes_tests}`): the same \
+             tests just ran in the agent's finish gate on this tree, and the job's length is \
+             the latency of every stale-head retest in the merge queue"
+        );
+    }
+    assert!(
+        check.body.contains("--all-targets") && check.body.contains("cargo clippy"),
+        "clippy over `--all-targets` is the compile gate: it covers the test targets, so a \
+         test that stops compiling still fails before merge"
+    );
+}
+
+/// With tests off the gate, what it must still catch is the compile break a
+/// change causes in its callers: a signature change leaves the changed crate's
+/// own targets green and breaks whichever crate calls it.
+#[test]
+fn the_branch_gate_lints_the_dependents_of_what_changed() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    assert!(
+        check.body.contains("ci-changed-crates.sh --dependents"),
+        "the branch gate must resolve `changed crates + their dependents`, not only the \
+         changed crates: the crate that breaks is the one that calls the changed one"
+    );
+    assert!(
+        !check.body.contains("cargo check"),
+        "clippy over `--all-targets` is a superset of `cargo check`; a separate check step \
+         only compiles the same crates twice"
+    );
+}
+
+/// `Compile Check (branch pushes)` is a required status check
+/// (`scripts/github-enforce.sh`): a renamed job never reports, and nothing
+/// merges until someone edits the ruleset.
+#[test]
+fn the_branch_gate_keeps_the_name_branch_protection_requires() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    let name = value_of(&check.body, "name").unwrap_or_default();
+    assert!(
+        read("scripts/github-enforce.sh").contains(&format!("\"context\": \"{name}\"")),
+        "job `check` is named `{name}`, which scripts/github-enforce.sh does not require"
+    );
+}
+
+/// Taking tests off the branch gate is only sound while they still run
+/// somewhere on every merge: the sharded suite on main.
+#[test]
+fn the_tests_still_run_on_main_where_the_branch_gate_does_not_run_them() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let test = job(&jobs, "test");
+    assert!(
+        test.body.contains("cargo nextest run"),
+        "the sharded `test` job is where the tests run once the branch gate stops running them"
+    );
+    assert!(
+        test.body.contains("refs/heads/main"),
+        "the sharded `test` job must run on main"
+    );
+}
+
 #[test]
 fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
     let text = read(".github/workflows/test.yml");

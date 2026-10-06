@@ -169,12 +169,13 @@ fn a_green_pr_merges_pinned_to_the_tested_commit_and_the_main_suite_runs() {
 
 /// The common merge is content-identical to the tested head — `finish`
 /// integrates origin/main before pushing, so the merge only gains a parent —
-/// and the green branch run already proved the merged tree's exact bytes.
-/// Dispatching the ten-job main suite to recompute a known answer was pure
-/// convoy cost: the post-merge verification is attested by tree identity and
-/// the suite is skipped.
+/// and `close` already ran the task's acceptance on those exact bytes, so the
+/// post-merge acceptance is attested by identity. That proves the acceptance
+/// and nothing else: the branch run compiles and lints without executing a
+/// test, so skipping the main suite here would leave the merged tree's tests
+/// to run nowhere in CI. The suite dispatches regardless.
 #[test]
-fn a_merge_identical_to_the_tested_head_skips_the_main_suite() {
+fn a_merge_identical_to_the_tested_head_is_attested_and_still_runs_the_main_suite() {
     let f = Fake::new(
         "ident",
         serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
@@ -187,8 +188,9 @@ fn a_merge_identical_to_the_tested_head_skips_the_main_suite() {
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("identical"), "{out}");
     assert!(
-        !f.calls().contains("workflow run test.yml"),
-        "a proven tree must not rerun the suite: {}",
+        f.calls()
+            .contains("workflow run test.yml --repo o/r --ref main"),
+        "the branch run executes no tests, so the suite must run on main: {}",
         f.calls()
     );
     let pushes = f.git_pushes();
@@ -196,8 +198,8 @@ fn a_merge_identical_to_the_tested_head_skips_the_main_suite() {
     assert!(pushes.contains("refs/verified/T-FIXTURE-7"), "{pushes}");
 }
 
-/// A merge that raced another produces a tree nobody has tested — the suite
-/// still dispatches for it.
+/// A merge that raced another produces a tree nobody has built — it is not
+/// attested by identity, and the suite dispatches for it as for every merge.
 #[test]
 fn a_merge_that_differs_from_the_tested_head_still_runs_the_main_suite() {
     let f = Fake::new(
@@ -217,10 +219,10 @@ fn a_merge_that_differs_from_the_tested_head_still_runs_the_main_suite() {
     );
 }
 
-/// Doubt dispatches: if a `refs/verified` write fails, the real suite runs
-/// rather than leaving the task unverified forever.
+/// A failed `refs/verified` write is best effort: it neither fails the merge
+/// nor skips the suite, and the main run's `verify` job records the acceptance.
 #[test]
-fn an_identical_merge_whose_attestation_fails_falls_back_to_the_suite() {
+fn a_failed_attestation_neither_fails_the_merge_nor_skips_the_suite() {
     let f = Fake::new(
         "attestfail",
         serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),

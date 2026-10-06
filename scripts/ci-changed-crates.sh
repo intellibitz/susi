@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Lists the workspace packages touched by the diff vs the merge base with
-# BASE_REF (default: origin/main), one package name per line.
+# BASE_REF (default: origin/main), one package name per line, sorted.
+#
+#   ci-changed-crates.sh               the packages whose files the diff touched
+#   ci-changed-crates.sh --dependents  those plus every workspace package that
+#                                      depends on one of them, transitively
+#
+# Tests belong to the crate that changed; a compile break does not. A signature
+# change in susi-core leaves susi-core's own tests green and breaks whichever of
+# its dependents calls it, so the compile and lint gate takes `--dependents`
+# (normal, dev and build dependencies all count: a dev-dependency edge is a test
+# target that stops compiling) while a gate that runs tests takes the bare list.
 #
 # Prints "ALL" when a workspace-wide input changed — the lockfile, workspace
 # Cargo.toml, the root build.rs (it compiles .agents/*.json into
@@ -23,6 +33,16 @@
 # callers can skip cargo entirely.
 set -euo pipefail
 
+with_dependents=0
+case "${1:-}" in
+    "") ;;
+    --dependents) with_dependents=1 ;;
+    *)
+        echo "usage: ci-changed-crates.sh [--dependents]" >&2
+        exit 2
+        ;;
+esac
+
 BASE="${BASE_REF:-origin/main}"
 
 mb=$(git merge-base "$BASE" HEAD 2>/dev/null) || {
@@ -42,15 +62,19 @@ if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agent
     exit 0
 fi
 
+meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || {
+    echo ALL
+    exit 0
+}
+
 # name|crate-dir per workspace package.
-cargo metadata --no-deps --format-version 1 2>/dev/null |
-    jq -r '.packages[] | .name + "|" + (.manifest_path | sub("/Cargo.toml$"; ""))' > /tmp/susi-pkgs.$$ || {
-        echo ALL
-        exit 0
-    }
+pkgs=$(jq -r '.packages[] | .name + "|" + (.manifest_path | sub("/Cargo.toml$"; ""))' <<<"$meta") || {
+    echo ALL
+    exit 0
+}
 
 root=$PWD
-rootpkg=$(awk -F'|' -v m="$root" '$2 == m { print $1 }' /tmp/susi-pkgs.$$ | head -1)
+rootpkg=$(awk -F'|' -v m="$root" '$2 == m { print $1 }' <<<"$pkgs" | head -1)
 declare -A seen=()
 while IFS= read -r f; do
     case "$f" in
@@ -62,7 +86,6 @@ while IFS= read -r f; do
                 seen[$rootpkg]=1
                 continue
             fi
-            rm -f /tmp/susi-pkgs.$$
             echo ALL
             exit 0
             ;;
@@ -79,16 +102,39 @@ while IFS= read -r f; do
                 fi
                 ;;
         esac
-    done < /tmp/susi-pkgs.$$
+    done <<<"$pkgs"
     if [ -z "$best" ]; then
-        rm -f /tmp/susi-pkgs.$$
         echo ALL
         exit 0
     fi
     seen[$best]=1
 done <<<"$changed"
-rm -f /tmp/susi-pkgs.$$
+
+if [ "$with_dependents" = 1 ] && [ "${#seen[@]}" -gt 0 ]; then
+    # dependent|dependency, restricted to edges between workspace packages. A
+    # dependency's `name` is the package name, never a `package = ` rename.
+    edges=$(jq -r '
+        [.packages[].name] as $ws
+        | .packages[] | .name as $dependent
+        | .dependencies[] | select(.name as $d | $ws | index($d))
+        | $dependent + "|" + .name' <<<"$meta") || {
+        echo ALL
+        exit 0
+    }
+    # Grow the set until no edge leads from it to a package outside it.
+    grew=1
+    while [ "$grew" = 1 ]; do
+        grew=0
+        while IFS='|' read -r dependent dependency; do
+            [ -n "$dependent" ] || continue
+            if [ -n "${seen[$dependency]:-}" ] && [ -z "${seen[$dependent]:-}" ]; then
+                seen[$dependent]=1
+                grew=1
+            fi
+        done <<<"$edges"
+    done
+fi
 
 for p in "${!seen[@]}"; do
     echo "$p"
-done
+done | sort

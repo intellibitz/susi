@@ -392,23 +392,30 @@ convergent:
 - **Always `git fetch` + merge `origin/main` before pushing.** Pushes to
   `main` must be fast-forward; compile (`cargo check --workspace`) before
   pushing a merge so fixup commits never ship an uncompiled merge.
-- **CI is branch-scoped and affected-crate-scoped.** Feature-branch pushes
-  run fmt + cargo deny + `cargo check`, **clippy `-D warnings`** and **the tests
-  of** just the crates the diff touches (`scripts/ci-changed-crates.sh`;
-  workspace-wide inputs and root-package changes fall back to a full check,
-  which keeps `cargo check` alone because a whole-workspace test build on every
-  macro-push is what this gate exists to avoid — the *lint* is the exception and
-  runs workspace-wide in that case, since a toolchain, lockfile or lint-config
-  change is exactly where a lint break hides). Running the affected crates' tests
-  here is deliberate: the failures that reach `main` are runtime ones — races,
-  flakes, cross-test interference — that a compile check cannot see and the
-  shards below would only catch after the merge. The same job then runs
-  `scripts/check-hermetic-tests.sh` for those crates — Mandate 52 had no
-  mechanical enforcement at all, because the only check was a whole-workspace
-  sweep that ran nowhere; scoped, it runs on every branch push, with a throwaway
-  `HOME`/`XDG`/`SUSI_HOME` and a failure if anything is written into the
-  instance it was handed. A workspace-wide diff (`ALL`) keeps the existing gate
-  only, since a second full suite is exactly what this job exists to avoid. Clippy is here because the
+- **The branch gate compiles and lints; it executes no test.** Feature-branch
+  pushes run fmt + cargo deny + **clippy `-D warnings` over `--all-targets`** for
+  the crates the diff touches **and their dependents**
+  (`scripts/ci-changed-crates.sh --dependents`: normal, dev and build edges, so a
+  signature change that leaves the changed crate green and breaks its caller
+  fails before the merge). Clippy over every target is a superset of
+  `cargo check` and compiles each test target, so a test that stops compiling
+  still fails here. A workspace-wide input (lockfile, toolchain, lint config, the
+  root `build.rs`) lints the whole workspace. **Why no tests:** the job used to
+  run the affected crates' nextest and then the hermetic re-run, 62-75% of a
+  308-446 s run against 96 s when no crate was touched, to repeat what
+  `susi workflow finish` had just run on the same tree. That length is the
+  latency of the serialized merge queue — each merge makes the next green head
+  stale and every stale head costs one more run — and a flake here blocks every
+  branch behind it. **What that costs, stated plainly:** a runtime failure (a
+  race, a flake, cross-test interference) is no longer stopped by CI before the
+  merge. It is stopped by the agent's own local gate (scoped to the crates it
+  touched), and what slips past is found by the sharded suite below, which now
+  runs after **every** merge — the old shortcut that skipped it when the merge
+  tree matched the tested head is gone, because its premise (the branch run had
+  proven that tree) no longer holds — attributed to the pull request by
+  `Main Failure Attribution`, and fixed forward: a red `main` is a defect. The
+  hermetic check (`scripts/check-hermetic-tests.sh`, Mandate 52) is not part of
+  the branch push any more. Clippy is here because the
   `lint` job is main-only: 1.99.0 deprecated `Atomic::fetch_update` and it
   failed on code nobody had touched. **The compiler is pinned** in
   `rust-toolchain.toml`, and the `Toolchain Pin` job asserts that a runner

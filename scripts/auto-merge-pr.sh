@@ -50,9 +50,11 @@ same_tree() {
 
 # A tree-identical merge makes the post-merge acceptance re-run provable by
 # transitivity: `close` ran it on this very tree. Write refs/verified/<task>
-# directly instead of dispatching a second full suite to recompute a known
-# answer. Doubt is never silently skipped: unknown task set or a failed ref
-# push returns non-zero and the caller dispatches the real suite.
+# directly instead of waiting for the main run's `verify` job to recompute a
+# known answer. This attests the acceptance only, never the suite: the branch
+# run compiles and lints, so the full suite is dispatched after every merge
+# whatever this returns. A failed ref push returns non-zero so the `verify`
+# job still gets to record it.
 attest_verified() {
     local pr=$1 merge_sha=$2 messages task body blob rc=0
     messages=$(gh api "repos/$repo/pulls/$pr/commits" --paginate \
@@ -98,17 +100,18 @@ case "$comparison" in
         [ -n "${merge_sha:-}" ] && attest_merge "$pr" "$merge_sha"
         # The common case is a merge whose tree is byte-identical to the tested
         # head's: `finish` integrates origin/main before pushing, so merging a
-        # branch that is current only adds a parent. The branch run already
-        # proved those exact bytes — attest the post-merge acceptance by
-        # identity instead of dispatching the full main suite to recompute it.
-        # A merge that raced another (different tree) still gets the suite.
+        # branch that is current only adds a parent. `close` already ran the
+        # task's acceptance on those exact bytes, so attest the post-merge
+        # acceptance by identity. That is all the identity proves: the branch
+        # run compiles and lints, it does not execute tests, so the main suite
+        # is the first CI run that does and it runs after every merge, a merge
+        # that raced another (a tree nobody has built) included.
         if [ -n "${merge_sha:-}" ] && same_tree "$merge_sha" "$sha" \
             && attest_verified "$pr" "$merge_sha"; then
-            echo "merge tree identical to the tested head — green run already proved it; main suite skipped"
-        else
-            # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
-            gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
+            echo "merge tree identical to the tested head — acceptance attested by identity"
         fi
+        # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
+        gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
         exit 0
     fi
     state=$(gh pr view "$pr" --repo "$repo" --json mergeable --jq .mergeable 2>/dev/null || echo UNKNOWN)

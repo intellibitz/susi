@@ -224,14 +224,29 @@ jobs:
       - name: cargo deny check
         uses: EmbarkStudios/cargo-deny-action@v2
 
-  # Non-main branch pushes get an affected-crates compile gate plus the tests
-  # of those crates. Several agents push every macro-step on parallel branches,
-  # so this stays bounded to the diff; the full sharded suite is still the
-  # integration gate on main and manual dispatch (auto-merge dispatches it on
-  # main right after each merge). scripts/ci-changed-crates.sh maps the diff to
-  # packages, so a leaf-crate push builds and tests in seconds on a warm cache
-  # instead of the whole workspace; a workspace-wide diff keeps the compile
-  # check alone (see the nextest step below).
+  # The merge gate for a branch push: it compiles and lints, it does not run
+  # tests. Executing the affected crates' tests here (nextest, then the hermetic
+  # re-run) was 62-75% of the job - 173-267 s plus 18-67 s of a 308-446 s run,
+  # against 96 s when no crate was touched - and re-ran what the agent's own
+  # `finish` gate had just run on the same tree. The gate is also the unit of the
+  # serialized merge queue: every merge turns the next green head stale, and each
+  # stale head costs one more run of this job, so its length is the queue's
+  # latency; and a flaky test here blocks every branch behind it (`Test (gemi)`
+  # failed three of four attempts on one). Tests run where they can be retried
+  # without holding anyone: the agent's local gate, the full sharded suite on main
+  # after every merge (auto-merge dispatches it), and the release.
+  #
+  # What it does gate is that the branch builds on a clean machine. Clippy over
+  # `--all-targets` is a superset of `cargo check`, so it is the one compile step,
+  # and it covers every test target, so a test that stops compiling still fails
+  # here. `ci-changed-crates.sh --dependents` widens the set from the crates the
+  # diff touched to whatever depends on them: a signature change leaves the
+  # changed crate green and breaks its caller, and with tests off this job that
+  # is exactly what reached main. A workspace-wide diff (`ALL`) lints the whole
+  # workspace.
+  #
+  # The job name is a required status check (scripts/github-enforce.sh): renaming
+  # it blocks every merge.
   check:
     name: Compile Check (branch pushes)
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
@@ -278,74 +293,41 @@ jobs:
       - name: Resolve affected crates
         id: affected
         run: |
-          pkgs=$(./scripts/ci-changed-crates.sh)
+          pkgs=$(./scripts/ci-changed-crates.sh --dependents)
           {
             echo 'pkgs<<AFFECTED_EOF'
             echo "$pkgs"
             echo 'AFFECTED_EOF'
           } >> "$GITHUB_OUTPUT"
           if [ "$pkgs" = "ALL" ]; then
-            echo "cmd=cargo check --workspace --locked" >> "$GITHUB_OUTPUT"
             echo "lintcmd=cargo clippy --workspace --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           elif [ -z "$pkgs" ]; then
-            echo "cmd=" >> "$GITHUB_OUTPUT"
             echo "lintcmd=" >> "$GITHUB_OUTPUT"
           else
-            echo "cmd=cargo check$(printf ' -p %s' $pkgs) --locked" >> "$GITHUB_OUTPUT"
             echo "lintcmd=cargo clippy$(printf ' -p %s' $pkgs) --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           fi
 
       # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
       # retry of its own, so one hiccup reddens this job (it did: main's
       # vendor-cells shard). Build it up front with bounded retries - only the
-      # build is retried, never the tests.
+      # build is retried, never the tests. Any crate work gets it: the root
+      # package depends on the embedder and is in all but three crates' dependents
+      # sets, and on a warm cache this is a cargo no-op.
       - name: Pre-fetch ONNX Runtime (bounded retries)
-        if: steps.affected.outputs.pkgs == 'ALL' || contains(steps.affected.outputs.pkgs, 'susi-gmcp') || contains(steps.affected.outputs.pkgs, 'susi-vendor-fastembed')
+        if: steps.affected.outputs.pkgs != ''
         run: scripts/ci-prefetch-onnxruntime.sh
-
-      - name: cargo check
-        if: steps.affected.outputs.cmd != ''
-        run: ${{ steps.affected.outputs.cmd }}
 
       # The lint job is main-only, so a lint break merges green and reddens main
       # afterwards: 1.99.0 deprecated `Atomic::fetch_update` and `Doc Tests +
       # Clippy` failed on code nobody had touched (T-DEEPSEEK-8). Lint the
-      # affected crates here, and the whole workspace when the diff is
-      # workspace-wide (`ALL` — a lockfile, toolchain or lint-config change is
-      # exactly where this bites), because that is a `-D warnings` violation the
-      # merge gate should have caught.
-      - name: cargo clippy (affected crates)
+      # affected crates and their dependents here, and the whole workspace when
+      # the diff is workspace-wide (`ALL` - a lockfile, toolchain or lint-config
+      # change is exactly where this bites), because that is a `-D warnings`
+      # violation the merge gate should have caught. `--all-targets` compiles the
+      # tests, benches and examples too, so this is also the compile gate.
+      - name: cargo clippy (affected crates and dependents)
         if: steps.affected.outputs.lintcmd != ''
         run: ${{ steps.affected.outputs.lintcmd }}
-
-      - name: Install cargo-nextest
-        if: steps.affected.outputs.pkgs != '' && steps.affected.outputs.pkgs != 'ALL'
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest@0.9.146
-
-      # Compile-clean is not correct: the failures that have actually reached
-      # main - a dispatch pool race, a test that deleted another test's
-      # directory, two tests racing on process env - are all invisible to
-      # `cargo check` and to the nextest shards, which only run on main. So run
-      # the affected crates' tests here, bounded to the diff: a workspace-wide
-      # change (`ALL`) still gets the compile check only, because that is a
-      # whole-workspace test build on every macro-push, and it lands on main
-      # where the full sharded suite runs anyway.
-      - name: cargo nextest (affected crates)
-        if: steps.affected.outputs.pkgs != '' && steps.affected.outputs.pkgs != 'ALL'
-        run: cargo nextest run --locked $(printf ' -p %s' ${{ steps.affected.outputs.pkgs }}) -E 'not binary(capability_gap_e2e)'
-
-      # Mandate 52 (hermetic tests) had no mechanical enforcement at all: the
-      # only check was a whole-workspace sweep, which is why it ran nowhere.
-      # Scoped to the crates the diff touches, the same rule now runs on every
-      # branch push — with a throwaway HOME/XDG/SUSI_HOME, and failing if
-      # anything is written into the instance it was handed. A workspace-wide
-      # diff ('ALL') keeps the existing gate only: one full suite here is what
-      # this job exists to avoid.
-      - name: hermetic tests (affected crates)
-        if: steps.affected.outputs.pkgs != '' && steps.affected.outputs.pkgs != 'ALL'
-        run: scripts/check-hermetic-tests.sh $(printf ' -p %s' ${{ steps.affected.outputs.pkgs }})
 
   # The suite is sharded by area so each runner compiles only its dep
   # closure; the gate is the slowest shard rather than one serial workspace
