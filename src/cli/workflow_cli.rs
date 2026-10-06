@@ -30,7 +30,8 @@ pub enum WorkflowCommands {
     /// Give this worktree an identity of its own: <TOOL><WORKTREE-ID> as claim
     /// token and git author, never the shared git login or `PRIMARY`. `check`
     /// and `start` do this for you; run it to fix a borrowed identity by hand.
-    Identity,
+    #[command(name = "own-identity")]
+    OwnIdentity,
     /// Check that this checkout follows the susi workflow (Mandates 49-51)
     Check {
         /// Machine-readable output
@@ -49,7 +50,7 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         WorkflowCommands::Watch => return run_loop(cwd, &["watch"]),
         WorkflowCommands::Check { json, agent } => (json, agent),
         WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
-        WorkflowCommands::Identity => return identity(cwd),
+        WorkflowCommands::OwnIdentity => return own_identity(cwd),
     };
     let root = crate::cli::tasks_cli::repo_root(cwd);
     // Hooks + ledger merge driver install themselves on any susi command —
@@ -145,8 +146,8 @@ fn explicit_agent(flag: Option<&str>) -> Option<String> {
         .filter(|a| !a.is_empty())
 }
 
-/// `susi workflow identity`: make this worktree's identity its own, and say so.
-fn identity(cwd: &Path) -> Result<()> {
+/// `susi workflow own-identity`: make this worktree's identity its own, and say so.
+fn own_identity(cwd: &Path) -> Result<()> {
     use worker_identity::Outcome;
     let root = crate::cli::tasks_cli::repo_root(cwd);
     match worker_identity::ensure(&root, None, explicit_agent(None).as_deref()) {

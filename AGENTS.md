@@ -51,7 +51,7 @@ never `PRIMARY`. Task ids are `T-<identity>-<n>`, so they are unique per worker
 by construction: two workers cannot mint the same id or hold each other's claim.
 A worktree that arrives without one (the desktop app's `.claude/worktrees/<name>`
 inherits `PRIMARY` and commits as the login) is given one by `susi workflow
-check`, or by `susi workflow identity`. The check's `own identity` row fails when
+check`, or by `susi workflow own-identity`. The check's `own identity` row fails when
 it cannot — a claim travels with its token, so `susi tasks release <id>` first —
 and the commit hook rejects a worktree whose token is the login or a role
 (`PRIMARY`, `MAIN`, …) or whose commits are authored by the login.

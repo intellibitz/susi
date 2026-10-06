@@ -61,7 +61,7 @@ if [ "$(realpath "$(git rev-parse --absolute-git-dir)")" != "$(realpath "$(git r
         cat >&2 <<'EOF'
    Every agent on this machine shares that name, so task ids and claims minted
    under it collide with the next agent's. Give this worktree its own:
-     susi workflow identity
+     susi workflow own-identity
    (an installed susi older than that command: pick <TOOL><WORKTREE-ID>, e.g.
    CLAUDESWEETKHORANA5D3FC4, and set it for the token and the author)
      git config extensions.worktreeConfig true

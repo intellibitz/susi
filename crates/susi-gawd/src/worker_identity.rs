@@ -397,7 +397,7 @@ pub fn ensure(root: &Path, tool: Option<&str>, explicit: Option<&str>) -> Outcom
                         "{} while holding {task}, and a claim travels with its token",
                         a.standing.describe(&was)
                     ),
-                    fix: format!("susi tasks release {task} && susi workflow identity"),
+                    fix: format!("susi tasks release {task} && susi workflow own-identity"),
                 };
             }
             Err(e) => {
@@ -406,7 +406,7 @@ pub fn ensure(root: &Path, tool: Option<&str>, explicit: Option<&str>) -> Outcom
                         "{}, and the claims could not be read to check it is safe to replace ({e})",
                         a.standing.describe(&was)
                     ),
-                    fix: "susi workflow identity   # once the remote is reachable".to_string(),
+                    fix: "susi workflow own-identity   # once the remote is reachable".to_string(),
                 };
             }
         }
@@ -482,7 +482,7 @@ pub fn require_own(root: &Path, explicit: bool) -> Result<(), String> {
     Err(format!(
         "this worktree has no identity of its own ({}): task ids and claims are minted under it, \
          so another worker would collide with them and could renew, close or release them. \
-         Run `susi workflow identity`.",
+         Run `susi workflow own-identity`.",
         a.standing.describe(&token)
     ))
 }

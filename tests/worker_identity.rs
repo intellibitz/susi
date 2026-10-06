@@ -169,7 +169,7 @@ fn worker_identity_a_worktree_that_inherited_primary_is_given_its_own() {
     assert_eq!(own(&w, &w.primary, "susi.agent"), "PRIMARY");
 
     // Asked again, it is already its own and says so.
-    let (code, out, err) = w.susi(&wt, &["workflow", "identity"]);
+    let (code, out, err) = w.susi(&wt, &["workflow", "own-identity"]);
     assert_eq!(code, 0, "{err}");
     assert!(out.contains("already this worktree's own"), "{out}");
 }
@@ -180,7 +180,7 @@ fn worker_identity_sibling_worktrees_mint_distinct_task_ids_and_commit_as_themse
     let a = w.inheriting("claude/charming-curie-cbbe7b");
     let b = w.inheriting("claude/sweet-khorana-5d3fc4");
     for wt in [&a, &b] {
-        let (code, _, err) = w.susi(wt, &["workflow", "identity"]);
+        let (code, _, err) = w.susi(wt, &["workflow", "own-identity"]);
         assert_eq!(code, 0, "{err}");
     }
 
@@ -230,7 +230,7 @@ fn worker_identity_is_not_swapped_under_a_live_claim() {
     assert_eq!(code, 0, "{err}");
 
     // A claim travels with its token: swapping it would strand the task.
-    let (code, _, err) = w.susi(&wt, &["workflow", "identity"]);
+    let (code, _, err) = w.susi(&wt, &["workflow", "own-identity"]);
     assert_ne!(code, 0);
     assert!(
         err.contains("T-PRIMARY-1") && err.contains("susi tasks release T-PRIMARY-1"),
@@ -243,7 +243,7 @@ fn worker_identity_is_not_swapped_under_a_live_claim() {
     // The documented path: release, then the identity is replaced.
     let (code, _, err) = w.susi_as("PRIMARY", &wt, &["tasks", "release", "T-PRIMARY-1"]);
     assert_eq!(code, 0, "{err}");
-    let (code, out, err) = w.susi(&wt, &["workflow", "identity"]);
+    let (code, out, err) = w.susi(&wt, &["workflow", "own-identity"]);
     assert_eq!(code, 0, "{err}");
     assert!(out.contains("CLAUDEHELD1A2B3C"), "{out}");
 }
@@ -332,7 +332,8 @@ fn worker_identity_commit_hook_rejects_a_login_token_and_login_authored_commits(
         let (code, _, err) = run();
         assert_eq!(code, 1, "{borrowed}: {err}");
         assert!(
-            err.contains("shared git login or a role") && err.contains("susi workflow identity"),
+            err.contains("shared git login or a role")
+                && err.contains("susi workflow own-identity"),
             "{err}"
         );
     }
