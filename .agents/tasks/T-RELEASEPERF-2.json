@@ -1,0 +1,21 @@
+{
+  "id": "T-RELEASEPERF-2",
+  "title": "ci-system-deps.sh: the runner image's cmake is on PATH, not a dpkg package, so every job still ran apt-get update",
+  "goal": "T-RELEASEPERF-1 moved release.yml onto scripts/ci-system-deps.sh expecting the apt-get update to be skipped. The v0.21.12-era dry run (run 37485980532) showed 'installing missing system dependencies: cmake' on every Linux leg (12-19 s each): the ubuntu-24.04 image carries cmake under /usr/local/bin, so dpkg -s cmake fails and the script refreshed the index and installed a second cmake 3.28 that PATH never picks. Count a package as present when dpkg knows it or the binary it provides resolves on PATH; pin it with a hermetic isolated-PATH test.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-E",
+      "binary(ci_workflow_perf)"
+    ]
+  },
+  "created_by": "RELEASEPERF",
+  "created_unix": 1791301586
+}
