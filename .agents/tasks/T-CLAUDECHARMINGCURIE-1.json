@@ -1,0 +1,21 @@
+{
+  "id": "T-CLAUDECHARMINGCURIE-1",
+  "title": "Branch-push gate compiles and lints the changed crates and their dependents; it no longer executes tests",
+  "goal": "Measured on the last day of runs: a branch push that touches a crate takes 308-446 s, of which cargo nextest (173-267 s) plus the hermetic re-run (18-67 s) is 62-75%; compile+clippy is 35-70 s and every other job finishes in <=78 s. The same tests just ran in the agent's own finish gate, so the remote run is a third execution of them, and a flake there blocks the serialized merge queue. Make the merge-blocking gate compile and lint only: scripts/ci-changed-crates.sh gains --dependents (changed crates plus their transitive workspace dependents, dev/build deps included, so a signature change in susi-core that breaks susi-daemon fails before merge instead of on main); the test.yml check job runs clippy --all-targets over that set (a superset of cargo check, so the separate check step goes) and drops cargo nextest and the hermetic step. ALL keeps clippy --workspace. Tests still run in the agent's local gate and in the full sharded suite on main; Mandate 53 only names the branch-push Test run as the gate, not its contents. The post-merge shortcut in scripts/auto-merge-pr.sh (a merge whose tree is identical to the tested head skips the main suite because the green branch run 'already proved it') stops being true once the branch run only compiles, so the suite is dispatched on main after every merge; refs/verified attestation is unchanged.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-E",
+      "binary(/^(ci_|auto_merge)/)"
+    ]
+  },
+  "created_by": "CLAUDECHARMINGCURIE",
+  "created_unix": 1791312502
+}
