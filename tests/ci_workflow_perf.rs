@@ -347,6 +347,31 @@ impl Fakes {
         }
     }
 
+    /// Like `run`, but PATH is the fakes directory alone, so a tool the script
+    /// probes for (`cmake`) exists only when the test put a fake of it there -
+    /// the developer's own machine cannot answer for the runner image.
+    fn run_isolated(&self, script: &str, envs: &[(&str, &str)]) -> (bool, String, String) {
+        let bash = std::env::var("PATH")
+            .unwrap_or_default()
+            .split(':')
+            .map(|d| Path::new(d).join("bash"))
+            .find(|p| p.is_file())
+            .expect("bash on PATH");
+        let out = std::process::Command::new(bash)
+            .arg(root().join(script))
+            .env("PATH", &self.dir)
+            .env("FAKE_LOG", self.dir.join("log"))
+            .envs(envs.iter().copied())
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned()
+                + &String::from_utf8_lossy(&out.stderr),
+            std::fs::read_to_string(self.dir.join("log")).unwrap(),
+        )
+    }
+
     /// Run `script` with the fakes first on PATH; returns (success, stdout, log).
     fn run(&self, script: &str, envs: &[(&str, &str)]) -> (bool, String, String) {
         let real_path = std::env::var("PATH").unwrap_or_default();
@@ -384,7 +409,7 @@ fn system_deps_are_installed_only_when_the_runner_image_lacks_them() {
     f.fake("apt-get", r#"echo "apt-get $*" >> "$FAKE_LOG""#);
 
     // Everything present: no package-index refresh at all.
-    let (ok, said, log) = f.run("scripts/ci-system-deps.sh", &[("FAKE_MISSING", "")]);
+    let (ok, said, log) = f.run_isolated("scripts/ci-system-deps.sh", &[("FAKE_MISSING", "")]);
     assert!(ok, "{said}");
     assert!(
         log.is_empty(),
@@ -393,12 +418,24 @@ fn system_deps_are_installed_only_when_the_runner_image_lacks_them() {
     assert!(said.contains("already present"), "{said}");
 
     // One package missing: refresh, then install exactly that one.
-    let (ok, said, log) = f.run("scripts/ci-system-deps.sh", &[("FAKE_MISSING", "cmake")]);
+    let (ok, said, log) = f.run_isolated("scripts/ci-system-deps.sh", &[("FAKE_MISSING", "cmake")]);
     assert!(ok, "{said}");
     assert_eq!(
         log.lines().collect::<Vec<_>>(),
         ["apt-get update", "apt-get install -y cmake"],
         "a job that does need a package must still get it"
+    );
+
+    // The image's own cmake is on PATH but is no dpkg package (`dpkg -s cmake`
+    // fails on every runner): that is not "missing" - installing it refreshed
+    // the apt index in every job and added a cmake PATH never used.
+    f.fake("cmake", r#"echo "cmake 3.31""#);
+    std::fs::write(f.dir.join("log"), "").unwrap(); // the log accumulates across runs
+    let (ok, said, log) = f.run_isolated("scripts/ci-system-deps.sh", &[("FAKE_MISSING", "cmake")]);
+    assert!(ok, "{said}");
+    assert!(
+        log.is_empty(),
+        "a cmake that resolves on PATH must not trigger apt-get, ran: {log}"
     );
 }
 
