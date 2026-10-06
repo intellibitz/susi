@@ -256,7 +256,19 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "{err}");
 
-    // 5b. Once closed, a task cannot be cited again (unrelated work must not
+    // 5b. The pipeline's handoff: `finish` may release the claim once the
+    //     close receipt is on the remote, so a re-judged range finds no claim
+    //     on T-TEST-1. The receipt is the stronger fact — writing it required
+    //     the live owned claim — so the same commits still pass.
+    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1", "--force"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, err) = e.check(&before);
+    assert_eq!(
+        code, 0,
+        "a released claim on a receipted task passes: {err}"
+    );
+
+    // 5c. Once closed, a task cannot be cited again (unrelated work must not
     //     ride on it).
     let before = e.head();
     e.commit("e2", "fix: sneaky", Some("T-TEST-1"));
@@ -899,35 +911,22 @@ fn delete_ref(repo: &Path, name: &str) {
 }
 
 /// The debt is enforced by the agent's own binary, so a stale client or a
-/// hand-pushed claim ref can skip it. The server must refuse the second task
-/// too — and only the second task: a receipt for the task in hand is the repair
-/// path, another agent's receipt is not this branch's business, and a receipt
-/// whose close already reached `origin/main` is published work.
+/// hand-pushed claim ref can skip it. The server must enforce the same bound:
+/// ONE accepted-but-unmerged close is the pipeline — the merge queue lands it
+/// while the agent works on the next task — and only the SECOND outstanding
+/// close is refused. A receipt for the task in hand is the repair path,
+/// another agent's receipt is not this branch's business, and a receipt whose
+/// close already reached `origin/main` is published work.
 #[test]
-fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
+fn a_second_owed_merge_is_refused_but_one_pipelines_at_the_server() {
     let e = Env::new("owed");
-    assert_eq!(
-        e.susi(&[
-            "tasks",
-            "add",
-            "first",
-            "--accept",
-            "scripts/fixture-check.sh"
-        ])
-        .0,
-        0
-    );
-    assert_eq!(
-        e.susi(&[
-            "tasks",
-            "add",
-            "second",
-            "--accept",
-            "scripts/fixture-check.sh"
-        ])
-        .0,
-        0
-    );
+    for t in ["first", "second", "third"] {
+        assert_eq!(
+            e.susi(&["tasks", "add", t, "--accept", "scripts/fixture-check.sh"])
+                .0,
+            0
+        );
+    }
     std::fs::create_dir_all(e.repo.join("scripts")).unwrap();
     std::fs::copy(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-workflow-compliance.sh"),
@@ -939,8 +938,8 @@ fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
     let base = e.head();
 
     // TEST accepted T-TEST-1 and never published it; it is now working
-    // T-TEST-2. `susi tasks claim` would refuse that second claim, so the state
-    // is built the way a bypassing or stale client leaves it: refs by hand.
+    // T-TEST-2. One merge in flight is the pipeline — nobody idles on a merge
+    // queue they cannot hurry — so the push is fine.
     push_ref(
         &e.repo,
         "refs/claims/T-TEST-2",
@@ -954,42 +953,70 @@ fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
     e.commit("a", "feat: a", Some("T-TEST-2"));
     let after_a = e.head();
     let (code, err) = e.check(&base);
-    assert_eq!(code, 1, "the owed merge must refuse the second task: {err}");
-    assert!(err.contains("owes the merge of T-TEST-1"), "{err}");
+    assert_eq!(code, 0, "one merge in flight is the pipeline: {err}");
 
-    // The task in hand is the repair path, not a second task. The agent went
-    // back to it, so it holds one live claim again — the queue's own invariant.
+    // T-TEST-2 was also accepted unpublished, and TEST moved to a third task.
+    // Two outstanding closes is the pileup the receipts exist to refuse.
+    push_ref(
+        &e.repo,
+        "refs/closed/T-TEST-2",
+        &receipt_json("T-TEST-2", "TEST"),
+    );
     delete_ref(&e.repo, "refs/claims/T-TEST-2");
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-3",
+        &claim_json("T-TEST-3", "TEST", "main", &["work"]),
+    );
+    e.commit("b", "feat: b", Some("T-TEST-3"));
+    let after_b = e.head();
+    let (code, err) = e.check(&after_a);
+    assert_eq!(
+        code, 1,
+        "the second owed merge must refuse the third task: {err}"
+    );
+    assert!(err.contains("owes the merge"), "{err}");
+    assert!(
+        err.contains("T-TEST-1") && err.contains("T-TEST-2"),
+        "{err}"
+    );
+
+    // Going back to an owed task is the repair path, not piling on: the
+    // receipt for the task in hand is exempt, leaving one owed merge.
+    delete_ref(&e.repo, "refs/claims/T-TEST-3");
     push_ref(
         &e.repo,
         "refs/claims/T-TEST-1",
         &claim_json("T-TEST-1", "TEST", "main", &["work"]),
     );
-    e.commit("b", "fix: b", Some("T-TEST-1"));
-    let (code, err) = e.check(&after_a);
-    assert_eq!(code, 0, "repairing the owed task must pass: {err}");
+    e.commit("c", "fix: c", Some("T-TEST-1"));
+    let after_c = e.head();
+    let (code, err) = e.check(&after_b);
+    assert_eq!(code, 0, "repairing an owed task must pass: {err}");
 
-    // Another agent's receipt is not this branch's business: TEST still holds
-    // T-TEST-1 alone, and the debt on the remote is somebody else's.
+    // Another agent's receipt is not this branch's business: with T-TEST-1
+    // owed by OTHER, TEST owes only T-TEST-2 — inside the bound.
+    delete_ref(&e.repo, "refs/claims/T-TEST-1");
     delete_ref(&e.repo, "refs/closed/T-TEST-1");
     push_ref(
         &e.repo,
         "refs/closed/T-TEST-1",
         &receipt_json("T-TEST-1", "OTHER"),
     );
-    let (code, err) = e.check(&after_a);
+    push_ref(
+        &e.repo,
+        "refs/claims/T-TEST-3",
+        &claim_json("T-TEST-3", "TEST", "main", &["work"]),
+    );
+    e.commit("d", "feat: d", Some("T-TEST-3"));
+    let (code, err) = e.check(&after_c);
     assert_eq!(
         code, 0,
         "another agent's debt must not refuse this push: {err}"
     );
-
-    // The same receipt, once its close is on origin/main, is published work.
-    delete_ref(&e.repo, "refs/claims/T-TEST-1");
-    push_ref(
-        &e.repo,
-        "refs/claims/T-TEST-2",
-        &claim_json("T-TEST-2", "TEST", "main", &["work"]),
-    );
+    // The same receipts, once their closes are on origin/main, are published
+    // work — even several of them.
+    delete_ref(&e.repo, "refs/closed/T-TEST-1");
     push_ref(
         &e.repo,
         "refs/closed/T-TEST-1",
@@ -1001,12 +1028,17 @@ fn a_branch_that_owes_an_earlier_merge_is_refused_at_the_server() {
         "{\"id\":\"T-TEST-1\"}\n",
     )
     .unwrap();
+    std::fs::write(
+        e.repo.join(".agents/tasks/done/T-TEST-2.json"),
+        "{\"id\":\"T-TEST-2\"}\n",
+    )
+    .unwrap();
     git(&e.repo, &["add", "-A"]);
-    git(&e.repo, &["commit", "--quiet", "-m", "close first task"]); // task-only: exempt
+    git(&e.repo, &["commit", "--quiet", "-m", "publish both closes"]); // task-only: exempt
     git(&e.repo, &["push", "--quiet", "origin", "HEAD:main"]);
     git(&e.repo, &["fetch", "--quiet", "origin"]);
     let before = e.head();
-    e.commit("c", "feat: c", Some("T-TEST-2"));
+    e.commit("e", "feat: e", Some("T-TEST-3"));
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "a published close is not debt: {err}");
 }
