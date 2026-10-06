@@ -1,0 +1,14 @@
+{
+  "id": "T-DEEPSEEK-286",
+  "title": "Fix zc-matrix contract: check script validates dropped container profiles",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-zc-matrix.sh"
+    ]
+  },
+  "created_by": "DEEPSEEK",
+  "created_unix": 1791261635
+}
