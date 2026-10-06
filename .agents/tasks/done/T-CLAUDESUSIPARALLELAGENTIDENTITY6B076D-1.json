@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CLAUDESUSIPARALLELAGENTIDENTITY6B076D",
-  "created_unix": 1791309328
+  "created_unix": 1791309328,
+  "closed": {
+    "at_unix": 1791311974,
+    "commit": "3c69c493dae11e475401a37002b96d927773829c",
+    "by": "CLAUDESUSIPARALLELAGENTIDENTITY6B076D"
+  }
 }
