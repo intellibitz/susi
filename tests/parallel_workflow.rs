@@ -281,6 +281,30 @@ impl World {
             .unwrap()
     }
 
+    /// `finish` where the branch never merges but `gh` reports the run for the
+    /// pushed sha green. The budget dwarfs the run-check cadence, so passing
+    /// proves the loop handed off on green rather than waiting out the merge.
+    fn finish_with_a_green_run(&self) -> std::process::Output {
+        executable(
+            &self.bins.join("gh"),
+            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(/usr/bin/git rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+        );
+        self.susi(&["workflow", "finish", "T-WORKER-1"])
+            .env(
+                "PATH",
+                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
+            )
+            .env("TEST_REMOTE", &self.remote)
+            .env("TEST_GATES", self.root.join("gates"))
+            .env("TEST_GATE_FAIL", "0")
+            .env("TEST_REAL_CARGO", env!("CARGO"))
+            .env("TEST_NO_MERGE", "1")
+            .env("SUSI_FINISH_POLL", "1")
+            .env("SUSI_FINISH_WAIT_MAX", "8")
+            .output()
+            .unwrap()
+    }
+
     /// `finish` where the branch never merges *and* `gh` reports that the run
     /// for the pushed sha has failed. The budget is larger than the run-check
     /// cadence, so a passing test proves the loop stopped on the failure rather
@@ -674,6 +698,46 @@ fn a_lapsed_lease_is_re_adopted_with_its_scopes() {
     assert!(
         !claims.contains("refs/claims/T-WORKER-1"),
         "the handoff must release the claim it re-adopted: {claims}"
+    );
+}
+
+/// The post-push wait's only value is catching a failed run while the claim
+/// still makes repair cheap — once the run is green, the merge is pure
+/// machinery (auto-merge, or the reconciler resyncing a green-but-behind
+/// head) and parking the agent on it is dead time. `finish` releases the
+/// claim as soon as the run reports green instead of waiting for the merge
+/// commit; the close receipt keeps the debt until the sha lands on main.
+#[test]
+fn finish_hands_off_once_the_run_is_green() {
+    let w = World::new("greenrun");
+    let out = w.finish_with_a_green_run();
+    assert!(
+        out.status.success(),
+        "a green run is a handoff, not a wait-out: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("green"), "{err}");
+    assert!(
+        !err.contains("still not on origin/main"),
+        "the handoff happens on green, not at the budget: {err}"
+    );
+    assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
+    let claims = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/claims/"],
+    );
+    assert!(
+        !claims.contains("refs/claims/T-WORKER-1"),
+        "the claim must be released at handoff: {claims}"
+    );
+    let closed = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/closed/"],
+    );
+    assert!(
+        closed.contains("refs/closed/T-WORKER-1"),
+        "the close receipt must outlive the claim: {closed}"
     );
 }
 
