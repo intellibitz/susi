@@ -6,6 +6,7 @@ use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::Path;
 use susi_gawd::admin::workflow::{self, State};
+use susi_gawd::worker_identity;
 
 #[derive(Debug, Subcommand)]
 pub enum WorkflowCommands {
@@ -21,10 +22,16 @@ pub enum WorkflowCommands {
     Start {
         /// Branch/worktree name (default: <agent>-<timestamp>)
         name: Option<String>,
-        /// Who you are (default: $SUSI_AGENT, your worktree branch, or your git user)
+        /// Who you are (default: $SUSI_AGENT, else the agent tool you run
+        /// inside — never your git login)
         #[arg(long)]
         agent: Option<String>,
     },
+    /// Give this worktree an identity of its own: <TOOL><WORKTREE-ID> as claim
+    /// token and git author, never the shared git login or `PRIMARY`. `check`
+    /// and `start` do this for you; run it to fix a borrowed identity by hand.
+    #[command(name = "own-identity")]
+    OwnIdentity,
     /// Check that this checkout follows the susi workflow (Mandates 49-51)
     Check {
         /// Machine-readable output
@@ -43,11 +50,17 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         WorkflowCommands::Watch => return run_loop(cwd, &["watch"]),
         WorkflowCommands::Check { json, agent } => (json, agent),
         WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
+        WorkflowCommands::OwnIdentity => return own_identity(cwd),
     };
     let root = crate::cli::tasks_cli::repo_root(cwd);
     // Hooks + ledger merge driver install themselves on any susi command —
     // a fresh clone never needs setup-dev.sh (Mandate: zero-config).
     workflow::ensure_infrastructure(&root);
+    // So does the worker's identity: a worktree that arrived with `PRIMARY`, or
+    // with commits authored by the shared git login, is given its own before
+    // anything is claimed, minted or committed under it.
+    let identity =
+        worker_identity::ensure(&root, None, explicit_agent(agent.as_deref()).as_deref());
     let agent = crate::cli::tasks_cli::who(agent, &root)
         .to_ascii_uppercase()
         .chars()
@@ -57,7 +70,9 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
     // never switches a branch or touches a dirty tree).
     sync_primary(&root);
     let facts = workflow::gather(&root, &agent);
-    let checks = workflow::evaluate(&facts);
+    let mut checks = workflow::evaluate(&facts);
+    // Right after "own worktree": whose worktree it is comes before anything else.
+    checks.insert(1.min(checks.len()), worker_identity::check(&identity));
     let ok = workflow::ok(&checks);
     if json {
         print_json(&serde_json::json!({ "ok": ok, "agent": agent, "checks": checks }))?;
@@ -100,9 +115,17 @@ fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> 
     if !script.is_file() {
         bail!("{} not found — is this a susi checkout?", script.display());
     }
-    let who = crate::cli::tasks_cli::who(agent, &root);
     let mut cmd = std::process::Command::new(&script);
-    cmd.current_dir(&root).env("SUSI_AGENT", who);
+    cmd.current_dir(&root);
+    // Only a name the operator gave is passed on. `who()` would answer with this
+    // checkout's identity — `PRIMARY` from the primary checkout, or the shared
+    // git login — and every worker started from it would be named after that
+    // instead of after itself; the script names the tool it runs inside.
+    if let Some(explicit) = explicit_agent(agent.as_deref()) {
+        cmd.env("SUSI_AGENT", explicit);
+    } else {
+        cmd.env_remove("SUSI_AGENT");
+    }
     if let Some(n) = name {
         cmd.arg(n);
     }
@@ -111,6 +134,33 @@ fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> 
     print!("{}", String::from_utf8_lossy(&out.stdout));
     if !out.status.success() {
         bail!("worktree setup failed");
+    }
+    Ok(())
+}
+
+/// `--agent` or `SUSI_AGENT`: the operator named the worker.
+fn explicit_agent(flag: Option<&str>) -> Option<String> {
+    flag.map(str::to_string)
+        .or_else(|| std::env::var("SUSI_AGENT").ok())
+        .map(|a| a.trim().to_string())
+        .filter(|a| !a.is_empty())
+}
+
+/// `susi workflow own-identity`: make this worktree's identity its own, and say so.
+fn own_identity(cwd: &Path) -> Result<()> {
+    use worker_identity::Outcome;
+    let root = crate::cli::tasks_cli::repo_root(cwd);
+    match worker_identity::ensure(&root, None, explicit_agent(None).as_deref()) {
+        Outcome::Own(t) => println!("{t} (already this worktree's own)"),
+        Outcome::Assigned { token, was } => println!("{token} (assigned; was: {was})"),
+        Outcome::Explicit(t) => {
+            println!("{t} (from SUSI_AGENT; unset it to use the worktree's own)")
+        }
+        Outcome::Primary => bail!(
+            "the primary checkout is not a worker's place and carries no identity — \
+             scripts/susi-worktree.sh makes your own worktree"
+        ),
+        Outcome::Blocked { why, fix } => bail!("{why}\n   → {fix}"),
     }
     Ok(())
 }

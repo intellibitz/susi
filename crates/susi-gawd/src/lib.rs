@@ -130,6 +130,7 @@ pub mod tasks_from_ci;
 pub mod tenant_isolation;
 pub mod unsafe_ratchet;
 pub mod update_health;
+pub mod worker_identity;
 pub mod zc_agent_files_gen;
 pub mod zc_agent_identity;
 pub mod zc_gh_auth_auto;

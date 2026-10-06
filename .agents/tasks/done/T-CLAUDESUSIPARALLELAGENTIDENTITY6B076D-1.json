@@ -1,0 +1,24 @@
+{
+  "id": "T-CLAUDESUSIPARALLELAGENTIDENTITY6B076D-1",
+  "title": "parallel workflow: every worker's identity is its own (tool + worktree id), never the git login; task ids unique per worker",
+  "goal": "Make susi workflow guarantee that each agent worktree answers to its own identity of the form <TOOL><WORKTREE-ID> and never to the shared git login (INTELLIBITZ) or to PRIMARY, and that task ids minted from it are therefore unique. who() stops falling back to git user.name; workflow check fails on a borrowed identity and self-heals when safe; tasks add/claim refuse a borrowed identity; susi-worktree.sh and workflow start name the tool, not the login.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "worker_identity"
+    ]
+  },
+  "created_by": "CLAUDESUSIPARALLELAGENTIDENTITY6B076D",
+  "created_unix": 1791309328,
+  "closed": {
+    "at_unix": 1791311974,
+    "commit": "3c69c493dae11e475401a37002b96d927773829c",
+    "by": "CLAUDESUSIPARALLELAGENTIDENTITY6B076D"
+  }
+}

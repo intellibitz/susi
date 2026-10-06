@@ -2,7 +2,7 @@
 # Mandate 49: create your own worktree + branch off the latest origin/main,
 # ready for the atomic per-task loop (sync→claim→work→commit→sync→push→sync).
 #
-#   scripts/susi-worktree.sh              auto name: <agent>-<timestamp>
+#   scripts/susi-worktree.sh              auto name: <tool>-<timestamp>-<pid>
 #   scripts/susi-worktree.sh <name> [base]   (base defaults to origin/main)
 #
 # It fetches, creates the worktree, installs the hooks and merge driver in it,
@@ -16,7 +16,33 @@ exec 9>"$common/susi-worktree-start.lock"
 flock 9
 primary=$(dirname "$common")
 
-agent=${SUSI_AGENT:-$(git -C "$root" config user.name 2>/dev/null || echo agent)}
+# The agent tool this process runs inside, named by its ancestors' executables
+# (the same markers as zc_agent_identity::detect_agent). It is never the git
+# login: that is one name shared by every agent on the machine, and a worker
+# named after it came out INTELLIBITZ<timestamp> — the human, not the agent.
+detect_tool() {
+    local pid=$$ args exe
+    local i
+    for i in 1 2 3 4 5 6; do
+        pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]') || return 0
+        { [ -n "$pid" ] && [ "$pid" -gt 1 ]; } 2>/dev/null || return 0
+        args=$(ps -o args= -p "$pid" 2>/dev/null) || return 0
+        # The program's basename and its first argument (`node …/claude`), as
+        # the Rust side reads them: a directory in the path names nothing.
+        exe=$(printf '%s\n' "$args" | awk '{ n = split($1, p, "/"); print tolower(p[n]) " " tolower($2) }')
+        case $exe in
+        *cursor*) echo cursor; return 0 ;;
+        *claude* | *anthropic*) echo claude; return 0 ;;
+        *codex*) echo codex; return 0 ;;
+        *antigravity*) echo antigravity; return 0 ;;
+        *gemini*) echo gemini; return 0 ;;
+        *devin*) echo devin; return 0 ;;
+        *aider*) echo aider; return 0 ;;
+        esac
+    done
+}
+
+agent=${SUSI_AGENT:-$(detect_tool)}
 agent=$(printf '%s' "$agent" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-' | sed 's/^-*//; s/-*$//')
 name=${1:-"${agent:-agent}-$(date +%Y%m%d-%H%M%S)-${BASHPID:-$$}"}
 base=${2:-origin/main}
