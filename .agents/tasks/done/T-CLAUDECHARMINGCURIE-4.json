@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "CLAUDECHARMINGCURIE",
-  "created_unix": 1791319454
+  "created_unix": 1791319454,
+  "closed": {
+    "at_unix": 1791319647,
+    "commit": "143b637af3f28833a352577f8c88fc532488a9ab",
+    "by": "CLAUDECHARMINGCURIE"
+  }
 }
