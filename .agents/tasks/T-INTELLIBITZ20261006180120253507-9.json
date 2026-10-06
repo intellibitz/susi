@@ -1,0 +1,19 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-9",
+  "title": "the local gate is idempotent per tree: a re-run after a clean sync skips what already passed",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "parallel_workflow",
+      "gate_cache"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791327853
+}

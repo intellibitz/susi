@@ -1,0 +1,19 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-10",
+  "title": "the release gate reuses green branch evidence: cutting from a just-verified tree does not re-run the workspace suite",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "release_gate"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791327868
+}
