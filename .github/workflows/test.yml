@@ -30,6 +30,12 @@ concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# A run on a tag (release.yml dispatches the suite on the tag it is about to
+# build) restores the caches main wrote and writes none: an entry saved under a
+# tag ref is readable by nothing else, and the repository sits at its 10 GB cache
+# quota (see below), so every shard, the lint job and e2e save only on main. The
+# coverage ratchet and the Kani proofs gate merges to main and are skipped on a
+# tag; the sharded suite, lint and e2e are what a release needs.
 permissions:
   contents: read
 
@@ -384,6 +390,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: test-${{ matrix.shard.name }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
         run: scripts/ci-system-deps.sh
@@ -429,7 +436,7 @@ jobs:
   # shards so it adds no wall time; instrumented build is the cost.
   coverage:
     name: Coverage Ratchet
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -498,6 +505,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
         run: scripts/ci-system-deps.sh
@@ -537,7 +545,7 @@ jobs:
   # been broken for as long as the runner had been missing, and nobody could tell.
   kani:
     name: Kani Bounded Proofs
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -642,6 +650,8 @@ jobs:
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
         run: scripts/ci-system-deps.sh

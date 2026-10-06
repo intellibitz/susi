@@ -384,6 +384,59 @@ fn the_pre_push_hook_lints_the_gates_scoped_set_not_the_whole_workspace() {
     );
 }
 
+/// A release publishes binaries for half an hour of build time, and its gate was
+/// not the proof it read as: bare `cargo test` selects one package of 86, and
+/// release.yml ran no tests. Nothing builds until the full suite has passed on the
+/// tagged commit, so a red commit costs one job instead of four builds.
+#[test]
+fn no_release_binary_is_built_before_the_suite_has_passed_on_the_tagged_commit() {
+    let text = read(".github/workflows/release.yml");
+    let jobs = jobs(&text);
+    let tests = job(&jobs, "tests");
+    assert!(
+        tests.body.contains("scripts/release-await-tests.sh"),
+        "the `tests` job must run the script that proves the suite on this sha"
+    );
+    assert!(
+        tests.body.contains("actions: write"),
+        "dispatching the Test workflow on the tag needs `actions: write`"
+    );
+    for builder in ["build", "build-cuda"] {
+        let b = job(&jobs, builder);
+        assert!(
+            b.body.contains("needs: [verify-tag, tests]"),
+            "`{builder}` must wait for `tests`: its binaries are published from a commit that \
+             has not been shown to pass the suite otherwise"
+        );
+    }
+}
+
+/// release.yml dispatches the Test workflow on the tag. A run there restores the
+/// caches main wrote and writes none (an entry saved under a tag ref is readable by
+/// nothing else, and the repository is at its 10 GB quota), and skips the gates
+/// that exist for merges to main.
+#[test]
+fn a_tag_run_of_the_suite_writes_no_cache_and_skips_the_main_only_gates() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    for gate in ["coverage", "kani"] {
+        assert!(
+            job(&jobs, gate).body.contains("refs/tags/"),
+            "`{gate}` gates merges to main and must be skipped on a tag run: it is minutes a \
+             release does not need, and the coverage target cache is 1.5 GB"
+        );
+    }
+    for saver in ["test", "lint", "e2e"] {
+        assert!(
+            job(&jobs, saver)
+                .body
+                .contains("save-if: ${{ github.ref == 'refs/heads/main' }}"),
+            "`{saver}` must save its cargo cache only on main, or a tag run fills the quota with \
+             an entry nothing can read"
+        );
+    }
+}
+
 #[test]
 fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
     let text = read(".github/workflows/test.yml");

@@ -199,14 +199,8 @@ impl SusiAdmin {
 
         eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
         for features in &feature_sets {
-            let mut args = vec!["check", "--all-targets"];
-            if let Some(f) = features {
-                eprintln!("[Release Gatekeeper]    -> cargo check --features {}", f);
-                args.push("--features");
-                args.push(f);
-            } else {
-                eprintln!("[Release Gatekeeper]    -> cargo check (default features)");
-            }
+            let args = gate_args(&["check", "--all-targets"], *features);
+            eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
             let mut cmd = Command::new("cargo");
             cmd.args(&args).current_dir(workspace);
             if *features == Some("cuda") {
@@ -229,32 +223,43 @@ impl SusiAdmin {
         eprintln!("[Release Gatekeeper] 2. Executing Compliance Audit...");
         let _ = Self::audit_compliance(workspace, Some("release"))?;
 
-        eprintln!("[Release Gatekeeper] 3. Executing Native Test Harness...");
-        let mut test_cmd = Command::new("cargo");
-        test_cmd.arg("test").current_dir(workspace);
-        scrub_instance_env(&mut test_cmd);
-        let mut test = test_cmd
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .spawn()?;
-        let status = test.wait()?;
-        if !status.success() {
+        eprintln!("[Release Gatekeeper] 3. Executing the whole workspace's tests...");
+        // Required, not preferred: the fallback was bare `cargo test`, which tests
+        // one package of 86, and a gate that silently narrows is how that went
+        // unnoticed.
+        let nextest_present = Command::new("cargo")
+            .args(["nextest", "--version"])
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if !nextest_present {
             return Err(EaiError::process(
-                "Release aborted: Native tests failed.".to_string(),
+                "Release aborted: cargo-nextest is required for the workspace test gate \
+                 (`cargo install cargo-nextest --locked`)."
+                    .to_string(),
             ));
+        }
+        for args in workspace_test_commands() {
+            eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
+            let mut test_cmd = Command::new("cargo");
+            test_cmd.args(&args).current_dir(workspace);
+            scrub_instance_env(&mut test_cmd);
+            let mut test = test_cmd
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()?;
+            let status = test.wait()?;
+            if !status.success() {
+                return Err(EaiError::process(
+                    "Release aborted: Native tests failed.".to_string(),
+                ));
+            }
         }
 
         eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
         for features in &feature_sets {
-            let mut args = vec!["clippy", "--all-targets"];
-            if let Some(f) = features {
-                eprintln!("[Release Gatekeeper]    -> cargo clippy --features {}", f);
-                args.push("--features");
-                args.push(f);
-            } else {
-                eprintln!("[Release Gatekeeper]    -> cargo clippy (default features)");
-            }
-            args.extend(["--", "-D", "warnings"]);
+            let mut args = gate_args(&["clippy", "--all-targets"], *features);
+            eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
+            args.extend(["--", "-D", "warnings"].map(String::from));
             let mut cmd = Command::new("cargo");
             cmd.args(&args).current_dir(workspace);
             if *features == Some("cuda") {
@@ -722,6 +727,53 @@ impl SusiAdmin {
     }
 }
 
+/// The arguments of one cargo phase of the release gate (`check`, `clippy`).
+///
+/// The default feature set covers the whole workspace. Bare `cargo check`, `cargo
+/// test` and `cargo clippy` at this workspace root select exactly one package of
+/// 86 (`workspace_default_members` is the root crate alone), so a release gate
+/// written that way proved the root crate and nothing else - and nothing said so.
+/// An opt-in GPU backend (`--features cuda|metal`) stays on the root package, as
+/// it always was: the backends are mutually exclusive hardware features that only
+/// the root crate forwards, and `--workspace --features` would ask 85 crates that
+/// do not define them.
+fn gate_args(base: &[&str], features: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = base.iter().map(|s| (*s).to_string()).collect();
+    match features {
+        None => args.push("--workspace".to_string()),
+        Some(f) => {
+            args.push("--features".to_string());
+            args.push(f.to_string());
+        }
+    }
+    args
+}
+
+/// The release gate's test commands, in order: every package's tests under
+/// nextest (a failing test is retried alone; one that passes on retry is reported
+/// flaky), then the doc-tests nextest does not run.
+///
+/// `capability_gap_e2e` is excluded exactly as it is in CI: it drives a live
+/// `susi-native` leaf service that a release host has not started, and the remote
+/// `e2e` job (part of the suite release.yml waits for) runs it.
+fn workspace_test_commands() -> Vec<Vec<&'static str>> {
+    vec![
+        vec![
+            "nextest",
+            "run",
+            "--workspace",
+            "--locked",
+            "--no-fail-fast",
+            "--no-tests=pass",
+            "--retries",
+            "2",
+            "-E",
+            "not binary(capability_gap_e2e)",
+        ],
+        vec!["test", "--workspace", "--locked", "--doc"],
+    ]
+}
+
 /// The gate's tests must run against their own hermetic HOME, not whichever
 /// susi instance launched the release. A dev build isolates itself by setting
 /// `SUSI_HOME=~/.susi-dev` (+ `SUSI_PORT_OFFSET`), and an inherited value
@@ -1044,5 +1096,67 @@ mod tests {
             .collect();
         assert!(removed.contains(&"SUSI_HOME".to_string()));
         assert!(removed.contains(&"SUSI_PORT_OFFSET".to_string()));
+    }
+
+    /// Bare `cargo check|clippy` at the workspace root select one package of 86;
+    /// the default feature set must say `--workspace`.
+    #[test]
+    fn release_gate_checks_and_lints_the_whole_workspace_by_default() {
+        for base in [
+            &["check", "--all-targets"][..],
+            &["clippy", "--all-targets"][..],
+        ] {
+            let args = gate_args(base, None);
+            assert!(
+                args.iter().any(|a| a == "--workspace"),
+                "{base:?} without --workspace gates the root package alone: {args:?}"
+            );
+            assert!(!args.iter().any(|a| a == "--features"), "{args:?}");
+        }
+    }
+
+    /// The opt-in GPU backends are root-package features: `--workspace
+    /// --features cuda` would ask 85 crates that do not define it.
+    #[test]
+    fn release_gate_gpu_feature_sets_stay_on_the_root_package() {
+        let args = gate_args(&["check", "--all-targets"], Some("cuda"));
+        assert_eq!(args, ["check", "--all-targets", "--features", "cuda"]);
+    }
+
+    #[test]
+    fn release_gate_tests_cover_the_whole_workspace_not_the_root_package() {
+        let commands = workspace_test_commands();
+        assert!(!commands.is_empty());
+        for args in &commands {
+            assert!(
+                args.contains(&"--workspace"),
+                "a test command without --workspace tests one package of 86: {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn release_gate_runs_nextest_with_retries_then_the_doc_tests_it_cannot() {
+        let commands = workspace_test_commands();
+        assert_eq!(commands[0][..2], ["nextest", "run"]);
+        assert!(
+            commands[0].windows(2).any(|w| w == ["--retries", "2"]),
+            "{:?}",
+            commands[0]
+        );
+        assert!(commands[1].contains(&"--doc"), "{:?}", commands[1]);
+    }
+
+    /// The live-service e2e is the remote `e2e` job's; a release host has no
+    /// `susi-native` running, so the local gate must not demand one.
+    #[test]
+    fn release_gate_excludes_only_the_live_service_e2e() {
+        let nextest = &workspace_test_commands()[0];
+        let filter = nextest
+            .windows(2)
+            .find(|w| w[0] == "-E")
+            .map(|w| w[1])
+            .expect("a nextest filter");
+        assert_eq!(filter, "not binary(capability_gap_e2e)");
     }
 }

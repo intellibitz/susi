@@ -451,6 +451,22 @@ convergent:
   merge produced the failing commit, because the commit that lands is a merge
   commit and parallel agents would otherwise each bisect the same failure to
   find out whose it is.
+  **A release is gated on the whole workspace's tests, locally and remotely.**
+  The cut's local gate runs `--workspace` (bare `cargo check|test|clippy` at this
+  root selects one package of 86, which is all it covered until this was
+  measured): nextest with retries over every package except the live-service
+  `capability_gap_e2e`, then the doc-tests; cargo-nextest is required, because a
+  silent fallback to the root package is how the gap went unnoticed. On the
+  pushed tag, `release.yml`'s `tests` job runs `scripts/release-await-tests.sh`,
+  which reuses a passed full-suite run for that exact sha (a dispatch, or a push
+  to `main`; a branch-push run only compiles, so it never counts) or dispatches
+  the Test workflow on the tag and waits; `build` and `build-cuda` need it, so a
+  red commit costs one job, not four builds. A tag run restores `main`'s caches
+  and writes none, and skips the coverage ratchet and Kani proofs, which gate
+  merges. The cost is the suite's wall time (about four to five minutes warm)
+  before the builds start; publishing from a separate job after a parallel suite
+  would hide it, but that moves the upload path, which cannot be exercised
+  without cutting a real tag.
   The rolling dev release builds only on `workflow_dispatch` or a
   head-commit subject that starts with `[dev-release]`.
 
