@@ -961,6 +961,14 @@ fn sync_queue_refs(ws: &Path) -> EaiResult<()> {
     .map(|_| ())
 }
 
+/// Mirror the queue refs once, so a caller that goes on to read several of them
+/// pays for one remote round-trip instead of one per reader. Every `*_synced`
+/// reader below assumes this just ran; the plain readers (`claims`,
+/// `unpublished_closes`, ...) still sync for themselves.
+pub fn sync_queue(ws: &Path) -> EaiResult<()> {
+    sync_queue_refs(ws)
+}
+
 /// Generic so claim blobs, close receipts, abandonments, merge attestations and
 /// their verifications share one writer.
 fn blob_of<T: Serialize>(ws: &Path, value: &T) -> EaiResult<String> {
@@ -1178,8 +1186,15 @@ fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<St
 /// check`. Unlike [`owed_closes`] it mutates nothing, so the checklist can
 /// report a debt without clearing it behind the agent's back.
 pub fn unpublished_closes(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
-    let by = agent_token(agent)?;
+    agent_token(agent)?;
     sync_queue_refs(ws)?;
+    unpublished_closes_synced(ws, agent)
+}
+
+/// [`unpublished_closes`] for a caller that has just run [`sync_queue`]: the
+/// same read, without a second identical fetch behind the first.
+pub fn unpublished_closes_synced(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
+    let by = agent_token(agent)?;
     let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/closed/"])?;
     let mut out = Vec::new();
     for name in refs.lines() {
@@ -1464,6 +1479,11 @@ fn verify_one(ws: &Path, task: &Task) -> VerifyOutcome {
 /// Claims currently on the remote, keyed by task id.
 pub fn claims(ws: &Path) -> EaiResult<Vec<Claim>> {
     sync_queue_refs(ws)?;
+    claims_synced(ws)
+}
+
+/// [`claims`] for a caller that has just run [`sync_queue`].
+pub fn claims_synced(ws: &Path) -> EaiResult<Vec<Claim>> {
     let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/claims/"])?;
     Ok(refs
         .lines()
@@ -2967,6 +2987,51 @@ mod tests {
         publish(&a);
         release(&a, &passing.id, "claude", false).unwrap();
         assert!(claims(&a).unwrap().is_empty());
+        drop(r);
+    }
+
+    /// `workflow check` reads the claims and the unpublished-close debt from one
+    /// queue sync. The `*_synced` readers must answer from what that sync
+    /// mirrored and fetch nothing of their own — the identical second fetch
+    /// behind the first cost ~4 s of SSH setup — while the plain readers keep
+    /// syncing for every other caller.
+    #[test]
+    fn the_synced_readers_use_the_mirror_and_the_plain_readers_still_fetch() {
+        let (r, a, b) = Repos::new("synced-readers");
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &first.id, "claude", 4, now_unix()).unwrap();
+        close(&a, &first.id, "claude").unwrap();
+
+        sync_queue(&b).unwrap();
+        assert_eq!(
+            claims_synced(&b).unwrap().len(),
+            claims(&b).unwrap().len(),
+            "the same claims whether the reader fetched or not"
+        );
+        let synced = unpublished_closes_synced(&b, "claude").unwrap();
+        assert_eq!(synced.len(), 1, "the debt is read from the mirror");
+        assert_eq!(
+            synced[0].task,
+            unpublished_closes(&b, "claude").unwrap()[0].task
+        );
+
+        // A claim lands on the remote after the sync. The synced reader must not
+        // go and fetch it; the plain one must.
+        let second = addt!(&a, "other", "second", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &second.id, "other", 4, now_unix()).unwrap();
+        assert!(
+            !claims_synced(&b)
+                .unwrap()
+                .iter()
+                .any(|c| c.task == second.id),
+            "a synced reader that fetches again defeats the point of syncing once"
+        );
+        assert!(
+            claims(&b).unwrap().iter().any(|c| c.task == second.id),
+            "a plain reader must still sync for itself"
+        );
+        // An unusable agent is refused before anything is read, synced or not.
+        assert!(unpublished_closes_synced(&b, "  ").is_err());
         drop(r);
     }
 

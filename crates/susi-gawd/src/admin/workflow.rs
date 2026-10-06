@@ -552,11 +552,24 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
     };
     let branch = git(&root, &["symbolic-ref", "-q", "--short", "HEAD"]).filter(|b| !b.is_empty());
 
-    // An unreachable remote leaves whatever origin/main we last saw; report
-    // freshness as unknown rather than certifying a stale ref.
-    let behind = git(&root, &["fetch", "--quiet", "origin"])
-        .and_then(|_| git(&root, &["rev-list", "--count", "HEAD..origin/main"]))
-        .and_then(|n| n.parse::<u64>().ok());
+    // Two remote round-trips, and nearly all of their cost is the connection
+    // itself (~3 s of SSH setup each). They used to run back to back, and the
+    // queue refs were fetched a second time behind the first by the `owed` read
+    // below: four fetches, ~14 s, for a check every agent session starts with.
+    // They write disjoint refs (`refs/remotes/origin/*` against the claim,
+    // close, abandon, merge and verify namespaces), so they overlap; the queue
+    // is mirrored once and both views read from it.
+    let (behind, queue_synced) = std::thread::scope(|scope| {
+        // An unreachable remote leaves whatever origin/main we last saw; report
+        // freshness as unknown rather than certifying a stale ref.
+        let origin = scope.spawn(|| {
+            git(&root, &["fetch", "--quiet", "origin"])
+                .and_then(|_| git(&root, &["rev-list", "--count", "HEAD..origin/main"]))
+                .and_then(|n| n.parse::<u64>().ok())
+        });
+        let queue = tasks::sync_queue(&root).map_err(|e| e.to_string());
+        (origin.join().ok().flatten(), queue)
+    });
 
     let configured = git(&root, &["config", "--get", "core.hooksPath"]).filter(|s| !s.is_empty());
     let hooks_dir = root.join(".githooks");
@@ -575,13 +588,21 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         .map(|h| (*h).to_string())
         .collect();
 
-    let claims = tasks::claims(&root).map_err(|e| e.to_string());
+    // A failed queue sync fails both reads with its own error, exactly as each
+    // read did when it fetched for itself.
+    let claims = match &queue_synced {
+        Ok(()) => tasks::claims_synced(&root).map_err(|e| e.to_string()),
+        Err(e) => Err(e.clone()),
+    };
     // Accepted but unpublished work: the close receipt `tasks close` pushes.
     // Read-only here — clearing it is the claim path's job, so the checklist
     // never changes state behind the agent's back.
-    let owed = tasks::unpublished_closes(&root, agent)
-        .map(|v| v.into_iter().map(|r| r.task).collect::<Vec<_>>())
-        .map_err(|e| e.to_string());
+    let owed = match &queue_synced {
+        Ok(()) => tasks::unpublished_closes_synced(&root, agent)
+            .map(|v| v.into_iter().map(|r| r.task).collect::<Vec<_>>())
+            .map_err(|e| e.to_string()),
+        Err(e) => Err(e.clone()),
+    };
 
     // What blocks `sync` and the gate, which used to be invisible here.
     let porcelain = git(&root, &["status", "--porcelain"]);
