@@ -193,7 +193,6 @@ impl World {
 
     fn finish_env(&self, fail: bool, envs: &[(&str, &str)]) -> std::process::Output {
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .envs(envs.iter().copied())
             .env(
                 "PATH",
                 format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
@@ -205,6 +204,7 @@ impl World {
             // touches no crate, so the scoped gate skips clippy entirely.
             .env("SUSI_LOCAL_GATE", if fail { "full" } else { "scoped" })
             .env("TEST_REAL_CARGO", env!("CARGO"))
+            .envs(envs.iter().copied())
             .output()
             .unwrap()
     }
@@ -436,6 +436,38 @@ fn the_gates_test_run_is_hermetic() {
     assert!(
         env.contains("FORBIDDEN=/"),
         "the throwaway SUSI_HOME the wrapper guards was not set: {env}"
+    );
+}
+
+/// A workspace-wide input (a lockfile bump, a toolchain pin, `SUSI_LOCAL_GATE=full`)
+/// takes the same single hermetic nextest run as a scoped diff, over the whole
+/// workspace. It used to be plain `cargo test` while a workspace-wide hermetic
+/// sweep was not clean; it is now (3,675 tests, and SUSI_HOME stays empty).
+#[test]
+fn a_workspace_wide_gate_is_hermetic_and_runs_under_nextest_too() {
+    let w = World::new("allhermetic");
+    let out = w.finish_env(false, &[("SUSI_LOCAL_GATE", "full")]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
+    assert!(
+        gates.contains("clippy --workspace --all-targets --locked -- -D warnings\n"),
+        "{gates}"
+    );
+    assert!(
+        gates.contains(
+            "nextest run --locked --no-fail-fast --no-tests=pass --retries 2 --workspace\n"
+        ),
+        "the workspace-wide run is one hermetic nextest pass: {gates}"
+    );
+    assert!(
+        std::fs::read_to_string(w.root.join("gates.env"))
+            .unwrap()
+            .contains("FORBIDDEN=/"),
+        "and it ran under the hermetic wrapper"
     );
 }
 

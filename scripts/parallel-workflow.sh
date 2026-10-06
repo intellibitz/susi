@@ -161,11 +161,7 @@ gate() {
     if [ "$pkgs" = ALL ] || [ "${SUSI_LOCAL_GATE:-}" = full ]; then
         gate_pkgs=ALL
         cargo clippy --workspace --all-targets --locked -- -D warnings
-        # Not the hermetic runner: a whole-workspace hermetic sweep has never run
-        # (the remote check only ever covered the crates a diff touched), and
-        # every workspace-wide change - a lockfile bump, a toolchain pin - would
-        # inherit whatever it finds. The scoped path below is hermetic.
-        gate_tests_cargo --workspace
+        gate_tests --workspace
         return
     fi
     if [ -z "$pkgs" ]; then
