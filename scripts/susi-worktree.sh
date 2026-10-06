@@ -49,6 +49,20 @@ else
 fi
 echo "worktree: $dest (branch $name)" >&2
 
+# One cargo target dir per clone, not one per worktree: a fresh worktree used
+# to cold-compile the whole dependency tree (~25 min) and keep its own ~20 GB
+# copy — one clone's worktrees alone held ~95 GB of mostly-identical
+# artifacts. The primary checkout is parked and still, so its target/ is the
+# shared cache. A symlink keeps `target/...` relative paths working; an
+# existing real target/ is left alone, and SUSI_PRIVATE_TARGET=1 opts out.
+# `**/target` in .gitignore ignores the link itself.
+shared_target=$primary/target
+if [ -z "${SUSI_PRIVATE_TARGET:-}" ] && { [ ! -e "$dest/target" ] || [ -L "$dest/target" ]; }; then
+    mkdir -p "$shared_target"
+    ln -sfn "$shared_target" "$dest/target"
+    echo "target: shared -> $shared_target" >&2
+fi
+
 # Persist a unique worker identity, even when all tools share one Git login.
 #
 # `git worktree add` copies the *creating* worktree's worktree-config, so a new
