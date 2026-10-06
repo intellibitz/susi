@@ -375,6 +375,62 @@ fn root_owned_paths_gate_the_root_package() {
     assert!(!gates.contains("--workspace"), "{gates}");
 }
 
+/// The gate already ran the task's acceptance — the diff touched `cell`, so
+/// the gate's `cargo test -p cell` is the same suite the `cargo test -p cell`
+/// acceptance would run. `finish` marks the task covered and `close` records
+/// the acceptance without paying for a second identical suite.
+#[test]
+fn a_cargo_acceptance_the_gate_covered_is_not_run_again() {
+    let w = World::new("covered");
+    std::fs::write(
+        w.work.join(".agents/tasks/T-WORKER-1.json"),
+        serde_json::json!({
+            "id":"T-WORKER-1", "title":"marker", "goal":"marker", "size":"s",
+            "accept":{"cmd":["cargo","test","-p","cell","some_test"]},
+            "created_by":"WORKER", "created_unix":0
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(w.work.join("crates/cell/src/lib.rs"), "pub fn cell2() {}\n").unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &["commit", "-qm", "touch cell\n\nTask: T-WORKER-1"],
+    );
+    let out = w.finish(false);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
+    assert!(
+        gates.contains("test --locked -p cell"),
+        "the gate ran cell's tests: {gates}"
+    );
+    assert!(
+        !gates.contains("test -p cell some_test"),
+        "close must not re-run the covered acceptance: {gates}"
+    );
+}
+
+/// A scripts/ acceptance is not a cargo suite — the gate cannot have run it,
+/// so `close` executes it even when finish passes a coverage flag for the task.
+#[test]
+fn a_scripts_acceptance_is_never_skipped() {
+    let w = World::new("scriptaccept");
+    let out = w.finish(false);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The fixture acceptance is scripts/accept.sh: not cargo-shaped, so close
+    // ran it regardless — visible as the task reaching done/.
+    assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
+}
+
 /// When another merge lands between our gate and our push, finish integrates
 /// it and repushes — once, without re-running the gate. The remote merge gate
 /// only accepts heads that contain main and whose branch run is green, so the

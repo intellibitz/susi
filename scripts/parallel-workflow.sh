@@ -135,7 +135,9 @@ gate() {
     local pkgs sel
     cargo fmt --all --check
     pkgs=$("$root/scripts/ci-changed-crates.sh")
+    gate_pkgs=$pkgs
     if [ "$pkgs" = ALL ] || [ "${SUSI_LOCAL_GATE:-}" = full ]; then
+        gate_pkgs=ALL
         cargo clippy --workspace --all-targets --locked -- -D warnings
         gate_tests --workspace
         return
@@ -147,6 +149,28 @@ gate() {
     sel=$(printf ' -p %s' $pkgs)
     cargo clippy --locked --all-targets $sel -- -D warnings
     gate_tests $sel
+}
+
+# Whether the gate run above already covered a task's acceptance command. Only
+# cargo test/nextest acceptances can be covered — a scripts/ checker asserts
+# things no cargo suite does — and only when the gate's package selection
+# contains the package the command tests (ALL covers everything).
+acceptance_covered() {
+    local cmd=$1 pkg
+    case "$cmd" in
+    "cargo test "*|"cargo nextest run "*) ;;
+    *) return 1 ;;
+    esac
+    [ "$gate_pkgs" = ALL ] && return 0
+    case "$cmd" in
+    *--workspace*|*--all*) return 1 ;; # needs the whole suite, not a subset
+    esac
+    # The package under test: an explicit -p/--package wins; a bare
+    # `cargo test --test x` at the root exercises the root package.
+    pkg=$(printf '%s\n' "$cmd" | grep -oE '(-p |--package[ =])[a-zA-Z0-9_-]+' | head -1 | grep -oE '[a-zA-Z0-9_-]+$')
+    [ -n "$pkg" ] || pkg=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -1)
+    [ -n "$pkg" ] || return 1
+    printf '%s\n' $gate_pkgs | grep -qx "$pkg"
 }
 
 renew_owned_claims() {
@@ -199,8 +223,17 @@ finish)
         git commit -m "Record $task evidence before closure" -m "Task: $task"
     fi
     # Retain ownership through publication; close records acceptance in the tree.
+    # The gate just ran this task's tests — when it provably covered the
+    # acceptance command (same package or the whole workspace), tell close the
+    # run happened so it does not re-execute the same cargo test a second time.
     if [ -f ".agents/tasks/$task.json" ]; then
-        "$susi_bin" tasks close "$task"
+        accept_cmd=$(jq -r '.accept.cmd | join(" ")' ".agents/tasks/$task.json" 2>/dev/null || true)
+        if [ -n "$accept_cmd" ] && acceptance_covered "$accept_cmd"; then
+            echo "gate: acceptance \`$accept_cmd\` already ran in the gate — close will not re-run it" >&2
+            SUSI_ACCEPTANCE_COVERED="$task@$root" "$susi_bin" tasks close "$task"
+        else
+            "$susi_bin" tasks close "$task"
+        fi
         evidence_prompt "$task"
         git add -- ".agents/tasks/$task.json" ".agents/tasks/done/$task.json"
         git commit -m "Close $task after acceptance" -m "Task: $task"
