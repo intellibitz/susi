@@ -477,6 +477,30 @@ fn ci_builds_without_debug_info_to_fit_the_cache_quota() {
 }
 
 #[test]
+fn zc_matrix_cannot_stack_a_three_os_build_per_merge() {
+    let text = read(".github/workflows/zc-matrix.yml");
+    let body = code(&text);
+    assert!(
+        body.contains("concurrency:")
+            && body.contains("cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}"),
+        "zc-matrix.yml needs the same concurrency policy as test.yml: unbounded, it ran 34 \
+         three-OS builds in six hours (513 runner-minutes)"
+    );
+    for j in jobs(&text) {
+        assert!(
+            j.body.contains("timeout-minutes:"),
+            "zc-matrix job `{}` has no timeout",
+            j.id
+        );
+    }
+    assert!(
+        !body.contains("Swatinem/rust-cache"),
+        "a cargo cache on this 3-OS matrix would add ~3 GB to a 10 GB repository quota that \
+         test.yml's caches only just fit; weigh that before adding one"
+    );
+}
+
+#[test]
 fn the_ratchet_script_is_unchanged_in_what_it_gates() {
     // The ratchet job was made faster by caching, not by weakening it: it must
     // still run the same script that regenerates and compares the baseline.

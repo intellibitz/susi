@@ -8,9 +8,21 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Every merge to main used to start a fresh three-OS build with nothing limiting
+# how many ran at once: 34 runs in six hours, ~15 min each, 513 runner-minutes
+# (macOS and Windows among them). One runs and the newest waits, as in test.yml;
+# a run is not cancelled by the next merge, or merges arriving faster than the
+# ~15 min a run takes would cancel every one of them. Deliberately no cargo
+# cache: three more ~1 GB entries would break the 10 GB repository quota that
+# test.yml's caches were just fitted into.
+concurrency:
+  group: zc-matrix-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   matrix:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
