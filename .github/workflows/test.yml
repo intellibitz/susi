@@ -76,7 +76,10 @@ jobs:
           key: cargo-geiger-0.13.0-${{ runner.os }}-${{ runner.arch }}
       - name: Install cargo-geiger
         if: steps.geiger.outputs.cache-hit != 'true'
-        run: cargo install cargo-geiger --locked --version 0.13.0
+        # rust-cache restores ~/.cargo wholesale, so the binary can already be
+        # there even when the dedicated geiger cache missed; `cargo install`
+        # refuses an existing binary — check before installing instead.
+        run: "[ -x ~/.cargo/bin/cargo-geiger ] || cargo install cargo-geiger --locked --version 0.13.0"
       - name: Run unsafe exposure ratchet
         run: .github/workflows/unsafe-exposure-ratchet.sh
 

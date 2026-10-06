@@ -35,12 +35,22 @@ echo "$*" >> "$D/calls"
 jqexpr() { local p=; for a in "$@"; do [ "$p" = --jq ] && { echo "$a"; return; }; p=$a; done; }
 argafter() { local flag=$1; shift; local p=; for a in "$@"; do [ "$p" = "$flag" ] && { echo "$a"; return; }; p=$a; done; }
 case "$1 $2" in
-api\ *) cat "$D/comparison" 2>/dev/null || echo ahead ;;
+api\ *)
+  for a in "$@"; do case "$a" in
+    *"compare/main"*)
+      spec=$(echo "${a##*compare/}" | tr '/.' '__')
+      cat "$D/cmp-$spec" 2>/dev/null || cat "$D/comparison" 2>/dev/null || echo ahead ;;
+    *"compare/"*)
+      cat "$D/treecmp" 2>/dev/null || echo different ;;
+    *"pulls/"*)
+      cat "$D/prcommits" 2>/dev/null || echo '[]' ;;
+  esac; done ;;
 "pr list") jq -r "$(jqexpr "$@")" "$D/prs.json" ;;
 "pr merge") if [ -f "$D/merge_fail" ]; then echo "merge refused" >&2; exit 1; fi ;;
 "pr update-branch") if [ -f "$D/update_fail" ]; then echo "branch is not mergeable" >&2; exit 1; fi ;;
 "pr view")
   case "$*" in
+  *"--json mergeCommit"*) printf '{"mergeCommit":{"oid":"%s"}}\n' "$(cat "$D/mergesha" 2>/dev/null)" | jq -r "$(jqexpr "$@")" ;;
   *"--json mergeable"*) echo "{\"mergeable\":\"$(cat "$D/mergeable" 2>/dev/null || echo MERGEABLE)\"}" | jq -r "$(jqexpr "$@")" ;;
   *"--json comments"*) jq -Rs '{comments:[{body:.}]}' "$D/comments.txt" | jq -r "$(jqexpr "$@")" ;;
   esac ;;
@@ -59,6 +69,20 @@ esac
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // Ref attestations push with git: record them instead of letting a
+        // test write refs to the real remote. Everything else is real git —
+        // `hash-object -w` needs a real object store.
+        let git = dir.join("git");
+        std::fs::write(
+            &git,
+            "#!/usr/bin/env bash\nD=\"$(dirname \"$0\")\"\nif [ \"$1\" = push ]; then echo \"$*\" >> \"$D/gitpushes\"; [ -f \"$D/pushfail\" ] && exit 1; exit 0; fi\nexec /usr/bin/git \"$@\"\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         Self { dir }
     }
@@ -87,6 +111,10 @@ esac
 
     fn comments(&self) -> String {
         std::fs::read_to_string(self.dir.join("comments.txt")).unwrap()
+    }
+
+    fn git_pushes(&self) -> String {
+        std::fs::read_to_string(self.dir.join("gitpushes")).unwrap_or_default()
     }
 
     fn flag(&self, name: &str, content: &str) {
@@ -137,6 +165,79 @@ fn a_green_pr_merges_pinned_to_the_tested_commit_and_the_main_suite_runs() {
         f.calls()
     );
     assert_eq!(f.comments(), "");
+}
+
+/// The common merge is content-identical to the tested head — `finish`
+/// integrates origin/main before pushing, so the merge only gains a parent —
+/// and the green branch run already proved the merged tree's exact bytes.
+/// Dispatching the ten-job main suite to recompute a known answer was pure
+/// convoy cost: the post-merge verification is attested by tree identity and
+/// the suite is skipped.
+#[test]
+fn a_merge_identical_to_the_tested_head_skips_the_main_suite() {
+    let f = Fake::new(
+        "ident",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("mergesha", "m1");
+    f.flag("treecmp", "identical");
+    f.flag("prcommits", "feat work\n\nTask: T-FIXTURE-7\n");
+    let (code, out) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("identical"), "{out}");
+    assert!(
+        !f.calls().contains("workflow run test.yml"),
+        "a proven tree must not rerun the suite: {}",
+        f.calls()
+    );
+    let pushes = f.git_pushes();
+    assert!(pushes.contains("refs/merged/T-FIXTURE-7"), "{pushes}");
+    assert!(pushes.contains("refs/verified/T-FIXTURE-7"), "{pushes}");
+}
+
+/// A merge that raced another produces a tree nobody has tested — the suite
+/// still dispatches for it.
+#[test]
+fn a_merge_that_differs_from_the_tested_head_still_runs_the_main_suite() {
+    let f = Fake::new(
+        "difftree",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("mergesha", "m1");
+    f.flag("treecmp", "ahead");
+    let (code, out) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        f.calls()
+            .contains("workflow run test.yml --repo o/r --ref main"),
+        "{}",
+        f.calls()
+    );
+}
+
+/// Doubt dispatches: if a `refs/verified` write fails, the real suite runs
+/// rather than leaving the task unverified forever.
+#[test]
+fn an_identical_merge_whose_attestation_fails_falls_back_to_the_suite() {
+    let f = Fake::new(
+        "attestfail",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("mergesha", "m1");
+    f.flag("treecmp", "identical");
+    f.flag("prcommits", "feat work\n\nTask: T-FIXTURE-7\n");
+    f.flag("pushfail", "1");
+    let (code, out) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        f.calls()
+            .contains("workflow run test.yml --repo o/r --ref main"),
+        "{}",
+        f.calls()
+    );
 }
 
 #[test]
@@ -367,6 +468,60 @@ fn the_reconciler_resyncs_a_green_but_behind_pr_without_failing() {
         f.calls()
     );
     assert!(!f.calls().contains("pr merge"), "{}", f.calls());
+}
+
+/// Merge storms used to rebase every green-but-behind PR in one pass — each
+/// retest the next merge invalidated, so a queue of n PRs burned O(n²) runs.
+/// The reconciler now serializes: oldest candidate first, one rebase per pass.
+#[test]
+fn the_reconciler_rebases_only_the_oldest_green_candidate_per_pass() {
+    let f = Fake::new(
+        "rec-queue",
+        serde_json::json!([
+            pr(9, "feat-newer", "s9", NOW, false),
+            pr(3, "feat-older", "s3", NOW, false),
+        ]),
+        serde_json::json!({"s9": green(), "s3": green()}),
+    );
+    f.flag("comparison", "behind");
+    let (code, out) = f.script("reconcile-prs.sh", &["o/r"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        f.calls().contains("pr update-branch 3 --repo o/r"),
+        "oldest first: {}",
+        f.calls()
+    );
+    assert!(
+        !f.calls().contains("pr update-branch 9 --repo o/r"),
+        "the merge after this retest invalidates it anyway: {}",
+        f.calls()
+    );
+}
+
+/// Mergeable PRs still merge in the same pass — but once one lands, at most
+/// one follower is rebased; the rest wait for it to land first.
+#[test]
+fn the_reconciler_merges_ahead_prs_then_rebases_one_follower() {
+    let f = Fake::new(
+        "rec-mix",
+        serde_json::json!([
+            pr(12, "feat-newest", "s12", NOW, false),
+            pr(3, "feat-older", "s3", NOW, false),
+            pr(9, "feat-newer", "s9", NOW, false),
+        ]),
+        serde_json::json!({"s3": green(), "s9": green(), "s12": green()}),
+    );
+    // s3 is current with main; s9 and s12 are behind whatever lands first.
+    f.flag("cmp-main___s3", "ahead");
+    f.flag("cmp-main___s9", "behind");
+    f.flag("cmp-main___s12", "behind");
+    let (code, out) = f.script("reconcile-prs.sh", &["o/r"]);
+    assert_eq!(code, 0, "{out}");
+    let calls = f.calls();
+    assert!(calls.contains("pr merge 3 --repo o/r"), "{calls}");
+    assert!(calls.contains("pr update-branch 9 --repo o/r"), "{calls}");
+    assert!(!calls.contains("pr update-branch 12"), "{calls}");
+    assert!(!calls.contains("pr merge 9"), "{calls}");
 }
 
 #[test]
