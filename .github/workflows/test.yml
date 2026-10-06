@@ -492,9 +492,12 @@ jobs:
   # and sat queued for hours (153 min in one run), which kept every `main` run
   # "in progress" until the next merge cancelled it. Do not pin a hosted-runner
   # image that can be retired: tests/ci_workflow_perf.rs refuses the known-dead
-  # labels. `cargo install kani-verifier` is a ~3 min source build, so the binaries
-  # are cached; `cargo kani setup` still runs every time because it is
-  # idempotent and where it unpacks its bundle is Kani's business, not ours.
+  # labels. Nothing here is worth caching: `cargo install kani-verifier` is a thin
+  # driver (2.6 s) and `cargo kani setup` fetches its toolchain and bundle in ~12 s.
+  #
+  # Once it had a runner the proofs failed at once: 0.68 rejects
+  # `--concrete-playback` unless `-Z concrete-playback` is passed too. The job had
+  # been broken for as long as the runner had been missing, and nobody could tell.
   kani:
     name: Kani Bounded Proofs
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
@@ -507,17 +510,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Kani binaries
-        id: kani
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/cargo-kani
-            ~/.cargo/bin/kani
-          key: kani-0.68.0-${{ runner.os }}-${{ runner.arch }}
-
       - name: Install Kani
-        if: steps.kani.outputs.cache-hit != 'true'
         run: cargo install --locked kani-verifier --version 0.68.0
 
       - name: Set up Kani
@@ -527,8 +520,8 @@ jobs:
         run: |
           mkdir -p kani-artifacts
           set -o pipefail
-          cargo kani -p susi-gawd --default-unwind 4 --concrete-playback=print \
-            2>&1 | tee kani-artifacts/kani.log
+          cargo kani -p susi-gawd -Z concrete-playback --default-unwind 4 \
+            --concrete-playback=print 2>&1 | tee kani-artifacts/kani.log
 
       - name: Record proof bounds and harness scope
         if: always()
