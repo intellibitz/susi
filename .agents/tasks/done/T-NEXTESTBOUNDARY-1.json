@@ -19,5 +19,10 @@
     ]
   },
   "created_by": "NEXTESTBOUNDARY",
-  "created_unix": 1791314545
+  "created_unix": 1791314545,
+  "closed": {
+    "at_unix": 1791316112,
+    "commit": "14dec1bafda57df1d3e594bc589cd86c439a5aba",
+    "by": "NEXTESTBOUNDARY"
+  }
 }
