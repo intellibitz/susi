@@ -101,7 +101,21 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf)
     }
     // Lookups read cloud.env directly (env_or_cloud_env); nothing is
     // copied into the process environment.
+    if let Ok(content) = std::fs::read_to_string(cloud_env_path()) {
+        for (name, previous) in parse_env_file(&content) {
+            if name == env_name && !previous.is_empty() {
+                crate::cloud_credentials::save(
+                    &crate::cloud_credentials::directory(),
+                    &env_name,
+                    &previous,
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+    }
     let path = upsert_cloud_env_key(&env_name, key)?;
+    crate::cloud_credentials::save(&crate::cloud_credentials::directory(), &env_name, key)
+        .map_err(|e| e.to_string())?;
     Ok((env_name, path))
 }
 
@@ -144,6 +158,8 @@ pub fn remove_api_key(vendor: &str) -> Result<String, String> {
     // Atomic + owner-only: the daemon reloads this key file while CLIs edit
     // it, and an in-place truncate would show it every key missing.
     crate::susi_config::atomic_write_bytes(&path, body.as_bytes()).map_err(|e| e.to_string())?;
+    crate::cloud_credentials::remove_vendor(&crate::cloud_credentials::directory(), &env_name)
+        .map_err(|e| e.to_string())?;
     Ok(format!("Removed {} from {}", env_name, path.display()))
 }
 

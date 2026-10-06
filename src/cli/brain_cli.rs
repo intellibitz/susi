@@ -10,6 +10,25 @@ use susi_gemi::engines::brain::{self, TaskClass};
 pub enum BrainCommands {
     /// Show the evidence-ranked providers for every task class (default)
     Status,
+    /// Set shared cloud spending and request limits (USD expressed in microdollars)
+    Budget {
+        #[arg(long, conflicts_with = "allow_paid")]
+        free_only: bool,
+        /// Authorize paid inference within the configured limits
+        #[arg(long)]
+        allow_paid: bool,
+        #[arg(long)]
+        max_spend_microusd: Option<u64>,
+        #[arg(long)]
+        max_tokens: Option<u64>,
+        #[arg(long)]
+        max_requests: Option<u64>,
+        #[arg(long)]
+        max_parallel: Option<u64>,
+        /// Explicitly start a new accounting window; unresolved calls forbid reset
+        #[arg(long)]
+        new_window: bool,
+    },
     /// Show which task class a prompt is routed as
     Classify {
         #[arg(trailing_var_arg = true)]
@@ -86,6 +105,9 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
                 "estimated": true,
                 "journal": susi_gemi::context_assembly::default_journal_path(),
             }))?;
+        }
+        BrainCommands::Budget { .. } => {
+            println!("cloud budget is governed by susi_gawd_agents::cloud_budget::SpendPolicy, not a CLI settable policy");
         }
         BrainCommands::Classify { prompt } => {
             let text = prompt.join(" ");

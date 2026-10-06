@@ -26,6 +26,7 @@ pub mod azure_openai_provider;
 pub mod bedrock_provider;
 pub mod cloud;
 pub mod cloud_cli_auth;
+pub mod cloud_credentials;
 pub mod cloud_eligibility;
 pub mod cloud_manage;
 pub mod cloud_quota;
