@@ -2056,42 +2056,64 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     if !accept_allowed(&task.accept.cmd) {
         return Err(EaiError::config("task acceptance command is not allowed"));
     }
-    let out = Command::new(&task.accept.cmd[0])
-        .args(&task.accept.cmd[1..])
-        .current_dir(ws)
-        .output()
-        .map_err(|e| {
-            // A check that does not exist yet is "not done", not an I/O crash.
-            EaiError::process(format!(
-                "{id} is not done: acceptance command `{}` could not run ({e})",
-                task.accept.cmd.join(" ")
-            ))
-        })?;
-    // Show the check's own output: the closer should see what proved it.
-    eprint!("{}", String::from_utf8_lossy(&out.stderr));
-    print!("{}", String::from_utf8_lossy(&out.stdout));
-    if !out.status.success() {
-        return Err(EaiError::process(format!(
-            "{id} is not done: acceptance check `{}` exited {:?}",
-            task.accept.cmd.join(" "),
-            out.status.code()
-        )));
-    }
-    // `cargo test <filter>` exits 0 when the filter matches nothing; that
-    // proves nothing, so a test-based check must have run at least one test.
-    if task.accept.cmd.first().is_some_and(|p| p == "cargo")
-        && task.accept.cmd.get(1).is_some_and(|a| a == "test")
-    {
-        let text = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
+    // `finish` runs the gate immediately before close; when that run provably
+    // covered a cargo-test acceptance (same package or the workspace), the
+    // result here would be byte-identical, so finish names the covered task in
+    // SUSI_ACCEPTANCE_COVERED rather than paying for a second identical suite.
+    // Cargo-shaped acceptances only: a scripts/ checker asserts things the
+    // gate never ran. Setting the env by hand skips like --no-verify does —
+    // the post-merge verify job re-runs the acceptance on the merged tree
+    // either way, which is the authoritative one.
+    let covered = std::env::var("SUSI_ACCEPTANCE_COVERED").ok().as_deref() == Some(id)
+        && task.accept.cmd.first().is_some_and(|p| p == "cargo")
+        && task
+            .accept
+            .cmd
+            .get(1)
+            .is_some_and(|a| a == "test" || a == "nextest");
+    if covered {
+        eprintln!(
+            "gate covered the acceptance `{}` — not re-running it",
+            task.accept.cmd.join(" ")
         );
-        if tests_passed(&text) == 0 {
+    } else {
+        let out = Command::new(&task.accept.cmd[0])
+            .args(&task.accept.cmd[1..])
+            .current_dir(ws)
+            .output()
+            .map_err(|e| {
+                // A check that does not exist yet is "not done", not an I/O crash.
+                EaiError::process(format!(
+                    "{id} is not done: acceptance command `{}` could not run ({e})",
+                    task.accept.cmd.join(" ")
+                ))
+            })?;
+        // Show the check's own output: the closer should see what proved it.
+        eprint!("{}", String::from_utf8_lossy(&out.stderr));
+        print!("{}", String::from_utf8_lossy(&out.stdout));
+        if !out.status.success() {
             return Err(EaiError::process(format!(
-                "{id} is not done: `{}` ran no tests (a filter that matches nothing passes vacuously)",
-                task.accept.cmd.join(" ")
+                "{id} is not done: acceptance check `{}` exited {:?}",
+                task.accept.cmd.join(" "),
+                out.status.code()
             )));
+        }
+        // `cargo test <filter>` exits 0 when the filter matches nothing; that
+        // proves nothing, so a test-based check must have run at least one test.
+        if task.accept.cmd.first().is_some_and(|p| p == "cargo")
+            && task.accept.cmd.get(1).is_some_and(|a| a == "test")
+        {
+            let text = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            if tests_passed(&text) == 0 {
+                return Err(EaiError::process(format!(
+                    "{id} is not done: `{}` ran no tests (a filter that matches nothing passes vacuously)",
+                    task.accept.cmd.join(" ")
+                )));
+            }
         }
     }
     // Acceptance may outlive a lease; re-check before mutating the queue.
@@ -2995,6 +3017,55 @@ mod tests {
         publish(&a);
         release(&a, &passing.id, "claude", false).unwrap();
         assert!(claims(&a).unwrap().is_empty());
+        drop(r);
+    }
+
+    /// `finish` names the task it gated in `SUSI_ACCEPTANCE_COVERED` so close
+    /// does not run the same cargo test twice. A covered acceptance that would
+    /// fail if run still closes; a coverage flag naming a *different* task —
+    /// or a non-cargo acceptance — still runs the check.
+    #[test]
+    fn a_covered_acceptance_is_skipped_but_only_for_the_named_task() {
+        let (r, a, _) = Repos::new("covered-accept");
+        let t = addt!(
+            &a,
+            "claude",
+            "covered",
+            "",
+            "s",
+            &[],
+            vec!["cargo".into(), "test".into(), "--workspace".into()],
+        )
+        .unwrap();
+        claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
+        // `cargo test` cannot pass in this fixture — no Cargo.toml — so a
+        // successful close proves the run was skipped.
+        std::env::set_var("SUSI_ACCEPTANCE_COVERED", &t.id);
+        let done = close(&a, &t.id, "claude");
+        std::env::remove_var("SUSI_ACCEPTANCE_COVERED");
+        assert!(done.is_ok(), "{:?}", done.err());
+        assert_eq!(list_done(&a).len(), 1);
+        // The closed task keeps its claim until the merge lands; the
+        // pipeline's release frees it while the receipt keeps the debt.
+        release(&a, &t.id, "claude", true).unwrap();
+
+        let t2 = addt!(
+            &a,
+            "claude",
+            "not-covered",
+            "",
+            "s",
+            &[],
+            vec!["cargo".into(), "test".into(), "--workspace".into()],
+        )
+        .unwrap();
+        claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();
+        // A flag for another task does not cover this one.
+        std::env::set_var("SUSI_ACCEPTANCE_COVERED", &t.id);
+        let err = close(&a, &t2.id, "claude");
+        std::env::remove_var("SUSI_ACCEPTANCE_COVERED");
+        assert!(err.unwrap_err().to_string().contains("not done"));
+        assert_eq!(list_open(&a).len(), 1);
         drop(r);
     }
 
