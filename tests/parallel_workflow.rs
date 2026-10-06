@@ -68,6 +68,7 @@ impl World {
             "park-primary.sh",
             "ensure-watcher.sh",
             "swarm-status.sh",
+            "ci-changed-crates.sh",
         ] {
             std::fs::copy(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -85,6 +86,22 @@ impl World {
         )
         .unwrap();
         executable(&scripts.join("accept.sh"), "#!/bin/sh\nexit 0\n");
+        // A minimal workspace, so the gate's crate scoping has metadata to
+        // read: one member crate plus a root package owning src/ and tests/.
+        std::fs::write(
+            primary.join("Cargo.toml"),
+            "[package]\nname = \"fixture-root\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(primary.join("src")).unwrap();
+        std::fs::write(primary.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+        std::fs::create_dir_all(primary.join("crates/cell/src")).unwrap();
+        std::fs::write(
+            primary.join("crates/cell/Cargo.toml"),
+            "[package]\nname = \"cell\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(primary.join("crates/cell/src/lib.rs"), "pub fn cell() {}\n").unwrap();
         std::fs::create_dir_all(primary.join(".agents/tasks")).unwrap();
         std::fs::write(
             primary.join(".agents/tasks/T-WORKER-1.json"),
@@ -110,9 +127,15 @@ impl World {
                 "origin/main",
             ],
         );
-        executable(&bins.join("cargo"), "#!/bin/sh\necho \"$1\" >> \"$TEST_GATES\"\nif [ \"$1\" = clippy ] && [ \"$TEST_GATE_FAIL\" = 1 ]; then exit 1; fi\n");
+        // The fake records its full argv so a test can see which packages the
+        // gate selected; `metadata` delegates to the real toolchain because
+        // `ci-changed-crates.sh` reads an actual workspace.
+        executable(&bins.join("cargo"), "#!/bin/sh\nif [ \"$1\" = metadata ]; then exec \"$TEST_REAL_CARGO\" \"$@\"; fi\necho \"$*\" >> \"$TEST_GATES\"\nif [ \"$1\" = clippy ] && [ \"$TEST_GATE_FAIL\" = 1 ]; then exit 1; fi\n");
         // GitHub's successful PR merge is emulated only for the code branch push.
-        executable(&bins.join("git"), "#!/bin/sh\n/usr/bin/git \"$@\" || exit $?\nif [ \"$1\" = push ] && [ \"$TEST_NO_MERGE\" != 1 ]; then\n for arg in \"$@\"; do\n  case \"$arg\" in HEAD:refs/heads/*) sha=$(/usr/bin/git rev-parse HEAD); /usr/bin/git --git-dir=\"$TEST_REMOTE\" update-ref refs/heads/main \"$sha\" ;; esac\n done\nfi\n");
+        // With TEST_RACE_PRIMARY set, the first push instead lands the primary's
+        // unpushed main commit on remote main — a merge that raced ours — so the
+        // wait loop must integrate and repush (once) before ours can land.
+        executable(&bins.join("git"), "#!/bin/sh\n/usr/bin/git \"$@\" || exit $?\nif [ \"$1\" = push ]; then\n for arg in \"$@\"; do\n  case \"$arg\" in HEAD:refs/heads/*)\n   if [ -n \"$TEST_RACE_PRIMARY\" ] && [ ! -f \"$TEST_RACE_USED\" ]; then\n    : > \"$TEST_RACE_USED\"\n    (cd \"$TEST_RACE_PRIMARY\" && /usr/bin/git push -q origin main)\n   elif [ \"$TEST_NO_MERGE\" != 1 ]; then\n    sha=$(/usr/bin/git rev-parse HEAD); /usr/bin/git --git-dir=\"$TEST_REMOTE\" update-ref refs/heads/main \"$sha\"\n   fi ;;\n  esac\n done\nfi\n");
         let world = Self {
             root,
             primary,
@@ -156,6 +179,37 @@ impl World {
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", if fail { "1" } else { "0" })
+            // A gate failure needs a gate that runs: the fixture's work
+            // touches no crate, so the scoped gate skips clippy entirely.
+            .env("SUSI_LOCAL_GATE", if fail { "full" } else { "scoped" })
+            .env("TEST_REAL_CARGO", env!("CARGO"))
+            .output()
+            .unwrap()
+    }
+
+    /// `finish` while another merge lands on main exactly as our branch
+    /// pushes: the wait loop must integrate the race and repush — without
+    /// re-running the gate, which is what made every merge a multiplier.
+    fn finish_racing_an_intervening_merge(&self) -> std::process::Output {
+        // The competitor's commit lives on the primary's main but is unpushed;
+        // the fake remote lands it when our branch push arrives.
+        git(
+            &self.primary,
+            &["commit", "--allow-empty", "-qm", "someone else merged"],
+        );
+        self.susi(&["workflow", "finish", "T-WORKER-1"])
+            .env(
+                "PATH",
+                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
+            )
+            .env("TEST_REMOTE", &self.remote)
+            .env("TEST_GATES", self.root.join("gates"))
+            .env("TEST_GATE_FAIL", "0")
+            .env("TEST_REAL_CARGO", env!("CARGO"))
+            .env("TEST_RACE_PRIMARY", &self.primary)
+            .env("TEST_RACE_USED", self.root.join("race-used"))
+            .env("SUSI_FINISH_WAIT_MAX", "60")
+            .env("SUSI_FINISH_POLL", "1")
             .output()
             .unwrap()
     }
@@ -197,6 +251,7 @@ impl World {
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
+            .env("TEST_REAL_CARGO", env!("CARGO"))
             .env("TEST_NO_MERGE", "1")
             .env("SUSI_FINISH_POLL", "1")
             .env("SUSI_FINISH_WAIT_MAX", "3")
@@ -221,6 +276,7 @@ impl World {
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
+            .env("TEST_REAL_CARGO", env!("CARGO"))
             .env("TEST_NO_MERGE", "1")
             .env("SUSI_FINISH_POLL", "1")
             .env("SUSI_FINISH_WAIT_MAX", "8")
@@ -258,10 +314,90 @@ fn finish_waits_for_publication_before_releasing_and_syncs_primary() {
         ]
     )
     .is_empty());
+    // The fixture's work touches only code.txt — no crate — so the scoped
+    // gate proves fmt locally and leaves compile/test to the branch run.
     assert_eq!(
         std::fs::read_to_string(w.root.join("gates")).unwrap(),
-        "fmt\nclippy\ntest\n"
+        "fmt --all --check\n"
     );
+}
+
+/// A diff that touches a member crate gates that crate — clippy and test
+/// both carry `-p cell` and nothing runs `--workspace`. Before the gate was
+/// scoped, this task paid for the whole workspace like every other.
+#[test]
+fn the_gate_scopes_to_the_crates_the_diff_touched() {
+    let w = World::new("scoped");
+    std::fs::write(w.work.join("crates/cell/src/lib.rs"), "pub fn cell2() {}\n").unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &["commit", "-qm", "touch cell\n\nTask: T-WORKER-1"],
+    );
+    let out = w.finish(false);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
+    assert!(
+        gates.contains("clippy --locked --all-targets -p cell"),
+        "scoped clippy: {gates}"
+    );
+    assert!(
+        gates.contains("test --locked -p cell"),
+        "scoped tests: {gates}"
+    );
+    assert!(!gates.contains("--workspace"), "{gates}");
+}
+
+/// Root-package trees (`tests/`, `src/`) belong to the root package, not to
+/// ALL: a tests/-only change gates `-p fixture-root`, not the workspace.
+#[test]
+fn root_owned_paths_gate_the_root_package() {
+    let w = World::new("roottests");
+    std::fs::create_dir_all(w.work.join("tests")).unwrap();
+    std::fs::write(w.work.join("tests/t.rs"), "#[test] fn t() {}\n").unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &["commit", "-qm", "add a root test\n\nTask: T-WORKER-1"],
+    );
+    let out = w.finish(false);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
+    assert!(gates.contains("-p fixture-root"), "{gates}");
+    assert!(!gates.contains("--workspace"), "{gates}");
+}
+
+/// When another merge lands between our gate and our push, finish integrates
+/// it and repushes — once, without re-running the gate. The remote merge gate
+/// only accepts heads that contain main and whose branch run is green, so the
+/// merged head is proven by its own CI run; the old re-gate multiplied the
+/// whole workspace suite by every merge that raced the wait.
+#[test]
+fn an_intervening_merge_does_not_re_run_the_gate() {
+    let w = World::new("race");
+    let out = w.finish_racing_an_intervening_merge();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
+    assert_eq!(
+        gates.matches("fmt --all --check").count(),
+        1,
+        "the gate ran exactly once despite the raced merge: {gates}"
+    );
+    // And the branch did merge: the raced head was integrated and repushed.
+    assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
+    assert!(git(&w.work, &["ls-remote", "origin", "refs/claims/*"]).is_empty());
 }
 
 #[test]
