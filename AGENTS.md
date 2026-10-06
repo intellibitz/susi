@@ -13,7 +13,13 @@ The agent loop is **atomic per task** (own worktree, always synced with
 1. **Own worktree, never the primary checkout, never `main`:**
    `scripts/susi-worktree.sh` — no name needed (or `susi workflow start`). It
    creates your branch off the latest `origin/main`, installs the hooks, parks
-   the primary checkout and prints `cd <path>`; continue there.
+   the primary checkout and prints `cd <path>`; continue there. The new
+   worktree shares the primary's cargo `target/`, so its first build compiles
+   the ~80 workspace crates (about 3 minutes) rather than all ~716 (about 11) —
+   but only while `.cargo/config.toml` embeds no worktree path: a repo-relative
+   `linker` did, and silently gave every worktree its own incompatible artifacts
+   (pinned in `tests/ci_workflow_perf.rs`). A worktree made some other way, such
+   as by the desktop app, keeps a private `target/` and pays the cold build once.
 2. **Sync, then claim one task:** if behind, `git fetch && git merge
    origin/main`; then `susi tasks list` and `susi tasks claim <id>`. One live
    claim at a time. Nobody starts a claimed task.

@@ -4,24 +4,32 @@ xb = "run --package xtask -- build"
 # libtest's per-binary thread pools. Requires `cargo install cargo-nextest`.
 xn = "nextest run --workspace --locked"
 
-# Fast linkers for Linux (mold → lld → cc). See .cargo/fast-linker.
-# Does not change macOS/Windows linkers. Safe on hosts without mold/lld:
-# the wrapper falls back to cc.
+# Linkers for Linux.
 #
-# `-Clinker-features=-lld`: since Rust 1.90 rustc links x86_64 Linux with its
-# bundled rust-lld and passes `-fuse-ld=lld` *after* the wrapper's
-# `-fuse-ld=mold`, so every binary was linked by lld and the wrapper (and the
-# mold install.sh bootstraps) did nothing. Opting out of the self-contained
-# linker hands linking back to the wrapper. Measured on the `susi` bin after
-# touching main.rs: 2.4–2.6s with mold vs ~3.0s with rust-lld. An explicit
-# RUSTFLAGS env var replaces these flags (cargo semantics).
+# x86_64 sets NO linker and no linker flag: rustc links with its bundled
+# ld.lld by default (since Rust 1.90, verified on 1.99.0). It used to set
+# `linker = ".cargo/fast-linker"` - a wrapper preferring mold - plus
+# `-Clinker-features=-lld` to hand linking to it. mold bought ~0.5 s per large
+# link (2.4-2.6 s vs ~3.0 s for the `susi` bin after touching main.rs) and cost
+# far more:
 #
-# x86_64 only: rustc self-contains lld solely on x86_64 Linux, and on other
-# targets the flag is unstable (`-Z unstable-options` required), which broke
-# the linux-aarch64 release build of v0.16.0.
-[target.x86_64-unknown-linux-gnu]
-linker = ".cargo/fast-linker"
-rustflags = ["-Clinker-features=-lld"]
-
+#   Cargo resolves a relative `linker` to an ABSOLUTE path inside the current
+#   worktree and passes it as `-C linker=...`; that path is part of every unit's
+#   fingerprint. So no two worktrees could ever share a compiled crate - not the
+#   workspace crates and not the 637 registry crates either - and each one
+#   overwrote the other's artifacts in a shared target dir. scripts/susi-worktree.sh
+#   has pointed new worktrees at one shared target for exactly this reason, and
+#   it never delivered: a fresh worktree compiled 716 crates in 656 s, and the
+#   shared target grew to 425 GB. With a path-independent config, a worktree
+#   created after a warm build compiled 81 crates (79 workspace, 2 registry) in
+#   176 s.
+#
+# Do not set a repo-relative `linker` (or any flag that embeds a worktree path)
+# for a target developers build on; tests/ci_workflow_perf.rs pins this.
+#
+# aarch64 keeps the wrapper: rustc self-contains lld only on x86_64 Linux (on
+# other targets `-Clinker-features` is unstable, which broke the linux-aarch64
+# release build of v0.16.0), and the only aarch64 Linux builds are the CI release
+# leg, which has one checkout and so no worktree to share with.
 [target.aarch64-unknown-linux-gnu]
 linker = ".cargo/fast-linker"
