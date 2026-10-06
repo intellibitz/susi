@@ -78,7 +78,7 @@ evidence_prompt() {
 gate_tests() {
     local log crates c
     log=$(mktemp)
-    if cargo test --workspace --locked 2>&1 | tee "$log"; then
+    if cargo test --locked "$@" 2>&1 | tee "$log"; then
         rm -f "$log"
         return 0
     fi
@@ -123,6 +123,32 @@ gate_tests() {
     return 0
 }
 
+# The local gate proves what the diff can break, not the whole workspace:
+# `ci-changed-crates.sh` names the packages the branch touches — the same
+# scoping the branch-push CI gate applies — so a task that changes one crate
+# checks and tests only that crate. The full suite is kept for workspace-wide
+# inputs (lockfile, toolchain, root build inputs) or when detection cannot
+# tell, and `SUSI_LOCAL_GATE=full` forces it. A docs/CI-only diff has nothing
+# local to prove beyond fmt: the branch-push run gates the merge, and main
+# re-runs the full suite after it.
+gate() {
+    local pkgs sel
+    cargo fmt --all --check
+    pkgs=$("$root/scripts/ci-changed-crates.sh")
+    if [ "$pkgs" = ALL ] || [ "${SUSI_LOCAL_GATE:-}" = full ]; then
+        cargo clippy --workspace --all-targets --locked -- -D warnings
+        gate_tests --workspace
+        return
+    fi
+    if [ -z "$pkgs" ]; then
+        echo 'gate: no crate touched by this diff — fmt is clean; the branch run proves the rest' >&2
+        return
+    fi
+    sel=$(printf ' -p %s' $pkgs)
+    cargo clippy --locked --all-targets $sel -- -D warnings
+    gate_tests $sel
+}
+
 renew_owned_claims() {
     local token id out
     # `git config --get` exits 1 when the key is unset, and under `pipefail`
@@ -163,9 +189,7 @@ finish)
     task=${2:?task id required}
     renew_or_readopt
     sync
-    cargo fmt --all --check
-    cargo clippy --workspace --all-targets --locked -- -D warnings
-    gate_tests
+    gate
     # Anything still uncommitted - the verdict, the mastery test - must land
     # while the task is open: close moves the record to done/, and the commit hook
     # then refuses a commit citing a closed task. The scope check still refuses
@@ -185,9 +209,12 @@ finish)
     verified=$(git rev-parse HEAD)
     sync
     if [ "$verified" != "$(git rev-parse HEAD)" ]; then
-        cargo fmt --all --check
-        cargo clippy --workspace --all-targets --locked -- -D warnings
-        gate_tests
+        # The head moved because another merge landed while the gate ran.
+        # Repushing the merged head starts a fresh branch run, and nothing
+        # merges without a green run on that exact sha — re-running the local
+        # gate here multiplied the suite by every merge in the window.
+        # SUSI_FINISH_REGATE=1 restores the old belt-and-suspenders check.
+        [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && gate
     fi
     branch=$(git symbolic-ref --short HEAD)
     git push origin "HEAD:refs/heads/$branch"
@@ -203,13 +230,12 @@ finish)
             renew_or_readopt
             renew_at=$(( $(date +%s) + 900 ))
         fi
-        # Another agent may merge first. Integrate it, rerun the gate and
-        # publish a new head so the remote merge gate can reconsider this PR.
+        # Another agent may merge first. Integrate it and publish a new head
+        # so the remote merge gate can reconsider this PR; the new head's own
+        # branch run proves it — that is what the remote gate is for.
         if ! git merge-base --is-ancestor origin/main HEAD; then
             sync
-            cargo fmt --all --check
-            cargo clippy --workspace --all-targets --locked -- -D warnings
-            gate_tests
+            [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && gate
             git push origin "HEAD:refs/heads/$branch"
             sha=$(git rev-parse HEAD)
         fi

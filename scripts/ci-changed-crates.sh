@@ -4,9 +4,13 @@
 #
 # Prints "ALL" when a workspace-wide input changed — the lockfile, workspace
 # Cargo.toml, the root build.rs (it compiles .agents/*.json into
-# susi-gawd-agents), the root package (src/, tests/), or toolchain/lint
-# config — or when detection is impossible (missing/shallow base ref,
-# metadata failure). A path under crates/ matching no package is also ALL.
+# susi-gawd-agents), or toolchain/lint config — or when detection is
+# impossible (missing/shallow base ref, metadata failure). A path under
+# crates/ matching no package is also ALL.
+#
+# The root package's own trees (src/, tests/, benches/, examples/) map to the
+# root package rather than ALL: its test binaries are the gate for a
+# tests/-only change, and the other workspace members' tests are not.
 #
 # `.agents/tasks/` is exempt: it is the shared task queue, one file per task,
 # committed with every task's work. Only `.agents/{identity,roadmap,evidence}
@@ -33,7 +37,7 @@ changed=$(git diff --name-only "$mb" HEAD)
 # The task queue is inert at build time; see the header.
 changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
 
-if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml|tests/|src/|benches/|examples/)' <<<"$changed"; then
+if grep -Eq '^(Cargo\.toml|Cargo\.lock|build\.rs|rust-toolchain(\.toml)?|\.agents/|\.cargo/|rustfmt\.toml|clippy\.toml|deny\.toml)' <<<"$changed"; then
     echo ALL
     exit 0
 fi
@@ -46,10 +50,22 @@ cargo metadata --no-deps --format-version 1 2>/dev/null |
     }
 
 root=$PWD
+rootpkg=$(awk -F'|' -v m="$root" '$2 == m { print $1 }' /tmp/susi-pkgs.$$ | head -1)
 declare -A seen=()
 while IFS= read -r f; do
     case "$f" in
         crates/*) ;;
+        src/*|tests/*|benches/*|examples/*)
+            # The root package owns these trees; a change here gates that
+            # package's targets, not the whole workspace.
+            if [ -n "$rootpkg" ]; then
+                seen[$rootpkg]=1
+                continue
+            fi
+            rm -f /tmp/susi-pkgs.$$
+            echo ALL
+            exit 0
+            ;;
         *) continue ;; # top-level non-crate files (docs, .github) need no compile gate
     esac
     best=""
