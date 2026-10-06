@@ -153,8 +153,35 @@ gate_tests_cargo() {
 # detection cannot tell, and `SUSI_LOCAL_GATE=full` forces it. A docs/CI-only
 # diff has nothing local to prove beyond fmt: the branch-push run gates the
 # merge, and main re-runs the full suite after it.
+# The gate's verdict is a pure function of the diff it judges: the same
+# diff-vs-main produces the same fmt/clippy/test outcome. finish used to pay
+# the suite again on every re-invocation — a push rejection, a stale remote
+# head whose merge only moves task JSON — even when the gate-relevant content
+# was untouched. The stamp hashes the working tree's diff to origin/main with
+# `.agents/` excluded (task bookkeeping is never gate input) plus the content
+# of untracked code files, and on a hit the suite is skipped. A merge that
+# pulls in real upstream changes moves the diff the other way and re-gates;
+# SUSI_GATE_NOCACHE=1 forces a run regardless.
+gate_stamp() {
+    {
+        git diff origin/main -- . ':(exclude).agents'
+        git ls-files --others --exclude-standard -- . ':(exclude).agents' |
+            while IFS= read -r f; do
+                [ -f "$f" ] && git hash-object -- "$f"
+            done
+    } | git hash-object --stdin
+}
+
 gate() {
     local pkgs lint sel lsel
+    local okfile stamp
+    okfile="$(git rev-parse --git-dir)/susi-gate-ok"
+    stamp=$(gate_stamp)
+    if [ -z "${SUSI_GATE_NOCACHE:-}" ] && [ -f "$okfile" ] && [ "$(cat "$okfile")" = "$stamp" ]; then
+        echo "gate: this exact diff already passed — skipping (SUSI_GATE_NOCACHE=1 forces a run)" >&2
+        gate_pkgs=$("$root/scripts/ci-changed-crates.sh")
+        return 0
+    fi
     cargo fmt --all --check
     pkgs=$("$root/scripts/ci-changed-crates.sh")
     gate_pkgs=$pkgs
@@ -162,10 +189,12 @@ gate() {
         gate_pkgs=ALL
         cargo clippy --workspace --all-targets --locked -- -D warnings
         gate_tests --workspace
+        echo "$stamp" >"$okfile"
         return
     fi
     if [ -z "$pkgs" ]; then
         echo 'gate: no crate touched by this diff — fmt is clean; the branch run proves the rest' >&2
+        echo "$stamp" >"$okfile"
         return
     fi
     lint=$("$root/scripts/ci-changed-crates.sh" --dependents)
@@ -175,6 +204,7 @@ gate() {
     cargo clippy --locked --all-targets $lsel -- -D warnings
     sel=$(printf ' -p %s' $pkgs)
     gate_tests $sel
+    echo "$stamp" >"$okfile"
 }
 
 # Whether the gate run above already covered a task's acceptance command. Only
@@ -273,7 +303,7 @@ finish)
         # merges without a green run on that exact sha — re-running the local
         # gate here multiplied the suite by every merge in the window.
         # SUSI_FINISH_REGATE=1 restores the old belt-and-suspenders check.
-        [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && gate
+        [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && SUSI_GATE_NOCACHE=1 gate
     fi
     branch=$(git symbolic-ref --short HEAD)
     git push origin "HEAD:refs/heads/$branch"
@@ -348,7 +378,7 @@ MSG
         # branch run proves it — that is what the remote gate is for.
         if ! git merge-base --is-ancestor origin/main HEAD; then
             sync
-            [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && gate
+            [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && SUSI_GATE_NOCACHE=1 gate
             git push origin "HEAD:refs/heads/$branch"
             sha=$(git rev-parse HEAD)
         fi
