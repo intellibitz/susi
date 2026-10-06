@@ -1,0 +1,21 @@
+{
+  "id": "T-PRIMARY-3",
+  "title": "susi-gemi price/ceiling/usage test fixtures: write atomically into a per-process dir (flaky budget_ceiling under nextest)",
+  "goal": "CI Test (gemi) failed intermittently: budget_ceiling_cascade_records_spend_with_attribution asserted rec.usd > 0.0 and saw 0. Cause: install_fixtures() and five sibling fixture writers truncate-then-write a fixed shared temp path (susi-budget-shared, susi-prices-shared, ...) while nextest runs one OS process per test, so a concurrent reader sees an empty/partial file; cost::price_catalog() and spend_tracker::ceilings() turn that into 'price 0 / no cap'. env_test_lock cannot serialise separate processes. Fix: write via susi_config::atomic_write_bytes (same-dir staging + rename) into a pid-scoped dir so every process owns its fixtures; hermetic (never ~/.susi or SUSI_HOME).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "-E",
+      "test(budget_ceiling)"
+    ]
+  },
+  "created_by": "PRIMARY",
+  "created_unix": 1791306011
+}
