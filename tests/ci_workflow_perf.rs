@@ -455,6 +455,28 @@ fn post_merge_acceptance_starts_from_the_root_cli_cache() {
 }
 
 #[test]
+fn ci_builds_without_debug_info_to_fit_the_cache_quota() {
+    let text = read(".github/workflows/test.yml");
+    let before_jobs = code(&text)
+        .split("\njobs:")
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        before_jobs.contains("CARGO_PROFILE_DEV_DEBUG: 0"),
+        "test.yml must build without debug info workflow-wide: it is ~40% of every cached \
+         artifact and the repository's cache quota is 10 GB. Over it, GitHub's LRU eviction \
+         cold-starts whichever jobs lose (e2e: 3.4 min -> 13.8 min)"
+    );
+    // The hand-keyed instrumented-target cache is immutable once saved, so a
+    // build-setting change needs a new key or the old entry is restored forever.
+    assert!(
+        code(&text).contains("key: llvm-cov-v2-"),
+        "the llvm-cov cache key must be versioned past the build that used debug info"
+    );
+}
+
+#[test]
 fn the_ratchet_script_is_unchanged_in_what_it_gates() {
     // The ratchet job was made faster by caching, not by weakening it: it must
     // still run the same script that regenerates and compares the baseline.

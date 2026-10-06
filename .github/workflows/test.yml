@@ -33,6 +33,22 @@ concurrency:
 permissions:
   contents: read
 
+# The repository's cache quota is 10 GB and the suite wants more than that:
+# ten rust-cache entries (one per shard, plus lint, e2e, unsafe-ratchet) and a
+# 4.7 GB instrumented coverage target came to ~16 GB, so GitHub's LRU eviction
+# cold-started whichever jobs lost - e2e went from 3.4 to 13.8 min in one run
+# because its 1.7 GB entry was gone.
+#
+# Debug info is a large share of every cached artifact and nothing in CI reads it
+# (a panic names its file:line from the panic location, not from DWARF). Building
+# `susi-daemon`'s test closure with and without it: target/ 6.9 -> 4.2 GB, and 216 s
+# -> 218 s to build, so it shrinks every cache by ~40% for free. The variable is
+# hashed into rust-cache's key, so the first run after changing it starts cold by
+# design; the llvm-cov cache is keyed by hand below and is versioned for the same
+# reason.
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+
 jobs:
   # This job gates every merge and used to be the slowest thing on a branch push
   # by a wide margin (5-7.5 min against ~1 min for everything else): it compiled
@@ -417,8 +433,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target/llvm-cov-target
-          key: llvm-cov-${{ hashFiles('Cargo.lock') }}
-          restore-keys: llvm-cov-
+          # v2: built without debug info (see the workflow `env`). An entry is
+          # immutable once saved, so the old one could never be replaced.
+          key: llvm-cov-v2-${{ hashFiles('Cargo.lock') }}
+          restore-keys: llvm-cov-v2-
 
       - name: Install Linux System Dependencies
         run: scripts/ci-system-deps.sh
