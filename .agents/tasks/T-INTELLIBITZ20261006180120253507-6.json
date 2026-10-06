@@ -1,0 +1,17 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-6",
+  "title": "Fix Zero-Config Matrix on Windows: wasmer cranelift does not compile there",
+  "goal": "windows-cpu leg fails compiling wasmer-compiler-cranelift (compile_error: backend unsupported on Windows). Gate the cranelift/backend feature per-target so the windows smoke build uses a supported backend or excludes wasmer, making the 3-OS matrix green on main instead of paying ~15min x3 per merge for a known failure.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "zc_matrix"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791295846
+}
