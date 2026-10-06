@@ -410,30 +410,42 @@ fn failed_gate_leaves_task_open_claim_owned_and_remote_unchanged() {
     assert!(!git(&w.work, &["ls-remote", "origin", "refs/claims/*"]).is_empty());
 }
 
-/// The wait for publication is bounded. A branch that cannot merge — a red
-/// gate, or a pull request the reconciler closes after 7 idle days — used to
-/// hold the task claim forever, renewing its lease every 15 minutes, without
-/// ever telling the agent. Now finish stops with a budget, keeps the closure
-/// and the claim (so nobody else starts the work), and says what to do next.
+/// A green head that is merely queued is the merge machinery's problem, not
+/// the agent's — waiting out the whole convoy while holding the claim is how
+/// agents used to sit idle through merge storms. Past the budget, `finish`
+/// hands the merge off: it releases the claim (the close receipt keeps the
+/// debt, so the work cannot be silently dropped), exits cleanly, and the next
+/// claim is free to proceed — one merge in flight.
 #[test]
-fn finish_gives_up_on_a_branch_that_never_merges() {
+fn finish_hands_off_a_green_branch_stuck_in_the_queue() {
     let w = World::new("never");
     let out = w.finish_without_merging();
     assert!(
-        !out.status.success(),
-        "a bounded wait must fail rather than hang forever"
+        out.status.success(),
+        "a queued-but-green merge is a handoff, not a failure: {}",
+        String::from_utf8_lossy(&out.stderr)
     );
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("still not on origin/main after"), "{err}");
-    // Closing is kept, and so is the claim.
+    assert!(err.contains("receipt"), "{err}");
+    // Closing is kept — the receipt keeps the debt — but the claim is freed so
+    // the next task can be claimed while the merge queue lands this one.
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
     let claims = git(
         &w.remote,
         &["for-each-ref", "--format=%(refname)", "refs/claims/"],
     );
     assert!(
-        claims.contains("refs/claims/T-WORKER-1"),
-        "the claim must be retained, not released: {claims}"
+        !claims.contains("refs/claims/T-WORKER-1"),
+        "the claim must be released at handoff: {claims}"
+    );
+    let closed = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/closed/"],
+    );
+    assert!(
+        closed.contains("refs/closed/T-WORKER-1"),
+        "the close receipt must outlive the claim: {closed}"
     );
 }
 
@@ -456,10 +468,15 @@ fn a_lapsed_lease_is_re_adopted_with_its_scopes() {
         err.contains("still not on origin/main after"),
         "it must get past the renew step: {err}"
     );
-    let claim = git(&w.remote, &["cat-file", "-p", "refs/claims/T-WORKER-1"]);
+    // The re-adopted claim rode the wait out, and the queued-merge handoff
+    // released it — the receipt is what survives.
+    let claims = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/claims/"],
+    );
     assert!(
-        claim.contains("code.txt"),
-        "the re-adopted claim dropped its scopes: {claim}"
+        !claims.contains("refs/claims/T-WORKER-1"),
+        "the handoff must release the claim it re-adopted: {claims}"
     );
 }
 

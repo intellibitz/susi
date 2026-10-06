@@ -548,7 +548,8 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
         TaskCommands::Close { id, agent } => match tasks::close(&root, &id, &who(agent, &root)) {
             Ok(t) => println!(
                 "closed {} — publish it (`susi workflow finish {}`): the close receipt is on the \
-                 remote and blocks another task until it is on origin/main",
+                 remote, so the merge may land while you claim the next task — one merge in \
+                 flight, no more",
                 t.id, t.id
             ),
             Err(e) => bail!("{e}"),

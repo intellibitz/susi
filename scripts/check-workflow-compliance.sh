@@ -32,13 +32,14 @@
 #       a verification verdict commits under the claim that produced it. A
 #       verdict-only commit is still work: it keeps its `Task:` trailer.
 #
-# It also refuses work on a SECOND task by an agent that still owes the first
-# one's merge. `susi tasks close` publishes a receipt (`refs/closed/<id>`) for
-# the accepted-but-unmerged state, and the client refuses a new claim while one
-# is outstanding — but that client is the agent's own binary, so a stale
-# installed release, `--no-verify`, or a hand-pushed `refs/claims/<id>` all skip
-# it. The rule can only fire where the client already refuses: a receipt whose
-# close is on `origin/main` is published work, not debt, so the normal
+# It also refuses an agent piling up accepted-but-unmerged work: `susi tasks
+# close` publishes a receipt (`refs/closed/<id>`) for that state, and the
+# client allows exactly one merge in flight — the pipeline, so nobody idles on
+# a merge queue — while refusing the second. That client is the agent's own
+# binary, so a stale installed release, `--no-verify`, or a hand-pushed
+# `refs/claims/<id>` all skip it, and the bound is enforced here too. The rule
+# can only fire where the client already refuses: a receipt whose close is on
+# `origin/main` is published work, not debt, so the normal
 # close -> merge -> next-task path never trips it.
 #
 # For the same reason it refuses an agent holding two live claims at once:
@@ -124,8 +125,9 @@ owed_merges_of() {
 }
 
 owed_reported=" "
-# The server-side half of the claim gate in `susi tasks claim`: while an agent
-# owes an earlier merge it may not start another task.
+# The server-side half of the claim gate in `susi tasks claim`: one owed merge
+# is the pipeline — the agent's next task may proceed while the merge queue
+# lands it — so only the SECOND outstanding close is refused here.
 check_no_owed_merge() {
     local task=$1 short=$2 agent=$3 owed id
     [ -n "$agent" ] || return 0
@@ -135,11 +137,12 @@ check_no_owed_merge() {
         return 0
     fi
     owed=$(owed_merges_of "$agent" "$task")
+    [ "$(printf '%s\n' "$owed" | grep -c .)" -le 1 ] && return 0
     for id in $owed; do
         [ -n "$id" ] || continue
         case "$owed_reported" in *" $agent:$id "*) continue ;; esac
         owed_reported="$owed_reported$agent:$id "
-        err "commit $short works on $task while $agent still owes the merge of $id — an accepted task is not done until its close is on origin/main. Publish it (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
+        err "commit $short works on $task while $agent still owes the merge of $id and another task — an accepted task is not done until its close is on origin/main, and one merge in flight is the bound. Publish one (susi workflow finish $id) or give it up deliberately (susi tasks release $id --abandon <reason>) before starting another"
     done
 }
 

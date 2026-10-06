@@ -220,7 +220,12 @@ finish)
     git push origin "HEAD:refs/heads/$branch"
     sha=$(git rev-parse HEAD)
     echo "Waiting for $sha to reach origin/main (Ctrl-C leaves work intact)."
-    budget=${SUSI_FINISH_WAIT_MAX:-7200}
+    # A green head that is merely queued is the merge machinery's problem, not
+    # this agent's — so the budget is a handoff, not a wait-out: past it the
+    # claim is released (the close receipt keeps the debt) and the agent may
+    # take the next task. A branch that cannot merge — closed PR, failed run —
+    # exits below long before this point, keeping the claim.
+    budget=${SUSI_FINISH_WAIT_MAX:-1800}
     poll=${SUSI_FINISH_POLL:-15}
     started=$(date +%s)
     ticks=0
@@ -240,15 +245,26 @@ finish)
             sha=$(git rev-parse HEAD)
         fi
         elapsed=$(( $(date +%s) - started ))
-        # Without a budget this loop held the task claim forever on a branch
-        # that could not merge — a red gate, or a PR the reconciler closes after
-        # 7 idle days — and never told the agent.
+        # Past the budget the branch is green but still queued. The close
+        # receipt on the shared remote already keeps the debt — one merge in
+        # flight is the allowed pipeline — so the claim is freed for the next
+        # task instead of holding the agent hostage to queue length.
         if [ "$elapsed" -ge "$budget" ]; then
+            if "$susi_bin" tasks release "$task" --force; then
+                cat >&2 <<MSG
+⏳ $sha is still not on origin/main after ${elapsed}s — the merge is queued,
+   not failed, so the claim is released and the merge machinery owns the rest.
+   The close receipt on the remote keeps the debt: `susi workflow check` shows
+   it under "merge published", and it clears when the merge lands. You may
+   claim the next task; a second outstanding close would be refused.
+MSG
+                exit 0
+            fi
             cat >&2 <<MSG
-❌ $sha is still not on origin/main after ${elapsed}s (budget ${budget}s).
-   Nothing is lost: the task is closed and the claim is retained, so no other
-   agent starts it. Check the branch-push run and whether its pull request was
-   closed, then run finish again (SUSI_FINISH_WAIT_MAX raises the budget).
+❌ $sha is still not on origin/main after ${elapsed}s (budget ${budget}s), and
+   releasing the claim failed — the claim is retained, so no other agent starts
+   the task. Check the branch-push run and whether its pull request was closed,
+   then run finish again (SUSI_FINISH_WAIT_MAX raises the budget).
 MSG
             exit 1
         fi
