@@ -10,6 +10,8 @@
       "nextest",
       "run",
       "--locked",
+      "-p",
+      "susi-gemi",
       "-E",
       "test(billing_mode_marginal_cost)"
     ]
