@@ -194,19 +194,26 @@ impl Provider for AnsweringProvider {
     }
 }
 
-/// Install the shared test fixtures. One file per env var, identical content
-/// no matter which test writes it, so a parallel reader can never observe
-/// torn state: the catalog includes every model id the suite prices, the
-/// ceilings file caps the daily window at $0.02, and the usage file starts
-/// empty (foreign `try_providers` callers may append records; only records
-/// for THIS test's providers are asserted on).
-fn install_fixtures() {
-    let dir = std::env::temp_dir().join("susi-budget-shared");
+/// This process's private fixture directory. nextest runs every test in its
+/// own OS process, so a fixed shared path would be rewritten under a
+/// concurrent reader by sibling processes (and by a second `cargo nextest`
+/// on the same host); `cost::price_catalog` and `spend_tracker::ceilings`
+/// read a torn file as "no price" / "no cap", which is how a test saw $0.
+fn fixture_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("susi-budget-shared-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
+    dir
+}
 
-    // Identical content to expected_cost_with_cache::install_catalog's file —
-    // whichever path `SUSI_PRICE_CATALOG_FILE` resolves to mid-race, every
-    // model id in the suite prices the same.
+/// Install the test fixtures under [`fixture_dir`], each replaced atomically
+/// (staging file + rename) so a reader sees the old or the new bytes, never
+/// an empty or partial file: the catalog includes every model id the suite
+/// prices, the ceilings file caps the daily window at $0.005, and each
+/// cascade test seeds its own usage ledger beside them (only records for
+/// THIS test's providers are asserted on).
+fn install_fixtures() -> std::path::PathBuf {
+    let dir = fixture_dir();
+
     let mut entries = BTreeMap::new();
     for (id, i, o, hit, miss) in [
         ("cheapmodel", 1.0, 4.0, Some(0.1), Some(1.0)),
@@ -232,19 +239,22 @@ fn install_fixtures() {
         version: 1,
         entries,
     };
-    std::fs::write(
-        dir.join("model_prices.json"),
-        catalog.to_json().expect("catalog json"),
+    crate::susi_config::atomic_write_bytes(
+        &dir.join("model_prices.json"),
+        catalog.to_json().expect("catalog json").as_bytes(),
     )
     .expect("catalog file");
 
-    std::fs::write(dir.join("budget_ceilings.json"), r#"{"daily_usd": 0.005}"#)
-        .expect("ceilings file");
+    crate::susi_config::atomic_write_bytes(
+        &dir.join("budget_ceilings.json"),
+        br#"{"daily_usd": 0.005}"#,
+    )
+    .expect("ceilings file");
 
     // The usage ledger is test-scoped, not shared — each cascade test seeds
     // its own so a foreign record from another test cannot flip a cap.
     // SAFETY: env mutations are serialized by env_test_lock at each call
-    // site; the catalog/ceilings content is identical across writers.
+    // site; the files are process-private and replaced atomically.
     unsafe {
         std::env::set_var("SUSI_PRICE_CATALOG_FILE", dir.join("model_prices.json"));
         std::env::set_var(
@@ -252,13 +262,13 @@ fn install_fixtures() {
             dir.join("budget_ceilings.json"),
         );
     }
+    dir
 }
 
 #[test]
 fn budget_ceiling_cascade_steps_down_to_the_affordable_rung() {
     let _env = crate::engines::env_test_lock();
-    install_fixtures();
-    let usage = std::env::temp_dir().join("susi-budget-cascade-usage.json");
+    let usage = install_fixtures().join("cascade-usage.json");
     std::fs::remove_file(&usage).ok();
     // SAFETY: serialized by env_test_lock.
     unsafe {
@@ -308,8 +318,7 @@ fn budget_ceiling_cascade_steps_down_to_the_affordable_rung() {
 #[test]
 fn budget_ceiling_cascade_records_spend_with_attribution() {
     let _env = crate::engines::env_test_lock();
-    install_fixtures();
-    let usage = std::env::temp_dir().join("susi-budget-attr-usage.json");
+    let usage = install_fixtures().join("attr-usage.json");
     std::fs::remove_file(&usage).ok();
     // SAFETY: serialized by env_test_lock.
     unsafe {
@@ -349,8 +358,7 @@ fn budget_ceiling_cascade_records_spend_with_attribution() {
 #[test]
 fn budget_ceiling_all_over_cap_leaves_nothing_priced() {
     let _env = crate::engines::env_test_lock();
-    install_fixtures();
-    let usage = std::env::temp_dir().join("susi-budget-empty-usage.json");
+    let usage = install_fixtures().join("empty-usage.json");
     std::fs::remove_file(&usage).ok();
     // SAFETY: serialized by env_test_lock.
     unsafe {
