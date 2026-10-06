@@ -1,0 +1,17 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-7",
+  "title": "Cut merge convoy cost: oldest-green-first, skip main-suite dispatch for task-bookkeeping merges",
+  "goal": "reconcile-prs.sh processes green PRs oldest-first; scripts/auto-merge-pr.sh skips the full main Test dispatch when the merge's diff touches only .agents/ bookkeeping (tested-head/merge-commit correctness stays); keep the serialized integration group and tested-head rule unchanged.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "auto_merge"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791295854
+}
