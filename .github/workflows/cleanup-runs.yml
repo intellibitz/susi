@@ -14,7 +14,7 @@ on:
     inputs:
       retain_days:
         description: Delete completed runs older than this many days
-        default: '7'
+        default: '2'
 
 permissions:
   actions: write
@@ -26,8 +26,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      RETAIN_DAYS: ${{ inputs.retain_days || '7' }}
-      KEEP_LATEST: '10'
+      RETAIN_DAYS: ${{ inputs.retain_days || '2' }}
+      KEEP_LATEST: '5'
     steps:
       - name: Delete old completed runs
         run: |
