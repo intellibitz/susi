@@ -256,7 +256,19 @@ fn a_commit_must_name_a_claimed_or_closed_task() {
     let (code, err) = e.check(&before);
     assert_eq!(code, 0, "{err}");
 
-    // 5b. Once closed, a task cannot be cited again (unrelated work must not
+    // 5b. The pipeline's handoff: `finish` may release the claim once the
+    //     close receipt is on the remote, so a re-judged range finds no claim
+    //     on T-TEST-1. The receipt is the stronger fact — writing it required
+    //     the live owned claim — so the same commits still pass.
+    let (code, _, err) = e.susi(&["tasks", "release", "T-TEST-1", "--force"]);
+    assert_eq!(code, 0, "{err}");
+    let (code, err) = e.check(&before);
+    assert_eq!(
+        code, 0,
+        "a released claim on a receipted task passes: {err}"
+    );
+
+    // 5c. Once closed, a task cannot be cited again (unrelated work must not
     //     ride on it).
     let before = e.head();
     e.commit("e2", "fix: sneaky", Some("T-TEST-1"));
