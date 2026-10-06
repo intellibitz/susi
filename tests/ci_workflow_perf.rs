@@ -194,28 +194,48 @@ fn matrix_jobs_keep_one_cargo_cache_per_shard() {
     }
 }
 
+/// `cargo install` lines whose build is measured to be negligible, so a cache
+/// would only add a step: kani-verifier is a thin driver, 2.6 s to build.
+const QUICK_INSTALLS: &[&str] = &["kani-verifier"];
+
 #[test]
-fn source_built_tools_are_pinned_and_cached() {
+fn source_built_tools_are_pinned_and_the_slow_ones_cached() {
     for (name, text) in workflows() {
         for j in jobs(&text) {
-            if !j.body.contains("cargo install") {
-                continue;
-            }
-            assert!(
-                j.body.contains("actions/cache@") || j.body.contains("Swatinem/rust-cache"),
-                "{name}: job `{}` runs `cargo install` with no cache: a release-profile \
-                 source build (~3 min) on every run",
-                j.id
-            );
             for line in j.body.lines().filter(|l| l.contains("cargo install")) {
                 assert!(
                     line.contains("--version"),
-                    "{name}: `{}` is unpinned, so the cache key cannot name what it holds \
+                    "{name}: `{}` is unpinned, so a cache key cannot name what it holds \
                      and a new release changes the tool under a recorded baseline",
+                    line.trim()
+                );
+                if QUICK_INSTALLS.iter().any(|q| line.contains(q)) {
+                    continue;
+                }
+                assert!(
+                    j.body.contains("actions/cache@") || j.body.contains("Swatinem/rust-cache"),
+                    "{name}: job `{}` runs `{}` with no cache: a release-profile source \
+                     build (cargo-geiger: ~3 min) on every run. If this one is genuinely \
+                     quick, measure it and add it to QUICK_INSTALLS",
+                    j.id,
                     line.trim()
                 );
             }
         }
+    }
+}
+
+#[test]
+fn kani_unstable_flags_travel_together() {
+    // 0.68 refuses `--concrete-playback` without `-Z concrete-playback`. The job
+    // sat on a dead runner for so long that nobody saw it fail the moment it ran.
+    let text = read(".github/workflows/test.yml");
+    let body = code(&text);
+    if body.contains("--concrete-playback") {
+        assert!(
+            body.contains("-Z concrete-playback"),
+            "`cargo kani --concrete-playback` is unstable: it needs `-Z concrete-playback`"
+        );
     }
 }
 

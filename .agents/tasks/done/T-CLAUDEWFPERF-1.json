@@ -1,0 +1,28 @@
+{
+  "id": "T-CLAUDEWFPERF-1",
+  "title": "Make main's first honest CI run pass: Kani flag, racing observation test, vacuous acceptances",
+  "goal": "The first completed main run (37430509046) exposed what cancellations and the dead runner hid: (1) Kani now gets a runner but fails at once because --concrete-playback needs -Z concrete-playback on 0.68, and its binary cache buys nothing (cargo install kani-verifier takes 2.6 s); (2) audit_retention_prune_observation_cost_measured_and_attributed races on process-global SUSI_OBSERVATION_FILE/SUSI_AGENT under libtest (llvm-cov), reproduced with a constant 24-byte foreign record; (3) T-DEEPSEEK-87/118/119 accept with a package-less cargo nextest that matches no tests in the root package (exit 4), so they never verified anything.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-p",
+      "susi-sandbox-client",
+      "-E",
+      "binary(ci_workflow_perf)|test(audit_retention_prune)"
+    ]
+  },
+  "created_by": "CLAUDEWFPERF",
+  "created_unix": 1791272944,
+  "closed": {
+    "at_unix": 1791273794,
+    "commit": "4550eaf57374d0e2af187ab16804185a12a6e118",
+    "by": "CLAUDEWFPERF"
+  }
+}
