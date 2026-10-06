@@ -155,6 +155,9 @@ mod expected_cost_with_cache_tests;
 #[path = "tests/model_catalogue_drift.rs"]
 mod model_catalogue_drift_tests;
 #[cfg(test)]
+#[path = "tests/model_health_failure_classes.rs"]
+mod model_health_failure_classes_tests;
+#[cfg(test)]
 #[path = "tests/model_preload.rs"]
 mod model_preload_tests;
 #[cfg(test)]
