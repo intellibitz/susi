@@ -649,11 +649,13 @@ pub fn record_observation(
         .open(&path)
     {
         use std::io::Write;
-        let _ = writeln!(
-            file,
-            "{}",
-            serde_json::to_string(&record).unwrap_or_default()
-        );
+        // One record, one `write`: with `O_APPEND` a single small write is
+        // atomic, so concurrent writers cannot interleave. `writeln!` on a bare
+        // `File` is two writes (the JSON, then the newline) and a writer landing
+        // between them fused two records into one unparseable line, losing both.
+        let mut line = serde_json::to_string(&record).unwrap_or_default();
+        line.push('\n');
+        let _ = file.write_all(line.as_bytes());
     }
 }
 
@@ -1154,7 +1156,30 @@ mod audit_retention_prune_tests {
         std::env::remove_var("SUSI_OBSERVATION_FILE");
         std::env::remove_var("SUSI_AGENT");
 
-        let report = observation_report(&journal);
+        // Those two variables are process-global. Under libtest - one process,
+        // many threads, which is how `cargo llvm-cov` runs this - another test's
+        // observation write lands in this journal while they are set, attributed
+        // to this test's SUSI_AGENT, and the agent's total then exceeds the audit
+        // tier's by that stranger's bytes (a constant 24 in the reproduction;
+        // nextest isolates tests per process, which is why only coverage saw it).
+        // Judge only the records this test's own workspace wrote.
+        let own = ws
+            .file_name()
+            .expect("scratch dir has a name")
+            .to_string_lossy()
+            .to_string();
+        let mine: String = std::fs::read_to_string(&journal)
+            .expect("journal")
+            .lines()
+            .filter(|l| {
+                serde_json::from_str::<ObservationRecord>(l).is_ok_and(|r| r.workspace == own)
+            })
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let own_journal = ws.join("observation-cost.own.jsonl");
+        std::fs::write(&own_journal, &mine).expect("own journal");
+
+        let report = observation_report(&own_journal);
         assert!(report.records >= 1, "the write was recorded");
         assert!(report.total_bytes > 0, "bytes persisted were measured");
         let audit = report.by_tier.get("audit").expect("audit tier recorded");
@@ -1164,10 +1189,57 @@ mod audit_retention_prune_tests {
             .get("DEEPSEEK")
             .expect("agent attribution like any spend");
         assert_eq!(agent.1, audit.1, "the agent's cost is the tier's cost");
-        let line = std::fs::read_to_string(&journal).expect("journal");
         assert!(
-            line.contains("OBSERVED_EVENT"),
-            "the record names what caused the write: {line}"
+            mine.contains("OBSERVED_EVENT"),
+            "the record names what caused the write: {mine}"
+        );
+    }
+
+    /// The journal is documented as "appended line-per-record, so concurrent
+    /// writers never lose each other's records". That only holds if each record
+    /// reaches the file in ONE write: `writeln!` on an unbuffered `File` issues two
+    /// (the JSON, then the newline), so a writer landing between them tears two
+    /// records into one unparseable line and both are lost to the report.
+    #[test]
+    fn audit_retention_prune_observation_journal_never_tears_a_record() {
+        let ws = scratch("tear");
+        let journal = ws.join("observation-cost.jsonl");
+        let _guard = crate::env_test_lock();
+        std::env::set_var("SUSI_OBSERVATION_FILE", &journal);
+        let threads = 8usize;
+        let per_thread = 400usize;
+        std::thread::scope(|scope| {
+            for t in 0..threads {
+                let ws = ws.clone();
+                scope.spawn(move || {
+                    for i in 0..per_thread {
+                        record_observation(
+                            &ws,
+                            "audit",
+                            &format!("TEAR_{t}_{i}"),
+                            64,
+                            std::time::Duration::from_nanos(1),
+                        );
+                    }
+                });
+            }
+        });
+        std::env::remove_var("SUSI_OBSERVATION_FILE");
+        let text = std::fs::read_to_string(&journal).expect("journal");
+        let torn: Vec<&str> = text
+            .lines()
+            .filter(|l| serde_json::from_str::<ObservationRecord>(l).is_err())
+            .collect();
+        assert!(
+            torn.is_empty(),
+            "{} torn line(s), e.g. {:?}",
+            torn.len(),
+            torn.first()
+        );
+        assert_eq!(
+            observation_report(&journal).records,
+            (threads * per_thread) as u64,
+            "every record survives concurrent writers"
         );
     }
 
