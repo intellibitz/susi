@@ -230,7 +230,7 @@ finish)
         accept_cmd=$(jq -r '.accept.cmd | join(" ")' ".agents/tasks/$task.json" 2>/dev/null || true)
         if [ -n "$accept_cmd" ] && acceptance_covered "$accept_cmd"; then
             echo "gate: acceptance \`$accept_cmd\` already ran in the gate — close will not re-run it" >&2
-            SUSI_ACCEPTANCE_COVERED=$task "$susi_bin" tasks close "$task"
+            SUSI_ACCEPTANCE_COVERED="$task@$root" "$susi_bin" tasks close "$task"
         else
             "$susi_bin" tasks close "$task"
         fi

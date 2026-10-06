@@ -21,13 +21,13 @@
 use crate::engines::brain::{Store, TaskClass};
 use crate::engines::cost::Budget;
 
-/// Identical entry content to the shared catalogs the cost suites
-/// install — whichever path `SUSI_PRICE_CATALOG_FILE` resolves to
-/// mid-race, the shared ids price identically everywhere.
+/// Install the shared price catalog under a process-private directory,
+/// replaced atomically: nextest runs sibling tests as separate processes, and
+/// a fixed path truncated by another writer reads back as an unpriced catalog.
 fn install_shared_catalog(env: &mut susi_paths::test_env::EnvGuard) {
     use crate::models::price_catalog::{PriceCatalog, PriceEntry};
     use std::collections::BTreeMap;
-    let dir = std::env::temp_dir().join("susi-prices-marginal");
+    let dir = std::env::temp_dir().join(format!("susi-prices-marginal-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let mut entries = BTreeMap::new();
     for (id, i, o, hit, miss) in [
@@ -55,7 +55,11 @@ fn install_shared_catalog(env: &mut susi_paths::test_env::EnvGuard) {
         entries,
     };
     let path = dir.join("model_prices.json");
-    std::fs::write(&path, catalog.to_json().expect("catalog json")).expect("catalog file");
+    crate::susi_config::atomic_write_bytes(
+        &path,
+        catalog.to_json().expect("catalog json").as_bytes(),
+    )
+    .expect("catalog file");
     env.set("SUSI_PRICE_CATALOG_FILE", &path);
 }
 

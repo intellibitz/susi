@@ -2060,11 +2060,19 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // covered a cargo-test acceptance (same package or the workspace), the
     // result here would be byte-identical, so finish names the covered task in
     // SUSI_ACCEPTANCE_COVERED rather than paying for a second identical suite.
-    // Cargo-shaped acceptances only: a scripts/ checker asserts things the
-    // gate never ran. Setting the env by hand skips like --no-verify does —
-    // the post-merge verify job re-runs the acceptance on the merged tree
-    // either way, which is the authoritative one.
-    let covered = std::env::var("SUSI_ACCEPTANCE_COVERED").ok().as_deref() == Some(id)
+    // The value is `<id>@<worktree>` — bound to one worktree so a stale export
+    // cannot skip acceptance elsewhere. Cargo-shaped acceptances only: a
+    // scripts/ checker asserts things the gate never ran. Setting the env by
+    // hand skips like --no-verify does — the post-merge verify job re-runs the
+    // acceptance on the merged tree either way, which is the authoritative one.
+    let covered = std::env::var("SUSI_ACCEPTANCE_COVERED")
+        .ok()
+        .is_some_and(|v| {
+            let (cid, dir) = v.split_once('@').unwrap_or((v.as_str(), ""));
+            cid == id
+                && std::fs::canonicalize(dir).ok().as_deref()
+                    == std::fs::canonicalize(ws).ok().as_deref()
+        })
         && task.accept.cmd.first().is_some_and(|p| p == "cargo")
         && task
             .accept
@@ -3039,8 +3047,12 @@ mod tests {
         .unwrap();
         claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
         // `cargo test` cannot pass in this fixture — no Cargo.toml — so a
-        // successful close proves the run was skipped.
-        std::env::set_var("SUSI_ACCEPTANCE_COVERED", &t.id);
+        // successful close proves the run was skipped. The flag is bound to
+        // `<id>@<worktree>`: the id alone is not unique across fixtures.
+        std::env::set_var(
+            "SUSI_ACCEPTANCE_COVERED",
+            format!("{}@{}", t.id, a.display()),
+        );
         let done = close(&a, &t.id, "claude");
         std::env::remove_var("SUSI_ACCEPTANCE_COVERED");
         assert!(done.is_ok(), "{:?}", done.err());
@@ -3060,8 +3072,11 @@ mod tests {
         )
         .unwrap();
         claim(&a, &t2.id, "claude", 1, now_unix()).unwrap();
-        // A flag for another task does not cover this one.
-        std::env::set_var("SUSI_ACCEPTANCE_COVERED", &t.id);
+        // Same task-id shape but a different id, same worktree: not covered.
+        std::env::set_var(
+            "SUSI_ACCEPTANCE_COVERED",
+            format!("{}@{}", t.id, a.display()),
+        );
         let err = close(&a, &t2.id, "claude");
         std::env::remove_var("SUSI_ACCEPTANCE_COVERED");
         assert!(err.unwrap_err().to_string().contains("not done"));
