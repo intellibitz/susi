@@ -50,7 +50,13 @@ impl World {
         let work = root.join("worker");
         let remote = root.join("remote.git");
         let bins = root.join("bins");
-        for dir in [&primary, &remote, &bins, &root.join("home")] {
+        for dir in [
+            &primary,
+            &remote,
+            &bins,
+            &root.join("home"),
+            &root.join("cargo-home"),
+        ] {
             std::fs::create_dir_all(dir).unwrap();
         }
         git(&remote, &["init", "--bare", "-q", "-b", "main"]);
@@ -69,6 +75,7 @@ impl World {
             "ensure-watcher.sh",
             "swarm-status.sh",
             "ci-changed-crates.sh",
+            "check-hermetic-tests.sh",
         ] {
             std::fs::copy(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -90,7 +97,7 @@ impl World {
         // read: one member crate plus a root package owning src/ and tests/.
         std::fs::write(
             primary.join("Cargo.toml"),
-            "[package]\nname = \"fixture-root\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n",
+            "[package]\nname = \"fixture-root\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\ncell = { path = \"crates/cell\" }\n\n[workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n",
         )
         .unwrap();
         std::fs::create_dir_all(primary.join("src")).unwrap();
@@ -130,7 +137,11 @@ impl World {
         // The fake records its full argv so a test can see which packages the
         // gate selected; `metadata` delegates to the real toolchain because
         // `ci-changed-crates.sh` reads an actual workspace.
-        executable(&bins.join("cargo"), "#!/bin/sh\nif [ \"$1\" = metadata ]; then exec \"$TEST_REAL_CARGO\" \"$@\"; fi\necho \"$*\" >> \"$TEST_GATES\"\nif [ \"$1\" = clippy ] && [ \"$TEST_GATE_FAIL\" = 1 ]; then exit 1; fi\n");
+        executable(&bins.join("cargo"), "#!/bin/sh\nif [ \"$1\" = metadata ]; then exec \"$TEST_REAL_CARGO\" \"$@\"; fi\necho \"$*\" >> \"$TEST_GATES\"\nif [ \"$1 $2\" = \"nextest --version\" ] && [ \"$TEST_NO_NEXTEST\" = 1 ]; then exit 1; fi\nif [ \"$1 $2\" = \"nextest run\" ]; then echo \"HOME=$HOME FORBIDDEN=$SUSI_HERMETIC_FORBIDDEN\" >> \"$TEST_GATES.env\"; fi\nif [ \"$1\" = clippy ] && [ \"$TEST_GATE_FAIL\" = 1 ]; then exit 1; fi\n");
+        // The hermetic wrapper puts `$CARGO_HOME/bin` ahead of PATH, so the fake
+        // has to be reachable there too.
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&bins, root.join("cargo-home").join("bin")).unwrap();
         // GitHub's successful PR merge is emulated only for the code branch push.
         // With TEST_RACE_PRIMARY set, the first push instead lands the primary's
         // unpushed main commit on remote main — a merge that raced ours — so the
@@ -165,13 +176,24 @@ impl World {
         cmd.args(args)
             .current_dir(&self.work)
             .env("HOME", self.root.join("home"))
+            .env("CARGO_HOME", self.root.join("cargo-home"))
             .env("XDG_CONFIG_HOME", self.root.join("home/xdg"))
             .env_remove("SUSI_HOME")
+            // The gate reads these: a developer who exports them must not change
+            // what the fixture's gate runs.
+            .env_remove("SUSI_HERMETIC_RUNNER")
+            .env_remove("SUSI_HERMETIC_RETRIES")
+            .env_remove("SUSI_LOCAL_GATE")
             .env("SUSI_AGENT", "WORKER");
         cmd
     }
     fn finish(&self, fail: bool) -> std::process::Output {
+        self.finish_env(fail, &[])
+    }
+
+    fn finish_env(&self, fail: bool, envs: &[(&str, &str)]) -> std::process::Output {
         self.susi(&["workflow", "finish", "T-WORKER-1"])
+            .envs(envs.iter().copied())
             .env(
                 "PATH",
                 format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
@@ -322,9 +344,10 @@ fn finish_waits_for_publication_before_releasing_and_syncs_primary() {
     );
 }
 
-/// A diff that touches a member crate gates that crate — clippy and test
+/// A diff that touches a member crate gates that crate — clippy and the tests
 /// both carry `-p cell` and nothing runs `--workspace`. Before the gate was
-/// scoped, this task paid for the whole workspace like every other.
+/// scoped, this task paid for the whole workspace like every other. The tests
+/// run once, under nextest, inside the hermetic wrapper.
 #[test]
 fn the_gate_scopes_to_the_crates_the_diff_touched() {
     let w = World::new("scoped");
@@ -346,10 +369,96 @@ fn the_gate_scopes_to_the_crates_the_diff_touched() {
         "scoped clippy: {gates}"
     );
     assert!(
-        gates.contains("test --locked -p cell"),
-        "scoped tests: {gates}"
+        gates.contains("nextest run --locked --no-fail-fast --no-tests=pass --retries 2 -p cell\n"),
+        "scoped tests, once, under nextest with per-test retries: {gates}"
     );
     assert!(!gates.contains("--workspace"), "{gates}");
+}
+
+/// What can stop *compiling* reaches further than what can fail a test: the root
+/// package depends on `cell`, so a change to `cell` lints both, but only `cell`'s
+/// own tests can have changed. The pre-push hook lints this same set.
+#[test]
+fn the_gate_lints_the_dependents_but_tests_only_the_changed_crates() {
+    let w = World::new("dependents");
+    std::fs::write(w.work.join("crates/cell/src/lib.rs"), "pub fn cell2() {}\n").unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &["commit", "-qm", "touch cell\n\nTask: T-WORKER-1"],
+    );
+    let out = w.finish(false);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
+    assert!(
+        gates.contains("clippy --locked --all-targets -p cell -p fixture-root -- -D warnings\n"),
+        "clippy covers the changed crate and what depends on it: {gates}"
+    );
+    let tests: Vec<&str> = gates
+        .lines()
+        .filter(|l| l.starts_with("nextest run"))
+        .collect();
+    assert_eq!(tests.len(), 1, "the tests run once: {gates}");
+    assert!(
+        !tests[0].contains("fixture-root"),
+        "a dependent's tests are not what the diff changed: {}",
+        tests[0]
+    );
+}
+
+/// Mandate 52: the single test run is hermetic - a throwaway HOME and a
+/// SUSI_HOME the wrapper then checks stays empty - not the developer's own.
+#[test]
+fn the_gates_test_run_is_hermetic() {
+    let w = World::new("hermetic");
+    std::fs::write(w.work.join("crates/cell/src/lib.rs"), "pub fn cell2() {}\n").unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &["commit", "-qm", "touch cell\n\nTask: T-WORKER-1"],
+    );
+    let out = w.finish(false);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let env = std::fs::read_to_string(w.root.join("gates.env")).unwrap();
+    let home = w.root.join("home");
+    assert!(
+        !env.contains(&format!("HOME={}", home.display())),
+        "the tests ran with the developer's HOME: {env}"
+    );
+    assert!(
+        env.contains("FORBIDDEN=/"),
+        "the throwaway SUSI_HOME the wrapper guards was not set: {env}"
+    );
+}
+
+/// A host without cargo-nextest keeps the old path: `cargo test`, retrying the
+/// crates that failed once. The gate must not stop working there.
+#[test]
+fn without_nextest_the_gate_falls_back_to_cargo_test() {
+    let w = World::new("nonextest");
+    std::fs::write(w.work.join("crates/cell/src/lib.rs"), "pub fn cell2() {}\n").unwrap();
+    git(&w.work, &["add", "-A"]);
+    git(
+        &w.work,
+        &["commit", "-qm", "touch cell\n\nTask: T-WORKER-1"],
+    );
+    let out = w.finish_env(false, &[("TEST_NO_NEXTEST", "1")]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
+    assert!(gates.contains("test --locked -p cell"), "{gates}");
+    assert!(!gates.contains("nextest run"), "{gates}");
 }
 
 /// Root-package trees (`tests/`, `src/`) belong to the root package, not to
@@ -406,7 +515,7 @@ fn a_cargo_acceptance_the_gate_covered_is_not_run_again() {
     );
     let gates = std::fs::read_to_string(w.root.join("gates")).unwrap();
     assert!(
-        gates.contains("test --locked -p cell"),
+        gates.contains("nextest run --locked --no-fail-fast --no-tests=pass --retries 2 -p cell\n"),
         "the gate ran cell's tests: {gates}"
     );
     assert!(

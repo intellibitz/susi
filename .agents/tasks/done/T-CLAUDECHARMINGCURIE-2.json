@@ -1,0 +1,28 @@
+{
+  "id": "T-CLAUDECHARMINGCURIE-2",
+  "title": "Local gate runs the changed crates' tests once, hermetically, under nextest with retries; pre-push lint is scoped; main shards retry flakes",
+  "goal": "With the branch gate no longer executing tests (T-CLAUDECHARMINGCURIE-1), the agent's local gate is where pre-merge tests run, and the Mandate 52 hermetic check (scripts/check-hermetic-tests.sh) is no longer enforced on any branch push. (1) scripts/parallel-workflow.sh gate(): clippy over the changed crates plus dependents (ci-changed-crates.sh --dependents) and the changed crates' tests run ONCE under the hermetic wrapper using cargo-nextest with per-test --retries (a failing test is believed only if it fails again; nextest reports the flaky ones), plus the doc-tests nextest does not run; falls back to cargo test where nextest is absent. (2) scripts/check-hermetic-tests.sh gains a nextest runner (SUSI_HERMETIC_RUNNER=nextest) that keeps the empty-SUSI_HOME assertion. (3) .githooks/pre-push lints the same scoped set instead of --workspace on every Rust push (the finish gate has just linted it; a different package set makes the hook compile crates the gate never touched). (4) test.yml shards run nextest with --retries so a flake reports as flaky instead of reddening main: Test (gemi) failed on main at 0de076e7 in engines::alpha::tests::consistent_new_data_passes_the_gate (0.6 s) on a commit that did not touch gemi, and Main Failure Attribution blamed the PR that merely preceded it.",
+  "size": "m",
+  "deps": [
+    "T-CLAUDECHARMINGCURIE-1"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-E",
+      "binary(/^(ci_|parallel_workflow|hermetic_scope)/)"
+    ]
+  },
+  "created_by": "CLAUDECHARMINGCURIE",
+  "created_unix": 1791313517,
+  "closed": {
+    "at_unix": 1791316623,
+    "commit": "6b1bb5150bf4f1f36d51cd12052111b396ca1845",
+    "by": "CLAUDECHARMINGCURIE"
+  }
+}

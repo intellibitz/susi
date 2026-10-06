@@ -415,8 +415,15 @@ jobs:
         if: contains(matrix.shard.pkgs, 'susi-gmcp') || contains(matrix.shard.pkgs, 'susi-vendor-fastembed') || matrix.shard.name == 'root-cli'
         run: scripts/ci-prefetch-onnxruntime.sh
 
+      # `--retries 2`: with the branch gate no longer running tests, this is the
+      # first CI run that does, so a flaky test lands here and not on a branch.
+      # `Test (gemi)` failed on main in a 0.6 s test on a commit that did not touch
+      # gemi, and Main Failure Attribution blamed the pull request that merely
+      # preceded it. A test is retried alone, and one that passes on retry is
+      # reported FLAKY in the summary rather than failing the shard - visible, not
+      # silent - while one that fails all three attempts still reddens main.
       - name: cargo nextest
-        run: cargo nextest run --locked ${{ matrix.shard.pkgs }} -E 'not binary(capability_gap_e2e)'
+        run: cargo nextest run --locked --retries 2 ${{ matrix.shard.pkgs }} -E 'not binary(capability_gap_e2e)'
 
   # Per-crate coverage floor: coverage can only rise. Parallel with the
   # shards so it adds no wall time; instrumented build is the cost.

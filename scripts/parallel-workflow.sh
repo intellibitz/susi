@@ -68,14 +68,33 @@ evidence_prompt() {
     echo "   Not required: an entry minted to satisfy a check is worse than none."
 }
 
-# Run the workspace test gate, retrying the crates that failed once.
+# Run the changed crates' tests: ONCE, hermetically, with per-test retries.
+#
+# This is the only place a branch's tests run before it merges - the branch-push
+# run compiles and lints, it does not execute tests - so it does what two remote
+# steps used to: the hermetic check (Mandate 52: a throwaway HOME/XDG/SUSI_HOME,
+# and a failure if a test writes into it) and the run itself are one pass of
+# scripts/check-hermetic-tests.sh under cargo-nextest. nextest retries a failing
+# *test* alone (SUSI_HERMETIC_RETRIES, default 2) and reports the ones that pass
+# on retry as flaky, which replaces the per-crate rerun below; doc-tests, which
+# nextest does not run, follow for the crates that have a library. A host without
+# nextest keeps the cargo-test path.
+gate_tests() {
+    if cargo nextest --version >/dev/null 2>&1; then
+        SUSI_HERMETIC_RUNNER=nextest "$root/scripts/check-hermetic-tests.sh" "$@"
+        return
+    fi
+    gate_tests_cargo "$@"
+}
+
+# The cargo-test path, retrying the crates that failed once.
 #
 # Timing-sensitive tests assert that work overlaps in wall time, and a machine
 # running five agents' builds cannot always give them that: the gate failed twice
 # for one agent while the same crate passed when the machine was quiet. A
 # plausible flake is not evidence of a regression, and stopping the loop for one
 # costs a cycle and a live claim - but a failure that repeats is believed.
-gate_tests() {
+gate_tests_cargo() {
     local log crates c
     log=$(mktemp)
     if cargo test --locked "$@" 2>&1 | tee "$log"; then
@@ -126,28 +145,39 @@ gate_tests() {
 # The local gate proves what the diff can break, not the whole workspace:
 # `ci-changed-crates.sh` names the packages the branch touches — the same
 # scoping the branch-push CI gate applies — so a task that changes one crate
-# checks and tests only that crate. The full suite is kept for workspace-wide
-# inputs (lockfile, toolchain, root build inputs) or when detection cannot
-# tell, and `SUSI_LOCAL_GATE=full` forces it. A docs/CI-only diff has nothing
-# local to prove beyond fmt: the branch-push run gates the merge, and main
-# re-runs the full suite after it.
+# checks and tests only that crate. Two sets, because a break and a test failure
+# have different reach: the tests that can change are the changed crates', while
+# what can stop *compiling* also includes their dependents (`--dependents`), so
+# clippy takes the wider set and the tests the narrower. The full suite is kept
+# for workspace-wide inputs (lockfile, toolchain, root build inputs) or when
+# detection cannot tell, and `SUSI_LOCAL_GATE=full` forces it. A docs/CI-only
+# diff has nothing local to prove beyond fmt: the branch-push run gates the
+# merge, and main re-runs the full suite after it.
 gate() {
-    local pkgs sel
+    local pkgs lint sel lsel
     cargo fmt --all --check
     pkgs=$("$root/scripts/ci-changed-crates.sh")
     gate_pkgs=$pkgs
     if [ "$pkgs" = ALL ] || [ "${SUSI_LOCAL_GATE:-}" = full ]; then
         gate_pkgs=ALL
         cargo clippy --workspace --all-targets --locked -- -D warnings
-        gate_tests --workspace
+        # Not the hermetic runner: a whole-workspace hermetic sweep has never run
+        # (the remote check only ever covered the crates a diff touched), and
+        # every workspace-wide change - a lockfile bump, a toolchain pin - would
+        # inherit whatever it finds. The scoped path below is hermetic.
+        gate_tests_cargo --workspace
         return
     fi
     if [ -z "$pkgs" ]; then
         echo 'gate: no crate touched by this diff — fmt is clean; the branch run proves the rest' >&2
         return
     fi
+    lint=$("$root/scripts/ci-changed-crates.sh" --dependents)
+    lsel=$(printf ' -p %s' $lint)
+    # The pre-push hook lints this exact set with this exact command line, so
+    # its run is a cache hit rather than a second compile of other crates.
+    cargo clippy --locked --all-targets $lsel -- -D warnings
     sel=$(printf ' -p %s' $pkgs)
-    cargo clippy --locked --all-targets $sel -- -D warnings
     gate_tests $sel
 }
 

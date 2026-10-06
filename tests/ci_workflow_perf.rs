@@ -344,6 +344,46 @@ fn the_tests_still_run_on_main_where_the_branch_gate_does_not_run_them() {
     );
 }
 
+/// With the branch gate no longer executing tests, the sharded suite on main is
+/// the first CI run that does, so a flaky test lands there. `Test (gemi)` failed
+/// on main in a 0.6 s test on a commit that did not touch gemi, and Main Failure
+/// Attribution blamed the pull request that merely preceded it. A test is retried
+/// alone; one that passes on retry is reported FLAKY rather than failing the shard.
+#[test]
+fn the_main_shards_retry_a_flaky_test_alone() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let test = job(&jobs, "test");
+    assert!(
+        test.body.contains("cargo nextest run --locked --retries"),
+        "the `test` shards must run nextest with `--retries`: a flake would otherwise redden \
+         main and put a misattributed comment on an innocent pull request"
+    );
+}
+
+/// The pre-push hook lints what the finish gate lints, with the same command
+/// line, so its run is a cache hit. `--workspace` compiled every other crate's
+/// test targets too - a cold build the gate never needed - on every Rust push.
+#[test]
+fn the_pre_push_hook_lints_the_gates_scoped_set_not_the_whole_workspace() {
+    let hook = read(".githooks/pre-push");
+    assert!(
+        hook.contains("ci-changed-crates.sh\" --dependents"),
+        "pre-push must resolve the changed crates and their dependents, as the gate does"
+    );
+    assert!(
+        hook.contains(
+            "cargo clippy --locked --all-targets $(printf ' -p %s' $LINT_PKGS) -- -D warnings"
+        ),
+        "the scoped lint must use the gate's exact command line, or it is a second compile"
+    );
+    let gate = read("scripts/parallel-workflow.sh");
+    assert!(
+        gate.contains("cargo clippy --locked --all-targets $lsel -- -D warnings"),
+        "the gate's scoped lint changed; the hook must change with it so the run stays a cache hit"
+    );
+}
+
 #[test]
 fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
     let text = read(".github/workflows/test.yml");
