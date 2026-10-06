@@ -45,9 +45,37 @@ jobs:
           git fetch --quiet origin main
           scripts/check-release-tag.sh "${GITHUB_REF_NAME}"
 
+  # Nothing builds until the commit the binaries come from has passed the full
+  # suite. The cut's local gate is not that proof: bare `cargo test` at this
+  # workspace root selects one package of 86, and this workflow ran no tests at
+  # all, so the other 85 were covered for a release only by whatever main's run
+  # happened to do. scripts/release-await-tests.sh reuses a passed full-suite run
+  # for this exact sha (a dispatch, or a push to main - a branch-push run only
+  # compiles) and otherwise dispatches the Test workflow on this ref and waits:
+  # the sharded suite, lint and e2e, not the coverage ratchet or the Kani proofs,
+  # which gate merges to main. Waiting here costs the suite's wall time (about
+  # four to five minutes warm) before the 15-31 minute builds start, and saves all
+  # four builds' runner minutes when it is red.
+  tests:
+    name: Full suite on the tagged commit
+    needs: [verify-tag]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: write # dispatch the Test workflow on this ref
+      contents: read
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: The suite must pass on exactly this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release-await-tests.sh "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_SHA"
+
   build:
     name: Build ${{ matrix.name }}
-    needs: [verify-tag]
+    needs: [verify-tag, tests]
     runs-on: ${{ matrix.os }}
     # Slowest leg 31 min: a hung build must not hold a release for the 6 h default.
     timeout-minutes: 75
@@ -121,7 +149,7 @@ jobs:
 
   build-cuda:
     name: Build linux-x86_64-cuda
-    needs: [verify-tag]
+    needs: [verify-tag, tests]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
