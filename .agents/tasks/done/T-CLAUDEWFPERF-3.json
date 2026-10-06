@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDEWFPERF-3",
+  "title": "Serialize zc-matrix runs: it started a fresh 3-OS build on every main merge",
+  "goal": "zc-matrix.yml had no concurrency control: 34 runs in six hours, each a cold 3-OS (linux, macos, windows) build of ~15 min (513 runner-minutes), all failing on the Windows wasmer cranelift compile error. Give it the same policy as Test (a main run is not cancelled by the next merge; GitHub keeps one running and one pending) and a timeout. No cache: three more ~1 GB entries would break the 10 GB quota the Test workflow was just fitted into.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-E",
+      "binary(ci_workflow_perf)"
+    ]
+  },
+  "created_by": "CLAUDEWFPERF",
+  "created_unix": 1791276957,
+  "closed": {
+    "at_unix": 1791277223,
+    "commit": "c5a5177646373dd2dbd044dab41965f7def952ea",
+    "by": "CLAUDEWFPERF"
+  }
+}
