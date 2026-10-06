@@ -25,9 +25,8 @@ The agent loop is **atomic per task** (own worktree, always synced with
    touches **and their dependents**, and **their tests, once**
    (`scripts/ci-changed-crates.sh` names them; the tests run hermetically under
    nextest with per-test retries, plus the doc-tests; the full workspace suite
-   still runs for workspace-wide inputs like the lockfile or toolchain, and
-   `SUSI_LOCAL_GATE=full` forces it — as plain `cargo test`, not the hermetic
-   run: a whole-workspace hermetic sweep is not yet clean, see the ratchet list) — then push the branch. This gate is the
+   still runs, the same way, for workspace-wide inputs like the lockfile or
+   toolchain, and `SUSI_LOCAL_GATE=full` forces it) — then push the branch. This gate is the
    only place a branch's tests run before it merges. Tests are hermetic (never
    touch `~/.susi` or an inherited `SUSI_HOME`).
 5. **Close when acceptance passes** (`susi tasks close <id>`), sync again,
@@ -472,17 +471,6 @@ convergent:
 
 ## Ratchet items (not yet at zero — do not regress)
 
-- Whole-workspace hermetic sweep (`SUSI_HERMETIC_RUNNER=nextest
-  scripts/check-hermetic-tests.sh --workspace`): 3,654 of 3,657 tests pass
-  under the throwaway `HOME`/`SUSI_HOME` (92 s of test time). The one real
-  failure is `susi-paths tests::substrate_home_is_not_a_project_cwd`, which
-  asserts that a pinned `SUSI_HOME` is the substrate home verbatim - exactly
-  what Mandate 52 makes `SusiDirs::instance_root()` ignore under the wrapper
-  (the test should ask `instance_root()`, not re-read the env). It also failed
-  the old branch-push hermetic step for any push touching `susi-paths`. The
-  empty-`SUSI_HOME` assertion has not yet run workspace-wide, because that
-  failure stops the script first. Until the sweep is clean the workspace-wide
-  local gate stays plain `cargo test`; flip it to the hermetic runner then.
 - `clippy::pedantic` + `clippy::nursery`: ~2.4k warnings baseline; new code
   should be pedantic-clean even though the lint isn't denied workspace-wide.
 - `Mutex`/`RwLock` in hot paths: prefer bounded `flume`/tokio channels for new

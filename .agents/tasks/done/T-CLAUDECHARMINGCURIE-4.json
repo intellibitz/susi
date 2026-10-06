@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDECHARMINGCURIE-4",
+  "title": "Workspace-wide local gate uses the hermetic nextest runner too: the whole-workspace hermetic sweep is clean",
+  "goal": "T-CLAUDECHARMINGCURIE-2 kept the workspace-wide local gate (a lockfile/toolchain/build.rs change, or SUSI_LOCAL_GATE=full) on plain cargo test, because a whole-workspace hermetic sweep had one failing test (susi-paths, fixed in T-NEXTESTBOUNDARY-1) and had never run its empty-SUSI_HOME assertion. The sweep now passes: SUSI_HERMETIC_RUNNER=nextest scripts/check-hermetic-tests.sh --workspace ran 3,675 tests (61.7 s of test time) plus the doc-tests, and SUSI_HOME stayed empty. So the ALL path takes the same single hermetic, per-test-retried run as the scoped one, and the AGENTS.md ratchet entry that said otherwise is removed.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-E",
+      "binary(/^(parallel_workflow|hermetic_scope)/)"
+    ]
+  },
+  "created_by": "CLAUDECHARMINGCURIE",
+  "created_unix": 1791319454,
+  "closed": {
+    "at_unix": 1791319647,
+    "commit": "143b637af3f28833a352577f8c88fc532488a9ab",
+    "by": "CLAUDECHARMINGCURIE"
+  }
+}
