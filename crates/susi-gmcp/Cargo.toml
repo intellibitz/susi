@@ -1,6 +1,6 @@
 [package]
 name = "susi-gmcp"
-version = "0.21.12"
+version = "0.21.13"
 license = "Apache-2.0"
 edition = "2021"
 
