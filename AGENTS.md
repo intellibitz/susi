@@ -95,12 +95,16 @@ The concrete loop is:
    second is refused until a merge lands. A receipt clears only when the close
    is *observed* on `origin/main`; giving the task up is deliberate and
    recorded (`susi tasks release <id> --abandon <reason>`, which pushes
-   `refs/abandoned/<id>`). The merge wait is bounded (`SUSI_FINISH_WAIT_MAX`,
-   default 30 min): past it, a healthy-but-queued branch is handed off — the
-   claim is released while the receipt keeps the debt — and the wait stops
-   early, with claim and receipt intact, when the pull request is closed or
-   the run for the pushed sha has failed, so a branch that cannot merge costs
-   a minute of feedback rather than the whole budget. A lease that lapsed
+   `refs/abandoned/<id>`). The wait after push exists to catch a failed run
+   while the claim still makes repair cheap: once `gh` reports the run for
+   the pushed sha green, or once the merge lands, ownership is released and
+   the merge machinery (auto-merge, or the reconciler resyncing a
+   green-but-behind head) owns the rest. The budget (`SUSI_FINISH_WAIT_MAX`,
+   default 30 min) covers a run that never reports: past it, a
+   healthy-but-unverifiable branch is handed off the same way. The wait
+   still stops early, with claim and receipt intact, when the pull request
+   is closed or the run has failed, so a branch that cannot merge costs a
+   minute of feedback rather than the whole budget. A lease that lapsed
    during the wait is re-adopted rather than an abort.
    **After the merge, the merge itself is attested** by the job that performs
    it (`scripts/auto-merge-pr.sh`): one `refs/merged/<id>` per task the pull

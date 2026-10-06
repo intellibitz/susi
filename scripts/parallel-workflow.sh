@@ -278,12 +278,15 @@ finish)
     branch=$(git symbolic-ref --short HEAD)
     git push origin "HEAD:refs/heads/$branch"
     sha=$(git rev-parse HEAD)
-    echo "Waiting for $sha to reach origin/main (Ctrl-C leaves work intact)."
-    # A green head that is merely queued is the merge machinery's problem, not
-    # this agent's — so the budget is a handoff, not a wait-out: past it the
-    # claim is released (the close receipt keeps the debt) and the agent may
-    # take the next task. A branch that cannot merge — closed PR, failed run —
-    # exits below long before this point, keeping the claim.
+    echo "Waiting for $sha's run or merge (Ctrl-C leaves work intact)."
+    # The wait's only value after push is catching a failure fast, while the
+    # claim is still held and a fix is cheap. Once the run is green the merge
+    # itself is machinery — auto-merge, or the reconciler resyncing a
+    # green-but-behind head — and nothing the agent can do speeds it up, so it
+    # hands off there rather than parking until the merge commit lands. The
+    # budget handoff remains for a run that never reports (no gh, stuck queue).
+    # A branch that cannot merge — closed PR, failed run — exits below keeping
+    # the claim.
     budget=${SUSI_FINISH_WAIT_MAX:-1800}
     poll=${SUSI_FINISH_POLL:-15}
     started=$(date +%s)
@@ -293,6 +296,52 @@ finish)
         if [ "$(date +%s)" -ge "$renew_at" ]; then
             renew_or_readopt
             renew_at=$(( $(date +%s) + 900 ))
+        fi
+        # Check the pushed head's state before integrating anything: a green
+        # run for this exact sha means the merge machinery can finish it —
+        # the reconciler resyncs green-but-behind heads itself — so repushing
+        # now would only force a redundant new run.
+        if [ $(( ticks % 4 )) -eq 0 ]; then
+            case "$(pr_state)" in
+            CLOSED)
+                echo "❌ the pull request for $branch is closed; it will not merge." >&2
+                echo "   The task is closed and its receipt keeps the claim (and this agent) held." >&2
+                echo "   Fix it and reopen, or give it up deliberately and on the record:" >&2
+                echo "   susi tasks release $task --abandon <reason>" >&2
+                exit 1
+                ;;
+            esac
+            state=$(run_state)
+            case "$state" in
+            completed/failure | completed/timed_out | completed/startup_failure)
+                cat >&2 <<MSG
+❌ the branch-push run for $sha did not pass ($state).
+   The task is closed and the claim is retained, so nothing is lost and no other
+   agent will start it. Fix the failure, commit the repair, and run finish again
+   (if the acceptance was already published, revert the close and fix under the
+   same claim — citing a closed task is refused). To give the task up instead:
+   susi tasks release $task --abandon <reason>
+MSG
+                exit 1
+                ;;
+            completed/success)
+                # Green and still open: the merge machinery finishes this —
+                # auto-merge on a current head, the reconciler on a behind
+                # one. The agent's wait was only ever failure detection, and
+                # that is answered now, so the claim is released here instead
+                # of at the merge (or the budget). The close receipt keeps
+                # the debt visible in `susi workflow check` until it lands.
+                if "$susi_bin" tasks release "$task" --force; then
+                    cat >&2 <<MSG
+✅ the run for $sha is green — handing the merge to the machinery.
+   The close receipt on the remote keeps the debt until $sha is on
+   origin/main (`susi workflow check` shows it under "merge published").
+   The next task is free to claim; a second outstanding close is refused.
+MSG
+                    exit 0
+                fi
+                ;;
+            esac
         fi
         # Another agent may merge first. Integrate it and publish a new head
         # so the remote merge gate can reconsider this PR; the new head's own
@@ -328,35 +377,6 @@ MSG
             exit 1
         fi
         ticks=$(( ticks + 1 ))
-        # A closed pull request will never merge, and neither will a run that has
-        # already failed. Both used to be discovered only by waiting out the
-        # whole budget — two hours by default — while the lease was renewed;
-        # that is two hours in which the agent could have been fixing it.
-        if [ $(( ticks % 4 )) -eq 0 ]; then
-            case "$(pr_state)" in
-            CLOSED)
-                echo "❌ the pull request for $branch is closed; it will not merge." >&2
-                echo "   The task is closed and its receipt keeps the claim (and this agent) held." >&2
-                echo "   Fix it and reopen, or give it up deliberately and on the record:" >&2
-                echo "   susi tasks release $task --abandon <reason>" >&2
-                exit 1
-                ;;
-            esac
-            state=$(run_state)
-            case "$state" in
-            completed/failure | completed/timed_out | completed/startup_failure)
-                cat >&2 <<MSG
-❌ the branch-push run for $sha did not pass ($state).
-   The task is closed and the claim is retained, so nothing is lost and no other
-   agent will start it. Fix the failure, commit the repair, and run finish again
-   (if the acceptance was already published, revert the close and fix under the
-   same claim — citing a closed task is refused). To give the task up instead:
-   susi tasks release $task --abandon <reason>
-MSG
-                exit 1
-                ;;
-            esac
-        fi
         sleep "$poll"
     done
     sync
