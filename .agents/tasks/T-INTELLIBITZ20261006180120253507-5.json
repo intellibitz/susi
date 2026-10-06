@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-5",
+  "title": "finish: do not re-run a cargo acceptance the workspace gate already covered",
+  "goal": "When the local gate ran the full workspace suite, tasks close must not run the same cargo test acceptance a second time inside finish (env flag set by finish, honored in tasks close for cargo-shaped acceptances). Standalone close still runs the acceptance.",
+  "size": "s",
+  "deps": [
+    "T-INTELLIBITZ20261006180120253507-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "tasks"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791295837
+}

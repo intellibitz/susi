@@ -7,7 +7,7 @@
 
 # Rust build outputs
 /target/
-**/target/
+**/target
 
 # Kotlin compiler & cache
 .kotlin/

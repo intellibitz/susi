@@ -1,0 +1,19 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-4",
+  "title": "Pipeline agents: allow one accepted-but-unmerged task in flight",
+  "goal": "Relax the close-receipt gate from 'zero unpublished' to 'at most one unpublished': susi tasks claim, scripts/check-workflow-compliance.sh check_no_owed_merge, and susi workflow check ('merge published' warns instead of failing on exactly one). finish may exit successfully once the pushed head is verified/handoff is queued rather than waiting out the full budget. Update AGENTS.md mandate text accordingly. The block at two outstanding receipts is unchanged.",
+  "size": "l",
+  "deps": [
+    "T-INTELLIBITZ20261006180120253507-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "workflow_compliance"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791295829
+}

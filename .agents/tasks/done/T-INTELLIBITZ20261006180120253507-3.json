@@ -1,0 +1,22 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-3",
+  "title": "Share one cargo target dir across a clone's worktrees",
+  "goal": "susi-worktree.sh links each new worktree's target/ to the primary checkout's target/ (or a shared sibling dir), so a fresh worktree starts warm instead of a ~25min cold compile and ~20GB duplicate artifacts. Keep it a symlink so target-relative test paths keep working; leave an existing real target/ alone.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "worktree_target_dir"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791295813,
+  "closed": {
+    "at_unix": 1791297875,
+    "commit": "4827005f8ead0d796c4fef2245a36411082bf0b5",
+    "by": "INTELLIBITZ20261006180120253507"
+  }
+}
