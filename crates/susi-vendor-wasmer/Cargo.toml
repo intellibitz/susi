@@ -23,7 +23,11 @@ wasmer = { version = "7.4.2", features = ["cranelift", "sys", "wat"] }
 wasmer-wasix = { version = "0.704.2", default-features = false, features = ["sys-minimal"] }
 
 [target.'cfg(windows)'.dependencies]
-wasmer = { version = "7.4.2", features = ["singlepass", "sys", "wat"] }
+# default-features matter here: wasmer's `default` is `sys-default` =
+# sys+wat+cranelift+demangle, so listing singlepass without disabling
+# defaults still compiled the Cranelift backend — which is a compile_error
+# on Windows and failed every Zero-Config Matrix windows leg on main.
+wasmer = { version = "7.4.2", default-features = false, features = ["singlepass", "sys", "wat"] }
 wasmer-wasix = { version = "0.704.2", default-features = false, features = ["sys-minimal"] }
 
 [lints]
