@@ -1,0 +1,22 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-1",
+  "title": "Tighten Actions run cleanup to keep latest 5 per workflow",
+  "goal": "Cap completed-run retention at the newest 5 per workflow and a 2-day surplus window so the Actions backlog stays small",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "cleanup_runs_retention"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791293358,
+  "closed": {
+    "at_unix": 1791294176,
+    "commit": "f1936b7c7ae13ff335d07d1c3caf02b4a06a9590",
+    "by": "INTELLIBITZ20261006180120253507"
+  }
+}
