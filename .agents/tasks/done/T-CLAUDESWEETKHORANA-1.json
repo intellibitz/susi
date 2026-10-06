@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "CLAUDESWEETKHORANA",
-  "created_unix": 1791307205
+  "created_unix": 1791307205,
+  "closed": {
+    "at_unix": 1791307960,
+    "commit": "f35acea6b829ff8596ea8192891cf0dec3d780b8",
+    "by": "CLAUDESWEETKHORANA"
+  }
 }
