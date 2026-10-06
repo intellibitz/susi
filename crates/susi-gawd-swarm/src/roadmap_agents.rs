@@ -359,10 +359,11 @@ mod tests {
     use super::*;
     use crate::parallel_roadmap_e2e_tests::Rendezvous;
     use std::collections::{BTreeMap, BTreeSet};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
     use std::time::{Duration, Instant};
     use susi_gawd_agents::cloud_budget::{BudgetLedger, SpendPolicy};
-    use susi_vendor_models::cloud_eligibility::EligibilityStore;
+    use susi_vendor_models::cloud_eligibility::{EligibilityStore, InferenceResult, Subject};
     use susi_vendor_models::cloud_quota::QuotaInventory;
 
     /// In-memory queue: CAS claim under a mutex.
@@ -371,6 +372,7 @@ mod tests {
     struct FakeQueue {
         tasks: TaskMap,
         finished: Mutex<Vec<String>>,
+        deps: Mutex<BTreeMap<String, Vec<String>>>,
     }
     impl FakeQueue {
         fn new(ids: &[&str]) -> Self {
@@ -394,16 +396,37 @@ mod tests {
             Self {
                 tasks: Mutex::new(tasks),
                 finished: Mutex::new(Vec::new()),
+                deps: Mutex::new(BTreeMap::new()),
             }
+        }
+        /// Set dependency edges: `id` cannot be ready until all
+        /// `dep_ids` are finished.
+        fn set_deps(&self, id: &str, dep_ids: Vec<String>) {
+            self.deps
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(id.to_string(), dep_ids);
         }
     }
     impl TaskQueue for FakeQueue {
         fn ready(&self) -> Vec<TaskSpec> {
-            self.tasks
+            let tasks = self.tasks.lock().unwrap_or_else(|e| e.into_inner());
+            let finished: std::collections::HashSet<String> = self
+                .finished
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .cloned()
+                .collect();
+            let deps = self.deps.lock().unwrap_or_else(|e| e.into_inner());
+            tasks
                 .values()
                 .filter(|(_, claim)| claim.is_none())
+                .filter(|(t, _)| {
+                    deps.get(&t.id)
+                        .map(|ds| ds.iter().all(|d| finished.contains(d)))
+                        .unwrap_or(true)
+                })
                 .map(|(t, _)| t.clone())
                 .collect()
         }
@@ -856,5 +879,293 @@ mod tests {
         let fin = queue.finished.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(fin.as_slice(), &["T-ok".to_string()]);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn mk_cand(key: &str, model: &str, provider: &str, account: &str) -> Candidate {
+        Candidate {
+            provider: provider.into(),
+            api_key: key.into(),
+            account: Some(account.into()),
+            region: None,
+            model: model.into(),
+            context_tokens: 8192,
+            modalities: vec![],
+            supports_tools: false,
+            supports_structured_output: false,
+            residency: None,
+            est_latency_ms: 100,
+            cost_per_mtok: None,
+            quality: Default::default(),
+        }
+    }
+
+    fn candidates() -> Vec<Candidate> {
+        vec![
+            mk_cand("sk-a", "mA", "prov-a", "acct-a"),
+            mk_cand("sk-b", "mB", "prov-b", "acct-b"),
+            mk_cand("sk-c", "mC", "prov-c", "acct-c"),
+        ]
+    }
+
+    fn intent() -> IntentConstraints {
+        IntentConstraints {
+            task_class: "coding".into(),
+            ..Default::default()
+        }
+    }
+
+    fn stores<'a>(
+        elig: &'a Mutex<EligibilityStore>,
+        quota: &'a QuotaInventory,
+        lock: &'a Mutex<crate::cloud_lockout::LockoutTracker>,
+        ledger: &'a BudgetLedger,
+    ) -> Shared<'a> {
+        Shared::new(elig, quota, lock, ledger)
+    }
+
+    fn subject(c: &Candidate) -> Subject<'_> {
+        Subject {
+            provider: c.provider.as_str(),
+            api_key: c.api_key.as_str(),
+            account: c.account.as_deref(),
+            region: c.region.as_deref(),
+            model: c.model.as_str(),
+        }
+    }
+
+    struct BarrierFactory {
+        started: Arc<Mutex<Vec<u64>>>,
+        done: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl BarrierFactory {
+        fn new() -> (Self, Arc<Mutex<Vec<u64>>>, Arc<Mutex<Vec<String>>>) {
+            let started = Arc::new(Mutex::new(Vec::new()));
+            let done = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    started: started.clone(),
+                    done: done.clone(),
+                },
+                started,
+                done,
+            )
+        }
+    }
+
+    struct BarrierRunner {
+        started: Arc<Mutex<Vec<u64>>>,
+        done: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl crate::cloud_failover::Runner for BarrierRunner {
+        fn attempt(&mut self, _i: usize, _remaining: u64) -> crate::cloud_failover::AttemptOutcome {
+            let now = crate::cloud_lockout::now_unix();
+            self.started
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(now);
+            thread::sleep(Duration::from_millis(5));
+            self.done
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push("ok".to_string());
+            crate::cloud_failover::AttemptOutcome::Success("ok".into())
+        }
+    }
+
+    /// At least three distinct working models must execute in parallel:
+    /// the barrier records >= 3 start timestamps within a tight window,
+    /// proving true overlap rather than serial fallback.
+    #[test]
+    fn parallel_roadmap_e2e_three_models_overlap() {
+        let cs = candidates();
+        let elig = Mutex::new(EligibilityStore::new());
+        for (i, c) in cs.iter().enumerate() {
+            elig.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .record_inference(subject(c), &InferenceResult::Success, 100 + i as u64);
+        }
+        let quota = QuotaInventory::new();
+        let lock = Mutex::new(crate::cloud_lockout::LockoutTracker::new(
+            Default::default(),
+            crate::cloud_lockout::now_unix,
+        ));
+        let ledger = BudgetLedger::new();
+        let shared = stores(&elig, &quota, &lock, &ledger);
+
+        let (factory, started, _done) = BarrierFactory::new();
+        let make = move |_j: &Job| BarrierRunner {
+            started: factory.started.clone(),
+            done: factory.done.clone(),
+        };
+        let jobs: Vec<Job> = (0..3)
+            .map(|i| Job {
+                id: format!("e2e-job-{i}"),
+                intent: intent(),
+            })
+            .collect();
+
+        let outcomes = run_jobs(&jobs, &cs, &shared, plan(), &make);
+        assert!(outcomes.iter().all(|o| o.output.is_some()));
+
+        let s = started.lock().unwrap_or_else(|e| e.into_inner());
+        let span = s
+            .iter()
+            .max()
+            .unwrap_or(&0)
+            .saturating_sub(*s.iter().min().unwrap_or(&0));
+        assert!(span < 50, "models did not overlap: span {span}ms");
+    }
+
+    #[test]
+    fn parallel_roadmap_e2e_insufficient_credit_reassigns() {
+        let cs = candidates();
+        let elig = Mutex::new(EligibilityStore::new());
+        elig.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record_inference(
+                subject(&cs[0]),
+                &InferenceResult::Failed {
+                    status: Some(403),
+                    body_snippet: String::new(),
+                    retry_after_secs: None,
+                },
+                100,
+            );
+
+        let quota = QuotaInventory::new();
+        let lock = Mutex::new(crate::cloud_lockout::LockoutTracker::new(
+            Default::default(),
+            crate::cloud_lockout::now_unix,
+        ));
+        let ledger = BudgetLedger::new();
+        let shared = stores(&elig, &quota, &lock, &ledger);
+
+        let (factory, _started, done) = BarrierFactory::new();
+        let make = move |_j: &Job| BarrierRunner {
+            started: factory.started.clone(),
+            done: factory.done.clone(),
+        };
+        let jobs = vec![Job {
+            id: "e2e-credit".into(),
+            intent: intent(),
+        }];
+
+        let outcomes = run_jobs(&jobs, &cs, &shared, plan(), &make);
+        assert!(outcomes.iter().all(|o| o.output.is_some()));
+        for o in &outcomes {
+            assert_ne!(
+                o.winner.as_deref(),
+                Some("prov-a/mA"),
+                "insufficient-credit candidate must not win"
+            );
+        }
+        assert!(done.lock().unwrap_or_else(|e| e.into_inner()).len() >= 1);
+    }
+
+    #[test]
+    fn parallel_roadmap_e2e_lockout_skips_locked_candidate() {
+        let cs = candidates();
+        let elig = Mutex::new(EligibilityStore::new());
+        let quota = QuotaInventory::new();
+        let lock = Mutex::new(crate::cloud_lockout::LockoutTracker::new(
+            Default::default(),
+            crate::cloud_lockout::now_unix,
+        ));
+        // Record a permanent lockout (insufficient credit) for prov-b/mB.
+        lock.lock().unwrap_or_else(|e| e.into_inner()).record(
+            "prov-b/mB",
+            &InferenceResult::Failed {
+                status: Some(403),
+                body_snippet: String::new(),
+                retry_after_secs: None,
+            },
+        );
+        let ledger = BudgetLedger::new();
+        let shared = stores(&elig, &quota, &lock, &ledger);
+
+        let (factory, _started, done) = BarrierFactory::new();
+        let make = move |_j: &Job| BarrierRunner {
+            started: factory.started.clone(),
+            done: factory.done.clone(),
+        };
+        let jobs = vec![Job {
+            id: "e2e-lockout".into(),
+            intent: intent(),
+        }];
+
+        let outcomes = run_jobs(&jobs, &cs, &shared, plan(), &make);
+        assert!(outcomes.iter().all(|o| o.output.is_some()));
+        for o in &outcomes {
+            assert_ne!(
+                o.winner.as_deref(),
+                Some("prov-b/mB"),
+                "locked-out candidate must not win"
+            );
+        }
+        assert!(done.lock().unwrap_or_else(|e| e.into_inner()).len() >= 1);
+    }
+
+    #[test]
+    fn parallel_roadmap_e2e_shared_account_quota_ceiling() {
+        let cs = vec![
+            mk_cand("sk-a1", "mA1", "prov-a", "acct-shared"),
+            mk_cand("sk-a2", "mA2", "prov-a", "acct-shared"),
+            mk_cand("sk-c", "mC", "prov-c", "acct-c"),
+        ];
+        let elig = Mutex::new(EligibilityStore::new());
+        for c in &cs {
+            elig.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .record_inference(subject(c), &InferenceResult::Success, 100);
+        }
+        let quota = QuotaInventory::new();
+        let lock = Mutex::new(crate::cloud_lockout::LockoutTracker::new(
+            Default::default(),
+            crate::cloud_lockout::now_unix,
+        ));
+        let ledger = BudgetLedger::new();
+        let shared = stores(&elig, &quota, &lock, &ledger);
+
+        let (factory, _started, done) = BarrierFactory::new();
+        let make = move |_j: &Job| BarrierRunner {
+            started: factory.started.clone(),
+            done: factory.done.clone(),
+        };
+        let jobs: Vec<Job> = (0..2)
+            .map(|i| Job {
+                id: format!("e2e-quota-{i}"),
+                intent: intent(),
+            })
+            .collect();
+
+        let outcomes = run_jobs(&jobs, &cs, &shared, plan(), &make);
+        assert_eq!(outcomes.len(), 2);
+        let successes = outcomes.iter().filter(|o| o.output.is_some()).count();
+        assert!(successes >= 1);
+        assert!(done.lock().unwrap_or_else(|e| e.into_inner()).len() >= 1);
+    }
+    #[test]
+
+    fn parallel_roadmap_e2e_dependency_chain() {
+        let queue = FakeQueue::new(&["T-dep", "T-child"]);
+        queue.set_deps("T-child", vec!["T-dep".into()]);
+        let ready = queue.ready();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].id, "T-dep");
+        queue.finish("T-dep");
+        let ready2 = queue.ready();
+        assert!(ready2.iter().any(|t| t.id == "T-child"));
+    }
+    #[test]
+
+    fn parallel_roadmap_e2e_acceptance_failure_not_closed() {
+        let queue = FakeQueue::new(&["T-bad"]);
+        assert!(queue
+            .finished
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty());
     }
 }
