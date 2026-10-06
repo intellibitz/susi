@@ -266,6 +266,41 @@ fn a_branch_push_starts_from_the_cache_main_writes() {
 }
 
 #[test]
+fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let ratchet = job(&jobs, "unsafe-ratchet");
+    let save = value_of(&ratchet.body, "save-if").unwrap_or_default();
+    assert!(
+        save.contains("refs/heads/main"),
+        "`unsafe-ratchet` must save its cargo cache only on main (branches read main's); \
+         `{save}` writes a 321 MB entry per task branch, which held the repository over its \
+         10 GB cache quota until eviction took the 10 MB cargo-geiger entry and failed every \
+         push of every branch"
+    );
+    // `actions/cache@` saves in a post-step on whatever ref it ran on; geiger's entry
+    // is a restore plus a save that only main runs.
+    assert!(
+        !ratchet.body.contains("actions/cache@"),
+        "cache cargo-geiger with `actions/cache/restore` and a main-only `actions/cache/save`: \
+         `actions/cache` also saves, on every branch push"
+    );
+    let saves: Vec<String> = steps(&ratchet.body)
+        .into_iter()
+        .filter(|s| s.contains("actions/cache/save"))
+        .collect();
+    assert!(
+        !saves.is_empty()
+            && saves
+                .iter()
+                .all(|s| value_of(s, "if").is_some_and(|v| v.contains("refs/heads/main"))),
+        "`unsafe-ratchet` needs a cargo-geiger `actions/cache/save` step gated on \
+         `github.ref == 'refs/heads/main'`; without one the entry is never rewritten once \
+         evicted, and a branch-side save adds ~10 MB per task branch:\n{saves:?}"
+    );
+}
+
+#[test]
 fn the_slow_all_features_build_is_not_a_serial_step_of_another_shard() {
     let text = read(".github/workflows/test.yml");
     let jobs = jobs(&text);
