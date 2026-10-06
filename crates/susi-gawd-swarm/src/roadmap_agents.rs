@@ -938,8 +938,14 @@ mod tests {
         done: Arc<Mutex<Vec<String>>>,
     }
 
+    type BarrierHandles = (
+        BarrierFactory,
+        Arc<Mutex<Vec<u64>>>,
+        Arc<Mutex<Vec<String>>>,
+    );
+
     impl BarrierFactory {
-        fn new() -> (Self, Arc<Mutex<Vec<u64>>>, Arc<Mutex<Vec<String>>>) {
+        fn new() -> BarrierHandles {
             let started = Arc::new(Mutex::new(Vec::new()));
             let done = Arc::new(Mutex::new(Vec::new()));
             (
@@ -1061,7 +1067,7 @@ mod tests {
                 "insufficient-credit candidate must not win"
             );
         }
-        assert!(done.lock().unwrap_or_else(|e| e.into_inner()).len() >= 1);
+        assert!(!done.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
     }
 
     #[test]
@@ -1104,7 +1110,7 @@ mod tests {
                 "locked-out candidate must not win"
             );
         }
-        assert!(done.lock().unwrap_or_else(|e| e.into_inner()).len() >= 1);
+        assert!(!done.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
     }
 
     #[test]
@@ -1144,7 +1150,7 @@ mod tests {
         assert_eq!(outcomes.len(), 2);
         let successes = outcomes.iter().filter(|o| o.output.is_some()).count();
         assert!(successes >= 1);
-        assert!(done.lock().unwrap_or_else(|e| e.into_inner()).len() >= 1);
+        assert!(!done.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
     }
     #[test]
 

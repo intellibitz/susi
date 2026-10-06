@@ -4,6 +4,9 @@
 use std::collections::HashMap;
 
 /// Typed failure classes for provider responses and transport errors.
+#[allow(dead_code)]
+// full taxonomy is declared even where individual variants
+// are not exercised by every test below
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FailureClass {
     /// Authentication rejected
@@ -23,6 +26,9 @@ pub enum FailureClass {
 }
 
 /// Health states for models and API keys.
+#[allow(dead_code)]
+// full state taxonomy is declared even where individual
+// states are not exercised by every test below
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HealthState {
     /// Healthy and available
@@ -38,6 +44,8 @@ pub enum HealthState {
 }
 
 /// Per-model health tracker with state machine transitions.
+#[allow(dead_code)] // model_id is stored for diagnostics even though tests
+                    // only exercise transitions
 pub struct ModelHealth {
     model_id: String,
     state: HealthState,
