@@ -21,9 +21,11 @@ The agent loop is **atomic per task** (own worktree, always synced with
    commit-msg hook, the pre-push hook and the CI job "Workflow Compliance"
    reject commits without it.
 4. **Sync again, then push:** `git fetch && git merge origin/main`, pass the
-   gate (`cargo fmt --all --check`,
-   `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-   `cargo test --workspace --locked`), then push the branch. Tests are
+   gate — `cargo fmt --all --check`, then clippy and tests for the crates the
+   branch actually touches (`scripts/ci-changed-crates.sh` names them; the
+   full workspace suite still runs for workspace-wide inputs like the
+   lockfile or toolchain, and `SUSI_LOCAL_GATE=full` forces it) — then push
+   the branch. Tests are
    hermetic (never touch `~/.susi` or an inherited `SUSI_HOME`).
 5. **Close when acceptance passes** (`susi tasks close <id>`), sync again,
    and take the next claim. Do not push to `main`, tag, or cut a release;
@@ -60,10 +62,13 @@ The concrete loop is:
 1. `susi workflow start`, then `susi workflow sync` in that worktree.
 2. List and claim one available dependency-ready task with its scopes.
 3. Implement and commit the work with its open task trailer.
-4. `susi workflow finish <id>` synchronizes, runs fmt/clippy/tests and
-   acceptance, commits completion, synchronizes and pushes, waits for the
+4. `susi workflow finish <id>` synchronizes, runs the diff-scoped gate
+   (fmt/clippy/tests for the affected crates) and acceptance, commits
+   completion, synchronizes and pushes, waits for the
    remote merge, then syncs and releases ownership. It integrates intervening
-   merges and reruns the gate before repushing. A failed check/conflict stops
+   merges and repushes; the merged head is proven by its own branch CI run —
+   nothing merges without a green run on that exact sha — so the local gate
+   does not re-run for them (`SUSI_FINISH_REGATE=1` restores it). A failed check/conflict stops
    for repair; rerun finish after committing the repair. Do not claim another
    task until the completion is on remote main. Closing alone retains the
    claim so nobody duplicates work while the PR awaits merge, and `close` also
