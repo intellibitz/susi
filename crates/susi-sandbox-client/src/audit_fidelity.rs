@@ -1225,6 +1225,14 @@ mod audit_retention_prune_tests {
             }
         });
         std::env::remove_var("SUSI_OBSERVATION_FILE");
+        // The journal path is process-global while the variable is set, so under
+        // libtest other tests' records can land here too (three strangers in CI).
+        // They are well-formed lines, so they cannot be "torn"; count only ours.
+        let own = ws
+            .file_name()
+            .expect("scratch dir has a name")
+            .to_string_lossy()
+            .to_string();
         let text = std::fs::read_to_string(&journal).expect("journal");
         let torn: Vec<&str> = text
             .lines()
@@ -1236,9 +1244,14 @@ mod audit_retention_prune_tests {
             torn.len(),
             torn.first()
         );
+        let survived = text
+            .lines()
+            .filter_map(|l| serde_json::from_str::<ObservationRecord>(l).ok())
+            .filter(|r| r.workspace == own)
+            .count();
         assert_eq!(
-            observation_report(&journal).records,
-            (threads * per_thread) as u64,
+            survived,
+            threads * per_thread,
             "every record survives concurrent writers"
         );
     }
