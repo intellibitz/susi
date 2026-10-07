@@ -1007,3 +1007,105 @@ fn code_proven_script_judges_the_code_diff_not_the_commit() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `verify` builds susi to run `tasks verify-merged`, but most merges leave
+/// the attestation queue drained — and the refs answer "anything owed?" in
+/// seconds. The toolchain steps must be gated on that answer, never on the
+/// codetree stamp (a pending attestation is debt, not code).
+#[test]
+fn pending_attestations_are_the_only_thing_verify_builds_for() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let verify = job(&jobs, "verify");
+    let owed = steps(&verify.body)
+        .into_iter()
+        .find(|s| s.contains("scripts/ci-verified-pending.sh"))
+        .expect("verify must ask the refs before building");
+    assert!(
+        owed.contains("id: owed"),
+        "the refs check must publish `pending` for the steps that gate on it"
+    );
+    for name in [
+        "Install Rust",
+        "Cache Cargo",
+        "Install Linux System Dependencies",
+        "Install mold",
+        "Install cargo-nextest",
+        "Re-run the acceptance",
+    ] {
+        let step = steps(&verify.body)
+            .into_iter()
+            .find(|s| s.contains(&format!("name: {name}")))
+            .unwrap_or_else(|| panic!("verify has no `{name}` step"));
+        assert!(
+            step.contains("steps.owed.outputs.pending == 'true'"),
+            "`{name}` must not run when the attestation queue is drained"
+        );
+    }
+}
+
+/// The pending script: merged ids minus verified ids is the queue. A read
+/// failure reports "pending" — the only safe direction, since the job then
+/// builds and decides for real.
+#[test]
+fn pending_script_counts_merged_without_verified() {
+    let f = Fakes::new("pending");
+    f.fake(
+        "git",
+        r#"case "$*" in
+  *"refs/merged/"*) printf 'a1b2 refs/merged/T-1\nc3d4 refs/merged/T-2\n' ;;
+  *"refs/verified/"*) printf 'e5f6 refs/verified/T-1\n' ;;
+esac"#,
+    );
+    let (ok, said, _) = f.run("scripts/ci-verified-pending.sh", &[]);
+    assert!(ok, "T-2 is merged but unverified: {said}");
+
+    f.fake(
+        "git",
+        r#"case "$*" in
+  *"refs/merged/"*) printf 'a1b2 refs/merged/T-1\n' ;;
+  *"refs/verified/"*) printf 'e5f6 refs/verified/T-1\n' ;;
+esac"#,
+    );
+    let (ok, _, _) = f.run("scripts/ci-verified-pending.sh", &[]);
+    assert!(!ok, "a drained queue must skip the build");
+
+    f.fake("git", r#"exit 1"#);
+    let (ok, _, _) = f.run("scripts/ci-verified-pending.sh", &[]);
+    assert!(
+        ok,
+        "a remote read failure defaults to pending so verify decides for real"
+    );
+}
+
+/// A .agents/-only push has an empty lint set, and paying for a toolchain
+/// first was ~90 s of setup for nothing. Scope resolution must come first
+/// and every install must be gated on it.
+#[test]
+fn pending_gate_resolves_scope_before_installing_a_toolchain() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let check = job(&jobs, "check");
+    let steps = steps(&check.body);
+    let at = |needle: &str| {
+        steps
+            .iter()
+            .position(|s| s.contains(needle))
+            .unwrap_or_else(|| panic!("check has no step containing `{needle}`"))
+    };
+    let scope = at("Resolve affected crates");
+    for name in [
+        "Install Rust",
+        "Cache Cargo",
+        "Install Linux System Dependencies",
+        "Install mold",
+        "cargo clippy",
+    ] {
+        let idx = at(&format!("name: {name}"));
+        assert!(idx > scope, "`{name}` must come after scope resolution");
+        assert!(
+            steps[idx].contains("steps.affected.outputs.lintcmd != ''"),
+            "`{name}` must be gated on a non-empty lint set"
+        );
+    }
+}
