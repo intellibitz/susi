@@ -82,6 +82,14 @@ echo "worktree: $dest (branch $name)" >&2
 # shared cache. A symlink keeps `target/...` relative paths working; an
 # existing real target/ is left alone, and SUSI_PRIVATE_TARGET=1 opts out.
 # `**/target` in .gitignore ignores the link itself.
+#
+# Sharing only pays while no tracked cargo config embeds a worktree path. A
+# repo-relative `linker` in .cargo/config.toml did: cargo made it an absolute path
+# inside each worktree and hashed it into every unit, so two worktrees shared
+# nothing and overwrote each other's artifacts (a fresh one compiled 716 crates in
+# 656 s). Without it, one created after a warm build compiled 81 in 176 s;
+# tests/ci_workflow_perf.rs pins the config. A worktree made another way (the
+# desktop app) keeps a private target/ and pays the cold build once.
 shared_target=$primary/target
 if [ -z "${SUSI_PRIVATE_TARGET:-}" ] && { [ ! -e "$dest/target" ] || [ -L "$dest/target" ]; }; then
     mkdir -p "$shared_target"

@@ -437,6 +437,52 @@ fn a_tag_run_of_the_suite_writes_no_cache_and_skips_the_main_only_gates() {
     }
 }
 
+/// Cargo resolves a relative `linker` in `.cargo/config.toml` to an absolute path
+/// inside the current worktree and passes it as `-C linker=...`, and that path is
+/// part of every unit's fingerprint: so no two worktrees could share a compiled
+/// crate (registry crates included) and each overwrote the other's artifacts in
+/// the shared target dir. Measured: a fresh worktree compiled 716 crates in 656 s;
+/// with a path-independent config, one created after a warm build compiled 81 in
+/// 176 s. `scripts/susi-worktree.sh` shares one target dir *for this reason* and it
+/// never worked until the linker path stopped differing.
+#[test]
+fn the_cargo_config_does_not_hash_a_worktree_path_into_every_unit() {
+    let config = read(".cargo/config.toml");
+    let mut section = String::new();
+    for raw in config.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            section = name.to_string();
+            continue;
+        }
+        // The x86_64 target is what developers build on; aarch64 Linux is a CI
+        // release leg with one checkout, so a wrapper there shares nothing.
+        if section != "target.x86_64-unknown-linux-gnu" {
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("linker") {
+            let value = value
+                .trim_start_matches([' ', '='])
+                .trim()
+                .trim_matches('"');
+            assert!(
+                value.starts_with('/'),
+                "`{line}` is a repo-relative linker: cargo makes it an absolute path inside each \
+                 worktree, hashes it into every unit, and no worktree can reuse another's \
+                 compiled crates (a fresh one rebuilds ~716 crates, 11 min instead of 3)"
+            );
+        }
+        assert!(
+            !line.contains("linker-features=-lld"),
+            "`{line}`: opting out of rustc's bundled lld only made sense to hand linking to the \
+             wrapper; without one it silently falls back to GNU ld, which is slower than both"
+        );
+    }
+}
+
 #[test]
 fn the_unsafe_ratchet_saves_its_caches_only_on_main() {
     let text = read(".github/workflows/test.yml");
