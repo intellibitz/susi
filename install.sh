@@ -367,7 +367,12 @@ if [ "$INSTALLED" = "0" ]; then
         # only when the tree has no fast-linker wrapper.
         if [[ "$PLATFORM" == "linux" ]]; then
             if [ -x "$SCRIPT_DIR/.cargo/fast-linker" ]; then
-                echo "  Using .cargo/fast-linker (mold/lld when available)."
+                case "$(uname -m)" in
+                aarch64 | arm64) echo "  Using .cargo/fast-linker (mold/lld when available)." ;;
+                # .cargo/config.toml sets no linker on x86_64: a repo-relative one
+                # is hashed into every unit and defeats a shared target dir.
+                *) echo "  Linking with rustc's bundled lld." ;;
+                esac
             elif command -v clang >/dev/null 2>&1 && [ -x "${HOME}/.susi/mold/bin/ld.mold" ]; then
                 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C linker=clang -C link-arg=-fuse-ld=${HOME}/.susi/mold/bin/ld.mold"
                 echo "  Using clang + mold (ld.mold) for faster linking."

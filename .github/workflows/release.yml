@@ -126,7 +126,7 @@ jobs:
       - name: Build Engine
         # [profile.dist]: fat LTO + CGU=1 for published binaries. The one-line
         # installer uses [profile.release] (thin LTO) for fast source builds.
-        # Linux links via .cargo/fast-linker (mold when installed above).
+        # x86_64 links with rustc's bundled lld (no linker is set in .cargo/config.toml); aarch64 links via .cargo/fast-linker (mold when installed above).
         run: cargo build --profile dist
 
       - name: Rename Binary

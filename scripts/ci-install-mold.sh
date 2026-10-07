@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Install the mold linker on a GitHub-hosted Linux runner.
 #
-# `.cargo/config.toml` points every Linux target at `.cargo/fast-linker`, which
-# uses `ld.mold` when it is on PATH and falls back to the system linker when it
-# is not. The root-cli shard alone links 71 integration-test binaries, each
-# carrying the whole dependency tree, so a job without mold pays for that with the
-# slower default linker - and until this was a script only the test shards had it,
-# while the branch compile check, the e2e job, the doc-test/clippy job and the
-# post-merge acceptance job all linked without it.
+# `.cargo/config.toml` points the aarch64 Linux target at `.cargo/fast-linker`,
+# which uses `ld.mold` when it is on PATH and falls back to the system linker when
+# it is not; that is the release workflow's linux-aarch64 leg. x86_64 sets no
+# linker at all (a repo-relative one made every worktree's artifacts incompatible
+# with every other's - see the comment there) and links with rustc's bundled lld,
+# so on x86_64 jobs this step is harmless but no longer what makes linking fast.
+# It stays one shared script so every Linux job's bootstrap is the same.
 #
 #   scripts/ci-install-mold.sh
 set -euo pipefail
