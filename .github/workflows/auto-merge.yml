@@ -17,6 +17,16 @@ name: Auto PR + Merge
 # Merge conflicts leave the PR open with a comment — resolve by merging
 # origin/main into the branch and pushing (never force-push main).
 #
+# A green-but-behind head is NOT sent through update-branch + retest: the
+# serialized merge job builds the merge locally (git merge-tree), runs the
+# compile gate on the merge tree (scripts/merge-gate.sh — the same affected-
+# crate clippy the `check` job runs) and merges when it passes. The merge
+# commit GitHub produces has that exact tree for a clean merge, so what lands
+# is what was proven. That turns the stale-head retest — the unit of merge-
+# queue latency — into ~1-2 min inside one job. The toolchain steps are gated
+# on merge-queue-probe.sh so passes with nothing stale cost seconds.
+# SUSI_INLINE_MERGE_GATE=0 or a missing checkout falls back to resync+retest.
+#
 # The workflow_run and schedule jobs only fire from the default branch's copy
 # of this file. The merge logic lives in scripts/auto-merge-pr.sh so every path
 # (event, open-pr, reconciler) decides the same way.
@@ -93,9 +103,45 @@ jobs:
       && !startsWith(github.event.workflow_run.head_branch, 'wip/')
       && !startsWith(github.event.workflow_run.head_branch, 'nopr/')
       && !startsWith(github.event.workflow_run.head_branch, 'dependabot/')
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30 # the inline gate is a bounded compile, not a CI run
+    env:
+      SUSI_INLINE_MERGE_GATE: "1"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      RUSTC_WORKSPACE_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v4.2.2 # the default branch's scripts
+        with:
+          fetch-depth: 0 # the merge gate needs origin/main and head history
+      - name: Will a stale green head need the inline gate?
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: echo "need_gate=$(scripts/merge-queue-probe.sh "$REPO" "$BRANCH" "$SHA")" >> "$GITHUB_OUTPUT"
+      - name: Install Rust
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install sccache
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: mozilla-actions/sccache-action@v0.0.10
+        with:
+          version: "v0.16.0"
+      - name: Cache Cargo
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+          save-if: false
+      - name: Install Linux System Dependencies
+        if: steps.probe.outputs.need_gate == 'true'
+        run: scripts/ci-system-deps.sh
+      - name: Install mold (Linux)
+        if: steps.probe.outputs.need_gate == 'true'
+        run: scripts/ci-install-mold.sh
       - name: Merge the PR for the tested commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -110,9 +156,45 @@ jobs:
       queue: max
       cancel-in-progress: false
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      SUSI_INLINE_MERGE_GATE: "1"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      RUSTC_WORKSPACE_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+      # The cron pass runs every five minutes, usually with nothing stale:
+      # probing first keeps those passes to seconds instead of a toolchain.
+      - name: Will a stale green head need the inline gate?
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: echo "need_gate=$(scripts/merge-queue-probe.sh "$REPO")" >> "$GITHUB_OUTPUT"
+      - name: Install Rust
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install sccache
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: mozilla-actions/sccache-action@v0.0.10
+        with:
+          version: "v0.16.0"
+      - name: Cache Cargo
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+          save-if: false
+      - name: Install Linux System Dependencies
+        if: steps.probe.outputs.need_gate == 'true'
+        run: scripts/ci-system-deps.sh
+      - name: Install mold (Linux)
+        if: steps.probe.outputs.need_gate == 'true'
+        run: scripts/ci-install-mold.sh
       - name: Reconcile open PRs
         env:
           GH_TOKEN: ${{ github.token }}

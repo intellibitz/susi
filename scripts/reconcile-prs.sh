@@ -35,10 +35,12 @@ while IFS=$'\t' read -r num branch sha updated draft; do
         echo "#$num green at ${sha:0:8}: merging"
         out=$("$here/auto-merge-pr.sh" "$repo" "$branch" "$sha" 2>&1) || rc=1
         printf '%s\n' "$out"
-        # A green-but-behind head is re-synced, not merged — and every other
-        # green PR is now stale relative to the merge this retest becomes.
-        # Re-testing the whole queue at once burns a run per PR that the next
-        # merge invalidates; rebase the queue one candidate at a time.
+        # With the inline merge gate a green-but-behind head merges in place —
+        # the whole queue is processed in this one pass. The break only guards
+        # the resync fallback: a head re-synced instead of merged leaves every
+        # other green PR stale relative to the merge its retest becomes, and
+        # re-testing the whole queue at once burns a run per PR that the next
+        # merge invalidates — so one resync per pass.
         case "$out" in *"was behind main; branch updated"*) break ;; esac
         continue
     fi
