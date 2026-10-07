@@ -117,10 +117,34 @@ fn cache_path() -> std::path::PathBuf {
     susi_paths::SusiDirs::data_dir().join("model-discovery.json")
 }
 
+/// GGUF is a container format, not a quantization guarantee: repos do publish
+/// F16/BF16/F32 weights inside `.gguf`, costing 2-4x the bytes for a quality
+/// gain this substrate cannot exploit. Quantization is per-tensor, so the
+/// practical contract is the llama.cpp filename token — `Q4_K_M`, `Q8_0`,
+/// `IQ4_XS`, `TQ2_0` all carry `Q` immediately followed by a digit, and
+/// `Qwen`'s Q is always followed by `w`, so model names never collide.
+/// Applies to discovered and configured steps alike: an explicit `model_ladder`
+/// entry naming unquantized weights is a config error, not an opt-out.
+pub(crate) fn is_quantized_gguf(path: &str) -> bool {
+    path.as_bytes()
+        .windows(2)
+        .any(|w| w[0].eq_ignore_ascii_case(&b'Q') && w[1].is_ascii_digit())
+}
+
 /// The ladder to actually use: whatever `cfg` explicitly configures, or the
 /// dynamic HF-discovered ladder when the config leaves it empty. Lives here
 /// (not as a `SusiConfig` method) because `sandbox::manager::SusiConfig` must
 /// stay a pure config accessor with no dependency on `gemi`.
+/// Drops steps whose file is not recognizably quantized. An explicit ladder
+/// that filters to nothing stays empty — silently substituting the discovered
+/// ladder would hide the config error.
+fn retain_quantized(steps: Vec<ModelLadderConfigStep>) -> Vec<ModelLadderConfigStep> {
+    steps
+        .into_iter()
+        .filter(|s| is_quantized_gguf(&s.hf_file))
+        .collect()
+}
+
 pub fn resolve_model_ladder(
     cfg: &crate::susi_sandbox::manager::SusiConfig,
 ) -> Vec<ModelLadderConfigStep> {
@@ -128,7 +152,7 @@ pub fn resolve_model_ladder(
     if configured.is_empty() {
         discover_dynamic_ladder()
     } else {
-        configured
+        retain_quantized(configured)
     }
 }
 
@@ -302,6 +326,7 @@ fn fetch_dynamic_ladder(
                             && !f.path.contains("-of-")
                             && !f.path.contains('/')
                             && f.size > 0
+                            && is_quantized_gguf(&f.path)
                     })
                     .min_by_key(|f| (!f.path.to_ascii_uppercase().contains("Q4_K_M"), f.size))?;
                 let overhead = policy.memory_overhead_ratio.max(1.0);
@@ -404,5 +429,56 @@ mod tests {
             .as_deref(),
             Some("org/model")
         );
+    }
+
+    /// The llama.cpp quant token is a `Q` immediately followed by a digit
+    /// (`Q4_K_M`, `Q8_0`, `IQ4_XS`, `TQ2_0`); F16/F32/BF16 in a `.gguf`
+    /// container must not qualify — the mandate is quantized-only downloads.
+    #[test]
+    fn quantized_gguf_detection_accepts_quants_and_rejects_full_precision() {
+        for ok in [
+            "model-Q4_K_M.gguf",
+            "model-q5_k_m.gguf",
+            "Llama-3.2-1B-Instruct-Q8_0.gguf",
+            "foo-IQ4_XS.gguf",
+            "bar-TQ2_0.gguf",
+            "gemma-3-4b-it-qat-Q4_0.gguf",
+        ] {
+            assert!(is_quantized_gguf(ok), "{ok} must qualify as quantized");
+        }
+        for rejected in [
+            "model-F16.gguf",
+            "model-f32.gguf",
+            "Qwen2.5-7B-Instruct-BF16.gguf",
+            "model.gguf",
+            "model-qat.gguf",
+        ] {
+            assert!(
+                !is_quantized_gguf(rejected),
+                "{rejected} must not qualify as quantized"
+            );
+        }
+    }
+
+    /// A configured ladder entry naming full-precision weights is a config
+    /// error the mandate drops, and a ladder that filters to nothing stays
+    /// empty rather than silently substituting discovered steps.
+    #[test]
+    fn retain_quantized_drops_unquantized_configured_steps() {
+        let step = |file: &str| ModelLadderConfigStep {
+            step: 0,
+            label: "t".into(),
+            hf_repo: "org/repo".into(),
+            hf_file: file.into(),
+            tokenizer_repo: "org/base".into(),
+            min_ram_gb: 1.0,
+            min_bytes: 1,
+            expected_bytes: 1,
+            fields: Default::default(),
+        };
+        let kept = retain_quantized(vec![step("model-Q4_K_M.gguf"), step("model-F16.gguf")]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].hf_file, "model-Q4_K_M.gguf");
+        assert!(retain_quantized(vec![step("model-BF16.gguf")]).is_empty());
     }
 }
