@@ -63,7 +63,13 @@ impl World {
             &["remote", "add", "origin", bare.to_str().unwrap()],
         );
         let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
-        for s in ["susi-worktree.sh", "park-primary.sh", "setup-dev.sh"] {
+        for s in [
+            "susi-worktree.sh",
+            "park-primary.sh",
+            "setup-dev.sh",
+            "link-shared-target.sh",
+            "workflow-session-start.sh",
+        ] {
             std::fs::copy(
                 repo.join("scripts").join(s),
                 primary.join("scripts").join(s),
@@ -163,4 +169,141 @@ fn susi_private_target_opts_out_of_sharing() {
     let (code, out, err) = w.worktree("worker", &[("SUSI_PRIVATE_TARGET", "1")]);
     assert_eq!(code, 0, "{err}");
     assert!(!cd_target(&out).join("target").exists());
+}
+
+// -- worktrees the script did not make ---------------------------------------
+//
+// Most agent sessions are created by the desktop app, which makes a worktree
+// with a plain `git worktree add` and a private `target/`. The SessionStart hook
+// links it to the clone's shared one, so those sessions get the same 80-second
+// first build instead of an 11-minute cold one.
+
+/// A worktree made the way the desktop app makes one: nested under the primary,
+/// no script involved, so no `target/` link.
+fn app_worktree(w: &World, name: &str) -> PathBuf {
+    let dest = w.primary.join(".claude/worktrees").join(name);
+    git(
+        &w.primary,
+        &["worktree", "add", "-q", "-b", name, dest.to_str().unwrap()],
+    );
+    dest
+}
+
+fn session_start(dir: &Path, envs: &[(&str, &str)]) -> (i32, String, String) {
+    run(
+        dir,
+        dir.join("scripts/workflow-session-start.sh")
+            .to_str()
+            .unwrap(),
+        &[],
+        envs,
+    )
+}
+
+fn is_symlink(p: &Path) -> bool {
+    p.symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink())
+}
+
+#[test]
+fn a_worktree_the_desktop_app_made_is_linked_by_the_session_start_hook() {
+    let w = World::new("hook-links");
+    let dest = app_worktree(&w, "app");
+    assert!(
+        !dest.join("target").exists(),
+        "an app worktree starts with no target/"
+    );
+    let (code, out, err) = session_start(&dest, &[]);
+    // The hook folds the script's stderr into its stdout, which is what reaches
+    // the agent's session: look at both.
+    let said = format!("{out}{err}");
+    assert_eq!(code, 0, "{said}");
+    assert!(
+        is_symlink(&dest.join("target")),
+        "the hook must link target/"
+    );
+    assert_eq!(
+        std::fs::canonicalize(dest.join("target")).unwrap(),
+        std::fs::canonicalize(w.primary.join("target")).unwrap()
+    );
+    assert!(
+        said.contains("target: shared ->"),
+        "the session is told what happened: {said}"
+    );
+    // The link must stay out of commits, as the script's own links do.
+    assert!(git(&dest, &["status", "--porcelain"]).is_empty());
+}
+
+/// A `target/` that holds anything is somebody's warm build; replacing it would
+/// throw it away.
+#[test]
+fn a_target_dir_holding_a_build_is_never_replaced() {
+    let w = World::new("hook-keeps");
+    let dest = app_worktree(&w, "app");
+    std::fs::create_dir_all(dest.join("target/debug")).unwrap();
+    std::fs::write(dest.join("target/debug/built"), "artifact").unwrap();
+    let (code, _, err) = session_start(&dest, &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        !is_symlink(&dest.join("target")),
+        "a private build must be left alone"
+    );
+    assert!(dest.join("target/debug/built").is_file());
+}
+
+/// Unlike `susi-worktree.sh`, which leaves any real `target/` alone: tooling
+/// (rust-analyzer, an editor) can create an empty one before the hook runs, and
+/// an empty directory is nobody's cache.
+#[test]
+fn an_empty_target_dir_is_a_leftover_and_is_replaced() {
+    let w = World::new("hook-empty");
+    let dest = app_worktree(&w, "app");
+    std::fs::create_dir(dest.join("target")).unwrap();
+    let (code, _, err) = session_start(&dest, &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(is_symlink(&dest.join("target")), "{err}");
+}
+
+#[test]
+fn the_primary_checkout_is_never_linked_to_itself() {
+    let w = World::new("hook-primary");
+    let (code, _, err) = session_start(&w.primary, &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(!is_symlink(&w.primary.join("target")), "{err}");
+}
+
+#[test]
+fn susi_private_target_opts_the_hook_out_too() {
+    let w = World::new("hook-private");
+    let dest = app_worktree(&w, "app");
+    let (code, _, err) = session_start(&dest, &[("SUSI_PRIVATE_TARGET", "1")]);
+    assert_eq!(code, 0, "{err}");
+    assert!(!dest.join("target").exists(), "the opt-out must win: {err}");
+}
+
+#[test]
+fn linking_twice_changes_nothing_and_says_nothing_the_second_time() {
+    let w = World::new("hook-twice");
+    let dest = app_worktree(&w, "app");
+    let (_, out1, err1) = session_start(&dest, &[]);
+    let first = format!("{out1}{err1}");
+    assert!(first.contains("target: shared ->"), "{first}");
+    let before = std::fs::read_link(dest.join("target")).unwrap();
+    let (code, out2, err2) = session_start(&dest, &[]);
+    let second = format!("{out2}{err2}");
+    assert_eq!(code, 0, "{second}");
+    assert!(!second.contains("target: shared ->"), "{second}");
+    assert_eq!(std::fs::read_link(dest.join("target")).unwrap(), before);
+}
+
+/// The hook runs at the start of every agent session and must never block one.
+/// Here the shared location cannot be created at all (a file is in the way).
+#[test]
+fn a_link_that_cannot_be_made_never_fails_the_session_start() {
+    let w = World::new("hook-cannot");
+    let dest = app_worktree(&w, "app");
+    std::fs::write(w.primary.join("target"), "not a directory").unwrap();
+    let (code, _, err) = session_start(&dest, &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(!is_symlink(&dest.join("target")), "{err}");
 }
