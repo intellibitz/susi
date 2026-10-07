@@ -1,0 +1,26 @@
+{
+  "id": "T-DEVIN2026100712462421182-7",
+  "title": "Run Qwen3-MoE GGUFs locally: qwen3moe backend dispatch + HF discovery admission (CPU-rich hardware, tools-capable)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-vendor-models"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791376615,
+  "closed": {
+    "at_unix": 1791377053,
+    "commit": "48e90c3273bd5e7951fb22d461adc4de0aa43d95",
+    "by": "DEVIN2026100712462421182"
+  }
+}

@@ -145,6 +145,13 @@ fn retain_quantized(steps: Vec<ModelLadderConfigStep>) -> Vec<ModelLadderConfigS
         .collect()
 }
 
+/// HF `model_type` (config.json) strings the local substrate implements a
+/// backend for. Not the GGUF `general.architecture` spelling: HF writes
+/// `qwen3_moe` where the GGUF header carries `qwen3moe`.
+fn supported_model_type(model_type: Option<&str>) -> bool {
+    matches!(model_type, Some("qwen2" | "llama" | "qwen3_moe"))
+}
+
 pub fn resolve_model_ladder(
     cfg: &crate::susi_sandbox::manager::SusiConfig,
 ) -> Vec<ModelLadderConfigStep> {
@@ -313,10 +320,7 @@ fn fetch_dynamic_ladder(
                     &format!("{base}/{config_repo}/resolve/main/config.json"),
                     &hf_header_refs(&auth),
                 )?;
-                if !matches!(
-                    config.get("model_type").and_then(|v| v.as_str()),
-                    Some("qwen2" | "llama")
-                ) {
+                if !supported_model_type(config.get("model_type").and_then(|v| v.as_str())) {
                     return None;
                 }
                 let best = files
@@ -480,5 +484,21 @@ mod tests {
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].hf_file, "model-Q4_K_M.gguf");
         assert!(retain_quantized(vec![step("model-BF16.gguf")]).is_empty());
+    }
+
+    /// Admission mirrors the substrate's implemented backends — the MoE
+    /// entry is HF's `qwen3_moe` spelling, not the GGUF `qwen3moe` arch.
+    #[test]
+    fn supported_model_type_admits_only_implemented_backends() {
+        for ok in ["qwen2", "llama", "qwen3_moe"] {
+            assert!(supported_model_type(Some(ok)), "{ok} must be admitted");
+        }
+        for rejected in ["qwen3", "qwen2moe", "mixtral", "gemma3", "qwen3moe"] {
+            assert!(
+                !supported_model_type(Some(rejected)),
+                "{rejected} has no implemented backend"
+            );
+        }
+        assert!(!supported_model_type(None));
     }
 }
