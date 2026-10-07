@@ -1,0 +1,23 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-12",
+  "title": "verify and the branch gate skip their toolchain when nothing needs checking",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791346041,
+  "closed": {
+    "at_unix": 1791346322,
+    "commit": "1e517dd76319c6425f5491ce1a4786dad9c7864a",
+    "by": "INTELLIBITZ20261006180120253507"
+  }
+}

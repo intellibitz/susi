@@ -309,29 +309,11 @@ jobs:
       - name: Test harness contract
         run: scripts/check-test-harness-contract.sh
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      # A cache is only readable from the ref that wrote it or from main, and this
-      # job never runs on main - so the cache it used to write could only be read
-      # by later pushes of the *same* branch. Every fresh agent branch (a new
-      # branch per task) therefore started cold on its first push: 7.5 min against
-      # 0.7-1.1 min once warm, 111 s of it the ONNX fetch alone. `lint` runs on main
-      # and builds the same dependency closure (clippy over the workspace plus the
-      # doc-test build), so read its cache and never write one of our own: saving
-      # per branch only filled the cache quota with one entry per task.
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: lint
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Install Linux System Dependencies
-        run: scripts/ci-system-deps.sh
-
-      - name: Install mold (Linux)
-        run: scripts/ci-install-mold.sh
-
+      # Resolve scope before paying for a toolchain: a push that moves only
+      # .agents/ (task adds, close receipts) has an empty lint set, so the
+      # deps, mold, ONNX and clippy steps below would install ~90 s of
+      # toolchain for nothing. `lintcmd` empty is the "nothing to compile"
+      # verdict and gates them all.
       - name: Resolve affected crates
         id: affected
         run: |
@@ -348,6 +330,33 @@ jobs:
           else
             echo "lintcmd=cargo clippy$(printf ' -p %s' $pkgs) --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Install Rust
+        if: steps.affected.outputs.lintcmd != ''
+        uses: dtolnay/rust-toolchain@stable
+
+      # A cache is only readable from the ref that wrote it or from main, and this
+      # job never runs on main - so the cache it used to write could only be read
+      # by later pushes of the *same* branch. Every fresh agent branch (a new
+      # branch per task) therefore started cold on its first push: 7.5 min against
+      # 0.7-1.1 min once warm, 111 s of it the ONNX fetch alone. `lint` runs on main
+      # and builds the same dependency closure (clippy over the workspace plus the
+      # doc-test build), so read its cache and never write one of our own: saving
+      # per branch only filled the cache quota with one entry per task.
+      - name: Cache Cargo
+        if: steps.affected.outputs.lintcmd != ''
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install Linux System Dependencies
+        if: steps.affected.outputs.lintcmd != ''
+        run: scripts/ci-system-deps.sh
+
+      - name: Install mold (Linux)
+        if: steps.affected.outputs.lintcmd != ''
+        run: scripts/ci-install-mold.sh
 
       # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
       # retry of its own, so one hiccup reddens this job (it did: main's
@@ -647,30 +656,49 @@ jobs:
         with:
           fetch-depth: 0 # merge-base needs main's history
 
+      # Most merges — every metadata-only one, and any whose attestation an
+      # earlier run already recorded — have no verification to do. The refs
+      # answer that in seconds; building susi to learn it takes minutes. A
+      # read failure says "pending" so an attestation never starves quietly.
+      - name: Any merged attestation still unverified?
+        id: owed
+        run: |
+          if scripts/ci-verified-pending.sh; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Rust
+        if: steps.owed.outputs.pending == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       # Builds `susi` and then each merged task's own test target: 24 min cold, all
       # of it compiling. The root-cli shard has just built the same dependency
       # closure, so start from its cache and leave writing it to that shard.
       - name: Cache Cargo
+        if: steps.owed.outputs.pending == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: test-root-cli
           save-if: false
 
       - name: Install Linux System Dependencies
+        if: steps.owed.outputs.pending == 'true'
         run: scripts/ci-system-deps.sh
 
       - name: Install mold (Linux)
+        if: steps.owed.outputs.pending == 'true'
         run: scripts/ci-install-mold.sh
 
       - name: Install cargo-nextest
+        if: steps.owed.outputs.pending == 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
 
       - name: Re-run the acceptance of freshly merged tasks
+        if: steps.owed.outputs.pending == 'true'
         run: cargo run --locked -q -- tasks verify-merged
 
   # The capability-gap e2e executes a synthesized WASI reflex through a live
