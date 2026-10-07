@@ -7,7 +7,7 @@ name: Auto PR + Merge
 #                              beat the PR), merge it right away
 #   Test workflow succeeds  -> merge that PR (merge commit, repo convention),
 #                              then dispatch the full Test suite on main
-#   every 5 minutes         -> reconcile all open PRs (scripts/reconcile-prs.sh):
+#   every half hour         -> reconcile all open PRs (scripts/reconcile-prs.sh):
 #                              merge any that are green but were missed, comment
 #                              once on red/conflicting ones, close ones idle for
 #                              7 days — so no PR waits in the queue forever
@@ -41,8 +41,16 @@ on:
   workflow_run:
     workflows: [Test]
     types: [completed]
+    # A completed run on main (the post-merge suite, or a tag's await-tests
+    # dispatch) can never produce a merge decision — main has no PR — so each
+    # one used to cost a full auto-merge run that exited doing nothing.
+    branches-ignore: [main]
   schedule:
-    - cron: '*/5 * * * *'
+    # Backstop only: pushes and Test completions merge through their own
+    # events, so this pass exists to catch the events GitHub drops. Every tick
+    # is a completed run in the Actions tab; */5 was 288 runs/day of mostly
+    # no-ops. */30 keeps a missed event inside the finish wait budget.
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -167,7 +175,7 @@ jobs:
       - uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
-      # The cron pass runs every five minutes, usually with nothing stale:
+      # The cron pass runs every half hour, usually with nothing stale:
       # probing first keeps those passes to seconds instead of a toolchain.
       - name: Will a stale green head need the inline gate?
         id: probe
