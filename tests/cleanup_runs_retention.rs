@@ -30,13 +30,29 @@ fn cleanup_runs_retention_stays_bounded() {
         .filter(|l| !l.trim_start().starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n");
+    // Bounds, not exact values: tightening the policy must pass, regrowing the
+    // backlog must not.
+    fn bounded_number(body: &str, marker: &str) -> u32 {
+        let at = body
+            .find(marker)
+            .unwrap_or_else(|| panic!("cleanup-runs.yml must set {marker}"));
+        body[at + marker.len()..]
+            .trim_start_matches(['\'', '"', ' '])
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .unwrap_or_else(|e| panic!("{marker} is not a plain number: {e}"))
+    }
+    let keep = bounded_number(&body, "KEEP_LATEST:");
     assert!(
-        body.contains("KEEP_LATEST: '5'"),
-        "cleanup-runs.yml must keep only the newest 5 completed runs per workflow"
+        (1..=5).contains(&keep),
+        "cleanup-runs.yml keeps {keep} runs per workflow; it must keep at most 5"
     );
+    let days = bounded_number(&body, "inputs.retain_days ||");
     assert!(
-        body.contains("RETAIN_DAYS: ${{ inputs.retain_days || '2' }}"),
-        "cleanup-runs.yml must age out surplus runs within 2 days, so a busy week \
-         cannot rebuild the backlog between nightly runs"
+        (1..=2).contains(&days),
+        "cleanup-runs.yml ages out runs after {days} days; it must not exceed 2, \
+         so a busy week cannot rebuild the backlog between nightly runs"
     );
 }
