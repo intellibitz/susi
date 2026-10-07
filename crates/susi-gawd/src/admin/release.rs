@@ -168,6 +168,113 @@ fn push_release_branch(workspace: &Path) -> EaiResult<()> {
     Ok(())
 }
 
+/// Resolve `rev^{tree}` under `workspace`; `None` when the revision is
+/// absent or the resolve fails.
+fn git_tree(workspace: &Path, rev: &str) -> Option<String> {
+    let out = Command::new("git")
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{rev}^{{tree}}"),
+        ])
+        .current_dir(workspace)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let tree = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!tree.is_empty()).then_some(tree)
+}
+
+/// Recent `main` tips whose `Test` run concluded success — commits whose
+/// trees the remote suite already proved. `None` when `gh` is absent or the
+/// query fails; the suite then runs, as it always has.
+fn green_main_shas(workspace: &Path) -> Option<Vec<String>> {
+    let out = Command::new("gh")
+        .args([
+            "run",
+            "list",
+            "--workflow",
+            "test.yml",
+            "--branch",
+            "main",
+            "--status",
+            "success",
+            "--limit",
+            "20",
+            "--json",
+            "headSha",
+            "--jq",
+            ".[].headSha",
+        ])
+        .env("GH_PROMPT_DISABLED", "1")
+        .current_dir(workspace)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(String::from)
+            .collect(),
+    )
+}
+
+/// True when `head_tree` equals the tree of any `green_shas` entry: a commit
+/// whose `main`-branch `Test` run concluded success has already proven those
+/// bytes — the tree-identity argument the merge machinery uses to skip a
+/// redundant suite. An absent object or failed resolve is a sha that does
+/// not match, never an error.
+fn proven_by_green_run(workspace: &Path, head_tree: &str, green_shas: &[String]) -> bool {
+    green_shas
+        .iter()
+        .any(|sha| git_tree(workspace, sha).as_deref() == Some(head_tree))
+}
+
+/// The gate tests the working tree, so evidence recorded for HEAD applies
+/// only while the two agree.
+fn worktree_is_clean(workspace: &Path) -> bool {
+    Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(workspace)
+        .output()
+        .is_ok_and(|out| out.status.success() && out.stdout.is_empty())
+}
+
+/// True when the workspace suite may reuse remote evidence: the cutting tree
+/// is byte-identical to a commit whose `main`-branch `Test` run already
+/// concluded success. A synced release cut is exactly that case — the suite
+/// takes ~10 minutes to re-prove proven bytes. Every ambiguity — no `gh`, a
+/// dirty tree, no matching sha — runs the suite, which stays the default;
+/// `SUSI_RELEASE_RERUN_TESTS=1` forces it unconditionally.
+fn suite_proven_on_main(workspace: &Path) -> bool {
+    if env::var("SUSI_RELEASE_RERUN_TESTS").ok().as_deref() == Some("1") {
+        return false;
+    }
+    if !worktree_is_clean(workspace) {
+        return false;
+    }
+    let Some(head_tree) = git_tree(workspace, "HEAD") else {
+        return false;
+    };
+    // The run's shas and the objects they name must agree: fetch first.
+    let _ = Command::new("git")
+        .args(["fetch", "--quiet", "origin", "main"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(workspace)
+        .output();
+    let Some(shas) = green_main_shas(workspace) else {
+        return false;
+    };
+    proven_by_green_run(workspace, &head_tree, &shas)
+}
+
 impl SusiAdmin {
     pub fn execute_release(workspace: &Path, cut: Option<VersionBump>) -> EaiResult<String> {
         // `cuda`, `mkl`, and `metal` are mutually exclusive hardware backends
@@ -224,34 +331,41 @@ impl SusiAdmin {
         let _ = Self::audit_compliance(workspace, Some("release"))?;
 
         eprintln!("[Release Gatekeeper] 3. Executing the whole workspace's tests...");
-        // Required, not preferred: the fallback was bare `cargo test`, which tests
-        // one package of 86, and a gate that silently narrows is how that went
-        // unnoticed.
-        let nextest_present = Command::new("cargo")
-            .args(["nextest", "--version"])
-            .output()
-            .is_ok_and(|out| out.status.success());
-        if !nextest_present {
-            return Err(EaiError::process(
-                "Release aborted: cargo-nextest is required for the workspace test gate \
-                 (`cargo install cargo-nextest --locked`)."
-                    .to_string(),
-            ));
-        }
-        for args in workspace_test_commands() {
-            eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
-            let mut test_cmd = Command::new("cargo");
-            test_cmd.args(&args).current_dir(workspace);
-            scrub_instance_env(&mut test_cmd);
-            let mut test = test_cmd
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .spawn()?;
-            let status = test.wait()?;
-            if !status.success() {
+        if suite_proven_on_main(workspace) {
+            eprintln!(
+                "[Release Gatekeeper]    -> HEAD's tree already passed the main Test suite — \
+                 reusing that evidence (SUSI_RELEASE_RERUN_TESTS=1 forces a re-run)."
+            );
+        } else {
+            // Required, not preferred: the fallback was bare `cargo test`, which tests
+            // one package of 86, and a gate that silently narrows is how that went
+            // unnoticed.
+            let nextest_present = Command::new("cargo")
+                .args(["nextest", "--version"])
+                .output()
+                .is_ok_and(|out| out.status.success());
+            if !nextest_present {
                 return Err(EaiError::process(
-                    "Release aborted: Native tests failed.".to_string(),
+                    "Release aborted: cargo-nextest is required for the workspace test gate \
+                     (`cargo install cargo-nextest --locked`)."
+                        .to_string(),
                 ));
+            }
+            for args in workspace_test_commands() {
+                eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
+                let mut test_cmd = Command::new("cargo");
+                test_cmd.args(&args).current_dir(workspace);
+                scrub_instance_env(&mut test_cmd);
+                let mut test = test_cmd
+                    .stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit())
+                    .spawn()?;
+                let status = test.wait()?;
+                if !status.success() {
+                    return Err(EaiError::process(
+                        "Release aborted: Native tests failed.".to_string(),
+                    ));
+                }
             }
         }
 
@@ -945,6 +1059,54 @@ mod tests {
         let work = repo("timeout");
         let sha = commit_on_branch(&work);
         assert!(!await_merged(&work, &sha, Duration::from_secs(0)));
+    }
+
+    /// A synced release cut tests a tree the `main` suite just proved: the
+    /// gate must recognize that evidence by tree identity — a different
+    /// commit with the same tree counts, a changed tree or an unknown sha
+    /// does not.
+    #[test]
+    fn release_gate_reuses_main_suite_evidence_for_a_proven_tree() {
+        let work = repo("proven");
+        let main_sha = String::from_utf8_lossy(&git_in(&work, &["rev-parse", "HEAD"]).stdout)
+            .trim()
+            .to_string();
+        // A second commit whose tree is byte-identical to main's — what a
+        // metadata-only upstream merge produces.
+        let tree = String::from_utf8_lossy(&git_in(&work, &["rev-parse", "HEAD^{tree}"]).stdout)
+            .trim()
+            .to_string();
+        let twin = String::from_utf8_lossy(
+            &git_in(
+                &work,
+                &["commit-tree", &tree, "-p", &main_sha, "-m", "twin"],
+            )
+            .stdout,
+        )
+        .trim()
+        .to_string();
+        let twin_tree = git_tree(&work, &twin).expect("the twin commit must resolve");
+        assert!(proven_by_green_run(
+            &work,
+            &twin_tree,
+            std::slice::from_ref(&main_sha)
+        ));
+        // A changed tree is not covered by that run.
+        std::fs::write(work.join("new.rs"), "fn f() {}\n").unwrap();
+        assert!(git_in(&work, &["add", "new.rs"]).status.success());
+        let changed = String::from_utf8_lossy(&git_in(&work, &["write-tree"]).stdout)
+            .trim()
+            .to_string();
+        assert!(!proven_by_green_run(
+            &work,
+            &changed,
+            std::slice::from_ref(&main_sha)
+        ));
+        // An unknown sha is not evidence either.
+        assert!(!proven_by_green_run(&work, &twin_tree, &["0".repeat(40)]));
+        // A dirty working tree disables reuse entirely: the gate tests files,
+        // not HEAD.
+        assert!(!worktree_is_clean(&work));
     }
 
     fn sample() -> E2eCheck {
