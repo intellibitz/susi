@@ -1180,7 +1180,7 @@ fn the_main_suite_scopes_shards_and_e2e_to_the_merge() {
     let stamp = job(&jobs, "codetree");
     for needle in ["affected", "skip_shards", "run_e2e"] {
         assert!(
-            stamp.body.contains(&format!("{needle}=")) || stamp.body.contains(&needle),
+            stamp.body.contains(&format!("{needle}=")) || stamp.body.contains(needle),
             "codetree must emit `{needle}` for the scoping gates"
         );
     }
