@@ -1296,6 +1296,53 @@ mod tests {
         assert!(logits.elem_count() > 0);
     }
 
+    /// Engine-level live smoke test — opt-in via
+    /// SUSI_MOE_GGUF=<path to a real MoE .gguf>; ignored by default so the
+    /// suite stays hermetic. Exercises what the loader-level sibling cannot:
+    /// `get_model` dispatch (is_moe_gguf, not the dense backend), and the
+    /// GGUF-derived substrate fields (EOS ids, prompt format) the generation
+    /// loop depends on.
+    ///   SUSI_MOE_GGUF=~/models/qwen3-30b-a3b-q4_k_m.gguf \
+    ///     cargo test -p susi-gemi --release -- --ignored live_moe
+    #[test]
+    #[ignore = "requires a real MoE GGUF at $SUSI_MOE_GGUF"]
+    fn live_moe_gguf_loads_through_the_engine_dispatch() {
+        let path = std::path::PathBuf::from(
+            std::env::var("SUSI_MOE_GGUF")
+                .expect("SUSI_MOE_GGUF must name a MoE .gguf (qwen2moe/qwen3moe/mixtral)"),
+        );
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("moe_engine_smoke", "MoE engine dispatch smoke");
+        let model = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
+        let mut model = model.write();
+        assert!(
+            model.weights.as_qwen2_mut().is_none(),
+            "an MoE file must not reach the dense Qwen2 backend"
+        );
+        assert!(
+            !model.eos_token_ids.is_empty(),
+            "MoE instruct GGUFs ship tokenizer.ggml.eos_token_id"
+        );
+        assert_ne!(
+            model.prompt_format,
+            PromptFormat::Raw,
+            "instruct MoE chat templates should resolve to a known format, got {:?}",
+            model.prompt_format
+        );
+        // Small, universally-valid ids — every supported MoE vocab is ≥32k.
+        let input = candle_core::Tensor::new(
+            &[[9707_u32, 11, 1879, 330, 15546]],
+            &candle_core::Device::Cpu,
+        )
+        .unwrap();
+        let logits = model.weights.forward(&input, 0).unwrap();
+        let logits = logits.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert!(
+            logits.iter().all(|v| v.is_finite()),
+            "non-finite logits through engine dispatch"
+        );
+    }
+
     #[test]
     fn test_backend_dispatch_rejects_unsupported_architectures() {
         // Regression: quantized_llama (the generic GGUF loader) never reads

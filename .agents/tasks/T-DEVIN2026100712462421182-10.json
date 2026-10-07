@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN2026100712462421182-10",
+  "title": "Engine-level opt-in MoE smoke test through InferenceHost",
+  "goal": "local-model hardening: verify MoE dispatch, prompt format, and metadata end-to-end",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791414640
+}
