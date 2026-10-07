@@ -210,3 +210,41 @@ fn an_unknown_argument_is_refused_rather_than_silently_ignored() {
     assert_eq!(code, 2, "{lines:?}");
     assert!(lines.is_empty(), "nothing may reach stdout: {lines:?}");
 }
+
+/// `scripts/ci-reverse-deps.sh <pkg>`: the packages whose build can pull in
+/// `<pkg>` — the same transitive closure `--dependents` grows for a change to
+/// it, plus the package itself. The branch gate intersects this set with the
+/// affected crates to decide whether a push can reach the ONNX download.
+fn revdeps(dir: &Path, pkg: &str) -> Vec<String> {
+    let out = Command::new("bash")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/ci-reverse-deps.sh"))
+        .arg(pkg)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "ci-reverse-deps {pkg}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn reverse_deps_of_a_base_crate_is_its_whole_dependent_closure() {
+    let ws = Workspace::new("rev-base");
+    assert_eq!(
+        revdeps(&ws.root, "base"),
+        ["base", "devuser", "fixture-root", "mid", "top"]
+    );
+}
+
+#[test]
+fn reverse_deps_of_a_leaf_is_itself_and_reverse_deps_of_root_is_just_root() {
+    let ws = Workspace::new("rev-leaf");
+    assert_eq!(revdeps(&ws.root, "lone"), ["lone"]);
+    assert_eq!(revdeps(&ws.root, "fixture-root"), ["fixture-root"]);
+}

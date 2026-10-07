@@ -55,6 +55,11 @@ permissions:
 env:
   CARGO_PROFILE_DEV_DEBUG: 0
 
+# Compile-heavy jobs use `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}`:
+# point the `CI_RUNNER` repository variable at a larger runner (e.g.
+# `ubuntu-latest-8-cores`, billing permitting) and every gated compile gets
+# faster without a code change; unset it stays on the default image.
+
 jobs:
   # This job gates every merge and used to be the slowest thing on a branch push
   # by a wide margin (5-7.5 min against ~1 min for everything else): it compiled
@@ -65,7 +70,7 @@ jobs:
   # move `.agents/baseline/unsafe-default.json`.
   unsafe-ratchet:
     name: Unsafe Exposure Ratchet
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - name: Checkout Source
@@ -154,6 +159,9 @@ jobs:
     timeout-minutes: 10
     outputs:
       proven: ${{ steps.stamp.outputs.proven }}
+      affected: ${{ steps.scope.outputs.affected }}
+      skip_shards: ${{ steps.scope.outputs.skip_shards }}
+      run_e2e: ${{ steps.scope.outputs.run_e2e }}
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -172,6 +180,66 @@ jobs:
             scripts/ci-code-proven.sh "$GITHUB_SHA" $shas && proven=true
           fi
           echo "proven=$proven" >> "$GITHUB_OUTPUT"
+
+      # Which shards this merge can still break. A shard's tests only run the
+      # shard's own crates, so it can only fail when the merge touched one of
+      # them or something one of them depends on — the changed-crates-plus-
+      # dependents set (`ci-changed-crates.sh --dependents` against the previous
+      # main tip: `before` on a push, HEAD^1 — the merge commit's main-side
+      # parent — on the dispatch the auto-merger sends). Two escapes, both
+      # toward proving more: the suite's own machinery (.github/, scripts/)
+      # cannot scope itself out, and anything the diff cannot resolve is ALL.
+      # `affected` is the scalar verdict; `skip_shards` is what each matrix leg
+      # checks before spending a runner; `run_e2e` does the same for the e2e.
+      - name: Resolve which shards this merge can affect
+        id: scope
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          affected=ALL
+          skip='[]'
+          e2e=true
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            base=$BEFORE
+            [ "$base" = "0000000000000000000000000000000000000000" ] && base=
+            [ -n "$base" ] || base=$(git rev-parse 'HEAD^1' 2>/dev/null || true)
+            if [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null; then
+              changed=$(git diff --name-only "$base" HEAD)
+              if grep -Eq '^(\.github/|scripts/|\.cargo/|rust-toolchain)' <<<"$changed"; then
+                echo "merge touched CI machinery — scoping nothing"
+              else
+                pkgs=$(BASE_REF="$base" scripts/ci-changed-crates.sh --dependents || echo ALL)
+                case "$pkgs" in
+                  ALL) ;;
+                  "")
+                    affected=NONE
+                    skip=$(scripts/ci-test-shards.sh | cut -f1 | jq -R . | jq -sc .)
+                    e2e=false ;;
+                  *)
+                    affected=SCOPED
+                    e2e=false
+                    while IFS=$'\t' read -r name shardpkgs; do
+                      hit=false
+                      for c in $(awk '{for(i=1;i<=NF;i++) if($i=="-p") print $(i+1)}' <<<"$shardpkgs"); do
+                        grep -qx "$c" <<<"$pkgs" && { hit=true; break; }
+                      done
+                      [ "$hit" = true ] || skip=$(jq -c --arg n "$name" '. + [$n]' <<<"$skip")
+                    done < <(scripts/ci-test-shards.sh)
+                    # capability_gap_e2e exercises the daemon over a live
+                    # susi-native service: its crate set, with dependents
+                    # already folded into `affected` by --dependents.
+                    for c in susi-daemon susi-leaf-services susi-native-client susi-gmcp; do
+                      grep -qx "$c" <<<"$pkgs" && { e2e=true; break; }
+                    done ;;
+                esac
+              fi
+            fi
+          fi
+          {
+            echo "affected=$affected"
+            echo "skip_shards=$skip"
+            echo "run_e2e=$e2e"
+          } >> "$GITHUB_OUTPUT"
 
   toolchain:
     name: Toolchain Pin
@@ -292,8 +360,19 @@ jobs:
   check:
     name: Compile Check (branch pushes)
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
+    env:
+      # sccache caches each compiled unit under the shared GHA cache backend.
+      # `lint` (main-only) runs the same clippy closure and writes the entries
+      # every branch restores: unlike the rust-cache entry, they are per-unit,
+      # so a branch whose dep closure differs from what main last built still
+      # hits whatever units match. External deps go through RUSTC_WRAPPER,
+      # workspace crates through RUSTC_WORKSPACE_WRAPPER (they wrap
+      # clippy-driver, which sccache caches the same way).
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      RUSTC_WORKSPACE_WRAPPER: "sccache"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -330,10 +409,30 @@ jobs:
           else
             echo "lintcmd=cargo clippy$(printf ' -p %s' $pkgs) --all-targets --locked -- -D warnings" >> "$GITHUB_OUTPUT"
           fi
+          # The ONNX prefetch builds susi-vendor-fastembed only to warm its CDN
+          # download; nothing else in the job can reach it. Pay for it only
+          # when the affected set intersects the crates that can pull it in
+          # (or when everything is being built anyway).
+          onnx=false
+          if [ "$pkgs" = "ALL" ]; then
+            onnx=true
+          elif [ -n "$pkgs" ]; then
+            rev=$(./scripts/ci-reverse-deps.sh susi-vendor-fastembed)
+            if comm -12 <(sort <<<"$pkgs") <(sort <<<"$rev") | grep -q .; then
+              onnx=true
+            fi
+          fi
+          echo "onnx=$onnx" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         if: steps.affected.outputs.lintcmd != ''
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sccache
+        if: steps.affected.outputs.lintcmd != ''
+        uses: mozilla-actions/sccache-action@v0.0.10
+        with:
+          version: "v0.16.0"
 
       # A cache is only readable from the ref that wrote it or from main, and this
       # job never runs on main - so the cache it used to write could only be read
@@ -342,12 +441,15 @@ jobs:
       # 0.7-1.1 min once warm, 111 s of it the ONNX fetch alone. `lint` runs on main
       # and builds the same dependency closure (clippy over the workspace plus the
       # doc-test build), so read its cache and never write one of our own: saving
-      # per branch only filled the cache quota with one entry per task.
+      # per branch only filled the cache quota with one entry per task. Compiled
+      # units are sccache's job now; this restores only the registry and git deps
+      # (cache-targets off) so a full target/ is not restored on top of sccache.
       - name: Cache Cargo
         if: steps.affected.outputs.lintcmd != ''
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
+          cache-targets: "false"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
@@ -361,11 +463,11 @@ jobs:
       # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
       # retry of its own, so one hiccup reddens this job (it did: main's
       # vendor-cells shard). Build it up front with bounded retries - only the
-      # build is retried, never the tests. Any crate work gets it: the root
-      # package depends on the embedder and is in all but three crates' dependents
-      # sets, and on a warm cache this is a cargo no-op.
+      # build is retried, never the tests. Only the crates that can pull
+      # susi-vendor-fastembed into this job's build need it (ci-reverse-deps.sh);
+      # on a warm cache this is a cargo no-op.
       - name: Pre-fetch ONNX Runtime (bounded retries)
-        if: steps.affected.outputs.pkgs != ''
+        if: steps.affected.outputs.onnx == 'true'
         run: scripts/ci-prefetch-onnxruntime.sh
 
       # The lint job is main-only, so a lint break merges green and reddens main
@@ -398,7 +500,7 @@ jobs:
     name: Test (${{ matrix.shard.name }})
     needs: codetree
     if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -426,30 +528,57 @@ jobs:
           - name: leaf-all-features
             pkgs: -p susi-leaf-services --all-features
     steps:
+      # Job-level `if` cannot see matrix variables, so scoping happens here:
+      # a leg whose shard the merge cannot affect exits in seconds instead of
+      # building its dependency closure. The map from shard name to packages
+      # is scripts/ci-test-shards.sh (kept in sync with the matrix above by
+      # tests/ci_workflow_perf.rs); codetree has already folded dependents in,
+      # so an absent shard can only prove what was already green.
+      - name: Skip when this shard cannot be affected
+        id: scope
+        env:
+          AFFECTED: ${{ needs.codetree.outputs.affected }}
+          SKIP: ${{ needs.codetree.outputs.skip_shards }}
+          NAME: ${{ matrix.shard.name }}
+        run: |
+          run=true
+          if [ "$AFFECTED" != "ALL" ] && jq -e --arg n "$NAME" 'index($n) != null' <<<"$SKIP" >/dev/null; then
+            echo "shard $NAME holds no crate this merge can affect — skipping"
+            run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
       - name: Checkout Source
+        if: steps.scope.outputs.run == 'true'
         uses: actions/checkout@v6
 
       - name: Install Rust
+        if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
+        if: steps.scope.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: test-${{ matrix.shard.name }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
+        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-system-deps.sh
 
       - name: Install mold (Linux)
+        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-install-mold.sh
 
       # wasm32-wasip1 lets the reflex tests take the real compile+execute
       # branch instead of skipping (VC-200-002 evidence).
       - name: Install wasm32-wasip1 target
+        if: steps.scope.outputs.run == 'true'
         run: rustup target add wasm32-wasip1
 
       - name: Install cargo-nextest
+        if: steps.scope.outputs.run == 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
@@ -463,9 +592,11 @@ jobs:
       # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
       # retry of its own, so one hiccup reddens this job (it did: main's
       # vendor-cells shard). Build it up front with bounded retries - only the
-      # build is retried, never the tests.
+      # build is retried, never the tests. The shards named here are exactly the
+      # reverse-dependency set of susi-vendor-fastembed (scripts/ci-reverse-deps.sh):
+      # gmcp, vendor-fastembed itself, the daemon and the root package.
       - name: Pre-fetch ONNX Runtime (bounded retries)
-        if: contains(matrix.shard.pkgs, 'susi-gmcp') || contains(matrix.shard.pkgs, 'susi-vendor-fastembed') || matrix.shard.name == 'root-cli'
+        if: steps.scope.outputs.run == 'true' && (contains(matrix.shard.pkgs, 'susi-gmcp') || contains(matrix.shard.pkgs, 'susi-vendor-fastembed') || contains(matrix.shard.pkgs, 'susi-daemon') || matrix.shard.name == 'root-cli')
         run: scripts/ci-prefetch-onnxruntime.sh
 
       # `--retries 2`: with the branch gate no longer running tests, this is the
@@ -476,6 +607,7 @@ jobs:
       # reported FLAKY in the summary rather than failing the shard - visible, not
       # silent - while one that fails all three attempts still reddens main.
       - name: cargo nextest
+        if: steps.scope.outputs.run == 'true'
         run: cargo nextest run --locked --retries 2 ${{ matrix.shard.pkgs }} -E 'not binary(capability_gap_e2e)'
 
   # Per-crate coverage floor: coverage can only rise. Parallel with the
@@ -484,7 +616,7 @@ jobs:
     name: Coverage Ratchet
     needs: codetree
     if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 60
     steps:
       - name: Checkout Source
@@ -536,8 +668,15 @@ jobs:
     name: Doc Tests + Clippy
     needs: codetree
     if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
+    env:
+      # This job is what populates sccache on main: it compiles the workspace's
+      # whole clippy closure, so the units the branch `check` job restores are
+      # written here. Branch runs read them under their base ref.
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      RUSTC_WORKSPACE_WRAPPER: "sccache"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -546,6 +685,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+        with:
+          version: "v0.16.0"
 
       # Branch pushes' `check` job restores this exact cache (same shared-key), so
       # what this job leaves on main is what every new agent branch starts from.
@@ -646,7 +790,7 @@ jobs:
   verify:
     name: Post-merge acceptance
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 90
     permissions:
       contents: write # push the refs/verified/<id> records
@@ -708,38 +852,60 @@ jobs:
     name: capability_gap_e2e (live susi-native)
     needs: codetree
     if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     steps:
+      # Same scoping as the test shards: a merge that cannot reach the
+      # daemon/leaf/native/gmcp set this exercises is already proven.
+      - name: Skip when the merge cannot reach the e2e crates
+        id: scope
+        env:
+          AFFECTED: ${{ needs.codetree.outputs.affected }}
+          RUN: ${{ needs.codetree.outputs.run_e2e }}
+        run: |
+          run=$RUN
+          [ "$AFFECTED" = "ALL" ] && run=true
+          [ "$run" = true ] || echo "merge cannot affect the e2e crates — skipping"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
       - name: Checkout Source
+        if: steps.scope.outputs.run == 'true'
         uses: actions/checkout@v6
 
       - name: Install Rust
+        if: steps.scope.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
+        if: steps.scope.outputs.run == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
+        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-system-deps.sh
 
       - name: Install mold (Linux)
+        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-install-mold.sh
 
       - name: Install wasm32-wasip1 target
+        if: steps.scope.outputs.run == 'true'
         run: rustup target add wasm32-wasip1
 
       - name: Install cargo-nextest
+        if: steps.scope.outputs.run == 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
 
       - name: Build susi-native service
+        if: steps.scope.outputs.run == 'true'
         run: cargo build -p susi-leaf-services --bin susi-native --no-default-features --features service-native,standalone-service-bins --locked
 
       - name: Start susi-native on 127.0.0.1:18084
+        if: steps.scope.outputs.run == 'true'
         run: |
           ./target/debug/susi-native &
           for i in $(seq 1 60); do
@@ -754,7 +920,9 @@ jobs:
       # vendor-cells shard). Build it up front with bounded retries - only the
       # build is retried, never the tests.
       - name: Pre-fetch ONNX Runtime (bounded retries)
+        if: steps.scope.outputs.run == 'true'
         run: scripts/ci-prefetch-onnxruntime.sh
 
       - name: cargo nextest (e2e only)
+        if: steps.scope.outputs.run == 'true'
         run: cargo nextest run -p susi-daemon --test capability_gap_e2e --locked
