@@ -298,12 +298,18 @@ impl PlaneHandler for GemiPlaneHandler {
                     .get("deep")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                // `requires` (absent = none): the request's declared
+                // capability — `"tools"` gates the local rung on a
+                // tool-capable model and injects the registered schemas.
+                let requires = payload.get("requires").and_then(|v| v.as_str());
                 let text = if deep {
                     GemiEngine::generate_reasoning_stream_deep_meta(
                         prompt, &ws, &emit, model, &meta,
                     )
                 } else {
-                    GemiEngine::generate_reasoning_stream_meta(prompt, &ws, &emit, model, &meta)
+                    GemiEngine::generate_reasoning_stream_meta(
+                        prompt, &ws, &emit, model, &meta, requires,
+                    )
                 };
                 Ok(json!({ "text": text }))
             }

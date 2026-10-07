@@ -436,6 +436,7 @@ pub mod gemi {
                 on_chunk,
                 model,
                 &|_| {},
+                None,
             )
         }
 
@@ -443,14 +444,18 @@ pub mod gemi {
         /// chunks — the handler emits `{"susi_meta":{"provider":name}}`
         /// when routing picks the actual serving backend, before any
         /// content chunk, so SSE callers can label frames truthfully.
+        /// `requires` forwards the request's declared capability
+        /// (`"tools"`, …) to the engine's capability gate.
+        #[allow(clippy::too_many_arguments)] // flat params mirror the stream siblings; a params struct would only wrap them
         pub fn generate_reasoning_stream_with_model_meta(
             prompt: &str,
             workspace: &Path,
             on_chunk: &dyn Fn(String),
             model: Option<&str>,
             on_meta: &dyn Fn(&str),
+            requires: Option<&str>,
         ) -> String {
-            Self::stream(prompt, workspace, on_chunk, model, on_meta, false)
+            Self::stream(prompt, workspace, on_chunk, model, on_meta, false, requires)
         }
 
         /// Streaming reasoning that never takes a reflex tier — for
@@ -462,7 +467,7 @@ pub mod gemi {
             workspace: &Path,
             on_chunk: &dyn Fn(String),
         ) -> String {
-            Self::stream(prompt, workspace, on_chunk, None, &|_| {}, true)
+            Self::stream(prompt, workspace, on_chunk, None, &|_| {}, true, None)
         }
 
         #[allow(clippy::too_many_arguments)] // private helper behind the two public stream entry points; a params struct would only wrap them
@@ -473,6 +478,7 @@ pub mod gemi {
             model: Option<&str>,
             on_meta: &dyn Fn(&str),
             deep: bool,
+            requires: Option<&str>,
         ) -> String {
             let bus = PlaneBus::global();
             let (stream_id, rx) = bus.open_stream();
@@ -484,6 +490,7 @@ pub mod gemi {
                     "stream_id": stream_id,
                     "model": model,
                     "deep": deep,
+                    "requires": requires,
                 }),
             );
             let deliver = |chunk: &Value| {

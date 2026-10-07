@@ -1121,12 +1121,23 @@ impl InferenceRouter {
     fn supports_requirement(requirement: &str) -> bool {
         matches!(
             requirement.to_ascii_lowercase().as_str(),
-            "text" | "chat" | "reasoning" | "code" | "vision"
+            "text" | "chat" | "reasoning" | "code" | "vision" | "tools"
         )
     }
 
+    /// Whether the local rung can serve the request's declared capability.
+    /// `tools` is the GGUF-side equivalent of the cloud `BlockReason::NoTools`
+    /// gate: the model must ship a tool-aware chat template, which is only
+    /// knowable post-download (`ModelManager::supports_tool_calling`), so the
+    /// host qualifies only when some discovered local model does.
     fn local_supports_requirement(requires: Option<&str>) -> bool {
-        !requires.is_some_and(|value| value.eq_ignore_ascii_case("vision"))
+        match requires.map(|value| value.to_ascii_lowercase()) {
+            Some(value) if value == "vision" => false,
+            Some(value) if value == "tools" => {
+                crate::models::ModelManager::any_tool_capable_local_model(std::path::Path::new(""))
+            }
+            _ => true,
+        }
     }
 
     fn no_cloud_reason(local_ready: bool, has_cooled: bool) -> &'static str {
@@ -1209,6 +1220,25 @@ impl InferenceRouter {
         max_cost: Option<f64>,
         allow_cloud: bool,
     ) -> PlacementDecision {
+        Self::plan_placement_inner(
+            available_providers,
+            requires,
+            max_cost,
+            allow_cloud,
+            Self::local_supports_requirement,
+        )
+    }
+
+    /// The local capability verdict is a parameter so tests pin both
+    /// branches deterministically — whether a host actually owns a
+    /// tool-capable GGUF is environment state, not logic.
+    fn plan_placement_inner(
+        available_providers: &[String],
+        requires: Option<&str>,
+        max_cost: Option<f64>,
+        allow_cloud: bool,
+        local_capable: impl Fn(Option<&str>) -> bool,
+    ) -> PlacementDecision {
         let global_cfg = SusiConfig::load_global().unwrap_or_default();
         let cfg = global_cfg.inference_routing();
         let pref = Self::load_preference();
@@ -1242,7 +1272,7 @@ impl InferenceRouter {
             || crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
         {
             let request_blocked = !allow_cloud;
-            let unsupported_local_capability = !Self::local_supports_requirement(requires);
+            let unsupported_local_capability = !local_capable(requires);
             let local_eligible = local_ready && !unsupported_local_capability;
             return PlacementDecision {
                 contract: PlacementContract::now(),
@@ -1350,7 +1380,7 @@ impl InferenceRouter {
         }
 
         if policy == "local_only" {
-            let capability_supported = Self::local_supports_requirement(requires);
+            let capability_supported = local_capable(requires);
             return PlacementDecision {
                 contract: PlacementContract::now(),
                 target: if local_ready && capability_supported {
@@ -1387,6 +1417,29 @@ impl InferenceRouter {
                 target: "cloud".to_string(),
                 provider: Some(provider),
                 reason: "vision capability requires a matching provider".to_string(),
+                policy,
+                local_model,
+                local_ready,
+                local_stats: stats,
+                cloud_candidates: clouds,
+                cooled_candidates,
+                requires: requires.map(str::to_string),
+                max_cost,
+                allow_cloud,
+            };
+        }
+
+        // `requires: "tools"` — a healthy local rung is still wrong when no
+        // discovered GGUF can emit tool calls; escalate like vision does.
+        if requires.is_some_and(|value| value.eq_ignore_ascii_case("tools"))
+            && !local_capable(requires)
+        {
+            let provider = Self::pick_cloud(&clouds, &pref, &cfg);
+            return PlacementDecision {
+                contract: PlacementContract::now(),
+                target: "cloud".to_string(),
+                provider: Some(provider),
+                reason: "required tool capability is not available locally".to_string(),
                 policy,
                 local_model,
                 local_ready,
@@ -1795,11 +1848,42 @@ mod tests {
         assert!(decision.cloud_candidates.is_empty());
     }
 
+    /// `requires: "tools"` on a host with no tool-capable GGUF must not
+    /// settle for a prose-only model — it escalates when cloud is allowed
+    /// and fails closed when it is not. The capability probe is injected:
+    /// which GGUFs the host actually owns is environment state, not logic.
+    #[test]
+    fn tools_request_routes_away_from_tool_less_local() {
+        let incapable = |_: Option<&str>| false;
+        let escalated = InferenceRouter::plan_placement_inner(
+            &["openai-gpt-4o-mini".to_string()],
+            Some("tools"),
+            None,
+            true,
+            incapable,
+        );
+        assert_eq!(escalated.target, "cloud");
+        assert_eq!(escalated.provider.as_deref(), Some("openai-gpt-4o-mini"));
+        let blocked = InferenceRouter::plan_placement_inner(
+            &["openai-gpt-4o-mini".to_string()],
+            Some("tools"),
+            None,
+            false,
+            incapable,
+        );
+        assert_eq!(blocked.target, "unavailable");
+        assert!(blocked.reason.contains("required capability"));
+    }
+
     #[test]
     fn local_runtime_capability_gate_is_explicit() {
         assert!(InferenceRouter::local_supports_requirement(None));
         assert!(InferenceRouter::local_supports_requirement(Some("code")));
         assert!(!InferenceRouter::local_supports_requirement(Some("vision")));
+        // `tools` consults the host's GGUFs through the injected probe —
+        // pinned at the placement level by
+        // tools_request_routes_away_from_tool_less_local.
+        assert!(InferenceRouter::supports_requirement("tools"));
     }
 
     #[test]

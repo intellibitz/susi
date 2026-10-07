@@ -26,6 +26,57 @@ pub fn extract_tool_calls(text: &str) -> (String, Vec<NormalizedToolCall>) {
     (prose, calls)
 }
 
+/// Cap on tools enumerated for a local model — every schema costs context
+/// tokens on models whose windows are small, and past a screenful the
+/// enumeration confuses more than it helps.
+const MAX_ENUMERATED_TOOLS: usize = 32;
+
+/// Prepend the registered tool schemas to a prompt bound for a local
+/// tool-capable model. There is no Jinja rendering — the engines receive a
+/// bare string — so the catalog goes in as the `<tool_call>` emission
+/// contract plus a `name — description` list, which is exactly the markup
+/// `extract_tool_calls` reads back on the answer. Returns the prompt
+/// untouched when nothing is registered (nothing for the model to call).
+pub fn prompt_with_tool_schemas(prompt: &str) -> String {
+    let tools = crate::susi_core::plane_bus::tools::list_tools();
+    let Some(entries) = tools.as_array() else {
+        return prompt.to_string();
+    };
+    let catalog: Vec<(&str, &str)> = entries
+        .iter()
+        .take(MAX_ENUMERATED_TOOLS)
+        .filter_map(|tool| {
+            Some((
+                tool.get("name").and_then(Value::as_str)?,
+                tool.get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("no description"),
+            ))
+        })
+        .collect();
+    match tools_block(&catalog) {
+        Some(block) => format!("{block}\n\n{prompt}"),
+        None => prompt.to_string(),
+    }
+}
+
+/// The tools preamble itself — `None` when the catalog is empty.
+fn tools_block(catalog: &[(&str, &str)]) -> Option<String> {
+    if catalog.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = catalog
+        .iter()
+        .map(|(name, description)| format!("- {name} — {description}"))
+        .collect();
+    Some(format!(
+        "You may call any of these tools by replying with exactly\n\
+         <tool_call>{{\"name\": \"<tool_name>\", \"arguments\": {{...}}}}</tool_call>\n\
+         and nothing else inside the tag. Registered tools:\n{}",
+        lines.join("\n")
+    ))
+}
+
 /// Walk `<tool_call>...</tool_call>` pairs (case-insensitive; an unclosed
 /// trailing block counts). Blocks whose inner JSON does not normalize are
 /// preserved in the prose.
@@ -198,5 +249,31 @@ mod local_tool_call_tests {
         let (_, calls) = extract_tool_calls(text);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].arguments["s"], "]] [");
+    }
+
+    /// The injected preamble teaches the exact markup the extractor reads
+    /// back — a model that complies emits a call `extract_tool_calls` parses.
+    #[test]
+    fn local_tool_schemas_block_roundtrips_through_extraction() {
+        let block = tools_block(&[
+            ("search", "Search the workspace"),
+            ("sql_query", "Run a SQL query"),
+        ])
+        .expect("non-empty catalog produces a block");
+        assert!(block.contains("search — Search the workspace"));
+        assert!(block.contains("<tool_call>"));
+        // What the contract instructs is what the extractor accepts.
+        let emitted =
+            "<tool_call>{\"name\": \"search\", \"arguments\": {\"q\": \"x\"}}</tool_call>";
+        let (_, calls) = extract_tool_calls(emitted);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "search");
+    }
+
+    #[test]
+    fn local_tool_schemas_block_none_when_empty() {
+        assert!(tools_block(&[]).is_none());
+        // Hermetic: no tools registered through the plane bus in tests.
+        assert_eq!(prompt_with_tool_schemas("plain"), "plain");
     }
 }

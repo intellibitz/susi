@@ -63,7 +63,7 @@ pub struct GemiEngine;
 
 impl GemiEngine {
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
-        Self::reason_internal(prompt, workspace, true, &|_| {}, None, None, &|_| {})
+        Self::reason_internal(prompt, workspace, true, &|_| {}, None, None, None, &|_| {})
     }
 
     pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
@@ -82,6 +82,7 @@ impl GemiEngine {
             &|_| {},
             min_complexity,
             None,
+            None,
             &|_| {},
         )
     }
@@ -98,6 +99,7 @@ impl GemiEngine {
             &|_| {},
             None,
             Some(model),
+            None,
             &|_| {},
         )
     }
@@ -107,7 +109,7 @@ impl GemiEngine {
         workspace: &Path,
         callback: &dyn Fn(String),
     ) -> String {
-        Self::reason_internal(prompt, workspace, true, callback, None, None, &|_| {})
+        Self::reason_internal(prompt, workspace, true, callback, None, None, None, &|_| {})
     }
 
     /// Streaming reasoning honoring a caller-requested model name — the
@@ -125,6 +127,7 @@ impl GemiEngine {
             callback,
             None,
             Some(model),
+            None,
             &|_| {},
         )
     }
@@ -132,13 +135,17 @@ impl GemiEngine {
     /// Streaming reasoning that also reports the actual serving backend
     /// (provider name or local model id) through `meta` the moment routing
     /// picks it — before any content chunk — so SSE callers can label
-    /// frames truthfully instead of echoing the requested model.
+    /// frames truthfully instead of echoing the requested model. `requires`
+    /// carries the request's declared capability (`"tools"`, …) into the
+    /// local rung's capability gate and prompt shaping.
+    #[allow(clippy::too_many_arguments)] // flat params mirror the stream siblings; a builder would only wrap them
     pub fn generate_reasoning_stream_meta(
         prompt: &str,
         workspace: &Path,
         callback: &dyn Fn(String),
         model: Option<&str>,
         meta: &dyn Fn(&str),
+        requires: Option<&str>,
     ) -> String {
         Self::reason_internal(
             prompt,
@@ -147,6 +154,7 @@ impl GemiEngine {
             callback,
             None,
             model,
+            requires,
             meta,
         )
     }
@@ -159,7 +167,7 @@ impl GemiEngine {
         model: Option<&str>,
         meta: &dyn Fn(&str),
     ) -> String {
-        Self::reason_internal(prompt, workspace, false, callback, None, model, meta)
+        Self::reason_internal(prompt, workspace, false, callback, None, model, None, meta)
     }
 
     /// Ultra-Latency Competitive Inference Racing
@@ -171,6 +179,7 @@ impl GemiEngine {
         callback: &dyn Fn(String),
         min_complexity: Option<crate::models::intent::TaskComplexity>,
         requested_model: Option<&str>,
+        requires: Option<&str>,
         meta: &dyn Fn(&str),
     ) -> String {
         if allow_reflex {
@@ -331,6 +340,34 @@ impl GemiEngine {
         let local_candidate = selected_model
             .clone()
             .unwrap_or_else(|| engine_key.to_string());
+        // `requires: "tools"` — the local counterpart of the cloud
+        // `BlockReason::NoTools` gate. A request that declared tools cannot
+        // be answered by a model whose chat template cannot emit them, so
+        // refuse instead of silently degrading to prose; a capable model
+        // gets the registered schemas injected so its markup is grounded in
+        // tools that actually exist.
+        let needs_tools = requires.is_some_and(|r| r.eq_ignore_ascii_case("tools"));
+        if needs_tools {
+            let capable = selected_model
+                .as_deref()
+                .and_then(crate::models::ModelManager::get_model_path)
+                .is_some_and(|p| crate::models::ModelManager::supports_tool_calling(&p));
+            if !capable {
+                let msg = format!(
+                    "[CAPABILITY_GAP] request requires tool calling but the local model `{}` does not declare tool support",
+                    selected_model.as_deref().unwrap_or("<none>")
+                );
+                callback(format!("{msg}\n"));
+                return msg;
+            }
+        }
+        let engine_prompt;
+        let prompt = if needs_tools {
+            engine_prompt = crate::local_tool_calls::prompt_with_tool_schemas(prompt);
+            engine_prompt.as_str()
+        } else {
+            prompt
+        };
         let local_started = std::time::Instant::now();
         // Drive the engine through the shared lifecycle contract: discover →
         // load → ready (health probe) → infer (VC-201-042). A failed probe
