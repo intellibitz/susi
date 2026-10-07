@@ -3,6 +3,10 @@
 # run the workflow check and print the result into the session, so the agent
 # learns the rules and what to fix before it edits. It never blocks a session.
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 0
+# A worktree the desktop app made has a private target/ and would cold-compile
+# every dependency; share the clone's instead (a no-op where it already is, or
+# where a build already lives in target/). See scripts/link-shared-target.sh.
+[ -x scripts/link-shared-target.sh ] && scripts/link-shared-target.sh 2>&1
 # Keep the primary checkout's main current (silent unless it advanced).
 [ -x scripts/park-primary.sh ] && scripts/park-primary.sh --sync-only 2>/dev/null
 if command -v susi >/dev/null 2>&1 && susi workflow --help >/dev/null 2>&1; then

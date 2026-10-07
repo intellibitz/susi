@@ -89,7 +89,8 @@ echo "worktree: $dest (branch $name)" >&2
 # nothing and overwrote each other's artifacts (a fresh one compiled 716 crates in
 # 656 s). Without it, one created after a warm build compiled 81 in 176 s;
 # tests/ci_workflow_perf.rs pins the config. A worktree made another way (the
-# desktop app) keeps a private target/ and pays the cold build once.
+# desktop app) gets the same link from the SessionStart hook, which runs
+# scripts/link-shared-target.sh; keep the two rules in step.
 shared_target=$primary/target
 if [ -z "${SUSI_PRIVATE_TARGET:-}" ] && { [ ! -e "$dest/target" ] || [ -L "$dest/target" ]; }; then
     mkdir -p "$shared_target"

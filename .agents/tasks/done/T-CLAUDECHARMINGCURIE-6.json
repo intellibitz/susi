@@ -1,0 +1,26 @@
+{
+  "id": "T-CLAUDECHARMINGCURIE-6",
+  "title": "Session-start hook links an app-created worktree to the clone's shared target dir",
+  "goal": "scripts/susi-worktree.sh links a new worktree's target/ to the primary checkout's, and with a path-independent cargo config (T-CLAUDECHARMINGCURIE-5) that makes a fresh worktree's first build 78 s / 81 crates instead of 698 s / 716. But most agent sessions here are created by the desktop app, not that script (this session's own worktree has a private 9 GB target/), so they get none of it. scripts/link-shared-target.sh does the same link idempotently - never in the primary checkout, never over a target/ that already holds a build, an empty leftover dir is replaced, SUSI_PRIVATE_TARGET=1 opts out, it never fails its caller - and workflow-session-start.sh (the SessionStart hook Claude, Codex and Devin all run) calls it first. Cost: cargo's build-directory lock means two sessions compiling at once wait for each other; with most units already built the compile phases are short, and the opt-out exists.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi",
+      "-E",
+      "binary(/^(worktree_target_dir|agent_bootstrap)/)"
+    ]
+  },
+  "created_by": "CLAUDECHARMINGCURIE",
+  "created_unix": 1791334827,
+  "closed": {
+    "at_unix": 1791336071,
+    "commit": "46c4f81889813793335669b91d645f3ab7109757",
+    "by": "CLAUDECHARMINGCURIE"
+  }
+}

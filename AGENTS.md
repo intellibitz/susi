@@ -18,8 +18,11 @@ The agent loop is **atomic per task** (own worktree, always synced with
    the ~80 workspace crates (about 3 minutes) rather than all ~716 (about 11) —
    but only while `.cargo/config.toml` embeds no worktree path: a repo-relative
    `linker` did, and silently gave every worktree its own incompatible artifacts
-   (pinned in `tests/ci_workflow_perf.rs`). A worktree made some other way, such
-   as by the desktop app, keeps a private `target/` and pays the cold build once.
+   (pinned in `tests/ci_workflow_perf.rs`). A worktree the desktop app made has
+   no such link, so the SessionStart hook adds it (`scripts/link-shared-target.sh`:
+   never in the primary, never over a `target/` that already holds a build, and
+   `SUSI_PRIVATE_TARGET=1` opts out); cargo locks the build directory, so two
+   sessions compiling at the same moment wait for each other.
 2. **Sync, then claim one task:** if behind, `git fetch && git merge
    origin/main`; then `susi tasks list` and `susi tasks claim <id>`. One live
    claim at a time. Nobody starts a claimed task.
