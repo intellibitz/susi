@@ -137,6 +137,42 @@ jobs:
   # reddened main once already, when 1.99.0 deprecated `Atomic::fetch_update`
   # and failed clippy on unchanged code (T-DEEPSEEK-8). No `if`: every push and
   # main. It costs one toolchain resolution, no cargo build.
+  # A merge that moves only .agents/ (task adds, close receipts, roadmap
+  # narratives) lands a main tree whose code is byte-identical to a run that
+  # already went green - the shards, coverage, doc tests, kani and the e2e
+  # would spend ~20-30 min re-proving proven bytes while every later merge
+  # queues behind them (the main concurrency group keeps one running and one
+  # pending). This job diffs the merge against the newest green main runs
+  # excluding .agents/; an empty diff means the suite's verdict already exists
+  # and the gated jobs skip. Dispatch runs and branches always prove: only a
+  # main push can reuse evidence. Everything cheap or state-judging - fmt,
+  # toolchain, roadmap, artifacts, deny, the unsafe ratchet and post-merge
+  # verify - still runs on every merge.
+  codetree:
+    name: Code-tree stamp
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      proven: ${{ steps.stamp.outputs.proven }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # the candidate green shas need main's history
+
+      - name: Resolve whether the code tree is already proven
+        id: stamp
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          proven=false
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            shas=$(gh run list --workflow test.yml --branch main --status success \
+              --limit 20 --json headSha --jq '.[].headSha' || true)
+            scripts/ci-code-proven.sh "$GITHUB_SHA" $shas && proven=true
+          fi
+          echo "proven=$proven" >> "$GITHUB_OUTPUT"
+
   toolchain:
     name: Toolchain Pin
     runs-on: ubuntu-latest
@@ -351,7 +387,8 @@ jobs:
   # 40 s of tests).
   test:
     name: Test (${{ matrix.shard.name }})
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    needs: codetree
+    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -436,7 +473,8 @@ jobs:
   # shards so it adds no wall time; instrumented build is the cost.
   coverage:
     name: Coverage Ratchet
-    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/')
+    needs: codetree
+    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -487,7 +525,8 @@ jobs:
 
   lint:
     name: Doc Tests + Clippy
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    needs: codetree
+    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -545,7 +584,8 @@ jobs:
   # been broken for as long as the runner had been missing, and nobody could tell.
   kani:
     name: Kani Bounded Proofs
-    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/')
+    needs: codetree
+    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -638,7 +678,8 @@ jobs:
   # so building the service no longer serializes ahead of the suite.
   e2e:
     name: capability_gap_e2e (live susi-native)
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    needs: codetree
+    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
