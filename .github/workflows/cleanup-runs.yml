@@ -43,3 +43,26 @@ jobs:
             done
           done
           echo "deleted $deleted completed runs older than $RETAIN_DAYS days"
+
+  # The board hygiene check only ever ran in report mode, so the debris it
+  # names — claim refs whose tasks are long closed, remote branches already
+  # merged into main — accumulated until every `susi workflow check` printed
+  # permanent failures and a red board stopped meaning anything. Deleting refs
+  # and branches is a push, so this job gets its own contents: write; the
+  # run-deletion job above only needs actions: write. An expired claim on a
+  # still-open task is reported, never deleted — that is a crashed worker's
+  # lapse, claimable by design.
+  hygiene:
+    name: Board Hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # task state and branch merged-ness are judged on origin refs
+
+      - name: Remove dead claim refs and merged branches
+        run: scripts/check-board-hygiene.py --apply

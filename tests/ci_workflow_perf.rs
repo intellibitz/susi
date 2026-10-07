@@ -1109,3 +1109,26 @@ fn pending_gate_resolves_scope_before_installing_a_toolchain() {
         );
     }
 }
+
+/// The board hygiene check only ever ran in report mode, so the debris it
+/// names — dead claim refs and merged remote branches — accumulated forever.
+/// The nightly cleanup must actually apply it, with the write permission the
+/// ref deletions need and a bound on the schedule.
+#[test]
+fn cleanup_runs_applies_board_hygiene() {
+    let text = read(".github/workflows/cleanup-runs.yml");
+    let jobs = jobs(&text);
+    let hygiene = job(&jobs, "hygiene");
+    assert!(
+        hygiene.body.contains("check-board-hygiene.py --apply"),
+        "report mode prints the debt; --apply is what removes it"
+    );
+    assert!(
+        hygiene.body.contains("contents: write"),
+        "deleting claim refs and merged branches is a push — it needs write"
+    );
+    assert!(
+        hygiene.body.contains("timeout-minutes:"),
+        "a hung janitor must not hold the schedule"
+    );
+}
