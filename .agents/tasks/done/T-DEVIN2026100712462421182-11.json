@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN2026100712462421182-11",
+  "title": "Opt-in MoE generation E2E: greedy decode loop + tok/s measurement",
+  "goal": "local-model hardening: verify real generation cadence on MoE GGUFs",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791415660,
+  "closed": {
+    "at_unix": 1791416308,
+    "commit": "cb9289307c6c9444eadfbda2ed8482defbef5348",
+    "by": "DEVIN2026100712462421182"
+  }
+}
