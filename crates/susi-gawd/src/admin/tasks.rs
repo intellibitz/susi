@@ -1069,6 +1069,45 @@ fn published_on_main(ws: &Path, id: &str) -> EaiResult<bool> {
     Ok(done_on_main(ws, id))
 }
 
+/// Whether an unobserved close is still *owed*. A receipt reports debt while
+/// a merge could still publish something: a missing done file whose task is
+/// still open, or a tested head that never reached `origin/main`. A receipt
+/// whose head is already on `origin/main` for a task gone from the queue
+/// paid what it can pay — the work shipped, no close can ever be observed,
+/// and reporting it forever trains the swarm to ignore a red board. The
+/// record itself is kept — settled is not deleted — so `release` still
+/// refuses to drop it silently.
+fn receipt_owed(ws: &Path, record: &CloseRecord) -> bool {
+    if done_on_main(ws, &record.task) {
+        return false;
+    }
+    !(head_on_main(ws, record) && !open_on_main(ws, &record.task))
+}
+
+/// The receipt's own promise is "until this head is on `origin/main`": the
+/// tested head contained there is publication of the work itself. A head
+/// that resolves nowhere is no evidence.
+fn head_on_main(ws: &Path, record: &CloseRecord) -> bool {
+    git(
+        ws,
+        &["merge-base", "--is-ancestor", &record.head, "origin/main"],
+    )
+    .is_ok()
+}
+
+/// [`done_on_main`] for the open side: whether the task is still queued.
+fn open_on_main(ws: &Path, id: &str) -> bool {
+    git(
+        ws,
+        &[
+            "cat-file",
+            "-e",
+            &format!("origin/main:.agents/tasks/{id}.json"),
+        ],
+    )
+    .is_ok()
+}
+
 /// [`published_on_main`] against the `origin/main` this clone already has.
 fn done_on_main(ws: &Path, id: &str) -> bool {
     git(
@@ -1141,7 +1180,9 @@ fn has_unpublished_work(ws: &Path, id: &str) -> bool {
 /// re-adopted instead of taken over. Requires a synchronized receipt ref.
 fn accepted_unpublished(ws: &Path, id: &str, agent: &str) -> EaiResult<bool> {
     match read_closed(ws, id)? {
-        Some(record) if record.agent == agent => Ok(!published_on_main(ws, id)?),
+        Some(record) if record.agent == agent => {
+            Ok(!published_on_main(ws, id)? && receipt_owed(ws, &record))
+        }
         _ => Ok(false),
     }
 }
@@ -1174,7 +1215,7 @@ fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<St
         }
         if published_on_main(ws, id)? {
             clear_record(ws, &closed_ref(id))?;
-        } else {
+        } else if receipt_owed(ws, &record) {
             owed.push(id.to_string());
         }
     }
@@ -1204,7 +1245,7 @@ pub fn unpublished_closes_synced(ws: &Path, agent: &str) -> EaiResult<Vec<CloseR
         let Some(record) = read_closed(ws, id)? else {
             continue;
         };
-        if record.agent == by && !published_on_main(ws, id)? {
+        if record.agent == by && !published_on_main(ws, id)? && receipt_owed(ws, &record) {
             out.push(record);
         }
     }
@@ -1317,7 +1358,7 @@ pub fn audit(ws: &Path) -> EaiResult<AuditReport> {
 
     let mut owed = Vec::new();
     for record in records_under::<CloseRecord>(ws, "refs/closed/")? {
-        let landed = done_on_main(ws, &record.task) || real.iter().any(|m| m.task == record.task);
+        let landed = !receipt_owed(ws, &record) || real.iter().any(|m| m.task == record.task);
         if !landed {
             owed.push(record);
         }
@@ -3429,6 +3470,97 @@ mod tests {
         let report = audit(&b).unwrap();
         assert!(report.clean(), "{report:?}");
         assert_eq!(report.abandoned.len(), 1);
+        drop(r);
+    }
+
+    /// A close whose tested head is already on `origin/main` for a task gone
+    /// from the queue paid what it can pay — no merge could ever put a done
+    /// file there. It must not report as debt forever; but settled is not
+    /// deleted: the receipt stays until an observed close or a deliberate
+    /// abandon, because deleting an unobserved acceptance is exactly what the
+    /// record exists to prevent.
+    #[test]
+    fn a_settled_receipt_is_not_owed_but_the_record_stays() {
+        let (r, a, b) = Repos::new("settled");
+        let _ = std::fs::write(a.join("work.rs"), "fn work() {}\n");
+        publish(&a);
+        let main_head = git(&a, &["rev-parse", "origin/main"]).unwrap();
+        // The agent field is the token form `agent_token` produces — a
+        // lowercase name would filter every receipt out of `unpublished_closes`
+        // and the assertions below would pass on an empty list.
+        let receipt = |id: &str, head: &str| {
+            put_ref(
+                &a,
+                &format!("refs/closed/{id}"),
+                &serde_json::json!({
+                    "task": id,
+                    "agent": "CLAUDE",
+                    "head": head,
+                    "closed_unix": now_unix(),
+                }),
+            );
+        };
+
+        // The evaporated task: head on main, no open or done file anywhere.
+        receipt("T-SETTLED-1", &main_head);
+        assert!(
+            !published_on_main(&a, "T-SETTLED-1").unwrap(),
+            "no done file was observed — the record stays"
+        );
+        assert!(
+            owed_closes(&a, "CLAUDE", None).unwrap().is_empty(),
+            "nothing a merge could still publish remains — not owed"
+        );
+        assert!(
+            unpublished_closes(&b, "claude").unwrap().is_empty(),
+            "the board must not warn on a debt nobody can still pay"
+        );
+        assert!(
+            git(&b, &["ls-remote", "origin", "refs/closed/T-SETTLED-1"])
+                .unwrap()
+                .contains("refs/closed/T-SETTLED-1"),
+            "settled keeps the record — it does not delete it"
+        );
+        assert!(
+            audit(&a).unwrap().owed.is_empty(),
+            "the audit must not owe a debt the merged head already paid"
+        );
+
+        // The same published head with the task still open is real debt: the
+        // bookkeeping close must still land or the task is worked twice.
+        std::fs::create_dir_all(a.join(".agents/tasks")).unwrap();
+        let _ = std::fs::write(a.join(".agents/tasks/T-SETTLED-2.json"), "{}");
+        publish(&a);
+        receipt("T-SETTLED-2", &main_head);
+        assert!(
+            !unpublished_closes(&a, "claude").unwrap().is_empty(),
+            "an open task's close is still owed — the claim protects it"
+        );
+
+        // A head that never reached main is owed even when the task is
+        // missing: a branch containing it can still be merged.
+        let _ = std::fs::write(a.join("side.rs"), "fn side() {}\n");
+        git(&a, &["add", "-A"]).unwrap();
+        git(&a, &["commit", "--quiet", "-m", "unpublished work"]).unwrap();
+        let stranded = git(&a, &["rev-parse", "HEAD"]).unwrap();
+        receipt("T-SETTLED-3", &stranded);
+        assert!(
+            unpublished_closes(&a, "claude")
+                .unwrap()
+                .iter()
+                .any(|c| c.task == "T-SETTLED-3"),
+            "a head that is not an ancestor of main is still owed"
+        );
+
+        // A head that resolves nowhere is no evidence either.
+        receipt("T-SETTLED-4", &"0".repeat(40));
+        assert!(
+            unpublished_closes(&a, "claude")
+                .unwrap()
+                .iter()
+                .any(|c| c.task == "T-SETTLED-4"),
+            "a head that does not resolve is not evidence"
+        );
         drop(r);
     }
 
