@@ -1,0 +1,19 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-13",
+  "title": "a close receipt clears when its tested head reaches main, and board hygiene self-heals",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "published"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791346848
+}
