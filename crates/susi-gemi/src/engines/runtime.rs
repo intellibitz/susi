@@ -1343,6 +1343,104 @@ mod tests {
         );
     }
 
+    /// Real generation on a live MoE model — opt-in via SUSI_MOE_GGUF +
+    /// SUSI_MOE_TOKENIZER; ignored by default (multi-GB files, minutes of
+    /// CPU). Greedy decode through the engine's exact forward convention
+    /// (prefill at pos 0, single-token steps at absolute position) and
+    /// reports tokens/sec — the number that decides whether a CPU-resident
+    /// MoE is a usable brain or a fallback of last resort.
+    ///   SUSI_MOE_GGUF=~/models/qwen3-30b-a3b-q4_k_m.gguf \
+    ///   SUSI_MOE_TOKENIZER=~/models/qwen3-30b-a3b.tokenizer.json \
+    ///     cargo test -p susi-gemi --release -- --ignored live_moe_generates
+    #[test]
+    #[ignore = "requires real MoE GGUF + tokenizer at $SUSI_MOE_GGUF / $SUSI_MOE_TOKENIZER"]
+    fn live_moe_gguf_generates_tokens_on_cpu() {
+        let gguf = std::path::PathBuf::from(
+            std::env::var("SUSI_MOE_GGUF")
+                .expect("SUSI_MOE_GGUF must name a MoE .gguf (qwen2moe/qwen3moe/mixtral)"),
+        );
+        let tokenizer = Tokenizer::from_file(
+            std::env::var("SUSI_MOE_TOKENIZER")
+                .expect("SUSI_MOE_TOKENIZER must name a matching tokenizer.json"),
+        )
+        .unwrap();
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("moe_generation_smoke", "MoE generation smoke");
+        let device = candle_core::Device::Cpu;
+        let model = InferenceHost::get_model(&gguf, &device, &task).unwrap();
+        let mut model = model.write();
+
+        let prompt = model
+            .prompt_format
+            .wrap("Name the planets of the solar system in order, comma separated.");
+        let prompt_ids = tokenizer
+            .encode(prompt.as_str(), true)
+            .unwrap()
+            .get_ids()
+            .to_vec();
+        assert!(
+            prompt_ids.len() > 4,
+            "prompt tokenized to {:?} ids",
+            prompt_ids.len()
+        );
+
+        let prompt_len = prompt_ids.len();
+        let mut to_process = prompt_ids;
+        let mut generated: Vec<u32> = Vec::new();
+        let started = std::time::Instant::now();
+        let mut decode_started = None;
+        for i in 0..24 {
+            if i == 1 {
+                decode_started = Some(std::time::Instant::now());
+            }
+            let pos = if i == 0 { 0 } else { prompt_len + i - 1 };
+            let input = candle_core::Tensor::new(to_process.as_slice(), &device)
+                .unwrap()
+                .unsqueeze(0)
+                .unwrap();
+            let logits = model.weights.forward(&input, pos).unwrap();
+            let slice = logits.squeeze(0).unwrap();
+            let last = if slice.rank() == 2 {
+                let n = slice.dim(0).unwrap();
+                slice.get(n - 1).unwrap()
+            } else {
+                slice
+            };
+            let logits_v = last.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+            let (mut next, mut best) = (0u32, f32::NEG_INFINITY);
+            for (id, &logit) in logits_v.iter().enumerate() {
+                if logit > best {
+                    best = logit;
+                    next = id as u32;
+                }
+            }
+            assert!(best.is_finite(), "non-finite logits at step {i}");
+            if model.eos_token_ids.contains(&next) {
+                break;
+            }
+            generated.push(next);
+            to_process = vec![next];
+        }
+        let elapsed = started.elapsed().as_secs_f64();
+        assert!(
+            !generated.is_empty(),
+            "model produced only an EOS on the first step"
+        );
+        let text = tokenizer.decode(&generated, true).unwrap();
+        let decode_rate = decode_started
+            .map(|t| (generated.len().saturating_sub(1)) as f64 / t.elapsed().as_secs_f64())
+            .filter(|r| r.is_finite() && generated.len() > 1)
+            .unwrap_or(f64::NAN);
+        eprintln!(
+            "MoE generation: prefill({} tok) + {} decode in {:.1}s = {:.2} tok/s → {:?}",
+            prompt_len,
+            generated.len(),
+            elapsed,
+            decode_rate,
+            text
+        );
+    }
+
     #[test]
     fn test_backend_dispatch_rejects_unsupported_architectures() {
         // Regression: quantized_llama (the generic GGUF loader) never reads
