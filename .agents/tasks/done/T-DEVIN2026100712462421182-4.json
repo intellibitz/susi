@@ -1,0 +1,26 @@
+{
+  "id": "T-DEVIN2026100712462421182-4",
+  "title": "Prefer tool-capable local models: detect GGUF chat-template tool support at selection",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi-models",
+      "-E",
+      "test(tool)"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791371789,
+  "closed": {
+    "at_unix": 1791372149,
+    "commit": "29c6041eba387ad6553a643e6160aed5434a8882",
+    "by": "DEVIN2026100712462421182"
+  }
+}

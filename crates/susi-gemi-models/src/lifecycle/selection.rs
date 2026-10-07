@@ -154,6 +154,26 @@ impl ModelManager {
         } else {
             sized_models
         };
+        // The brain a mission gets must be able to call tools when the engine
+        // asks it to — tool support is declared by the chat template inside
+        // the GGUF, so it is knowable only post-download. Same contract as the
+        // VRAM filter above: drop models whose template lacks a tools block
+        // when a capable sibling exists, and keep them when none does so a
+        // host whose only model predates tool templates is not stranded.
+        let capable: Vec<bool> = sized_models
+            .iter()
+            .map(|(m, _)| Self::supports_tool_calling(&PathBuf::from(m.model_id())))
+            .collect();
+        let sized_models: Vec<(DynamicModelInfo, f32)> = if capable.iter().any(|c| *c) {
+            sized_models
+                .into_iter()
+                .zip(capable)
+                .filter(|(_, c)| *c)
+                .map(|(ms, _)| ms)
+                .collect()
+        } else {
+            sized_models
+        };
         let min_size_gb = sized_models
             .iter()
             .map(|(_, s)| *s)

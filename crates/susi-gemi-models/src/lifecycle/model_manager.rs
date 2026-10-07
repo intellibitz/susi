@@ -139,6 +139,75 @@ impl ModelManager {
         header_is_valid && minimum_bytes.is_none_or(|minimum| size_bytes >= minimum)
     }
 
+    /// Whether a Jinja chat template carries a tools block. Detection is
+    /// lexical — there is no machine-readable capability flag in GGUF — and
+    /// covers the forms the supported architectures actually ship: the
+    /// `tools` parameter check (llama/qwen3: `tools is not none`, `if tools`),
+    /// tool-call delimiters (`<tool_call>`, `[TOOL_CALLS]`), and Mistral's
+    /// `[AVAILABLE_TOOLS]`/`available_tools` convention. False positives from
+    /// a stray mention in prompt prose only cost a preference point, never a
+    /// wrong exclusion — the caller drops tool-less models only when a
+    /// capable sibling exists.
+    pub(crate) fn chat_template_supports_tools(template: &str) -> bool {
+        let t = template.to_lowercase();
+        [
+            "tools is not none",
+            "tools is defined",
+            "if tools",
+            "tool_call",
+            "available_tools",
+            "[tool",
+        ]
+        .iter()
+        .any(|marker| t.contains(marker))
+    }
+
+    /// Reads the GGUF header's `tokenizer.chat_template` and reports whether
+    /// the model can be asked for tool calls. The local engines do not emit
+    /// tool-call parsing yet; this is the capability record that lets
+    /// selection prefer capable models now and lets a hard `needs_tools`
+    /// filter exist the day they do. Cached per (path, len, mtime) like
+    /// `valid_gguf_payload` — `Content::read` stops at the metadata table but
+    /// still walks every tensor-info entry, which is not free on big models.
+    pub(crate) fn supports_tool_calling(path: &Path) -> bool {
+        type Entry = (u64, std::time::SystemTime, bool);
+        static CACHE: std::sync::OnceLock<DashMap<PathBuf, Entry>> = std::sync::OnceLock::new();
+        let cache = CACHE.get_or_init(DashMap::new);
+        let Ok(meta) = path.metadata() else {
+            return false;
+        };
+        let Ok(modified) = meta.modified() else {
+            return Self::read_gguf_template_supports_tools(path);
+        };
+        if let Some(entry) = cache.get(path) {
+            if entry.0 == meta.len() && entry.1 == modified {
+                return entry.2;
+            }
+        }
+        let capable = Self::read_gguf_template_supports_tools(path);
+        if cache.len() > 256 {
+            cache.clear();
+        }
+        cache.insert(path.to_path_buf(), (meta.len(), modified, capable));
+        capable
+    }
+
+    fn read_gguf_template_supports_tools(path: &Path) -> bool {
+        let Ok(mut file) = fs::File::open(path) else {
+            return false;
+        };
+        let Ok(content) =
+            susi_vendor_candle::candle_core::quantized::gguf_file::Content::read(&mut file)
+        else {
+            return false;
+        };
+        content
+            .metadata
+            .get("tokenizer.chat_template")
+            .and_then(|v| v.to_string().ok())
+            .is_some_and(|t| Self::chat_template_supports_tools(t))
+    }
+
     /// Resolves the model storage directory. If SUSI_MODEL_DIR or SUSI_USE_DOWNLOADS_DIR is active,
     /// prioritizes ~/Downloads/.susi/models as requested for expert testing.
     pub fn get_models_dir() -> PathBuf {
@@ -746,5 +815,41 @@ mod tests {
             ModelManager::install_model_foreground("http://example.test/model.gguf").unwrap_err();
         assert!(error.contains("HTTPS"));
         assert!(ModelManager::install_model_foreground("not a URL").is_err());
+    }
+
+    /// Templates that ship a tools block must register; the plain
+    /// messages-only loop must not.
+    #[test]
+    fn chat_template_tool_detection_covers_shipping_dialects() {
+        for capable in [
+            // qwen2.5-style: a `tools` JSON block plus <tool_call> delimiters
+            "{% if tools is not none %}<|im_start|>tools{% endif %}{% for m in messages %}{{ m }}{% endfor %}<tool_call>",
+            // llama-3.1-style: tools rendered into the system prompt
+            "{{ bos_token }}{% if tools %}builtin tools{% endif %}{% for m in messages %}{% endfor %}",
+            // mistral-style: available-tools section
+            "[AVAILABLE_TOOLS]{{ tools }}[/AVAILABLE_TOOLS]{{ messages }}",
+        ] {
+            assert!(
+                ModelManager::chat_template_supports_tools(capable),
+                "tool-capable template must be detected"
+            );
+        }
+        for plain in [
+            "{% for m in messages %}{{ m.role }}{{ m.content }}{% endfor %}",
+            "{{ bos_token }}{{ prompt }}",
+            "",
+        ] {
+            assert!(
+                !ModelManager::chat_template_supports_tools(plain),
+                "tool-less template must not qualify"
+            );
+        }
+    }
+
+    #[test]
+    fn supports_tool_calling_is_false_without_a_parseable_template() {
+        assert!(!ModelManager::supports_tool_calling(Path::new(
+            "/nonexistent/model.gguf"
+        )));
     }
 }
