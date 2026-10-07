@@ -911,3 +911,99 @@ fn the_cuda_toolkit_is_installed_without_its_recommends() {
         line.trim()
     );
 }
+
+/// The `codetree` stamp exists so a metadata-only merge (`.agents/` churn:
+/// task adds, close receipts) skips the ~20-30 min of jobs that only ever
+/// prove code. The invariant is the gating itself: every compile-heavy job
+/// must `need` the stamp and skip when it is proven - and `verify`, whose
+/// attestation queue is already starved by the main concurrency group, must
+/// never be gated by it.
+#[test]
+fn code_proven_stamp_gates_the_expensive_main_jobs() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let stamp = job(&jobs, "codetree");
+    assert!(
+        stamp.body.contains("scripts/ci-code-proven.sh") && stamp.body.contains("proven=$proven"),
+        "the stamp job must resolve proven through scripts/ci-code-proven.sh"
+    );
+    assert!(
+        stamp.body.contains("--status success"),
+        "only a concluded-green run is evidence: an in-flight one may still fail"
+    );
+    for id in ["test", "coverage", "lint", "e2e", "kani"] {
+        let j = job(&jobs, id);
+        assert!(
+            j.body.contains("needs: codetree")
+                && j.body.contains("needs.codetree.outputs.proven != 'true'"),
+            "job `{id}` proves code only - it must skip when the stamp says the \
+             code tree is already green"
+        );
+    }
+    let verify = job(&jobs, "verify");
+    assert!(
+        !verify.body.contains("needs: codetree"),
+        "`verify` attests refs/merged tasks that the queue already starves - \
+         gating it on the stamp would let a pending attestation wait forever"
+    );
+}
+
+/// The script itself: a head whose only difference from a green sha is under
+/// .agents/ is proven; one that also touched code is not; an unresolvable sha
+/// is not evidence.
+#[test]
+fn code_proven_script_judges_the_code_diff_not_the_commit() {
+    let dir = std::env::temp_dir().join(format!("susi-code-proven-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&["init", "--quiet", "-b", "main", "."]);
+    std::fs::write(dir.join("a.rs"), "fn f() {}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "code"]);
+    let green = git(&["rev-parse", "HEAD"]);
+    // A merge-shaped commit that only moves .agents/ on top of the green sha.
+    std::fs::create_dir_all(dir.join(".agents/tasks")).unwrap();
+    std::fs::write(dir.join(".agents/tasks/T-1.json"), "{}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "metadata"]);
+    let proven_script = root().join("scripts/ci-code-proven.sh");
+    let run = |args: &[&str]| {
+        std::process::Command::new("bash")
+            .arg(&proven_script)
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+    };
+    let head = git(&["rev-parse", "HEAD"]);
+    assert!(
+        run(&[&head, &green]).status.success(),
+        "a head that differs only in .agents/ is proven"
+    );
+    std::fs::write(dir.join("b.rs"), "fn g() {}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "real change"]);
+    let changed = git(&["rev-parse", "HEAD"]);
+    assert!(
+        !run(&[&changed, &green]).status.success(),
+        "a head that also changed code must run the suite"
+    );
+    assert!(
+        !run(&[&head, &"0".repeat(40)]).status.success(),
+        "a sha that does not resolve is not evidence"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
