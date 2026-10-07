@@ -285,9 +285,9 @@ fn validated_requirement(value: &str) -> Result<String, &'static str> {
     }
     if !matches!(
         value.to_ascii_lowercase().as_str(),
-        "text" | "chat" | "reasoning" | "code" | "vision"
+        "text" | "chat" | "reasoning" | "code" | "vision" | "tools"
     ) {
-        return Err("requires must be one of: text, chat, reasoning, code, vision");
+        return Err("requires must be one of: text, chat, reasoning, code, vision, tools");
     }
     Ok(value.to_string())
 }
@@ -874,6 +874,7 @@ async fn handle_gemi_request(
                     permit,
                     &placement_target,
                     &placement_id,
+                    completion.requires.clone(),
                 ))
             } else {
                 let ws = (*workspace).clone();
@@ -1292,6 +1293,7 @@ fn build_streaming_response(
     permit: tokio::sync::OwnedSemaphorePermit,
     placement_target: &str,
     placement_id: &str,
+    requires: Option<String>,
 ) -> Response<BoxBody> {
     let prompt_tokens = approx_tokens(&prompt);
     let rx = completion_stream(
@@ -1312,6 +1314,7 @@ fn build_streaming_response(
                 },
                 requested_model.as_deref(),
                 meta,
+                requires.as_deref(),
             )
         },
     );

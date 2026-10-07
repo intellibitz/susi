@@ -169,7 +169,7 @@ impl ModelManager {
     /// filter exist the day they do. Cached per (path, len, mtime) like
     /// `valid_gguf_payload` — `Content::read` stops at the metadata table but
     /// still walks every tensor-info entry, which is not free on big models.
-    pub(crate) fn supports_tool_calling(path: &Path) -> bool {
+    pub fn supports_tool_calling(path: &Path) -> bool {
         type Entry = (u64, std::time::SystemTime, bool);
         static CACHE: std::sync::OnceLock<DashMap<PathBuf, Entry>> = std::sync::OnceLock::new();
         let cache = CACHE.get_or_init(DashMap::new);
@@ -206,6 +206,19 @@ impl ModelManager {
             .get("tokenizer.chat_template")
             .and_then(|v| v.to_string().ok())
             .is_some_and(|t| Self::chat_template_supports_tools(t))
+    }
+
+    /// Whether any discovered local GGUF declares a tool-capable chat
+    /// template — the routing gate for `requires: "tools"` requests, where a
+    /// host without one must escalate rather than answer a tools prompt
+    /// without tools. The scan is the shared 60s-cached system walk and the
+    /// per-file capability check is cached by (path, len, mtime), so this is
+    /// cheap on the hot path.
+    pub fn any_tool_capable_local_model(workspace: &Path) -> bool {
+        Self::scan_system_for_local_models(workspace)
+            .iter()
+            .filter(|m| m.model_id().ends_with(".gguf"))
+            .any(|m| Self::supports_tool_calling(Path::new(m.model_id())))
     }
 
     /// Resolves the model storage directory. If SUSI_MODEL_DIR or SUSI_USE_DOWNLOADS_DIR is active,
