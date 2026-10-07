@@ -380,9 +380,16 @@ impl GemiEngine {
                         res.len(),
                     );
                 }
-                return match Self::verify_axiomatic_alignment(res, workspace) {
+                // A tool-capable local model can answer with in-band
+                // `<tool_call>` / `[TOOL_CALLS]` markup when the prompt
+                // enumerates tools — dispatch the calls through the same
+                // policy-gated executor every tool request uses and append
+                // their results, so the markup becomes an answer instead of
+                // leaking raw into it.
+                let text = Self::fulfill_emitted_tool_calls(res, workspace, callback);
+                return match Self::verify_axiomatic_alignment(&text, workspace) {
                     Ok(v) => v,
-                    Err(_) => res.clone(),
+                    Err(_) => text,
                 };
             }
             Ok(_) => {
@@ -584,6 +591,55 @@ impl GemiEngine {
             || head.contains(" Violation:")
             || head.contains("Mcp error")
             || head.contains("MCP Error")
+    }
+
+    /// Execute the tool calls a local model emitted in-band and fold their
+    /// results into the answer. Calls naming an unregistered tool are
+    /// announced and skipped rather than executed. If nothing resolves — or
+    /// no calls were emitted — the original text returns untouched; if the
+    /// model's whole answer was calls, the tool outputs stand in for it.
+    fn fulfill_emitted_tool_calls(
+        text: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+    ) -> String {
+        let (prose, calls) = crate::local_tool_calls::extract_tool_calls(text);
+        if calls.is_empty() {
+            return text.to_string();
+        }
+        let names: Vec<&str> = calls.iter().map(|c| c.name.as_str()).collect();
+        callback(format!(
+            "[SUSI TOOLS] Local model requested tool call(s): {}\n",
+            names.join(", ")
+        ));
+        let mut out = prose.trim().to_string();
+        let mut executed = 0usize;
+        for call in &calls {
+            if !crate::susi_core::plane_bus::tools::exists(&call.name) {
+                callback(format!(
+                    "[SUSI TOOLS] `{}` is not a registered tool — skipped\n",
+                    call.name
+                ));
+                continue;
+            }
+            let result = crate::susi_core::plane_bus::tools::execute_tool(
+                &call.name,
+                &call.arguments,
+                workspace,
+            )
+            .unwrap_or_else(|e| format!("[Error] {e}"));
+            executed += 1;
+            if !out.is_empty() {
+                out.push_str("\n\n");
+            }
+            out.push_str(&format!("[TOOL {}]\n{result}", call.name));
+        }
+        // A response that was markup only, with every call unregistered, left
+        // nothing to show — return the original so the evidence is not lost.
+        if executed == 0 && out.is_empty() {
+            return text.to_string();
+        }
+        out
     }
 
     #[allow(clippy::too_many_arguments)] // flat params mirror every call site; a builder would only wrap them
@@ -1674,5 +1730,30 @@ mod reflex_allowed_tests {
     fn a_requested_model_bypasses_the_reflex_tiers() {
         assert!(super::reflex_allowed(None));
         assert!(!super::reflex_allowed(Some("qwen2.5-7b-instruct")));
+    }
+}
+
+#[cfg(test)]
+mod local_tool_fulfillment_tests {
+    use super::GemiEngine;
+    use std::path::Path;
+
+    /// An emitted call naming an unregistered tool is announced and skipped;
+    /// the surrounding prose — not the markup — is what the caller gets back.
+    /// (`tools::exists` fails closed hermetically, so no call executes here.)
+    #[test]
+    fn local_tool_call_markup_is_scrubbed_and_unregistered_calls_skipped() {
+        let text = "Checking now.\n<tool_call>{\"name\": \"definitely_not_a_tool\", \"arguments\": {}}</tool_call>";
+        let out = GemiEngine::fulfill_emitted_tool_calls(text, Path::new("."), &|_| {});
+        assert_eq!(out, "Checking now.");
+        assert!(!out.contains("<tool_call>"));
+    }
+
+    /// Plain output never enters the tools path.
+    #[test]
+    fn local_tool_call_fulfillment_leaves_plain_text_untouched() {
+        let text = "An ordinary answer.";
+        let out = GemiEngine::fulfill_emitted_tool_calls(text, Path::new("."), &|_| {});
+        assert_eq!(out, text);
     }
 }

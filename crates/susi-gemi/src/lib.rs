@@ -66,6 +66,7 @@ pub mod frontier_ext;
 pub mod key_arbitration;
 pub mod latency_slo;
 pub mod learned_classifier;
+pub mod local_tool_calls;
 pub mod model_preload;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
