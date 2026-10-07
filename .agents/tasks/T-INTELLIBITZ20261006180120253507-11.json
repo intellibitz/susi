@@ -1,0 +1,19 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-11",
+  "title": "main suite skips a merge whose code tree was already proven green",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf",
+      "code_proven"
+    ]
+  },
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791344684
+}
