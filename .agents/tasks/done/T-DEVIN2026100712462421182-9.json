@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN2026100712462421182-9",
+  "title": "Live smoke test for moe_gguf: load real Qwen2-MoE/Qwen3-MoE GGUFs on CPU, forward tokens, verify finite logits",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-vendor-candle"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791412974,
+  "closed": {
+    "at_unix": 1791414300,
+    "commit": "9ab440d6dfcaa4a23bf4c2f67ca10758ae2d42e2",
+    "by": "DEVIN2026100712462421182"
+  }
+}

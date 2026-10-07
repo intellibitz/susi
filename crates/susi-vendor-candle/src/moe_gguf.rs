@@ -565,4 +565,34 @@ mod tests {
         let qt = QTensor::quantize(&t, GgmlDType::Q8_0).unwrap();
         assert!(split_experts(&qt, &device).is_err());
     }
+
+    /// Live smoke test — opt-in via SUSI_MOE_GGUF=<path to a real GGUF>;
+    /// ignored by default so the suite stays hermetic. Guards the failure
+    /// mode that matters for a hand-rolled loader: a silently wrong tensor
+    /// read produces NaN or degenerate logits, not a load error.
+    ///   SUSI_MOE_GGUF=~/models/qwen3-30b-a3b-q4_k_m.gguf \
+    ///     cargo test -p susi-vendor-candle -- --ignored live_moe
+    #[test]
+    #[ignore = "requires a real MoE GGUF at $SUSI_MOE_GGUF"]
+    fn live_moe_gguf_loads_and_produces_finite_logits() {
+        let path = std::env::var("SUSI_MOE_GGUF")
+            .expect("SUSI_MOE_GGUF must name a MoE .gguf (qwen2moe/qwen3moe/mixtral)");
+        let mut file = std::fs::File::open(&path).unwrap();
+        let device = Device::Cpu;
+        let content = gguf_file::Content::read(&mut file).unwrap();
+        let mut model = ModelWeights::from_gguf(content, &mut file, &device, DType::F32).unwrap();
+        let ids = Tensor::from_vec(vec![9707u32, 11, 1879, 330, 15546], (1, 5), &device).unwrap();
+        let logits = model.forward(&ids, 0).unwrap();
+        let logits = logits.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert!(
+            logits.iter().all(|v| v.is_finite()),
+            "non-finite logits — wrong tensor layout read"
+        );
+        let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
+        assert!(
+            max - min > 1.0,
+            "degenerate logits {min}..{max} — garbage weights"
+        );
+    }
 }
