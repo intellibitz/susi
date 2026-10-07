@@ -107,8 +107,9 @@ The concrete loop is:
    `refs/abandoned/<id>`). The wait after push exists to catch a failed run
    while the claim still makes repair cheap: once `gh` reports the run for
    the pushed sha green, or once the merge lands, ownership is released and
-   the merge machinery (auto-merge, or the reconciler resyncing a
-   green-but-behind head) owns the rest. The budget (`SUSI_FINISH_WAIT_MAX`,
+   the merge machinery (auto-merge; the serialized merge job gates a
+   green-but-behind head's merge tree itself — `scripts/merge-gate.sh` —
+   rather than resyncing it through another CI round-trip) owns the rest. The budget (`SUSI_FINISH_WAIT_MAX`,
    default 30 min) covers a run that never reports: past it, a
    healthy-but-unverifiable branch is handed off the same way. The wait
    still stops early, with claim and receipt intact, when the pull request
@@ -144,9 +145,15 @@ Hosted GitHub Actions cannot update a local filesystem: this local watcher
 is required while agents run. Dirty primary trees, local-only commits and
 in-progress operations are preserved; inspect `.git/susi-primary-watch.log`
 and clear the blocker before expecting primary checkout convergence.
-Remote integration is serialized and rejects tested heads missing current
-main. Other agents see changes once they merge remotely, then synchronize at
-their next task boundary; never merge into another agent's dirty worktree.
+Remote integration is serialized. A green head that is behind current main is
+not sent through an update-branch retest: the merge job builds the merge
+locally (`git merge-tree`), runs the same compile gate the branch `check` job
+runs on the merge tree, and merges when it passes — the merge commit GitHub
+produces has that exact tree for a clean merge. A gate failure or a conflict
+is commented once per head sha; a job without the checkout falls back to the
+resync-and-retest path. Other agents see changes once they merge remotely,
+then synchronize at their next task boundary; never merge into another
+agent's dirty worktree.
 
 The full rules follow (identity.json Mandates 48–56 are the constitution).
 
@@ -420,7 +427,9 @@ convergent:
   308-446 s run against 96 s when no crate was touched, to repeat what
   `susi workflow finish` had just run on the same tree. That length is the
   latency of the serialized merge queue — each merge makes the next green head
-  stale and every stale head costs one more run — and a flake here blocks every
+  stale and every stale head costs one more proof (now ~1-2 min of merge-tree
+  gating inside the merge job instead of a full retest run — see
+  `scripts/merge-gate.sh`) — and a flake here blocks every
   branch behind it. **What that costs, stated plainly:** a runtime failure (a
   race, a flake, cross-test interference) is no longer stopped by CI before the
   merge. It is stopped by the agent's own local gate (scoped to the crates it

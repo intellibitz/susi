@@ -1132,3 +1132,92 @@ fn cleanup_runs_applies_board_hygiene() {
         "a hung janitor must not hold the schedule"
     );
 }
+
+/// `scripts/ci-test-shards.sh` is the shard -> package map the `codetree` scope
+/// resolution filters merges through. If it drifts from the matrix in test.yml,
+/// merges get scoped against crates the shard does not run — or a shard is
+/// scoped against the wrong packages and skips the leg that would have failed.
+#[test]
+fn the_shard_map_the_scope_step_uses_matches_the_matrix() {
+    let text = read(".github/workflows/test.yml");
+    let test_jobs = jobs(&text);
+    let test = job(&test_jobs, "test");
+    let script = std::process::Command::new("bash")
+        .arg(root().join("scripts/ci-test-shards.sh"))
+        .output()
+        .unwrap();
+    assert!(
+        script.status.success(),
+        "ci-test-shards.sh: {}",
+        String::from_utf8_lossy(&script.stderr)
+    );
+    let script_text = String::from_utf8_lossy(&script.stdout);
+    let test_body = test.body.clone();
+    let mut seen = 0;
+    for line in script_text.lines() {
+        let (name, pkgs) = line.split_once('\t').expect("name<TAB>pkgs");
+        assert!(
+            test_body.contains(&format!("- name: {name}\n            pkgs: {pkgs}")),
+            "matrix has no `{name}` shard with exactly `{pkgs}`: {name} in \
+             ci-test-shards.sh and the test.yml matrix must name the same \
+             crates, or the scope resolution filters on a different set than \
+             the shard runs"
+        );
+        seen += 1;
+    }
+    assert!(seen >= 6, "expected the real shard list, got {seen} lines");
+}
+
+/// `codetree` must publish the scoping verdicts the matrix legs and the e2e
+/// gate on — and they must gate on them: a leg that skips late still paid for
+/// the runner, and a leg that skips nothing re-runs the suite on every merge.
+/// A job-level `if` cannot see matrix variables, which is why the gate is a
+/// step every later step checks.
+#[test]
+fn the_main_suite_scopes_shards_and_e2e_to_the_merge() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let stamp = job(&jobs, "codetree");
+    for needle in ["affected", "skip_shards", "run_e2e"] {
+        assert!(
+            stamp.body.contains(&format!("{needle}=")) || stamp.body.contains(needle),
+            "codetree must emit `{needle}` for the scoping gates"
+        );
+    }
+    for id in ["test", "e2e"] {
+        let j = job(&jobs, id);
+        let gated = steps(&j.body)
+            .into_iter()
+            .filter(|s| s.contains("if: steps.scope.outputs.run == 'true'"))
+            .count();
+        assert!(
+            gated >= 5,
+            "job `{id}`: only {gated} steps are gated on the scope verdict — \
+             a skipped leg must exit before checkout, toolchain and cargo"
+        );
+    }
+}
+
+/// The ONNX prefetch builds susi-vendor-fastembed to warm a CDN download; on a
+/// push whose affected set cannot reach that crate it is a pure wait. The gate
+/// must resolve the intersection, not run it for every crate-touching push.
+#[test]
+fn the_branch_gate_prefetches_onnx_only_when_the_closure_can_reach_it() {
+    let text = read(".github/workflows/test.yml");
+    let test_jobs = jobs(&text);
+    let check = job(&test_jobs, "check");
+    assert!(
+        check
+            .body
+            .contains("ci-reverse-deps.sh susi-vendor-fastembed"),
+        "the check job must compute the fastembed reverse-dependency set"
+    );
+    let prefetch = steps(&check.body)
+        .into_iter()
+        .find(|s| s.contains("ci-prefetch-onnxruntime.sh"))
+        .expect("check must still prefetch when the closure can reach ort");
+    assert!(
+        prefetch.contains("steps.affected.outputs.onnx == 'true'"),
+        "the prefetch must be gated on the resolved intersection:\n{prefetch}"
+    );
+}

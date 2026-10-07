@@ -1,0 +1,30 @@
+{
+  "id": "T-DEVIN2026100712462421182-1",
+  "title": "Speed up the parallel merge pipeline: scoped main suite, in-job merge gate, sccache, narrowed ONNX prefetch",
+  "goal": "Cut per-merge latency: gate the merge-tree inside the serialized merge job instead of update-branch retest round-trips; run only affected shards on main; sccache + runner var on the compile gate; ONNX prefetch only when fastembed is in the closure.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "binary(auto_merge)",
+      "or",
+      "binary(ci_changed_crates)",
+      "or",
+      "binary(ci_workflow_perf)",
+      "or",
+      "binary(github_enforce)"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791357697,
+  "closed": {
+    "at_unix": 1791358835,
+    "commit": "d605f3d36ed16256feffe220416a7fde448b46a9",
+    "by": "DEVIN2026100712462421182"
+  }
+}

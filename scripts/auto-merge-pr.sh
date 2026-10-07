@@ -8,9 +8,22 @@
 # exit 0: merged, nothing to do (no such open PR / head moved), or the head
 #         was re-synced to main (update-branch) and the retest will merge it
 # exit 1: the merge was refused (a comment explains, once per head sha)
+#
+# A green head must include the latest integration branch, not merely have
+# passed against an older base. Serialization means every merge turns the next
+# green head stale. When SUSI_INLINE_MERGE_GATE=1 (the integration jobs set it)
+# the stale head is not sent through an update-branch + retest round-trip —
+# minutes of queue latency per merge: the script builds the merge locally
+# (`git merge-tree`), runs the same compile gate the `check` job runs
+# (merge-gate.sh) on the merge tree, and merges the PR when it passes. The
+# merge commit GitHub produces has that exact tree for a clean merge, so the
+# gated bytes are the bytes that land. A gate failure or a conflict is
+# explained once per head sha; an environment that cannot run the gate falls
+# back to the resync-and-retest path.
 set -uo pipefail
 repo=${1:?repo} branch=${2:?branch} sha=${3:?sha}
 marker='<!-- susi-auto-merge -->'
+here=$(cd "$(dirname "$0")" && pwd)
 
 # Attest the merge on the shared remote: for every task the pull request named,
 # push refs/merged/<task> = {task, head, merge, pr, merged_unix}. This job is
@@ -77,6 +90,65 @@ attest_verified() {
     return $rc
 }
 
+# Merge the PR at the tested head, attest, dispatch the main suite. When the
+# caller has already gated a local merge tree ($gated_tree set), the merge
+# commit GitHub produced is compared against it: a clean merge produces that
+# exact tree, and a difference means the bytes that landed are not the bytes
+# that were proven — worth a line, never a failure (the main suite decides).
+merge_head() {
+    if ! gh pr merge "$pr" --repo "$repo" --merge --match-head-commit "$sha"; then
+        return 1
+    fi
+    echo "merged #$pr"
+    merge_sha=$(gh pr view "$pr" --repo "$repo" --json mergeCommit \
+        --jq '.mergeCommit.oid' 2>/dev/null || true)
+    [ -n "${merge_sha:-}" ] && attest_merge "$pr" "$merge_sha"
+    if [ -n "${merge_sha:-}" ] && same_tree "$merge_sha" "$sha" \
+        && attest_verified "$pr" "$merge_sha"; then
+        echo "merge tree identical to the tested head — acceptance attested by identity"
+    fi
+    if [ -n "${gated_tree:-}" ] && [ -n "${merge_sha:-}" ]; then
+        git fetch --quiet origin "$merge_sha" 2>/dev/null || true
+        if [ "$(git rev-parse "$merge_sha^{tree}" 2>/dev/null)" = "$gated_tree" ]; then
+            echo "server merge tree identical to the gated merge tree"
+        else
+            echo "note: the merge commit's tree differs from the gated merge tree — the main suite is the proof" >&2
+        fi
+    fi
+    # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
+    gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
+    return 0
+}
+
+# Prove a behind/diverged head's merge with main locally.
+#   0  merge tree built and gated — merge the PR
+#   1  this environment cannot run the gate — caller falls back to update-branch
+#   2  the merge conflicts or fails the gate — `reason` is set, fail the run
+gated_tree=
+inline_merge_gate() {
+    command -v git >/dev/null 2>&1 || return 1
+    command -v cargo >/dev/null 2>&1 || return 1
+    git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || return 1
+    git fetch --quiet origin main "$sha" || return 1
+    local base tree merge_commit
+    base=$(git rev-parse origin/main) || return 1
+    if ! tree=$(git merge-tree --write-tree origin/main "$sha" 2>/dev/null); then
+        reason="the branch conflicts with main — merge origin/main into it, resolve, and push (this re-runs automatically)"
+        return 2
+    fi
+    merge_commit=$(git commit-tree "$tree" -p origin/main -p "$sha" \
+        -m "merge-gate: $branch onto ${base:0:12}") || return 1
+    # Gate in place: this checkout is disposable, and its warm target dir and
+    # fingerprints are what make the proof a bounded compile.
+    git checkout --quiet -f --detach "$merge_commit" || return 1
+    if "${SUSI_MERGE_GATE:-$here/merge-gate.sh}" "$base"; then
+        gated_tree=$tree
+        return 0
+    fi
+    reason="the merge with current main fails the compile gate — merge origin/main into the branch, fix it, and push (this re-runs automatically)"
+    return 2
+}
+
 pr=$(gh pr list --repo "$repo" --head "$branch" --base main --state open \
     --json number,headRefOid --jq ".[] | select(.headRefOid==\"$sha\") | .number" | head -1)
 if [ -z "$pr" ]; then
@@ -84,34 +156,11 @@ if [ -z "$pr" ]; then
     exit 0
 fi
 
-# A green head must include the latest integration branch, not merely have
-# passed against an older base. Serialization means every merge turns the
-# next green head stale, so "behind" is a routine queue state, not a defect:
-# re-sync the branch server-side (update-branch re-runs the push gate and the
-# next green run merges) instead of failing the run and waiting on the agent.
 comparison=$(gh api "repos/$repo/compare/main...$sha" --jq .status) || exit 1
 reason=
 case "$comparison" in
  ahead|identical)
-    if gh pr merge "$pr" --repo "$repo" --merge --match-head-commit "$sha"; then
-        echo "merged #$pr"
-        merge_sha=$(gh pr view "$pr" --repo "$repo" --json mergeCommit \
-            --jq '.mergeCommit.oid' 2>/dev/null || true)
-        [ -n "${merge_sha:-}" ] && attest_merge "$pr" "$merge_sha"
-        # The common case is a merge whose tree is byte-identical to the tested
-        # head's: `finish` integrates origin/main before pushing, so merging a
-        # branch that is current only adds a parent. `close` already ran the
-        # task's acceptance on those exact bytes, so attest the post-merge
-        # acceptance by identity. That is all the identity proves: the branch
-        # run compiles and lints, it does not execute tests, so the main suite
-        # is the first CI run that does and it runs after every merge, a merge
-        # that raced another (a tree nobody has built) included.
-        if [ -n "${merge_sha:-}" ] && same_tree "$merge_sha" "$sha" \
-            && attest_verified "$pr" "$merge_sha"; then
-            echo "merge tree identical to the tested head — acceptance attested by identity"
-        fi
-        # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
-        gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
+    if merge_head; then
         exit 0
     fi
     state=$(gh pr view "$pr" --repo "$repo" --json mergeable --jq .mergeable 2>/dev/null || echo UNKNOWN)
@@ -121,15 +170,33 @@ case "$comparison" in
     esac
     ;;
  *)
-    if gh pr update-branch "$pr" --repo "$repo"; then
+    resync() {
         # A token-made branch update raises no push event, so the gate would
         # never see the new head. Dispatch it explicitly; the next reconcile
         # pass (or a workflow_run hook) merges it once green.
-        gh workflow run test.yml --repo "$repo" --ref "$branch" || true
-        echo "PR #$pr was behind main; branch updated — its retest merges it."
-        exit 0
+        if gh pr update-branch "$pr" --repo "$repo"; then
+            gh workflow run test.yml --repo "$repo" --ref "$branch" || true
+            echo "PR #$pr was behind main; branch updated — its retest merges it."
+            exit 0
+        fi
+        reason="the branch is behind main and could not be updated — merge origin/main into it, resolve the conflict, and push"
+    }
+    if [ "${SUSI_INLINE_MERGE_GATE:-0}" = 1 ]; then
+        inline_merge_gate
+        case $? in
+        0)
+            if merge_head; then
+                exit 0
+            fi
+            state=$(gh pr view "$pr" --repo "$repo" --json mergeable --jq .mergeable 2>/dev/null || echo UNKNOWN)
+            reason="GitHub refused the merge of the gated merge tree (mergeable=$state) — if the head moved, the next push retries"
+            ;;
+        1) resync ;; # no checkout or toolchain here — the retest path
+        2) ;;        # conflict or a red gate: `reason` is set
+        esac
+    else
+        resync
     fi
-    reason="the branch is behind main and could not be updated — merge origin/main into it, resolve the conflict, and push"
     ;;
 esac
 # One comment per head sha: a retrying reconciler must not spam the PR.

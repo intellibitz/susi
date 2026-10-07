@@ -71,12 +71,30 @@ esac
             std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         // Ref attestations push with git: record them instead of letting a
-        // test write refs to the real remote. Everything else is real git —
-        // `hash-object -w` needs a real object store.
+        // test write refs to the real remote. The merge-gate commands are
+        // faked the same way — flag files decide their answers — and
+        // everything else is real git: `hash-object -w` needs a real object
+        // store.
         let git = dir.join("git");
         std::fs::write(
             &git,
-            "#!/usr/bin/env bash\nD=\"$(dirname \"$0\")\"\nif [ \"$1\" = push ]; then echo \"$*\" >> \"$D/gitpushes\"; [ -f \"$D/pushfail\" ] && exit 1; exit 0; fi\nexec /usr/bin/git \"$@\"\n",
+            r#"#!/usr/bin/env bash
+D="$(dirname "$0")"
+case "$1" in
+push) echo "$*" >> "$D/gitpushes"; [ -f "$D/pushfail" ] && exit 1; exit 0 ;;
+fetch) echo "git $*" >> "$D/calls"; exit 0 ;;
+rev-parse)
+  case "$*" in
+  *"^{tree}"*) cat "$D/srvtree" 2>/dev/null || echo srctree; exit 0 ;;
+  *"origin/main"*) cat "$D/basesha" 2>/dev/null || echo base001; exit 0 ;;
+  *) echo "${!#}"; exit 0 ;;
+  esac ;;
+merge-tree) echo "git $*" >> "$D/calls"; [ -f "$D/conflict" ] && exit 1; cat "$D/treefile" 2>/dev/null || echo tree999; exit 0 ;;
+commit-tree) echo "git $*" >> "$D/calls"; cat "$D/mcfile" 2>/dev/null || echo mc999; exit 0 ;;
+checkout) echo "git $*" >> "$D/calls"; [ -f "$D/checkoutfail" ] && exit 1; exit 0 ;;
+esac
+exec /usr/bin/git "$@"
+"#,
         )
         .unwrap();
         #[cfg(unix)]
@@ -88,6 +106,10 @@ esac
     }
 
     fn script(&self, name: &str, args: &[&str]) -> (i32, String) {
+        self.script_env(name, args, &[])
+    }
+
+    fn script_env(&self, name: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
         let path = format!("{}:{}", self.dir.display(), std::env::var("PATH").unwrap());
         let out = Command::new(
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -96,6 +118,7 @@ esac
         )
         .args(args)
         .env("PATH", path)
+        .envs(envs.iter().copied())
         .output()
         .unwrap();
         (
@@ -103,6 +126,23 @@ esac
             String::from_utf8_lossy(&out.stdout).into_owned()
                 + &String::from_utf8_lossy(&out.stderr),
         )
+    }
+
+    /// A stub for merge-gate.sh: records its argv, exits 1 when `gatefail` is
+    /// set, 0 otherwise.
+    fn gate_stub(&self) -> String {
+        let stub = self.dir.join("gate-stub");
+        std::fs::write(
+            &stub,
+            "#!/usr/bin/env bash\nD=\"$(dirname \"$0\")\"\necho \"$*\" >> \"$D/gatecalls\"\n[ -f \"$D/gatefail\" ] && exit 1\nexit 0\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        stub.to_string_lossy().into_owned()
     }
 
     fn calls(&self) -> String {
@@ -546,5 +586,194 @@ fn integration_lock_never_serializes_branch_pr_creation() {
         let body = workflow.split(&format!("  {job}:")).nth(1).unwrap();
         assert!(body.contains("group: auto-merge-integration"));
         assert!(body.contains("queue: max"));
+    }
+}
+
+/// The merge queue's stale-head retest is the unit of queue latency: with the
+/// inline gate the serialized job proves the merge tree itself — merge-tree,
+/// gate, merge — instead of an update-branch plus a whole retest run.
+#[test]
+fn a_behind_green_head_merges_on_the_gated_merge_tree() {
+    let f = Fake::new(
+        "inline-merge",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("comparison", "behind");
+    let gate = f.gate_stub();
+    let (code, out) = f.script_env(
+        "auto-merge-pr.sh",
+        &["o/r", "feat", "aaa"],
+        &[("SUSI_INLINE_MERGE_GATE", "1"), ("SUSI_MERGE_GATE", &gate)],
+    );
+    assert_eq!(code, 0, "{out}");
+    let calls = f.calls();
+    assert!(
+        calls.contains("pr merge 5 --repo o/r --merge --match-head-commit aaa"),
+        "{calls}"
+    );
+    assert!(
+        !calls.contains("update-branch"),
+        "a gated merge must not pay for a resync and retest: {calls}"
+    );
+    assert!(
+        calls.contains("merge-tree --write-tree origin/main aaa"),
+        "{calls}"
+    );
+    let gatecalls = std::fs::read_to_string(f.dir.join("gatecalls")).unwrap();
+    assert!(
+        gatecalls.contains("base001"),
+        "the gate must run against the merge's base: {gatecalls}"
+    );
+    assert!(
+        calls.contains("checkout --quiet -f --detach mc999"),
+        "the gate runs in place on the trial merge commit: {calls}"
+    );
+    assert!(
+        calls.contains("workflow run test.yml --repo o/r --ref main"),
+        "{calls}"
+    );
+}
+
+/// The merge commit GitHub produces for a clean merge has exactly the gated
+/// tree; the script must compare and say so.
+#[test]
+fn a_merged_head_reports_the_server_tree_matches_the_gated_tree() {
+    let f = Fake::new(
+        "inline-trees",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("comparison", "behind");
+    f.flag("mergesha", "m1");
+    f.flag("treefile", "tree999");
+    f.flag("srvtree", "tree999");
+    let gate = f.gate_stub();
+    let (code, out) = f.script_env(
+        "auto-merge-pr.sh",
+        &["o/r", "feat", "aaa"],
+        &[("SUSI_INLINE_MERGE_GATE", "1"), ("SUSI_MERGE_GATE", &gate)],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("server merge tree identical"),
+        "the merge must confirm GitHub produced the gated tree: {out}"
+    );
+}
+
+/// A merge that fails the compile gate is a fix-the-branch problem: explain
+/// it once per sha — resyncing would only retest the same red tree.
+#[test]
+fn a_merge_that_fails_the_gate_is_explained_not_resynced() {
+    let f = Fake::new(
+        "inline-red",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("comparison", "behind");
+    f.flag("gatefail", "1");
+    let gate = f.gate_stub();
+    let (code, _) = f.script_env(
+        "auto-merge-pr.sh",
+        &["o/r", "feat", "aaa"],
+        &[("SUSI_INLINE_MERGE_GATE", "1"), ("SUSI_MERGE_GATE", &gate)],
+    );
+    assert_eq!(code, 1);
+    let calls = f.calls();
+    assert!(!calls.contains("pr merge"), "{calls}");
+    assert!(!calls.contains("update-branch"), "{calls}");
+    assert!(
+        f.comments().contains("fails the compile gate"),
+        "{}",
+        f.comments()
+    );
+    let (code, _) = f.script_env(
+        "auto-merge-pr.sh",
+        &["o/r", "feat", "aaa"],
+        &[("SUSI_INLINE_MERGE_GATE", "1"), ("SUSI_MERGE_GATE", &gate)],
+    );
+    assert_eq!(code, 1);
+    assert_eq!(
+        f.comments()
+            .matches("Auto-merge could not complete")
+            .count(),
+        1,
+        "no comment spam"
+    );
+}
+
+/// merge-tree answers a conflict without a runner or a retest.
+#[test]
+fn a_conflicting_merge_is_explained_without_a_retest() {
+    let f = Fake::new(
+        "inline-conflict",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("comparison", "behind");
+    f.flag("conflict", "1");
+    let gate = f.gate_stub();
+    let (code, _) = f.script_env(
+        "auto-merge-pr.sh",
+        &["o/r", "feat", "aaa"],
+        &[("SUSI_INLINE_MERGE_GATE", "1"), ("SUSI_MERGE_GATE", &gate)],
+    );
+    assert_eq!(code, 1);
+    assert!(
+        f.comments().contains("conflicts with main"),
+        "{}",
+        f.comments()
+    );
+    let calls = f.calls();
+    assert!(!calls.contains("update-branch"), "{calls}");
+    assert!(
+        !f.dir.join("gatecalls").exists(),
+        "a conflicted merge never reaches the gate"
+    );
+}
+
+/// The flag off — or any caller without a checkout — keeps the resync path.
+#[test]
+fn the_inline_gate_is_opt_in_per_environment() {
+    let f = Fake::new(
+        "inline-off",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    f.flag("comparison", "behind");
+    let gate = f.gate_stub();
+    let (code, out) = f.script_env(
+        "auto-merge-pr.sh",
+        &["o/r", "feat", "aaa"],
+        // The gate stub is reachable but the flag is not set: resync, don't gate.
+        &[("SUSI_MERGE_GATE", &gate)],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        f.calls().contains("pr update-branch 5 --repo o/r"),
+        "{}",
+        f.calls()
+    );
+}
+
+/// The merge jobs must set the flag and carry the toolchain the gate needs —
+/// gated on the probe so a nothing-stale pass costs no setup.
+#[test]
+fn the_integration_jobs_carry_the_inline_gate() {
+    let wf = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/auto-merge.yml"),
+    )
+    .unwrap();
+    for job in ["merge-pr", "reconcile"] {
+        let body = wf.split(&format!("  {job}:")).nth(1).unwrap();
+        for needle in [
+            "SUSI_INLINE_MERGE_GATE",
+            "fetch-depth: 0",
+            "merge-queue-probe.sh",
+            "steps.probe.outputs.need_gate == 'true'",
+            "timeout-minutes:",
+        ] {
+            assert!(body.contains(needle), "job `{job}` is missing `{needle}`");
+        }
     }
 }
