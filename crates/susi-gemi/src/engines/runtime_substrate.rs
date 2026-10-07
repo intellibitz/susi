@@ -15,6 +15,7 @@ use std::sync::{Arc, OnceLock};
 use susi_vendor_candle::candle_core;
 use susi_vendor_candle::candle_core::quantized::gguf_file;
 use susi_vendor_candle::candle_transformers::models::quantized_llama as llama;
+use susi_vendor_candle::candle_transformers::models::quantized_qwen3_moe as qwen3moe;
 use susi_vendor_candle::qwen2_split as qwen2gguf;
 
 /// Inference graph for explicitly supported GGUF architectures. Dense Qwen2
@@ -58,6 +59,16 @@ impl NeuralBackend for qwen2gguf::ModelWeights {
     }
     fn gpu_layers(&self) -> Option<(usize, usize)> {
         Some(self.gpu_layer_count())
+    }
+}
+
+impl NeuralBackend for qwen3moe::GGUFQWenMoE {
+    fn forward(
+        &mut self,
+        x: &candle_core::Tensor,
+        index_pos: usize,
+    ) -> candle_core::Result<candle_core::Tensor> {
+        self.forward(x, index_pos)
     }
 }
 
@@ -546,6 +557,19 @@ impl InferenceHost {
                 kv_cache_capacity,
             )
             .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
+        } else if arch == "qwen3moe" {
+            // Sparse MoE: only the active experts' matmuls hit the compute
+            // path per token, so a 30B-A3B-class file stays cheap on CPU.
+            // Candle's loader places the whole expert set on `device`; the
+            // placement gate upstream already chose CPU when the file
+            // exceeds the VRAM budget.
+            let dtype = if device.is_cuda() {
+                candle_core::DType::BF16
+            } else {
+                candle_core::DType::F32
+            };
+            qwen3moe::GGUFQWenMoE::from_gguf(model_data, &mut file, device, dtype)
+                .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
         } else {
             llama::ModelWeights::from_gguf(model_data, &mut file, device)
                 .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
@@ -566,9 +590,9 @@ impl InferenceHost {
 
     pub(crate) fn validate_architecture(arch: &str) -> EaiResult<()> {
         match arch {
-            "llama" | "qwen2" => Ok(()),
+            "llama" | "qwen2" | "qwen3moe" => Ok(()),
             _ => Err(EaiError::inference(format!(
-                "Unsupported GGUF architecture '{arch}'; supported architectures: llama, qwen2"
+                "Unsupported GGUF architecture '{arch}'; supported architectures: llama, qwen2, qwen3moe"
             ))),
         }
     }

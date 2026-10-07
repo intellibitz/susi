@@ -1314,8 +1314,10 @@ mod tests {
         }
         assert!(InferenceHost::validate_architecture("llama").is_ok());
         assert!(InferenceHost::validate_architecture("qwen2").is_ok());
+        assert!(InferenceHost::validate_architecture("qwen3moe").is_ok());
         assert!(!InferenceHost::needs_qwen2_backend("llama"));
         assert!(!InferenceHost::needs_qwen2_backend("qwen3"));
+        assert!(!InferenceHost::needs_qwen2_backend("qwen3moe"));
         assert!(!InferenceHost::needs_qwen2_backend("gemma"));
     }
 
