@@ -1,0 +1,28 @@
+{
+  "id": "T-DEVIN2026100712462421182-8",
+  "title": "CPU-capable quantized MoE loaders: Mixtral (llama+experts), Qwen2-MoE (shared expert), Qwen3-MoE CPU path",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-vendor-candle",
+      "-p",
+      "susi-gemi",
+      "-p",
+      "susi-vendor-models"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791379641,
+  "closed": {
+    "at_unix": 1791380527,
+    "commit": "b536164ad2b44393706cfa94d061018018f34293",
+    "by": "DEVIN2026100712462421182"
+  }
+}

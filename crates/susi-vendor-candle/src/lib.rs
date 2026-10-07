@@ -24,4 +24,5 @@ pub use candle_transformers;
 pub use tokenizers;
 
 pub mod device;
+pub mod moe_gguf;
 pub mod qwen2_split;

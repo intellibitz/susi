@@ -1309,16 +1309,35 @@ mod tests {
         // attention silently dropped its trained bias.
         assert!(InferenceHost::needs_qwen2_backend("qwen2"));
         assert!(!InferenceHost::needs_qwen2_backend("qwen2moe"));
-        for arch in ["qwen2moe", "qwen3", "gemma", "unknown"] {
+        for arch in ["qwen3", "gemma", "gptoss", "unknown"] {
             assert!(InferenceHost::validate_architecture(arch).is_err());
         }
         assert!(InferenceHost::validate_architecture("llama").is_ok());
         assert!(InferenceHost::validate_architecture("qwen2").is_ok());
+        assert!(InferenceHost::validate_architecture("qwen2moe").is_ok());
         assert!(InferenceHost::validate_architecture("qwen3moe").is_ok());
         assert!(!InferenceHost::needs_qwen2_backend("llama"));
         assert!(!InferenceHost::needs_qwen2_backend("qwen3"));
         assert!(!InferenceHost::needs_qwen2_backend("qwen3moe"));
         assert!(!InferenceHost::needs_qwen2_backend("gemma"));
+    }
+
+    /// Mixtral exports GGUF `general.architecture = llama`; the expert
+    /// count in metadata is what discriminates it from a dense Llama and
+    /// selects the MoE backend, which does per-expert quantized matmul
+    /// where candle's fused MoE kernels are CUDA-only.
+    #[test]
+    fn test_moe_gguf_detection_uses_expert_count() {
+        use susi_vendor_candle::candle_core::quantized::gguf_file::Value;
+        let mut md = std::collections::HashMap::new();
+        assert!(!InferenceHost::is_moe_gguf("llama", &md));
+        md.insert("llama.expert_count".to_string(), Value::U32(8));
+        assert!(InferenceHost::is_moe_gguf("llama", &md));
+        md.insert("llama.expert_count".to_string(), Value::U32(0));
+        assert!(!InferenceHost::is_moe_gguf("llama", &md));
+        assert!(InferenceHost::is_moe_gguf("qwen2moe", &md));
+        assert!(InferenceHost::is_moe_gguf("qwen3moe", &md));
+        assert!(!InferenceHost::is_moe_gguf("qwen2", &md));
     }
 
     #[test]
