@@ -1,0 +1,20 @@
+{
+  "id": "T-INTELLIBITZ20261006180120253507-14",
+  "title": "Verify mastery: The action history is tamper-evident and interrogable",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_202_019_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-019",
+  "created_by": "INTELLIBITZ20261006180120253507",
+  "created_unix": 1791348322
+}
