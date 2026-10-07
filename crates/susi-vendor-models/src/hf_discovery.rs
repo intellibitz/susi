@@ -147,9 +147,15 @@ fn retain_quantized(steps: Vec<ModelLadderConfigStep>) -> Vec<ModelLadderConfigS
 
 /// HF `model_type` (config.json) strings the local substrate implements a
 /// backend for. Not the GGUF `general.architecture` spelling: HF writes
-/// `qwen3_moe` where the GGUF header carries `qwen3moe`.
+/// `qwen3_moe`/`qwen2_moe` where the GGUF header carries `qwen3moe`/
+/// `qwen2moe`, and `mixtral` GGUFs carry `llama` arch + expert tensors.
+/// `gpt_oss` stays out: its expert tensors are MXFP4, which the quantized
+/// tensor layer cannot dequantize.
 fn supported_model_type(model_type: Option<&str>) -> bool {
-    matches!(model_type, Some("qwen2" | "llama" | "qwen3_moe"))
+    matches!(
+        model_type,
+        Some("qwen2" | "llama" | "mixtral" | "qwen2_moe" | "qwen3_moe")
+    )
 }
 
 pub fn resolve_model_ladder(
@@ -490,10 +496,15 @@ mod tests {
     /// entry is HF's `qwen3_moe` spelling, not the GGUF `qwen3moe` arch.
     #[test]
     fn supported_model_type_admits_only_implemented_backends() {
-        for ok in ["qwen2", "llama", "qwen3_moe"] {
+        for ok in ["qwen2", "llama", "mixtral", "qwen2_moe", "qwen3_moe"] {
             assert!(supported_model_type(Some(ok)), "{ok} must be admitted");
         }
-        for rejected in ["qwen3", "qwen2moe", "mixtral", "gemma3", "qwen3moe"] {
+        for rejected in [
+            // Dense qwen3 and GGUF-spelled archs have no implemented backend.
+            "qwen3", "qwen2moe", "qwen3moe",
+            // gpt-oss experts are MXFP4 — unreadable by the quantized layer.
+            "gpt_oss", "gemma3",
+        ] {
             assert!(
                 !supported_model_type(Some(rejected)),
                 "{rejected} has no implemented backend"

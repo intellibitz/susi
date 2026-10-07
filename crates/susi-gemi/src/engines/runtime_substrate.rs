@@ -15,7 +15,7 @@ use std::sync::{Arc, OnceLock};
 use susi_vendor_candle::candle_core;
 use susi_vendor_candle::candle_core::quantized::gguf_file;
 use susi_vendor_candle::candle_transformers::models::quantized_llama as llama;
-use susi_vendor_candle::candle_transformers::models::quantized_qwen3_moe as qwen3moe;
+use susi_vendor_candle::moe_gguf;
 use susi_vendor_candle::qwen2_split as qwen2gguf;
 
 /// Inference graph for explicitly supported GGUF architectures. Dense Qwen2
@@ -62,7 +62,7 @@ impl NeuralBackend for qwen2gguf::ModelWeights {
     }
 }
 
-impl NeuralBackend for qwen3moe::GGUFQWenMoE {
+impl NeuralBackend for moe_gguf::ModelWeights {
     fn forward(
         &mut self,
         x: &candle_core::Tensor,
@@ -557,18 +557,20 @@ impl InferenceHost {
                 kv_cache_capacity,
             )
             .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
-        } else if arch == "qwen3moe" {
+        } else if Self::is_moe_gguf(&arch, &model_data.metadata) {
             // Sparse MoE: only the active experts' matmuls hit the compute
-            // path per token, so a 30B-A3B-class file stays cheap on CPU.
-            // Candle's loader places the whole expert set on `device`; the
-            // placement gate upstream already chose CPU when the file
-            // exceeds the VRAM budget.
+            // path per token, so a 30B-A3B-class file stays cheap on
+            // CPU-rich hosts. Candle's own quantized MoE loaders call
+            // `moe_gemm_gguf`, which is CUDA-only — the vendored loader
+            // does per-expert quantized matmul instead, so MoE runs on
+            // every backend. The placement gate upstream already chose
+            // CPU when the file exceeds the VRAM budget.
             let dtype = if device.is_cuda() {
                 candle_core::DType::BF16
             } else {
                 candle_core::DType::F32
             };
-            qwen3moe::GGUFQWenMoE::from_gguf(model_data, &mut file, device, dtype)
+            moe_gguf::ModelWeights::from_gguf(model_data, &mut file, device, dtype)
                 .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
         } else {
             llama::ModelWeights::from_gguf(model_data, &mut file, device)
@@ -590,11 +592,30 @@ impl InferenceHost {
 
     pub(crate) fn validate_architecture(arch: &str) -> EaiResult<()> {
         match arch {
-            "llama" | "qwen2" | "qwen3moe" => Ok(()),
+            // Mixtral exports `llama` arch — `is_moe_gguf` discriminates on
+            // the expert_count metadata. gpt-oss stays refused: its expert
+            // tensors are MXFP4, a dtype candle's quantized layer cannot
+            // dequantize.
+            "llama" | "qwen2" | "qwen2moe" | "qwen3moe" => Ok(()),
             _ => Err(EaiError::inference(format!(
-                "Unsupported GGUF architecture '{arch}'; supported architectures: llama, qwen2, qwen3moe"
+                "Unsupported GGUF architecture '{arch}'; supported architectures: llama, qwen2, qwen2moe, qwen3moe"
             ))),
         }
+    }
+
+    /// True when the file needs the MoE backend: explicit `qwen2moe` /
+    /// `qwen3moe` archs, or a `llama`-arch GGUF carrying expert tensors
+    /// (Mixtral). llama.cpp exports Mixtral under `llama` arch, so the arch
+    /// string alone cannot distinguish it from a dense Llama.
+    pub(crate) fn is_moe_gguf(arch: &str, metadata: &HashMap<String, gguf_file::Value>) -> bool {
+        if arch == "qwen2moe" || arch == "qwen3moe" {
+            return true;
+        }
+        arch == "llama"
+            && metadata
+                .get("llama.expert_count")
+                .and_then(|v| v.to_u32().ok())
+                .is_some_and(|n| n > 0)
     }
 
     pub(crate) fn needs_qwen2_backend(arch: &str) -> bool {
