@@ -461,20 +461,23 @@ impl ModelWeights {
                         .and_then(|t| t.to_dtype(DType::F32))
                         .ok()
                         .map(|w| Linear::new(w, None));
+                    // Older llama.cpp exports (e.g. bartowski Mixtral-8x7B)
+                    // carry experts unstacked: ffn_{gate,up,down}.{e}.weight —
+                    // one quantized matrix per expert instead of the stacked
+                    // ffn_*_exps bank. Try the bank first, then per-expert.
+                    let experts = |gg: &mut Gguf<&mut R>, name: &str| -> Result<Vec<QMatMul>> {
+                        match gg.tensor(&format!("{prefix}.ffn_{name}_exps.weight")) {
+                            Ok(qt) => split_experts(&qt, device),
+                            Err(_) => (0..num_experts)
+                                .map(|e| gg.qmatmul(&format!("{prefix}.ffn_{name}.{e}.weight")))
+                                .collect(),
+                        }
+                    };
                     MoeOrMlp::Moe(ExpertBank {
                         gate: Linear::new(gate_ws, None),
-                        gate_experts: split_experts(
-                            &gg.tensor(&format!("{prefix}.ffn_gate_exps.weight"))?,
-                            device,
-                        )?,
-                        up_experts: split_experts(
-                            &gg.tensor(&format!("{prefix}.ffn_up_exps.weight"))?,
-                            device,
-                        )?,
-                        down_experts: split_experts(
-                            &gg.tensor(&format!("{prefix}.ffn_down_exps.weight"))?,
-                            device,
-                        )?,
+                        gate_experts: experts(&mut gg, "gate")?,
+                        up_experts: experts(&mut gg, "up")?,
+                        down_experts: experts(&mut gg, "down")?,
                         num_experts_per_tok,
                         norm_topk_prob,
                         routed_scale,
