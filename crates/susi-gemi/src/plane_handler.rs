@@ -243,12 +243,12 @@ impl PlaneHandler for GemiPlaneHandler {
                     .get("min_complexity")
                     .and_then(|v| v.as_str())
                     .and_then(parse_complexity);
-                let text = if let Some(c) = min_c {
-                    GemiEngine::generate_reasoning_deep_with_min_complexity(prompt, &ws, Some(c))
-                } else {
-                    GemiEngine::generate_reasoning_deep(prompt, &ws)
-                };
-                Ok(json!({ "text": text }))
+                // `requires` (absent = none): declared request capability —
+                // forwarded into the engine's local-rung gate.
+                let requires = payload.get("requires").and_then(|v| v.as_str());
+                Ok(json!({
+                    "text": GemiEngine::generate_reasoning_deep_opts(prompt, &ws, None, min_c, requires)
+                }))
             }
             topics::GEMI_INFER_GENERATE_DEEP_MODEL => {
                 let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
@@ -257,8 +257,13 @@ impl PlaneHandler for GemiPlaneHandler {
                     .get("model")
                     .and_then(|v| v.as_str())
                     .unwrap_or("default");
+                let min_c = payload
+                    .get("min_complexity")
+                    .and_then(|v| v.as_str())
+                    .and_then(parse_complexity);
+                let requires = payload.get("requires").and_then(|v| v.as_str());
                 Ok(json!({
-                    "text": GemiEngine::generate_reasoning_deep_with_model(prompt, &ws, model)
+                    "text": GemiEngine::generate_reasoning_deep_opts(prompt, &ws, Some(model), min_c, requires)
                 }))
             }
             topics::GEMI_INFER_VERIFY => {

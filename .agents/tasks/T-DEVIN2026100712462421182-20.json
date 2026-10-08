@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN2026100712462421182-20",
+  "title": "requires: thread declared capability through the non-stream mission path",
+  "goal": "stream:false chat completions drop susi.requires silently — the GAWD_SOLVE payload never carries it, so requires=tools is validated then ignored: no capability gate, no tool-schema injection. Thread it like model: solve_mission_generative payload -> gawd handler -> solve_clean_generative -> recover/recover_with_providers -> gemi deep RPC -> reason_internal.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "-E",
+      "test(tool)"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791426007
+}

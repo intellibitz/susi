@@ -64,9 +64,15 @@ impl PlaneHandler for GawdPlaneHandler {
                     .get("generative")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                // `requires` (absent = none): the request's declared
+                // capability — `"tools"` gates the mission's local rungs
+                // on a tool-capable model, as the streaming path already
+                // does through the GEMI stream topic.
+                let requires = payload.get("requires").and_then(|v| v.as_str());
                 let master = crate::ama::SusiMasterAgent::new();
                 let text = if generative {
-                    master.solve_clean_generative(intent, &ws, version, model)
+                    master
+                        .solve_clean_generative_with_requires(intent, &ws, version, model, requires)
                 } else {
                     master.solve_clean_with_model(intent, &ws, version, model)
                 };

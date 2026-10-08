@@ -124,8 +124,23 @@ impl SusiMasterAgent {
         &self,
         goal: &str,
         workspace: &Path,
+        version: &str,
+        model: Option<&str>,
+    ) -> String {
+        self.solve_clean_generative_with_requires(goal, workspace, version, model, None)
+    }
+
+    /// `requires` carries the request's declared capability (`"tools"`,
+    /// …) into the recovery cascade — the local rungs pass it to the
+    /// engine's capability gate and tool-schema injection.
+    #[allow(clippy::too_many_arguments)] // flat params mirror the solve_clean siblings; a params struct would only wrap them
+    pub fn solve_clean_generative_with_requires(
+        &self,
+        goal: &str,
+        workspace: &Path,
         _version: &str,
         model: Option<&str>,
+        requires: Option<&str>,
     ) -> String {
         let goal = match Self::sanitize_input(goal) {
             Ok(goal) => goal,
@@ -149,7 +164,7 @@ impl SusiMasterAgent {
             plan: None,
             final_answer: String::new(),
         };
-        crate::cloud_recovery::recover(&mut report, workspace, model, true, session);
+        crate::cloud_recovery::recover(&mut report, workspace, model, true, session, requires);
         if report.is_success() {
             report.final_answer
         } else {
@@ -589,6 +604,7 @@ impl SusiMasterAgent {
                 model_hint,
                 false,
                 session.clone(),
+                None,
             );
             attach_evidence_ledger(&mut report, session.as_ref(), workspace);
             eprintln!("{}", report.completion_message());
@@ -611,6 +627,7 @@ impl SusiMasterAgent {
                     model_hint,
                     false,
                     session.clone(),
+                    None,
                 );
                 attach_evidence_ledger(&mut report, session.as_ref(), workspace);
                 eprintln!("{}", report.completion_message());
@@ -634,6 +651,7 @@ impl SusiMasterAgent {
                     model_hint,
                     false,
                     session.clone(),
+                    None,
                 );
                 attach_evidence_ledger(&mut err_report, session.as_ref(), workspace);
                 eprintln!("{}", err_report.completion_message());
@@ -812,7 +830,7 @@ impl SusiMasterAgent {
             .map(crate::susi_core::capture::EvidenceSession::activate);
         let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
         let mut report = self.solve_internal(goal, workspace, version, 0)?;
-        crate::cloud_recovery::recover(&mut report, workspace, None, false, session.clone());
+        crate::cloud_recovery::recover(&mut report, workspace, None, false, session.clone(), None);
         attach_evidence_ledger(&mut report, session.as_ref(), workspace);
         Ok(report)
     }
@@ -1032,6 +1050,7 @@ impl SusiMasterAgent {
                     None,
                     false,
                     session.clone(),
+                    None,
                 );
 
                 let success = report.status == "COMPLETE" || report.status == "SUCCESS";
@@ -1099,7 +1118,14 @@ impl SusiMasterAgent {
             )
         };
         let mut final_report = self.solve_internal(&synthesis_goal, workspace, version, 0)?;
-        crate::cloud_recovery::recover(&mut final_report, workspace, None, false, session.clone());
+        crate::cloud_recovery::recover(
+            &mut final_report,
+            workspace,
+            None,
+            false,
+            session.clone(),
+            None,
+        );
         // The synthesis path's own report never saw plan search — attach the
         // deliberation record so the mission trace joins plan to outcome.
         // The recorded steps/score are the candidate that actually
