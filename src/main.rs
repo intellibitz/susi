@@ -123,6 +123,18 @@ fn get_home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Default worker count for candle's barrier pool. Decode-step GEMVs are
+/// small, and the pool's wake/sync overhead scales negatively past ~4
+/// workers — measured on a 28-thread host: Qwen3-30B-A3B Q4_K_M decode ran
+/// 0.82 tok/s at the 28-worker default vs 3.09 at 4 threads, and dense
+/// qwen2.5-1.5b 4.19 vs 9.59 the same way. Four threads is the empirical
+/// knee on both paths; `CANDLE_NUM_THREADS` remains the override.
+fn default_candle_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get().clamp(1, 4))
+        .unwrap_or(4)
+}
+
 fn main() -> std::process::ExitCode {
     // Before anything can write: a consumer that closes the pipe (`susi status
     // | head -1`) must stop us cleanly instead of panicking, which under
@@ -132,6 +144,11 @@ fn main() -> std::process::ExitCode {
     // First, while single-threaded: a non-installed binary is a dev build
     // and runs as its own instance (see `dev_instance`).
     dev_instance::isolate_if_dev_build(&get_home_dir());
+    // Still single-threaded: candle's barrier pool sizes itself from this
+    // once, at first use — an explicit setting always wins.
+    if env::var_os("CANDLE_NUM_THREADS").is_none() {
+        env::set_var("CANDLE_NUM_THREADS", default_candle_threads().to_string());
+    }
     let cli = Cli::parse();
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
@@ -303,4 +320,18 @@ fn main() -> std::process::ExitCode {
         run_shell(&cwd);
     }
     exit_code
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_candle_threads;
+
+    #[test]
+    fn candle_thread_default_is_clamped_and_positive() {
+        let n = default_candle_threads();
+        let cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        assert_eq!(n, cpus.clamp(1, 4));
+    }
 }

@@ -4654,6 +4654,16 @@
       "milestone": "Kilo keeps its skills and its own git worktrees under `.kilo/`, which the repo did not ignore: the primary checkout showed `?? .kilo/` and `git add -A` would have swept them in, exactly the way 3390 target files were committed on 2026-09-30. `.kilo/` is now ignored beside `.claude/worktrees/`, and `scripts/check-tracked-artifacts.sh` — the checker that exists for that earlier accident — refuses tracked tool state as well as build output, so the guard holds even when someone forces the add. Kilo's own `.gitignore` inside the directory covers its node_modules and locks, but not its skills, which is why the directory surfaced at all.",
       "proof": "`git check-ignore -v .kilo/skills/jupyter-notebook/SKILL.md` resolves to `.gitignore:67:.kilo/`; the checker passes on the clean tree; and a deliberate `git add -f .kilo/leaked` makes it exit 1 with `tracked build output or tool state: 1 file(s)` naming the path, then passes again after `git rm --cached`. It is also harmless to the common path: the pattern only matches paths that are tracked, and nothing under `.kilo/` is.",
       "type": "CORRECTION"
+    },
+    {
+      "anchor": {
+        "label": "candle barrier-pool thread default",
+        "ref": "file://src/main.rs"
+      },
+      "id": "EV-DEVIN2026100712462421182-1",
+      "milestone": "T-DEVIN2026100712462421182-12: CANDLE_NUM_THREADS default of 4 beats 28-thread default by ~3x on CPU decode",
+      "proof": "Measured on this host (28 logical CPUs, RTX 2000 Ada) via the opt-in live generation test (SUSI_MOE_GGUF): candle-core 0.11's quantized matmul routes every op through utils::barrier_pool() sized at CANDLE_NUM_THREADS (default = all CPUs). For decode-step GEMVs the pool's wake/sync overhead scales negatively past ~4 workers. Greedy decode tok/s by thread count — Qwen3-30B-A3B Q4_K_M (qwen3moe, real GGUF, CPU): 28->0.82, 8->2.63, 4->3.09, 2->2.87, 1->2.24. Dense qwen2.5-1.5b Q4_K_M same shape: 28->4.19, 16->7.32, 4->9.59, 1->5.95. Peak is ~4 threads on both paths, so main() now defaults CANDLE_NUM_THREADS to min(4, available_parallelism) while still single-threaded; explicit env always wins. target-cpu=native was measured and did NOT matter (0.85 vs 0.82 tok/s) — SIMD gating is not the bottleneck; pool sync overhead is.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,
