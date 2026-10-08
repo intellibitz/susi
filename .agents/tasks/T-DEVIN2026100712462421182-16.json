@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN2026100712462421182-16",
+  "title": "MoE loader: unstacked per-expert GGUF layout (mixtral old exports)",
+  "goal": "llama.cpp once exported Mixtral experts as separate blk.N.ffn_{gate,up,down}.E.weight tensors rather than the stacked ffn_*_exps bank; real bartowski Mixtral-8x7B Q4_K_M carries this layout. Fall back to per-expert qmatmul loading when the stacked tensor is absent so those GGUFs load.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-vendor-candle",
+      "-E",
+      "test(moe)"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791421526
+}
