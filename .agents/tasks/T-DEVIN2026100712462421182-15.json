@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN2026100712462421182-15",
+  "title": "Pin unsupported-dtype GGUF refusal at admission (MXFP4/gpt-oss)",
+  "goal": "hardening: prove IQ/MXFP4 files fail admission cleanly",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi-models"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791419614
+}

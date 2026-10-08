@@ -675,6 +675,38 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
+    /// gpt-oss (and any MXFP4-quantized GGUF) must fail admission cleanly:
+    /// candle's GgmlDType has no MXFP4 mapping, so Content::read bails at
+    /// header parse and the payload check must refuse rather than admit a
+    /// file no loader can dequantize. The same holds for the 16..=29 IQ
+    /// quants the pinned candle revision does not implement.
+    #[test]
+    fn test_gguf_payload_rejects_unsupported_tensor_dtype() {
+        let path =
+            std::env::temp_dir().join(format!("susi_dtype_gate_{}.gguf", std::process::id()));
+        for (dtype, accepted) in [(0u32, true), (39u32, false), (19u32, false)] {
+            let mut bytes = b"GGUF".to_vec();
+            bytes.extend(3u32.to_le_bytes());
+            bytes.extend(1u64.to_le_bytes()); // tensors
+            bytes.extend(0u64.to_le_bytes()); // metadata
+            bytes.extend(1u64.to_le_bytes()); // name length
+            bytes.push(b'x');
+            bytes.extend(1u32.to_le_bytes()); // dimensions
+            bytes.extend(4u64.to_le_bytes()); // four values
+            bytes.extend(dtype.to_le_bytes()); // f32 / MXFP4 / IQ2_XXS
+            bytes.extend(0u64.to_le_bytes()); // tensor offset
+            bytes.resize(64, 0); // alignment
+            bytes.resize(80, 0); // complete tensor
+            fs::write(&path, &bytes).unwrap();
+            assert_eq!(
+                ModelManager::valid_gguf_payload(&path),
+                accepted,
+                "dtype {dtype} admission"
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
+
     /// Regression for the auto step-up/step-down feature: a Simple prompt
     /// must make a *smaller* model score higher, not lower.
     #[test]
