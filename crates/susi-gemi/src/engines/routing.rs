@@ -1854,6 +1854,29 @@ mod tests {
     /// which GGUFs the host actually owns is environment state, not logic.
     #[test]
     fn tools_request_routes_away_from_tool_less_local() {
+        // `cargo test` runs every test in one process (the coverage job uses
+        // it — nextest would isolate each test into its own), so the sticky
+        // preference file, the cooldown map and the global provider registry
+        // can all carry a sibling test's leftovers: a `local_only` override or
+        // a quarantined `openai` scope turns the escalation into "unavailable",
+        // and a populated registry makes `available_providers` (and its
+        // provider assert) moot. Pin the shared inputs instead of inheriting
+        // whatever ran first.
+        let _env = crate::engines::env_test_lock();
+        let _sb = PrefSandbox::new("toolsroute");
+        let prev = InferenceRouter::load_preference();
+        InferenceRouter::save_preference(&RoutingPreference::default());
+        let registry_clouds = InferenceRouter::list_cloud_providers_from_registry(
+            crate::susi_core::registry::CapabilityRegistry::global(),
+        );
+        for name in registry_clouds
+            .iter()
+            .map(String::as_str)
+            .chain(["openai-gpt-4o-mini"])
+        {
+            InferenceRouter::record_provider_success(name);
+        }
+
         let incapable = |_: Option<&str>| false;
         let escalated = InferenceRouter::plan_placement_inner(
             &["openai-gpt-4o-mini".to_string()],
@@ -1862,14 +1885,27 @@ mod tests {
             true,
             incapable,
         );
-        assert_eq!(escalated.target, "cloud");
-        assert_eq!(escalated.provider.as_deref(), Some("openai-gpt-4o-mini"));
         let blocked = InferenceRouter::plan_placement_inner(
             &["openai-gpt-4o-mini".to_string()],
             Some("tools"),
             None,
             false,
             incapable,
+        );
+        InferenceRouter::save_preference(&prev);
+
+        assert_eq!(escalated.target, "cloud");
+        let provider = escalated
+            .provider
+            .as_deref()
+            .expect("a cloud target names a provider");
+        assert!(
+            escalated
+                .cloud_candidates
+                .iter()
+                .any(|c| c.as_str() == provider),
+            "picked provider {provider} is not among {:?}",
+            escalated.cloud_candidates
         );
         assert_eq!(blocked.target, "unavailable");
         assert!(blocked.reason.contains("required capability"));
