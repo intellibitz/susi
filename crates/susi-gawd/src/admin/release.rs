@@ -247,12 +247,17 @@ fn worktree_is_clean(workspace: &Path) -> bool {
         .is_ok_and(|out| out.status.success() && out.stdout.is_empty())
 }
 
-/// True when the workspace suite may reuse remote evidence: the cutting tree
-/// is byte-identical to a commit whose `main`-branch `Test` run already
-/// concluded success. A synced release cut is exactly that case — the suite
-/// takes ~10 minutes to re-prove proven bytes. Every ambiguity — no `gh`, a
-/// dirty tree, no matching sha — runs the suite, which stays the default;
-/// `SUSI_RELEASE_RERUN_TESTS=1` forces it unconditionally.
+/// True when the gate may reuse remote evidence: the cutting tree is
+/// byte-identical to a commit whose `main`-branch `Test` run already
+/// concluded success — and that run covers `cargo clippy --workspace
+/// --all-targets -D warnings`, the doc-tests, and every nextest shard on the
+/// pinned toolchain, so the type-check, lint and test passes add nothing on
+/// an identical tree. A synced release cut is exactly that case. Every
+/// ambiguity — no `gh`, a dirty tree, no matching sha — runs the phases,
+/// which stays the default; `SUSI_RELEASE_RERUN_TESTS=1` forces it
+/// unconditionally. The GPU feature sets are never part of this reuse: the
+/// evidence covers the default feature set only, so `SUSI_RELEASE_CHECK_GPU`
+/// implies a local run.
 fn suite_proven_on_main(workspace: &Path) -> bool {
     if env::var("SUSI_RELEASE_RERUN_TESTS").ok().as_deref() == Some("1") {
         return false;
@@ -304,26 +309,39 @@ impl SusiAdmin {
             );
         }
 
-        eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
-        for features in &feature_sets {
-            let args = gate_args(&["check", "--all-targets"], *features);
-            eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
-            let mut cmd = Command::new("cargo");
-            cmd.args(&args).current_dir(workspace);
-            if *features == Some("cuda") {
-                if let Some((key, val)) = Self::cuda_version_clamp_env() {
-                    cmd.env(key, val);
+        // Resolved once, before the compile gates: a tree already proven by a
+        // green main Test run skips check, the workspace suite and clippy —
+        // each is a full workspace pass over bytes CI already proved.
+        let proven_on_main = !check_gpu && suite_proven_on_main(workspace);
+
+        if proven_on_main {
+            eprintln!(
+                "[Release Gatekeeper] 1. Static Type Check skipped — HEAD's tree already \
+                 passed the main Test suite's clippy/compile jobs (SUSI_RELEASE_RERUN_TESTS=1 \
+                 forces a re-run)."
+            );
+        } else {
+            eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
+            for features in &feature_sets {
+                let args = gate_args(&["check", "--all-targets"], *features);
+                eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
+                let mut cmd = Command::new("cargo");
+                cmd.args(&args).current_dir(workspace);
+                if *features == Some("cuda") {
+                    if let Some((key, val)) = Self::cuda_version_clamp_env() {
+                        cmd.env(key, val);
+                    }
                 }
-            }
-            let mut check = cmd
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .spawn()?;
-            let status = check.wait()?;
-            if !status.success() {
-                return Err(EaiError::process(
-                    "Release aborted: cargo check failed.".to_string(),
-                ));
+                let mut check = cmd
+                    .stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit())
+                    .spawn()?;
+                let status = check.wait()?;
+                if !status.success() {
+                    return Err(EaiError::process(
+                        "Release aborted: cargo check failed.".to_string(),
+                    ));
+                }
             }
         }
 
@@ -331,7 +349,7 @@ impl SusiAdmin {
         let _ = Self::audit_compliance(workspace, Some("release"))?;
 
         eprintln!("[Release Gatekeeper] 3. Executing the whole workspace's tests...");
-        if suite_proven_on_main(workspace) {
+        if proven_on_main {
             eprintln!(
                 "[Release Gatekeeper]    -> HEAD's tree already passed the main Test suite — \
                  reusing that evidence (SUSI_RELEASE_RERUN_TESTS=1 forces a re-run)."
@@ -369,27 +387,35 @@ impl SusiAdmin {
             }
         }
 
-        eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
-        for features in &feature_sets {
-            let mut args = gate_args(&["clippy", "--all-targets"], *features);
-            eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
-            args.extend(["--", "-D", "warnings"].map(String::from));
-            let mut cmd = Command::new("cargo");
-            cmd.args(&args).current_dir(workspace);
-            if *features == Some("cuda") {
-                if let Some((key, val)) = Self::cuda_version_clamp_env() {
-                    cmd.env(key, val);
+        if proven_on_main {
+            eprintln!(
+                "[Release Gatekeeper] 4. Static Analysis skipped — HEAD's tree already \
+                 passed `cargo clippy --workspace --all-targets --locked -- -D warnings` \
+                 on the pinned toolchain."
+            );
+        } else {
+            eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
+            for features in &feature_sets {
+                let mut args = gate_args(&["clippy", "--all-targets"], *features);
+                eprintln!("[Release Gatekeeper]    -> cargo {}", args.join(" "));
+                args.extend(["--", "-D", "warnings"].map(String::from));
+                let mut cmd = Command::new("cargo");
+                cmd.args(&args).current_dir(workspace);
+                if *features == Some("cuda") {
+                    if let Some((key, val)) = Self::cuda_version_clamp_env() {
+                        cmd.env(key, val);
+                    }
                 }
-            }
-            let mut clippy = cmd
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .spawn()?;
-            let status = clippy.wait()?;
-            if !status.success() {
-                return Err(EaiError::process(
-                    "Release aborted: Linting failed.".to_string(),
-                ));
+                let mut clippy = cmd
+                    .stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit())
+                    .spawn()?;
+                let status = clippy.wait()?;
+                if !status.success() {
+                    return Err(EaiError::process(
+                        "Release aborted: Linting failed.".to_string(),
+                    ));
+                }
             }
         }
 
