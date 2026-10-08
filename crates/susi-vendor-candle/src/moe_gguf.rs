@@ -120,7 +120,34 @@ impl ExpertBank {
             }
         }
 
+        // Decode fast path: one token total — the gather/scatter bookkeeping
+        // (eq+nonzero+index_select+index_add per expert) is pure overhead;
+        // run each selected expert on the single row and add its weighted
+        // output directly. Roughly halves the op count of this block, which
+        // is what dominates CPU decode (barrier-pool sync per op).
         let mut ys = xs.zeros_like()?;
+        if xs.dim(0)? == 1 {
+            for (expert_idx, weights) in selected_weights.iter().enumerate() {
+                let Some(&w) = weights.first() else {
+                    continue;
+                };
+                let gate = self.gate_experts[expert_idx].forward(&xs)?;
+                let up = self.up_experts[expert_idx].forward(&xs)?;
+                let out = self.down_experts[expert_idx].forward(&(ops::silu(&gate)? * up)?)?;
+                let w = Tensor::new(&[w], xs.device())?.reshape((1, 1))?;
+                ys = (ys + out.broadcast_mul(&w)?)?;
+            }
+            if let Some(shared) = &self.shared_expert {
+                let shared_out = shared.forward(&xs)?;
+                let shared_out = match &self.shared_expert_gate {
+                    Some(g) => shared_out.broadcast_mul(&ops::sigmoid(&g.forward(&xs)?)?)?,
+                    None => shared_out,
+                };
+                ys = (ys + shared_out)?;
+            }
+            return ys.reshape((b_size, seq_len, hidden_dim));
+        }
+
         for (expert_idx, top_x) in top_x.iter().enumerate() {
             if top_x.is_empty() {
                 continue;
