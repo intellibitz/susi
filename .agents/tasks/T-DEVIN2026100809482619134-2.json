@@ -1,0 +1,18 @@
+{
+  "id": "T-DEVIN2026100809482619134-2",
+  "title": "cover ExpertBank forward paths to lift susi-vendor-candle over 12% floor",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-candle",
+      "--lib"
+    ]
+  },
+  "created_by": "DEVIN2026100809482619134",
+  "created_unix": 1791439368
+}
