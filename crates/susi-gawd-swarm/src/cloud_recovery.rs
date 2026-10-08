@@ -213,12 +213,14 @@ fn eligible(report: &SusiMissionReport) -> bool {
 /// `model` field): a hint naming a failover provider moves that provider to
 /// the front of the attempt order; a hint naming a local model is loaded by
 /// the local fallback leg instead of the intent-classified default.
+#[allow(clippy::too_many_arguments)] // flat params mirror the recover_with_providers signature; a params struct would only wrap them
 pub(crate) fn recover(
     report: &mut SusiMissionReport,
     workspace: &Path,
     model_hint: Option<&str>,
     generative: bool,
     session: Option<Arc<crate::susi_core::capture::EvidenceSession>>,
+    requires: Option<&str>,
 ) {
     if !eligible(report) {
         return;
@@ -283,6 +285,7 @@ pub(crate) fn recover(
                     true,
                     model_hint,
                     generative,
+                    requires,
                 ));
                 Ok(())
             })
@@ -518,6 +521,7 @@ async fn recover_with_providers(
     fallback_local: bool,
     model_hint: Option<&str>,
     generative: bool,
+    requires: Option<&str>,
 ) {
     if !eligible(report) {
         return;
@@ -595,6 +599,7 @@ async fn recover_with_providers(
             };
             let workspace_owned = workspace.to_path_buf();
             let attempted_model = local_model.clone();
+            let requires_owned = requires.map(str::to_string);
             // Local rungs get a floor far above the failover budget: the
             // local-first ladder admits 30B-class MoE GGUFs whose CPU decode
             // is ~1-3 tok/s, so loading plus a 256-token recovery answer can
@@ -603,17 +608,12 @@ async fn recover_with_providers(
             // budget. Cloud rungs keep the caller's tight failover timing.
             let local = tokio::time::timeout(timeout.max(LOCAL_ATTEMPT_TIMEOUT), async {
                 let raw = tokio::task::spawn_blocking(move || {
-                    match attempted_model.as_deref() {
-                        Some(model) => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
-                            &prompt,
-                            &workspace_owned,
-                            model,
-                        ),
-                        None => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
-                            &prompt,
-                            &workspace_owned,
-                        ),
-                    }
+                    crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_full(
+                        &prompt,
+                        &workspace_owned,
+                        attempted_model.as_deref(),
+                        requires_owned.as_deref(),
+                    )
                 })
                 .await
                 .map_err(|e| EaiError::internal(format!("local recovery worker failed: {e}")))?;
@@ -1047,6 +1047,7 @@ mod tests {
             false,
             Some("b-hinted"),
             false,
+            None,
         )
         .await;
         // The hinted provider ran first even though it was listed last.
@@ -1074,6 +1075,7 @@ mod tests {
             false,
             None,
             false,
+            None,
         )
         .await;
         assert!(!report.is_success());
@@ -1120,6 +1122,7 @@ mod tests {
             false,
             None,
             false,
+            None,
         )
         .await;
         assert!(!report.is_success());
@@ -1146,6 +1149,7 @@ mod tests {
             false,
             None,
             false,
+            None,
         )
         .await;
         assert!(!report.is_success());
@@ -1169,6 +1173,7 @@ mod tests {
             false,
             None,
             false,
+            None,
         )
         .await;
         assert!(!report.is_success());
@@ -1192,6 +1197,7 @@ mod tests {
                 false,
                 None,
                 false,
+                None,
             )
             .await;
             assert_eq!(report.status, status);
@@ -1207,6 +1213,7 @@ mod tests {
             false,
             None,
             false,
+            None,
         )
         .await;
         assert!(calls.lock().unwrap().is_empty());
@@ -1242,6 +1249,7 @@ mod tests {
             false,
             None,
             false,
+            None,
         )
         .await;
         assert!(report.is_success(), "{}", report.final_answer);
@@ -1269,6 +1277,8 @@ mod tests {
 
         let (registry, calls) = providers(&[("a-gen", Reply::Text(COMPLETE))]);
         let mut report = report();
+        // `requires` flows to the local rungs only — a declared capability
+        // must not disturb the cloud cascade when no local ladder exists.
         recover_with_providers(
             &mut report,
             &registry,
@@ -1278,6 +1288,7 @@ mod tests {
             false,
             None,
             true, // generative
+            Some("tools"),
         )
         .await;
         assert!(report.is_success(), "{}", report.final_answer);
@@ -1310,6 +1321,7 @@ mod tests {
             true,
             None,
             true,
+            None,
         )
         .await;
 
@@ -1357,6 +1369,7 @@ mod tests {
             false,
             None,
             false,
+            None,
         )
         .await;
         assert!(!report.is_success(), "{}", report.final_answer);

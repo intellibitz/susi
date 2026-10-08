@@ -880,6 +880,7 @@ async fn handle_gemi_request(
                 let ws = (*workspace).clone();
                 let prompt_for_task = trimmed_prompt.clone();
                 let model_for_task = requested_model;
+                let requires_for_task = completion.requires.clone();
                 let content = match tokio::task::spawn_blocking(move || {
                     let _permit = permit;
                     let final_resp = gawd::solve_mission_generative(
@@ -887,6 +888,7 @@ async fn handle_gemi_request(
                         &ws,
                         env!("CARGO_PKG_VERSION"),
                         model_for_task.as_deref(),
+                        requires_for_task.as_deref(),
                     );
                     crate::susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,

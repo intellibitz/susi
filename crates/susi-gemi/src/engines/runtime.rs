@@ -104,6 +104,29 @@ impl GemiEngine {
         )
     }
 
+    /// Non-streaming deep reasoning honoring both a caller-requested model
+    /// and the request's declared capability (`"tools"`, …) — mission
+    /// recovery threads `susi.requires` here so the local rung applies the
+    /// same capability gate and tool-schema injection as streaming.
+    pub fn generate_reasoning_deep_opts(
+        prompt: &str,
+        workspace: &Path,
+        model: Option<&str>,
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
+        requires: Option<&str>,
+    ) -> String {
+        Self::reason_internal(
+            prompt,
+            workspace,
+            false,
+            &|_| {},
+            min_complexity,
+            model,
+            requires,
+            &|_| {},
+        )
+    }
+
     pub fn generate_reasoning_stream(
         prompt: &str,
         workspace: &Path,

@@ -525,17 +525,7 @@ pub mod gemi {
         }
 
         pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
-            req_ok(
-                topics::GEMI_INFER_GENERATE_DEEP,
-                json!({
-                    "prompt": prompt,
-                    "workspace": workspace.display().to_string()
-                }),
-            )
-            .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string()
+            Self::deep(prompt, workspace, None, None, None)
         }
 
         pub fn generate_reasoning_deep_with_model(
@@ -543,12 +533,45 @@ pub mod gemi {
             workspace: &Path,
             model: &str,
         ) -> String {
+            Self::deep(prompt, workspace, Some(model), None, None)
+        }
+
+        /// Deep reasoning with the request's declared capability
+        /// (`"tools"`, …) — the recovery ladder threads `susi.requires`
+        /// here so non-streaming missions apply the same capability gate
+        /// and tool-schema injection the streaming path does.
+        pub fn generate_reasoning_deep_full(
+            prompt: &str,
+            workspace: &Path,
+            model: Option<&str>,
+            requires: Option<&str>,
+        ) -> String {
+            Self::deep(prompt, workspace, model, None, requires)
+        }
+
+        /// Shared non-streaming inference request: `model` selects the
+        /// caller-named model, `requires` forwards the declared
+        /// capability into the engine's local-rung gate.
+        fn deep(
+            prompt: &str,
+            workspace: &Path,
+            model: Option<&str>,
+            min_complexity: Option<&str>,
+            requires: Option<&str>,
+        ) -> String {
+            let topic = if model.is_some() {
+                topics::GEMI_INFER_GENERATE_DEEP_MODEL
+            } else {
+                topics::GEMI_INFER_GENERATE_DEEP
+            };
             req_ok(
-                topics::GEMI_INFER_GENERATE_DEEP_MODEL,
+                topic,
                 json!({
                     "prompt": prompt,
                     "workspace": workspace.display().to_string(),
-                    "model": model
+                    "model": model,
+                    "min_complexity": min_complexity,
+                    "requires": requires
                 }),
             )
             .get("text")
@@ -577,18 +600,7 @@ pub mod gemi {
             workspace: &Path,
             complexity: &str,
         ) -> String {
-            req_ok(
-                topics::GEMI_INFER_GENERATE_DEEP,
-                json!({
-                    "prompt": prompt,
-                    "workspace": workspace.display().to_string(),
-                    "min_complexity": complexity
-                }),
-            )
-            .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string()
+            Self::deep(prompt, workspace, None, Some(complexity), None)
         }
 
         pub fn verify_axiomatic_alignment(text: &str, workspace: &Path) -> Result<String, String> {
@@ -792,11 +804,15 @@ pub mod gawd {
     /// output is the product, so recovery may self-cite an inference
     /// receipt minted for the provider call instead of demanding
     /// mission-captured tool evidence a chat goal never produces.
+    /// `requires` carries the request's declared capability (`"tools"`,
+    /// …) into the mission's local rungs — the same gate the streaming
+    /// path applies; without it the contract was validated then dropped.
     pub fn solve_mission_generative(
         intent: &str,
         workspace: &Path,
         version: &str,
         model: Option<&str>,
+        requires: Option<&str>,
     ) -> String {
         req_ok(
             topics::GAWD_SOLVE,
@@ -805,7 +821,8 @@ pub mod gawd {
                 "workspace": workspace.display().to_string(),
                 "version": version,
                 "model": model,
-                "generative": true
+                "generative": true,
+                "requires": requires
             }),
         )
         .get("text")
@@ -1446,7 +1463,7 @@ mod facade_marshal_tests {
         let ws = Path::new(".");
         let _ = gawd::solve_mission("i", ws, "v");
         let _ = gawd::solve_mission_with_model("i", ws, "v", Some("m"));
-        let _ = gawd::solve_mission_generative("i", ws, "v", None);
+        let _ = gawd::solve_mission_generative("i", ws, "v", None, Some("tools"));
         assert!(gawd::sanitize_input("x").is_ok());
         assert!(gawd::audit_action("t", "d", ws).is_ok());
         let _ = gawd::apply_patch(json!({}));
