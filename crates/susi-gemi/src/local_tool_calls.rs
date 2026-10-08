@@ -143,6 +143,154 @@ fn extract_mistral_calls(text: &str, calls: &mut Vec<NormalizedToolCall>) -> Str
     prose
 }
 
+/// Streaming counterpart of [`extract_tool_calls`]. Tool-call markup is a
+/// transport detail, never user-facing prose — but engine deltas reach the
+/// client before the whole answer exists, so the post-hoc extractor cannot
+/// un-leak them. `feed` returns the text safe to emit now; anything that
+/// could still become a tag stays buffered. `finish` flushes what remains
+/// through the same contract the extractor applies: an unclosed
+/// `<tool_call>` whose payload parses is a call (suppressed), anything else
+/// is prose (emitted).
+#[derive(Default)]
+pub struct ToolCallStreamFilter {
+    pending: String,
+}
+
+const OPEN_TAG: &str = "<tool_call>";
+const CLOSE_TAG: &str = "</tool_call>";
+const MISTRAL_TAG: &str = "[tool_calls]";
+/// A markup span that never closes must not grow the buffer forever —
+/// past the cap the pending text is emitted raw (fail-open, same choice
+/// the extractor makes for unparseable blocks).
+const PENDING_CAP: usize = 1 << 20;
+
+/// What one scan of `pending` decided.
+enum Scan {
+    /// Emit `pending[..n]` and remove it; rescan the remainder.
+    Emit(usize),
+    /// `pending[..n]` is a complete markup span — drop it; rescan.
+    Drop(usize),
+    /// The head could still grow into markup — wait for more deltas.
+    Hold,
+    /// No markup start anywhere — emit the whole buffer.
+    Flush,
+}
+
+impl ToolCallStreamFilter {
+    pub fn feed(&mut self, delta: &str) -> String {
+        self.pending.push_str(delta);
+        let mut out = String::new();
+        loop {
+            match self.scan() {
+                Scan::Flush => {
+                    out.push_str(&self.pending);
+                    self.pending.clear();
+                    break;
+                }
+                Scan::Hold => break,
+                Scan::Emit(n) => {
+                    out.push_str(&self.pending[..n]);
+                    self.pending.drain(..n);
+                }
+                Scan::Drop(n) => {
+                    self.pending.drain(..n);
+                }
+            }
+            if self.pending.len() > PENDING_CAP {
+                out.push_str(std::mem::take(&mut self.pending).as_str());
+                break;
+            }
+        }
+        out
+    }
+
+    /// End of generation — run the post-hoc extractor on whatever is still
+    /// buffered so a held span resolves exactly like the full-text path.
+    pub fn finish(&mut self) -> String {
+        let pending = std::mem::take(&mut self.pending);
+        let (prose, calls) = extract_tool_calls(&pending);
+        if calls.is_empty() {
+            pending
+        } else {
+            prose
+        }
+    }
+
+    fn scan(&self) -> Scan {
+        let p = &self.pending;
+        for (idx, byte) in p.bytes().enumerate() {
+            match byte {
+                b'<' => {
+                    let rest = &p[idx..];
+                    if starts_ci(rest, OPEN_TAG) {
+                        if idx > 0 {
+                            return Scan::Emit(idx);
+                        }
+                        return match find_ci(&rest[OPEN_TAG.len()..], CLOSE_TAG) {
+                            Some(c) => Scan::Drop(OPEN_TAG.len() + c + CLOSE_TAG.len()),
+                            None => Scan::Hold,
+                        };
+                    }
+                    if is_ci_prefix(rest, OPEN_TAG) {
+                        return if idx > 0 { Scan::Emit(idx) } else { Scan::Hold };
+                    }
+                }
+                b'[' => {
+                    let rest = &p[idx..];
+                    if starts_ci(rest, MISTRAL_TAG) {
+                        if idx > 0 {
+                            return Scan::Emit(idx);
+                        }
+                        let after = &rest[MISTRAL_TAG.len()..];
+                        let trimmed = after.trim_start();
+                        if trimmed.is_empty() {
+                            return Scan::Hold;
+                        }
+                        if !trimmed.starts_with('[') {
+                            // Marker not followed by an array is prose —
+                            // emit through the marker and rescan the rest.
+                            return Scan::Emit(MISTRAL_TAG.len());
+                        }
+                        let ws = after.len() - trimmed.len();
+                        return match balanced_json_span(&trimmed[1..]) {
+                            Some(end) => Scan::Drop(MISTRAL_TAG.len() + ws + 1 + end + 1),
+                            None => Scan::Hold,
+                        };
+                    }
+                    if is_ci_prefix(rest, MISTRAL_TAG) {
+                        return if idx > 0 { Scan::Emit(idx) } else { Scan::Hold };
+                    }
+                }
+                _ => {}
+            }
+        }
+        Scan::Flush
+    }
+}
+
+/// `s` starts with `tag`, ASCII-case-insensitively.
+fn starts_ci(s: &str, tag: &str) -> bool {
+    s.len() >= tag.len() && s[..tag.len()].eq_ignore_ascii_case(tag)
+}
+
+/// `s` is a proper (shorter) ASCII-case-insensitive prefix of `tag` — i.e.
+/// more deltas could still complete the tag.
+fn is_ci_prefix(s: &str, tag: &str) -> bool {
+    s.len() < tag.len()
+        && tag
+            .get(..s.len())
+            .is_some_and(|head| s.eq_ignore_ascii_case(head))
+}
+
+/// First byte offset of `needle` inside `hay`, ASCII-case-insensitively.
+fn find_ci(hay: &str, needle: &str) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    let last = hay.len() - needle.len();
+    (0..=last).find(|&i| hay[i..i + needle.len()].eq_ignore_ascii_case(needle))
+}
+
 /// Given a string starting just after an opening `[`, return the end offset
 /// of the balanced `]` — string literals and escapes respected, so brackets
 /// inside JSON string values cannot unbalance the scan.
@@ -275,5 +423,93 @@ mod local_tool_call_tests {
         assert!(tools_block(&[]).is_none());
         // Hermetic: no tools registered through the plane bus in tests.
         assert_eq!(prompt_with_tool_schemas("plain"), "plain");
+    }
+
+    use super::ToolCallStreamFilter;
+
+    /// Feed a whole string one chunk — behaves like the batch extractor.
+    fn filter_once(text: &str) -> String {
+        let mut f = ToolCallStreamFilter::default();
+        let mut out = f.feed(text);
+        out.push_str(&f.finish());
+        out
+    }
+
+    #[test]
+    fn local_tool_stream_filter_passes_plain_text() {
+        assert_eq!(
+            filter_once("ordinary <tags> and [brackets]"),
+            "ordinary <tags> and [brackets]"
+        );
+    }
+
+    #[test]
+    fn local_tool_stream_filter_suppresses_a_whole_call() {
+        let text = "Sure.\n<tool_call>\n{\"name\": \"search\", \"arguments\": {}}\n</tool_call>";
+        assert_eq!(filter_once(text), "Sure.\n");
+    }
+
+    #[test]
+    fn local_tool_stream_filter_survives_split_deltas() {
+        let deltas = [
+            "Thinking… <too",
+            "l_call>{\"name\": \"sea",
+            "rch\", \"arguments\": {\"q\": \"x\"}}</tool_ca",
+            "ll> done",
+        ];
+        let mut f = ToolCallStreamFilter::default();
+        let mut out = String::new();
+        for d in deltas {
+            out.push_str(&f.feed(d));
+        }
+        out.push_str(&f.finish());
+        assert_eq!(out, "Thinking…  done");
+    }
+
+    #[test]
+    fn local_tool_stream_filter_suppresses_mistral_array() {
+        let deltas = [
+            "Answer. [TOOL_",
+            "CALLS] [{\"name\": \"w\", \"arguments\": {",
+            "}}] tail",
+        ];
+        let mut f = ToolCallStreamFilter::default();
+        let mut out = String::new();
+        for d in deltas {
+            out.push_str(&f.feed(d));
+        }
+        out.push_str(&f.finish());
+        assert_eq!(out, "Answer.  tail");
+    }
+
+    #[test]
+    fn local_tool_stream_filter_unclosed_parseable_block_stays_suppressed() {
+        // Matches extract_tool_calls: an unclosed trailing block that
+        // normalizes is a call, not prose.
+        assert_eq!(
+            filter_once("note <tool_call>{\"name\": \"x\", \"arguments\": {}}"),
+            "note "
+        );
+    }
+
+    #[test]
+    fn local_tool_stream_filter_unclosed_garbage_emits_raw() {
+        // Fail-open: a held span that never parses is evidence, not loss.
+        assert_eq!(
+            filter_once("note <tool_call>not json"),
+            "note <tool_call>not json"
+        );
+    }
+
+    #[test]
+    fn local_tool_stream_filter_brackets_that_are_not_tags_pass() {
+        let deltas = ["see [abc] and <oth", "er> tokens"];
+        let mut f = ToolCallStreamFilter::default();
+        let mut out = String::new();
+        for d in deltas {
+            out.push_str(&f.feed(d));
+        }
+        out.push_str(&f.finish());
+        assert_eq!(out, "see [abc] and <other> tokens");
     }
 }
