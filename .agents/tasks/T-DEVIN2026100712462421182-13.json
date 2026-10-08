@@ -1,0 +1,19 @@
+{
+  "id": "T-DEVIN2026100712462421182-13",
+  "title": "Restore MoE GEMV micro-benchmark (opt-in)",
+  "goal": "calibration tool for decode-path tuning",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-vendor-candle"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791418298
+}
