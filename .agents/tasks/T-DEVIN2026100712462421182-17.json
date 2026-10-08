@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN2026100712462421182-17",
+  "title": "moe_gguf: reset KV cache on new sequence (input_pos==0)",
+  "goal": "The shared ModelWeights handle is reused across requests, but the MoE backend's ConcatKvCache only ever appends — a second request's prefill sees stale KV and crashes with a mask shape mismatch (observed live: [1,32,614,840] vs [1,1,614,614]). Reset the per-layer kv_cache when input_pos==0, matching qwen2_split's reset-on-zero contract.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-vendor-candle",
+      "-E",
+      "test(moe)"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791423266
+}
