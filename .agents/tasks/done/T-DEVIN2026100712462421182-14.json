@@ -1,0 +1,24 @@
+{
+  "id": "T-DEVIN2026100712462421182-14",
+  "title": "MoE decode fast path for single-token forward",
+  "goal": "halve per-token op count in the decode inner loop",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-vendor-candle"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791419052,
+  "closed": {
+    "at_unix": 1791419328,
+    "commit": "e166eb23bc485255ec9db745e7cdfe0145a5b611",
+    "by": "DEVIN2026100712462421182"
+  }
+}
