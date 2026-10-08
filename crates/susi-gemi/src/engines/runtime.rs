@@ -369,6 +369,18 @@ impl GemiEngine {
             prompt
         };
         let local_started = std::time::Instant::now();
+        // The local engine's deltas are the live stream — tool-call markup
+        // must be withheld before it reaches the client (the post-hoc
+        // `fulfill_emitted_tool_calls` below can only fix the returned text,
+        // not what already streamed).
+        let stream_filter =
+            std::cell::RefCell::new(crate::local_tool_calls::ToolCallStreamFilter::default());
+        let filtered_callback = |delta: String| {
+            let out = stream_filter.borrow_mut().feed(&delta);
+            if !out.is_empty() {
+                callback(out);
+            }
+        };
         // Drive the engine through the shared lifecycle contract: discover →
         // load → ready (health probe) → infer (VC-201-042). A failed probe
         // is a typed error here, the same outcome the bare call produced.
@@ -382,10 +394,14 @@ impl GemiEngine {
             },
             &crate::engines::native_lifecycle::ContractCall::new(
                 prompt,
-                callback,
+                &filtered_callback,
                 selected_model.as_deref(),
             ),
         );
+        let tail = stream_filter.borrow_mut().finish();
+        if !tail.is_empty() {
+            callback(tail);
+        }
         if let Some(model) = selected_model.as_deref() {
             if active_engine_identifier != "susi-federated" && active_engine_identifier != "cloud"
                 || requested_model.is_some()
@@ -666,10 +682,18 @@ impl GemiEngine {
             )
             .unwrap_or_else(|e| format!("[Error] {e}"));
             executed += 1;
+            let block = format!("[TOOL {}]\n{result}", call.name);
+            // Streaming callers only ever see the callback channel — the
+            // folded return text never reaches them — so the tool output is
+            // emitted on both, and the fold keeps non-stream callers whole.
+            if !out.is_empty() {
+                callback("\n\n".to_string());
+            }
+            callback(format!("{block}\n"));
             if !out.is_empty() {
                 out.push_str("\n\n");
             }
-            out.push_str(&format!("[TOOL {}]\n{result}", call.name));
+            out.push_str(&block);
         }
         // A response that was markup only, with every call unregistered, left
         // nothing to show — return the original so the evidence is not lost.
