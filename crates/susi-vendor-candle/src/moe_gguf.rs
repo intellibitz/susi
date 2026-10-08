@@ -566,6 +566,45 @@ mod tests {
         assert!(split_experts(&qt, &device).is_err());
     }
 
+    /// Micro-benchmark for the decode inner loop — opt-in, ignored by
+    /// default. One expert-sized GEMV (gate 2048→768 at Q4_K_M) is the
+    /// unit of MoE decode work; measuring its standalone rate calibrates
+    /// whether a slow token is the matmul or the routing/gather overhead
+    /// around it.
+    ///   cargo test -p susi-vendor-candle --release -- --ignored bench_qmatmul
+    #[test]
+    #[ignore = "local micro-benchmark"]
+    fn bench_qmatmul_gemv_decode_step() {
+        let device = Device::Cpu;
+        for (n, k, label) in [
+            (512usize, 2048usize, "n512"),
+            (768, 2048, "n768-expert"),
+            (1024, 2048, "n1024"),
+            (2048, 2048, "n2048-attn"),
+            (2048, 2048, "n2048-again"),
+            (4096, 2048, "n4096"),
+            (768, 2048, "n768-again"),
+        ] {
+            let w = Tensor::randn(0f32, 1f32, (n, k), &device).unwrap();
+            let qt = QTensor::quantize(&w, GgmlDType::Q4K).unwrap();
+            let qmm = QMatMul::from_weights(std::sync::Arc::new(qt)).unwrap();
+            let x = Tensor::randn(0f32, 1f32, (1, 1, k), &device).unwrap();
+            qmm.forward(&x).unwrap(); // warm
+            let iters = 200;
+            let t = std::time::Instant::now();
+            for _ in 0..iters {
+                std::hint::black_box(qmm.forward(&x).unwrap());
+            }
+            let secs = t.elapsed().as_secs_f64() / iters as f64;
+            let bytes = n * k; // ~0.56 B/param at Q4_K; use param count
+            eprintln!(
+                "{label} GEMV {n}x{k}: {:.3} ms/call = {:.2} GB/s (weight stream)",
+                secs * 1000.0,
+                bytes as f64 * 0.5625 / secs / 1e9
+            );
+        }
+    }
+
     /// Live smoke test — opt-in via SUSI_MOE_GGUF=<path to a real GGUF>;
     /// ignored by default so the suite stays hermetic. Guards the failure
     /// mode that matters for a hand-rolled loader: a silently wrong tensor
