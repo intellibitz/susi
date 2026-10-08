@@ -1,0 +1,18 @@
+{
+  "id": "T-DEVIN2026100809482619134-3",
+  "title": "release cut: reuse green main evidence for check and clippy phases",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "release"
+    ]
+  },
+  "created_by": "DEVIN2026100809482619134",
+  "created_unix": 1791464061
+}
