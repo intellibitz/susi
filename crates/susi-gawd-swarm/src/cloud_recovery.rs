@@ -501,6 +501,13 @@ fn extract_json_object(raw: &str) -> Option<&str> {
     None
 }
 
+/// Local recovery attempts get a floor far above the shared failover budget:
+/// the local-first ladder admits multi-GB GGUFs (30B-class MoE models decode
+/// at ~1-3 tok/s on CPU), so model load plus a bounded recovery decode can
+/// legitimately need several minutes. A hung local model still escalates to
+/// cloud — it just has to actually hang, not merely be slow.
+const LOCAL_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(600);
+
 #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
 async fn recover_with_providers(
     report: &mut SusiMissionReport,
@@ -588,7 +595,13 @@ async fn recover_with_providers(
             };
             let workspace_owned = workspace.to_path_buf();
             let attempted_model = local_model.clone();
-            let local = tokio::time::timeout(timeout, async {
+            // Local rungs get a floor far above the failover budget: the
+            // local-first ladder admits 30B-class MoE GGUFs whose CPU decode
+            // is ~1-3 tok/s, so loading plus a 256-token recovery answer can
+            // legitimately take minutes. Observed live: a healthy
+            // Qwen3-30B-A3B generation killed at 57s by the shared 60s
+            // budget. Cloud rungs keep the caller's tight failover timing.
+            let local = tokio::time::timeout(timeout.max(LOCAL_ATTEMPT_TIMEOUT), async {
                 let raw = tokio::task::spawn_blocking(move || {
                     match attempted_model.as_deref() {
                         Some(model) => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
@@ -1008,6 +1021,14 @@ mod tests {
         (registry, calls)
     }
     const COMPLETE: &str = r#"{"status":"complete","answer":"The observed result is available."}"#;
+
+    #[test]
+    fn local_attempt_floor_exceeds_failover_budget() {
+        // A 30B-class local model at ~1 tok/s needs ~256s for a full recovery
+        // decode; the floor must sit well above the 60s shared budget that
+        // was observed killing healthy generations mid-stream.
+        assert!(LOCAL_ATTEMPT_TIMEOUT > Duration::from_secs(120));
+    }
 
     #[tokio::test]
     async fn model_hint_moves_named_provider_to_front() {

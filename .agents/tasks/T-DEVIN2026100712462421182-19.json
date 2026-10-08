@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN2026100712462421182-19",
+  "title": "recovery: local-attempt timeout must cover large-model decode",
+  "goal": "recover_with_providers shares one 60s timeout across cloud and local rungs, but a 30B-class local model at ~3 tok/s needs ~85s just to decode 256 tokens — observed live: generation killed at 57s while producing correctly. Local attempts get their own floor so large models can finish; cloud keeps the aggressive failover budget.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd-swarm",
+      "-E",
+      "test(recovery)"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791425256
+}
