@@ -323,6 +323,13 @@ impl Attention {
         );
 
         let (q, k) = self.rotary_emb.apply(&q, &k, input_pos)?;
+        // input_pos == 0 means a fresh sequence on a reused (shared-handle)
+        // model — without the reset the cache concatenates the previous
+        // request's KV and the attention mask mismatches, or worse, the
+        // model attends to another request's tokens.
+        if input_pos == 0 {
+            self.kv_cache.reset();
+        }
         let (k, v) = self.kv_cache.append(&k, &v)?;
 
         let k = repeat_kv(k, self.num_kv_groups)?.contiguous()?;
