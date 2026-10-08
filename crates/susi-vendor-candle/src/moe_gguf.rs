@@ -593,6 +593,64 @@ mod tests {
         }
     }
 
+    /// `ExpertBank::forward` has two dispatch paths — the batched
+    /// gather/scatter loop for seq_len > 1 and the single-token decode
+    /// fast path — plus the optional gated shared expert. A tiny bank
+    /// exercises all of them on CPU: no GGUF file, no GPU.
+    #[test]
+    fn expert_bank_forward_covers_batched_and_decode_paths() {
+        let device = Device::Cpu;
+        let hidden = 32;
+        let ffn = 64;
+        let n_experts = 2;
+        let qmatmul = |rows: usize, cols: usize, seed: f32| {
+            let t = Tensor::full(seed, (rows, cols), &device).unwrap();
+            QMatMul::from_weights(Arc::new(QTensor::quantize(&t, GgmlDType::Q8_0).unwrap()))
+                .unwrap()
+        };
+        let bank = ExpertBank {
+            gate: Linear::new(
+                Tensor::ones((n_experts, hidden), DType::F32, &device).unwrap(),
+                None,
+            ),
+            gate_experts: (0..n_experts)
+                .map(|e| qmatmul(ffn, hidden, 0.01 + e as f32 * 0.01))
+                .collect(),
+            up_experts: (0..n_experts)
+                .map(|e| qmatmul(ffn, hidden, 0.02 + e as f32 * 0.01))
+                .collect(),
+            down_experts: (0..n_experts)
+                .map(|e| qmatmul(hidden, ffn, 0.03 + e as f32 * 0.01))
+                .collect(),
+            num_experts_per_tok: n_experts,
+            norm_topk_prob: true,
+            routed_scale: 2.0,
+            shared_expert: Some(Mlp {
+                feed_forward_w1: qmatmul(ffn, hidden, 0.04),
+                feed_forward_w2: qmatmul(hidden, ffn, 0.05),
+                feed_forward_w3: qmatmul(ffn, hidden, 0.06),
+            }),
+            shared_expert_gate: Some(Linear::new(
+                Tensor::ones((hidden, hidden), DType::F32, &device).unwrap(),
+                None,
+            )),
+        };
+        for seq_len in [3usize, 1] {
+            let xs = Tensor::randn(0f32, 1f32, (1, seq_len, hidden), &device).unwrap();
+            let out = bank.forward(&xs).unwrap();
+            assert_eq!(out.dims(), &[1, seq_len, hidden]);
+            assert!(
+                out.flatten_all()
+                    .unwrap()
+                    .to_vec1::<f32>()
+                    .unwrap()
+                    .iter()
+                    .all(|v| v.is_finite()),
+                "seq_len {seq_len}: non-finite expert output"
+            );
+        }
+    }
+
     /// A 2-D tensor is not an expert bank: the leading expert axis is
     /// mandatory, so the split must reject it rather than mis-slice.
     #[test]
