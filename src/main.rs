@@ -131,9 +131,8 @@ fn get_home_dir() -> PathBuf {
 /// knee on both paths; `CANDLE_NUM_THREADS` remains the override.
 fn default_candle_threads() -> usize {
     std::thread::available_parallelism()
-        .map(|n| n.get().min(4))
+        .map(|n| n.get().clamp(1, 4))
         .unwrap_or(4)
-        .max(1)
 }
 
 fn main() -> std::process::ExitCode {
@@ -333,6 +332,6 @@ mod tests {
         let cpus = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
-        assert_eq!(n, cpus.min(4).max(1));
+        assert_eq!(n, cpus.clamp(1, 4));
     }
 }
