@@ -1,0 +1,18 @@
+{
+  "id": "T-DEVIN2026100809482619134-1",
+  "title": "Fix tools_request_routes_away_from_tool_less_local: pin shared-state inputs (pref file, cooldown map, registry clouds) so it is hermetic under shared-process cargo test",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "--lib"
+    ]
+  },
+  "created_by": "DEVIN2026100809482619134",
+  "created_unix": 1791437692
+}
