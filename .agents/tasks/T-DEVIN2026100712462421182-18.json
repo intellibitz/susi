@@ -1,0 +1,21 @@
+{
+  "id": "T-DEVIN2026100712462421182-18",
+  "title": "local tool calls: suppress markup on the streaming path + stream results",
+  "goal": "Streaming clients currently see raw <tool_call> deltas and never see [TOOL] results — fulfill_emitted_tool_calls only fixes the returned text. Add a delta-level filter that withholds tool-call markup (partial-tag safe across chunk boundaries), and emit executed tool results through the callback so streams show them.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gemi",
+      "-E",
+      "test(local_tool)"
+    ]
+  },
+  "created_by": "DEVIN2026100712462421182",
+  "created_unix": 1791424187
+}
