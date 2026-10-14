@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEX20261015002055279522-1",
+  "title": "Add fast package-scoped developer Cargo aliases",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEX20261015002055279522",
+  "created_unix": 1792003884
+}
