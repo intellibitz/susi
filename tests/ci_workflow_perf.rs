@@ -143,7 +143,7 @@ fn no_workflow_targets_a_retired_runner_image() {
 }
 
 #[test]
-fn a_main_run_is_never_cancelled_by_the_next_merge() {
+fn main_runs_cancel_stale_tail_work() {
     let text = read(".github/workflows/test.yml");
     let line = code(&text)
         .lines()
@@ -151,12 +151,9 @@ fn a_main_run_is_never_cancelled_by_the_next_merge() {
         .expect("test.yml declares cancel-in-progress")
         .trim()
         .to_string();
-    assert!(
-        line.contains("refs/heads/main") && line.contains("!="),
-        "`{line}`: cancelling in-progress runs must exempt main. Merges land every few \
-         minutes and the suite takes ~15, so a main run that the next merge can cancel \
-         never finishes: no gate verdict, no refs/verified records, and no cargo cache \
-         saved (the save is a post-step a cancelled job never reaches)"
+    assert_eq!(
+        line, "cancel-in-progress: true",
+        "main must use latest-wins concurrency: `{line}`"
     );
 }
 
