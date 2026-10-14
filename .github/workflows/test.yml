@@ -16,19 +16,15 @@ on:
     branches: ['**']
   workflow_dispatch:
 
-# A branch's newer push supersedes its older run, so that stays cancelling. A run
-# on `main` must NOT be cancelled by the next merge: merges land every few
-# minutes while the full suite takes ~15, so with `cancel-in-progress: true`
-# every main run was cancelled before it finished (34 of 34 in one six-hour
-# window) - the integration gate never reported, the post-merge acceptance never
-# recorded `refs/verified/*`, and Swatinem/rust-cache never saved a cache (it
-# saves in a post-step a cancelled job never reaches), so the next run started
-# cold and was slower still. Without cancellation GitHub keeps one run going and
-# one pending - the newest - so each completed run validates a recent main tip
-# and the intermediate merges are covered by it rather than raced.
+# A newer push supersedes its older run, including on `main`. Post-merge
+# acceptance and coverage are audit work, not merge gates, and may otherwise
+# keep the newest main run pending for tens of minutes. The branch gate already
+# proves the exact pre-merge tree; the newest main run must perform the merged
+# tree proof and repopulate the shared cache. Latest-wins keeps remote feedback
+# bounded by one suite instead of making every merge wait behind stale tail jobs.
 concurrency:
   group: test-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: true
 
 # A run on a tag (release.yml dispatches the suite on the tag it is about to
 # build) restores the caches main wrote and writes none: an entry saved under a
@@ -146,8 +142,7 @@ jobs:
   # narratives) lands a main tree whose code is byte-identical to a run that
   # already went green - the shards, coverage, doc tests, kani and the e2e
   # would spend ~20-30 min re-proving proven bytes while every later merge
-  # queues behind them (the main concurrency group keeps one running and one
-  # pending). This job diffs the merge against the newest green main runs
+  # queues behind them. This job diffs the merge against the newest green main runs
   # excluding .agents/; an empty diff means the suite's verdict already exists
   # and the gated jobs skip. Dispatch runs and branches always prove: only a
   # main push can reuse evidence. Everything cheap or state-judging - fmt,
