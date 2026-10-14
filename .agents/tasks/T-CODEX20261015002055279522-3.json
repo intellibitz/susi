@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEX20261015002055279522-3",
+  "title": "Land fast-loop aliases with a clean dependency lockfile",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEX20261015002055279522",
+  "created_unix": 1792004944
+}
