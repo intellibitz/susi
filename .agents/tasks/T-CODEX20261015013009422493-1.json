@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEX20261015013009422493-1",
+  "title": "Refresh vulnerable dependencies and document unsafe-libyaml exception",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEX20261015013009422493",
+  "created_unix": 1792008024
+}
