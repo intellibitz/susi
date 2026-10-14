@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEX20261015014429449309-1",
+  "title": "Cache release and dev-release builds",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEX20261015014429449309",
+  "created_unix": 1792008880
+}
