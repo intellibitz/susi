@@ -1,7 +1,10 @@
 [alias]
 xb = "run --package xtask -- build"
-# Faster test runner: per-test process isolation, better scheduling than
-# libtest's per-binary thread pools. Requires `cargo install cargo-nextest`.
+# Fast package-scoped inner-loop commands. Add `-p <crate>` and an optional
+# nextest filter at the call site so a small edit does not build the workspace.
+xc = "check --locked"
+xt = "nextest run --locked"
+xcl = "clippy --locked --all-targets"
 xn = "nextest run --workspace --locked"
 
 # Linkers for Linux.
