@@ -63,12 +63,25 @@ jobs:
     # wasmer used on that target pulls in wasmer-compiler-singlepass,
     # which is BUSL-1.1 licensed and requires a paid Wasmer sponsorship
     # for production use. Re-add once there's a compliant Windows backend.
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      RUSTC_WORKSPACE_WRAPPER: sccache
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Cache Cargo and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: dev-release-${{ matrix.name }}
+          cache-targets: "true"
 
       - name: Install Linux System Dependencies
         if: runner.os == 'Linux'
@@ -132,6 +145,15 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Cache Cargo and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: dev-release-cuda-${{ matrix.name }}
+          cache-targets: "true"
 
       - name: Install System Dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake clang

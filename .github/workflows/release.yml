@@ -79,6 +79,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Slowest leg 31 min: a hung build must not hold a release for the 6 h default.
     timeout-minutes: 75
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      RUSTC_WORKSPACE_WRAPPER: sccache
     strategy:
       fail-fast: false
       matrix:
@@ -109,6 +113,15 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Cache Cargo and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.name }}
+          cache-targets: "true"
 
       - name: Install Linux System Dependencies
         if: runner.os == 'Linux'
@@ -158,6 +171,15 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Cache Cargo and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-cuda-${{ matrix.name }}
+          cache-targets: "true"
 
       - name: Install System Dependencies
         run: |
