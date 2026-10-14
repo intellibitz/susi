@@ -442,14 +442,14 @@ jobs:
       # and builds the same dependency closure (clippy over the workspace plus the
       # doc-test build), so read its cache and never write one of our own: saving
       # per branch only filled the cache quota with one entry per task. Compiled
-      # units are sccache's job now; this restores only the registry and git deps
-      # (cache-targets off) so a full target/ is not restored on top of sccache.
+      # units are sccache's job now; restore the main-owned target too so fresh
+      # branches reuse the warm workspace instead of rebuilding it from zero.
       - name: Cache Cargo
         if: steps.affected.outputs.lintcmd != ''
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
-          cache-targets: "false"
+          cache-targets: "true"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux System Dependencies
