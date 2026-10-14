@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "CODEX20261015002055279522",
-  "created_unix": 1792005076
+  "created_unix": 1792005076,
+  "closed": {
+    "at_unix": 1792005305,
+    "commit": "8400fe7def303516390ec44a20fa41e129e964bf",
+    "by": "CODEX20261015002055279522"
+  }
 }
