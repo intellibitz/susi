@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEX20261015015109473243-2",
+  "title": "Update the CI concurrency regression test for latest-wins main runs",
+  "goal": "Keep workflow policy and regression coverage aligned.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf",
+      "main_runs_cancel_stale_tail_work"
+    ]
+  },
+  "created_by": "CODEX20261015015109473243",
+  "created_unix": 1792009840
+}
