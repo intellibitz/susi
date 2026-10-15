@@ -1,0 +1,21 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-14",
+  "title": "Verify mastery: Learn from failed and rejected experiments",
+  "goal": "Store failure causes, counterexamples, and proposal lineage in scoped experiment memory; repeated proposals must address the previous rejection or explicitly declare new evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_019_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-019",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792108463,
+  "authored": true
+}
