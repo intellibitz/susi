@@ -77,7 +77,6 @@ jobs:
     name: Build ${{ matrix.name }}
     needs: [verify-tag, tests]
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.name != 'linux-x86_64' }}
     # Slowest leg 31 min: a hung build must not hold a release for the 6 h default.
     timeout-minutes: 75
     env:
@@ -138,23 +137,27 @@ jobs:
         run: scripts/ci-install-mold.sh
 
       - name: Build Engine
+        id: build
+        continue-on-error: ${{ matrix.name != 'linux-x86_64' }}
         # [profile.dist]: fat LTO + CGU=1 for published binaries. The one-line
         # installer uses [profile.release] (thin LTO) for fast source builds.
         # x86_64 links with rustc's bundled lld (no linker is set in .cargo/config.toml); aarch64 links via .cargo/fast-linker (mold when installed above).
         run: cargo build --profile dist
 
       - name: Rename Binary
+        if: steps.build.outcome == 'success'
         shell: bash
         run: mv "${{ matrix.src }}" "${{ matrix.artifact }}"
 
       - name: Generate Checksum
+        if: steps.build.outcome == 'success'
         shell: bash
         run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
 
       - name: Upload Artifacts
         # A dispatch is a dry run: it has no tag, so this would publish a
         # release named after the branch.
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
           files: |
@@ -165,7 +168,6 @@ jobs:
     name: Build linux-x86_64-cuda
     needs: [verify-tag, tests]
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 60
     env:
       SCCACHE_GHA_ENABLED: "true"
@@ -206,6 +208,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends nvidia-cuda-toolkit patchelf
 
       - name: Build GPU-Accelerated Engine (CUDA)
+        id: build
+        continue-on-error: true
         # candle-kernels' build script shells out to `nvidia-smi` to detect
         # the compute capability to target - CI runners have no GPU, so that
         # probe fails outright ("Failed to run nvidia-smi: No such file or
@@ -216,6 +220,7 @@ jobs:
         run: CUDA_COMPUTE_CAP=75 cargo build --profile dist --features cuda
 
       - name: Bundle CUDA Runtime Libraries
+        if: steps.build.outcome == 'success'
         # cuBLAS/cuDART's SONAME is tied to this specific CUDA major version
         # (e.g. libcublas.so.12) - a machine with a *different* major CUDA
         # version installed (even a newer, fully working one) doesn't have
@@ -249,6 +254,7 @@ jobs:
           fi
 
       - name: Package Binary + Bundled Libraries
+        if: steps.build.outcome == 'success'
         run: |
           mkdir -p dist/lib
           mv target/dist/susi dist/susi-linux-x86_64-cuda
@@ -256,10 +262,11 @@ jobs:
           tar -czf susi-linux-x86_64-cuda.tar.gz -C dist susi-linux-x86_64-cuda lib
 
       - name: Generate Checksum
+        if: steps.build.outcome == 'success'
         run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Upload Artifacts
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
           files: |

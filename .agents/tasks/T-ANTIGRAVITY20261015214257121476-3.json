@@ -1,0 +1,19 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-3",
+  "title": "Optimize susi dev workflow for fast bug fix turnaround",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf",
+      "--test",
+      "parallel_workflow"
+    ]
+  },
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792084890
+}

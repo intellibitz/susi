@@ -741,6 +741,39 @@ fn finish_hands_off_once_the_run_is_green() {
     );
 }
 
+#[test]
+fn finish_hands_off_immediately_with_nowait() {
+    let w = World::new("nowait");
+    let out = w.finish_env(
+        false,
+        &[("TEST_NO_MERGE", "1"), ("SUSI_FINISH_NOWAIT", "1")],
+    );
+    assert!(
+        out.status.success(),
+        "nowait hands off immediately: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--no-wait"), "{err}");
+    assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
+    let claims = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/claims/"],
+    );
+    assert!(
+        !claims.contains("refs/claims/T-WORKER-1"),
+        "the claim must be released at handoff: {claims}"
+    );
+    let closed = git(
+        &w.remote,
+        &["for-each-ref", "--format=%(refname)", "refs/closed/"],
+    );
+    assert!(
+        closed.contains("refs/closed/T-WORKER-1"),
+        "the close receipt must outlive the claim: {closed}"
+    );
+}
+
 /// A re-run of `finish` repays the whole gate even when nothing it judges
 /// changed — a push rejected non-fast-forward by a stale remote head costs a
 /// full scoped suite again. The stamp hashes the diff to origin/main with
