@@ -1,0 +1,22 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-2",
+  "title": "Make secondary release artifacts non-blocking with continue-on-error",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792082473,
+  "closed": {
+    "at_unix": 1792083098,
+    "commit": "9f3ea67dc8f34ef0b2c304143ad0528046a21d7e",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
+}

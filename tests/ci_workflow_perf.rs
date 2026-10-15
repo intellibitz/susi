@@ -953,6 +953,37 @@ fn release_and_dev_release_cuda_builds_wire_sccache_and_named_keys() {
     }
 }
 
+#[test]
+fn release_non_tier1_artifacts_continue_on_error() {
+    for wf in [
+        ".github/workflows/release.yml",
+        ".github/workflows/dev-release.yml",
+    ] {
+        let text = read(wf);
+        let jobs = jobs(&text);
+        let build = job(&jobs, "build");
+        assert!(
+            build
+                .body
+                .contains("continue-on-error: ${{ matrix.name != 'linux-x86_64' }}"),
+            "{wf}: matrix job `build` must set continue-on-error for non-linux-x86_64 targets"
+        );
+        let cuda = job(&jobs, "build-cuda");
+        assert!(
+            cuda.body.contains("continue-on-error: true"),
+            "{wf}: `build-cuda` must set continue-on-error: true"
+        );
+    }
+
+    let release_text = read(".github/workflows/release.yml");
+    let release_jobs = jobs(&release_text);
+    let prune = job(&release_jobs, "prune-old-releases");
+    assert!(
+        prune.body.contains("needs.build.result == 'success'"),
+        "release.yml: prune-old-releases must gate on Tier-1 build success rather than all legs"
+    );
+}
+
 /// The `codetree` stamp exists so a metadata-only merge (`.agents/` churn:
 /// task adds, close receipts) skips the ~20-30 min of jobs that only ever
 /// prove code. The invariant is the gating itself: every compile-heavy job
