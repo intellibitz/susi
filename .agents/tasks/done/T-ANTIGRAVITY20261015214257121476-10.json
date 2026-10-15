@@ -14,5 +14,10 @@
   },
   "roadmap": "VC-201-099",
   "created_by": "ANTIGRAVITY20261015214257121476",
-  "created_unix": 1792106793
+  "created_unix": 1792106793,
+  "closed": {
+    "at_unix": 1792107471,
+    "commit": "1b631037060e954c0f6fe8cee0e2bf2429638644",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
 }
