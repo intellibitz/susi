@@ -78,6 +78,25 @@ fn default_bearer(addr: &str) -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
+fn is_network_endpoint(addr: &str) -> bool {
+    if addr.starts_with("http://") || addr.starts_with("https://") {
+        return true;
+    }
+    if addr.parse::<std::net::SocketAddr>().is_ok() {
+        return true;
+    }
+    if let Some((host, port)) = addr.rsplit_once(':') {
+        if port.parse::<u16>().is_ok()
+            && (host == "localhost"
+                || host.parse::<std::net::IpAddr>().is_ok()
+                || host.contains('.'))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// Returns `true` when the caller should run the native stdio MCP server.
 pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
     match action.unwrap_or(McpCommands::Serve) {
@@ -90,10 +109,14 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         } => {
             let arguments: serde_json::Value = serde_json::from_str(&args)
                 .map_err(|e| anyhow::anyhow!("args must be a JSON object: {e}"))?;
-            let bearer = token.or_else(|| default_bearer(&addr));
-            let result =
+            let result = if is_network_endpoint(&addr) {
+                let bearer = token.or_else(|| default_bearer(&addr));
                 susi_core::mcp_client::call_tool(&addr, &tool, &arguments, bearer.as_deref())
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                    .map_err(|e| anyhow::anyhow!("{e}"))?
+            } else {
+                susi_gmcp::direct_call::call_tool_direct(&addr, &tool, &arguments, workspace)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?
+            };
             println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(false)
         }

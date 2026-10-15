@@ -23,6 +23,7 @@ pub use susi_sandbox_client as susi_sandbox;
 pub use susi_core;
 
 pub mod catalog;
+pub mod direct_call;
 #[cfg(feature = "tools-rich")]
 pub mod embed_provider;
 #[cfg(not(feature = "tools-rich"))]

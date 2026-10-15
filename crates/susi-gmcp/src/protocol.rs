@@ -755,7 +755,7 @@ async fn execute_registry(
     })
 }
 
-fn is_tool_result_error(text: &str) -> bool {
+pub(crate) fn is_tool_result_error(text: &str) -> bool {
     let text = text.trim_start();
     if [
         "Error:",
