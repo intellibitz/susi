@@ -442,6 +442,9 @@ pub(crate) enum Commands {
     /// High-speed coding model agent for diff generation and workspace editing
     #[command(name = "code")]
     Code(super::code_cli::CodeArgs),
+    /// Unified operator control surface: workload, resources, providers, config, federation, and evidence
+    #[command(name = "top")]
+    Top(super::top_cli::TopArgs),
     /// Internal daemon start (always binds to substrate home; --workspace kept for compat)
     DaemonStart {
         #[arg(long, default_value_t = String::new())]
@@ -655,7 +658,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Audit { .. }
         | Commands::Run { .. }
         | Commands::Chat { .. }
-        | Commands::Code { .. } => false,
+        | Commands::Code { .. }
+        | Commands::Top { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,

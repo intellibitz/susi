@@ -192,6 +192,10 @@ fn main() -> std::process::ExitCode {
         Ok(code) => return code,
         Err(command) => command,
     };
+    if let Some(cli::defs::Commands::Top(args)) = command {
+        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        return cli::top_cli::execute(args, &cwd);
+    }
 
     // Composition root (CLI): hooks → packs → cloud.env → auto-prime.
     // See ARCHITECTURE.md and susi_daemon::composition.
