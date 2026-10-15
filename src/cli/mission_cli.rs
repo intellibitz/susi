@@ -81,7 +81,8 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         | Commands::N8n { .. }
         | Commands::Run { .. }
         | Commands::Chat { .. }
-        | Commands::Code { .. } => {}
+        | Commands::Code { .. }
+        | Commands::Top { .. } => {}
         Commands::Models {
             action: Some(super::model_cli::ModelCommands::Local),
         } => {
