@@ -1,0 +1,21 @@
+{
+  "id": "T-CODEX202610150932121273018-2",
+  "title": "Fix global tool registry leakage in local tool schema test",
+  "goal": "Keep release acceptance hermetic when other tests register default tools.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--package",
+      "susi-gemi",
+      "--locked",
+      "-E",
+      "test(local_tool_schemas_block_none_when_empty)"
+    ]
+  },
+  "created_by": "CODEX202610150932121273018",
+  "created_unix": 1792037544
+}

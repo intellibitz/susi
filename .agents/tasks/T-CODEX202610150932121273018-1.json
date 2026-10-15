@@ -1,0 +1,18 @@
+{
+  "id": "T-CODEX202610150932121273018-1",
+  "title": "Cut verified v0.21.17 release from current main",
+  "goal": "Publish the version commit, tag, binaries, and GitHub release through the verified release pipeline.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib"
+    ]
+  },
+  "created_by": "CODEX202610150932121273018",
+  "created_unix": 1792036954
+}
