@@ -1,0 +1,18 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-10",
+  "title": "Provide unified operator control surface with susi top CLI",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "top_cli_tests"
+    ]
+  },
+  "roadmap": "VC-201-099",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792106793
+}
