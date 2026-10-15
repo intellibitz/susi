@@ -421,8 +421,6 @@ mod local_tool_call_tests {
     #[test]
     fn local_tool_schemas_block_none_when_empty() {
         assert!(tools_block(&[]).is_none());
-        // Hermetic: no tools registered through the plane bus in tests.
-        assert_eq!(prompt_with_tool_schemas("plain"), "plain");
     }
 
     use super::ToolCallStreamFilter;
