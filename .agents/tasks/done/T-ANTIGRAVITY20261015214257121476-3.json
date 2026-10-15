@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "ANTIGRAVITY20261015214257121476",
-  "created_unix": 1792084890
+  "created_unix": 1792084890,
+  "closed": {
+    "at_unix": 1792085722,
+    "commit": "1938789b1baafe7444a8ce3d248975fe2d0546f0",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
 }
