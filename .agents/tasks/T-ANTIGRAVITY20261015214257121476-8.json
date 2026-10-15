@@ -8,9 +8,8 @@
     "cmd": [
       "cargo",
       "test",
-      "-p",
-      "susi-gawd",
-      "--lib"
+      "--test",
+      "code_cli_tests"
     ]
   },
   "roadmap": "VC-201-090",

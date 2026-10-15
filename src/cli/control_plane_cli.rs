@@ -12,6 +12,7 @@ use super::brain_cli;
 use super::broker_cli;
 use super::browser_use_cli;
 use super::chat_cli;
+use super::code_cli;
 use super::commits_cli;
 use super::context_graph_cli;
 use super::crown_cli;
@@ -72,6 +73,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Chat(args)) = command {
         return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             chat_cli::execute(args, cwd)
+        }));
+    }
+    if let Some(Commands::Code(args)) = command {
+        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
+            code_cli::execute(args, cwd)
         }));
     }
     if let Some(Commands::Extensions { action }) = command {
