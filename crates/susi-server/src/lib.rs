@@ -768,37 +768,61 @@ async fn handle_gemi_request(
                 .and_then(|value| value.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let requested_model = completion.model.clone().or(planned_model);
+            let is_auto_alias = completion
+                .model
+                .as_deref()
+                .map(|m| matches!(m.to_ascii_lowercase().as_str(), "default" | "susi" | "auto"))
+                .unwrap_or(false);
+            let requested_model = if is_auto_alias {
+                planned_model
+            } else {
+                completion.model.clone().or(planned_model)
+            };
             // OpenAI contract: an unknown `model` is a 400, not a silent
             // reroute. Known names are honored by the governed pipeline's
             // own selection (the response labels the model that served).
             if let Some(ref requested) = completion.model {
-                let known = gemi::ModelManager::list_models(&workspace)
-                    .as_array()
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|m| {
-                                m.get("model_id")
-                                    .or_else(|| m.get("id"))
-                                    .and_then(|v| v.as_str())
-                            })
-                            .any(|id| {
-                                // Accept the full id, the basename, or the
-                                // file stem — /v1/models ids are paths for
-                                // locally scanned GGUF weights.
-                                let stem = std::path::Path::new(id)
-                                    .file_stem()
-                                    .and_then(|s| s.to_str())
-                                    .unwrap_or(id);
-                                id == requested
-                                    || stem == requested
-                                    || std::path::Path::new(id)
-                                        .file_name()
+                let is_alias = matches!(
+                    requested.to_ascii_lowercase().as_str(),
+                    "default"
+                        | "susi"
+                        | "auto"
+                        | "gpt-4"
+                        | "gpt-4o"
+                        | "gpt-4o-mini"
+                        | "gpt-3.5-turbo"
+                        | "claude-3-5-sonnet"
+                        | "claude-3-7-sonnet"
+                        | "deepseek-chat"
+                        | "qwen2.5-coder:7b"
+                );
+                let known = is_alias
+                    || gemi::ModelManager::list_models(&workspace)
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|m| {
+                                    m.get("model_id")
+                                        .or_else(|| m.get("id"))
+                                        .and_then(|v| v.as_str())
+                                })
+                                .any(|id| {
+                                    // Accept the full id, the basename, or the
+                                    // file stem — /v1/models ids are paths for
+                                    // locally scanned GGUF weights.
+                                    let stem = std::path::Path::new(id)
+                                        .file_stem()
                                         .and_then(|s| s.to_str())
-                                        == Some(requested.as_str())
-                            })
-                    })
-                    .unwrap_or(false);
+                                        .unwrap_or(id);
+                                    id == requested
+                                        || stem == requested
+                                        || std::path::Path::new(id)
+                                            .file_name()
+                                            .and_then(|s| s.to_str())
+                                            == Some(requested.as_str())
+                                })
+                        })
+                        .unwrap_or(false);
                 // Registered provider backends are also valid `model` ids —
                 // the governed cascade honors them as routing hints, and
                 // response labels echo them back verbatim.
@@ -858,6 +882,13 @@ async fn handle_gemi_request(
                 &workspace,
                 "INFERENCE_PLACEMENT",
                 &placement.to_string(),
+            );
+            crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                &workspace,
+                "CHAT_COMPLETION_REQUEST",
+                &format!(
+                    "model: {active_model}, streaming: {is_streaming}, target: {placement_target}"
+                ),
             );
             let trimmed_prompt = pulse_intent.trim().to_string();
 
@@ -1493,6 +1524,14 @@ fn openai_model_list(workspace: &std::path::Path) -> Vec<serde_json::Value> {
             "owned_by": "susi",
         }));
     }
+    for alias in ["susi", "auto", "gpt-4o"] {
+        out.push(json!({
+            "id": alias,
+            "model_id": alias,
+            "object": "model",
+            "owned_by": "susi",
+        }));
+    }
     out
 }
 
@@ -1963,32 +2002,68 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
             let role = message
                 .get("role")
                 .and_then(|r| r.as_str())
-                .filter(|r| matches!(*r, "system" | "developer" | "user" | "assistant"))
+                .filter(|r| {
+                    matches!(
+                        *r,
+                        "system" | "developer" | "user" | "assistant" | "tool" | "function"
+                    )
+                })
                 .ok_or(
-                    "Each message must have a supported role: system, developer, user, assistant",
+                    "Each message must have a supported role: system, developer, user, assistant, tool, function",
                 )?;
             let content = match message.get("content") {
                 Some(serde_json::Value::String(text)) => text.clone(),
                 Some(serde_json::Value::Array(parts)) if !parts.is_empty() => {
                     let mut text = String::new();
                     for part in parts {
-                        if part.get("type").and_then(|t| t.as_str()) != Some("text") {
-                            return Err("Only text content parts are supported".into());
+                        if part.get("type").and_then(|t| t.as_str()) == Some("text")
+                            && let Some(t) = part.get("text").and_then(|t| t.as_str())
+                        {
+                            text.push_str(t);
                         }
-                        text.push_str(
-                            part.get("text")
-                                .and_then(|t| t.as_str())
-                                .ok_or("Text content parts require a text string")?,
-                        );
                     }
                     text
                 }
+                Some(serde_json::Value::Null) | None => String::new(),
                 _ => return Err("Each message requires string or text-part content".into()),
             };
-            if content.trim().is_empty() {
-                return Err("Message content must not be empty".into());
-            }
-            turns.push((role.to_string(), content));
+
+            // Support assistant messages with tool_calls, or tool/function result messages
+            let content = if content.trim().is_empty() {
+                if let Some(tool_calls) = message.get("tool_calls").and_then(|tc| tc.as_array()) {
+                    let mut tc_desc = Vec::new();
+                    for tc in tool_calls {
+                        let name = tc
+                            .pointer("/function/name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("function");
+                        let args = tc
+                            .pointer("/function/arguments")
+                            .and_then(|a| a.as_str())
+                            .unwrap_or("{}");
+                        tc_desc.push(format!("{name}({args})"));
+                    }
+                    format!("tool_calls: [{}]", tc_desc.join(", "))
+                } else if matches!(role, "assistant" | "tool" | "function") {
+                    String::new()
+                } else {
+                    return Err("Message content must not be empty".into());
+                }
+            } else {
+                content
+            };
+
+            let formatted_turn = if role == "tool" || role == "function" {
+                if let Some(tool_call_id) = message.get("tool_call_id").and_then(|id| id.as_str()) {
+                    format!("[tool_call_id: {tool_call_id}] {content}")
+                } else {
+                    content
+                }
+            } else {
+                content
+            };
+
+            turns.push((role.to_string(), formatted_turn));
         }
         // Preserve the direct single-user task path; multi-turn requests
         // carry their roles for the GEMI plane's cache-first assembly.
@@ -2845,5 +2920,58 @@ mod tests {
             .unwrap();
         drop(permit);
         assert_eq!(admission.available_permits(), 1);
+    }
+
+    #[test]
+    fn test_parse_completion_with_tool_role_and_tool_calls() {
+        let json_body = br#"{
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "You are a code assistant."},
+                {"role": "user", "content": "Call tool test"},
+                {"role": "assistant", "content": null, "tool_calls": [
+                    {"id": "call_1", "type": "function", "function": {"name": "run_test", "arguments": "{\"suite\":\"unit\"}"}}
+                ]},
+                {"role": "tool", "tool_call_id": "call_1", "content": "test passed"}
+            ]
+        }"#;
+
+        let res = parse_completion(json_body, false);
+        assert!(res.is_ok(), "failed to parse: {:?}", res.err());
+        let input = res.unwrap();
+        assert_eq!(input.model.as_deref(), Some("gpt-4o"));
+        let turns = input.turns.expect("expected multi-turn parsed");
+        assert_eq!(turns.len(), 4);
+        assert_eq!(turns[0].0, "system");
+        assert_eq!(turns[1].0, "user");
+        assert_eq!(turns[2].0, "assistant");
+        assert!(turns[2].1.contains("run_test"));
+        assert_eq!(turns[3].0, "tool");
+        assert!(turns[3].1.contains("[tool_call_id: call_1]"));
+    }
+
+    #[test]
+    fn test_openai_model_list_contains_ide_proxy_defaults() {
+        let scratch = std::env::temp_dir();
+        let models = openai_model_list(&scratch);
+        let ids: Vec<&str> = models
+            .iter()
+            .filter_map(|m| m.get("id").and_then(|id| id.as_str()))
+            .collect();
+        assert!(
+            ids.contains(&"susi"),
+            "expected 'susi' in model list: {:?}",
+            ids
+        );
+        assert!(
+            ids.contains(&"auto"),
+            "expected 'auto' in model list: {:?}",
+            ids
+        );
+        assert!(
+            ids.contains(&"gpt-4o"),
+            "expected 'gpt-4o' in model list: {:?}",
+            ids
+        );
     }
 }
