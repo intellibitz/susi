@@ -9,6 +9,8 @@
       "cargo",
       "nextest",
       "run",
+      "--package",
+      "susi-core",
       "--locked",
       "-E",
       "test(vc_201_074_mastery)"
