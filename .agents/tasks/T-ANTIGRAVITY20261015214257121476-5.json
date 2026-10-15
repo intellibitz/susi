@@ -8,9 +8,8 @@
     "cmd": [
       "cargo",
       "test",
-      "-p",
-      "susi-gemi",
-      "--lib"
+      "--test",
+      "run_cli_tests"
     ]
   },
   "roadmap": "VC-202-002",
