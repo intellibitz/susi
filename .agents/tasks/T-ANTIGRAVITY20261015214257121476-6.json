@@ -1,0 +1,19 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-6",
+  "title": "Add susi chat interactive terminal session with local and cloud routing",
+  "goal": "Implement an interactive terminal conversation session with multi-turn message history, slash commands (/model, /tokens, /clear, /exit), streaming token/sec metrics, and active runtime switching.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-005",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792095078
+}
