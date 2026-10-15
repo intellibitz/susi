@@ -40,7 +40,6 @@ jobs:
     name: Build ${{ matrix.name }}
     needs: move-tag
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.name != 'linux-x86_64' }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -97,19 +96,24 @@ jobs:
         run: scripts/ci-install-mold.sh
 
       - name: Build Engine
+        id: build
+        continue-on-error: ${{ matrix.name != 'linux-x86_64' }}
         # [profile.dist]: fat LTO for published binaries; install.sh uses thin.
         # x86_64 links with rustc's bundled lld (no linker is set in .cargo/config.toml); aarch64 links via .cargo/fast-linker (mold when installed above).
         run: cargo build --profile dist
 
       - name: Rename Binary
+        if: steps.build.outcome == 'success'
         shell: bash
         run: mv "${{ matrix.src }}" "${{ matrix.artifact }}"
 
       - name: Generate Checksum
+        if: steps.build.outcome == 'success'
         shell: bash
         run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
 
       - name: Publish Dev Release
+        if: steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: dev
@@ -131,7 +135,6 @@ jobs:
     name: Build linux-x86_64-cuda
     needs: move-tag
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 60
     env:
       SCCACHE_GHA_ENABLED: "true"
@@ -167,10 +170,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends nvidia-cuda-toolkit patchelf
 
       - name: Build GPU-Accelerated Engine (CUDA)
+        id: build
+        continue-on-error: true
         # See release.yml for why CUDA_COMPUTE_CAP is hardcoded here.
         run: CUDA_COMPUTE_CAP=75 cargo build --profile dist --features cuda
 
       - name: Bundle CUDA Runtime Libraries
+        if: steps.build.outcome == 'success'
         # See release.yml for why this is needed: cuBLAS/cuDART's SONAME is
         # tied to this specific CUDA major version, so a target machine with
         # a different (even newer) major version installed can't run the
@@ -197,6 +203,7 @@ jobs:
           fi
 
       - name: Package Binary + Bundled Libraries
+        if: steps.build.outcome == 'success'
         run: |
           mkdir -p dist/lib
           mv target/dist/susi dist/susi-linux-x86_64-cuda
@@ -204,9 +211,11 @@ jobs:
           tar -czf susi-linux-x86_64-cuda.tar.gz -C dist susi-linux-x86_64-cuda lib
 
       - name: Generate Checksum
+        if: steps.build.outcome == 'success'
         run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Publish Dev Release
+        if: steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: dev
