@@ -36,6 +36,7 @@ use super::plan_cli;
 use super::plane_cli::{apply_plane_prep, plane_exit, run_plane, run_plane_cwd, PlanePrep};
 use super::privacy_cli;
 use super::python_engine_cli;
+use super::run_cli;
 use super::services_cli;
 use super::setup_cli;
 use super::substrate_cli;
@@ -61,6 +62,11 @@ pub(crate) fn dispatch(
     // the substrate (no daemon ensure, no mission pipeline).
     if let Some(Commands::ServiceRun { name, port }) = command {
         return Ok(run_plane(PlanePrep::None, || service_run(&name, port)));
+    }
+    if let Some(Commands::Run(args)) = command {
+        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
+            run_cli::execute(args, cwd)
+        }));
     }
     if let Some(Commands::Extensions { action }) = command {
         return Ok(run_plane(PlanePrep::None, || {

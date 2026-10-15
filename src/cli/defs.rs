@@ -433,6 +433,9 @@ pub(crate) enum Commands {
     },
     /// Clean workspace build artifacts
     Clean,
+    /// Direct streaming model execution (local Ollama/llama.cpp/Candle or cloud)
+    #[command(name = "run")]
+    Run(super::run_cli::RunArgs),
     /// Internal daemon start (always binds to substrate home; --workspace kept for compat)
     DaemonStart {
         #[arg(long, default_value_t = String::new())]
@@ -643,7 +646,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Commits { .. }
         | Commands::Os { .. }
         | Commands::Peers { .. }
-        | Commands::Audit { .. } => false,
+        | Commands::Audit { .. }
+        | Commands::Run { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,
