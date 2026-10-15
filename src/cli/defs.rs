@@ -436,6 +436,9 @@ pub(crate) enum Commands {
     /// Direct streaming model execution (local Ollama/llama.cpp/Candle or cloud)
     #[command(name = "run")]
     Run(super::run_cli::RunArgs),
+    /// Interactive multi-turn conversational chat session with local or cloud models
+    #[command(name = "chat")]
+    Chat(super::chat_cli::ChatArgs),
     /// Internal daemon start (always binds to substrate home; --workspace kept for compat)
     DaemonStart {
         #[arg(long, default_value_t = String::new())]
@@ -647,7 +650,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Os { .. }
         | Commands::Peers { .. }
         | Commands::Audit { .. }
-        | Commands::Run { .. } => false,
+        | Commands::Run { .. }
+        | Commands::Chat { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,

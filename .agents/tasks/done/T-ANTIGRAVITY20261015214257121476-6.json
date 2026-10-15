@@ -8,12 +8,16 @@
     "cmd": [
       "cargo",
       "test",
-      "-p",
-      "susi-gemi",
-      "--lib"
+      "--test",
+      "chat_cli_tests"
     ]
   },
   "roadmap": "VC-202-005",
   "created_by": "ANTIGRAVITY20261015214257121476",
-  "created_unix": 1792095078
+  "created_unix": 1792095078,
+  "closed": {
+    "at_unix": 1792097136,
+    "commit": "ef69f7625ba6973fa1fa3fd847ea0aceee60f1a4",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
 }
