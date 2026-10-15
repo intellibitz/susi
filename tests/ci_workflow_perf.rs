@@ -982,6 +982,10 @@ fn release_non_tier1_artifacts_continue_on_error() {
         prune.body.contains("needs.build.result == 'success'"),
         "release.yml: prune-old-releases must gate on Tier-1 build success rather than all legs"
     );
+    assert!(
+        prune.body.contains("\"!cancelled()"),
+        "release.yml: if condition with !cancelled must be quoted to prevent YAML scanner error"
+    );
 }
 
 /// The `codetree` stamp exists so a metadata-only merge (`.agents/` churn:

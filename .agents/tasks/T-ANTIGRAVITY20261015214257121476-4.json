@@ -1,0 +1,17 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-4",
+  "title": "Fix YAML syntax quoting in release workflow",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792087400
+}
