@@ -439,6 +439,9 @@ pub(crate) enum Commands {
     /// Interactive multi-turn conversational chat session with local or cloud models
     #[command(name = "chat")]
     Chat(super::chat_cli::ChatArgs),
+    /// High-speed coding model agent for diff generation and workspace editing
+    #[command(name = "code")]
+    Code(super::code_cli::CodeArgs),
     /// Internal daemon start (always binds to substrate home; --workspace kept for compat)
     DaemonStart {
         #[arg(long, default_value_t = String::new())]
@@ -651,7 +654,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Peers { .. }
         | Commands::Audit { .. }
         | Commands::Run { .. }
-        | Commands::Chat { .. } => false,
+        | Commands::Chat { .. }
+        | Commands::Code { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,
