@@ -1,0 +1,19 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-5",
+  "title": "Add susi run command for direct local and cloud completions",
+  "goal": "Add susi run <model> <prompt> to allow instant streaming model completions without full swarm overhead. Supports --stream, --json, and auto-placement across local engines (Ollama, llama.cpp, Candle) and cloud.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-002",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792095068
+}

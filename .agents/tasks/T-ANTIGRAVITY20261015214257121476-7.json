@@ -1,0 +1,19 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-7",
+  "title": "Expose OpenAI-compatible /v1/chat/completions endpoint on daemon port",
+  "goal": "Enable external IDE tools (Cursor, VS Code, Continue, Aider) to connect to susi as a local OpenAI-compatible inference proxy, translating requests to the active local model or cloud provider with transparent audit logs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-server",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-002",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792095085
+}

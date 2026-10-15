@@ -1,0 +1,19 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-8",
+  "title": "Implement high-speed susi code command optimized for local coder models",
+  "goal": "Add a dedicated susi code <instruction> command that leverages local fast coding models (e.g. qwen2.5-coder:7b at 60+ tokens/sec) to generate and apply unified diffs directly to the workspace with immediate syntax validation.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-201-090",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792095092
+}

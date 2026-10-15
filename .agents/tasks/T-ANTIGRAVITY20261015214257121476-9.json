@@ -1,0 +1,19 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-9",
+  "title": "Add direct CLI tool execution via susi mcp call",
+  "goal": "Allow operators and scripts to directly invoke registered MCP tools from the CLI (susi mcp call <server> <tool> '<json-args>') with parameter schema validation, response formatting, and evidence recording.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-012",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792095100
+}
