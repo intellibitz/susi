@@ -26,6 +26,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.head_commit.message, '[dev-release]')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -39,6 +40,7 @@ jobs:
     name: Build ${{ matrix.name }}
     needs: move-tag
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -85,24 +87,13 @@ jobs:
 
       - name: Install Linux System Dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake clang
+        run: |
+          scripts/ci-system-deps.sh
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang; }
 
       - name: Install mold (Linux)
         if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          VER=2.40.4
-          ARCH="$(uname -m)"
-          case "$ARCH" in
-            x86_64|aarch64) ;;
-            *) echo "Skipping mold on $ARCH"; exit 0 ;;
-          esac
-          NAME="mold-${VER}-${ARCH}-linux"
-          curl -sSfL "https://github.com/rui314/mold/releases/download/v${VER}/${NAME}.tar.gz" \
-            | sudo tar -xz -C /usr/local --strip-components=1
-          mold --version
-          command -v ld.mold
-          command -v clang
+        run: scripts/ci-install-mold.sh
 
       - name: Build Engine
         # [profile.dist]: fat LTO for published binaries; install.sh uses thin.
@@ -139,6 +130,11 @@ jobs:
     name: Build linux-x86_64-cuda
     needs: move-tag
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      RUSTC_WORKSPACE_WRAPPER: sccache
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -152,27 +148,21 @@ jobs:
       - name: Cache Cargo and target
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: dev-release-cuda-${{ matrix.name }}
+          shared-key: dev-release-cuda-linux-x86_64
           cache-targets: "true"
 
       - name: Install System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake clang
+        run: |
+          scripts/ci-system-deps.sh
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang; }
 
       - name: Install mold
-        run: |
-          set -euo pipefail
-          VER=2.40.4
-          ARCH="$(uname -m)"
-          NAME="mold-${VER}-${ARCH}-linux"
-          curl -sSfL "https://github.com/rui314/mold/releases/download/v${VER}/${NAME}.tar.gz" \
-            | sudo tar -xz -C /usr/local --strip-components=1
-          mold --version
-          command -v ld.mold
+        run: scripts/ci-install-mold.sh
 
       - name: Install CUDA Toolkit
         run: |
           sudo apt-get update
-          sudo apt-get install -y nvidia-cuda-toolkit
+          sudo apt-get install -y --no-install-recommends nvidia-cuda-toolkit patchelf
 
       - name: Build GPU-Accelerated Engine (CUDA)
         # See release.yml for why CUDA_COMPUTE_CAP is hardcoded here.
@@ -185,7 +175,6 @@ jobs:
         # binary at all without these bundled alongside it.
         run: |
           set -e
-          sudo apt-get install -y patchelf
           mkdir -p lib
           CUDA_LIB_RE='lib(cublas|cudart|cusparse|cusolver|cufft|curand|cudnn|nvrtc|nvJitLink|nvToolsExt)'
           collect_cuda_libs() {

@@ -817,17 +817,22 @@ fn steps(body: &str) -> Vec<String> {
 
 #[test]
 fn every_release_job_is_bounded() {
-    let text = read(".github/workflows/release.yml");
-    let all = jobs(&text);
-    assert!(!all.is_empty(), "release.yml has no jobs?");
-    for j in all {
-        assert!(
-            j.body.contains("timeout-minutes:"),
-            "release job `{}` has no timeout-minutes: the default is six hours, so a hung \
-             build holds the release (and its siblings' published assets) for that long. \
-             The slowest leg takes ~31 min",
-            j.id
-        );
+    for wf in [
+        ".github/workflows/release.yml",
+        ".github/workflows/dev-release.yml",
+    ] {
+        let text = read(wf);
+        let all = jobs(&text);
+        assert!(!all.is_empty(), "{wf} has no jobs?");
+        for j in all {
+            assert!(
+                j.body.contains("timeout-minutes:"),
+                "{wf} job `{}` has no timeout-minutes: the default is six hours, so a hung \
+                 build holds the release (and its siblings' published assets) for that long. \
+                 The slowest leg takes ~31 min",
+                j.id
+            );
+        }
     }
 }
 
@@ -869,44 +874,83 @@ fn a_manual_dispatch_of_the_release_workflow_publishes_nothing() {
 
 #[test]
 fn release_bootstrap_runs_through_the_same_scripts_as_test() {
-    let text = read(".github/workflows/release.yml");
-    let body = code(&text);
-    assert!(
-        !body.contains("rui314/mold"),
-        "release.yml downloads mold inline again: use scripts/ci-install-mold.sh"
-    );
-    assert!(
-        !body.contains("apt-get update && sudo apt-get install -y pkg-config"),
-        "release.yml refreshes the apt index unconditionally again: the runner image already \
-         carries pkg-config, libssl-dev and cmake; scripts/ci-system-deps.sh installs only \
-         what is missing (15-25 s per Linux leg)"
-    );
-    let jobs = jobs(&text);
-    for id in ["build", "build-cuda"] {
-        let j = job(&jobs, id);
+    for wf in [
+        ".github/workflows/release.yml",
+        ".github/workflows/dev-release.yml",
+    ] {
+        let text = read(wf);
+        let body = code(&text);
         assert!(
-            j.body.contains("scripts/ci-system-deps.sh")
-                && j.body.contains("scripts/ci-install-mold.sh"),
-            "release job `{id}` must bootstrap through scripts/ci-system-deps.sh and \
-             scripts/ci-install-mold.sh"
+            !body.contains("rui314/mold"),
+            "{wf} downloads mold inline again: use scripts/ci-install-mold.sh"
         );
+        assert!(
+            !body.contains("apt-get update && sudo apt-get install -y pkg-config"),
+            "{wf} refreshes the apt index unconditionally again: the runner image already \
+             carries pkg-config, libssl-dev and cmake; scripts/ci-system-deps.sh installs only \
+             what is missing (15-25 s per Linux leg)"
+        );
+        let jobs = jobs(&text);
+        for id in ["build", "build-cuda"] {
+            let j = job(&jobs, id);
+            assert!(
+                j.body.contains("scripts/ci-system-deps.sh")
+                    && j.body.contains("scripts/ci-install-mold.sh"),
+                "{wf} job `{id}` must bootstrap through scripts/ci-system-deps.sh and \
+                 scripts/ci-install-mold.sh"
+            );
+        }
     }
 }
 
 #[test]
 fn the_cuda_toolkit_is_installed_without_its_recommends() {
-    let text = read(".github/workflows/release.yml");
-    let body = code(&text);
-    let line = body
-        .lines()
-        .find(|l| l.contains("apt-get install") && l.contains("nvidia-cuda-toolkit"))
-        .expect("release.yml installs nvidia-cuda-toolkit");
-    assert!(
-        line.contains("--no-install-recommends"),
-        "`{}`: the recommends are Nsight, the profiler, cuda-gdb and Java - 295 of 375 \
-         packages and ~1 GB of download (measured on ubuntu:24.04) that no build step uses",
-        line.trim()
-    );
+    for wf in [
+        ".github/workflows/release.yml",
+        ".github/workflows/dev-release.yml",
+    ] {
+        let text = read(wf);
+        let body = code(&text);
+        let line = body
+            .lines()
+            .find(|l| l.contains("apt-get install") && l.contains("nvidia-cuda-toolkit"))
+            .unwrap_or_else(|| panic!("{wf} installs nvidia-cuda-toolkit"));
+        assert!(
+            line.contains("--no-install-recommends"),
+            "{wf} `{}`: the recommends are Nsight, the profiler, cuda-gdb and Java - 295 of 375 \
+             packages and ~1 GB of download (measured on ubuntu:24.04) that no build step uses",
+            line.trim()
+        );
+    }
+}
+
+#[test]
+fn release_and_dev_release_cuda_builds_wire_sccache_and_named_keys() {
+    for wf in [
+        ".github/workflows/release.yml",
+        ".github/workflows/dev-release.yml",
+    ] {
+        let text = read(wf);
+        let jobs = jobs(&text);
+        let cuda = job(&jobs, "build-cuda");
+        assert!(
+            cuda.body.contains("RUSTC_WRAPPER: sccache"),
+            "{wf}: build-cuda installs sccache but does not set RUSTC_WRAPPER: sccache in its env"
+        );
+        assert!(
+            cuda.body.contains("SCCACHE_GHA_ENABLED: \"true\""),
+            "{wf}: build-cuda must enable SCCACHE_GHA_ENABLED"
+        );
+        let key = value_of(&cuda.body, "shared-key").unwrap_or_default();
+        assert!(
+            !key.contains("matrix."),
+            "{wf}: build-cuda is not a matrix job, but its cache key references a matrix variable: `{key}`"
+        );
+        assert!(
+            !key.is_empty(),
+            "{wf}: build-cuda must declare a non-empty cargo cache key"
+        );
+    }
 }
 
 /// The `codetree` stamp exists so a metadata-only merge (`.agents/` churn:
