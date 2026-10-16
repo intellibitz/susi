@@ -2,6 +2,26 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Mutex, OnceLock};
+
+static GLOBAL_ISOLATION: OnceLock<Mutex<TenantIsolation>> = OnceLock::new();
+
+/// Access the global production [`TenantIsolation`] instance.
+pub fn global() -> &'static Mutex<TenantIsolation> {
+    GLOBAL_ISOLATION.get_or_init(|| Mutex::new(TenantIsolation::new()))
+}
+
+/// Run a closure with mutable access to the global [`TenantIsolation`] instance.
+pub fn with_global<R, F: FnOnce(&mut TenantIsolation) -> R>(f: F) -> R {
+    let mut guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut guard)
+}
+
+/// Run a closure with read access to the global [`TenantIsolation`] instance.
+pub fn with_global_ref<R, F: FnOnce(&TenantIsolation) -> R>(f: F) -> R {
+    let guard = global().lock().unwrap_or_else(|e| e.into_inner());
+    f(&guard)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TenantQuota {
@@ -21,6 +41,7 @@ pub struct TenantContext {
 #[derive(Debug, Default)]
 pub struct TenantIsolation {
     tenants: BTreeMap<String, TenantContext>,
+    tokens: BTreeMap<String, String>,
     queue_lens: BTreeMap<String, usize>,
     spent_cents: BTreeMap<String, u64>,
 }
@@ -67,27 +88,65 @@ impl TenantIsolation {
         Self::default()
     }
 
-    /// Register a new tenant. Refuses to silently rebind an existing
-    /// tenant_id to a different root/grants/quota — that would let any
-    /// caller swap another tenant's identity with no ownership check.
-    /// Call `unregister` first for a deliberate replacement.
+    /// Register a new tenant with a default auth token. Refuses to silently
+    /// rebind an existing tenant_id to a different root/grants/quota — that
+    /// would let any caller swap another tenant's identity with no ownership
+    /// check. Call `unregister` first for a deliberate replacement.
     pub fn register(&mut self, ctx: TenantContext) -> Result<(), String> {
+        let default_token = format!("token_{}", ctx.tenant_id);
+        self.register_with_token(ctx, &default_token)
+    }
+
+    /// Register a new tenant with an explicit authorization secret.
+    pub fn register_with_token(
+        &mut self,
+        ctx: TenantContext,
+        auth_token: &str,
+    ) -> Result<(), String> {
         if self.tenants.contains_key(&ctx.tenant_id) {
             return Err(format!(
                 "tenant {} is already registered; unregister it first to rebind",
                 ctx.tenant_id
             ));
         }
+        self.tokens
+            .insert(ctx.tenant_id.clone(), auth_token.to_string());
         self.tenants.insert(ctx.tenant_id.clone(), ctx);
         Ok(())
     }
 
-    /// Deliberately remove a tenant, clearing its queue and spend too —
-    /// the only sanctioned way to free its tenant_id for re-registration.
+    /// Authenticate that `token` matches the registered token for `tenant_id`.
+    pub fn authenticate(&self, tenant_id: &str, token: &str) -> bool {
+        let Some(expected) = self.tokens.get(tenant_id) else {
+            return false;
+        };
+        !token.is_empty() && expected == token
+    }
+
+    /// Deliberately remove a tenant, clearing its queue, spend, and token.
     pub fn unregister(&mut self, tenant_id: &str) {
         self.tenants.remove(tenant_id);
+        self.tokens.remove(tenant_id);
         self.queue_lens.remove(tenant_id);
         self.spent_cents.remove(tenant_id);
+    }
+
+    /// Authorize and remove a tenant using its auth_token.
+    pub fn unregister_authorized(&mut self, tenant_id: &str, token: &str) -> Result<(), String> {
+        if !self.authenticate(tenant_id, token) {
+            return Err(format!(
+                "unauthorized: invalid auth_token for tenant {tenant_id}"
+            ));
+        }
+        self.unregister(tenant_id);
+        Ok(())
+    }
+
+    /// Find the tenant owning the workspace containing `path`, if any.
+    pub fn find_tenant_for_workspace(&self, path: &str) -> Option<&TenantContext> {
+        self.tenants
+            .values()
+            .find(|ctx| is_within_workspace(path, &ctx.workspace_root))
     }
 
     /// Resolve a path against the tenant workspace; foreign roots denied.
@@ -159,5 +218,25 @@ impl TenantIsolation {
         }
         *spent = spent.saturating_add(cents);
         AccessVerdict::Allowed
+    }
+
+    /// Check whether a tenant is registered.
+    pub fn is_registered(&self, tenant_id: &str) -> bool {
+        self.tenants.contains_key(tenant_id)
+    }
+
+    /// Retrieve a tenant's context, if registered.
+    pub fn get_context(&self, tenant_id: &str) -> Option<&TenantContext> {
+        self.tenants.get(tenant_id)
+    }
+
+    /// Current live queue length for a tenant.
+    pub fn queue_len(&self, tenant_id: &str) -> usize {
+        self.queue_lens.get(tenant_id).copied().unwrap_or(0)
+    }
+
+    /// Current accumulated spend in USD cents for a tenant.
+    pub fn spent_cents(&self, tenant_id: &str) -> u64 {
+        self.spent_cents.get(tenant_id).copied().unwrap_or(0)
     }
 }
