@@ -1,0 +1,20 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-28",
+  "title": "Deliver mastery verdict: Sandbox and roll back adapter upgrades (VC-201-089)",
+  "goal": "Wire AdapterUpgrade into production adapter configuration for frameworks and agents, ensuring contract checks run before switching revisions, downgrades are rejected, failed checks preserve the active revision, and deliver VC-201-089 mastery. Verified by cargo test -p susi-core vc_201_089.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-core",
+      "vc_201_089",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-089",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792127737
+}
