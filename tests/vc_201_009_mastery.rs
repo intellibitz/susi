@@ -30,15 +30,13 @@ fn set(ids: &[&str]) -> BTreeSet<String> {
 
 #[test]
 fn vc_201_009_mastery() {
-    // Residual, by construction: `detect` is a pure id-set comparison —
-    // a real access log that never records a held-out read is
-    // indistinguishable from a clean run at this layer. Real access
-    // tracking has to live upstream, at the read path itself.
+    // 1. Residual documentation: unrecorded access is undetectable at this layer
     let held = set(&["h1"]);
     let unrecorded = detect(&held, &set(&["t1"]), &set(&["m1"]));
     assert!(!unrecorded.contaminated);
+    assert_eq!(unrecorded.reason, None);
 
-    // Fixed: content contamination under a different id is caught via
+    // 2. Fixed: content contamination under a different id is caught via
     // detect_in_corpus's hash resolution, not just a literal id match.
     let c = RsiCorpus {
         schema_version: RSI_CORPUS_SCHEMA.into(),
@@ -60,6 +58,14 @@ fn vc_201_009_mastery() {
                 seed: 1,
                 evaluator_expected: None,
             }),
+            make_fixture(FixtureSpec {
+                id: "h2",
+                class: FixtureClass::Coding,
+                input: "another secret held-out input",
+                split: FixtureSplit::HeldOut,
+                seed: 2,
+                evaluator_expected: None,
+            }),
         ],
         promotion_spec: None,
     };
@@ -69,14 +75,48 @@ fn vc_201_009_mastery() {
         "identical held-out content reachable under a different id must be caught"
     );
 
-    // Fixed: exclude_if_contaminated is a real gate, not an unconsumed flag.
+    // 3. Multiple overlaps in training and memory are sorted and deduplicated in the reason
+    let multi_overlap = detect(
+        &set(&["h1", "h2", "h3"]),
+        &set(&["h3", "h1"]),
+        &set(&["h1", "h2"]),
+    );
+    assert!(multi_overlap.contaminated);
+    assert_eq!(
+        multi_overlap.reason.as_deref(),
+        Some("held-out overlap: h1,h2,h3")
+    );
+
+    // 4. Memory-only contamination is caught
+    let memory_overlap = detect(&held, &set(&["safe_train"]), &set(&["h1"]));
+    assert!(memory_overlap.contaminated);
+    assert_eq!(
+        memory_overlap.reason.as_deref(),
+        Some("held-out overlap: h1")
+    );
+
+    // 5. Fixed: exclude_if_contaminated is a real gate, not an unconsumed flag.
     let overlap = detect(&held, &set(&["h1"]), &set(&[]));
     assert!(overlap.contaminated);
-    exclude_if_contaminated(&overlap, "evidence-payload")
+    let err = exclude_if_contaminated(&overlap, "evidence-payload")
         .expect_err("a contaminated report must refuse the evidence, not pass it through");
-    let clean = detect(&held, &set(&[]), &set(&[]));
+    assert!(err.contains("held-out overlap: h1"));
+
+    // 6. Clean runs pass the gate unmodified
+    let clean = detect(&held, &set(&["safe1"]), &set(&["safe2"]));
+    assert!(!clean.contaminated);
+    assert_eq!(clean.reason, None);
     assert_eq!(
         exclude_if_contaminated(&clean, "evidence-payload"),
         Ok("evidence-payload")
+    );
+
+    // 7. Corpus integrity verification is enforced prior to contamination analysis
+    let mut corrupted_corpus = c;
+    corrupted_corpus.fixtures[0].input_hash = "tampered_hash".into();
+    let integrity_err = detect_in_corpus(&corrupted_corpus, &set(&["h1-copy"]), &set(&[]));
+    assert!(
+        integrity_err.is_err(),
+        "corrupted corpus must fail integrity check rather than report clean"
     );
 }
