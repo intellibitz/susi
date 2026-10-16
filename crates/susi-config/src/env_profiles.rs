@@ -6,10 +6,11 @@
 //! higher one — a dev mission cannot accidentally resolve production
 //! endpoints or credentials from ambient configuration.
 
-use crate::susi_error::{eai_bail as bail, EaiResult};
+use crate::susi_error::{eai_bail as bail, EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -69,6 +70,37 @@ pub struct Resolved {
 }
 
 impl ProfileSet {
+    /// Load profile definitions from a JSON file and validate structure.
+    pub fn load(path: &Path) -> EaiResult<Self> {
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            EaiError::io(format!(
+                "failed to read profile set from {}: {e}",
+                path.display()
+            ))
+        })?;
+        let set: ProfileSet = serde_json::from_str(&content).map_err(|e| {
+            EaiError::config(format!(
+                "failed to parse profile set {}: {e}",
+                path.display()
+            ))
+        })?;
+        set.validate()?;
+        Ok(set)
+    }
+
+    /// Load or discover profiles from `{workspace}/.susi/profiles.json` if present.
+    pub fn load_workspace_or_default(workspace_dir: &Path) -> EaiResult<Option<Self>> {
+        let path = workspace_dir.join(".susi").join("profiles.json");
+        match path.try_exists() {
+            Ok(false) => Ok(None),
+            Ok(true) => Self::load(&path).map(Some),
+            Err(e) => Err(EaiError::io(format!(
+                "failed to access profile path {}: {e}",
+                path.display()
+            ))),
+        }
+    }
+
     /// Structural validation: every `extends` names a real profile, the
     /// graph is acyclic, and no lower environment inherits a higher one.
     pub fn validate(&self) -> EaiResult<()> {

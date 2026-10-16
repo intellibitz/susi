@@ -1,0 +1,26 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-20",
+  "title": "Verify mastery: Separate workspace and environment configuration profiles",
+  "goal": "Implement ProfileSet::load and ProfileSet::load_workspace_or_default in crates/susi-config/src/env_profiles.rs and integration mastery test tests/vc_201_067_mastery.rs verifying multi-parent tie-breaking, direct and transitive dev-to-production boundary rejection, cycle detection, and full per-key provenance tracking.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_067_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-067",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792113769,
+  "authored": true,
+  "closed": {
+    "at_unix": 1792115118,
+    "commit": "17b704fa74ce08208544d8aad066c1bb293fc85d",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
+}
