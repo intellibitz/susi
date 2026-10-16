@@ -1,0 +1,21 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-17",
+  "title": "Verify mastery: Make placement respect host thermal and power limits",
+  "goal": "Use available thermal and power telemetry with explicit unknown states and operator limits; simulated pressure throttles or reroutes eligible work while preserving local-only requirements.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_048_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-048",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792111937,
+  "authored": true
+}
