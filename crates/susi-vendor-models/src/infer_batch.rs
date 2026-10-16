@@ -119,34 +119,31 @@ impl<'a> Batcher<'a> {
     }
 
     /// Flush: expired and cancelled requests get terminal outcomes first;
-    /// the rest run in one bounded backend call.
+    /// the rest run in one bounded backend call (at most `max_batch` requests).
     pub fn flush(&mut self, now_ms: u64) -> Vec<(u64, BatchOutcome)> {
         let mut done = Vec::new();
         let mut runnable = Vec::new();
+        let mut remaining = Vec::new();
+
         for p in std::mem::take(&mut self.pending) {
             if p.cancelled {
                 done.push((p.req.id, BatchOutcome::Cancelled));
             } else if p.req.deadline_ms <= now_ms {
                 done.push((p.req.id, BatchOutcome::DeadlineExceeded));
-            } else {
+            } else if runnable.len() < self.limits.max_batch {
                 runnable.push(p.req);
+            } else {
+                remaining.push(p);
             }
         }
-        // Latency bound: a request that cannot finish before its deadline
-        // is not started.
-        let deadline_guard = |r: &Request| r.deadline_ms > now_ms;
-        runnable.retain(|r| {
-            if deadline_guard(r) {
-                true
-            } else {
-                done.push((r.id, BatchOutcome::DeadlineExceeded));
-                false
+        self.pending = remaining;
+
+        if !runnable.is_empty() {
+            let prompts: Vec<String> = runnable.iter().map(|r| r.prompt.clone()).collect();
+            let outputs = self.backend.run(&prompts);
+            for (r, out) in runnable.into_iter().zip(outputs) {
+                done.push((r.id, BatchOutcome::Done { output: out }));
             }
-        });
-        let prompts: Vec<String> = runnable.iter().map(|r| r.prompt.clone()).collect();
-        let outputs = self.backend.run(&prompts);
-        for (r, out) in runnable.into_iter().zip(outputs) {
-            done.push((r.id, BatchOutcome::Done { output: out }));
         }
         for (id, o) in &done {
             self.outcomes.insert(*id, o.clone());
