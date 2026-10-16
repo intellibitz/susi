@@ -1495,7 +1495,7 @@
       "id": "VC-202-019",
       "mastery_target": "Each audit record is chained to its predecessor under the existing audit key, a verification command detects a mutated, removed or reordered record, and the chain head is anchored periodically so the history is evidence rather than a file the system could rewrite. A read surface answers what an agent did, what happened in a mission, which actions of a kind ran in a window, and what each cost.",
       "priority": "P1",
-      "progress": "PARTIAL: planned and queued; no implementation yet, and the queue holds the first task that proves or refutes this.",
+      "progress": "DELIVERED: ActionHistory in susi-gawd chains each audit record to its predecessor under HMAC-SHA256 audit keys, captures periodic chain head anchors to prevent rewriting history, provides multi-dimensional interrogation surfaces (agent, mission, kind/window, cost accounting), and detects mutated, removed, reordered, truncated, or unauthenticated records. Verified by tests/vc_202_019_mastery.rs. Evidence: T-ANTIGRAVITY20261015214257121476-25.",
       "type": "OPERATIONS",
       "vector": "The action history is tamper-evident and interrogable"
     },
