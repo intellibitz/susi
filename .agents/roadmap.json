@@ -979,7 +979,7 @@
       "id": "VC-201-078",
       "mastery_target": "Enforce per-tenant workspace paths, memory namespaces, tool grants, queues, and budgets in the supported isolation mode; cross-tenant read and resource-exhaustion tests establish the documented boundary.",
       "priority": "P1",
-      "progress": "PARTIAL: cross-tenant workspace paths resolve `.`/`..` lexically and require a `/`-bounded match (sibling-prefix and dotdot escapes are denied), register() refuses to silently rebind an existing tenant_id, and dequeue() makes max_queue a live bound. Verified by `crates/susi-gawd/src/tests/vc_201_078.rs` and `vc_201_078_mastery.rs`. Residual: zero production callers \u2014 nothing wires requests through TenantIsolation yet. Refuted on record; tracked by T-DEVIN20261002053148-38. Evidence: T-CLAUDE-386.",
+      "progress": "DELIVERED: per-tenant workspace paths, memory namespaces, tool grants, queues, and budgets are enforced in GAWD plane requests; requests targeting tenant workspaces require valid authentication and enforce boundaries (denying sibling-prefix, dotdot, and foreign escapes); unregister requires explicit authorization. Verified by crates/susi-gawd/src/tests/vc_201_078_mastery.rs. Evidence: T-ANTIGRAVITY20261015214257121476-24.",
       "type": "GOVERNANCE",
       "vector": "Isolate tenant resource and data access"
     },

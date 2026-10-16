@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-078",
-  "verdict": "not-delivered",
+  "verdict": "delivered",
   "evidence": "crates/susi-gawd/src/tests/vc_201_078_mastery.rs",
-  "missing": "Three refutations fixed: read_path now resolves `.`/`..` lexically and requires an exact match or a `/`-bounded nesting under the workspace root, so /t/alpha-evil (sibling prefix) and /t/alpha/../beta (dotdot) are both denied; register() now refuses to rebind an already-registered tenant_id, and unregister() is the sanctioned way to free one; dequeue() releases a queue slot so max_queue is a live bound instead of a monotone wedge. Still missing: zero production callers \u2014 nothing in susi-gawd wires requests through TenantIsolation yet. Holds: foreign memory-ns denial (vc_201_078_mastery_foreign_memory_ns_denied_holds), unknown-tenant denial (vc_201_078_mastery_unknown_tenant_denied_holds), tool/budget bounds (vc_201_078_mastery_tool_and_budget_bounds_hold).",
-  "tracked_by": [
-    "T-DEVIN20261002053148-38"
-  ],
-  "recorded_by": "INTELLIBITZWT20261005035445",
-  "recorded_unix": 1791154221
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "ANTIGRAVITY20261015214257121476",
+  "recorded_unix": 1792120096
 }

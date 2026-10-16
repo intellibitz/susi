@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-struct GawdPlaneHandler;
+pub struct GawdPlaneHandler;
 
 fn workspace_path(payload: &Value) -> PathBuf {
     payload
@@ -55,6 +55,7 @@ impl PlaneHandler for GawdPlaneHandler {
             topics::GAWD_SOLVE => {
                 let intent = payload.get("intent").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
+                let ws_str = ws.to_string_lossy();
                 let version = payload
                     .get("version")
                     .and_then(|v| v.as_str())
@@ -64,11 +65,74 @@ impl PlaneHandler for GawdPlaneHandler {
                     .get("generative")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                // `requires` (absent = none): the request's declared
-                // capability — `"tools"` gates the mission's local rungs
-                // on a tool-capable model, as the streaming path already
-                // does through the GEMI stream topic.
                 let requires = payload.get("requires").and_then(|v| v.as_str());
+                let tenant_id = payload.get("tenant_id").and_then(|v| v.as_str());
+                let auth_token = payload
+                    .get("auth_token")
+                    .or_else(|| payload.get("token"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                // Determine if the requested workspace is bound to a registered tenant
+                let owning_tenant = {
+                    let guard = crate::tenant_isolation::global()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    guard
+                        .find_tenant_for_workspace(&ws_str)
+                        .map(|c| c.tenant_id.clone())
+                };
+
+                // Enforce authentication and boundary
+                if let Some(owner) = &owning_tenant {
+                    match tenant_id {
+                        Some(tid) if tid == owner => {
+                            let mut guard = crate::tenant_isolation::global()
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            if !guard.authenticate(tid, auth_token) {
+                                return Ok(json!({
+                                    "error": "tenant authentication failed: invalid or missing auth_token"
+                                }));
+                            }
+                            let queue_verdict = guard.enqueue(tid);
+                            if queue_verdict != crate::tenant_isolation::AccessVerdict::Allowed {
+                                return Ok(json!({
+                                    "error": format!("tenant queue quota exhausted: {:?}", queue_verdict)
+                                }));
+                            }
+                        }
+                        _ => {
+                            return Ok(json!({
+                                "error": format!(
+                                    "workspace is tenant-isolated for {owner}: authenticated tenant_id and auth_token required"
+                                )
+                            }));
+                        }
+                    }
+                } else if let Some(tid) = tenant_id {
+                    let mut guard = crate::tenant_isolation::global()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    if !guard.authenticate(tid, auth_token) {
+                        return Ok(json!({
+                            "error": "tenant authentication failed: invalid or missing auth_token"
+                        }));
+                    }
+                    let path_verdict = guard.read_path(tid, &ws_str);
+                    if path_verdict != crate::tenant_isolation::AccessVerdict::Allowed {
+                        return Ok(json!({
+                            "error": format!("cross-tenant workspace access denied: {:?}", path_verdict)
+                        }));
+                    }
+                    let queue_verdict = guard.enqueue(tid);
+                    if queue_verdict != crate::tenant_isolation::AccessVerdict::Allowed {
+                        return Ok(json!({
+                            "error": format!("tenant queue quota exhausted: {:?}", queue_verdict)
+                        }));
+                    }
+                }
+
                 let master = crate::ama::SusiMasterAgent::new();
                 let text = if generative {
                     master
@@ -76,6 +140,16 @@ impl PlaneHandler for GawdPlaneHandler {
                 } else {
                     master.solve_clean_with_model(intent, &ws, version, model)
                 };
+
+                // Release tenant queue slot upon completion
+                let active_tid = tenant_id.or(owning_tenant.as_deref());
+                if let Some(tid) = active_tid {
+                    let mut guard = crate::tenant_isolation::global()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    let _ = guard.dequeue(tid);
+                }
+
                 Ok(json!({ "text": text }))
             }
             topics::GAWD_SANITIZE => {
@@ -89,6 +163,72 @@ impl PlaneHandler for GawdPlaneHandler {
                 let tool = payload.get("tool").and_then(|v| v.as_str()).unwrap_or("");
                 let detail = payload.get("detail").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
+                let ws_str = ws.to_string_lossy();
+                let tenant_id = payload.get("tenant_id").and_then(|v| v.as_str());
+                let auth_token = payload
+                    .get("auth_token")
+                    .or_else(|| payload.get("token"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                let owning_tenant = {
+                    let guard = crate::tenant_isolation::global()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    guard
+                        .find_tenant_for_workspace(&ws_str)
+                        .map(|c| c.tenant_id.clone())
+                };
+
+                if let Some(owner) = &owning_tenant {
+                    match tenant_id {
+                        Some(tid) if tid == owner => {
+                            let guard = crate::tenant_isolation::global()
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            if !guard.authenticate(tid, auth_token) {
+                                return Ok(json!({
+                                    "error": "tenant authentication failed: invalid or missing auth_token"
+                                }));
+                            }
+                            let tool_verdict = guard.use_tool(tid, tool);
+                            if tool_verdict != crate::tenant_isolation::AccessVerdict::Allowed {
+                                return Ok(json!({
+                                    "error": format!("tenant tool grant denied: {:?}", tool_verdict)
+                                }));
+                            }
+                        }
+                        _ => {
+                            return Ok(json!({
+                                "error": format!(
+                                    "workspace is tenant-isolated for {owner}: authenticated tenant_id and auth_token required"
+                                )
+                            }));
+                        }
+                    }
+                } else if let Some(tid) = tenant_id {
+                    let guard = crate::tenant_isolation::global()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    if !guard.authenticate(tid, auth_token) {
+                        return Ok(json!({
+                            "error": "tenant authentication failed: invalid or missing auth_token"
+                        }));
+                    }
+                    let path_verdict = guard.read_path(tid, &ws_str);
+                    if path_verdict != crate::tenant_isolation::AccessVerdict::Allowed {
+                        return Ok(json!({
+                            "error": format!("cross-tenant audit workspace access denied: {:?}", path_verdict)
+                        }));
+                    }
+                    let tool_verdict = guard.use_tool(tid, tool);
+                    if tool_verdict != crate::tenant_isolation::AccessVerdict::Allowed {
+                        return Ok(json!({
+                            "error": format!("tenant tool grant denied: {:?}", tool_verdict)
+                        }));
+                    }
+                }
+
                 let mut action = payload
                     .get("action")
                     .cloned()
@@ -268,6 +408,183 @@ impl PlaneHandler for GawdPlaneHandler {
                     Err(e) => Ok(json!({ "error": e.to_string() })),
                 }
             }
+            "gawd.tenant.register" => {
+                let auth_token = payload
+                    .get("auth_token")
+                    .or_else(|| payload.get("token"))
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string);
+                let ctx: crate::tenant_isolation::TenantContext =
+                    serde_json::from_value(payload)
+                        .map_err(|e| format!("invalid tenant registration payload: {e}"))?;
+                let mut guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let res = if let Some(ref token) = auth_token {
+                    guard.register_with_token(ctx, token)
+                } else {
+                    guard.register(ctx)
+                };
+                match res {
+                    Ok(()) => Ok(json!({ "ok": true })),
+                    Err(e) => Ok(json!({ "error": e })),
+                }
+            }
+            "gawd.tenant.unregister" => {
+                let tenant_id = payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tenant_id required")?;
+                let auth_token = payload
+                    .get("auth_token")
+                    .or_else(|| payload.get("token"))
+                    .and_then(|v| v.as_str())
+                    .ok_or("auth_token required for tenant unregistration")?;
+                let mut guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                match guard.unregister_authorized(tenant_id, auth_token) {
+                    Ok(()) => Ok(json!({ "ok": true })),
+                    Err(e) => Ok(json!({ "error": e })),
+                }
+            }
+            "gawd.tenant.read_path" => {
+                let tenant_id = payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tenant_id required")?;
+                let path = payload
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or("path required")?;
+                let guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let verdict = guard.read_path(tenant_id, path);
+                Ok(json!({
+                    "allowed": verdict == crate::tenant_isolation::AccessVerdict::Allowed,
+                    "verdict": format!("{:?}", verdict)
+                }))
+            }
+            "gawd.tenant.read_memory" => {
+                let tenant_id = payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tenant_id required")?;
+                let auth_token = payload
+                    .get("auth_token")
+                    .or_else(|| payload.get("token"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let ns = payload
+                    .get("ns")
+                    .and_then(|v| v.as_str())
+                    .ok_or("ns required")?;
+                let guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if !guard.authenticate(tenant_id, auth_token) {
+                    return Ok(json!({
+                        "error": "tenant authentication failed: invalid or missing auth_token"
+                    }));
+                }
+                let verdict = guard.read_memory(tenant_id, ns);
+                Ok(json!({
+                    "allowed": verdict == crate::tenant_isolation::AccessVerdict::Allowed,
+                    "verdict": format!("{:?}", verdict)
+                }))
+            }
+            "gawd.tenant.use_tool" => {
+                let tenant_id = payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tenant_id required")?;
+                let tool = payload
+                    .get("tool")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tool required")?;
+                let guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let verdict = guard.use_tool(tenant_id, tool);
+                Ok(json!({
+                    "allowed": verdict == crate::tenant_isolation::AccessVerdict::Allowed,
+                    "verdict": format!("{:?}", verdict)
+                }))
+            }
+            "gawd.tenant.enqueue" => {
+                let tenant_id = payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tenant_id required")?;
+                let mut guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let verdict = guard.enqueue(tenant_id);
+                Ok(json!({
+                    "allowed": verdict == crate::tenant_isolation::AccessVerdict::Allowed,
+                    "verdict": format!("{:?}", verdict)
+                }))
+            }
+            "gawd.tenant.dequeue" => {
+                let tenant_id = payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tenant_id required")?;
+                let mut guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let verdict = guard.dequeue(tenant_id);
+                Ok(json!({
+                    "allowed": verdict == crate::tenant_isolation::AccessVerdict::Allowed,
+                    "verdict": format!("{:?}", verdict)
+                }))
+            }
+            "gawd.tenant.charge" => {
+                let tenant_id = payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tenant_id required")?;
+                let auth_token = payload
+                    .get("auth_token")
+                    .or_else(|| payload.get("token"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let cents = payload
+                    .get("cents")
+                    .and_then(|v| v.as_u64())
+                    .ok_or("cents required as u64")?;
+                let mut guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if !guard.authenticate(tenant_id, auth_token) {
+                    return Ok(json!({
+                        "error": "tenant authentication failed: invalid or missing auth_token"
+                    }));
+                }
+                let verdict = guard.charge(tenant_id, cents);
+                Ok(json!({
+                    "allowed": verdict == crate::tenant_isolation::AccessVerdict::Allowed,
+                    "verdict": format!("{:?}", verdict)
+                }))
+            }
+            "gawd.tenant.status" => {
+                let tenant_id = payload
+                    .get("tenant_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("tenant_id required")?;
+                let guard = crate::tenant_isolation::global()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let registered = guard.is_registered(tenant_id);
+                let queue_len = guard.queue_len(tenant_id);
+                let spent_cents = guard.spent_cents(tenant_id);
+                Ok(json!({
+                    "registered": registered,
+                    "queue_len": queue_len,
+                    "spent_cents": spent_cents,
+                }))
+            }
             other => Err(format!("gawd handler: unhandled topic '{other}'")),
         }
     }
@@ -275,4 +592,9 @@ impl PlaneHandler for GawdPlaneHandler {
 
 pub fn register() {
     PlaneBus::global().register_prefix("gawd.", Arc::new(GawdPlaneHandler));
+}
+
+/// Direct entry point to dispatch a topic through the GAWD plane handler.
+pub fn handle_topic(topic: &str, payload: Value) -> Result<Value, String> {
+    GawdPlaneHandler.handle(topic, payload)
 }
