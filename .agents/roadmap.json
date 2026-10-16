@@ -953,7 +953,7 @@
       "id": "VC-201-076",
       "mastery_target": "Bind admitted extension manifests and managed adapter artifacts to checksums, signatures where available, and explicit trust policy; a changed artifact is quarantined until re-admitted.",
       "priority": "P1",
-      "progress": "PARTIAL: an ML-BOM target is catalogued with canonical capabilities and validated facts. Verified by `crates/susi-vendor-models/src/eco_ml_bom.rs`: profile_is_valid, capabilities_are_canonical, facts_cover_the_required_surface, store_stays_consistent. Residual: the mastery target's supply-chain binding - checksums and signatures on admitted extension manifests and managed adapter artifacts, explicit trust policy, and quarantine of a changed artifact until re-admission - is not delivered or enumerated by a named check; the linked task catalogued the standard. Evidence: T-CLAUDE-321.",
+      "progress": "DELIVERED: admitted extension manifests and managed adapter artifacts are bound to sha256 checksums, optional Ed25519 signatures are verified over file bytes, a changed or tampered artifact is quarantined on load failure, quarantine state is persisted, and explicit readmit_pack verifies signatures and re-admits updated digests \u2014 verified by tests/vc_201_076_mastery.rs.",
       "type": "GOVERNANCE",
       "vector": "Verify extension and adapter supply-chain provenance"
     },
