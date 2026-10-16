@@ -1,0 +1,20 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-25",
+  "title": "Verify mastery: The action history is tamper-evident and interrogable",
+  "goal": "Prove or refute VC-202-019 mastery: production action history implementation in susi-gawd with tamper-evident chaining under existing audit key, periodic head anchor snapshots, multi-dimensional read surfaces (agent, mission, kind/window, cost accounting), and verification command detecting mutation, removal, and reordering. Verified by tests/vc_202_019_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_202_019_mastery)"
+    ]
+  },
+  "roadmap": "VC-202-019",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792121301
+}
