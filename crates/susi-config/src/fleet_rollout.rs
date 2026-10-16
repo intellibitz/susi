@@ -36,6 +36,7 @@ pub struct NodeState {
 
 /// `nodes` are `(id, current_revision)`; `canary` picks wave-0 members.
 /// Remaining nodes fill waves of at most `wave_size`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rollout {
     pub revision: String,
     pub nodes: BTreeMap<String, NodeState>,
@@ -99,12 +100,17 @@ impl Rollout {
                 },
             );
         }
+        let status = if map.is_empty() {
+            RolloutStatus::Done
+        } else {
+            RolloutStatus::Running
+        };
         Ok(Self {
             revision: revision.to_string(),
             nodes: map,
             wave_count: if wave == 0 { 1 } else { wave + 1 },
             open_wave: 0,
-            status: RolloutStatus::Running,
+            status,
         })
     }
 
@@ -215,16 +221,90 @@ impl Rollout {
             .collect()
     }
 
-    fn open_wave_done(&self) -> bool {
+    #[must_use]
+    pub fn open_wave_done(&self) -> bool {
         self.nodes
             .values()
             .filter(|n| n.wave <= self.open_wave)
             .all(|n| n.healthy && n.current.as_deref() == Some(&self.revision))
     }
 
-    fn all_pinned_healthy(&self) -> bool {
+    #[must_use]
+    pub fn all_pinned_healthy(&self) -> bool {
         self.nodes
             .values()
             .all(|n| n.healthy && n.current.as_deref() == Some(&self.revision))
+    }
+}
+
+/// A driver that executes staged configuration rollouts over a fleet.
+#[derive(Debug)]
+pub struct FleetRolloutDriver {
+    pub rollout: Rollout,
+}
+
+impl FleetRolloutDriver {
+    pub fn new(
+        revision: &str,
+        nodes: &[(String, Option<String>)],
+        canary: &[String],
+        wave_size: usize,
+    ) -> EaiResult<Self> {
+        let rollout = Rollout::new(revision, nodes, canary, wave_size)?;
+        Ok(Self { rollout })
+    }
+
+    /// Advance the rollout by applying the pinned revision to pending nodes
+    /// using a provided applier callback `(node_id, revision) -> Result<bool, EaiError>`.
+    /// Returns the list of nodes that were transitioned in this step.
+    pub fn step<F>(&mut self, mut applier: F) -> EaiResult<Vec<String>>
+    where
+        F: FnMut(&str, &str) -> EaiResult<bool>,
+    {
+        if self.rollout.status == RolloutStatus::Paused
+            || self.rollout.status == RolloutStatus::Done
+        {
+            return Ok(Vec::new());
+        }
+        let pending = self.rollout.pending();
+        let target = self.rollout.revision.clone();
+        let mut transitioned = Vec::new();
+
+        for node_id in pending {
+            let is_healthy = match applier(&node_id, &target) {
+                Ok(h) => h,
+                Err(err) => {
+                    self.rollout.status = RolloutStatus::Paused;
+                    return Err(err);
+                }
+            };
+            self.rollout.mark_applied(&node_id, &target)?;
+            self.rollout.report(&node_id, is_healthy)?;
+            transitioned.push(node_id);
+            if !is_healthy {
+                break;
+            }
+        }
+        Ok(transitioned)
+    }
+
+    /// Roll back an unhealthy node to its pre-rollout revision and report its health.
+    pub fn rollback_and_verify<F>(
+        &mut self,
+        node_id: &str,
+        mut verifier: F,
+    ) -> EaiResult<Option<String>>
+    where
+        F: FnMut(&str, Option<&str>) -> EaiResult<bool>,
+    {
+        let prev = self.rollout.rollback(node_id)?;
+        let healthy = verifier(node_id, prev.as_deref())?;
+        self.rollout.report(node_id, healthy)?;
+        Ok(prev)
+    }
+
+    /// Resume a paused rollout once unhealthy nodes are repaired/rolled back.
+    pub fn resume(&mut self) -> EaiResult<()> {
+        self.rollout.resume()
     }
 }
