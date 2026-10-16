@@ -93,7 +93,11 @@ pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
         }
         AgentCommands::Configure { agent, file } => {
             let adapter: Adapter = serde_json::from_slice(&std::fs::read(file)?)?;
-            manager.configure(&agent, &adapter)?;
+            let verdict =
+                susi_agents::adapter_upgrade::upgrade_adapter(&manager, &agent, &adapter, 2)?;
+            if verdict != susi_core::adapter_upgrade::SwitchVerdict::Switched {
+                bail!("adapter upgrade rejected: {verdict:?}");
+            }
             print_json(&adapter)?;
         }
         AgentCommands::Reset { agent } => {
