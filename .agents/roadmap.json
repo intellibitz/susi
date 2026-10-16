@@ -992,7 +992,7 @@
       "id": "VC-201-079",
       "mastery_target": "Provide redacted exports with chain anchors, signature metadata, and a verification command; truncation, tampering, missing segments, and unknown keys produce distinct failures without exposing secrets.",
       "priority": "P1",
-      "progress": "PARTIAL: audit evidence exports and verifies in-process, and the four failure modes are distinct (truncation, tampering, a missing segment, an unknown key), but no command serializes an export, reads one back, or verifies it, so a third party cannot verify independently - tracked by T-DEEPSEEK-208.",
+      "progress": "DELIVERED: serialized audit evidence file exports (susi-audit-evidence/v1) with length commitments, chain anchors, key-id signature metadata, and CLI verification (`susi admin audit-evidence export` / `verify`); distinct failures for truncation, tampering, missing segments, and unknown keys produce non-zero exit codes without exposing secrets. Verified by `tests/vc_201_079_cli_verify.rs` and `crates/susi-gawd/src/tests/vc_201_079.rs`. Verdict `.agents/roadmap-verdicts/VC-201-079.json`.",
       "type": "GOVERNANCE",
       "vector": "Export independently verifiable audit evidence"
     },

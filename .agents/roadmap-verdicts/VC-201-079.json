@@ -1,11 +1,9 @@
 {
   "vector": "VC-201-079",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "the export is an in-memory Vec<AuditSegment> and verification lives only in the library API (crates/susi-gawd/src/audit_evidence.rs): no CLI command writes an export, reads one back, or verifies it, so a third party cannot independently verify evidence. The four distinct failures and redaction are real and well tested, but reachable only from Rust code.",
-  "tracked_by": [
-    "T-DEEPSEEK-208"
-  ],
-  "recorded_by": "DEEPSEEK",
-  "recorded_unix": 1790967226
+  "verdict": "delivered",
+  "evidence": "vc_201_079_cli_verify_round_trips_a_file_without_leaking_secrets (tests/vc_201_079_cli_verify.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "recorded_by": "ANTIGRAVITY20261015214257121476",
+  "recorded_unix": 1792126715
 }

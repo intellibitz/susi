@@ -1,0 +1,24 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-27",
+  "title": "Deliver mastery verdict: Export independently verifiable audit evidence (VC-201-079)",
+  "goal": "Verify independently verifiable audit evidence exports with chain anchors, signature metadata, and verification CLI; ensure truncation, tampering, missing segments, and unknown keys produce distinct failures without exposing secrets, and deliver VC-201-079 mastery. Verified by tests/vc_201_079_cli_verify.rs and crates/susi-gawd/src/tests/vc_201_079.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "vc_201_079_cli_verify",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-079",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792126715,
+  "closed": {
+    "at_unix": 1792126961,
+    "commit": "d4757fed54876a3e13d986931930b5a979930155",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
+}
