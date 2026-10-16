@@ -926,7 +926,7 @@
       "id": "VC-201-074",
       "mastery_target": "Mark retrieved content and tool output as untrusted data and require policy checks for consequential actions; adversarial fixtures cannot turn embedded instructions into new permissions or secret disclosure.",
       "priority": "P0",
-      "progress": "NOT DELIVERED: the helper and adversarial fixture tests cover untrusted-content detection, but production tool and swarm paths do not consistently apply the helper or policy check before consequential actions; secret redaction is only proven in MissionTrace. Follow-up: T-CODEX20261002053201-1.",
+      "progress": "DELIVERED: retrieved content and tool output are marked as untrusted data and enforced via typed policy checks at consequential action sinks across swarm AMA/AMAS, cloud recovery, A2A executor, and GMCP tool boundaries; adversarial permission-widening and command injection fixtures are refused and errors/traces sanitized without credential or payload leakage. Verified by crates/susi-core/src/tests/vc_201_074_mastery.rs. Evidence: T-ANTIGRAVITY20261015214257121476-26.",
       "type": "GOVERNANCE",
       "vector": "Test resistance to tool-output prompt injection"
     },
