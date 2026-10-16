@@ -124,4 +124,25 @@ fn vc_201_019_mastery() {
         l.check_proposal("patch", "other", &[], &[]),
         ProposalCheck::Fresh
     );
+
+    // Lineage and counterexample-free matching:
+    // A proposal failing without counterexample still rejects an identical repeat
+    m.record(ExperimentMemoryEntry {
+        proposal_id: "p2".into(),
+        cause: "timeout during compile".into(),
+        counterexample: None,
+        lineage: vec!["root".into(), "p1".into()],
+    });
+    assert!(!m.may_resubmit(&entry("p2-retry", "timeout during compile", None), &[], &[]));
+    assert!(m.may_resubmit(
+        &entry("p2-retry", "timeout during compile", None),
+        &["p2".into()],
+        &[]
+    ));
+
+    // Multi-task isolation: rejections on task "patch" do not taint task "eval"
+    assert_eq!(
+        l.check_proposal("eval", "m1", &[], &[]),
+        ProposalCheck::Fresh
+    );
 }
