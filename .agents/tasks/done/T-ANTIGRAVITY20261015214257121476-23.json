@@ -1,0 +1,25 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-23",
+  "title": "Rotate credentials and transport certificates without silent downgrade (VC-201-077)",
+  "goal": "Deliver VC-201-077: roll credentials and transport certificates with bounded overlap and explicit revocation; interrupted rotation recovers and expired credentials cannot trigger plaintext or unauthenticated fallback. Verified by tests/vc_201_077_mastery.rs and crates/susi-config/src/tests/vc_201_077_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "vc_201_077_mastery",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-077",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792117831,
+  "authored": true,
+  "closed": {
+    "at_unix": 1792118796,
+    "commit": "85608fba705d3b0526e993dfd60a70d1ffebe994",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
+}

@@ -27,6 +27,8 @@ use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::rustls::pki_types::pem::{self, PemObject};
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
+pub use susi_http_transport::dual_transport::{MaybeTls, negotiate_transport};
+
 /// True when `bind_address` names a loopback-only interface.
 pub fn is_loopback(bind_address: &str) -> bool {
     bind_address
@@ -36,7 +38,7 @@ pub fn is_loopback(bind_address: &str) -> bool {
 }
 
 /// Load a PEM cert/key pair into a `TlsAcceptor`.
-fn build_acceptor(cert_path: &Path, key_path: &Path) -> std::io::Result<TlsAcceptor> {
+pub fn build_acceptor(cert_path: &Path, key_path: &Path) -> std::io::Result<TlsAcceptor> {
     // Surface open/read failures with their original kind (e.g. NotFound);
     // everything else is malformed PEM.
     // `pem::Error` is `#[non_exhaustive]`, so test variants with `if let`
@@ -164,4 +166,218 @@ pub fn https_only() -> bool {
         .unwrap_or_default()
         .get::<bool>("https_only")
         .unwrap_or(false)
+}
+
+/// How long a staged certificate may wait before activation is refused.
+/// A certificate staged longer ago than this cannot silently activate on
+/// fingerprint match alone (VC-201-077).
+pub const MAX_CERT_STAGE_AGE_SECS: u64 = 24 * 60 * 60;
+
+/// How long a retired certificate remains usable in bounded overlap after rotation.
+pub const PREV_CERT_OVERLAP_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Generate a self-signed certificate and private key in PEM format.
+pub fn generate_self_signed(sans: &[String]) -> std::io::Result<(String, String)> {
+    let rcgen::CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(sans.to_vec())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    Ok((cert.pem(), signing_key.serialize_pem()))
+}
+
+/// Compute SHA-256 fingerprint hex of the first PEM certificate in `cert_pem`.
+pub fn cert_fingerprint(cert_pem: &str) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let invalid = |e: pem::Error| {
+        if let pem::Error::Io(io) = e {
+            io
+        } else {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+        }
+    };
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(cert_pem.as_bytes())
+        .collect::<Result<_, _>>()
+        .map_err(invalid)?;
+    if let Some(first) = certs.first() {
+        Ok(hex::encode(Sha256::digest(first.as_ref())))
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "no PEM certificates found in slice",
+        ))
+    }
+}
+
+/// Compute SHA-256 fingerprint hex of the first certificate in the PEM file at `cert_path`.
+pub fn cert_file_fingerprint(cert_path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let invalid = |e: pem::Error| {
+        if let pem::Error::Io(io) = e {
+            io
+        } else {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+        }
+    };
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert_path)
+        .map_err(invalid)?
+        .collect::<Result<_, _>>()
+        .map_err(invalid)?;
+    if let Some(first) = certs.first() {
+        Ok(hex::encode(Sha256::digest(first.as_ref())))
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("no PEM certificates in {}", cert_path.display()),
+        ))
+    }
+}
+
+fn read_timestamp(path: &Path) -> Option<u64> {
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
+}
+
+fn write_timestamp(path: &Path, ts: u64) -> std::io::Result<()> {
+    crate::susi_config::atomic_write_bytes(path, ts.to_string().as_bytes())
+}
+
+/// Stage a next-epoch transport certificate pair beside `cert.pem` and `key.pem`.
+pub fn stage_cert_pair_at(
+    tls_dir: &Path,
+    cert_pem: &str,
+    key_pem: &str,
+    now_unix_secs: u64,
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(tls_dir)?;
+    let cert_next = tls_dir.join("cert.pem.next");
+    let key_next = tls_dir.join("key.pem.next");
+    let staged_at = tls_dir.join("cert.pem.next.staged_at");
+    crate::susi_config::atomic_write_bytes(&cert_next, cert_pem.as_bytes())?;
+    crate::susi_config::atomic_write_bytes(&key_next, key_pem.as_bytes())?;
+    write_timestamp(&staged_at, now_unix_secs)?;
+    Ok(())
+}
+
+/// Activate a staged certificate pair at `tls_dir` iff its fingerprint matches
+/// `expected_fingerprint`. On success, the existing certificate rotates to
+/// `cert.pem.prev` / `key.pem.prev` with a bounded-overlap expiry, and the staged
+/// pair becomes active.
+///
+/// If the staged files are torn or invalid PEM, or if they have waited past
+/// `MAX_CERT_STAGE_AGE_SECS`, activation fails and clears the torn/expired staged files
+/// to self-heal interrupted rotations without manual intervention.
+pub fn activate_staged_cert_at(
+    tls_dir: &Path,
+    expected_fingerprint: &str,
+    now_unix_secs: u64,
+) -> bool {
+    let cert_next = tls_dir.join("cert.pem.next");
+    let key_next = tls_dir.join("key.pem.next");
+    let staged_at_path = tls_dir.join("cert.pem.next.staged_at");
+
+    let cleanup_staged = || {
+        let _ = std::fs::remove_file(&cert_next);
+        let _ = std::fs::remove_file(&key_next);
+        let _ = std::fs::remove_file(&staged_at_path);
+    };
+
+    if !cert_next.exists() || !key_next.exists() {
+        cleanup_staged();
+        return false;
+    }
+
+    // Verify valid cert and key can form an acceptor
+    if build_acceptor(&cert_next, &key_next).is_err() {
+        cleanup_staged();
+        return false;
+    }
+
+    // Verify fingerprint match
+    match cert_file_fingerprint(&cert_next) {
+        Ok(fp) if fp == expected_fingerprint => {}
+        _ => {
+            return false;
+        }
+    }
+
+    // Verify age
+    let staged_at = read_timestamp(&staged_at_path).unwrap_or(0);
+    if now_unix_secs.saturating_sub(staged_at) > MAX_CERT_STAGE_AGE_SECS {
+        cleanup_staged();
+        return false;
+    }
+
+    let cert_active = tls_dir.join("cert.pem");
+    let key_active = tls_dir.join("key.pem");
+    let cert_prev = tls_dir.join("cert.pem.prev");
+    let key_prev = tls_dir.join("key.pem.prev");
+    let prev_expires_at = tls_dir.join("cert.pem.prev.expires_at");
+
+    let had_active = cert_active.exists() && key_active.exists();
+    if had_active {
+        // Prepare prev files first so active files remain untouched if this fails
+        if std::fs::copy(&cert_active, &cert_prev).is_err()
+            || std::fs::copy(&key_active, &key_prev).is_err()
+            || write_timestamp(&prev_expires_at, now_unix_secs + PREV_CERT_OVERLAP_SECS).is_err()
+        {
+            let _ = std::fs::remove_file(&cert_prev);
+            let _ = std::fs::remove_file(&key_prev);
+            let _ = std::fs::remove_file(&prev_expires_at);
+            return false;
+        }
+    }
+
+    // Atomically replace active files with staged files
+    if std::fs::rename(&cert_next, &cert_active).is_err() {
+        if had_active {
+            let _ = std::fs::remove_file(&cert_prev);
+            let _ = std::fs::remove_file(&key_prev);
+            let _ = std::fs::remove_file(&prev_expires_at);
+        }
+        return false;
+    }
+    if std::fs::rename(&key_next, &key_active).is_err() {
+        // Rollback cert_active so no mismatched certificate/key pair is left behind
+        if had_active {
+            let _ = std::fs::copy(&cert_prev, &cert_active);
+        } else {
+            let _ = std::fs::remove_file(&cert_active);
+        }
+        return false;
+    }
+    let _ = std::fs::remove_file(&staged_at_path);
+
+    true
+}
+
+/// Prior-epoch certificate pair, retained after rotation for bounded overlap.
+/// Returns None when no prior certificate exists, the overlap window has elapsed,
+/// or the retired certificate was explicitly revoked.
+pub fn prev_cert_at(tls_dir: &Path, now_unix_secs: u64) -> Option<(PathBuf, PathBuf)> {
+    let cert_prev = tls_dir.join("cert.pem.prev");
+    let key_prev = tls_dir.join("key.pem.prev");
+    let expires_at_path = tls_dir.join("cert.pem.prev.expires_at");
+
+    if !cert_prev.exists() || !key_prev.exists() {
+        return None;
+    }
+
+    let expires_at = read_timestamp(&expires_at_path)?;
+    if now_unix_secs >= expires_at {
+        return None;
+    }
+
+    Some((cert_prev, key_prev))
+}
+
+/// Explicitly revoke the retired transport certificate before its overlap window
+/// elapses. After revocation, `prev_cert_at` returns None immediately.
+pub fn revoke_prev_cert_at(tls_dir: &Path) -> bool {
+    let cert_prev = tls_dir.join("cert.pem.prev");
+    let key_prev = tls_dir.join("key.pem.prev");
+    let expires_at_path = tls_dir.join("cert.pem.prev.expires_at");
+
+    let r1 = std::fs::remove_file(&cert_prev).is_ok();
+    let r2 = std::fs::remove_file(&key_prev).is_ok();
+    let _ = std::fs::remove_file(&expires_at_path);
+
+    r1 || r2
 }
