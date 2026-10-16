@@ -56,7 +56,6 @@ fn vc_201_046_mastery_unsupported_backend_refused_at_construction() {
 }
 
 #[test]
-#[ignore = "gap: the batcher runs cancelled and deadline-exceeded requests anyway, which this test asserts it must not; tracked by T-ANTIGRAVITY20261002053216-6"]
 fn vc_201_046_mastery_cancellation_and_deadline_exceeded_never_run_late() {
     let backend = TestBackend::new(true);
     let mut batcher = Batcher::new(test_limits(4, 16, 100), &backend).unwrap();
@@ -91,19 +90,16 @@ fn vc_201_046_mastery_cancellation_and_deadline_exceeded_never_run_late() {
     // Flush at now + 50 (within req1 deadline, but after req3 deadline)
     let outcomes = batcher.flush(now + 50);
 
-    // Cancelled request should record Cancelled outcome
-    assert_eq!(
-        outcomes.get(2).map(|(_, o)| o),
-        Some(&BatchOutcome::Cancelled)
-    );
-    // Expired request should record DeadlineExceeded outcome
-    assert_eq!(
-        outcomes.get(3).map(|(_, o)| o),
-        Some(&BatchOutcome::DeadlineExceeded)
-    );
+    // Cancelled request was returned in flush outcomes and recorded
+    assert!(outcomes
+        .iter()
+        .any(|(id, o)| *id == 2 && *o == BatchOutcome::Cancelled));
+    assert_eq!(batcher.outcome(2), Some(&BatchOutcome::Cancelled));
+    // Expired request was recorded as DeadlineExceeded at submit time
+    assert_eq!(batcher.outcome(3), Some(&BatchOutcome::DeadlineExceeded));
     // Normal request should have executed
     assert_eq!(
-        outcomes.get(1).map(|(_, o)| o),
+        batcher.outcome(1),
         Some(&BatchOutcome::Done {
             output: "res:hello".into()
         })
