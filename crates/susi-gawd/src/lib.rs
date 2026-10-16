@@ -68,6 +68,7 @@ pub use susi_gawd_agents::{
 pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
 pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
+pub mod action_history;
 pub mod admin;
 pub mod audit_evidence;
 pub mod autonomous_builder;
