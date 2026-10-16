@@ -7,11 +7,10 @@
   "accept": {
     "cmd": [
       "cargo",
-      "nextest",
-      "run",
-      "--locked",
-      "-E",
-      "test(vc_201_077_mastery)"
+      "test",
+      "--test",
+      "vc_201_077_mastery",
+      "--locked"
     ]
   },
   "roadmap": "VC-201-077",
