@@ -16,7 +16,13 @@
     )
 )]
 
+use std::collections::BTreeSet;
 use susi_core::mac_policy::{MacPolicy, PrivacyMode};
+use susi_vendor_models::offline_bundle::{import_bundle, pack_bundle};
+
+fn available_set(items: &[&str]) -> BTreeSet<String> {
+    items.iter().map(|s| (*s).to_string()).collect()
+}
 
 #[test]
 fn vc_201_050_mastery_airgap_blocks_egress_and_permits_loopback() {
@@ -41,40 +47,85 @@ fn vc_201_050_mastery_airgap_blocks_egress_and_permits_loopback() {
 }
 
 #[test]
-fn vc_201_050_mastery_checksummed_bundle_import_missing() {
-    // Mastery target requires importing a checksummed bundle of supported binaries,
-    // models, and extension metadata into an isolated host.
-    // In current implementation, offline bundle format, checksum verification manifest,
-    // and unpack/staging procedures do not exist.
-    #[allow(dead_code)]
-    struct OfflineBundleManifest {
-        pub binaries: Vec<String>,
-        pub models: Vec<String>,
-        pub extensions: Vec<String>,
-        pub checksum_sha256: String,
-    }
+fn vc_201_050_mastery_checksummed_bundle_import_and_verification() {
+    // 1. Pack deterministic checksummed bundle
+    let bundle = pack_bundle(
+        vec!["susi".into(), "susi-daemon".into()],
+        vec!["qwen2.5-coder:7b".into(), "llama3.2:1b".into()],
+        vec!["extensions.json".into(), "registry.sig".into()],
+    );
 
-    let manifest = OfflineBundleManifest {
-        binaries: vec!["susi".into(), "susi-daemon".into()],
-        models: vec!["llama3.2:1b".into()],
-        extensions: vec![],
-        checksum_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into(),
-    };
+    // Permuted inputs yield identical deterministic checksum
+    let reordered = pack_bundle(
+        vec!["susi-daemon".into(), "susi".into()],
+        vec!["llama3.2:1b".into(), "qwen2.5-coder:7b".into()],
+        vec!["registry.sig".into(), "extensions.json".into()],
+    );
+    assert_eq!(
+        bundle.checksum, reordered.checksum,
+        "Bundle checksum must be deterministic regardless of input ordering"
+    );
+    assert!(!bundle.checksum.is_empty());
 
-    assert_eq!(manifest.binaries.len(), 2);
-    assert_eq!(manifest.models.len(), 1);
-    assert!(manifest.extensions.is_empty());
-    assert!(!manifest.checksum_sha256.is_empty());
-    // Verifies that no production bundle loader or offline unpacker exists in susi
+    // 2. Complete isolated host imports cleanly
+    let available = available_set(&[
+        "susi",
+        "susi-daemon",
+        "qwen2.5-coder:7b",
+        "llama3.2:1b",
+        "extensions.json",
+        "registry.sig",
+    ]);
+    let report = import_bundle(&bundle, &available);
+    assert!(report.checksum_ok, "Valid bundle passes checksum");
+    assert!(
+        report.is_complete(),
+        "Complete host has no missing artifacts"
+    );
+
+    // 3. Tampered bundle is detected and rejected by checksum
+    let mut tampered = bundle.clone();
+    tampered.binaries.push("malicious-binary".into());
+    let tampered_report = import_bundle(&tampered, &available);
+    assert!(
+        !tampered_report.checksum_ok,
+        "Tampered content fails verification"
+    );
 }
 
 #[test]
 fn vc_201_050_mastery_diagnose_missing_artifacts_without_cloud_fallback() {
-    // Mastery target requires that when artifacts are missing in a network-disabled drill,
-    // the system diagnoses missing artifacts cleanly rather than attempting cloud fallback.
-    let policy = MacPolicy::new([7; 32], PrivacyMode::LocalOnly, true);
+    let bundle = pack_bundle(
+        vec!["susi".into(), "susi-daemon".into()],
+        vec!["llama3.2:1b".into()],
+        vec!["extensions.json".into()],
+    );
 
-    // Under LocalOnly, attempting cloud resolution must fail immediately with diagnostic
-    // rather than hanging or retrying cloud endpoints.
-    assert!(!policy.egress_permitted("https://huggingface.co/models"));
+    // Host has only partial artifacts locally
+    let partial_available = available_set(&["susi", "extensions.json"]);
+    let report = import_bundle(&bundle, &partial_available);
+
+    assert!(report.checksum_ok);
+    assert!(!report.is_complete());
+    assert_eq!(
+        report.missing_binaries,
+        vec!["susi-daemon".to_string()],
+        "Missing daemon diagnosed cleanly"
+    );
+    assert_eq!(
+        report.missing_models,
+        vec!["llama3.2:1b".to_string()],
+        "Missing model diagnosed cleanly"
+    );
+    assert!(
+        report.missing_extension_metadata.is_empty(),
+        "Present extension correctly identified"
+    );
+
+    // Under airgap / LocalOnly, cloud resolution must be blocked rather than falling back
+    let policy = MacPolicy::new([7; 32], PrivacyMode::LocalOnly, true);
+    assert!(
+        !policy.egress_permitted("https://huggingface.co/models"),
+        "No cloud fallback allowed under network-disabled drill"
+    );
 }

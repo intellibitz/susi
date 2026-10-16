@@ -1,0 +1,26 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-18",
+  "title": "Verify mastery: Support verified offline bootstrap and recovery",
+  "goal": "Import a checksummed bundle of supported binaries, models, and extension metadata into an isolated host; a network-disabled drill boots, serves a local mission, and diagnoses missing artifacts without cloud fallback.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_050_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-050",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792112433,
+  "authored": true,
+  "closed": {
+    "at_unix": 1792112626,
+    "commit": "e1acad3d3639e30e37751a5456418842174187e2",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
+}
