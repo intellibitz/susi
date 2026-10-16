@@ -1,0 +1,21 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-21",
+  "title": "Verify mastery: Roll configuration changes across a fleet in stages",
+  "goal": "Implement FleetRolloutDriver in crates/susi-config/src/fleet_rollout.rs and integration mastery test tests/vc_201_068_mastery.rs verifying bounded wave progression, canary enforcement, pause on health failure, verified-health rollback requirement, and end-to-end fleet rollout.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_068_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-068",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792115468,
+  "authored": true
+}
