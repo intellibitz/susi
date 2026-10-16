@@ -1,0 +1,20 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-24",
+  "title": "Enforce per-tenant isolation in GAWD plane requests (VC-201-078)",
+  "goal": "Wire requests through TenantIsolation in susi-gawd plane handler: enforce workspace paths, memory namespaces, tool grants, queues, and budgets with zero production caller gap resolved. Verified by crates/susi-gawd/src/tests/vc_201_078_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "vc_201_078",
+      "--locked"
+    ]
+  },
+  "roadmap": "VC-201-078",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792119559
+}
