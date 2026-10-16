@@ -17,5 +17,10 @@
   "roadmap": "VC-201-050",
   "created_by": "ANTIGRAVITY20261015214257121476",
   "created_unix": 1792112433,
-  "authored": true
+  "authored": true,
+  "closed": {
+    "at_unix": 1792112626,
+    "commit": "e1acad3d3639e30e37751a5456418842174187e2",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
 }
