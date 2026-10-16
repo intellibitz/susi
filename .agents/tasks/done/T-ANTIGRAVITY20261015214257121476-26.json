@@ -1,0 +1,27 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-26",
+  "title": "Deliver mastery verdict: Test resistance to tool-output prompt injection",
+  "goal": "Enforce untrusted-content policy and sink sanitization across consequential tool and swarm boundaries; verify that synthetic injection fixtures cannot trick agents into secret exfiltration or unsanctioned tool invocation, and deliver VC-201-074 mastery. Verified by crates/susi-core/src/tests/vc_201_074_mastery.rs.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--package",
+      "susi-core",
+      "--locked",
+      "-E",
+      "test(vc_201_074_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-074",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792125012,
+  "closed": {
+    "at_unix": 1792125264,
+    "commit": "fb902ddc3d7a8529a916e53efeda3ed3986659f6",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
+}
