@@ -1,0 +1,26 @@
+{
+  "id": "T-ANTIGRAVITY20261015214257121476-19",
+  "title": "Verify mastery: Reconcile managed cloud inference deployments",
+  "goal": "Extend the existing provisioning path with desired/observed state, stable operation IDs, health checks, and rollback for an explicitly supported backend; repeated apply and crash recovery do not create duplicate resources.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_055_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-055",
+  "created_by": "ANTIGRAVITY20261015214257121476",
+  "created_unix": 1792113010,
+  "authored": true,
+  "closed": {
+    "at_unix": 1792113279,
+    "commit": "ed70ff8088bff14463a9b06fcf721b4de52c709d",
+    "by": "ANTIGRAVITY20261015214257121476"
+  }
+}
