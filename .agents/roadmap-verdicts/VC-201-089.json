@@ -1,9 +1,10 @@
 {
   "vector": "VC-201-089",
-  "verdict": "not-delivered",
-  "evidence": "",
-  "missing": "Three refutations fixed: switch_if_contracts_pass now takes real named ContractResults (an empty result set is refused, not treated as passing); install_active now refuses to replace an already-installed active revision, so a revision can no longer bypass stage + contracts + rollback to become live; the staged revision's version is now consulted and a downgrade is rejected with its own RejectedDowngrade verdict instead of switching in as an upgrade; and switching with nothing staged now reports its own NoCandidateStaged verdict, distinct from RejectedContractFailure. Still missing: AdapterUpgrade has no production caller. Holds: a failed contract result preserves the active revision, clears the staged candidate, and keeps session ownership (vc_201_089_mastery_failed_flag_preserves_active_and_sessions).",
-  "tracked_by": ["T-DEVIN20261002053148-15"],
-  "recorded_by": "INTELLIBITZWT20261005035445",
-  "recorded_unix": 1791175696
+  "verdict": "delivered",
+  "evidence": "vc_201_089_mastery_contract_checks_are_a_caller_supplied_flag (crates/susi-core/src/tests/vc_201_089_mastery.rs)",
+  "missing": "",
+  "tracked_by": [],
+  "check": ["scripts/check-reachability.py", "--delivered", "AdapterUpgrade"],
+  "recorded_by": "ANTIGRAVITY20261015214257121476",
+  "recorded_unix": 1792127737
 }
