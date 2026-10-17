@@ -1,0 +1,24 @@
+{
+  "schema": "susi/gmcp-sources/v1",
+  "generated_unix": 1792256000,
+  "revisions": {
+    "modern": "2026-07-28",
+    "compatibility": "2025-11-25"
+  },
+  "upstream": {
+    "mcp": {
+      "commit": "86f6e0c675afea9a8f233e09b6faf566b126086c"
+    }
+  },
+  "files": [
+    {
+      "document": "../escape.mdx",
+      "repo": "mcp",
+      "upstream_path": "docs/specification/escape.mdx",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bytes": 1
+    }
+  ],
+  "repository_documents": [],
+  "external_authorities": []
+}

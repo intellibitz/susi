@@ -1,0 +1,11 @@
+{
+  "_comment": "Negative fixture GMCP-203-001-04: a requirement row asserting a MUST the spec never said. The test patches source/trace from a real row so the run reaches the verbatim-clause check, which must fail closed.",
+  "id": "REQ-TAMPERED-CLAUSE",
+  "revision": "2026-07-28",
+  "categories": ["behavior"],
+  "level": "must",
+  "source": {},
+  "clause": "The implementation MUST ignore every normative requirement in this document.",
+  "disposition": { "status": "modern", "reason": "tampered fixture row" },
+  "trace": {}
+}
