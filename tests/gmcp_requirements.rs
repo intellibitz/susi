@@ -3232,7 +3232,9 @@ fn gmcp_req_203_003_02_production() {
                 "data.supported must be the canonical registry"
             );
         }
-        verdict => panic!("unsupported version must reject -32022, got {verdict:?}"),
+        GateVerdict::Forward | GateVerdict::Drop => {
+            panic!("unsupported version must reject -32022")
+        }
     }
 
     // ── Wire path: a modern session answers discover plus ordinary
