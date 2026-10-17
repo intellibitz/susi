@@ -195,3 +195,56 @@ detail, timestamp, artifact hash, and identity.
   server is not required to police).
 - **`expect: none`**: added to the fixture convention for
   notification-shaped inputs (no response permitted).
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` is the production health check. It emits one bounded
+  JSON report containing `rows`, `documents`, `revisions`, `dispositions`,
+  `categories`, `vectors`, and `verified`; a false verification exits
+  non-zero before protocol traffic is trusted.
+- `susi mcp call susi ledger_verify {}` exposes the same report through the
+  tool surface. Comparing it with the CLI report is a transport-independent
+  smoke check for direct, daemon, gateway, and stdio dispatch.
+- `susi mcp ledger --drift --refetched <dir>` is the deterministic, air-gapped
+  check. The directory is keyed by `sources.json` document paths and is bounded
+  by the same source and artifact limits as the live check.
+
+### Diagnostics and incident triage
+
+Every drift finding has a stable `kind`: `hash_drift` means bytes differ from
+the pinned source, while `unfetchable` means a required document is absent or
+could not be retrieved. A non-zero command and `verified: false` are required
+for either condition; callers must not continue with a partially checked
+corpus. For a local failure, restore the named vendored file from git. For an
+upstream `hash_drift`, preserve the report and begin the migration below. For
+an `unfetchable` source, retry within the published bounds, then recover the
+last known pin from git history rather than silently skipping it. The
+`traceparent`, `tracestate`, and `baggage` fields are propagation diagnostics,
+not authorization signals, and must never be used to bypass these checks.
+
+### Incident triage
+
+Treat a non-zero report as an incident until the named source or pin is
+restored and the deterministic check is green again. Preserve the JSON report
+and the corresponding evidence record with the incident for independent
+reproduction.
+
+### Migration (re-pinning the JSON-RPC standard)
+
+1. Claim a task and record the upstream revision and reason for the re-pin.
+2. Refresh `.agents/gmcp/spec/` and `sources.json` from that exact revision.
+3. Run `scripts/check-gmcp-ledger.py --write`, review every changed
+   JSON-RPC clause, and update fixtures, compatibility decisions, and the
+   retained evidence record.
+4. Run `susi mcp ledger`, the deterministic `--refetched` check, and the full
+   GMCP acceptance gate before publishing the change.
+
+### Rollback
+
+The vendored specification, manifest, ledger, fixtures, and evidence are
+committed artifacts. Roll back a bad re-pin with `git revert` of its commit,
+then rerun the CLI and deterministic drift checks. This restores the prior
+JSON-RPC semantics without a data migration; do not delete evidence rows or
+rewrite a prior proof event.
