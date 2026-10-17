@@ -84,6 +84,16 @@ impl CoreTools {
     }
 
     #[tool(
+        name = "ledger_verify",
+        description = "Verify the pinned GMCP normative requirements ledger (VC-203-001): vendored corpus hashes, verbatim clauses, complete row classification"
+    )]
+    pub fn ledger_verify(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let report = crate::requirements_ledger::verify_report_json(workspace)?;
+        serde_json::to_string_pretty(&report)
+            .map_err(|e| EaiError::process(format!("ledger report encode: {e}")))
+    }
+
+    #[tool(
         name = "sovereign_dashboard",
         description = "Report on autonomous invisible work performed by the substrate"
     )]

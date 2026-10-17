@@ -37,6 +37,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "ledger_verify",
+        "Verify the pinned GMCP normative requirements ledger (VC-203-001)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::ledger_verify),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "identity",
         "SUSI substrate identity report",
         MetaCategory::SystemPrimitive,

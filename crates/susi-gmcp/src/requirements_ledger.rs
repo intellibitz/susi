@@ -145,6 +145,7 @@ struct RepositoryDocument {
 }
 
 /// Aggregate verification result the CLI prints and callers can assert on.
+#[derive(Debug)]
 pub struct LedgerReport {
     pub rows: usize,
     pub documents: usize,
@@ -152,6 +153,29 @@ pub struct LedgerReport {
     pub dispositions: BTreeMap<String, usize>,
     pub categories: BTreeMap<String, usize>,
     pub vectors: usize,
+}
+
+/// Canonical JSON rendering of a verification report. This is the single
+/// producer every entry point consumes — `susi mcp ledger`, the
+/// `ledger_verify` tool (direct call, daemon, gateway, and the served MCP
+/// surface all dispatch to it), and tests — so each surface emits the
+/// identical payload rather than assembling its own view.
+pub fn report_json(report: &LedgerReport) -> serde_json::Value {
+    serde_json::json!({
+        "ledger": ".agents/gmcp/requirements-ledger.json",
+        "rows": report.rows,
+        "documents": report.documents,
+        "revisions": report.revisions,
+        "dispositions": report.dispositions,
+        "categories": report.categories,
+        "vectors": report.vectors,
+        "verified": true
+    })
+}
+
+/// Verify the pinned ledger under `root` and render the canonical report.
+pub fn verify_report_json(root: &Path) -> Result<serde_json::Value, EaiError> {
+    verify_pinned_ledger(root).map(|report| report_json(&report))
 }
 
 fn read(root: &Path, rel: &str) -> Result<Vec<u8>, EaiError> {
