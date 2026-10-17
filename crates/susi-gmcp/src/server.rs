@@ -48,6 +48,16 @@ fn response(status: StatusCode, text: &'static str) -> Response<BoxBody> {
     response
 }
 
+fn json_response(status: StatusCode, body: &serde_json::Value) -> Response<BoxBody> {
+    let mut response =
+        Response::new(Full::new(Bytes::from(serde_json::to_vec(body).unwrap_or_default())).boxed());
+    *response.status_mut() = status;
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    response
+}
+
 fn cors(response: &mut Response<BoxBody>, origin: &str) {
     if let Ok(value) = HeaderValue::from_str(origin) {
         response
@@ -349,6 +359,16 @@ async fn handle_request(
     {
         response(StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded")
     } else if matches!(req.uri().path(), "/mcp" | "/messages") {
+        // The same envelope gate the stdio transport runs: malformed
+        // JSON-RPC bodies are answered with the identical error document
+        // (at the HTTP status the SDK reserves for invalid requests)
+        // rather than reaching the session layer. Era-specific `_meta`
+        // and version policy stays with the SDK's HTTP validation.
+        if req.method() == Method::POST {
+            if let Some(rejection) = crate::jsonrpc_gate::http_envelope_rejection(&effective) {
+                return Ok(json_response(StatusCode::BAD_REQUEST, &rejection));
+            }
+        }
         service.call(req).await?
     } else {
         response(
