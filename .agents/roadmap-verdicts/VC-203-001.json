@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-001",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs \u2014 gmcp_req_203_001_01_contract through _06_operations plus gmcp_vc_203_001_mastery (7 tests): the machine-readable ledger covers 1713 rows across 72 pinned documents (MCP 2025-11-25 + 2026-07-28 MUST/SHOULD/error/deprecation/security/extension/claim); the shipped production path (susi mcp ledger, ledger_verify on direct/daemon/registry/stdio surfaces) verifies verbatim clauses, complete traces and dispositions; the adversarial matrix fails closed on corruption, tamper, traversal and bounds; interop replays retain fixture divergences; operations ships susi mcp ledger --drift (--refetched deterministic) failing closed on upstream change; the mastery test consumes and verifies all 01-06 evidence \u2014 complete, fresh, signed, committed, backed by real tests \u2014 and rejects missing, stale, unsigned, modified, waived, mock-only or zero-test evidence.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-2",
+    "T-CODEXGMCPROADMAP-3",
+    "T-CODEXGMCPROADMAP-4",
+    "T-CODEXGMCPROADMAP-5",
+    "T-CODEXGMCPROADMAP-6",
+    "T-CODEXGMCPROADMAP-7",
+    "T-CODEXGMCPROADMAP-8"
+  ],
+  "recorded_by": "DEVIN20261017233611403317",
+  "recorded_unix": 1792269051
+}
