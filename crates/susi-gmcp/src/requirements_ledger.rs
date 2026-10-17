@@ -19,6 +19,36 @@ use susi_error::EaiError;
 const LEDGER_SCHEMA: &str = "susi/gmcp-requirements/v1";
 const SOURCES_SCHEMA: &str = "susi/gmcp-sources/v1";
 
+/// Largest artifact the verifier holds in memory. The pinned corpus is ~3 MiB
+/// today; a manifest claiming more is hostile or corrupt — verification must
+/// bound reads rather than trusting the artifact.
+const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Largest requirement set the ledger may carry (~1.7k rows today). A ledger
+/// grown past this bound is rejected before row iteration so a hostile or
+/// corrupt artifact cannot turn verification into unbounded work.
+const MAX_LEDGER_ROWS: usize = 8_192;
+
+/// Confinement: manifest `document` names must stay inside the pinned tree.
+/// A `..`, absolute path, backslash, NUL, or empty/`.` component would let
+/// `Path::join` escape `.agents/gmcp/spec` (or the repo root for repository
+/// documents), so verification fails closed on them.
+fn confined_document(document: &str) -> Result<(), EaiError> {
+    let escaped = document.is_empty()
+        || document.starts_with('/')
+        || document.contains('\\')
+        || document.contains('\0')
+        || document
+            .split('/')
+            .any(|component| component.is_empty() || component == "." || component == "..");
+    if escaped {
+        return Err(EaiError::config(format!(
+            "document path {document:?} is not confined to the pinned tree"
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RequirementsLedger {
@@ -178,8 +208,19 @@ pub fn verify_report_json(root: &Path) -> Result<serde_json::Value, EaiError> {
     verify_pinned_ledger(root).map(|report| report_json(&report))
 }
 
+/// Bounded read for the verifier's own JSON artifacts — stat first so a
+/// hostile or corrupt artifact is rejected before a single byte is mapped.
 fn read(root: &Path, rel: &str) -> Result<Vec<u8>, EaiError> {
-    std::fs::read(root.join(rel)).map_err(|e| EaiError::io(format!("read {rel}: {e}")))
+    let path = root.join(rel);
+    let bytes = std::fs::metadata(&path)
+        .map_err(|e| EaiError::io(format!("read {rel}: {e}")))?
+        .len();
+    if bytes > MAX_ARTIFACT_BYTES {
+        return Err(EaiError::config(format!(
+            "{rel} exceeds the {MAX_ARTIFACT_BYTES}-byte verification bound"
+        )));
+    }
+    std::fs::read(&path).map_err(|e| EaiError::io(format!("read {rel}: {e}")))
 }
 
 fn sha256_hex(data: &[u8]) -> String {
@@ -251,15 +292,42 @@ pub fn verify_pinned_ledger(root: &Path) -> Result<LedgerReport, EaiError> {
         }
     }
 
+    if ledger.requirements.len() > MAX_LEDGER_ROWS {
+        return Err(EaiError::config(format!(
+            "ledger carries {} rows, over the {MAX_LEDGER_ROWS}-row bound",
+            ledger.requirements.len()
+        )));
+    }
+
     // document -> (absolute path, pinned sha256). Spec files live under
     // .agents/gmcp/spec/; repository documents (claim sources) at repo root.
+    // Confinement is enforced before any join: a `..` or absolute document
+    // name must not let verification read outside the pinned tree.
     let spec_root = root.join(".agents/gmcp/spec");
     let mut pinned: BTreeMap<String, (PathBuf, String)> = BTreeMap::new();
     for file in &manifest.files {
+        confined_document(&file.document)?;
+        if file.bytes > MAX_ARTIFACT_BYTES {
+            return Err(EaiError::config(format!(
+                "{} exceeds the {MAX_ARTIFACT_BYTES}-byte verification bound",
+                file.document
+            )));
+        }
         let path = spec_root.join(&file.document);
+        let on_disk = std::fs::metadata(&path)
+            .map_err(|e| EaiError::io(format!("read vendored source {}: {e}", file.document)))?
+            .len();
+        // Cheap size check first: a drifted or oversized file is rejected
+        // before hashing so verification stays bounded on hostile input.
+        if on_disk != file.bytes {
+            return Err(EaiError::config(format!(
+                "vendored source {} drifted from its pinned hash",
+                file.document
+            )));
+        }
         let data = std::fs::read(&path)
             .map_err(|e| EaiError::io(format!("read vendored source {}: {e}", file.document)))?;
-        if data.len() as u64 != file.bytes || sha256_hex(&data) != file.sha256 {
+        if sha256_hex(&data) != file.sha256 {
             return Err(EaiError::config(format!(
                 "vendored source {} drifted from its pinned hash",
                 file.document
@@ -268,10 +336,26 @@ pub fn verify_pinned_ledger(root: &Path) -> Result<LedgerReport, EaiError> {
         pinned.insert(file.document.clone(), (path, file.sha256.clone()));
     }
     for doc in &manifest.repository_documents {
+        confined_document(&doc.document)?;
+        if doc.bytes > MAX_ARTIFACT_BYTES {
+            return Err(EaiError::config(format!(
+                "{} exceeds the {MAX_ARTIFACT_BYTES}-byte verification bound",
+                doc.document
+            )));
+        }
         let path = root.join(&doc.document);
+        let on_disk = std::fs::metadata(&path)
+            .map_err(|e| EaiError::io(format!("read repository document {}: {e}", doc.document)))?
+            .len();
+        if on_disk != doc.bytes {
+            return Err(EaiError::config(format!(
+                "repository document {} drifted from its pinned hash",
+                doc.document
+            )));
+        }
         let data = std::fs::read(&path)
             .map_err(|e| EaiError::io(format!("read repository document {}: {e}", doc.document)))?;
-        if data.len() as u64 != doc.bytes || sha256_hex(&data) != doc.sha256 {
+        if sha256_hex(&data) != doc.sha256 {
             return Err(EaiError::config(format!(
                 "repository document {} drifted from its pinned hash",
                 doc.document
