@@ -2110,7 +2110,9 @@ fn gmcp_req_203_002_04_adversarial() {
     ] {
         match classify_line(line.as_bytes(), &mut era) {
             GateVerdict::Reject { code: observed, .. } => assert_eq!(observed, code, "{line}"),
-            other => panic!("{line} must reject, got {other:?}"),
+            other @ (GateVerdict::Forward | GateVerdict::Drop) => {
+                panic!("{line} must reject, got {other:?}")
+            }
         }
     }
     assert!(matches!(
