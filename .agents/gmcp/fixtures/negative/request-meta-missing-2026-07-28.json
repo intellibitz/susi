@@ -1,0 +1,11 @@
+{
+  "comment": "Negative fixture: a modern-path request missing the required _meta protocol fields must be rejected with -32602 (basic/index.mdx: 'A request missing any required field is malformed').",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": "meta-missing-0001",
+    "method": "tools/list",
+    "params": {}
+  },
+  "expect": "error",
+  "expect_code": -32602
+}

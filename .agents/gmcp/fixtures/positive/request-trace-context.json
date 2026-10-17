@@ -1,0 +1,17 @@
+{
+  "comment": "Positive fixture: W3C trace context in _meta (traceparent/tracestate are reserved keys on the modern path, propagation only \u2014 never authorization).",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": "trace-0001",
+    "method": "tools/list",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {},
+        "traceparent": "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01",
+        "tracestate": "gmcp=fixture"
+      }
+    }
+  },
+  "expect": "result"
+}

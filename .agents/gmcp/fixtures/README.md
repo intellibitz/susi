@@ -9,7 +9,12 @@ requirement tests. Convention (see `docs/gmcp/contract-203-001.md`):
   VC-203-001 verifier must fail closed on — exercised by
   `gmcp_req_203_001_04_adversarial`.
 - Every fixture is a single JSON object with `comment` (which ledger row it
-  exercises), `request`, and `expect` (`result` or `error`).
+  exercises), `request`, and `expect` (`result`, `error`, or `none` for
+  notification-shaped inputs where no response is permitted — convention
+  added by `docs/gmcp/contract-203-002.md`). Negative fixtures may add
+  `expect_code` (the JSON-RPC error code a conformant endpoint returns),
+  and `request` may be a non-object payload (e.g. a batch array) when the
+  malformed wire form itself is what is exercised.
 - `divergences.json` records fixture replays whose spec-expected outcome
   diverges from observed endpoint behavior (the retained regression record);
   `gmcp_req_203_001_05_interop` replays every entry verbatim and fails if the
