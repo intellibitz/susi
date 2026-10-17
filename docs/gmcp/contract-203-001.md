@@ -184,3 +184,62 @@ evidence — committed, hash-pinned, and verified every gate run.
 - **Test binding**: `positive_test`/`negative_test` name scheduled work-package
   tests, not yet-implemented ones; the binding is by naming convention and is
   satisfied when VC-203-0NN's queue lands.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` — the production health check. Emits a bounded JSON
+  report (`rows`, `documents`, `revisions`, `dispositions`, `categories`,
+  `vectors`, `verified`) and exits non-zero on any verification failure.
+  The same payload is served by the `ledger_verify` tool on every dispatch
+  surface (direct call, registry/plane-bus, daemon, served stdio), so a
+  dashboard or operator sees one canonical shape.
+- `susi mcp ledger --drift` — live upstream-drift check. Refetches every
+  pinned source (bounded: 15 s per request, 300 s total, 64 MiB per body)
+  and emits `checked`/`matched`/`findings[]` (each `document`, `kind`
+  `hash_drift|unfetchable`, `detail`). Non-zero exit on any finding.
+- `susi mcp ledger --drift --refetched <dir>` — deterministic variant:
+  compares a pre-fetched corpus directory (keyed by manifest `document`
+  name) instead of the network. Use it in air-gapped gates and in tests.
+- `scripts/check-gmcp-ledger.py` — the authoring checker for
+  authoring-time roles (`--write` regenerates the ledger; `--drift` is the
+  Python live check). The shipped Rust path above is what deployments run.
+
+### Diagnostics
+
+Every failure carries a typed class: `parse` (malformed artifact),
+`drift` (vendored bytes disagree with the pinned hash), `confinement`
+(a `document` name escaping the pinned tree), `bounds` (artifact over the
+size/row limits), `unfetchable` (upstream unreachable or response
+oversized), `hash_drift` (upstream changed). The CLI surfaces the raw
+`EaiError` text; the JSON report's `findings[].kind` carries the class for
+drift results.
+
+### Incident triage
+
+| Signal | Meaning | Action |
+|---|---|---|
+| `susi mcp ledger` exits non-zero naming a vendored source | local corpus tampered or stale vs `sources.json` | restore the file from git; if `sources.json` itself changed, treat as unauthorized re-pin — see rollback |
+| non-zero naming a ledger row / verbatim clause | `requirements-ledger.json` edited without regenerating | regenerate via `scripts/check-gmcp-ledger.py --write` on a task branch, or revert |
+| `--drift` `hash_drift` finding | the pinned upstream file changed upstream | deliberate re-pin required — see migration |
+| `--drift` `unfetchable` finding | network outage, upstream deleted, or body over bound | retry; persistent failure means the pin's source is gone — recover from git history or the vendored copy, then re-pin |
+| `unfetchable` on `--refetched` | the comparison dir lacks the file | re-fetch the dir; the check fails closed rather than skipping |
+
+### Migration (re-pinning an upstream standard)
+
+1. Claim a task; bump the pinned `commit` in `sources.json` (upstream pin
+   table) to the new revision.
+2. Refresh the vendored corpus from the new commit.
+3. `scripts/check-gmcp-ledger.py --write` regenerates the ledger from the
+   new corpus; review the row-level diff — new clauses must be
+   dispositioned, dropped clauses keep their rows as re-dispositioned.
+4. `susi mcp ledger` and the gate must pass before the re-pin merges.
+
+### Rollback
+
+The whole corpus, manifest, ledger, and fixtures are committed artifacts —
+rollback is `git revert` of the re-pin commit. Because rows are never
+deleted and every artifact is hash-pinned, a rollback restores the exact
+prior pinned state; verification and drift checks then pass on the old pin
+with no data migration.

@@ -229,6 +229,168 @@ fn sha256_hex(data: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// One upstream-drift finding against a pinned source: either the refetched
+/// bytes disagree with the pinned hash (`hash_drift`) or the refetch could
+/// not produce classifiable bytes (`unfetchable`). Both kinds fail closed.
+#[derive(Debug)]
+pub struct DriftFinding {
+    /// The manifest `document` name the finding belongs to.
+    pub document: String,
+    /// `hash_drift` or `unfetchable`.
+    pub kind: &'static str,
+    /// Human-readable diagnostic (status, hash mismatch, missing pin, ...).
+    pub detail: String,
+}
+
+/// Result of an upstream-drift pass over `.agents/gmcp/sources.json`.
+#[derive(Debug)]
+pub struct DriftReport {
+    /// Pinned documents checked.
+    pub checked: usize,
+    /// Documents whose refetched bytes match the pinned hash and size.
+    pub matched: usize,
+    /// Failures — every one fails the drift check closed.
+    pub findings: Vec<DriftFinding>,
+}
+
+/// Per-request timeout for one upstream refetch, and the total wall-clock
+/// budget for a live drift pass. After the budget is spent, every remaining
+/// document is recorded unfetchable — the pass fails closed rather than
+/// running unbounded.
+const DRIFT_REQUEST_TIMEOUT_SECS: u64 = 15;
+const DRIFT_TOTAL_BUDGET_SECS: u64 = 300;
+
+/// Canonical refetch URL for a pinned upstream document — the same base the
+/// authoring checker uses, so both roles classify the same bytes.
+#[must_use]
+pub fn upstream_url(repo: &str, commit: &str, upstream_path: &str) -> String {
+    format!(
+        "https://raw.githubusercontent.com/modelcontextprotocol/{repo}/{commit}/{upstream_path}"
+    )
+}
+
+fn load_source_manifest(root: &Path) -> Result<SourcesManifest, EaiError> {
+    let manifest: SourcesManifest = load_json(root, ".agents/gmcp/sources.json")?;
+    if manifest.schema != SOURCES_SCHEMA {
+        return Err(EaiError::config(format!(
+            "sources.json schema must be {SOURCES_SCHEMA}, got {:?}",
+            manifest.schema
+        )));
+    }
+    Ok(manifest)
+}
+
+fn pinned_commit<'a>(manifest: &'a SourcesManifest, file: &SourceFile) -> Option<&'a str> {
+    manifest
+        .upstream
+        .get(&file.repo)
+        .and_then(|pin| pin.get("commit"))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn compare_refetched(
+    report: &mut DriftReport,
+    file: &SourceFile,
+    fetched: Result<Vec<u8>, String>,
+) {
+    report.checked += 1;
+    match fetched {
+        Err(detail) => report.findings.push(DriftFinding {
+            document: file.document.clone(),
+            kind: "unfetchable",
+            detail,
+        }),
+        Ok(bytes) if bytes.len() as u64 == file.bytes && sha256_hex(&bytes) == file.sha256 => {
+            report.matched += 1;
+        }
+        Ok(bytes) => report.findings.push(DriftFinding {
+            document: file.document.clone(),
+            kind: "hash_drift",
+            detail: format!(
+                "refetched {} bytes sha256 {}, pinned {} bytes sha256 {}",
+                bytes.len(),
+                sha256_hex(&bytes),
+                file.bytes,
+                file.sha256
+            ),
+        }),
+    }
+}
+
+/// Deterministic drift check: compare a pre-fetched corpus directory —
+/// keyed by the manifest's `document` name — against `sources.json`. A
+/// missing file is an `unfetchable` finding, so the check fails closed on
+/// anything it cannot classify.
+pub fn check_drift_against_dir(root: &Path, refetched: &Path) -> Result<DriftReport, EaiError> {
+    let manifest = load_source_manifest(root)?;
+    let mut report = DriftReport {
+        checked: 0,
+        matched: 0,
+        findings: Vec::new(),
+    };
+    for file in &manifest.files {
+        confined_document(&file.document)?;
+        let fetched = std::fs::read(refetched.join(&file.document))
+            .map_err(|e| format!("refetched copy missing: {e}"));
+        compare_refetched(&mut report, file, fetched);
+    }
+    Ok(report)
+}
+
+/// Live drift check: refetch every pinned upstream file and compare hashes
+/// against `sources.json`. Network, HTTP, size-bound, and missing-pin
+/// failures are all `unfetchable` findings — an unreachable upstream fails
+/// closed rather than passing unverified. Bounded by
+/// `DRIFT_REQUEST_TIMEOUT_SECS` per request and `DRIFT_TOTAL_BUDGET_SECS`
+/// overall.
+pub fn check_drift_remote(root: &Path) -> Result<DriftReport, EaiError> {
+    let manifest = load_source_manifest(root)?;
+    let mut report = DriftReport {
+        checked: 0,
+        matched: 0,
+        findings: Vec::new(),
+    };
+    let started = std::time::Instant::now();
+    let mut budget_spent = false;
+    for file in &manifest.files {
+        confined_document(&file.document)?;
+        if budget_spent {
+            compare_refetched(
+                &mut report,
+                file,
+                Err(format!(
+                    "drift time budget of {DRIFT_TOTAL_BUDGET_SECS}s already spent"
+                )),
+            );
+            continue;
+        }
+        let fetched = (|| {
+            let Some(commit) = pinned_commit(&manifest, file) else {
+                return Err(format!("no pinned commit for repo {}", file.repo));
+            };
+            let url = upstream_url(&file.repo, commit, &file.upstream_path);
+            let call = susi_http_transport::http_call(
+                "GET",
+                &url,
+                &[("User-Agent", "susi-gmcp-drift")],
+                DRIFT_REQUEST_TIMEOUT_SECS,
+                5,
+            )
+            .map_err(|e| format!("fetch failed: {e}"))?;
+            if call.status != 200 {
+                return Err(format!("{url} -> HTTP {}", call.status));
+            }
+            call.into_bytes(MAX_ARTIFACT_BYTES)
+                .map_err(|e| format!("read failed: {e}"))
+        })();
+        compare_refetched(&mut report, file, fetched);
+        if started.elapsed().as_secs() >= DRIFT_TOTAL_BUDGET_SECS {
+            budget_spent = true;
+        }
+    }
+    Ok(report)
+}
+
 fn load_json<T: for<'de> Deserialize<'de>>(root: &Path, rel: &str) -> Result<T, EaiError> {
     let data = read(root, rel)?;
     serde_json::from_slice(&data).map_err(|e| EaiError::config(format!("parse {rel}: {e}")))
