@@ -173,18 +173,9 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             Ok(false)
         }
         McpCommands::Ledger => {
-            let report = susi_gmcp::requirements_ledger::verify_pinned_ledger(workspace)
+            let report = susi_gmcp::requirements_ledger::verify_report_json(workspace)
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
-            print_json(&serde_json::json!({
-                "ledger": ".agents/gmcp/requirements-ledger.json",
-                "rows": report.rows,
-                "documents": report.documents,
-                "revisions": report.revisions,
-                "dispositions": report.dispositions,
-                "categories": report.categories,
-                "vectors": report.vectors,
-                "verified": true
-            }))?;
+            print_json(&report)?;
             Ok(false)
         }
         McpCommands::List | McpCommands::Status => {

@@ -82,7 +82,7 @@ pub fn get_tool_schema(server: &str, tool: &str) -> Value {
                 "limit": { "type": "integer" }
             }
         }),
-        "status" | "identity" | "list_models" | "os_sysinfo" => json!({
+        "status" | "identity" | "list_models" | "os_sysinfo" | "ledger_verify" => json!({
             "type": "object"
         }),
         _ => json!({
@@ -162,6 +162,7 @@ fn dispatch_native(tool: &str, args: &Value, workspace: &Path) -> EaiResult<Stri
 
     match tool {
         "status" => crate::tools::CoreTools::status(args, workspace),
+        "ledger_verify" => crate::tools::CoreTools::ledger_verify(args, workspace),
         "identity" => crate::tools::CoreTools::identity(args, workspace),
         "list_models" => crate::tools::CoreTools::list_models(args, workspace),
         "read_file" => crate::tools::CoreTools::read_file(args, workspace),
