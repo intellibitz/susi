@@ -116,17 +116,23 @@ struct StdioSession {
     stdin: std::process::ChildStdin,
     rx: std::sync::mpsc::Receiver<serde_json::Value>,
     next_id: u64,
+    /// Responses received while waiting for a different id — the service
+    /// answers concurrent requests out of order, so a non-matching line
+    /// is stashed for its caller rather than discarded.
+    pending: Vec<serde_json::Value>,
 }
 
 impl StdioSession {
-    fn spawn(root: &Path, home: &Path) -> Self {
+    /// Spawn `mcp serve` with no handshake — the era the session lands in
+    /// is whatever the caller's first messages establish.
+    fn spawn_raw(root: &Path, home: &Path) -> Self {
         let mut child = susi_command(root, home, &["mcp", "serve"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .expect("the susi binary must spawn `mcp serve`");
-        let mut stdin = child.stdin.take().expect("stdio server must accept stdin");
+        let stdin = child.stdin.take().expect("stdio server must accept stdin");
         let stdout = child.stdout.take().expect("stdio server must yield stdout");
         let (tx, rx) = std::sync::mpsc::channel::<serde_json::Value>();
         std::thread::spawn(move || {
@@ -139,28 +145,61 @@ impl StdioSession {
                 }
             }
         });
-        stdin
+        Self {
+            child,
+            stdin,
+            rx,
+            next_id: 2,
+            pending: Vec::new(),
+        }
+    }
+
+    /// A legacy-era session: `initialize` negotiates 2025-11-25, so
+    /// `params.protocolVersion` applies and per-request `_meta` protocol
+    /// fields are not required.
+    fn spawn(root: &Path, home: &Path) -> Self {
+        let mut session = Self::spawn_raw(root, home);
+        session
+            .stdin
             .write_all(
                 br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"gmcp-it","version":"1.0"}}}"#
                     .as_slice(),
             )
             .and_then(|()| {
-                stdin.write_all(
+                session.stdin.write_all(
                     b"\n{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
                 )
             })
             .expect("handshake must write");
-        stdin.flush().expect("requests must flush");
-        let mut session = Self {
-            child,
-            stdin,
-            rx,
-            next_id: 2,
-        };
+        session.stdin.flush().expect("requests must flush");
         // Consume the initialize response before callers drive requests.
         session
             .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
             .expect("initialize must be answered");
+        session
+    }
+
+    /// A modern-era session: no `initialize` handshake exists on the
+    /// 2026-07-28 path — `server/discover` carries the per-request
+    /// `_meta` fields instead and doubles as the warm-up so fixture
+    /// replays never race the server's cold start.
+    fn spawn_modern(root: &Path, home: &Path) -> Self {
+        let mut session = Self::spawn_raw(root, home);
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "modern-handshake",
+            "method": "server/discover",
+            "params": {"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }}
+        }));
+        session
+            .response_for(
+                &serde_json::json!("modern-handshake"),
+                std::time::Duration::from_secs(120),
+            )
+            .expect("server/discover must be answered");
         session
     }
 
@@ -185,6 +224,9 @@ impl StdioSession {
         id: &serde_json::Value,
         timeout: std::time::Duration,
     ) -> Option<serde_json::Value> {
+        if let Some(pos) = self.pending.iter().position(|v| &v["id"] == id) {
+            return Some(self.pending.remove(pos));
+        }
         let deadline = std::time::Instant::now() + timeout;
         loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -195,6 +237,7 @@ impl StdioSession {
             if &value["id"] == id {
                 return Some(value);
             }
+            self.pending.push(value);
         }
     }
 
@@ -233,15 +276,37 @@ impl StdioSession {
             if remaining.is_zero() {
                 return None;
             }
-            let value = self.rx.recv_timeout(remaining).ok()?;
+            let value = match message.get("id") {
+                Some(id) if !id.is_null() => {
+                    if let Some(pos) = self.pending.iter().position(|v| v["id"] == *id) {
+                        self.pending.remove(pos)
+                    } else {
+                        match self.rx.recv_timeout(remaining) {
+                            Ok(value) => value,
+                            Err(_) => return None,
+                        }
+                    }
+                }
+                // A null/absent id has no correlation key — the first
+                // response the endpoint emits to it (if any) is the verdict.
+                _ => {
+                    if !self.pending.is_empty() {
+                        self.pending.remove(0)
+                    } else {
+                        match self.rx.recv_timeout(remaining) {
+                            Ok(value) => value,
+                            Err(_) => return None,
+                        }
+                    }
+                }
+            };
             match message.get("id") {
                 Some(id) if !id.is_null() => {
                     if &value["id"] == id {
                         return Some(value);
                     }
+                    self.pending.push(value);
                 }
-                // A null/absent id has no correlation key — the first
-                // response the endpoint emits to it (if any) is the verdict.
                 _ => return Some(value),
             }
         }
@@ -749,6 +814,7 @@ fn gmcp_req_203_001_05_interop() {
     assert_eq!(direct, cli_report, "direct call must equal the CLI report");
 
     let mut wire = StdioSession::spawn(root, &home);
+    let mut wire_modern = StdioSession::spawn_modern(root, &home);
     let wire_report = call_tool_report(&wire.request(
         "tools/call",
         serde_json::json!({"name": "ledger_verify", "arguments": {}}),
@@ -852,13 +918,28 @@ fn gmcp_req_203_001_05_interop() {
             };
             let name = format!("{class}/{}", entry.file_name().to_str().unwrap());
             replayed.insert(name.clone());
-            let observed = match wire.request_verbatim(request, std::time::Duration::from_secs(5)) {
-                None => serde_json::json!({"kind": "silent_drop"}),
-                Some(response) if response.get("error").is_some() => {
-                    serde_json::json!({"kind": "error", "code": response["error"]["code"]})
-                }
-                Some(_) => serde_json::json!({"kind": "result"}),
+            // `era` pins which session a fixture replays on: `modern`
+            // fixtures exercise the 2026-07-28 per-request `_meta` rules on
+            // a handshake-free session; the default legacy session
+            // negotiates 2025-11-25.
+            let era = fixture["era"].as_str().unwrap_or("legacy");
+            assert!(
+                era == "legacy" || era == "modern",
+                "{name}: era must be legacy or modern"
+            );
+            let session = if era == "modern" {
+                &mut wire_modern
+            } else {
+                &mut wire
             };
+            let observed =
+                match session.request_verbatim(request, std::time::Duration::from_secs(5)) {
+                    None => serde_json::json!({"kind": "silent_drop"}),
+                    Some(response) if response.get("error").is_some() => {
+                        serde_json::json!({"kind": "error", "code": response["error"]["code"]})
+                    }
+                    Some(_) => serde_json::json!({"kind": "result"}),
+                };
             let expected = fixture["expect"].as_str().unwrap();
             // `none` is the notification expectation: the wire MUST stay
             // silent. `expect_code` pins the exact error when the
@@ -1603,4 +1684,248 @@ fn gmcp_req_203_002_01_contract() {
         assert!(!record[field].is_null(), "evidence record lacks {field}");
     }
     assert_eq!(record["exit"], 0);
+}
+
+/// GMCP-203-002-02: the canonical JSON-RPC gate (`susi_gmcp::jsonrpc_gate`)
+/// is the production wire path — the served stdio surface answers the
+/// contract's failure modes with typed errors instead of the SDK codec's
+/// silent drops, enforces era-specific metadata rules, and stamps the
+/// required `resultType` on results. Both roles are exercised: the
+/// in-process classifier must agree with what the wire emits.
+#[test]
+fn gmcp_req_203_002_02_production() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, EraState, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-jrpc-prod-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── The classifier is the canonical policy: same verdicts the wire
+    //    emits, decidable without spawning a server ────────────────────
+    let classify = |line: &str, era: &mut EraState| -> serde_json::Value {
+        match classify_line(line.as_bytes(), era) {
+            GateVerdict::Forward => serde_json::json!({"kind": "forward"}),
+            GateVerdict::Drop => serde_json::json!({"kind": "drop"}),
+            GateVerdict::Reject { code, data, .. } => {
+                serde_json::json!({"kind": "reject", "code": code, "data": data})
+            }
+        }
+    };
+    let expect_reject = |line: &str, code: i64, era: &mut EraState| {
+        let verdict = classify(line, era);
+        assert_eq!(
+            verdict["code"], code,
+            "{line}: expected reject {code}, got {verdict}"
+        );
+    };
+
+    // Malformed input fails closed, never silently.
+    let mut era = EraState::default();
+    expect_reject("{not-a-json-line}", -32700, &mut era);
+    expect_reject("not even json", -32700, &mut era);
+    expect_reject(
+        r#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#,
+        -32600,
+        &mut era,
+    );
+    expect_reject(
+        r#"{"jsonrpc":"2.0","id":null,"method":"tools/list"}"#,
+        -32600,
+        &mut era,
+    );
+    expect_reject(
+        r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#,
+        -32600,
+        &mut era,
+    );
+    expect_reject(r#"{"jsonrpc":"2.0","id":1}"#, -32600, &mut era);
+    // Valid envelopes forward.
+    assert_eq!(
+        classify(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#, &mut era)["kind"],
+        "forward"
+    );
+    // A non-standard notification is a compatibility drop, not an error.
+    assert_eq!(
+        classify(
+            r#"{"jsonrpc":"2.0","method":"notifications/lsp/something"}"#,
+            &mut era
+        )["kind"],
+        "drop"
+    );
+    // Unsupported per-request versions are a typed -32022 carrying the
+    // supported set, and they mark the era modern.
+    let verdict = classify(
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"1900-01-01","io.modelcontextprotocol/clientCapabilities":{}}}}"#,
+        &mut era,
+    );
+    assert_eq!(verdict["code"], -32022);
+    assert!(
+        verdict["data"]["supported"]
+            .as_array()
+            .is_some_and(|s| s.iter().any(|v| v == "2026-07-28")),
+        "-32022 must carry data.supported: {verdict}"
+    );
+    assert!(
+        era.is_modern(),
+        "a _meta version field marks the modern era"
+    );
+    // On the modern path a request missing required _meta is -32602.
+    expect_reject(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        -32602,
+        &mut era,
+    );
+    // Legacy-era requests never required the modern fields.
+    let mut legacy = EraState::default();
+    assert_eq!(
+        classify(
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}"#,
+            &mut legacy
+        )["kind"],
+        "forward"
+    );
+    assert_eq!(
+        classify(
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+            &mut legacy
+        )["kind"],
+        "forward",
+        "a 2025-11-25 session must not demand modern _meta"
+    );
+
+    // ── The shipped path: the served wire emits exactly the classified
+    //    verdicts on the legacy era ────────────────────────────────────
+    let mut wire = StdioSession::spawn(root, &home);
+
+    // Results carry the required resultType on every answered request.
+    let result = wire.request("ping", serde_json::json!({}));
+    assert_eq!(
+        result["resultType"], "complete",
+        "every result must carry resultType"
+    );
+    let result = wire.request("tools/list", serde_json::json!({}));
+    assert_eq!(result["resultType"], "complete");
+
+    // A null id is -32600, not a silent drop.
+    let response = wire
+        .request_verbatim(
+            &serde_json::json!({"jsonrpc":"2.0","id":null,"method":"tools/list"}),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("a null id must be answered");
+    assert_eq!(response["error"]["code"], -32600);
+
+    // Unparseable input is -32700, not a silent drop.
+    wire.send_raw(b"{not-a-json-line}\n");
+    let response = wire
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a malformed line must be answered");
+    assert_eq!(response["error"]["code"], -32700);
+
+    // A batch array is -32600 — batches are not defined by MCP.
+    wire.send_raw(br#"[{"jsonrpc":"2.0","id":9,"method":"ping"}]"#);
+    wire.send_raw(b"\n");
+    let response = wire
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a batch must be answered");
+    assert_eq!(response["error"]["code"], -32600);
+
+    // A request id without a method is -32600.
+    let response = wire
+        .request_verbatim(
+            &serde_json::json!({"jsonrpc":"2.0","id":"no-method"}),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("a methodless request must be answered");
+    assert_eq!(response["error"]["code"], -32600);
+
+    // A cancellation notification is silent, and malformed input never
+    // corrupts the session: the next request still answers.
+    wire.send(&serde_json::json!({
+        "jsonrpc":"2.0","method":"notifications/cancelled",
+        "params":{"requestId":"in-flight-x","reason":"probe"}
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let result = wire.request("ping", serde_json::json!({}));
+    assert_eq!(result["resultType"], "complete");
+
+    // ── The modern era: per-request _meta rules apply only there ──────
+    let mut modern = StdioSession::spawn_modern(root, &home);
+
+    // server/discover with _meta establishes the modern era.
+    let response = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc":"2.0","id":"discover-1","method":"server/discover",
+                "params":{"_meta":{
+                    "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities":{}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("server/discover must be answered");
+    assert!(response.get("result").is_some(), "discover: {response}");
+
+    // A request missing required _meta is -32602 on the modern path.
+    let response = modern
+        .request_verbatim(
+            &serde_json::json!({"jsonrpc":"2.0","id":"meta-missing","method":"tools/list","params":{}}),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("a meta-missing request must be answered");
+    assert_eq!(response["error"]["code"], -32602);
+
+    // A request carrying the fields is served, with resultType.
+    let response = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc":"2.0","id":"meta-ok","method":"tools/list",
+                "params":{"_meta":{
+                    "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities":{}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("a conforming modern request must be answered");
+    assert_eq!(
+        response["result"]["resultType"], "complete",
+        "modern results carry resultType: {response}"
+    );
+
+    // An unsupported per-request version is -32022 with data.supported.
+    let response = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc":"2.0","id":"bad-version","method":"tools/list",
+                "params":{"_meta":{
+                    "io.modelcontextprotocol/protocolVersion":"1900-01-01",
+                    "io.modelcontextprotocol/clientCapabilities":{}
+                }}
+            }),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("an unsupported version must be answered");
+    assert_eq!(response["error"]["code"], -32022);
+    assert!(
+        response["error"]["data"]["supported"]
+            .as_array()
+            .is_some_and(|s| s.iter().any(|v| v == "2026-07-28")),
+        "-32022 must carry data.supported: {response}"
+    );
+
+    // The era persists: a later request without _meta still fails -32602.
+    let response = modern
+        .request_verbatim(
+            &serde_json::json!({"jsonrpc":"2.0","id":"era-persist","method":"tools/list","params":{}}),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("a late meta-missing request must be answered");
+    assert_eq!(response["error"]["code"], -32602);
+
+    let _ = std::fs::remove_dir_all(&scratch);
 }

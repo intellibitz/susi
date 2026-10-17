@@ -32,6 +32,7 @@ pub mod embed_provider {
     /// than fabricating vectors.
     pub fn register_local_embed_provider() {}
 }
+pub mod jsonrpc_gate;
 pub mod mcp_call_budgets;
 pub mod mcp_probe;
 pub mod mcp_profile;

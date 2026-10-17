@@ -1,5 +1,5 @@
 {
-  "comment": "Positive fixture: W3C trace context in _meta (traceparent/tracestate are reserved keys on the modern path, propagation only \u2014 never authorization).",
+  "comment": "Positive fixture: W3C trace context in _meta (traceparent/tracestate are reserved keys on the modern path, propagation only — never authorization).",
   "request": {
     "jsonrpc": "2.0",
     "id": "trace-0001",
@@ -13,5 +13,6 @@
       }
     }
   },
-  "expect": "result"
+  "expect": "result",
+  "era": "modern"
 }

@@ -7,5 +7,6 @@
     "params": {}
   },
   "expect": "error",
-  "expect_code": -32602
+  "expect_code": -32602,
+  "era": "modern"
 }
