@@ -6499,6 +6499,7 @@ dependencies = [
  "susi-vendor-parking-lot",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
+ "susi-vendor-sha2",
  "susi-vendor-shlex",
  "susi-vendor-syn",
  "susi-vendor-tantivy",

@@ -39,6 +39,7 @@ pub mod mcp_registry_trust;
 pub mod mcp_wrapper;
 pub mod protocol;
 pub mod reflexes;
+pub mod requirements_ledger;
 pub mod server;
 mod stdio;
 pub mod tool_registry;

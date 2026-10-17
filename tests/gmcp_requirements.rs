@@ -36,3 +36,36 @@ fn gmcp_req_203_001_01_contract() {
         "checker did not verify the complete classified ledger"
     );
 }
+
+/// GMCP-203-001-02: the shipped binary verifies the pinned ledger through
+/// `susi_gmcp::requirements_ledger` — the same production path every GMCP
+/// entry point links — not the authoring-time Python checker.
+#[test]
+fn gmcp_req_203_001_02_production() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-ledger-test-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+        .args(["mcp", "ledger"])
+        .current_dir(root)
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join("xdg"))
+        .env_remove("SUSI_HOME")
+        .output()
+        .expect("the susi binary must run `mcp ledger`");
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    assert!(
+        output.status.success(),
+        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
+        .expect("`mcp ledger` must print a JSON report");
+    assert_eq!(report["verified"], true);
+    assert!(report["rows"].as_u64().unwrap_or(0) > 0);
+    assert!(report["revisions"]["2026-07-28"].as_u64().unwrap_or(0) > 0);
+    assert!(report["revisions"]["2025-11-25"].as_u64().unwrap_or(0) > 0);
+}
