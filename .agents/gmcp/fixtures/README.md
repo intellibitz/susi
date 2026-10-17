@@ -1,0 +1,11 @@
+# GMCP fixtures
+
+Deterministic positive and negative protocol fixtures for the VC-203
+requirement tests. Convention (see `docs/gmcp/contract-203-001.md`):
+
+- `positive/` holds exchanges that a conformant GMCP endpoint MUST accept or
+  produce; `negative/` holds inputs a conformant endpoint MUST reject.
+- Every fixture is a single JSON object with `comment` (which ledger row it
+  exercises), `request`, and `expect` (`result` or `error`).
+- Fixtures are immutable once referenced by a ledger row or an evidence
+  record: corrections land as new files, never edits.
