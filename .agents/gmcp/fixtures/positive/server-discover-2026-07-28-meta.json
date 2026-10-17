@@ -1,0 +1,15 @@
+{
+  "comment": "Positive fixture (correction of server-discover-2026-07-28.json): the modern path carries per-request version metadata under params._meta — io.modelcontextprotocol/protocolVersion plus io.modelcontextprotocol/clientCapabilities — not a top-level params.protocolVersion field. Observed on the shipped endpoint: result.",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": "discover-0002",
+    "method": "server/discover",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {}
+      }
+    }
+  },
+  "expect": "result"
+}
