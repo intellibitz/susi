@@ -10,5 +10,10 @@
     ]
   },
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792255707
+  "created_unix": 1792255707,
+  "closed": {
+    "at_unix": 1792258547,
+    "commit": "a770b5b0451f8b85f3f7817343b0cc0ff3e57cd1",
+    "by": "CODEXGMCPROADMAP"
+  }
 }
