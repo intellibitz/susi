@@ -3330,3 +3330,129 @@ fn gmcp_req_203_003_02_production() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-003-03: the stateless discover capability reaches every
+/// shipped surface through one canonical implementation — the stdio
+/// `serve` path and the HTTP `/mcp` handler both dispatch into the same
+/// `GmcpService`, the wire answer equals `discover_result` verbatim,
+/// and the legacy `initialize` identity channel agrees with the modern
+/// `_meta.serverInfo` channel.
+#[test]
+fn gmcp_req_203_003_03_integration() {
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+    use susi_gmcp::protocol::GmcpService;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-003-int-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Structural: both transports construct and serve the same
+    //    canonical service — stdio `service.serve`, HTTP
+    //    `StreamableHttpService<GmcpService>` — and the discover
+    //    override lives in protocol.rs (not a per-surface copy). ──────
+    let server_src = std::fs::read_to_string(root.join("crates/susi-gmcp/src/server.rs")).unwrap();
+    let protocol_src =
+        std::fs::read_to_string(root.join("crates/susi-gmcp/src/protocol.rs")).unwrap();
+    assert!(
+        server_src.contains("service.serve(transport)"),
+        "the stdio path must serve GmcpService"
+    );
+    assert!(
+        server_src.contains("StreamableHttpService<GmcpService"),
+        "the HTTP path must serve the same GmcpService type"
+    );
+    assert!(
+        protocol_src.contains("async fn discover"),
+        "GmcpService must own the discover handler"
+    );
+    assert!(
+        protocol_src.contains("fn supported_protocol_versions"),
+        "the advertised registry must be explicit, not ambient"
+    );
+
+    // ── The canonical result is the wire answer: in-process
+    //    `discover_result` and a modern stdio session agree on every
+    //    contract field, and a repeated call is byte-identical (the
+    //    complete+cacheable contract) ────────────────────────────────
+    let service = GmcpService::new(scratch.clone());
+    let canonical = serde_json::to_value(service.discover_result()).unwrap();
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let discover_msg = |id: u64| {
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "server/discover",
+            "params": {"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }}
+        })
+    };
+    modern.send(&discover_msg(41));
+    let first = modern
+        .response_for(&serde_json::json!(41), std::time::Duration::from_secs(60))
+        .expect("discover must be answered")["result"]
+        .clone();
+    modern.send(&discover_msg(42));
+    let second = modern
+        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(60))
+        .expect("discover must be answered")["result"]
+        .clone();
+    for field in [
+        "resultType",
+        "supportedVersions",
+        "capabilities",
+        "ttlMs",
+        "cacheScope",
+    ] {
+        assert_eq!(
+            first[field], canonical[field],
+            "{field}: wire must equal the canonical result"
+        );
+    }
+    assert_eq!(
+        first["_meta"]["io.modelcontextprotocol/serverInfo"],
+        canonical["_meta"]["io.modelcontextprotocol/serverInfo"],
+        "serverInfo: wire must equal the canonical result"
+    );
+    assert_eq!(first, second, "discover is deterministic per build");
+
+    // ── Era parity: the legacy `initialize` identity channel and the
+    //    modern `_meta.serverInfo` channel report the same server —
+    //    identity is one canonical value, not per-era state. ──────────
+    let mut legacy = StdioSession::spawn_raw(root, &home);
+    legacy.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                   "clientInfo": {"name": "gmcp-it", "version": "1.0"}}
+    }));
+    let init = legacy
+        .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
+        .expect("initialize must be answered");
+    legacy.send(&serde_json::json!({
+        "jsonrpc": "2.0", "method": "notifications/initialized"
+    }));
+    legacy.send(&discover_msg(43));
+    let legacy_discover = legacy
+        .response_for(&serde_json::json!(43), std::time::Duration::from_secs(60))
+        .expect("discover must answer on the legacy path too")["result"]
+        .clone();
+    let init_info = &init["result"]["serverInfo"];
+    let discover_info = &legacy_discover["_meta"]["io.modelcontextprotocol/serverInfo"];
+    assert_eq!(init_info["name"], discover_info["name"]);
+    assert_eq!(init_info["version"], discover_info["version"]);
+    assert_eq!(
+        legacy_discover["supportedVersions"], first["supportedVersions"],
+        "the advertised registry is identical across eras"
+    );
+
+    // ── HTTP seam parity: a discover body is a valid envelope, so the
+    //    shared gate forwards it to the same `service.call` dispatch —
+    //    no transport-specific discover implementation exists. ────────
+    let body = serde_json::to_vec(&discover_msg(7)).unwrap();
+    assert!(
+        http_envelope_rejection(&body).is_none(),
+        "the HTTP envelope gate must forward a well-formed discover"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
