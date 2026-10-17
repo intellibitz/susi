@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-002",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs \u2014 gmcp_req_203_002_01_contract through _06_operations plus gmcp_vc_203_002_mastery (7 tests): the contract pins the per-revision JSON-RPC substrate (157 ledger rows, era behavior table, compat decisions, threat model); the shipped StdioGate/BoundedLines path classifies raw lines before the SDK (-32700/-32600/-32602/-32022 typed verdicts, era-aware _meta enforcement, resultType stamping, notification silence); one canonical envelope policy serves stdio and HTTP; adversarial envelopes fail isolated; retained fixtures replay across direct/wire surfaces; the bounded reader answers an oversized line once and recovers inside its read chunk without corrupting the next request; operations evidence is retained; the mastery test consumes and verifies all 01-06 evidence \u2014 complete, fresh, signed, committed, backed by real tests \u2014 and rejects missing, stale, unsigned, modified, waived, mock-only or zero-test evidence.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-9",
+    "T-CODEXGMCPROADMAP-10",
+    "T-CODEXGMCPROADMAP-11",
+    "T-CODEXGMCPROADMAP-12",
+    "T-CODEXGMCPROADMAP-13",
+    "T-CODEXGMCPROADMAP-14",
+    "T-CODEXGMCPROADMAP-15"
+  ],
+  "recorded_by": "DEVIN20261017233611403317",
+  "recorded_unix": 1792275353
+}

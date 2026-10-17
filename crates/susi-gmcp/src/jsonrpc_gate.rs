@@ -175,12 +175,11 @@ pub fn classify_envelope(line: &[u8]) -> GateVerdict {
     }
     let id = object.get("id").cloned();
     let method = object.get("method").and_then(Value::as_str);
-    if id.is_some() && method.is_none() {
+    if method.is_none() && object.get("result").is_none() && object.get("error").is_none() {
+        // No method and no result/error is not a message at all; a
+        // result-bearing line is a client Response to a server→client
+        // request — the typed parse below accepts it.
         return reject(-32600, "Invalid request", None, id);
-    }
-    if id.is_none() && method.is_none() {
-        // No id and no method is not a message at all.
-        return reject(-32600, "Invalid request", None, None);
     }
     // Compatibility: non-standard notifications are ignored, never
     // answered (rmcp's codec parity).
@@ -338,6 +337,9 @@ pub struct StdioGate<R, W> {
     write: SharedWriter<W>,
     line_buf: Vec<u8>,
     era: EraState,
+    /// Inside an oversized line's tail — the `-32600` answer is emitted
+    /// once per dead line, not once per consumed chunk.
+    oversized: bool,
 }
 
 impl<R, W> StdioGate<R, W>
@@ -351,6 +353,7 @@ where
             write: Arc::new(Mutex::new(write)),
             line_buf: Vec::new(),
             era: EraState::default(),
+            oversized: false,
         }
     }
 
@@ -430,8 +433,35 @@ where
             match self.read.read_until(b'\n', &mut self.line_buf).await {
                 Ok(0) => return None,
                 Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                    // BoundedLines refused an oversized line and is
+                    // dropping its tail; the error repeats per consumed
+                    // chunk until the dead line's terminator arrives.
+                    // Answer the bound violation once, keep reading — a
+                    // giant line must never corrupt the request that
+                    // follows it.
+                    self.line_buf.clear();
+                    if self.oversized {
+                        continue;
+                    }
+                    self.oversized = true;
+                    if Self::emit_rejection(
+                        &self.write,
+                        -32600,
+                        "Invalid request: message exceeds the configured byte limit",
+                        None,
+                        None,
+                    )
+                    .await
+                    .is_err()
+                    {
+                        return None;
+                    }
+                    continue;
+                }
                 Err(_) => return None,
             }
+            self.oversized = false;
             let mut line = std::mem::take(&mut self.line_buf);
             while line.last() == Some(&b'\n') || line.last() == Some(&b'\r') {
                 line.pop();
