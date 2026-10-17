@@ -28,6 +28,11 @@ pub enum McpCommands {
     Reset { server: String },
     /// Show enablement status for the top MCP servers
     Status,
+    /// Verify the pinned GMCP normative requirements ledger
+    /// (.agents/gmcp): vendored corpus hashes, verbatim clauses, and
+    /// complete row classification — the shipped production path for
+    /// VC-203-001.
+    Ledger,
     /// Invoke a tool on a peer MCP endpoint (`host:port`) over the
     /// session-aware channel — the same path cluster replication uses.
     Call {
@@ -165,6 +170,21 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                     println!("{name:<28} {desc}");
                 }
             }
+            Ok(false)
+        }
+        McpCommands::Ledger => {
+            let report = susi_gmcp::requirements_ledger::verify_pinned_ledger(workspace)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            print_json(&serde_json::json!({
+                "ledger": ".agents/gmcp/requirements-ledger.json",
+                "rows": report.rows,
+                "documents": report.documents,
+                "revisions": report.revisions,
+                "dispositions": report.dispositions,
+                "categories": report.categories,
+                "vectors": report.vectors,
+                "verified": true
+            }))?;
             Ok(false)
         }
         McpCommands::List | McpCommands::Status => {

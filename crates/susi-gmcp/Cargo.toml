@@ -21,6 +21,7 @@ tower-service = { package = "susi-vendor-tower-service", path = "../susi-vendor-
 jsonschema = { package = "susi-vendor-jsonschema", path = "../susi-vendor-jsonschema" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 shlex = { package = "susi-vendor-shlex", path = "../susi-vendor-shlex" }
 bytes = { package = "susi-vendor-bytes", path = "../susi-vendor-bytes" }
