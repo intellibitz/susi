@@ -860,10 +860,25 @@ fn gmcp_req_203_001_05_interop() {
                 Some(_) => serde_json::json!({"kind": "result"}),
             };
             let expected = fixture["expect"].as_str().unwrap();
-            let met = observed["kind"].as_str().unwrap()
-                == expected
-                    .trim_end_matches("or error")
-                    .trim_end_matches("or result");
+            // `none` is the notification expectation: the wire MUST stay
+            // silent. `expect_code` pins the exact error when the
+            // endpoint does respond.
+            let met = if expected == "none" {
+                observed["kind"] == "silent_drop"
+            } else {
+                observed["kind"].as_str().unwrap()
+                    == expected
+                        .trim_end_matches("or error")
+                        .trim_end_matches("or result")
+            };
+            if let Some(code) = fixture.get("expect_code") {
+                if observed["kind"] == "error" {
+                    assert_eq!(
+                        observed["code"], *code,
+                        "{name}: wrong error code for the pinned failure mode"
+                    );
+                }
+            }
             if met {
                 continue;
             }
