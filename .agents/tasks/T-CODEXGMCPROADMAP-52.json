@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-52",
+  "title": "[GMCP 203.009.02] Production path: Complete tool server surface",
+  "goal": "Requirement GMCP-203-009-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Tool discovery, deterministic pagination/filtering, list-change signaling, invocation, structured and unstructured results, output-schema validation, annotations, icons, errors, cancellation, progress, caching, idempotency declarations, and concurrent execution all work through the production registry. Tool identity and schema changes are versioned, calls are policy-gated, and success is impossible when declared output contracts are violated. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-51"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_009_02_production"
+    ]
+  },
+  "roadmap": "VC-203-009",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-182",
+  "title": "[GMCP 203.023.06] Operations and evidence: Service adapters and generated MCP surfaces",
+  "goal": "Requirement GMCP-203-023-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: OpenAPI, AsyncAPI, GraphQL, command and native-library adapters can generate reviewable MCP tools/resources with stable names, precise schemas, pagination, auth mapping, rate limits, idempotency and redaction. Generated artifacts are reproducible, diffable and policy-scanned; unsupported semantics fail generation rather than producing unsafe generic shells. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-177",
+    "T-CODEXGMCPROADMAP-178",
+    "T-CODEXGMCPROADMAP-179",
+    "T-CODEXGMCPROADMAP-180",
+    "T-CODEXGMCPROADMAP-181"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_023_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-023",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

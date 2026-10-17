@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-3",
+  "title": "[GMCP 203.001.02] Production path: Normative requirements ledger and standards drift",
+  "goal": "Requirement GMCP-203-001-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: A machine-readable requirements ledger covers every applicable MCP 2025-11-25 and 2026-07-28 MUST, SHOULD, error, deprecation, security rule, official extension, and implementation claim. Every row traces to an owner, production path, positive and negative test, evidence artifact, and disposition; automated upstream drift detection fails closed on an unclassified change. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_001_02_production"
+    ]
+  },
+  "roadmap": "VC-203-001",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256241
+}

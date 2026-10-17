@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-239",
+  "title": "[GMCP 203.036.M] Mastery: Package and runtime install, update, rollback, and removal",
+  "goal": "Requirement GMCP-203-036-M. Pass the complete vector mastery target on the shipped production path: A transactional lifecycle installs supported native, container, Node, Python, Java and standalone servers into isolated immutable environments, resolves prerequisites without ambient mutation, runs health and compatibility gates, atomically activates, rolls back on failure, updates under policy and removes all owned state. Dry-run plans, disk quotas, shared dependency reference counts, interrupted operations and offline bundles are proven. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-233",
+    "T-CODEXGMCPROADMAP-234",
+    "T-CODEXGMCPROADMAP-235",
+    "T-CODEXGMCPROADMAP-236",
+    "T-CODEXGMCPROADMAP-237",
+    "T-CODEXGMCPROADMAP-238"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_036_mastery"
+    ]
+  },
+  "roadmap": "VC-203-036",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

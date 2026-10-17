@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-20",
+  "title": "[GMCP 203.003.05] Interoperability and quality: Modern stateless lifecycle and server discovery",
+  "goal": "Requirement GMCP-203-003-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: For MCP 2026-07-28 and later GMCP is genuinely stateless at the protocol layer: no initialize ceremony or session identifier is required, every request carries and validates version plus client capabilities, every result identifies the server, server/discover is complete and cacheable, and explicit handles bind all cross-call state. Concurrent requests from changing clients cannot leak negotiated state. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-17",
+    "T-CODEXGMCPROADMAP-18",
+    "T-CODEXGMCPROADMAP-19"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_003_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-003",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

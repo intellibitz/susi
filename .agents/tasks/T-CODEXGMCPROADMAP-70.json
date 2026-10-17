@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-70",
+  "title": "[GMCP 203.011.06] Operations and evidence: Complete prompt and completion server surface",
+  "goal": "Requirement GMCP-203-011-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Prompt discovery/get and argument completion implement all current schemas, roles, embedded content, pagination/filtering, list changes, cache semantics, validation, cancellation, authorization, and deterministic ranking. Prompt templates are immutable per advertised version, untrusted substitutions remain data, and injection, oversized expansion, missing argument, localization, and concurrent-update cases are proven. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-65",
+    "T-CODEXGMCPROADMAP-66",
+    "T-CODEXGMCPROADMAP-67",
+    "T-CODEXGMCPROADMAP-68",
+    "T-CODEXGMCPROADMAP-69"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_011_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-011",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

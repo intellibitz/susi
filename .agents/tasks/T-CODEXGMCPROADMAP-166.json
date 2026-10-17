@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-166",
+  "title": "[GMCP 203.022.04] Adversarial and failure behavior: Namespacing, routing, composition, and virtual capabilities",
+  "goal": "Requirement GMCP-203-022-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Stable globally unique capability identities prevent collisions and shadowing across servers, aliases remain explicit, and routing can select or fan out by schema, policy, health, locality and cost. Typed compositions form virtual tools/resources/prompts with provenance, transaction and compensation semantics, cycle detection, bounded depth, deterministic plans, and no privilege amplification between steps. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-163",
+    "T-CODEXGMCPROADMAP-164",
+    "T-CODEXGMCPROADMAP-165"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_022_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-022",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

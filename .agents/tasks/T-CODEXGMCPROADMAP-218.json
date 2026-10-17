@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-218",
+  "title": "[GMCP 203.031.M] Mastery: Tool poisoning, prompt injection, rug-pull, and exfiltration defenses",
+  "goal": "Requirement GMCP-203-031-M. Pass the complete vector mastery target on the shipped production path: All server descriptions, schemas, prompts, resources, UI and tool output are untrusted data. GMCP detects and contains hidden instructions, cross-server shadowing, schema/description rug pulls, Unicode deception, poisoned resources, indirect prompt injection and staged exfiltration; material metadata changes invalidate consent and trust; and a maintained adversarial corpus proves no content can authorize tools, reveal secrets or widen policy. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-212",
+    "T-CODEXGMCPROADMAP-213",
+    "T-CODEXGMCPROADMAP-214",
+    "T-CODEXGMCPROADMAP-215",
+    "T-CODEXGMCPROADMAP-216",
+    "T-CODEXGMCPROADMAP-217"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_031_mastery"
+    ]
+  },
+  "roadmap": "VC-203-031",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256253
+}

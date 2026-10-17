@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-197",
+  "title": "[GMCP 203.028.M] Mastery: Secrets, credentials, and cryptographic lifecycle",
+  "goal": "Requirement GMCP-203-028-M. Pass the complete vector mastery target on the shipped production path: MCP credentials and private keys live in OS-backed secret storage or an explicit encrypted fallback, are referenced rather than copied into configs, and follow creation, least-scope, rotation, revocation, export prohibition and secure deletion policies. Secret scanning, redaction canaries and crash/core-dump tests prove secrets do not enter arguments, logs, traces, task files, environment inheritance or diagnostics. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-191",
+    "T-CODEXGMCPROADMAP-192",
+    "T-CODEXGMCPROADMAP-193",
+    "T-CODEXGMCPROADMAP-194",
+    "T-CODEXGMCPROADMAP-195",
+    "T-CODEXGMCPROADMAP-196"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_028_mastery"
+    ]
+  },
+  "roadmap": "VC-203-028",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

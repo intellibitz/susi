@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-91",
+  "title": "[GMCP 203.007.06] Operations and evidence: Transport adapter SPI and embedded/in-process operation",
+  "goal": "Requirement GMCP-203-007-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: A stable transport SPI admits in-process, Unix-domain socket, named-pipe, WebSocket or future transports without changing protocol semantics. A common conformance harness proves ordering, cancellation, limits, identity propagation, observability, shutdown, and error equivalence across adapters, while experimental transports are capability-negotiated and never silently presented as standard MCP. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-86",
+    "T-CODEXGMCPROADMAP-87",
+    "T-CODEXGMCPROADMAP-88",
+    "T-CODEXGMCPROADMAP-89",
+    "T-CODEXGMCPROADMAP-90"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_007_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-007",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

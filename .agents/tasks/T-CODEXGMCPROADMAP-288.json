@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-288",
+  "title": "[GMCP 203.043.M] Mastery: Cross-platform packaging, service integration, and distribution",
+  "goal": "Requirement GMCP-203-043-M. Pass the complete vector mastery target on the shipped production path: Identical supported GMCP capability is packaged for Linux, macOS and Windows across x86_64 and arm64 with signed, reproducible artifacts, service-manager integration, upgrade/rollback, uninstall, path/permission handling and diagnostics. A declared parity matrix has automated clean-machine, non-admin, Unicode-path, sleep/resume and upgrade tests; unavoidable platform differences are explicit and policy-safe. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-282",
+    "T-CODEXGMCPROADMAP-283",
+    "T-CODEXGMCPROADMAP-284",
+    "T-CODEXGMCPROADMAP-285",
+    "T-CODEXGMCPROADMAP-286",
+    "T-CODEXGMCPROADMAP-287"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_043_mastery"
+    ]
+  },
+  "roadmap": "VC-203-043",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

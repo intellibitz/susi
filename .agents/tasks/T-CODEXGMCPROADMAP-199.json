@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-199",
+  "title": "[GMCP 203.029.02] Production path: Local process, filesystem, and network sandboxing",
+  "goal": "Requirement GMCP-203-029-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Each local MCP server executes under a declared sandbox profile with minimal filesystem, network, process, device, environment and resource access, implemented on Linux, macOS and Windows with visible degradation when an OS primitive is unavailable. Profiles are generated from permissions, independently enforced outside the child, immutable after launch, and defeated by none of the traversal, symlink, namespace, child-process or localhost escape tests. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-198"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_029_02_production"
+    ]
+  },
+  "roadmap": "VC-203-029",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

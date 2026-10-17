@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-76",
+  "title": "[GMCP 203.013.05] Interoperability and quality: MRTR, elicitation, sampling, and roots interaction model",
+  "goal": "Requirement GMCP-203-013-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: The model-request/tool-response flow fully implements input_required, typed inputRequests, retry with inputResponses, nested elicitation, sampling and roots compatibility, cancellation, deadlines, progress, partial failure, and explicit handle ownership. Every human or model decision is attributable, policy-checked and resumable, and replays cannot duplicate side effects or hijack another principal's handle. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-73",
+    "T-CODEXGMCPROADMAP-74",
+    "T-CODEXGMCPROADMAP-75"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_013_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-013",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

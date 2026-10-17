@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-314",
+  "title": "[GMCP 203.045.05] Interoperability and quality: Official conformance and ecosystem interoperability matrix",
+  "goal": "Requirement GMCP-203-045-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: Pinned official MCP conformance suites pass with zero expected failures for GMCP as client and server on every supported revision, transport and official extension. Differential tests against representative reference SDKs and major hosts/servers run in both directions on every platform; the published compatibility matrix contains no unexplained cell, and upstream suite changes block release until classified. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-311",
+    "T-CODEXGMCPROADMAP-312",
+    "T-CODEXGMCPROADMAP-313"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_045_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-045",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256258
+}

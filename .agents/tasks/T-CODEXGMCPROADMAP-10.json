@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-10",
+  "title": "[GMCP 203.002.02] Production path: JSON-RPC, protocol metadata, errors, cancellation, and negotiation",
+  "goal": "Requirement GMCP-203-002-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: GMCP implements the complete JSON-RPC substrate for every supported revision: identifiers and batches where applicable, notifications, cancellation, progress tokens, typed standard and MCP errors, required resultType, per-request protocol/capability metadata, trace context, and deterministic unsupported-version behavior. Malformed, duplicated, reordered, oversized, and adversarial messages fail predictably without corrupting another request. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-9"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_002_02_production"
+    ]
+  },
+  "roadmap": "VC-203-002",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256241
+}

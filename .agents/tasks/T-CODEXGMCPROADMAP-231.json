@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-231",
+  "title": "[GMCP 203.032.06] Operations and evidence: Transport, origin, SSRF, DNS, and endpoint security",
+  "goal": "Requirement GMCP-203-032-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Network policy validates every URL and redirect, resolves and pins permitted addresses, blocks private/link-local/metadata reachability unless explicitly granted, detects DNS rebinding, enforces host/origin/TLS and certificate rules, and separates proxy trust zones. Localhost impersonation, rebinding, redirect chains, request smuggling, header confusion, downgrade and egress-bypass suites fail closed. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-226",
+    "T-CODEXGMCPROADMAP-227",
+    "T-CODEXGMCPROADMAP-228",
+    "T-CODEXGMCPROADMAP-229",
+    "T-CODEXGMCPROADMAP-230"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_032_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-032",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256253
+}

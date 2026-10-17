@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-243",
+  "title": "[GMCP 203.033.04] Adversarial and failure behavior: Identity, tenancy, state-handle, and data isolation",
+  "goal": "Requirement GMCP-203-033-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Every request, subscription, task, cache entry, callback and explicit state handle is bound to an authenticated principal, tenant, server and policy epoch. Authorization is rechecked on use, revocation propagates promptly, quotas and storage are isolated, administrator access is explicit, and cross-tenant timing, identifier-guessing, stale-handle and confused-deputy tests disclose or mutate nothing. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-240",
+    "T-CODEXGMCPROADMAP-241",
+    "T-CODEXGMCPROADMAP-242"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_033_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-033",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

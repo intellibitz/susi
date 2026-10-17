@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-6",
+  "title": "[GMCP 203.001.05] Interoperability and quality: Normative requirements ledger and standards drift",
+  "goal": "Requirement GMCP-203-001-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: A machine-readable requirements ledger covers every applicable MCP 2025-11-25 and 2026-07-28 MUST, SHOULD, error, deprecation, security rule, official extension, and implementation claim. Every row traces to an owner, production path, positive and negative test, evidence artifact, and disposition; automated upstream drift detection fails closed on an unclassified change. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-3",
+    "T-CODEXGMCPROADMAP-4",
+    "T-CODEXGMCPROADMAP-5"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_001_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-001",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256241
+}

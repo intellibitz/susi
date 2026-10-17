@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-158",
+  "title": "[GMCP 203.015.03] Integration: MCP Apps extension and secure interactive UI",
+  "goal": "Requirement GMCP-203-015-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: GMCP hosts and consumes the stable MCP Apps extension end to end: resources and tool results can declare trusted UI metadata, render in a sandboxed surface, call permitted tools, update state, and degrade to accessible non-visual content. CSP, origin isolation, permissions, accessibility, lifecycle, version negotiation, hostile app content and cross-app data separation pass the official extension suite and browser security tests. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-156",
+    "T-CODEXGMCPROADMAP-157"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_015_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-015",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256249
+}

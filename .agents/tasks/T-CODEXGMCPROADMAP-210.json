@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-210",
+  "title": "[GMCP 203.030.06] Operations and evidence: Supply-chain integrity and server/package trust",
+  "goal": "Requirement GMCP-203-030-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Every install resolves immutable package identity, source, version, digest, signature/provenance, license, SBOM, vulnerabilities, maintainer and runtime before execution. Lockfiles and trusted publishers prevent substitution and dependency confusion; updates are staged, rescanned, diffed and rollbackable; revoked or newly critical artifacts are quarantined; and offline verification uses retained transparency evidence. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-205",
+    "T-CODEXGMCPROADMAP-206",
+    "T-CODEXGMCPROADMAP-207",
+    "T-CODEXGMCPROADMAP-208",
+    "T-CODEXGMCPROADMAP-209"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_030_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-030",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

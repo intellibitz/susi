@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-86",
+  "title": "[GMCP 203.007.01] Contract: Transport adapter SPI and embedded/in-process operation",
+  "goal": "Requirement GMCP-203-007-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: A stable transport SPI admits in-process, Unix-domain socket, named-pipe, WebSocket or future transports without changing protocol semantics. A common conformance harness proves ordering, cancellation, limits, identity propagation, observability, shutdown, and error equivalence across adapters, while experimental transports are capability-negotiated and never silently presented as standard MCP. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-43",
+    "T-CODEXGMCPROADMAP-50"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_007_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-007",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-323",
+  "title": "[GMCP 203.046.M] Mastery: Property testing, fuzzing, model checking, and continuous red-team",
+  "goal": "Requirement GMCP-203-046-M. Pass the complete vector mastery target on the shipped production path: All parsers, serializers, state machines, URI/schema evaluators, policy decisions and transport boundaries have invariant/property tests and coverage-guided fuzz targets with retained regression seeds. Lifecycle, task and subscription models are checked for safety/liveness; threat-model abuse cases map to automated adversarial tests; sanitizer and red-team campaigns report zero unresolved critical/high findings at release. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-317",
+    "T-CODEXGMCPROADMAP-318",
+    "T-CODEXGMCPROADMAP-319",
+    "T-CODEXGMCPROADMAP-320",
+    "T-CODEXGMCPROADMAP-321",
+    "T-CODEXGMCPROADMAP-322"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_046_mastery"
+    ]
+  },
+  "roadmap": "VC-203-046",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256259
+}

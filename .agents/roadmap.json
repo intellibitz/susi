@@ -1555,6 +1555,696 @@
       "progress": "DELIVERED: unattended estate reconciliation (T-DEEPSEEK-160), autonomy tiers with blast-radius defaults, dry-run rehearsal and one-shot approval grants (T-DEEPSEEK-161), and a reasoning-grade capability floor for the estate-operations task class that the routing ladder reads before price (T-DEEPSEEK-162).",
       "type": "OPERATIONS",
       "vector": "The estate is observed, reconciled and managed unattended"
+    },
+    {
+      "depends_on": [],
+      "id": "VC-203-001",
+      "mastery_target": "A machine-readable requirements ledger covers every applicable MCP 2025-11-25 and 2026-07-28 MUST, SHOULD, error, deprecation, security rule, official extension, and implementation claim. Every row traces to an owner, production path, positive and negative test, evidence artifact, and disposition; automated upstream drift detection fails closed on an unclassified change.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-001-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_001_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Normative requirements ledger and standards drift"
+    },
+    {
+      "depends_on": [
+        "VC-203-001"
+      ],
+      "id": "VC-203-002",
+      "mastery_target": "GMCP implements the complete JSON-RPC substrate for every supported revision: identifiers and batches where applicable, notifications, cancellation, progress tokens, typed standard and MCP errors, required resultType, per-request protocol/capability metadata, trace context, and deterministic unsupported-version behavior. Malformed, duplicated, reordered, oversized, and adversarial messages fail predictably without corrupting another request.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-002-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_002_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "JSON-RPC, protocol metadata, errors, cancellation, and negotiation"
+    },
+    {
+      "depends_on": [
+        "VC-203-002"
+      ],
+      "id": "VC-203-003",
+      "mastery_target": "For MCP 2026-07-28 and later GMCP is genuinely stateless at the protocol layer: no initialize ceremony or session identifier is required, every request carries and validates version plus client capabilities, every result identifies the server, server/discover is complete and cacheable, and explicit handles bind all cross-call state. Concurrent requests from changing clients cannot leak negotiated state.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-003-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_003_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Modern stateless lifecycle and server discovery"
+    },
+    {
+      "depends_on": [
+        "VC-203-002",
+        "VC-203-003"
+      ],
+      "id": "VC-203-004",
+      "mastery_target": "GMCP interoperates with pinned older MCP revisions through isolated compatibility adapters for initialize/initialized, ping, legacy HTTP+SSE, resource subscriptions, roots, sampling, elicitation, logging, and legacy task shapes without weakening the modern path. Version selection is deterministic, downgrade is visible, every deprecated feature has telemetry and a tested removal policy, and no legacy state crosses tenant or connection boundaries.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-004-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_004_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Legacy lifecycle compatibility and governed deprecation"
+    },
+    {
+      "depends_on": [
+        "VC-203-002",
+        "VC-203-003"
+      ],
+      "id": "VC-203-005",
+      "mastery_target": "GMCP serves and consumes MCP over stdio with byte-accurate framing, bounded lines/messages, strict stdout protocol purity, stderr diagnostics, environment and working-directory control, graceful cancellation and shutdown, child-tree cleanup, backpressure, timeout handling, and Windows/Unix parity. Crash, hang, malformed output, descriptor leak, and hostile child fixtures all recover without stranding resources.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-005-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_005_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "LOCAL_HOSTING",
+      "vector": "Production-grade stdio transport"
+    },
+    {
+      "depends_on": [
+        "VC-203-002",
+        "VC-203-003"
+      ],
+      "id": "VC-203-006",
+      "mastery_target": "GMCP serves and consumes current Streamable HTTP over HTTP/1.1 and HTTP/2 with correct POST semantics, media negotiation, streaming and non-streaming responses, origin/host validation, protocol and method headers, cache controls, cancellation, backpressure, connection limits, TLS, proxy awareness, and graceful drain. Removed GET/SSE-resume/session behavior is rejected on the modern path and confined to explicit legacy adapters.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-006-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_006_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "LOCAL_HOSTING",
+      "vector": "Production-grade Streamable HTTP transport"
+    },
+    {
+      "depends_on": [
+        "VC-203-005",
+        "VC-203-006"
+      ],
+      "id": "VC-203-007",
+      "mastery_target": "A stable transport SPI admits in-process, Unix-domain socket, named-pipe, WebSocket or future transports without changing protocol semantics. A common conformance harness proves ordering, cancellation, limits, identity propagation, observability, shutdown, and error equivalence across adapters, while experimental transports are capability-negotiated and never silently presented as standard MCP.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-007-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_007_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Transport adapter SPI and embedded/in-process operation"
+    },
+    {
+      "depends_on": [
+        "VC-203-001",
+        "VC-203-002"
+      ],
+      "id": "VC-203-008",
+      "mastery_target": "Every MCP primitive and content variant is represented losslessly, including annotations, icons, resource links and embedded resources, binary media, extensions, cache scope/TTL, audience and priority metadata, and JSON Schema 2020-12 input/output contracts. Round-trip fixtures preserve unknown extension fields; schema limits, external-reference policy, Unicode, URI and MIME validation, and canonical serialization are exhaustively tested.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-008-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_008_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Complete schemas, primitives, content, and metadata model"
+    },
+    {
+      "depends_on": [
+        "VC-203-003",
+        "VC-203-008"
+      ],
+      "id": "VC-203-009",
+      "mastery_target": "Tool discovery, deterministic pagination/filtering, list-change signaling, invocation, structured and unstructured results, output-schema validation, annotations, icons, errors, cancellation, progress, caching, idempotency declarations, and concurrent execution all work through the production registry. Tool identity and schema changes are versioned, calls are policy-gated, and success is impossible when declared output contracts are violated.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-009-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_009_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Complete tool server surface"
+    },
+    {
+      "depends_on": [
+        "VC-203-003",
+        "VC-203-008"
+      ],
+      "id": "VC-203-010",
+      "mastery_target": "Static and templated resources support deterministic discovery, URI completion, text and binary reads, metadata, pagination/filtering, cache semantics, list and update notifications, modern filtered subscriptions, authorization, cancellation, and bounded streaming. URI-template matching, traversal, races, stale cache, not-found semantics, MIME handling, and large-resource behavior pass positive and adversarial fixtures.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-010-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_010_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Complete resource server surface"
+    },
+    {
+      "depends_on": [
+        "VC-203-003",
+        "VC-203-008"
+      ],
+      "id": "VC-203-011",
+      "mastery_target": "Prompt discovery/get and argument completion implement all current schemas, roles, embedded content, pagination/filtering, list changes, cache semantics, validation, cancellation, authorization, and deterministic ranking. Prompt templates are immutable per advertised version, untrusted substitutions remain data, and injection, oversized expansion, missing argument, localization, and concurrent-update cases are proven.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-011-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_011_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Complete prompt and completion server surface"
+    },
+    {
+      "depends_on": [
+        "VC-203-005",
+        "VC-203-006",
+        "VC-203-009",
+        "VC-203-010",
+        "VC-203-011"
+      ],
+      "id": "VC-203-012",
+      "mastery_target": "Modern subscriptions/listen filters and acknowledgement metadata work for tools, prompts, resources and resource updates, with bounded fan-out, ordering guarantees, cancellation, reconnect policy, backpressure and authorization re-checks. Progress and operational log notifications correlate to the originating request, obey requested levels and redaction, and never become an unbounded covert channel.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-012-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_012_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Subscriptions, notifications, progress, and operational messages"
+    },
+    {
+      "depends_on": [
+        "VC-203-003",
+        "VC-203-008"
+      ],
+      "id": "VC-203-013",
+      "mastery_target": "The model-request/tool-response flow fully implements input_required, typed inputRequests, retry with inputResponses, nested elicitation, sampling and roots compatibility, cancellation, deadlines, progress, partial failure, and explicit handle ownership. Every human or model decision is attributable, policy-checked and resumable, and replays cannot duplicate side effects or hijack another principal's handle.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-013-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_013_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "MRTR, elicitation, sampling, and roots interaction model"
+    },
+    {
+      "depends_on": [
+        "VC-203-003",
+        "VC-203-013",
+        "VC-203-016"
+      ],
+      "id": "VC-203-014",
+      "mastery_target": "The official Tasks extension is implemented on both client and server for get, update, cancel, notifications, state transitions, expiry, retries, ownership and server-directed execution. Durable tasks survive process restart exactly once, compose with MRTR and progress, enforce terminal-state invariants, and reject stale, cross-user, forged or replayed task handles.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-014-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_014_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Official Tasks extension and durable long-running work"
+    },
+    {
+      "depends_on": [
+        "VC-203-009",
+        "VC-203-010",
+        "VC-203-016",
+        "VC-203-019"
+      ],
+      "id": "VC-203-015",
+      "mastery_target": "GMCP hosts and consumes the stable MCP Apps extension end to end: resources and tool results can declare trusted UI metadata, render in a sandboxed surface, call permitted tools, update state, and degrade to accessible non-visual content. CSP, origin isolation, permissions, accessibility, lifecycle, version negotiation, hostile app content and cross-app data separation pass the official extension suite and browser security tests.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-015-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_015_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "MCP Apps extension and secure interactive UI"
+    },
+    {
+      "depends_on": [
+        "VC-203-001",
+        "VC-203-003",
+        "VC-203-008"
+      ],
+      "id": "VC-203-016",
+      "mastery_target": "Namespaced MCP extensions can be discovered, negotiated, configured, versioned, isolated and disabled through one typed framework without forking core protocol code. Unknown extensions round-trip safely, required unsupported extensions fail explicitly, official and experimental status is visible, collision and downgrade rules are enforced, and a watch process opens roadmap work for every newly published official extension.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-016-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_016_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "First-class extension framework and extension governance"
+    },
+    {
+      "depends_on": [
+        "VC-203-004",
+        "VC-203-009",
+        "VC-203-010",
+        "VC-203-011",
+        "VC-203-012",
+        "VC-203-013",
+        "VC-203-016"
+      ],
+      "id": "VC-203-017",
+      "mastery_target": "GMCP is a full host, not only a tool caller: one API and CLI can connect to any supported server, discover capabilities, call tools, read and subscribe to resources, get prompts and completions, handle MRTR callbacks, tasks, Apps, authorization, notifications, progress and cancellation. Multiple servers operate concurrently with isolated identities, policies and state, and every callback surface is exercised against real reference servers.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-017-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_017_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Complete MCP client and host"
+    },
+    {
+      "depends_on": [
+        "VC-203-005",
+        "VC-203-006",
+        "VC-203-017"
+      ],
+      "id": "VC-203-018",
+      "mastery_target": "The client runtime pools only security-equivalent connections, honors ttlMs and cacheScope, invalidates on notifications, applies deadline and cancellation budgets, retries only safe operations with jitter and circuit breaking, and enforces per-server plus global concurrency and memory bounds. Reconnect, half-open, duplicate-response, slowloris, crash-loop and thundering-herd tests prove deterministic recovery without duplicate side effects.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-018-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_018_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CORE",
+      "vector": "Client connection runtime, caching, retries, and concurrency"
+    },
+    {
+      "depends_on": [
+        "VC-203-013",
+        "VC-203-017",
+        "VC-203-024"
+      ],
+      "id": "VC-203-019",
+      "mastery_target": "Every consequential MCP action has a consistent inspect-before-run experience showing server identity, exact tool and arguments, data leaving the machine, credentials and side effects, with session and durable consent scoped separately. Approval is revocable, non-transferable and inaccessible to untrusted content; headless denial, accessibility, batching, timeout and emergency-stop behavior are all deterministic and audited.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-019-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_019_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Human consent, approvals, and interaction UX"
+    },
+    {
+      "depends_on": [
+        "VC-203-008",
+        "VC-203-009",
+        "VC-203-010",
+        "VC-203-011",
+        "VC-203-013",
+        "VC-203-016"
+      ],
+      "id": "VC-203-020",
+      "mastery_target": "A stable Susi-shaped authoring SDK builds local MCP servers, tools, resources, prompts, subscriptions, MRTR handlers, tasks and extensions with schema derivation, typed context, middleware, testing fixtures and hot reload. Plugins declare permissions and compatibility, initialize transactionally, unload without leaks, preserve no vendor types across the boundary, and ship runnable minimal through production examples.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-020-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_020_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "GMCP server authoring SDK and plugin lifecycle"
+    },
+    {
+      "depends_on": [
+        "VC-203-017",
+        "VC-203-018",
+        "VC-203-024"
+      ],
+      "id": "VC-203-021",
+      "mastery_target": "GMCP exposes many local or remote servers as one policy-enforced endpoint while preserving original server identity, capabilities, schemas, errors, progress, cancellation, subscriptions and trace context. Routing and transformation are deterministic; backpressure, quotas and failure isolation prevent one backend from harming others; and direct-versus-gateway differential tests prove no semantic loss.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-021-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_021_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "FEDERATION",
+      "vector": "Local MCP gateway, reverse proxy, and aggregation plane"
+    },
+    {
+      "depends_on": [
+        "VC-203-009",
+        "VC-203-010",
+        "VC-203-011",
+        "VC-203-012",
+        "VC-203-021"
+      ],
+      "id": "VC-203-022",
+      "mastery_target": "Stable globally unique capability identities prevent collisions and shadowing across servers, aliases remain explicit, and routing can select or fan out by schema, policy, health, locality and cost. Typed compositions form virtual tools/resources/prompts with provenance, transaction and compensation semantics, cycle detection, bounded depth, deterministic plans, and no privilege amplification between steps.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-022-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_022_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "FEDERATION",
+      "vector": "Namespacing, routing, composition, and virtual capabilities"
+    },
+    {
+      "depends_on": [
+        "VC-203-020",
+        "VC-203-022"
+      ],
+      "id": "VC-203-023",
+      "mastery_target": "OpenAPI, AsyncAPI, GraphQL, command and native-library adapters can generate reviewable MCP tools/resources with stable names, precise schemas, pagination, auth mapping, rate limits, idempotency and redaction. Generated artifacts are reproducible, diffable and policy-scanned; unsupported semantics fail generation rather than producing unsafe generic shells.",
+      "priority": "P2",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-023-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_023_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Service adapters and generated MCP surfaces"
+    },
+    {
+      "depends_on": [
+        "VC-203-017"
+      ],
+      "id": "VC-203-024",
+      "mastery_target": "One deny-by-default policy engine mediates discovery, invocation, callbacks, data flow and installation using principal, server, capability, arguments, resource, destination, time, risk and provenance. Delegation uses attenuated capability grants, policy decisions explain their exact rule and version, TOCTOU is prevented by execution-time re-check, and exhaustive architecture tests prove no production bypass.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-024-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_024_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Unified policy engine and least-privilege authorization"
+    },
+    {
+      "depends_on": [
+        "VC-203-006",
+        "VC-203-024"
+      ],
+      "id": "VC-203-025",
+      "mastery_target": "Remote GMCP endpoints implement current MCP authorization and OAuth resource-server requirements: protected-resource metadata, authorization-server discovery, issuer and audience validation, scopes, challenges, PKCE-facing metadata, token expiry/revocation and TLS. Token passthrough is impossible, resource and authorization roles remain separated, and confused-deputy, mix-up, replay and malformed-token suites fail closed.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-025-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_025_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "OAuth-protected MCP resource server"
+    },
+    {
+      "depends_on": [
+        "VC-203-017",
+        "VC-203-025"
+      ],
+      "id": "VC-203-026",
+      "mastery_target": "The host completes secure authorization-code flows with PKCE, state and nonce binding, protected-resource discovery, authorization-server selection, exact redirect matching, refresh rotation, revocation, incremental scopes and per-resource credential binding. Dynamic registration is isolated as legacy policy; current client metadata mechanisms, loopback hardening, browser cancellation and concurrent-account flows are interoperable and attack-tested.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-026-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_026_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "OAuth-capable MCP client and authorization flow"
+    },
+    {
+      "depends_on": [
+        "VC-203-016",
+        "VC-203-025",
+        "VC-203-026"
+      ],
+      "id": "VC-203-027",
+      "mastery_target": "GMCP implements and tests official enterprise-managed authorization and OAuth client-credentials extension profiles without conflating user and workload identity. Policy chooses flows explicitly, administrators can constrain issuers and clients, managed settings are tamper-evident, credentials are audience-bound and rotated, and unsupported or draft profiles are labeled and safely declined.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-027-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_027_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Enterprise and machine-to-machine authorization extensions"
+    },
+    {
+      "depends_on": [
+        "VC-203-024",
+        "VC-203-025",
+        "VC-203-026",
+        "VC-203-027"
+      ],
+      "id": "VC-203-028",
+      "mastery_target": "MCP credentials and private keys live in OS-backed secret storage or an explicit encrypted fallback, are referenced rather than copied into configs, and follow creation, least-scope, rotation, revocation, export prohibition and secure deletion policies. Secret scanning, redaction canaries and crash/core-dump tests prove secrets do not enter arguments, logs, traces, task files, environment inheritance or diagnostics.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-028-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_028_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Secrets, credentials, and cryptographic lifecycle"
+    },
+    {
+      "depends_on": [
+        "VC-203-005",
+        "VC-203-024",
+        "VC-203-028"
+      ],
+      "id": "VC-203-029",
+      "mastery_target": "Each local MCP server executes under a declared sandbox profile with minimal filesystem, network, process, device, environment and resource access, implemented on Linux, macOS and Windows with visible degradation when an OS primitive is unavailable. Profiles are generated from permissions, independently enforced outside the child, immutable after launch, and defeated by none of the traversal, symlink, namespace, child-process or localhost escape tests.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-029-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_029_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "LOCAL_HOSTING",
+      "vector": "Local process, filesystem, and network sandboxing"
+    },
+    {
+      "depends_on": [
+        "VC-203-001",
+        "VC-203-028",
+        "VC-203-029"
+      ],
+      "id": "VC-203-030",
+      "mastery_target": "Every install resolves immutable package identity, source, version, digest, signature/provenance, license, SBOM, vulnerabilities, maintainer and runtime before execution. Lockfiles and trusted publishers prevent substitution and dependency confusion; updates are staged, rescanned, diffed and rollbackable; revoked or newly critical artifacts are quarantined; and offline verification uses retained transparency evidence.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-030-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_030_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Supply-chain integrity and server/package trust"
+    },
+    {
+      "depends_on": [
+        "VC-203-009",
+        "VC-203-017",
+        "VC-203-019",
+        "VC-203-024",
+        "VC-203-030"
+      ],
+      "id": "VC-203-031",
+      "mastery_target": "All server descriptions, schemas, prompts, resources, UI and tool output are untrusted data. GMCP detects and contains hidden instructions, cross-server shadowing, schema/description rug pulls, Unicode deception, poisoned resources, indirect prompt injection and staged exfiltration; material metadata changes invalidate consent and trust; and a maintained adversarial corpus proves no content can authorize tools, reveal secrets or widen policy.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-031-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_031_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Tool poisoning, prompt injection, rug-pull, and exfiltration defenses"
+    },
+    {
+      "depends_on": [
+        "VC-203-006",
+        "VC-203-024",
+        "VC-203-025",
+        "VC-203-026",
+        "VC-203-028",
+        "VC-203-031"
+      ],
+      "id": "VC-203-032",
+      "mastery_target": "Network policy validates every URL and redirect, resolves and pins permitted addresses, blocks private/link-local/metadata reachability unless explicitly granted, detects DNS rebinding, enforces host/origin/TLS and certificate rules, and separates proxy trust zones. Localhost impersonation, rebinding, redirect chains, request smuggling, header confusion, downgrade and egress-bypass suites fail closed.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-032-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_032_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Transport, origin, SSRF, DNS, and endpoint security"
+    },
+    {
+      "depends_on": [
+        "VC-203-024",
+        "VC-203-025",
+        "VC-203-026",
+        "VC-203-027",
+        "VC-203-032"
+      ],
+      "id": "VC-203-033",
+      "mastery_target": "Every request, subscription, task, cache entry, callback and explicit state handle is bound to an authenticated principal, tenant, server and policy epoch. Authorization is rechecked on use, revocation propagates promptly, quotas and storage are isolated, administrator access is explicit, and cross-tenant timing, identifier-guessing, stale-handle and confused-deputy tests disclose or mutate nothing.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-033-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_033_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Identity, tenancy, state-handle, and data isolation"
+    },
+    {
+      "depends_on": [
+        "VC-203-024",
+        "VC-203-031",
+        "VC-203-033"
+      ],
+      "id": "VC-203-034",
+      "mastery_target": "A single tamper-evident event model records MCP lifecycle, discovery, policy, consent, install, auth, invocation, data egress, callback, task and administrative outcomes with correlation and provenance but no secret or raw sensitive payload. Retention, deletion, export and subject boundaries are configurable; completeness canaries catch bypasses; and an evidence bundle reproduces every completion claim from immutable test and build artifacts.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-034-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_034_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "OPERATIONS",
+      "vector": "Audit, privacy, provenance, and compliance evidence"
+    },
+    {
+      "depends_on": [
+        "VC-203-001",
+        "VC-203-030"
+      ],
+      "id": "VC-203-035",
+      "mastery_target": "GMCP consumes the official Registry API and server.json format with pagination, filters, versions, package and remote endpoints, repository metadata, caching, mirrors and offline snapshots; validates entries before trust; and can lint and publish owned servers through authenticated workflows. Yank, deletion, namespace verification, malicious metadata, stale mirrors and registry outage behavior are deterministic and provenance-preserving.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-035-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_035_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Official MCP Registry discovery, validation, and publication"
+    },
+    {
+      "depends_on": [
+        "VC-203-029",
+        "VC-203-030",
+        "VC-203-035"
+      ],
+      "id": "VC-203-036",
+      "mastery_target": "A transactional lifecycle installs supported native, container, Node, Python, Java and standalone servers into isolated immutable environments, resolves prerequisites without ambient mutation, runs health and compatibility gates, atomically activates, rolls back on failure, updates under policy and removes all owned state. Dry-run plans, disk quotas, shared dependency reference counts, interrupted operations and offline bundles are proven.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-036-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_036_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "LOCAL_HOSTING",
+      "vector": "Package and runtime install, update, rollback, and removal"
+    },
+    {
+      "depends_on": [
+        "VC-203-017",
+        "VC-203-028",
+        "VC-203-036"
+      ],
+      "id": "VC-203-037",
+      "mastery_target": "GMCP losslessly imports and exports major MCP host configurations while separating secrets, preserving unknown fields and reporting unsupported semantics. One versioned desired-state schema covers servers, transports, auth, sandbox, policy and extensions; migrations are reversible and idempotent; layered overrides explain provenance; and concurrent edits use validation plus atomic conflict handling.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-037-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_037_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "CONFIGURATION",
+      "vector": "Configuration import, export, migration, and desired state"
+    },
+    {
+      "depends_on": [
+        "VC-203-017",
+        "VC-203-030",
+        "VC-203-035",
+        "VC-203-036",
+        "VC-203-037"
+      ],
+      "id": "VC-203-038",
+      "mastery_target": "Local configs, running processes, package managers, the official registry and explicit endpoints reconcile into one deduplicated catalog with provenance. Active probes measure protocol/extension compatibility, health, latency and policy fitness without granting trust; recommendations explain evidence and cost; stale or conflicting records converge; and discovery never installs, enables or sends data without authorization.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-038-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_038_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Catalog, discovery, health, compatibility, and trust intelligence"
+    },
+    {
+      "depends_on": [
+        "VC-203-018",
+        "VC-203-029",
+        "VC-203-036",
+        "VC-203-038"
+      ],
+      "id": "VC-203-039",
+      "mastery_target": "A durable supervisor starts servers in dependency order, health-checks readiness and liveness, applies bounded restart/backoff/quarantine, drains and reloads without losing admitted work, propagates cancellation, reaps process trees and exposes exact state/reason. Boot storms, crash loops, hangs, upgrades, resource exhaustion and host restart converge automatically without duplicate instances or silent capability loss.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-039-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_039_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "OPERATIONS",
+      "vector": "Server supervision and lifecycle orchestration"
+    },
+    {
+      "depends_on": [
+        "VC-203-034",
+        "VC-203-039"
+      ],
+      "id": "VC-203-040",
+      "mastery_target": "GMCP emits bounded OpenTelemetry-compatible traces, metrics and structured logs across host, gateway, transport, server and callback boundaries, propagating standard trace context from MCP metadata. RED/USE, queue, cache, policy, consent, task and lifecycle signals have stable schemas and cardinality budgets; payload redaction is structural; diagnostics explain failures locally and export only under explicit policy.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-040-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_040_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "OPERATIONS",
+      "vector": "OpenTelemetry, metrics, logs, traces, and diagnostics"
+    },
+    {
+      "depends_on": [
+        "VC-203-014",
+        "VC-203-018",
+        "VC-203-033",
+        "VC-203-039",
+        "VC-203-040"
+      ],
+      "id": "VC-203-041",
+      "mastery_target": "Crash-consistent journals and atomic state transitions recover tasks, approvals, registry snapshots, desired state and lifecycle operations without replaying side effects. Defined RPO/RTO targets are met under kill -9, power-loss simulation, corrupt/torn state, full disk and clock skew; backups are encrypted, versioned and restore-tested; and all declared local capabilities remain usable without network access.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-041-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_041_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "OPERATIONS",
+      "vector": "Reliability, durability, recovery, backup, and offline operation"
+    },
+    {
+      "depends_on": [
+        "VC-203-018",
+        "VC-203-039",
+        "VC-203-040",
+        "VC-203-041"
+      ],
+      "id": "VC-203-042",
+      "mastery_target": "Published latency, throughput, startup, memory, descriptor, CPU, disk and event-fanout budgets are enforced per server, tenant and gateway under representative and adversarial load. Admission control, backpressure and fair scheduling prevent noisy neighbors; benchmarks are reproducible across supported platforms; regression thresholds gate release; and overload degrades explicitly without deadlock or unbounded growth.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-042-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_042_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "OPERATIONS",
+      "vector": "Performance, capacity, fairness, and resource budgets"
+    },
+    {
+      "depends_on": [
+        "VC-203-005",
+        "VC-203-006",
+        "VC-203-007",
+        "VC-203-029",
+        "VC-203-036",
+        "VC-203-039"
+      ],
+      "id": "VC-203-043",
+      "mastery_target": "Identical supported GMCP capability is packaged for Linux, macOS and Windows across x86_64 and arm64 with signed, reproducible artifacts, service-manager integration, upgrade/rollback, uninstall, path/permission handling and diagnostics. A declared parity matrix has automated clean-machine, non-admin, Unicode-path, sleep/resume and upgrade tests; unavoidable platform differences are explicit and policy-safe.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-043-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_043_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "LOCAL_HOSTING",
+      "vector": "Cross-platform packaging, service integration, and distribution"
+    },
+    {
+      "depends_on": [
+        "VC-203-017",
+        "VC-203-019",
+        "VC-203-040",
+        "VC-203-043"
+      ],
+      "id": "VC-203-044",
+      "mastery_target": "An operator can inspect negotiated capabilities, schemas, calls, subscriptions, tasks and traces; validate a server; replay a redacted deterministic transcript; inject latency/faults; and generate configurable mock clients or servers from contracts. Sensitive fields are removed before persistence, replay cannot perform side effects by default, formats are versioned, and CLI/TUI plus official Inspector workflows agree.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-044-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_044_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Inspector, debugger, record/replay, mocks, and test laboratory"
+    },
+    {
+      "depends_on": [
+        "VC-203-004",
+        "VC-203-012",
+        "VC-203-013",
+        "VC-203-014",
+        "VC-203-015",
+        "VC-203-017",
+        "VC-203-025",
+        "VC-203-026",
+        "VC-203-027",
+        "VC-203-043",
+        "VC-203-044"
+      ],
+      "id": "VC-203-045",
+      "mastery_target": "Pinned official MCP conformance suites pass with zero expected failures for GMCP as client and server on every supported revision, transport and official extension. Differential tests against representative reference SDKs and major hosts/servers run in both directions on every platform; the published compatibility matrix contains no unexplained cell, and upstream suite changes block release until classified.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-045-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_045_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "MEMORY_AND_ECOSYSTEM",
+      "vector": "Official conformance and ecosystem interoperability matrix"
+    },
+    {
+      "depends_on": [
+        "VC-203-024",
+        "VC-203-029",
+        "VC-203-030",
+        "VC-203-031",
+        "VC-203-032",
+        "VC-203-033",
+        "VC-203-034",
+        "VC-203-045"
+      ],
+      "id": "VC-203-046",
+      "mastery_target": "All parsers, serializers, state machines, URI/schema evaluators, policy decisions and transport boundaries have invariant/property tests and coverage-guided fuzz targets with retained regression seeds. Lifecycle, task and subscription models are checked for safety/liveness; threat-model abuse cases map to automated adversarial tests; sanitizer and red-team campaigns report zero unresolved critical/high findings at release.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-046-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_046_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "RSI_EVALUATION",
+      "vector": "Property testing, fuzzing, model checking, and continuous red-team"
+    },
+    {
+      "depends_on": [
+        "VC-203-020",
+        "VC-203-036",
+        "VC-203-043",
+        "VC-203-044",
+        "VC-203-045",
+        "VC-203-046"
+      ],
+      "id": "VC-203-047",
+      "mastery_target": "Versioned operator, author, host, security, migration, troubleshooting and architecture documentation is executable and matches shipped behavior; examples cover every primitive and official extension from minimal to production. One-command setup and diagnostics pass usability studies, releases carry compatibility/SBOM/provenance evidence, and published availability, recovery, performance and support SLOs are measured with error-budget policy.",
+      "priority": "P1",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-047-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_047_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Documentation, examples, developer experience, release quality, and SLOs"
+    },
+    {
+      "depends_on": [
+        "VC-203-001",
+        "VC-203-002",
+        "VC-203-003",
+        "VC-203-004",
+        "VC-203-005",
+        "VC-203-006",
+        "VC-203-007",
+        "VC-203-008",
+        "VC-203-009",
+        "VC-203-010",
+        "VC-203-011",
+        "VC-203-012",
+        "VC-203-013",
+        "VC-203-014",
+        "VC-203-015",
+        "VC-203-016",
+        "VC-203-017",
+        "VC-203-018",
+        "VC-203-019",
+        "VC-203-020",
+        "VC-203-021",
+        "VC-203-022",
+        "VC-203-023",
+        "VC-203-024",
+        "VC-203-025",
+        "VC-203-026",
+        "VC-203-027",
+        "VC-203-028",
+        "VC-203-029",
+        "VC-203-030",
+        "VC-203-031",
+        "VC-203-032",
+        "VC-203-033",
+        "VC-203-034",
+        "VC-203-035",
+        "VC-203-036",
+        "VC-203-037",
+        "VC-203-038",
+        "VC-203-039",
+        "VC-203-040",
+        "VC-203-041",
+        "VC-203-042",
+        "VC-203-043",
+        "VC-203-044",
+        "VC-203-045",
+        "VC-203-046",
+        "VC-203-047"
+      ],
+      "id": "VC-203-048",
+      "mastery_target": "One hermetic qualification command reconstructs the requirements ledger, builds clean artifacts, runs unit/integration/conformance/extension/interop/security/fuzz/platform/performance/recovery/doc tests, verifies evidence provenance, and emits a signed human-readable scorecard. Release is allowed only with 100% applicable requirements traced and passing, zero unexplained compatibility gaps, zero unresolved critical/high security findings and every VC-203 mastery gate green; new standards or accepted metrics automatically reopen qualification until classified.",
+      "priority": "P0",
+      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-048-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_048_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "type": "GOVERNANCE",
+      "vector": "Independent GMCP qualification and continuously complete release gate"
     }
   ],
   "version": "0.21.20"

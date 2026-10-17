@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-29",
+  "title": "[GMCP 203.008.M] Mastery: Complete schemas, primitives, content, and metadata model",
+  "goal": "Requirement GMCP-203-008-M. Pass the complete vector mastery target on the shipped production path: Every MCP primitive and content variant is represented losslessly, including annotations, icons, resource links and embedded resources, binary media, extensions, cache scope/TTL, audience and priority metadata, and JSON Schema 2020-12 input/output contracts. Round-trip fixtures preserve unknown extension fields; schema limits, external-reference policy, Unicode, URI and MIME validation, and canonical serialization are exhaustively tested. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-23",
+    "T-CODEXGMCPROADMAP-24",
+    "T-CODEXGMCPROADMAP-25",
+    "T-CODEXGMCPROADMAP-26",
+    "T-CODEXGMCPROADMAP-27",
+    "T-CODEXGMCPROADMAP-28"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_008_mastery"
+    ]
+  },
+  "roadmap": "VC-203-008",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

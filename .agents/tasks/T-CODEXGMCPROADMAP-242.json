@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-242",
+  "title": "[GMCP 203.033.03] Integration: Identity, tenancy, state-handle, and data isolation",
+  "goal": "Requirement GMCP-203-033-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Every request, subscription, task, cache entry, callback and explicit state handle is bound to an authenticated principal, tenant, server and policy epoch. Authorization is rechecked on use, revocation propagates promptly, quotas and storage are isolated, administrator access is explicit, and cross-tenant timing, identifier-guessing, stale-handle and confused-deputy tests disclose or mutate nothing. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-240",
+    "T-CODEXGMCPROADMAP-241"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_033_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-033",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

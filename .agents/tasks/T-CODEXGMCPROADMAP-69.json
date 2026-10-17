@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-69",
+  "title": "[GMCP 203.011.05] Interoperability and quality: Complete prompt and completion server surface",
+  "goal": "Requirement GMCP-203-011-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: Prompt discovery/get and argument completion implement all current schemas, roles, embedded content, pagination/filtering, list changes, cache semantics, validation, cancellation, authorization, and deterministic ranking. Prompt templates are immutable per advertised version, untrusted substitutions remain data, and injection, oversized expansion, missing argument, localization, and concurrent-update cases are proven. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-66",
+    "T-CODEXGMCPROADMAP-67",
+    "T-CODEXGMCPROADMAP-68"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_011_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-011",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

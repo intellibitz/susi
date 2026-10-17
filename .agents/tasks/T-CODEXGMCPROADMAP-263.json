@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-263",
+  "title": "[GMCP 203.038.03] Integration: Catalog, discovery, health, compatibility, and trust intelligence",
+  "goal": "Requirement GMCP-203-038-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Local configs, running processes, package managers, the official registry and explicit endpoints reconcile into one deduplicated catalog with provenance. Active probes measure protocol/extension compatibility, health, latency and policy fitness without granting trust; recommendations explain evidence and cost; stale or conflicting records converge; and discovery never installs, enables or sends data without authorization. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-261",
+    "T-CODEXGMCPROADMAP-262"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_038_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-038",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256255
+}

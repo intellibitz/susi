@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-135",
+  "title": "[GMCP 203.019.01] Contract: Human consent, approvals, and interaction UX",
+  "goal": "Requirement GMCP-203-019-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Every consequential MCP action has a consistent inspect-before-run experience showing server identity, exact tool and arguments, data leaving the machine, credentials and side effects, with session and durable consent scoped separately. Approval is revocable, non-transferable and inaccessible to untrusted content; headless denial, accessibility, batching, timeout and emergency-stop behavior are all deterministic and audited. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-78",
+    "T-CODEXGMCPROADMAP-120",
+    "T-CODEXGMCPROADMAP-134"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_019_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-019",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

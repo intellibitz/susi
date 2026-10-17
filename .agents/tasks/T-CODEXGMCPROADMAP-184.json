@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-184",
+  "title": "[GMCP 203.027.01] Contract: Enterprise and machine-to-machine authorization extensions",
+  "goal": "Requirement GMCP-203-027-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: GMCP implements and tests official enterprise-managed authorization and OAuth client-credentials extension profiles without conflating user and workload identity. Policy chooses flows explicitly, administrators can constrain issuers and clients, managed settings are tamper-evident, credentials are audience-bound and rotated, and unsupported or draft profiles are labeled and safely declined. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-85",
+    "T-CODEXGMCPROADMAP-155",
+    "T-CODEXGMCPROADMAP-176"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_027_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-027",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

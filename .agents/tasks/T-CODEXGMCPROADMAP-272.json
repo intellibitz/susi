@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-272",
+  "title": "[GMCP 203.039.05] Interoperability and quality: Server supervision and lifecycle orchestration",
+  "goal": "Requirement GMCP-203-039-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: A durable supervisor starts servers in dependency order, health-checks readiness and liveness, applies bounded restart/backoff/quarantine, drains and reloads without losing admitted work, propagates cancellation, reaps process trees and exposes exact state/reason. Boot storms, crash loops, hangs, upgrades, resource exhaustion and host restart converge automatically without duplicate instances or silent capability loss. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-269",
+    "T-CODEXGMCPROADMAP-270",
+    "T-CODEXGMCPROADMAP-271"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_039_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-039",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

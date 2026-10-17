@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-74",
+  "title": "[GMCP 203.013.03] Integration: MRTR, elicitation, sampling, and roots interaction model",
+  "goal": "Requirement GMCP-203-013-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: The model-request/tool-response flow fully implements input_required, typed inputRequests, retry with inputResponses, nested elicitation, sampling and roots compatibility, cancellation, deadlines, progress, partial failure, and explicit handle ownership. Every human or model decision is attributable, policy-checked and resumable, and replays cannot duplicate side effects or hijack another principal's handle. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-72",
+    "T-CODEXGMCPROADMAP-73"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_013_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-013",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-120",
+  "title": "[GMCP 203.017.M] Mastery: Complete MCP client and host",
+  "goal": "Requirement GMCP-203-017-M. Pass the complete vector mastery target on the shipped production path: GMCP is a full host, not only a tool caller: one API and CLI can connect to any supported server, discover capabilities, call tools, read and subscribe to resources, get prompts and completions, handle MRTR callbacks, tasks, Apps, authorization, notifications, progress and cancellation. Multiple servers operate concurrently with isolated identities, policies and state, and every callback surface is exercised against real reference servers. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-114",
+    "T-CODEXGMCPROADMAP-115",
+    "T-CODEXGMCPROADMAP-116",
+    "T-CODEXGMCPROADMAP-117",
+    "T-CODEXGMCPROADMAP-118",
+    "T-CODEXGMCPROADMAP-119"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_017_mastery"
+    ]
+  },
+  "roadmap": "VC-203-017",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

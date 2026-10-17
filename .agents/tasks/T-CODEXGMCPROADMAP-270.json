@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-270",
+  "title": "[GMCP 203.039.03] Integration: Server supervision and lifecycle orchestration",
+  "goal": "Requirement GMCP-203-039-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: A durable supervisor starts servers in dependency order, health-checks readiness and liveness, applies bounded restart/backoff/quarantine, drains and reloads without losing admitted work, propagates cancellation, reaps process trees and exposes exact state/reason. Boot storms, crash loops, hangs, upgrades, resource exhaustion and host restart converge automatically without duplicate instances or silent capability loss. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-268",
+    "T-CODEXGMCPROADMAP-269"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_039_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-039",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-215",
+  "title": "[GMCP 203.031.04] Adversarial and failure behavior: Tool poisoning, prompt injection, rug-pull, and exfiltration defenses",
+  "goal": "Requirement GMCP-203-031-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: All server descriptions, schemas, prompts, resources, UI and tool output are untrusted data. GMCP detects and contains hidden instructions, cross-server shadowing, schema/description rug pulls, Unicode deception, poisoned resources, indirect prompt injection and staged exfiltration; material metadata changes invalidate consent and trust; and a maintained adversarial corpus proves no content can authorize tools, reveal secrets or widen policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-212",
+    "T-CODEXGMCPROADMAP-213",
+    "T-CODEXGMCPROADMAP-214"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_031_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-031",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

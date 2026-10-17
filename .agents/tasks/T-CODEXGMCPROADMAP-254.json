@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-254",
+  "title": "[GMCP 203.034.01] Contract: Audit, privacy, provenance, and compliance evidence",
+  "goal": "Requirement GMCP-203-034-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: A single tamper-evident event model records MCP lifecycle, discovery, policy, consent, install, auth, invocation, data egress, callback, task and administrative outcomes with correlation and provenance but no secret or raw sensitive payload. Retention, deletion, export and subject boundaries are configurable; completeness canaries catch bypasses; and an evidence bundle reproduces every completion claim from immutable test and build artifacts. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-134",
+    "T-CODEXGMCPROADMAP-218",
+    "T-CODEXGMCPROADMAP-246"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_034_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-034",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256255
+}

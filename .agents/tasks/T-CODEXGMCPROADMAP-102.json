@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-102",
+  "title": "[GMCP 203.014.03] Integration: Official Tasks extension and durable long-running work",
+  "goal": "Requirement GMCP-203-014-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: The official Tasks extension is implemented on both client and server for get, update, cancel, notifications, state transitions, expiry, retries, ownership and server-directed execution. Durable tasks survive process restart exactly once, compose with MRTR and progress, enforce terminal-state invariants, and reject stale, cross-user, forged or replayed task handles. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-100",
+    "T-CODEXGMCPROADMAP-101"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_014_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-014",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

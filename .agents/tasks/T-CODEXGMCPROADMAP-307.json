@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-307",
+  "title": "[GMCP 203.042.05] Interoperability and quality: Performance, capacity, fairness, and resource budgets",
+  "goal": "Requirement GMCP-203-042-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: Published latency, throughput, startup, memory, descriptor, CPU, disk and event-fanout budgets are enforced per server, tenant and gateway under representative and adversarial load. Admission control, backpressure and fair scheduling prevent noisy neighbors; benchmarks are reproducible across supported platforms; regression thresholds gate release; and overload degrades explicitly without deadlock or unbounded growth. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-304",
+    "T-CODEXGMCPROADMAP-305",
+    "T-CODEXGMCPROADMAP-306"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_042_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-042",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256258
+}

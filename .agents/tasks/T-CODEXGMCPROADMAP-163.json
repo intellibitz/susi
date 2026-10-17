@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-163",
+  "title": "[GMCP 203.022.01] Contract: Namespacing, routing, composition, and virtual capabilities",
+  "goal": "Requirement GMCP-203-022-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Stable globally unique capability identities prevent collisions and shadowing across servers, aliases remain explicit, and routing can select or fan out by schema, policy, health, locality and cost. Typed compositions form virtual tools/resources/prompts with provenance, transaction and compensation semantics, cycle detection, bounded depth, deterministic plans, and no privilege amplification between steps. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-57",
+    "T-CODEXGMCPROADMAP-64",
+    "T-CODEXGMCPROADMAP-71",
+    "T-CODEXGMCPROADMAP-99",
+    "T-CODEXGMCPROADMAP-148"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_022_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-022",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

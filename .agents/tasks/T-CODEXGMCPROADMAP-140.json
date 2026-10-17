@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-140",
+  "title": "[GMCP 203.019.06] Operations and evidence: Human consent, approvals, and interaction UX",
+  "goal": "Requirement GMCP-203-019-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Every consequential MCP action has a consistent inspect-before-run experience showing server identity, exact tool and arguments, data leaving the machine, credentials and side effects, with session and durable consent scoped separately. Approval is revocable, non-transferable and inaccessible to untrusted content; headless denial, accessibility, batching, timeout and emergency-stop behavior are all deterministic and audited. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-135",
+    "T-CODEXGMCPROADMAP-136",
+    "T-CODEXGMCPROADMAP-137",
+    "T-CODEXGMCPROADMAP-138",
+    "T-CODEXGMCPROADMAP-139"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_019_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-019",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

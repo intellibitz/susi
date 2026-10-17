@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-63",
+  "title": "[GMCP 203.010.06] Operations and evidence: Complete resource server surface",
+  "goal": "Requirement GMCP-203-010-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Static and templated resources support deterministic discovery, URI completion, text and binary reads, metadata, pagination/filtering, cache semantics, list and update notifications, modern filtered subscriptions, authorization, cancellation, and bounded streaming. URI-template matching, traversal, races, stale cache, not-found semantics, MIME handling, and large-resource behavior pass positive and adversarial fixtures. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-58",
+    "T-CODEXGMCPROADMAP-59",
+    "T-CODEXGMCPROADMAP-60",
+    "T-CODEXGMCPROADMAP-61",
+    "T-CODEXGMCPROADMAP-62"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_010_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-010",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

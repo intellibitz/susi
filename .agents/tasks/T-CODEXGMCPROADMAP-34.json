@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-34",
+  "title": "[GMCP 203.004.05] Interoperability and quality: Legacy lifecycle compatibility and governed deprecation",
+  "goal": "Requirement GMCP-203-004-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: GMCP interoperates with pinned older MCP revisions through isolated compatibility adapters for initialize/initialized, ping, legacy HTTP+SSE, resource subscriptions, roots, sampling, elicitation, logging, and legacy task shapes without weakening the modern path. Version selection is deterministic, downgrade is visible, every deprecated feature has telemetry and a tested removal policy, and no legacy state crosses tenant or connection boundaries. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-31",
+    "T-CODEXGMCPROADMAP-32",
+    "T-CODEXGMCPROADMAP-33"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_004_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-004",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

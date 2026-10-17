@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-49",
+  "title": "[GMCP 203.006.06] Operations and evidence: Production-grade Streamable HTTP transport",
+  "goal": "Requirement GMCP-203-006-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: GMCP serves and consumes current Streamable HTTP over HTTP/1.1 and HTTP/2 with correct POST semantics, media negotiation, streaming and non-streaming responses, origin/host validation, protocol and method headers, cache controls, cancellation, backpressure, connection limits, TLS, proxy awareness, and graceful drain. Removed GET/SSE-resume/session behavior is rejected on the modern path and confined to explicit legacy adapters. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-44",
+    "T-CODEXGMCPROADMAP-45",
+    "T-CODEXGMCPROADMAP-46",
+    "T-CODEXGMCPROADMAP-47",
+    "T-CODEXGMCPROADMAP-48"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_006_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-006",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

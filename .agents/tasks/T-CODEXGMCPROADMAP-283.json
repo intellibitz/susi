@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-283",
+  "title": "[GMCP 203.043.02] Production path: Cross-platform packaging, service integration, and distribution",
+  "goal": "Requirement GMCP-203-043-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Identical supported GMCP capability is packaged for Linux, macOS and Windows across x86_64 and arm64 with signed, reproducible artifacts, service-manager integration, upgrade/rollback, uninstall, path/permission handling and diagnostics. A declared parity matrix has automated clean-machine, non-admin, Unicode-path, sleep/resume and upgrade tests; unavoidable platform differences are explicit and policy-safe. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-282"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_043_02_production"
+    ]
+  },
+  "roadmap": "VC-203-043",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

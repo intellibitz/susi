@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-80",
+  "title": "[GMCP 203.016.02] Production path: First-class extension framework and extension governance",
+  "goal": "Requirement GMCP-203-016-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Namespaced MCP extensions can be discovered, negotiated, configured, versioned, isolated and disabled through one typed framework without forking core protocol code. Unknown extensions round-trip safely, required unsupported extensions fail explicitly, official and experimental status is visible, collision and downgrade rules are enforced, and a watch process opens roadmap work for every newly published official extension. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-79"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_016_02_production"
+    ]
+  },
+  "roadmap": "VC-203-016",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

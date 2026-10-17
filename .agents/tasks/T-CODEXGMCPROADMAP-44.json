@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-44",
+  "title": "[GMCP 203.006.01] Contract: Production-grade Streamable HTTP transport",
+  "goal": "Requirement GMCP-203-006-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: GMCP serves and consumes current Streamable HTTP over HTTP/1.1 and HTTP/2 with correct POST semantics, media negotiation, streaming and non-streaming responses, origin/host validation, protocol and method headers, cache controls, cancellation, backpressure, connection limits, TLS, proxy awareness, and graceful drain. Removed GET/SSE-resume/session behavior is rejected on the modern path and confined to explicit legacy adapters. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-15",
+    "T-CODEXGMCPROADMAP-22"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_006_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-006",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

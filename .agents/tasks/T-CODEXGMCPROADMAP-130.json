@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-130",
+  "title": "[GMCP 203.024.03] Integration: Unified policy engine and least-privilege authorization",
+  "goal": "Requirement GMCP-203-024-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: One deny-by-default policy engine mediates discovery, invocation, callbacks, data flow and installation using principal, server, capability, arguments, resource, destination, time, risk and provenance. Delegation uses attenuated capability grants, policy decisions explain their exact rule and version, TOCTOU is prevented by execution-time re-check, and exhaustive architecture tests prove no production bypass. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-128",
+    "T-CODEXGMCPROADMAP-129"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_024_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-024",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

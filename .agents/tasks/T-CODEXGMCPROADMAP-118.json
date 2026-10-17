@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-118",
+  "title": "[GMCP 203.017.05] Interoperability and quality: Complete MCP client and host",
+  "goal": "Requirement GMCP-203-017-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: GMCP is a full host, not only a tool caller: one API and CLI can connect to any supported server, discover capabilities, call tools, read and subscribe to resources, get prompts and completions, handle MRTR callbacks, tasks, Apps, authorization, notifications, progress and cancellation. Multiple servers operate concurrently with isolated identities, policies and state, and every callback surface is exercised against real reference servers. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-115",
+    "T-CODEXGMCPROADMAP-116",
+    "T-CODEXGMCPROADMAP-117"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_017_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-017",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-324",
+  "title": "[GMCP 203.047.01] Contract: Documentation, examples, developer experience, release quality, and SLOs",
+  "goal": "Requirement GMCP-203-047-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Versioned operator, author, host, security, migration, troubleshooting and architecture documentation is executable and matches shipped behavior; examples cover every primitive and official extension from minimal to production. One-command setup and diagnostics pass usability studies, releases carry compatibility/SBOM/provenance evidence, and published availability, recovery, performance and support SLOs are measured with error-budget policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-113",
+    "T-CODEXGMCPROADMAP-239",
+    "T-CODEXGMCPROADMAP-288",
+    "T-CODEXGMCPROADMAP-302",
+    "T-CODEXGMCPROADMAP-316",
+    "T-CODEXGMCPROADMAP-323"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_047_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-047",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256259
+}

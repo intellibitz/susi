@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-247",
+  "title": "[GMCP 203.037.01] Contract: Configuration import, export, migration, and desired state",
+  "goal": "Requirement GMCP-203-037-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: GMCP losslessly imports and exports major MCP host configurations while separating secrets, preserving unknown fields and reporting unsupported semantics. One versioned desired-state schema covers servers, transports, auth, sandbox, policy and extensions; migrations are reversible and idempotent; layered overrides explain provenance; and concurrent edits use validation plus atomic conflict handling. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-120",
+    "T-CODEXGMCPROADMAP-197",
+    "T-CODEXGMCPROADMAP-239"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_037_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-037",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

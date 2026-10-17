@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-4",
+  "title": "[GMCP 203.001.03] Integration: Normative requirements ledger and standards drift",
+  "goal": "Requirement GMCP-203-001-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: A machine-readable requirements ledger covers every applicable MCP 2025-11-25 and 2026-07-28 MUST, SHOULD, error, deprecation, security rule, official extension, and implementation claim. Every row traces to an owner, production path, positive and negative test, evidence artifact, and disposition; automated upstream drift detection fails closed on an unclassified change. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-2",
+    "T-CODEXGMCPROADMAP-3"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_001_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-001",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256241
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-277",
+  "title": "[GMCP 203.040.03] Integration: OpenTelemetry, metrics, logs, traces, and diagnostics",
+  "goal": "Requirement GMCP-203-040-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: GMCP emits bounded OpenTelemetry-compatible traces, metrics and structured logs across host, gateway, transport, server and callback boundaries, propagating standard trace context from MCP metadata. RED/USE, queue, cache, policy, consent, task and lifecycle signals have stable schemas and cardinality budgets; payload redaction is structural; diagnostics explain failures locally and export only under explicit policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-275",
+    "T-CODEXGMCPROADMAP-276"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_040_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-040",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

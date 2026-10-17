@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-121",
+  "title": "[GMCP 203.018.01] Contract: Client connection runtime, caching, retries, and concurrency",
+  "goal": "Requirement GMCP-203-018-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: The client runtime pools only security-equivalent connections, honors ttlMs and cacheScope, invalidates on notifications, applies deadline and cancellation budgets, retries only safe operations with jitter and circuit breaking, and enforces per-server plus global concurrency and memory bounds. Reconnect, half-open, duplicate-response, slowloris, crash-loop and thundering-herd tests prove deterministic recovery without duplicate side effects. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-43",
+    "T-CODEXGMCPROADMAP-50",
+    "T-CODEXGMCPROADMAP-120"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_018_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-018",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

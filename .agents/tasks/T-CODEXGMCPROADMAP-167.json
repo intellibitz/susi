@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-167",
+  "title": "[GMCP 203.022.05] Interoperability and quality: Namespacing, routing, composition, and virtual capabilities",
+  "goal": "Requirement GMCP-203-022-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: Stable globally unique capability identities prevent collisions and shadowing across servers, aliases remain explicit, and routing can select or fan out by schema, policy, health, locality and cost. Typed compositions form virtual tools/resources/prompts with provenance, transaction and compensation semantics, cycle detection, bounded depth, deterministic plans, and no privilege amplification between steps. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-164",
+    "T-CODEXGMCPROADMAP-165",
+    "T-CODEXGMCPROADMAP-166"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_022_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-022",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

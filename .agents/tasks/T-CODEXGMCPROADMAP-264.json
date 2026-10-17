@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-264",
+  "title": "[GMCP 203.038.04] Adversarial and failure behavior: Catalog, discovery, health, compatibility, and trust intelligence",
+  "goal": "Requirement GMCP-203-038-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Local configs, running processes, package managers, the official registry and explicit endpoints reconcile into one deduplicated catalog with provenance. Active probes measure protocol/extension compatibility, health, latency and policy fitness without granting trust; recommendations explain evidence and cost; stale or conflicting records converge; and discovery never installs, enables or sends data without authorization. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-261",
+    "T-CODEXGMCPROADMAP-262",
+    "T-CODEXGMCPROADMAP-263"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_038_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-038",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256255
+}

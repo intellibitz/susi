@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-306",
+  "title": "[GMCP 203.042.04] Adversarial and failure behavior: Performance, capacity, fairness, and resource budgets",
+  "goal": "Requirement GMCP-203-042-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Published latency, throughput, startup, memory, descriptor, CPU, disk and event-fanout budgets are enforced per server, tenant and gateway under representative and adversarial load. Admission control, backpressure and fair scheduling prevent noisy neighbors; benchmarks are reproducible across supported platforms; regression thresholds gate release; and overload degrades explicitly without deadlock or unbounded growth. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-303",
+    "T-CODEXGMCPROADMAP-304",
+    "T-CODEXGMCPROADMAP-305"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_042_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-042",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256258
+}

@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-196",
+  "title": "[GMCP 203.028.06] Operations and evidence: Secrets, credentials, and cryptographic lifecycle",
+  "goal": "Requirement GMCP-203-028-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: MCP credentials and private keys live in OS-backed secret storage or an explicit encrypted fallback, are referenced rather than copied into configs, and follow creation, least-scope, rotation, revocation, export prohibition and secure deletion policies. Secret scanning, redaction canaries and crash/core-dump tests prove secrets do not enter arguments, logs, traces, task files, environment inheritance or diagnostics. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-191",
+    "T-CODEXGMCPROADMAP-192",
+    "T-CODEXGMCPROADMAP-193",
+    "T-CODEXGMCPROADMAP-194",
+    "T-CODEXGMCPROADMAP-195"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_028_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-028",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

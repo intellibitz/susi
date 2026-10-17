@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-122",
+  "title": "[GMCP 203.018.02] Production path: Client connection runtime, caching, retries, and concurrency",
+  "goal": "Requirement GMCP-203-018-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: The client runtime pools only security-equivalent connections, honors ttlMs and cacheScope, invalidates on notifications, applies deadline and cancellation budgets, retries only safe operations with jitter and circuit breaking, and enforces per-server plus global concurrency and memory bounds. Reconnect, half-open, duplicate-response, slowloris, crash-loop and thundering-herd tests prove deterministic recovery without duplicate side effects. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-121"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_018_02_production"
+    ]
+  },
+  "roadmap": "VC-203-018",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

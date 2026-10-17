@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-151",
+  "title": "[GMCP 203.025.03] Integration: OAuth-protected MCP resource server",
+  "goal": "Requirement GMCP-203-025-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Remote GMCP endpoints implement current MCP authorization and OAuth resource-server requirements: protected-resource metadata, authorization-server discovery, issuer and audience validation, scopes, challenges, PKCE-facing metadata, token expiry/revocation and TLS. Token passthrough is impossible, resource and authorization roles remain separated, and confused-deputy, mix-up, replay and malformed-token suites fail closed. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-149",
+    "T-CODEXGMCPROADMAP-150"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_025_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-025",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256249
+}

@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXGMCPROADMAP-191",
+  "title": "[GMCP 203.028.01] Contract: Secrets, credentials, and cryptographic lifecycle",
+  "goal": "Requirement GMCP-203-028-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: MCP credentials and private keys live in OS-backed secret storage or an explicit encrypted fallback, are referenced rather than copied into configs, and follow creation, least-scope, rotation, revocation, export prohibition and secure deletion policies. Secret scanning, redaction canaries and crash/core-dump tests prove secrets do not enter arguments, logs, traces, task files, environment inheritance or diagnostics. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-134",
+    "T-CODEXGMCPROADMAP-155",
+    "T-CODEXGMCPROADMAP-176",
+    "T-CODEXGMCPROADMAP-190"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_028_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-028",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

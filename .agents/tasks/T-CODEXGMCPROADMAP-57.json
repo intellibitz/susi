@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-57",
+  "title": "[GMCP 203.009.M] Mastery: Complete tool server surface",
+  "goal": "Requirement GMCP-203-009-M. Pass the complete vector mastery target on the shipped production path: Tool discovery, deterministic pagination/filtering, list-change signaling, invocation, structured and unstructured results, output-schema validation, annotations, icons, errors, cancellation, progress, caching, idempotency declarations, and concurrent execution all work through the production registry. Tool identity and schema changes are versioned, calls are policy-gated, and success is impossible when declared output contracts are violated. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-51",
+    "T-CODEXGMCPROADMAP-52",
+    "T-CODEXGMCPROADMAP-53",
+    "T-CODEXGMCPROADMAP-54",
+    "T-CODEXGMCPROADMAP-55",
+    "T-CODEXGMCPROADMAP-56"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_009_mastery"
+    ]
+  },
+  "roadmap": "VC-203-009",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

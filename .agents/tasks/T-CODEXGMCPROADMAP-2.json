@@ -1,0 +1,20 @@
+{
+  "id": "T-CODEXGMCPROADMAP-2",
+  "title": "[GMCP 203.001.01] Contract: Normative requirements ledger and standards drift",
+  "goal": "Requirement GMCP-203-001-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: A machine-readable requirements ledger covers every applicable MCP 2025-11-25 and 2026-07-28 MUST, SHOULD, error, deprecation, security rule, official extension, and implementation claim. Every row traces to an owner, production path, positive and negative test, evidence artifact, and disposition; automated upstream drift detection fails closed on an unclassified change. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_001_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-001",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256241
+}

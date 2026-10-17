@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-213",
+  "title": "[GMCP 203.031.02] Production path: Tool poisoning, prompt injection, rug-pull, and exfiltration defenses",
+  "goal": "Requirement GMCP-203-031-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: All server descriptions, schemas, prompts, resources, UI and tool output are untrusted data. GMCP detects and contains hidden instructions, cross-server shadowing, schema/description rug pulls, Unicode deception, poisoned resources, indirect prompt injection and staged exfiltration; material metadata changes invalidate consent and trust; and a maintained adversarial corpus proves no content can authorize tools, reveal secrets or widen policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-212"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_031_02_production"
+    ]
+  },
+  "roadmap": "VC-203-031",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

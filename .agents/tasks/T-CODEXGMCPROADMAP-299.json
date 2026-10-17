@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-299",
+  "title": "[GMCP 203.044.04] Adversarial and failure behavior: Inspector, debugger, record/replay, mocks, and test laboratory",
+  "goal": "Requirement GMCP-203-044-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: An operator can inspect negotiated capabilities, schemas, calls, subscriptions, tasks and traces; validate a server; replay a redacted deterministic transcript; inject latency/faults; and generate configurable mock clients or servers from contracts. Sensitive fields are removed before persistence, replay cannot perform side effects by default, formats are versioned, and CLI/TUI plus official Inspector workflows agree. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-296",
+    "T-CODEXGMCPROADMAP-297",
+    "T-CODEXGMCPROADMAP-298"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_044_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-044",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

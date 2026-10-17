@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-51",
+  "title": "[GMCP 203.009.01] Contract: Complete tool server surface",
+  "goal": "Requirement GMCP-203-009-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Tool discovery, deterministic pagination/filtering, list-change signaling, invocation, structured and unstructured results, output-schema validation, annotations, icons, errors, cancellation, progress, caching, idempotency declarations, and concurrent execution all work through the production registry. Tool identity and schema changes are versioned, calls are policy-gated, and success is impossible when declared output contracts are violated. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-22",
+    "T-CODEXGMCPROADMAP-29"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_009_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-009",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

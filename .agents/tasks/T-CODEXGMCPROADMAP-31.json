@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-31",
+  "title": "[GMCP 203.004.02] Production path: Legacy lifecycle compatibility and governed deprecation",
+  "goal": "Requirement GMCP-203-004-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: GMCP interoperates with pinned older MCP revisions through isolated compatibility adapters for initialize/initialized, ping, legacy HTTP+SSE, resource subscriptions, roots, sampling, elicitation, logging, and legacy task shapes without weakening the modern path. Version selection is deterministic, downgrade is visible, every deprecated feature has telemetry and a tested removal policy, and no legacy state crosses tenant or connection boundaries. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-30"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_004_02_production"
+    ]
+  },
+  "roadmap": "VC-203-004",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-185",
+  "title": "[GMCP 203.027.02] Production path: Enterprise and machine-to-machine authorization extensions",
+  "goal": "Requirement GMCP-203-027-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: GMCP implements and tests official enterprise-managed authorization and OAuth client-credentials extension profiles without conflating user and workload identity. Policy chooses flows explicitly, administrators can constrain issuers and clients, managed settings are tamper-evident, credentials are audience-bound and rotated, and unsupported or draft profiles are labeled and safely declined. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-184"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_027_02_production"
+    ]
+  },
+  "roadmap": "VC-203-027",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

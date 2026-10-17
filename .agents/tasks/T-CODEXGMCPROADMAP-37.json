@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-37",
+  "title": "[GMCP 203.005.01] Contract: Production-grade stdio transport",
+  "goal": "Requirement GMCP-203-005-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: GMCP serves and consumes MCP over stdio with byte-accurate framing, bounded lines/messages, strict stdout protocol purity, stderr diagnostics, environment and working-directory control, graceful cancellation and shutdown, child-tree cleanup, backpressure, timeout handling, and Windows/Unix parity. Crash, hang, malformed output, descriptor leak, and hostile child fixtures all recover without stranding resources. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-15",
+    "T-CODEXGMCPROADMAP-22"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_005_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-005",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

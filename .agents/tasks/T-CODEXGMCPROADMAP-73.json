@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-73",
+  "title": "[GMCP 203.013.02] Production path: MRTR, elicitation, sampling, and roots interaction model",
+  "goal": "Requirement GMCP-203-013-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: The model-request/tool-response flow fully implements input_required, typed inputRequests, retry with inputResponses, nested elicitation, sampling and roots compatibility, cancellation, deadlines, progress, partial failure, and explicit handle ownership. Every human or model decision is attributable, policy-checked and resumable, and replays cannot duplicate side effects or hijack another principal's handle. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-72"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_013_02_production"
+    ]
+  },
+  "roadmap": "VC-203-013",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

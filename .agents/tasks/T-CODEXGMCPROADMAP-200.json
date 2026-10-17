@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-200",
+  "title": "[GMCP 203.029.03] Integration: Local process, filesystem, and network sandboxing",
+  "goal": "Requirement GMCP-203-029-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Each local MCP server executes under a declared sandbox profile with minimal filesystem, network, process, device, environment and resource access, implemented on Linux, macOS and Windows with visible degradation when an OS primitive is unavailable. Profiles are generated from permissions, independently enforced outside the child, immutable after launch, and defeated by none of the traversal, symlink, namespace, child-process or localhost escape tests. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-198",
+    "T-CODEXGMCPROADMAP-199"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_029_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-029",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

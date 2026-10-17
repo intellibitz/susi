@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-313",
+  "title": "[GMCP 203.045.04] Adversarial and failure behavior: Official conformance and ecosystem interoperability matrix",
+  "goal": "Requirement GMCP-203-045-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Pinned official MCP conformance suites pass with zero expected failures for GMCP as client and server on every supported revision, transport and official extension. Differential tests against representative reference SDKs and major hosts/servers run in both directions on every platform; the published compatibility matrix contains no unexplained cell, and upstream suite changes block release until classified. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-310",
+    "T-CODEXGMCPROADMAP-311",
+    "T-CODEXGMCPROADMAP-312"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_045_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-045",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256258
+}

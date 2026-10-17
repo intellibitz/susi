@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-106",
+  "title": "[GMCP 203.014.M] Mastery: Official Tasks extension and durable long-running work",
+  "goal": "Requirement GMCP-203-014-M. Pass the complete vector mastery target on the shipped production path: The official Tasks extension is implemented on both client and server for get, update, cancel, notifications, state transitions, expiry, retries, ownership and server-directed execution. Durable tasks survive process restart exactly once, compose with MRTR and progress, enforce terminal-state invariants, and reject stale, cross-user, forged or replayed task handles. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-100",
+    "T-CODEXGMCPROADMAP-101",
+    "T-CODEXGMCPROADMAP-102",
+    "T-CODEXGMCPROADMAP-103",
+    "T-CODEXGMCPROADMAP-104",
+    "T-CODEXGMCPROADMAP-105"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_014_mastery"
+    ]
+  },
+  "roadmap": "VC-203-014",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

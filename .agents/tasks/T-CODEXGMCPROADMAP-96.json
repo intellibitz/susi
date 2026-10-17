@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-96",
+  "title": "[GMCP 203.012.04] Adversarial and failure behavior: Subscriptions, notifications, progress, and operational messages",
+  "goal": "Requirement GMCP-203-012-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Modern subscriptions/listen filters and acknowledgement metadata work for tools, prompts, resources and resource updates, with bounded fan-out, ordering guarantees, cancellation, reconnect policy, backpressure and authorization re-checks. Progress and operational log notifications correlate to the originating request, obey requested levels and redaction, and never become an unbounded covert channel. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-93",
+    "T-CODEXGMCPROADMAP-94",
+    "T-CODEXGMCPROADMAP-95"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_012_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-012",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-172",
+  "title": "[GMCP 203.026.03] Integration: OAuth-capable MCP client and authorization flow",
+  "goal": "Requirement GMCP-203-026-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: The host completes secure authorization-code flows with PKCE, state and nonce binding, protected-resource discovery, authorization-server selection, exact redirect matching, refresh rotation, revocation, incremental scopes and per-resource credential binding. Dynamic registration is isolated as legacy policy; current client metadata mechanisms, loopback hardening, browser cancellation and concurrent-account flows are interoperable and attack-tested. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-170",
+    "T-CODEXGMCPROADMAP-171"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_026_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-026",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

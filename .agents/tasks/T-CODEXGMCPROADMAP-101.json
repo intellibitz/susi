@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-101",
+  "title": "[GMCP 203.014.02] Production path: Official Tasks extension and durable long-running work",
+  "goal": "Requirement GMCP-203-014-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: The official Tasks extension is implemented on both client and server for get, update, cancel, notifications, state transitions, expiry, retries, ownership and server-directed execution. Durable tasks survive process restart exactly once, compose with MRTR and progress, enforce terminal-state invariants, and reject stale, cross-user, forged or replayed task handles. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-100"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_014_02_production"
+    ]
+  },
+  "roadmap": "VC-203-014",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

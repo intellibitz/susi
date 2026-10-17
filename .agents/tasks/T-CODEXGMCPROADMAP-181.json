@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-181",
+  "title": "[GMCP 203.023.05] Interoperability and quality: Service adapters and generated MCP surfaces",
+  "goal": "Requirement GMCP-203-023-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: OpenAPI, AsyncAPI, GraphQL, command and native-library adapters can generate reviewable MCP tools/resources with stable names, precise schemas, pagination, auth mapping, rate limits, idempotency and redaction. Generated artifacts are reproducible, diffable and policy-scanned; unsupported semantics fail generation rather than producing unsafe generic shells. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-178",
+    "T-CODEXGMCPROADMAP-179",
+    "T-CODEXGMCPROADMAP-180"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_023_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-023",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

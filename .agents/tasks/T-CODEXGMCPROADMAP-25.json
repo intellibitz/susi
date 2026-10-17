@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-25",
+  "title": "[GMCP 203.008.03] Integration: Complete schemas, primitives, content, and metadata model",
+  "goal": "Requirement GMCP-203-008-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Every MCP primitive and content variant is represented losslessly, including annotations, icons, resource links and embedded resources, binary media, extensions, cache scope/TTL, audience and priority metadata, and JSON Schema 2020-12 input/output contracts. Round-trip fixtures preserve unknown extension fields; schema limits, external-reference policy, Unicode, URI and MIME validation, and canonical serialization are exhaustively tested. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-23",
+    "T-CODEXGMCPROADMAP-24"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_008_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-008",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

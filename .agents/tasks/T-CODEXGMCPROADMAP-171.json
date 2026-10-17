@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-171",
+  "title": "[GMCP 203.026.02] Production path: OAuth-capable MCP client and authorization flow",
+  "goal": "Requirement GMCP-203-026-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: The host completes secure authorization-code flows with PKCE, state and nonce binding, protected-resource discovery, authorization-server selection, exact redirect matching, refresh rotation, revocation, incremental scopes and per-resource credential binding. Dynamic registration is isolated as legacy policy; current client metadata mechanisms, loopback hardening, browser cancellation and concurrent-account flows are interoperable and attack-tested. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-170"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_026_02_production"
+    ]
+  },
+  "roadmap": "VC-203-026",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

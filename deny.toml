@@ -37,6 +37,9 @@ ignore = [
     "RUSTSEC-2025-0141", # bincode 2.0.1 is unmaintained (maintainer stepped away after a harassment incident); no safe upgrade, pulled transitively via wasmer-wasix
     "RUSTSEC-2024-0436", # paste is unmaintained/archived by its author; no safe upgrade, pulled transitively via candle's gemm crates
     "RUSTSEC-2024-0449", # unsafe-libyaml is unmaintained with no safe upgrade; transitive via Wasmer's serde_yaml and not directly used by Susi
+    "RUSTSEC-2026-0367", # zip 8.6.0 permissions during extraction; transitive via candle-core (no extraction performed)
+    "RUSTSEC-2026-0368", # zip 8.6.0 symlink traversal during extraction; transitive via candle-core
+    "RUSTSEC-2026-0369", # zip 8.6.0 permissions through symlinks; transitive via candle-core
 ]
 
 [licenses]

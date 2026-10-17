@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-149",
+  "title": "[GMCP 203.025.01] Contract: OAuth-protected MCP resource server",
+  "goal": "Requirement GMCP-203-025-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Remote GMCP endpoints implement current MCP authorization and OAuth resource-server requirements: protected-resource metadata, authorization-server discovery, issuer and audience validation, scopes, challenges, PKCE-facing metadata, token expiry/revocation and TLS. Token passthrough is impossible, resource and authorization roles remain separated, and confused-deputy, mix-up, replay and malformed-token suites fail closed. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-50",
+    "T-CODEXGMCPROADMAP-134"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_025_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-025",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256249
+}

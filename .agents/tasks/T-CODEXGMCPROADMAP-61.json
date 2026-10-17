@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-61",
+  "title": "[GMCP 203.010.04] Adversarial and failure behavior: Complete resource server surface",
+  "goal": "Requirement GMCP-203-010-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Static and templated resources support deterministic discovery, URI completion, text and binary reads, metadata, pagination/filtering, cache semantics, list and update notifications, modern filtered subscriptions, authorization, cancellation, and bounded streaming. URI-template matching, traversal, races, stale cache, not-found semantics, MIME handling, and large-resource behavior pass positive and adversarial fixtures. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-58",
+    "T-CODEXGMCPROADMAP-59",
+    "T-CODEXGMCPROADMAP-60"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_010_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-010",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

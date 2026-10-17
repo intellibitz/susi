@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-315",
+  "title": "[GMCP 203.045.06] Operations and evidence: Official conformance and ecosystem interoperability matrix",
+  "goal": "Requirement GMCP-203-045-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Pinned official MCP conformance suites pass with zero expected failures for GMCP as client and server on every supported revision, transport and official extension. Differential tests against representative reference SDKs and major hosts/servers run in both directions on every platform; the published compatibility matrix contains no unexplained cell, and upstream suite changes block release until classified. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-310",
+    "T-CODEXGMCPROADMAP-311",
+    "T-CODEXGMCPROADMAP-312",
+    "T-CODEXGMCPROADMAP-313",
+    "T-CODEXGMCPROADMAP-314"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_045_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-045",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256258
+}

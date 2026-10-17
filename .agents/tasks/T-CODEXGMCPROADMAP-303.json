@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXGMCPROADMAP-303",
+  "title": "[GMCP 203.042.01] Contract: Performance, capacity, fairness, and resource budgets",
+  "goal": "Requirement GMCP-203-042-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Published latency, throughput, startup, memory, descriptor, CPU, disk and event-fanout budgets are enforced per server, tenant and gateway under representative and adversarial load. Admission control, backpressure and fair scheduling prevent noisy neighbors; benchmarks are reproducible across supported platforms; regression thresholds gate release; and overload degrades explicitly without deadlock or unbounded growth. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-127",
+    "T-CODEXGMCPROADMAP-274",
+    "T-CODEXGMCPROADMAP-281",
+    "T-CODEXGMCPROADMAP-295"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_042_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-042",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

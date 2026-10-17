@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-59",
+  "title": "[GMCP 203.010.02] Production path: Complete resource server surface",
+  "goal": "Requirement GMCP-203-010-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Static and templated resources support deterministic discovery, URI completion, text and binary reads, metadata, pagination/filtering, cache semantics, list and update notifications, modern filtered subscriptions, authorization, cancellation, and bounded streaming. URI-template matching, traversal, races, stale cache, not-found semantics, MIME handling, and large-resource behavior pass positive and adversarial fixtures. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-58"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_010_02_production"
+    ]
+  },
+  "roadmap": "VC-203-010",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

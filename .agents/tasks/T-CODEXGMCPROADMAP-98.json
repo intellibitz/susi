@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-98",
+  "title": "[GMCP 203.012.06] Operations and evidence: Subscriptions, notifications, progress, and operational messages",
+  "goal": "Requirement GMCP-203-012-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Modern subscriptions/listen filters and acknowledgement metadata work for tools, prompts, resources and resource updates, with bounded fan-out, ordering guarantees, cancellation, reconnect policy, backpressure and authorization re-checks. Progress and operational log notifications correlate to the originating request, obey requested levels and redaction, and never become an unbounded covert channel. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-93",
+    "T-CODEXGMCPROADMAP-94",
+    "T-CODEXGMCPROADMAP-95",
+    "T-CODEXGMCPROADMAP-96",
+    "T-CODEXGMCPROADMAP-97"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_012_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-012",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

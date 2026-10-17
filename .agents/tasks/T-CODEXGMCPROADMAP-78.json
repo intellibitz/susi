@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-78",
+  "title": "[GMCP 203.013.M] Mastery: MRTR, elicitation, sampling, and roots interaction model",
+  "goal": "Requirement GMCP-203-013-M. Pass the complete vector mastery target on the shipped production path: The model-request/tool-response flow fully implements input_required, typed inputRequests, retry with inputResponses, nested elicitation, sampling and roots compatibility, cancellation, deadlines, progress, partial failure, and explicit handle ownership. Every human or model decision is attributable, policy-checked and resumable, and replays cannot duplicate side effects or hijack another principal's handle. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-72",
+    "T-CODEXGMCPROADMAP-73",
+    "T-CODEXGMCPROADMAP-74",
+    "T-CODEXGMCPROADMAP-75",
+    "T-CODEXGMCPROADMAP-76",
+    "T-CODEXGMCPROADMAP-77"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_013_mastery"
+    ]
+  },
+  "roadmap": "VC-203-013",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

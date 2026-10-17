@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-279",
+  "title": "[GMCP 203.040.05] Interoperability and quality: OpenTelemetry, metrics, logs, traces, and diagnostics",
+  "goal": "Requirement GMCP-203-040-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: GMCP emits bounded OpenTelemetry-compatible traces, metrics and structured logs across host, gateway, transport, server and callback boundaries, propagating standard trace context from MCP metadata. RED/USE, queue, cache, policy, consent, task and lifecycle signals have stable schemas and cardinality budgets; payload redaction is structural; diagnostics explain failures locally and export only under explicit policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-276",
+    "T-CODEXGMCPROADMAP-277",
+    "T-CODEXGMCPROADMAP-278"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_040_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-040",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

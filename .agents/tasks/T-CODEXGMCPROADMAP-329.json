@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-329",
+  "title": "[GMCP 203.047.06] Operations and evidence: Documentation, examples, developer experience, release quality, and SLOs",
+  "goal": "Requirement GMCP-203-047-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Versioned operator, author, host, security, migration, troubleshooting and architecture documentation is executable and matches shipped behavior; examples cover every primitive and official extension from minimal to production. One-command setup and diagnostics pass usability studies, releases carry compatibility/SBOM/provenance evidence, and published availability, recovery, performance and support SLOs are measured with error-budget policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-324",
+    "T-CODEXGMCPROADMAP-325",
+    "T-CODEXGMCPROADMAP-326",
+    "T-CODEXGMCPROADMAP-327",
+    "T-CODEXGMCPROADMAP-328"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_047_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-047",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256259
+}

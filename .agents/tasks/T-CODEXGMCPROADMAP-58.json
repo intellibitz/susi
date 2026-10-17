@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-58",
+  "title": "[GMCP 203.010.01] Contract: Complete resource server surface",
+  "goal": "Requirement GMCP-203-010-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Static and templated resources support deterministic discovery, URI completion, text and binary reads, metadata, pagination/filtering, cache semantics, list and update notifications, modern filtered subscriptions, authorization, cancellation, and bounded streaming. URI-template matching, traversal, races, stale cache, not-found semantics, MIME handling, and large-resource behavior pass positive and adversarial fixtures. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-22",
+    "T-CODEXGMCPROADMAP-29"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_010_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-010",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

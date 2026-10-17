@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-192",
+  "title": "[GMCP 203.028.02] Production path: Secrets, credentials, and cryptographic lifecycle",
+  "goal": "Requirement GMCP-203-028-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: MCP credentials and private keys live in OS-backed secret storage or an explicit encrypted fallback, are referenced rather than copied into configs, and follow creation, least-scope, rotation, revocation, export prohibition and secure deletion policies. Secret scanning, redaction canaries and crash/core-dump tests prove secrets do not enter arguments, logs, traces, task files, environment inheritance or diagnostics. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-191"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_028_02_production"
+    ]
+  },
+  "roadmap": "VC-203-028",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

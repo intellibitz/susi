@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-16",
+  "title": "[GMCP 203.003.01] Contract: Modern stateless lifecycle and server discovery",
+  "goal": "Requirement GMCP-203-003-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: For MCP 2026-07-28 and later GMCP is genuinely stateless at the protocol layer: no initialize ceremony or session identifier is required, every request carries and validates version plus client capabilities, every result identifies the server, server/discover is complete and cacheable, and explicit handles bind all cross-call state. Concurrent requests from changing clients cannot leak negotiated state. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-15"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_003_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-003",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

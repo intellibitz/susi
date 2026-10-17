@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-39",
+  "title": "[GMCP 203.005.03] Integration: Production-grade stdio transport",
+  "goal": "Requirement GMCP-203-005-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: GMCP serves and consumes MCP over stdio with byte-accurate framing, bounded lines/messages, strict stdout protocol purity, stderr diagnostics, environment and working-directory control, graceful cancellation and shutdown, child-tree cleanup, backpressure, timeout handling, and Windows/Unix parity. Crash, hang, malformed output, descriptor leak, and hostile child fixtures all recover without stranding resources. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-37",
+    "T-CODEXGMCPROADMAP-38"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_005_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-005",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-291",
+  "title": "[GMCP 203.041.03] Integration: Reliability, durability, recovery, backup, and offline operation",
+  "goal": "Requirement GMCP-203-041-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Crash-consistent journals and atomic state transitions recover tasks, approvals, registry snapshots, desired state and lifecycle operations without replaying side effects. Defined RPO/RTO targets are met under kill -9, power-loss simulation, corrupt/torn state, full disk and clock skew; backups are encrypted, versioned and restore-tested; and all declared local capabilities remain usable without network access. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-289",
+    "T-CODEXGMCPROADMAP-290"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_041_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-041",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

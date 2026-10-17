@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-190",
+  "title": "[GMCP 203.027.M] Mastery: Enterprise and machine-to-machine authorization extensions",
+  "goal": "Requirement GMCP-203-027-M. Pass the complete vector mastery target on the shipped production path: GMCP implements and tests official enterprise-managed authorization and OAuth client-credentials extension profiles without conflating user and workload identity. Policy chooses flows explicitly, administrators can constrain issuers and clients, managed settings are tamper-evident, credentials are audience-bound and rotated, and unsupported or draft profiles are labeled and safely declined. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-184",
+    "T-CODEXGMCPROADMAP-185",
+    "T-CODEXGMCPROADMAP-186",
+    "T-CODEXGMCPROADMAP-187",
+    "T-CODEXGMCPROADMAP-188",
+    "T-CODEXGMCPROADMAP-189"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_027_mastery"
+    ]
+  },
+  "roadmap": "VC-203-027",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

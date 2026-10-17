@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-113",
+  "title": "[GMCP 203.020.M] Mastery: GMCP server authoring SDK and plugin lifecycle",
+  "goal": "Requirement GMCP-203-020-M. Pass the complete vector mastery target on the shipped production path: A stable Susi-shaped authoring SDK builds local MCP servers, tools, resources, prompts, subscriptions, MRTR handlers, tasks and extensions with schema derivation, typed context, middleware, testing fixtures and hot reload. Plugins declare permissions and compatibility, initialize transactionally, unload without leaks, preserve no vendor types across the boundary, and ship runnable minimal through production examples. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-107",
+    "T-CODEXGMCPROADMAP-108",
+    "T-CODEXGMCPROADMAP-109",
+    "T-CODEXGMCPROADMAP-110",
+    "T-CODEXGMCPROADMAP-111",
+    "T-CODEXGMCPROADMAP-112"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_020_mastery"
+    ]
+  },
+  "roadmap": "VC-203-020",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

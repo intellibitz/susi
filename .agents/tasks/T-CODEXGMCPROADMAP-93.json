@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-93",
+  "title": "[GMCP 203.012.01] Contract: Subscriptions, notifications, progress, and operational messages",
+  "goal": "Requirement GMCP-203-012-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Modern subscriptions/listen filters and acknowledgement metadata work for tools, prompts, resources and resource updates, with bounded fan-out, ordering guarantees, cancellation, reconnect policy, backpressure and authorization re-checks. Progress and operational log notifications correlate to the originating request, obey requested levels and redaction, and never become an unbounded covert channel. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-43",
+    "T-CODEXGMCPROADMAP-50",
+    "T-CODEXGMCPROADMAP-57",
+    "T-CODEXGMCPROADMAP-64",
+    "T-CODEXGMCPROADMAP-71"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_012_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-012",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}
