@@ -2298,3 +2298,181 @@ fn gmcp_req_203_002_04_adversarial() {
     drop(wire);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-002-05: retained reference fixtures interoperate with the served
+/// rmcp SDK path in both protocol eras, direct and wire tool reports agree,
+/// transport gates preserve the same malformed-envelope decisions, and a
+/// bounded concurrent request set keeps response IDs and result shapes stable.
+#[test]
+fn gmcp_req_203_002_05_interop() {
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-jrpc-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // The direct CLI/call surfaces and the served SDK path must agree on a
+    // stable, non-network capability before any fixture replay begins.
+    let cli_report = susi_json(root, &home, &["mcp", "ledger"]);
+    let direct_report = call_tool_report(&susi_json(
+        root,
+        &home,
+        &["mcp", "call", "susi", "ledger_verify", "{}"],
+    ));
+    assert_eq!(direct_report, cli_report);
+
+    let mut legacy = StdioSession::spawn(root, &home);
+    let legacy_start = std::time::Instant::now();
+    let legacy_ping = legacy.request("ping", serde_json::json!({}));
+    assert!(
+        legacy_start.elapsed() < std::time::Duration::from_secs(10),
+        "legacy SDK round trip exceeded the interoperability budget"
+    );
+    assert!(legacy_ping.is_object());
+    assert!(legacy_ping.get("resultType").is_none());
+
+    // Replay every positive request fixture that has a wire payload. A
+    // modern session is established once, matching how a reference client
+    // keeps negotiated capabilities and then issues subsequent calls.
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    for file in [
+        "request-2026-07-28-meta.json",
+        "request-progress-token.json",
+        "request-trace-context.json",
+        "server-discover-2026-07-28-meta.json",
+        "server-discover-2026-07-28.json",
+    ] {
+        let path = root.join(".agents/gmcp/fixtures/positive").join(file);
+        let fixture: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+                .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
+        let request = &fixture["request"];
+        let response = modern
+            .request_verbatim(request, std::time::Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("{file} must receive a response"));
+        if file == "server-discover-2026-07-28.json" {
+            // This fixture is intentionally retained verbatim as a
+            // compatibility regression: params.protocolVersion is not the
+            // modern per-request _meta field, so the production path rejects
+            // it and the corrected *_meta fixture proves the interoperable
+            // form above.
+            assert_eq!(response["error"]["code"], -32602, "{file}: {response}");
+            let divergences =
+                std::fs::read_to_string(root.join(".agents/gmcp/fixtures/divergences.json"))
+                    .unwrap();
+            assert!(divergences.contains("positive/server-discover-2026-07-28.json"));
+            continue;
+        }
+        assert!(response["error"].is_null(), "{file}: {response}");
+        assert!(response["result"].is_object(), "{file}: {response}");
+        assert_eq!(fixture["expect"], "result");
+        assert_eq!(response["result"]["resultType"], "complete", "{file}");
+    }
+
+    // The notification fixture is silent, but a reference client can keep
+    // using the same session immediately afterward.
+    let cancelled: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/positive/notification-cancelled.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    legacy.send(&cancelled["request"]);
+    legacy.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 900,
+        "method": "ping",
+        "params": {}
+    }));
+    let response = legacy
+        .response_for(&serde_json::json!(900), std::time::Duration::from_secs(10))
+        .expect("a notification must not stall the next request");
+    assert_eq!(response["id"], 900);
+    assert!(legacy.pending.iter().all(|value| !value["id"].is_null()));
+
+    // Negative fixtures exercise the same error codes through the served
+    // reference path. Invalid metadata stays on the modern session; wire
+    // envelope errors use an independent legacy session to avoid ambiguity
+    // around null correlation IDs.
+    let negative: &[(&str, i64, bool)] = &[
+        ("request-meta-missing-2026-07-28.json", -32602, true),
+        ("request-unsupported-version.json", -32022, true),
+        ("request-batch-array.json", -32600, false),
+        ("request-null-id.json", -32600, false),
+    ];
+    for (file, expected_code, modern_path) in negative {
+        let path = root.join(".agents/gmcp/fixtures/negative").join(file);
+        let fixture: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+                .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
+        let response = if *modern_path {
+            modern
+                .request_verbatim(&fixture["request"], std::time::Duration::from_secs(10))
+                .unwrap_or_else(|| panic!("{file} must receive an error"))
+        } else {
+            legacy
+                .request_verbatim(&fixture["request"], std::time::Duration::from_secs(10))
+                .unwrap_or_else(|| panic!("{file} must receive an error"))
+        };
+        assert_eq!(
+            response["error"]["code"], *expected_code,
+            "{file}: {response}"
+        );
+        assert!(
+            response["error"]["message"].is_string(),
+            "{file}: {response}"
+        );
+        if let Some(code) = fixture["expect_code"].as_i64() {
+            assert_eq!(code, *expected_code, "{file} fixture drifted");
+        }
+    }
+
+    // HTTP and stdio retain the same transport-independent verdict for every
+    // malformed envelope that has no era-specific metadata policy.
+    for body in [
+        br#"{not-json"#.as_slice(),
+        br#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#.as_slice(),
+        br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+    ] {
+        let rejection = http_envelope_rejection(body).expect("HTTP must reject malformed input");
+        let mut gate_era = susi_gmcp::jsonrpc_gate::EraState::default();
+        let code = match susi_gmcp::jsonrpc_gate::classify_line(body, &mut gate_era) {
+            susi_gmcp::jsonrpc_gate::GateVerdict::Reject { code, .. } => code,
+            other @ (susi_gmcp::jsonrpc_gate::GateVerdict::Forward
+            | susi_gmcp::jsonrpc_gate::GateVerdict::Drop) => {
+                panic!("HTTP and stdio must reject the same body: {other:?}")
+            }
+        };
+        assert_eq!(rejection["error"]["code"], code);
+    }
+
+    // A bounded burst models a reference client with multiple in-flight
+    // requests. Every response must preserve its request ID and finish under
+    // the same 30-second per-request budget used by the acceptance harness.
+    let burst_start = std::time::Instant::now();
+    for id in 1_000..1_016 {
+        legacy.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "ping",
+            "params": {}
+        }));
+    }
+    for id in 1_000..1_016 {
+        let response = legacy
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("burst request {id} timed out"));
+        assert_eq!(response["id"], id);
+        assert!(response["result"].is_object());
+    }
+    assert!(
+        burst_start.elapsed() < std::time::Duration::from_secs(30),
+        "concurrent burst exceeded the interoperability budget"
+    );
+
+    drop(modern);
+    drop(legacy);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
