@@ -12,6 +12,7 @@ use rmcp::{
 };
 use serde_json::{json, Value};
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     future::Future,
     path::PathBuf,
@@ -52,6 +53,22 @@ pub type CompletionHandler = Arc<
         + Send
         + Sync,
 >;
+
+/// Revisions a stateless request may declare in
+/// `_meta["io.modelcontextprotocol/protocolVersion"]` — the modern era
+/// plus its inline-compatible legacy revisions. This is the canonical
+/// registry: the `data.supported` list every `-32022` answer carries in
+/// `jsonrpc_gate`, and the per-request validation set for the stateless
+/// lifecycle contract (contract-203-003).
+pub const MODERN_REQUEST_VERSIONS: &[&str] =
+    &["2025-11-25", "2025-06-18", "2025-03-26", "2026-07-28"];
+
+/// Cacheability baseline the `server/discover` result advertises:
+/// immediately stale, never shared across authorization contexts.
+/// contract-203-003 pins both values; a later positive `ttlMs` change
+/// must revisit `cacheScope` deliberately.
+pub const DISCOVER_TTL_MS: u64 = 0;
+pub const DISCOVER_CACHE_SCOPE: CacheScope = CacheScope::Private;
 
 #[derive(Clone, Debug)]
 enum Change {
@@ -122,6 +139,23 @@ impl GmcpService {
             log_level: Default::default(),
             ..self.clone()
         }
+    }
+    /// The canonical server identity — the `serverInfo` value every
+    /// `server/discover` result carries under
+    /// `_meta["io.modelcontextprotocol/serverInfo"]`. Self-reported
+    /// metadata for display and debugging only; never consulted for
+    /// behavior or security decisions.
+    pub fn server_identity() -> Implementation {
+        Implementation::new("susi-gmcp", env!("CARGO_PKG_VERSION"))
+    }
+    /// The complete, cacheable `server/discover` payload: canonical
+    /// identity, capabilities, the advertised version registry, and the
+    /// contract's pinned cache hints — explicit state owned here rather
+    /// than ambient handler defaults (VC-203-003).
+    pub fn discover_result(&self) -> DiscoverResult {
+        DiscoverResult::from_server_info(ProtocolVersion::KNOWN_VERSIONS.to_vec(), self.get_info())
+            .with_ttl_ms(DISCOVER_TTL_MS)
+            .with_cache_scope(DISCOVER_CACHE_SCOPE)
     }
     pub fn register_tool(&self, tool: Tool, handler: ToolHandler) -> Result<(), ErrorData> {
         let input = compile_schema(&Value::Object((*tool.input_schema).clone()))?;
@@ -315,9 +349,24 @@ fn page<T: serde::Serialize + Clone>(
 }
 
 impl ServerHandler for GmcpService {
+    /// The advertised registry — every revision this server implements.
+    /// Pinned explicitly so the `server/discover` payload and the
+    /// negotiated-legacy path share one source of truth.
+    fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
+        Cow::Borrowed(ProtocolVersion::KNOWN_VERSIONS)
+    }
+    /// `server/discover`: the stateless probe every client may invoke
+    /// without a handshake. Serves the canonical result built by
+    /// `discover_result` — no session lookup, no negotiated state.
+    async fn discover(
+        &self,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<DiscoverResult, ErrorData> {
+        Ok(self.discover_result())
+    }
     fn get_info(&self) -> ServerConfig {
         let mut info = ServerConfig::default();
-        info.server_info = Implementation::new("susi-gmcp", env!("CARGO_PKG_VERSION"));
+        info.server_info = Self::server_identity();
         info.capabilities = ServerCapabilities::builder()
             .enable_tools()
             .enable_tool_list_changed()
