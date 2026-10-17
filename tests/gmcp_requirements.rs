@@ -3595,3 +3595,242 @@ fn gmcp_req_203_003_04_adversarial() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-003-05: interoperability and quality for the stateless
+/// lifecycle — reference-SDK fixture replay on the served path in both
+/// message directions, direct-versus-gateway differential discover
+/// behavior, determinism and statelessness invariants, concurrent
+/// cross-era clients with no negotiated-state leak, transport parity at
+/// the shared envelope seam, and the contract's published
+/// latency/throughput budgets.
+#[test]
+fn gmcp_req_203_003_05_interop() {
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+    use susi_gmcp::protocol::GmcpService;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-003-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Reference-SDK replay, request direction: every fixture the
+    //    contract binds earns the verdict it declares on the served
+    //    modern path. ────────────────────────────────────────────────
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    for file in [
+        "server-discover-fullmeta-2026-07-28.json",
+        "server-discover-2026-07-28-meta.json",
+        "request-2026-07-28-meta.json",
+    ] {
+        let path = root.join(".agents/gmcp/fixtures/positive").join(file);
+        let fixture: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+                .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
+        let response = modern
+            .request_verbatim(&fixture["request"], std::time::Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("{file} must receive a response"));
+        assert!(response["error"].is_null(), "{file}: {response}");
+        assert!(response["result"].is_object(), "{file}: {response}");
+        assert_eq!(fixture["expect"], "result");
+        assert_eq!(response["result"]["resultType"], "complete", "{file}");
+    }
+    for (file, expected_code) in [
+        ("server-discover-unsupported-version.json", -32022_i64),
+        ("request-meta-missing-2026-07-28.json", -32602_i64),
+    ] {
+        let path = root.join(".agents/gmcp/fixtures/negative").join(file);
+        let fixture: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+                .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
+        let response = modern
+            .request_verbatim(&fixture["request"], std::time::Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("{file} must receive an error"));
+        assert_eq!(
+            response["error"]["code"], expected_code,
+            "{file}: {response}"
+        );
+        assert_eq!(
+            fixture["expect_code"].as_i64(),
+            Some(expected_code),
+            "{file}"
+        );
+    }
+
+    // The retained verbatim divergence record still documents the
+    // non-interoperable form: `params.protocolVersion` is not the modern
+    // `_meta` field, so the wire verdict stays `-32602` and the file is
+    // listed in divergences.json.
+    let divergent: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/positive/server-discover-2026-07-28.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let response = modern
+        .request_verbatim(&divergent["request"], std::time::Duration::from_secs(30))
+        .expect("the divergence fixture must receive a typed error");
+    assert_eq!(response["error"]["code"], -32602, "{response}");
+    let divergences =
+        std::fs::read_to_string(root.join(".agents/gmcp/fixtures/divergences.json")).unwrap();
+    assert!(divergences.contains("positive/server-discover-2026-07-28.json"));
+
+    // ── Response direction: a consumed client notification does not
+    //    stall the server→client answer channel on the same session. ──
+    let mut legacy = StdioSession::spawn(root, &home);
+    let cancelled: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/positive/notification-cancelled.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    legacy.send(&cancelled["request"]);
+    legacy.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 910, "method": "ping", "params": {}
+    }));
+    let response = legacy
+        .response_for(&serde_json::json!(910), std::time::Duration::from_secs(30))
+        .expect("a notification must not stall the next request");
+    assert_eq!(response["id"], 910);
+
+    // ── Direct-versus-gateway differential: the canonical
+    //    `discover_result` (direct, in-process) and the served wire
+    //    answer (gateway) agree on every contract field. ──────────────
+    let service = GmcpService::new(scratch.clone());
+    let canonical = serde_json::to_value(service.discover_result()).unwrap();
+    let discover_msg = |id: u64| {
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "server/discover",
+            "params": {"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }}
+        })
+    };
+    modern.send(&discover_msg(51));
+    let wire = modern
+        .response_for(&serde_json::json!(51), std::time::Duration::from_secs(30))
+        .expect("discover must be answered")["result"]
+        .clone();
+    for field in [
+        "resultType",
+        "supportedVersions",
+        "capabilities",
+        "ttlMs",
+        "cacheScope",
+        "instructions",
+    ] {
+        assert_eq!(wire[field], canonical[field], "{field}: wire != canonical");
+    }
+    assert_eq!(
+        wire["_meta"]["io.modelcontextprotocol/serverInfo"],
+        canonical["_meta"]["io.modelcontextprotocol/serverInfo"],
+        "serverInfo: wire != canonical"
+    );
+
+    // ── Property invariants: discover is deterministic and stateless —
+    //    an intervening request cannot perturb the next answer, and a
+    //    second session observes the identical result. ────────────────
+    modern.send(&discover_msg(52));
+    let repeat = modern
+        .response_for(&serde_json::json!(52), std::time::Duration::from_secs(30))
+        .expect("discover must be answered")["result"]
+        .clone();
+    assert_eq!(wire, repeat, "discover must be deterministic per build");
+    let mut modern_b = StdioSession::spawn_modern(root, &home);
+    modern_b.send(&discover_msg(53));
+    let second_session = modern_b
+        .response_for(&serde_json::json!(53), std::time::Duration::from_secs(30))
+        .expect("discover must be answered on a second session")["result"]
+        .clone();
+    assert_eq!(
+        wire, second_session,
+        "discover must be identical across independent sessions"
+    );
+
+    // ── Concurrent cross-era clients: negotiated state never leaks.
+    //    A bare legacy ping on the negotiated-legacy session and a
+    //    `_meta`-missing modern request on the modern session each earn
+    //    their own era's verdict while both sessions are live. ────────
+    legacy.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 911, "method": "ping", "params": {}
+    }));
+    modern.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 54, "method": "ping", "params": {}
+    }));
+    let legacy_answer = legacy
+        .response_for(&serde_json::json!(911), std::time::Duration::from_secs(30))
+        .expect("the legacy session must answer a bare ping");
+    assert!(legacy_answer["result"].is_object(), "{legacy_answer}");
+    assert!(
+        legacy_answer["result"].get("resultType").is_none(),
+        "legacy wire shape must stay resultType-free: {legacy_answer}"
+    );
+    let modern_answer = modern
+        .response_for(&serde_json::json!(54), std::time::Duration::from_secs(30))
+        .expect("the modern session must answer the bare ping");
+    assert_eq!(
+        modern_answer["error"]["code"], -32602,
+        "a modern session must demand `_meta`: {modern_answer}"
+    );
+
+    // ── Transport parity: the shared envelope seam forwards a
+    //    well-formed modern request on HTTP and rejects malformed bytes
+    //    with the same verdict on both transports. ────────────────────
+    let body = serde_json::to_vec(&discover_msg(60)).unwrap();
+    assert!(
+        http_envelope_rejection(&body).is_none(),
+        "HTTP must forward a well-formed discover envelope"
+    );
+    for raw in [
+        br#"{not-json"#.as_slice(),
+        br#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#.as_slice(),
+    ] {
+        let rejection = http_envelope_rejection(raw).expect("HTTP must reject malformed input");
+        let mut gate_era = susi_gmcp::jsonrpc_gate::EraState::default();
+        let code = match susi_gmcp::jsonrpc_gate::classify_line(raw, &mut gate_era) {
+            susi_gmcp::jsonrpc_gate::GateVerdict::Reject { code, .. } => code,
+            other @ (susi_gmcp::jsonrpc_gate::GateVerdict::Forward
+            | susi_gmcp::jsonrpc_gate::GateVerdict::Drop) => {
+                panic!("both transports must reject the same body: {other:?}")
+            }
+        };
+        assert_eq!(rejection["error"]["code"], code);
+    }
+
+    // ── Published budgets: discover is a constant payload — a warm call
+    //    stays well under the 30s per-request bound, and a 16-call burst
+    //    answers every request fairly with preserved correlation. ─────
+    let warm = std::time::Instant::now();
+    modern.send(&discover_msg(55));
+    let _ = modern
+        .response_for(&serde_json::json!(55), std::time::Duration::from_secs(30))
+        .expect("a warm discover must answer");
+    assert!(
+        warm.elapsed() < std::time::Duration::from_secs(30),
+        "warm discover exceeded the latency budget: {:?}",
+        warm.elapsed()
+    );
+    let burst_start = std::time::Instant::now();
+    for id in 2_000..2_016 {
+        modern.send(&discover_msg(id));
+    }
+    for id in 2_000..2_016 {
+        let response = modern
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("burst discover {id} timed out"));
+        assert_eq!(response["id"], id);
+        assert!(response["result"].is_object());
+    }
+    assert!(
+        burst_start.elapsed() < std::time::Duration::from_secs(60),
+        "16-discover burst exceeded the throughput budget: {:?}",
+        burst_start.elapsed()
+    );
+
+    drop(modern);
+    drop(modern_b);
+    drop(legacy);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
