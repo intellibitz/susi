@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-228",
+  "title": "[GMCP 203.032.03] Integration: Transport, origin, SSRF, DNS, and endpoint security",
+  "goal": "Requirement GMCP-203-032-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Network policy validates every URL and redirect, resolves and pins permitted addresses, blocks private/link-local/metadata reachability unless explicitly granted, detects DNS rebinding, enforces host/origin/TLS and certificate rules, and separates proxy trust zones. Localhost impersonation, rebinding, redirect chains, request smuggling, header confusion, downgrade and egress-bypass suites fail closed. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-226",
+    "T-CODEXGMCPROADMAP-227"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_032_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-032",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256253
+}

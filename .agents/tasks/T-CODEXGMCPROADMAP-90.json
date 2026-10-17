@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-90",
+  "title": "[GMCP 203.007.05] Interoperability and quality: Transport adapter SPI and embedded/in-process operation",
+  "goal": "Requirement GMCP-203-007-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: A stable transport SPI admits in-process, Unix-domain socket, named-pipe, WebSocket or future transports without changing protocol semantics. A common conformance harness proves ordering, cancellation, limits, identity propagation, observability, shutdown, and error equivalence across adapters, while experimental transports are capability-negotiated and never silently presented as standard MCP. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-87",
+    "T-CODEXGMCPROADMAP-88",
+    "T-CODEXGMCPROADMAP-89"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_007_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-007",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

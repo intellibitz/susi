@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-56",
+  "title": "[GMCP 203.009.06] Operations and evidence: Complete tool server surface",
+  "goal": "Requirement GMCP-203-009-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Tool discovery, deterministic pagination/filtering, list-change signaling, invocation, structured and unstructured results, output-schema validation, annotations, icons, errors, cancellation, progress, caching, idempotency declarations, and concurrent execution all work through the production registry. Tool identity and schema changes are versioned, calls are policy-gated, and success is impossible when declared output contracts are violated. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-51",
+    "T-CODEXGMCPROADMAP-52",
+    "T-CODEXGMCPROADMAP-53",
+    "T-CODEXGMCPROADMAP-54",
+    "T-CODEXGMCPROADMAP-55"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_009_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-009",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

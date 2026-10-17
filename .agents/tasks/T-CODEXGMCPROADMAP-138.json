@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-138",
+  "title": "[GMCP 203.019.04] Adversarial and failure behavior: Human consent, approvals, and interaction UX",
+  "goal": "Requirement GMCP-203-019-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Every consequential MCP action has a consistent inspect-before-run experience showing server identity, exact tool and arguments, data leaving the machine, credentials and side effects, with session and durable consent scoped separately. Approval is revocable, non-transferable and inaccessible to untrusted content; headless denial, accessibility, batching, timeout and emergency-stop behavior are all deterministic and audited. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-135",
+    "T-CODEXGMCPROADMAP-136",
+    "T-CODEXGMCPROADMAP-137"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_019_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-019",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

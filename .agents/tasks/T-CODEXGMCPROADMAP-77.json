@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-77",
+  "title": "[GMCP 203.013.06] Operations and evidence: MRTR, elicitation, sampling, and roots interaction model",
+  "goal": "Requirement GMCP-203-013-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: The model-request/tool-response flow fully implements input_required, typed inputRequests, retry with inputResponses, nested elicitation, sampling and roots compatibility, cancellation, deadlines, progress, partial failure, and explicit handle ownership. Every human or model decision is attributable, policy-checked and resumable, and replays cannot duplicate side effects or hijack another principal's handle. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-72",
+    "T-CODEXGMCPROADMAP-73",
+    "T-CODEXGMCPROADMAP-74",
+    "T-CODEXGMCPROADMAP-75",
+    "T-CODEXGMCPROADMAP-76"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_013_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-013",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

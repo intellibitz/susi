@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-230",
+  "title": "[GMCP 203.032.05] Interoperability and quality: Transport, origin, SSRF, DNS, and endpoint security",
+  "goal": "Requirement GMCP-203-032-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: Network policy validates every URL and redirect, resolves and pins permitted addresses, blocks private/link-local/metadata reachability unless explicitly granted, detects DNS rebinding, enforces host/origin/TLS and certificate rules, and separates proxy trust zones. Localhost impersonation, rebinding, redirect chains, request smuggling, header confusion, downgrade and egress-bypass suites fail closed. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-227",
+    "T-CODEXGMCPROADMAP-228",
+    "T-CODEXGMCPROADMAP-229"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_032_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-032",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256253
+}

@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-189",
+  "title": "[GMCP 203.027.06] Operations and evidence: Enterprise and machine-to-machine authorization extensions",
+  "goal": "Requirement GMCP-203-027-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: GMCP implements and tests official enterprise-managed authorization and OAuth client-credentials extension profiles without conflating user and workload identity. Policy chooses flows explicitly, administrators can constrain issuers and clients, managed settings are tamper-evident, credentials are audience-bound and rotated, and unsupported or draft profiles are labeled and safely declined. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-184",
+    "T-CODEXGMCPROADMAP-185",
+    "T-CODEXGMCPROADMAP-186",
+    "T-CODEXGMCPROADMAP-187",
+    "T-CODEXGMCPROADMAP-188"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_027_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-027",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

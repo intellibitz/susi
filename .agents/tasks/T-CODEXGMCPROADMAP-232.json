@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-232",
+  "title": "[GMCP 203.032.M] Mastery: Transport, origin, SSRF, DNS, and endpoint security",
+  "goal": "Requirement GMCP-203-032-M. Pass the complete vector mastery target on the shipped production path: Network policy validates every URL and redirect, resolves and pins permitted addresses, blocks private/link-local/metadata reachability unless explicitly granted, detects DNS rebinding, enforces host/origin/TLS and certificate rules, and separates proxy trust zones. Localhost impersonation, rebinding, redirect chains, request smuggling, header confusion, downgrade and egress-bypass suites fail closed. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-226",
+    "T-CODEXGMCPROADMAP-227",
+    "T-CODEXGMCPROADMAP-228",
+    "T-CODEXGMCPROADMAP-229",
+    "T-CODEXGMCPROADMAP-230",
+    "T-CODEXGMCPROADMAP-231"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_032_mastery"
+    ]
+  },
+  "roadmap": "VC-203-032",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256253
+}

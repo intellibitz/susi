@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-304",
+  "title": "[GMCP 203.042.02] Production path: Performance, capacity, fairness, and resource budgets",
+  "goal": "Requirement GMCP-203-042-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Published latency, throughput, startup, memory, descriptor, CPU, disk and event-fanout budgets are enforced per server, tenant and gateway under representative and adversarial load. Admission control, backpressure and fair scheduling prevent noisy neighbors; benchmarks are reproducible across supported platforms; regression thresholds gate release; and overload degrades explicitly without deadlock or unbounded growth. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-303"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_042_02_production"
+    ]
+  },
+  "roadmap": "VC-203-042",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

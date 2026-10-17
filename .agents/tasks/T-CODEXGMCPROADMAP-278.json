@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-278",
+  "title": "[GMCP 203.040.04] Adversarial and failure behavior: OpenTelemetry, metrics, logs, traces, and diagnostics",
+  "goal": "Requirement GMCP-203-040-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: GMCP emits bounded OpenTelemetry-compatible traces, metrics and structured logs across host, gateway, transport, server and callback boundaries, propagating standard trace context from MCP metadata. RED/USE, queue, cache, policy, consent, task and lifecycle signals have stable schemas and cardinality budgets; payload redaction is structural; diagnostics explain failures locally and export only under explicit policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-275",
+    "T-CODEXGMCPROADMAP-276",
+    "T-CODEXGMCPROADMAP-277"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_040_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-040",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

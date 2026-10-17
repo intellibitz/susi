@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-188",
+  "title": "[GMCP 203.027.05] Interoperability and quality: Enterprise and machine-to-machine authorization extensions",
+  "goal": "Requirement GMCP-203-027-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: GMCP implements and tests official enterprise-managed authorization and OAuth client-credentials extension profiles without conflating user and workload identity. Policy chooses flows explicitly, administrators can constrain issuers and clients, managed settings are tamper-evident, credentials are audience-bound and rotated, and unsupported or draft profiles are labeled and safely declined. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-185",
+    "T-CODEXGMCPROADMAP-186",
+    "T-CODEXGMCPROADMAP-187"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_027_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-027",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

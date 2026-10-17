@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-134",
+  "title": "[GMCP 203.024.M] Mastery: Unified policy engine and least-privilege authorization",
+  "goal": "Requirement GMCP-203-024-M. Pass the complete vector mastery target on the shipped production path: One deny-by-default policy engine mediates discovery, invocation, callbacks, data flow and installation using principal, server, capability, arguments, resource, destination, time, risk and provenance. Delegation uses attenuated capability grants, policy decisions explain their exact rule and version, TOCTOU is prevented by execution-time re-check, and exhaustive architecture tests prove no production bypass. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-128",
+    "T-CODEXGMCPROADMAP-129",
+    "T-CODEXGMCPROADMAP-130",
+    "T-CODEXGMCPROADMAP-131",
+    "T-CODEXGMCPROADMAP-132",
+    "T-CODEXGMCPROADMAP-133"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_024_mastery"
+    ]
+  },
+  "roadmap": "VC-203-024",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

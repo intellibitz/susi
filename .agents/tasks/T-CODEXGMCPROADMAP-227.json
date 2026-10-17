@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-227",
+  "title": "[GMCP 203.032.02] Production path: Transport, origin, SSRF, DNS, and endpoint security",
+  "goal": "Requirement GMCP-203-032-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Network policy validates every URL and redirect, resolves and pins permitted addresses, blocks private/link-local/metadata reachability unless explicitly granted, detects DNS rebinding, enforces host/origin/TLS and certificate rules, and separates proxy trust zones. Localhost impersonation, rebinding, redirect chains, request smuggling, header confusion, downgrade and egress-bypass suites fail closed. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-226"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_032_02_production"
+    ]
+  },
+  "roadmap": "VC-203-032",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256253
+}

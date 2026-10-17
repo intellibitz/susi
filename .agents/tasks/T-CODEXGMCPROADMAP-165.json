@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-165",
+  "title": "[GMCP 203.022.03] Integration: Namespacing, routing, composition, and virtual capabilities",
+  "goal": "Requirement GMCP-203-022-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Stable globally unique capability identities prevent collisions and shadowing across servers, aliases remain explicit, and routing can select or fan out by schema, policy, health, locality and cost. Typed compositions form virtual tools/resources/prompts with provenance, transaction and compensation semantics, cycle detection, bounded depth, deterministic plans, and no privilege amplification between steps. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-163",
+    "T-CODEXGMCPROADMAP-164"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_022_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-022",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

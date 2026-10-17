@@ -1,0 +1,25 @@
+{
+  "id": "T-CODEXGMCPROADMAP-296",
+  "title": "[GMCP 203.044.01] Contract: Inspector, debugger, record/replay, mocks, and test laboratory",
+  "goal": "Requirement GMCP-203-044-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: An operator can inspect negotiated capabilities, schemas, calls, subscriptions, tasks and traces; validate a server; replay a redacted deterministic transcript; inject latency/faults; and generate configurable mock clients or servers from contracts. Sensitive fields are removed before persistence, replay cannot perform side effects by default, formats are versioned, and CLI/TUI plus official Inspector workflows agree. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-120",
+    "T-CODEXGMCPROADMAP-141",
+    "T-CODEXGMCPROADMAP-281",
+    "T-CODEXGMCPROADMAP-288"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_044_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-044",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

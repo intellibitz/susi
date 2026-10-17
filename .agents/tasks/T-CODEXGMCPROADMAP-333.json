@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-333",
+  "title": "[GMCP 203.048.03] Integration: Independent GMCP qualification and continuously complete release gate",
+  "goal": "Requirement GMCP-203-048-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: One hermetic qualification command reconstructs the requirements ledger, builds clean artifacts, runs unit/integration/conformance/extension/interop/security/fuzz/platform/performance/recovery/doc tests, verifies evidence provenance, and emits a signed human-readable scorecard. Release is allowed only with 100% applicable requirements traced and passing, zero unexplained compatibility gaps, zero unresolved critical/high security findings and every VC-203 mastery gate green; new standards or accepted metrics automatically reopen qualification until classified. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-331",
+    "T-CODEXGMCPROADMAP-332"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_048_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-048",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256259
+}

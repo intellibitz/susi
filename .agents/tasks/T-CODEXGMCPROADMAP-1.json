@@ -1,0 +1,14 @@
+{
+  "id": "T-CODEXGMCPROADMAP-1",
+  "title": "Define the exhaustive GMCP completion roadmap and implementation queue",
+  "goal": "Make GMCP the complete local MCP server, client, host, gateway, tool, registry, conformance, security, operations, developer-experience, and interoperability environment. Inventory current implementation and authoritative standards; define traceable roadmap vectors with measurable mastery targets; create dependency-ordered implementation tasks covering every identified requirement; include explicit non-goals, evidence, acceptance, and a completeness audit so closing the queue is sufficient evidence of GMCP completion.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "scripts/check-roadmap-progress.sh"
+    ]
+  },
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792255707
+}

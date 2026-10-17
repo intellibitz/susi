@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-141",
+  "title": "[GMCP 203.019.M] Mastery: Human consent, approvals, and interaction UX",
+  "goal": "Requirement GMCP-203-019-M. Pass the complete vector mastery target on the shipped production path: Every consequential MCP action has a consistent inspect-before-run experience showing server identity, exact tool and arguments, data leaving the machine, credentials and side effects, with session and durable consent scoped separately. Approval is revocable, non-transferable and inaccessible to untrusted content; headless denial, accessibility, batching, timeout and emergency-stop behavior are all deterministic and audited. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-135",
+    "T-CODEXGMCPROADMAP-136",
+    "T-CODEXGMCPROADMAP-137",
+    "T-CODEXGMCPROADMAP-138",
+    "T-CODEXGMCPROADMAP-139",
+    "T-CODEXGMCPROADMAP-140"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_019_mastery"
+    ]
+  },
+  "roadmap": "VC-203-019",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

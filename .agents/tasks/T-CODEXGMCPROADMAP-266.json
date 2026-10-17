@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-266",
+  "title": "[GMCP 203.038.06] Operations and evidence: Catalog, discovery, health, compatibility, and trust intelligence",
+  "goal": "Requirement GMCP-203-038-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Local configs, running processes, package managers, the official registry and explicit endpoints reconcile into one deduplicated catalog with provenance. Active probes measure protocol/extension compatibility, health, latency and policy fitness without granting trust; recommendations explain evidence and cost; stale or conflicting records converge; and discovery never installs, enables or sends data without authorization. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-261",
+    "T-CODEXGMCPROADMAP-262",
+    "T-CODEXGMCPROADMAP-263",
+    "T-CODEXGMCPROADMAP-264",
+    "T-CODEXGMCPROADMAP-265"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_038_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-038",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256255
+}

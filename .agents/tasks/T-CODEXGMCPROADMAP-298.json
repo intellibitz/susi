@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-298",
+  "title": "[GMCP 203.044.03] Integration: Inspector, debugger, record/replay, mocks, and test laboratory",
+  "goal": "Requirement GMCP-203-044-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: An operator can inspect negotiated capabilities, schemas, calls, subscriptions, tasks and traces; validate a server; replay a redacted deterministic transcript; inject latency/faults; and generate configurable mock clients or servers from contracts. Sensitive fields are removed before persistence, replay cannot perform side effects by default, formats are versioned, and CLI/TUI plus official Inspector workflows agree. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-296",
+    "T-CODEXGMCPROADMAP-297"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_044_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-044",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

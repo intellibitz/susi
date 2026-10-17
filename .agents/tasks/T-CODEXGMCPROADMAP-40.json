@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-40",
+  "title": "[GMCP 203.005.04] Adversarial and failure behavior: Production-grade stdio transport",
+  "goal": "Requirement GMCP-203-005-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: GMCP serves and consumes MCP over stdio with byte-accurate framing, bounded lines/messages, strict stdout protocol purity, stderr diagnostics, environment and working-directory control, graceful cancellation and shutdown, child-tree cleanup, backpressure, timeout handling, and Windows/Unix parity. Crash, hang, malformed output, descriptor leak, and hostile child fixtures all recover without stranding resources. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-37",
+    "T-CODEXGMCPROADMAP-38",
+    "T-CODEXGMCPROADMAP-39"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_005_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-005",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-305",
+  "title": "[GMCP 203.042.03] Integration: Performance, capacity, fairness, and resource budgets",
+  "goal": "Requirement GMCP-203-042-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Published latency, throughput, startup, memory, descriptor, CPU, disk and event-fanout budgets are enforced per server, tenant and gateway under representative and adversarial load. Admission control, backpressure and fair scheduling prevent noisy neighbors; benchmarks are reproducible across supported platforms; regression thresholds gate release; and overload degrades explicitly without deadlock or unbounded growth. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-303",
+    "T-CODEXGMCPROADMAP-304"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_042_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-042",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256258
+}

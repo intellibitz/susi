@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-85",
+  "title": "[GMCP 203.016.M] Mastery: First-class extension framework and extension governance",
+  "goal": "Requirement GMCP-203-016-M. Pass the complete vector mastery target on the shipped production path: Namespaced MCP extensions can be discovered, negotiated, configured, versioned, isolated and disabled through one typed framework without forking core protocol code. Unknown extensions round-trip safely, required unsupported extensions fail explicitly, official and experimental status is visible, collision and downgrade rules are enforced, and a watch process opens roadmap work for every newly published official extension. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-79",
+    "T-CODEXGMCPROADMAP-80",
+    "T-CODEXGMCPROADMAP-81",
+    "T-CODEXGMCPROADMAP-82",
+    "T-CODEXGMCPROADMAP-83",
+    "T-CODEXGMCPROADMAP-84"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_016_mastery"
+    ]
+  },
+  "roadmap": "VC-203-016",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

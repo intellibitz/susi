@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-289",
+  "title": "[GMCP 203.041.01] Contract: Reliability, durability, recovery, backup, and offline operation",
+  "goal": "Requirement GMCP-203-041-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Crash-consistent journals and atomic state transitions recover tasks, approvals, registry snapshots, desired state and lifecycle operations without replaying side effects. Defined RPO/RTO targets are met under kill -9, power-loss simulation, corrupt/torn state, full disk and clock skew; backups are encrypted, versioned and restore-tested; and all declared local capabilities remain usable without network access. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-106",
+    "T-CODEXGMCPROADMAP-127",
+    "T-CODEXGMCPROADMAP-246",
+    "T-CODEXGMCPROADMAP-274",
+    "T-CODEXGMCPROADMAP-281"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_041_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-041",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

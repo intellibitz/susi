@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-176",
+  "title": "[GMCP 203.026.M] Mastery: OAuth-capable MCP client and authorization flow",
+  "goal": "Requirement GMCP-203-026-M. Pass the complete vector mastery target on the shipped production path: The host completes secure authorization-code flows with PKCE, state and nonce binding, protected-resource discovery, authorization-server selection, exact redirect matching, refresh rotation, revocation, incremental scopes and per-resource credential binding. Dynamic registration is isolated as legacy policy; current client metadata mechanisms, loopback hardening, browser cancellation and concurrent-account flows are interoperable and attack-tested. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-170",
+    "T-CODEXGMCPROADMAP-171",
+    "T-CODEXGMCPROADMAP-172",
+    "T-CODEXGMCPROADMAP-173",
+    "T-CODEXGMCPROADMAP-174",
+    "T-CODEXGMCPROADMAP-175"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_026_mastery"
+    ]
+  },
+  "roadmap": "VC-203-026",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

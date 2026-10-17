@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-290",
+  "title": "[GMCP 203.041.02] Production path: Reliability, durability, recovery, backup, and offline operation",
+  "goal": "Requirement GMCP-203-041-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Crash-consistent journals and atomic state transitions recover tasks, approvals, registry snapshots, desired state and lifecycle operations without replaying side effects. Defined RPO/RTO targets are met under kill -9, power-loss simulation, corrupt/torn state, full disk and clock skew; backups are encrypted, versioned and restore-tested; and all declared local capabilities remain usable without network access. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-289"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_041_02_production"
+    ]
+  },
+  "roadmap": "VC-203-041",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

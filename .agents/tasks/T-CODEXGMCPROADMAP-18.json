@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-18",
+  "title": "[GMCP 203.003.03] Integration: Modern stateless lifecycle and server discovery",
+  "goal": "Requirement GMCP-203-003-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: For MCP 2026-07-28 and later GMCP is genuinely stateless at the protocol layer: no initialize ceremony or session identifier is required, every request carries and validates version plus client capabilities, every result identifies the server, server/discover is complete and cacheable, and explicit handles bind all cross-call state. Concurrent requests from changing clients cannot leak negotiated state. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-16",
+    "T-CODEXGMCPROADMAP-17"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_003_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-003",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

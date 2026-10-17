@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-111",
+  "title": "[GMCP 203.020.05] Interoperability and quality: GMCP server authoring SDK and plugin lifecycle",
+  "goal": "Requirement GMCP-203-020-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: A stable Susi-shaped authoring SDK builds local MCP servers, tools, resources, prompts, subscriptions, MRTR handlers, tasks and extensions with schema derivation, typed context, middleware, testing fixtures and hot reload. Plugins declare permissions and compatibility, initialize transactionally, unload without leaks, preserve no vendor types across the boundary, and ship runnable minimal through production examples. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-108",
+    "T-CODEXGMCPROADMAP-109",
+    "T-CODEXGMCPROADMAP-110"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_020_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-020",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

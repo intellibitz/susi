@@ -62,6 +62,7 @@ docs:
 |------|------|
 | [`.agents/identity.json`](.agents/identity.json) | Constitutional mandates, component topology, protocols (`susi/identity/v1`) |
 | [`.agents/roadmap.json`](.agents/roadmap.json) | Evolutionary vectors (`susi/roadmap/v1`) |
+| [`docs/gmcp-roadmap.md`](docs/gmcp-roadmap.md) | Standards-traceable GMCP completion program and task map |
 | [`.agents/evidence.json`](.agents/evidence.json) | Append-only mission / audit ledger (`susi/evidence/v1`) |
 | [`.agents/tasks/`](.agents/tasks/) | The shared task queue: one file per task, each with an acceptance command (`susi tasks`) |
 | [`.agents/lanes/`](.agents/lanes/) | Which agent works which learning-loop stage: one file per agent |

@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-224",
+  "title": "[GMCP 203.035.06] Operations and evidence: Official MCP Registry discovery, validation, and publication",
+  "goal": "Requirement GMCP-203-035-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: GMCP consumes the official Registry API and server.json format with pagination, filters, versions, package and remote endpoints, repository metadata, caching, mirrors and offline snapshots; validates entries before trust; and can lint and publish owned servers through authenticated workflows. Yank, deletion, namespace verification, malicious metadata, stale mirrors and registry outage behavior are deterministic and provenance-preserving. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-219",
+    "T-CODEXGMCPROADMAP-220",
+    "T-CODEXGMCPROADMAP-221",
+    "T-CODEXGMCPROADMAP-222",
+    "T-CODEXGMCPROADMAP-223"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_035_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-035",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256253
+}

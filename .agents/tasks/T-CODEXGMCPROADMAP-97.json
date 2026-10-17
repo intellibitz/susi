@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-97",
+  "title": "[GMCP 203.012.05] Interoperability and quality: Subscriptions, notifications, progress, and operational messages",
+  "goal": "Requirement GMCP-203-012-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: Modern subscriptions/listen filters and acknowledgement metadata work for tools, prompts, resources and resource updates, with bounded fan-out, ordering guarantees, cancellation, reconnect policy, backpressure and authorization re-checks. Progress and operational log notifications correlate to the originating request, obey requested levels and redaction, and never become an unbounded covert channel. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-94",
+    "T-CODEXGMCPROADMAP-95",
+    "T-CODEXGMCPROADMAP-96"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_012_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-012",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

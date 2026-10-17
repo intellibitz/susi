@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-89",
+  "title": "[GMCP 203.007.04] Adversarial and failure behavior: Transport adapter SPI and embedded/in-process operation",
+  "goal": "Requirement GMCP-203-007-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: A stable transport SPI admits in-process, Unix-domain socket, named-pipe, WebSocket or future transports without changing protocol semantics. A common conformance harness proves ordering, cancellation, limits, identity propagation, observability, shutdown, and error equivalence across adapters, while experimental transports are capability-negotiated and never silently presented as standard MCP. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-86",
+    "T-CODEXGMCPROADMAP-87",
+    "T-CODEXGMCPROADMAP-88"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_007_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-007",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256246
+}

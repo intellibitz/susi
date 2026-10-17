@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-275",
+  "title": "[GMCP 203.040.01] Contract: OpenTelemetry, metrics, logs, traces, and diagnostics",
+  "goal": "Requirement GMCP-203-040-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: GMCP emits bounded OpenTelemetry-compatible traces, metrics and structured logs across host, gateway, transport, server and callback boundaries, propagating standard trace context from MCP metadata. RED/USE, queue, cache, policy, consent, task and lifecycle signals have stable schemas and cardinality budgets; payload redaction is structural; diagnostics explain failures locally and export only under explicit policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-260",
+    "T-CODEXGMCPROADMAP-274"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_040_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-040",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

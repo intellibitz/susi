@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-30",
+  "title": "[GMCP 203.004.01] Contract: Legacy lifecycle compatibility and governed deprecation",
+  "goal": "Requirement GMCP-203-004-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: GMCP interoperates with pinned older MCP revisions through isolated compatibility adapters for initialize/initialized, ping, legacy HTTP+SSE, resource subscriptions, roots, sampling, elicitation, logging, and legacy task shapes without weakening the modern path. Version selection is deterministic, downgrade is visible, every deprecated feature has telemetry and a tested removal policy, and no legacy state crosses tenant or connection boundaries. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-15",
+    "T-CODEXGMCPROADMAP-22"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_004_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-004",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

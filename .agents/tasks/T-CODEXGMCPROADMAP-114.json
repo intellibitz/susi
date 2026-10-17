@@ -1,0 +1,28 @@
+{
+  "id": "T-CODEXGMCPROADMAP-114",
+  "title": "[GMCP 203.017.01] Contract: Complete MCP client and host",
+  "goal": "Requirement GMCP-203-017-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: GMCP is a full host, not only a tool caller: one API and CLI can connect to any supported server, discover capabilities, call tools, read and subscribe to resources, get prompts and completions, handle MRTR callbacks, tasks, Apps, authorization, notifications, progress and cancellation. Multiple servers operate concurrently with isolated identities, policies and state, and every callback surface is exercised against real reference servers. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-36",
+    "T-CODEXGMCPROADMAP-57",
+    "T-CODEXGMCPROADMAP-64",
+    "T-CODEXGMCPROADMAP-71",
+    "T-CODEXGMCPROADMAP-99",
+    "T-CODEXGMCPROADMAP-78",
+    "T-CODEXGMCPROADMAP-85"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_017_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-017",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

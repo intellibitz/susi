@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-132",
+  "title": "[GMCP 203.024.05] Interoperability and quality: Unified policy engine and least-privilege authorization",
+  "goal": "Requirement GMCP-203-024-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: One deny-by-default policy engine mediates discovery, invocation, callbacks, data flow and installation using principal, server, capability, arguments, resource, destination, time, risk and provenance. Delegation uses attenuated capability grants, policy decisions explain their exact rule and version, TOCTOU is prevented by execution-time re-check, and exhaustive architecture tests prove no production bypass. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-129",
+    "T-CODEXGMCPROADMAP-130",
+    "T-CODEXGMCPROADMAP-131"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_024_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-024",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

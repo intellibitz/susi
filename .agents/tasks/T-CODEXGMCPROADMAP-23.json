@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-23",
+  "title": "[GMCP 203.008.01] Contract: Complete schemas, primitives, content, and metadata model",
+  "goal": "Requirement GMCP-203-008-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Every MCP primitive and content variant is represented losslessly, including annotations, icons, resource links and embedded resources, binary media, extensions, cache scope/TTL, audience and priority metadata, and JSON Schema 2020-12 input/output contracts. Round-trip fixtures preserve unknown extension fields; schema limits, external-reference policy, Unicode, URI and MIME validation, and canonical serialization are exhaustively tested. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-8",
+    "T-CODEXGMCPROADMAP-15"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_008_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-008",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

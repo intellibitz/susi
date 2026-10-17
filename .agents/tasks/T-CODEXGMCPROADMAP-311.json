@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-311",
+  "title": "[GMCP 203.045.02] Production path: Official conformance and ecosystem interoperability matrix",
+  "goal": "Requirement GMCP-203-045-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Pinned official MCP conformance suites pass with zero expected failures for GMCP as client and server on every supported revision, transport and official extension. Differential tests against representative reference SDKs and major hosts/servers run in both directions on every platform; the published compatibility matrix contains no unexplained cell, and upstream suite changes block release until classified. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-310"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_045_02_production"
+    ]
+  },
+  "roadmap": "VC-203-045",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256258
+}

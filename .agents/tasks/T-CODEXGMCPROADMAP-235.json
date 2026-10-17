@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-235",
+  "title": "[GMCP 203.036.03] Integration: Package and runtime install, update, rollback, and removal",
+  "goal": "Requirement GMCP-203-036-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: A transactional lifecycle installs supported native, container, Node, Python, Java and standalone servers into isolated immutable environments, resolves prerequisites without ambient mutation, runs health and compatibility gates, atomically activates, rolls back on failure, updates under policy and removes all owned state. Dry-run plans, disk quotas, shared dependency reference counts, interrupted operations and offline bundles are proven. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-233",
+    "T-CODEXGMCPROADMAP-234"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_036_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-036",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

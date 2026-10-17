@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-240",
+  "title": "[GMCP 203.033.01] Contract: Identity, tenancy, state-handle, and data isolation",
+  "goal": "Requirement GMCP-203-033-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Every request, subscription, task, cache entry, callback and explicit state handle is bound to an authenticated principal, tenant, server and policy epoch. Authorization is rechecked on use, revocation propagates promptly, quotas and storage are isolated, administrator access is explicit, and cross-tenant timing, identifier-guessing, stale-handle and confused-deputy tests disclose or mutate nothing. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-134",
+    "T-CODEXGMCPROADMAP-155",
+    "T-CODEXGMCPROADMAP-176",
+    "T-CODEXGMCPROADMAP-190",
+    "T-CODEXGMCPROADMAP-232"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_033_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-033",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

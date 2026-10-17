@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-274",
+  "title": "[GMCP 203.039.M] Mastery: Server supervision and lifecycle orchestration",
+  "goal": "Requirement GMCP-203-039-M. Pass the complete vector mastery target on the shipped production path: A durable supervisor starts servers in dependency order, health-checks readiness and liveness, applies bounded restart/backoff/quarantine, drains and reloads without losing admitted work, propagates cancellation, reaps process trees and exposes exact state/reason. Boot storms, crash loops, hangs, upgrades, resource exhaustion and host restart converge automatically without duplicate instances or silent capability loss. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-268",
+    "T-CODEXGMCPROADMAP-269",
+    "T-CODEXGMCPROADMAP-270",
+    "T-CODEXGMCPROADMAP-271",
+    "T-CODEXGMCPROADMAP-272",
+    "T-CODEXGMCPROADMAP-273"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_039_mastery"
+    ]
+  },
+  "roadmap": "VC-203-039",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

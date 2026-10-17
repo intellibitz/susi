@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-41",
+  "title": "[GMCP 203.005.05] Interoperability and quality: Production-grade stdio transport",
+  "goal": "Requirement GMCP-203-005-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: GMCP serves and consumes MCP over stdio with byte-accurate framing, bounded lines/messages, strict stdout protocol purity, stderr diagnostics, environment and working-directory control, graceful cancellation and shutdown, child-tree cleanup, backpressure, timeout handling, and Windows/Unix parity. Crash, hang, malformed output, descriptor leak, and hostile child fixtures all recover without stranding resources. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-38",
+    "T-CODEXGMCPROADMAP-39",
+    "T-CODEXGMCPROADMAP-40"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_005_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-005",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

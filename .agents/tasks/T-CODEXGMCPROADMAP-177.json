@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-177",
+  "title": "[GMCP 203.023.01] Contract: Service adapters and generated MCP surfaces",
+  "goal": "Requirement GMCP-203-023-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: OpenAPI, AsyncAPI, GraphQL, command and native-library adapters can generate reviewable MCP tools/resources with stable names, precise schemas, pagination, auth mapping, rate limits, idempotency and redaction. Generated artifacts are reproducible, diffable and policy-scanned; unsupported semantics fail generation rather than producing unsafe generic shells. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-113",
+    "T-CODEXGMCPROADMAP-169"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_023_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-023",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

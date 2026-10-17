@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-24",
+  "title": "[GMCP 203.008.02] Production path: Complete schemas, primitives, content, and metadata model",
+  "goal": "Requirement GMCP-203-008-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Every MCP primitive and content variant is represented losslessly, including annotations, icons, resource links and embedded resources, binary media, extensions, cache scope/TTL, audience and priority metadata, and JSON Schema 2020-12 input/output contracts. Round-trip fixtures preserve unknown extension fields; schema limits, external-reference policy, Unicode, URI and MIME validation, and canonical serialization are exhaustively tested. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-23"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_008_02_production"
+    ]
+  },
+  "roadmap": "VC-203-008",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

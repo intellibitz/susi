@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-248",
+  "title": "[GMCP 203.037.02] Production path: Configuration import, export, migration, and desired state",
+  "goal": "Requirement GMCP-203-037-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: GMCP losslessly imports and exports major MCP host configurations while separating secrets, preserving unknown fields and reporting unsupported semantics. One versioned desired-state schema covers servers, transports, auth, sandbox, policy and extensions; migrations are reversible and idempotent; layered overrides explain provenance; and concurrent edits use validation plus atomic conflict handling. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-247"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_037_02_production"
+    ]
+  },
+  "roadmap": "VC-203-037",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

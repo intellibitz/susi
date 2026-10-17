@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-265",
+  "title": "[GMCP 203.038.05] Interoperability and quality: Catalog, discovery, health, compatibility, and trust intelligence",
+  "goal": "Requirement GMCP-203-038-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: Local configs, running processes, package managers, the official registry and explicit endpoints reconcile into one deduplicated catalog with provenance. Active probes measure protocol/extension compatibility, health, latency and policy fitness without granting trust; recommendations explain evidence and cost; stale or conflicting records converge; and discovery never installs, enables or sends data without authorization. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-262",
+    "T-CODEXGMCPROADMAP-263",
+    "T-CODEXGMCPROADMAP-264"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_038_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-038",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256255
+}

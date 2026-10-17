@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-178",
+  "title": "[GMCP 203.023.02] Production path: Service adapters and generated MCP surfaces",
+  "goal": "Requirement GMCP-203-023-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: OpenAPI, AsyncAPI, GraphQL, command and native-library adapters can generate reviewable MCP tools/resources with stable names, precise schemas, pagination, auth mapping, rate limits, idempotency and redaction. Generated artifacts are reproducible, diffable and policy-scanned; unsupported semantics fail generation rather than producing unsafe generic shells. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-177"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_023_02_production"
+    ]
+  },
+  "roadmap": "VC-203-023",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256250
+}

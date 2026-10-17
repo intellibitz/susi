@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-327",
+  "title": "[GMCP 203.047.04] Adversarial and failure behavior: Documentation, examples, developer experience, release quality, and SLOs",
+  "goal": "Requirement GMCP-203-047-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Versioned operator, author, host, security, migration, troubleshooting and architecture documentation is executable and matches shipped behavior; examples cover every primitive and official extension from minimal to production. One-command setup and diagnostics pass usability studies, releases carry compatibility/SBOM/provenance evidence, and published availability, recovery, performance and support SLOs are measured with error-budget policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-324",
+    "T-CODEXGMCPROADMAP-325",
+    "T-CODEXGMCPROADMAP-326"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_047_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-047",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256259
+}

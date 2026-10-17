@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-238",
+  "title": "[GMCP 203.036.06] Operations and evidence: Package and runtime install, update, rollback, and removal",
+  "goal": "Requirement GMCP-203-036-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: A transactional lifecycle installs supported native, container, Node, Python, Java and standalone servers into isolated immutable environments, resolves prerequisites without ambient mutation, runs health and compatibility gates, atomically activates, rolls back on failure, updates under policy and removes all owned state. Dry-run plans, disk quotas, shared dependency reference counts, interrupted operations and offline bundles are proven. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-233",
+    "T-CODEXGMCPROADMAP-234",
+    "T-CODEXGMCPROADMAP-235",
+    "T-CODEXGMCPROADMAP-236",
+    "T-CODEXGMCPROADMAP-237"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_036_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-036",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

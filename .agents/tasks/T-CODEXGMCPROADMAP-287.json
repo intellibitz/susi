@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-287",
+  "title": "[GMCP 203.043.06] Operations and evidence: Cross-platform packaging, service integration, and distribution",
+  "goal": "Requirement GMCP-203-043-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Identical supported GMCP capability is packaged for Linux, macOS and Windows across x86_64 and arm64 with signed, reproducible artifacts, service-manager integration, upgrade/rollback, uninstall, path/permission handling and diagnostics. A declared parity matrix has automated clean-machine, non-admin, Unicode-path, sleep/resume and upgrade tests; unavoidable platform differences are explicit and policy-safe. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-282",
+    "T-CODEXGMCPROADMAP-283",
+    "T-CODEXGMCPROADMAP-284",
+    "T-CODEXGMCPROADMAP-285",
+    "T-CODEXGMCPROADMAP-286"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_043_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-043",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

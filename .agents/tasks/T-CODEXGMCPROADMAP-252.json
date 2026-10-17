@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-252",
+  "title": "[GMCP 203.037.06] Operations and evidence: Configuration import, export, migration, and desired state",
+  "goal": "Requirement GMCP-203-037-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: GMCP losslessly imports and exports major MCP host configurations while separating secrets, preserving unknown fields and reporting unsupported semantics. One versioned desired-state schema covers servers, transports, auth, sandbox, policy and extensions; migrations are reversible and idempotent; layered overrides explain provenance; and concurrent edits use validation plus atomic conflict handling. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-247",
+    "T-CODEXGMCPROADMAP-248",
+    "T-CODEXGMCPROADMAP-249",
+    "T-CODEXGMCPROADMAP-250",
+    "T-CODEXGMCPROADMAP-251"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_037_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-037",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256255
+}

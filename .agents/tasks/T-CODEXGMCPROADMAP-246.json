@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-246",
+  "title": "[GMCP 203.033.M] Mastery: Identity, tenancy, state-handle, and data isolation",
+  "goal": "Requirement GMCP-203-033-M. Pass the complete vector mastery target on the shipped production path: Every request, subscription, task, cache entry, callback and explicit state handle is bound to an authenticated principal, tenant, server and policy epoch. Authorization is rechecked on use, revocation propagates promptly, quotas and storage are isolated, administrator access is explicit, and cross-tenant timing, identifier-guessing, stale-handle and confused-deputy tests disclose or mutate nothing. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-240",
+    "T-CODEXGMCPROADMAP-241",
+    "T-CODEXGMCPROADMAP-242",
+    "T-CODEXGMCPROADMAP-243",
+    "T-CODEXGMCPROADMAP-244",
+    "T-CODEXGMCPROADMAP-245"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_033_mastery"
+    ]
+  },
+  "roadmap": "VC-203-033",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

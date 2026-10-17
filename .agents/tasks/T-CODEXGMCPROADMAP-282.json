@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-282",
+  "title": "[GMCP 203.043.01] Contract: Cross-platform packaging, service integration, and distribution",
+  "goal": "Requirement GMCP-203-043-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Identical supported GMCP capability is packaged for Linux, macOS and Windows across x86_64 and arm64 with signed, reproducible artifacts, service-manager integration, upgrade/rollback, uninstall, path/permission handling and diagnostics. A declared parity matrix has automated clean-machine, non-admin, Unicode-path, sleep/resume and upgrade tests; unavoidable platform differences are explicit and policy-safe. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-43",
+    "T-CODEXGMCPROADMAP-50",
+    "T-CODEXGMCPROADMAP-92",
+    "T-CODEXGMCPROADMAP-204",
+    "T-CODEXGMCPROADMAP-239",
+    "T-CODEXGMCPROADMAP-274"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_043_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-043",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

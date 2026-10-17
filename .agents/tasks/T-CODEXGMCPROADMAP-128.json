@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-128",
+  "title": "[GMCP 203.024.01] Contract: Unified policy engine and least-privilege authorization",
+  "goal": "Requirement GMCP-203-024-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: One deny-by-default policy engine mediates discovery, invocation, callbacks, data flow and installation using principal, server, capability, arguments, resource, destination, time, risk and provenance. Delegation uses attenuated capability grants, policy decisions explain their exact rule and version, TOCTOU is prevented by execution-time re-check, and exhaustive architecture tests prove no production bypass. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-120"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_024_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-024",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

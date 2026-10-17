@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-212",
+  "title": "[GMCP 203.031.01] Contract: Tool poisoning, prompt injection, rug-pull, and exfiltration defenses",
+  "goal": "Requirement GMCP-203-031-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: All server descriptions, schemas, prompts, resources, UI and tool output are untrusted data. GMCP detects and contains hidden instructions, cross-server shadowing, schema/description rug pulls, Unicode deception, poisoned resources, indirect prompt injection and staged exfiltration; material metadata changes invalidate consent and trust; and a maintained adversarial corpus proves no content can authorize tools, reveal secrets or widen policy. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-57",
+    "T-CODEXGMCPROADMAP-120",
+    "T-CODEXGMCPROADMAP-141",
+    "T-CODEXGMCPROADMAP-134",
+    "T-CODEXGMCPROADMAP-211"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_031_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-031",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

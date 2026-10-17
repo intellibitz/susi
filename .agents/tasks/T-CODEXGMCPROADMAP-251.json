@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-251",
+  "title": "[GMCP 203.037.05] Interoperability and quality: Configuration import, export, migration, and desired state",
+  "goal": "Requirement GMCP-203-037-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: GMCP losslessly imports and exports major MCP host configurations while separating secrets, preserving unknown fields and reporting unsupported semantics. One versioned desired-state schema covers servers, transports, auth, sandbox, policy and extensions; migrations are reversible and idempotent; layered overrides explain provenance; and concurrent edits use validation plus atomic conflict handling. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-248",
+    "T-CODEXGMCPROADMAP-249",
+    "T-CODEXGMCPROADMAP-250"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_037_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-037",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

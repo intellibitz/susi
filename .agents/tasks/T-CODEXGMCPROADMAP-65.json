@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-65",
+  "title": "[GMCP 203.011.01] Contract: Complete prompt and completion server surface",
+  "goal": "Requirement GMCP-203-011-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Prompt discovery/get and argument completion implement all current schemas, roles, embedded content, pagination/filtering, list changes, cache semantics, validation, cancellation, authorization, and deterministic ranking. Prompt templates are immutable per advertised version, untrusted substitutions remain data, and injection, oversized expansion, missing argument, localization, and concurrent-update cases are proven. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-22",
+    "T-CODEXGMCPROADMAP-29"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_011_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-011",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256244
+}

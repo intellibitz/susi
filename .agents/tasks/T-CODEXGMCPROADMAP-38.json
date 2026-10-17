@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-38",
+  "title": "[GMCP 203.005.02] Production path: Production-grade stdio transport",
+  "goal": "Requirement GMCP-203-005-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: GMCP serves and consumes MCP over stdio with byte-accurate framing, bounded lines/messages, strict stdout protocol purity, stderr diagnostics, environment and working-directory control, graceful cancellation and shutdown, child-tree cleanup, backpressure, timeout handling, and Windows/Unix parity. Crash, hang, malformed output, descriptor leak, and hostile child fixtures all recover without stranding resources. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-37"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_005_02_production"
+    ]
+  },
+  "roadmap": "VC-203-005",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

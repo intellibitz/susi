@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-5",
+  "title": "[GMCP 203.001.04] Adversarial and failure behavior: Normative requirements ledger and standards drift",
+  "goal": "Requirement GMCP-203-001-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: A machine-readable requirements ledger covers every applicable MCP 2025-11-25 and 2026-07-28 MUST, SHOULD, error, deprecation, security rule, official extension, and implementation claim. Every row traces to an owner, production path, positive and negative test, evidence artifact, and disposition; automated upstream drift detection fails closed on an unclassified change. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-2",
+    "T-CODEXGMCPROADMAP-3",
+    "T-CODEXGMCPROADMAP-4"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_001_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-001",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256241
+}

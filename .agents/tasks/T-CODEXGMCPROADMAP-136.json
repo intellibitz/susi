@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-136",
+  "title": "[GMCP 203.019.02] Production path: Human consent, approvals, and interaction UX",
+  "goal": "Requirement GMCP-203-019-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Every consequential MCP action has a consistent inspect-before-run experience showing server identity, exact tool and arguments, data leaving the machine, credentials and side effects, with session and durable consent scoped separately. Approval is revocable, non-transferable and inaccessible to untrusted content; headless denial, accessibility, batching, timeout and emergency-stop behavior are all deterministic and audited. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-135"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_019_02_production"
+    ]
+  },
+  "roadmap": "VC-203-019",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

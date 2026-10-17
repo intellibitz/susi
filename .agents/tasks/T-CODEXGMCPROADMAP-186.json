@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-186",
+  "title": "[GMCP 203.027.03] Integration: Enterprise and machine-to-machine authorization extensions",
+  "goal": "Requirement GMCP-203-027-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: GMCP implements and tests official enterprise-managed authorization and OAuth client-credentials extension profiles without conflating user and workload identity. Policy chooses flows explicitly, administrators can constrain issuers and clients, managed settings are tamper-evident, credentials are audience-bound and rotated, and unsupported or draft profiles are labeled and safely declined. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-184",
+    "T-CODEXGMCPROADMAP-185"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_027_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-027",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256251
+}

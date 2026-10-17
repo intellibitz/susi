@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-241",
+  "title": "[GMCP 203.033.02] Production path: Identity, tenancy, state-handle, and data isolation",
+  "goal": "Requirement GMCP-203-033-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: Every request, subscription, task, cache entry, callback and explicit state handle is bound to an authenticated principal, tenant, server and policy epoch. Authorization is rechecked on use, revocation propagates promptly, quotas and storage are isolated, administrator access is explicit, and cross-tenant timing, identifier-guessing, stale-handle and confused-deputy tests disclose or mutate nothing. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-240"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_033_02_production"
+    ]
+  },
+  "roadmap": "VC-203-033",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256254
+}

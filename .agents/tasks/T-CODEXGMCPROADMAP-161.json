@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-161",
+  "title": "[GMCP 203.015.06] Operations and evidence: MCP Apps extension and secure interactive UI",
+  "goal": "Requirement GMCP-203-015-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: GMCP hosts and consumes the stable MCP Apps extension end to end: resources and tool results can declare trusted UI metadata, render in a sandboxed surface, call permitted tools, update state, and degrade to accessible non-visual content. CSP, origin isolation, permissions, accessibility, lifecycle, version negotiation, hostile app content and cross-app data separation pass the official extension suite and browser security tests. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-156",
+    "T-CODEXGMCPROADMAP-157",
+    "T-CODEXGMCPROADMAP-158",
+    "T-CODEXGMCPROADMAP-159",
+    "T-CODEXGMCPROADMAP-160"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_015_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-015",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256249
+}

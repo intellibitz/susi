@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-116",
+  "title": "[GMCP 203.017.03] Integration: Complete MCP client and host",
+  "goal": "Requirement GMCP-203-017-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: GMCP is a full host, not only a tool caller: one API and CLI can connect to any supported server, discover capabilities, call tools, read and subscribe to resources, get prompts and completions, handle MRTR callbacks, tasks, Apps, authorization, notifications, progress and cancellation. Multiple servers operate concurrently with isolated identities, policies and state, and every callback surface is exercised against real reference servers. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-114",
+    "T-CODEXGMCPROADMAP-115"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_017_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-017",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

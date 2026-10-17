@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-203",
+  "title": "[GMCP 203.029.06] Operations and evidence: Local process, filesystem, and network sandboxing",
+  "goal": "Requirement GMCP-203-029-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: Each local MCP server executes under a declared sandbox profile with minimal filesystem, network, process, device, environment and resource access, implemented on Linux, macOS and Windows with visible degradation when an OS primitive is unavailable. Profiles are generated from permissions, independently enforced outside the child, immutable after launch, and defeated by none of the traversal, symlink, namespace, child-process or localhost escape tests. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-198",
+    "T-CODEXGMCPROADMAP-199",
+    "T-CODEXGMCPROADMAP-200",
+    "T-CODEXGMCPROADMAP-201",
+    "T-CODEXGMCPROADMAP-202"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_029_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-029",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

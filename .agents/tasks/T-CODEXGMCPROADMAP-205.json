@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-205",
+  "title": "[GMCP 203.030.01] Contract: Supply-chain integrity and server/package trust",
+  "goal": "Requirement GMCP-203-030-01. Translate the mastery target into a normative clause and behavior table. Pin source revisions and hashes; define canonical APIs and data models, compatibility and deprecation decisions, threat model, measurable SLO or resource budgets, positive and negative fixtures, and immutable evidence locations. Resolve every ambiguity before implementation. Vector outcome: Every install resolves immutable package identity, source, version, digest, signature/provenance, license, SBOM, vulnerabilities, maintainer and runtime before execution. Lockfiles and trusted publishers prevent substitution and dependency confusion; updates are staged, rescanned, diffed and rollbackable; revoked or newly critical artifacts are quarantined; and offline verification uses retained transparency evidence. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-8",
+    "T-CODEXGMCPROADMAP-197",
+    "T-CODEXGMCPROADMAP-204"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_030_01_contract"
+    ]
+  },
+  "roadmap": "VC-203-030",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

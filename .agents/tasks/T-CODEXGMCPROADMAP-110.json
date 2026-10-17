@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-110",
+  "title": "[GMCP 203.020.04] Adversarial and failure behavior: GMCP server authoring SDK and plugin lifecycle",
+  "goal": "Requirement GMCP-203-020-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: A stable Susi-shaped authoring SDK builds local MCP servers, tools, resources, prompts, subscriptions, MRTR handlers, tasks and extensions with schema derivation, typed context, middleware, testing fixtures and hot reload. Plugins declare permissions and compatibility, initialize transactionally, unload without leaks, preserve no vendor types across the boundary, and ship runnable minimal through production examples. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-107",
+    "T-CODEXGMCPROADMAP-108",
+    "T-CODEXGMCPROADMAP-109"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_020_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-020",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

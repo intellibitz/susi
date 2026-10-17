@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-284",
+  "title": "[GMCP 203.043.03] Integration: Cross-platform packaging, service integration, and distribution",
+  "goal": "Requirement GMCP-203-043-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: Identical supported GMCP capability is packaged for Linux, macOS and Windows across x86_64 and arm64 with signed, reproducible artifacts, service-manager integration, upgrade/rollback, uninstall, path/permission handling and diagnostics. A declared parity matrix has automated clean-machine, non-admin, Unicode-path, sleep/resume and upgrade tests; unavoidable platform differences are explicit and policy-safe. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-282",
+    "T-CODEXGMCPROADMAP-283"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_043_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-043",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256256
+}

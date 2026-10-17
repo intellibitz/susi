@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-115",
+  "title": "[GMCP 203.017.02] Production path: Complete MCP client and host",
+  "goal": "Requirement GMCP-203-017-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: GMCP is a full host, not only a tool caller: one API and CLI can connect to any supported server, discover capabilities, call tools, read and subscribe to resources, get prompts and completions, handle MRTR callbacks, tasks, Apps, authorization, notifications, progress and cancellation. Multiple servers operate concurrently with isolated identities, policies and state, and every callback surface is exercised against real reference servers. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-114"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_017_02_production"
+    ]
+  },
+  "roadmap": "VC-203-017",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-125",
+  "title": "[GMCP 203.018.05] Interoperability and quality: Client connection runtime, caching, retries, and concurrency",
+  "goal": "Requirement GMCP-203-018-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: The client runtime pools only security-equivalent connections, honors ttlMs and cacheScope, invalidates on notifications, applies deadline and cancellation budgets, retries only safe operations with jitter and circuit breaking, and enforces per-server plus global concurrency and memory bounds. Reconnect, half-open, duplicate-response, slowloris, crash-loop and thundering-herd tests prove deterministic recovery without duplicate side effects. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-122",
+    "T-CODEXGMCPROADMAP-123",
+    "T-CODEXGMCPROADMAP-124"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_018_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-018",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256247
+}

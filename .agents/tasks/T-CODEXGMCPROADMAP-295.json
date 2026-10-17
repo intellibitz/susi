@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-295",
+  "title": "[GMCP 203.041.M] Mastery: Reliability, durability, recovery, backup, and offline operation",
+  "goal": "Requirement GMCP-203-041-M. Pass the complete vector mastery target on the shipped production path: Crash-consistent journals and atomic state transitions recover tasks, approvals, registry snapshots, desired state and lifecycle operations without replaying side effects. Defined RPO/RTO targets are met under kill -9, power-loss simulation, corrupt/torn state, full disk and clock skew; backups are encrypted, versioned and restore-tested; and all declared local capabilities remain usable without network access. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-289",
+    "T-CODEXGMCPROADMAP-290",
+    "T-CODEXGMCPROADMAP-291",
+    "T-CODEXGMCPROADMAP-292",
+    "T-CODEXGMCPROADMAP-293",
+    "T-CODEXGMCPROADMAP-294"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_041_mastery"
+    ]
+  },
+  "roadmap": "VC-203-041",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256257
+}

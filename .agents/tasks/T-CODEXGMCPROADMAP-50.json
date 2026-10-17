@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-50",
+  "title": "[GMCP 203.006.M] Mastery: Production-grade Streamable HTTP transport",
+  "goal": "Requirement GMCP-203-006-M. Pass the complete vector mastery target on the shipped production path: GMCP serves and consumes current Streamable HTTP over HTTP/1.1 and HTTP/2 with correct POST semantics, media negotiation, streaming and non-streaming responses, origin/host validation, protocol and method headers, cache controls, cancellation, backpressure, connection limits, TLS, proxy awareness, and graceful drain. Removed GET/SSE-resume/session behavior is rejected on the modern path and confined to explicit legacy adapters. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-44",
+    "T-CODEXGMCPROADMAP-45",
+    "T-CODEXGMCPROADMAP-46",
+    "T-CODEXGMCPROADMAP-47",
+    "T-CODEXGMCPROADMAP-48",
+    "T-CODEXGMCPROADMAP-49"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_006_mastery"
+    ]
+  },
+  "roadmap": "VC-203-006",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

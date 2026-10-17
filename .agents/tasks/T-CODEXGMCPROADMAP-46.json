@@ -1,0 +1,23 @@
+{
+  "id": "T-CODEXGMCPROADMAP-46",
+  "title": "[GMCP 203.006.03] Integration: Production-grade Streamable HTTP transport",
+  "goal": "Requirement GMCP-203-006-03. Wire the capability through every applicable server, client, host, gateway, SDK, CLI, configuration, callback, supervisor, persistence, and migration surface. Prove that direct, daemon, and gateway entry points share the same implementation and policy boundaries. Vector outcome: GMCP serves and consumes current Streamable HTTP over HTTP/1.1 and HTTP/2 with correct POST semantics, media negotiation, streaming and non-streaming responses, origin/host validation, protocol and method headers, cache controls, cancellation, backpressure, connection limits, TLS, proxy awareness, and graceful drain. Removed GET/SSE-resume/session behavior is rejected on the modern path and confined to explicit legacy adapters. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-44",
+    "T-CODEXGMCPROADMAP-45"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_006_03_integration"
+    ]
+  },
+  "roadmap": "VC-203-006",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256243
+}

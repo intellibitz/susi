@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-318",
+  "title": "[GMCP 203.046.02] Production path: Property testing, fuzzing, model checking, and continuous red-team",
+  "goal": "Requirement GMCP-203-046-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: All parsers, serializers, state machines, URI/schema evaluators, policy decisions and transport boundaries have invariant/property tests and coverage-guided fuzz targets with retained regression seeds. Lifecycle, task and subscription models are checked for safety/liveness; threat-model abuse cases map to automated adversarial tests; sanitizer and red-team campaigns report zero unresolved critical/high findings at release. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-317"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_046_02_production"
+    ]
+  },
+  "roadmap": "VC-203-046",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256258
+}

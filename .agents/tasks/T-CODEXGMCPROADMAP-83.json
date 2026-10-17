@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-83",
+  "title": "[GMCP 203.016.05] Interoperability and quality: First-class extension framework and extension governance",
+  "goal": "Requirement GMCP-203-016-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: Namespaced MCP extensions can be discovered, negotiated, configured, versioned, isolated and disabled through one typed framework without forking core protocol code. Unknown extensions round-trip safely, required unsupported extensions fail explicitly, official and experimental status is visible, collision and downgrade rules are enforced, and a watch process opens roadmap work for every newly published official extension. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-80",
+    "T-CODEXGMCPROADMAP-81",
+    "T-CODEXGMCPROADMAP-82"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_016_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-016",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

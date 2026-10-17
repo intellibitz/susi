@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-15",
+  "title": "[GMCP 203.002.M] Mastery: JSON-RPC, protocol metadata, errors, cancellation, and negotiation",
+  "goal": "Requirement GMCP-203-002-M. Pass the complete vector mastery target on the shipped production path: GMCP implements the complete JSON-RPC substrate for every supported revision: identifiers and batches where applicable, notifications, cancellation, progress tokens, typed standard and MCP errors, required resultType, per-request protocol/capability metadata, trace context, and deterministic unsupported-version behavior. Malformed, duplicated, reordered, oversized, and adversarial messages fail predictably without corrupting another request. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-9",
+    "T-CODEXGMCPROADMAP-10",
+    "T-CODEXGMCPROADMAP-11",
+    "T-CODEXGMCPROADMAP-12",
+    "T-CODEXGMCPROADMAP-13",
+    "T-CODEXGMCPROADMAP-14"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_002_mastery"
+    ]
+  },
+  "roadmap": "VC-203-002",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256242
+}

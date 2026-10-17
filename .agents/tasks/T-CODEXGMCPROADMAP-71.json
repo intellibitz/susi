@@ -1,0 +1,27 @@
+{
+  "id": "T-CODEXGMCPROADMAP-71",
+  "title": "[GMCP 203.011.M] Mastery: Complete prompt and completion server surface",
+  "goal": "Requirement GMCP-203-011-M. Pass the complete vector mastery target on the shipped production path: Prompt discovery/get and argument completion implement all current schemas, roles, embedded content, pagination/filtering, list changes, cache semantics, validation, cancellation, authorization, and deterministic ranking. Prompt templates are immutable per advertised version, untrusted substitutions remain data, and injection, oversized expansion, missing argument, localization, and concurrent-update cases are proven. Consume and verify the evidence produced by requirements 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or zero-test evidence. Task closure and roadmap prose are not proof.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-65",
+    "T-CODEXGMCPROADMAP-66",
+    "T-CODEXGMCPROADMAP-67",
+    "T-CODEXGMCPROADMAP-68",
+    "T-CODEXGMCPROADMAP-69",
+    "T-CODEXGMCPROADMAP-70"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_011_mastery"
+    ]
+  },
+  "roadmap": "VC-203-011",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

@@ -1,0 +1,26 @@
+{
+  "id": "T-CODEXGMCPROADMAP-133",
+  "title": "[GMCP 203.024.06] Operations and evidence: Unified policy engine and least-privilege authorization",
+  "goal": "Requirement GMCP-203-024-06. Ship inspectable CLI, TUI or API state, configuration validation, bounded metrics/logs/traces, diagnostics, examples, migration and rollback guidance, incident runbooks, and reproducible evidence artifacts. Automate drift detection so a changed dependency or standard invalidates stale proof. Vector outcome: One deny-by-default policy engine mediates discovery, invocation, callbacks, data flow and installation using principal, server, capability, arguments, resource, destination, time, risk and provenance. Delegation uses attenuated capability grants, policy decisions explain their exact rule and version, TOCTOU is prevented by execution-time re-check, and exhaustive architecture tests prove no production bypass. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "m",
+  "deps": [
+    "T-CODEXGMCPROADMAP-128",
+    "T-CODEXGMCPROADMAP-129",
+    "T-CODEXGMCPROADMAP-130",
+    "T-CODEXGMCPROADMAP-131",
+    "T-CODEXGMCPROADMAP-132"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_024_06_operations"
+    ]
+  },
+  "roadmap": "VC-203-024",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

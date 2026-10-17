@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-87",
+  "title": "[GMCP 203.007.02] Production path: Transport adapter SPI and embedded/in-process operation",
+  "goal": "Requirement GMCP-203-007-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: A stable transport SPI admits in-process, Unix-domain socket, named-pipe, WebSocket or future transports without changing protocol semantics. A common conformance harness proves ordering, cancellation, limits, identity propagation, observability, shutdown, and error equivalence across adapters, while experimental transports are capability-negotiated and never silently presented as standard MCP. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-86"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_007_02_production"
+    ]
+  },
+  "roadmap": "VC-203-007",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256245
+}

@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-208",
+  "title": "[GMCP 203.030.04] Adversarial and failure behavior: Supply-chain integrity and server/package trust",
+  "goal": "Requirement GMCP-203-030-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: Every install resolves immutable package identity, source, version, digest, signature/provenance, license, SBOM, vulnerabilities, maintainer and runtime before execution. Lockfiles and trusted publishers prevent substitution and dependency confusion; updates are staged, rescanned, diffed and rollbackable; revoked or newly critical artifacts are quarantined; and offline verification uses retained transparency evidence. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-205",
+    "T-CODEXGMCPROADMAP-206",
+    "T-CODEXGMCPROADMAP-207"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_030_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-030",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256252
+}

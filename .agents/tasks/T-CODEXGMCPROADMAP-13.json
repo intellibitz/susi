@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-13",
+  "title": "[GMCP 203.002.05] Interoperability and quality: JSON-RPC, protocol metadata, errors, cancellation, and negotiation",
+  "goal": "Requirement GMCP-203-002-05. Prove applicable official-suite and reference-SDK interoperability in both roles, direct-versus-gateway differential behavior, property invariants, transport and platform parity, and published latency, throughput, startup, memory, disk, and fairness budgets. Retain regression fixtures for every incompatibility found. Vector outcome: GMCP implements the complete JSON-RPC substrate for every supported revision: identifiers and batches where applicable, notifications, cancellation, progress tokens, typed standard and MCP errors, required resultType, per-request protocol/capability metadata, trace context, and deterministic unsupported-version behavior. Malformed, duplicated, reordered, oversized, and adversarial messages fail predictably without corrupting another request. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-10",
+    "T-CODEXGMCPROADMAP-11",
+    "T-CODEXGMCPROADMAP-12"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_002_05_interop"
+    ]
+  },
+  "roadmap": "VC-203-002",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256241
+}

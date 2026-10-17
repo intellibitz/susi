@@ -1,0 +1,22 @@
+{
+  "id": "T-CODEXGMCPROADMAP-143",
+  "title": "[GMCP 203.021.02] Production path: Local MCP gateway, reverse proxy, and aggregation plane",
+  "goal": "Requirement GMCP-203-021-02. Implement the canonical state, types, and primary production path. Replace stubs, demo-only paths, duplicated semantics, and implicit ambient state; preserve compatible behavior through explicit adapters; and make the new path reachable from the shipped GMCP runtime. Vector outcome: GMCP exposes many local or remote servers as one policy-enforced endpoint while preserving original server identity, capabilities, schemas, errors, progress, cancellation, subscriptions and trace context. Routing and transformation are deterministic; backpressure, quotas and failure isolation prevent one backend from harming others; and direct-versus-gateway differential tests prove no semantic loss. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-142"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_021_02_production"
+    ]
+  },
+  "roadmap": "VC-203-021",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256248
+}

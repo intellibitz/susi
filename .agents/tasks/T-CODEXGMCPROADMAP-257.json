@@ -1,0 +1,24 @@
+{
+  "id": "T-CODEXGMCPROADMAP-257",
+  "title": "[GMCP 203.034.04] Adversarial and failure behavior: Audit, privacy, provenance, and compliance evidence",
+  "goal": "Requirement GMCP-203-034-04. Close validation, authorization, isolation, privacy, bounded-resource, cancellation, concurrency, crash, retry, rollback, and recovery behavior. Add deterministic negative, attack, race, corruption, and fault-injection fixtures derived from the vector threat model. Vector outcome: A single tamper-evident event model records MCP lifecycle, discovery, policy, consent, install, auth, invocation, data egress, callback, task and administrative outcomes with correlation and provenance but no secret or raw sensitive payload. Retention, deletion, export and subject boundaries are configurable; completeness canaries catch bypasses; and an evidence bundle reproduces every completion claim from immutable test and build artifacts. Done means production-path tests and retained evidence prove this work package; task closure or roadmap wording alone is not evidence.",
+  "size": "l",
+  "deps": [
+    "T-CODEXGMCPROADMAP-254",
+    "T-CODEXGMCPROADMAP-255",
+    "T-CODEXGMCPROADMAP-256"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_req_203_034_04_adversarial"
+    ]
+  },
+  "roadmap": "VC-203-034",
+  "created_by": "CODEXGMCPROADMAP",
+  "created_unix": 1792256255
+}
