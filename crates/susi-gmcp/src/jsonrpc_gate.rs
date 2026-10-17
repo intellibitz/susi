@@ -34,10 +34,9 @@ use rmcp::service::{RoleServer, RxJsonRpcMessage, TxJsonRpcMessage};
 use rmcp::transport::Transport;
 
 /// Protocol revisions the wire contract accepts on the modern path — the
-/// `data.supported` list a `-32022` answer must carry. Source of truth for
-/// both this gate and any negotiated-metadata reporting.
-const MODERN_SUPPORTED_VERSIONS: &[&str] =
-    &["2025-11-25", "2025-06-18", "2025-03-26", "2026-07-28"];
+/// `data.supported` list a `-32022` answer must carry. Canonical registry
+/// in `protocol.rs` (VC-203-003); this alias keeps the gate's names short.
+use crate::protocol::MODERN_REQUEST_VERSIONS as MODERN_SUPPORTED_VERSIONS;
 
 /// The `_meta` keys a request on the modern (`2026-07-28`) path MUST
 /// carry; a request missing any of them is malformed (`-32602`).

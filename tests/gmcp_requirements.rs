@@ -3168,3 +3168,163 @@ fn gmcp_req_203_003_01_contract() {
     }
     assert_eq!(record["exit"], 0);
 }
+
+/// GMCP-203-003-02: the canonical stateless lifecycle lives in
+/// `susi_gmcp::protocol` — `discover_result` is explicit canonical
+/// state (identity, advertised registry, pinned cache hints) rather
+/// than ambient handler defaults, and the shipped wire path serves the
+/// complete discover result with no handshake, validates the
+/// per-request version deterministically, and keeps concurrent modern
+/// requests independent (no negotiated state exists to leak).
+#[test]
+fn gmcp_req_203_003_02_production() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, EraState, GateVerdict};
+    use susi_gmcp::protocol::{
+        GmcpService, DISCOVER_CACHE_SCOPE, DISCOVER_TTL_MS, MODERN_REQUEST_VERSIONS,
+    };
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-003-prod-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── In-process canonical state: the discover result is the
+    //    contract's wire shape built from named constants ────────────
+    let service = GmcpService::new(scratch.clone());
+    let result = service.discover_result();
+    let wire = serde_json::to_value(&result).expect("discover result serializes");
+    assert_eq!(wire["resultType"], "complete");
+    let versions = wire["supportedVersions"]
+        .as_array()
+        .expect("supportedVersions must be a non-empty array");
+    assert!(!versions.is_empty());
+    assert!(
+        versions.iter().any(|v| v == "2026-07-28"),
+        "the advertised registry must include the modern revision: {versions:?}"
+    );
+    assert!(
+        wire["capabilities"].is_object(),
+        "capabilities must be present: {wire}"
+    );
+    let server_info = &wire["_meta"]["io.modelcontextprotocol/serverInfo"];
+    assert_eq!(server_info["name"], "susi-gmcp");
+    assert!(
+        server_info["version"]
+            .as_str()
+            .is_some_and(|v| !v.is_empty()),
+        "serverInfo.version must identify the build: {wire}"
+    );
+    assert_eq!(wire["ttlMs"], DISCOVER_TTL_MS);
+    assert_eq!(
+        wire["cacheScope"],
+        serde_json::to_value(DISCOVER_CACHE_SCOPE).unwrap()
+    );
+    // The canonical registry and the gate's -32022 data agree — one
+    // source of truth for per-request version validation.
+    let mut era = EraState::default();
+    let unsupported = br#"{"jsonrpc":"2.0","id":9,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"1999-01-01"}}}"#;
+    match classify_line(unsupported, &mut era) {
+        GateVerdict::Reject { code, data, .. } => {
+            assert_eq!(code, -32022);
+            assert_eq!(
+                data.unwrap()["supported"].as_array().unwrap().len(),
+                MODERN_REQUEST_VERSIONS.len(),
+                "data.supported must be the canonical registry"
+            );
+        }
+        verdict => panic!("unsupported version must reject -32022, got {verdict:?}"),
+    }
+
+    // ── Wire path: a modern session answers discover plus ordinary
+    //    requests with no initialize ceremony, and each response
+    //    carries the complete contract shape ─────────────────────────
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let discover = modern.request(
+        "server/discover",
+        serde_json::json!({"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}),
+    );
+    assert_eq!(discover["resultType"], "complete");
+    assert!(!discover["supportedVersions"].as_array().unwrap().is_empty());
+    assert_eq!(
+        discover["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        "susi-gmcp"
+    );
+    assert!(discover["ttlMs"].as_u64().is_some());
+    assert!(matches!(
+        discover["cacheScope"].as_str(),
+        Some("public" | "private")
+    ));
+    // Stateless: an ordinary request with only per-request _meta — no
+    // handshake established anything — is served on its own context.
+    let tools = modern.request(
+        "tools/list",
+        serde_json::json!({"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}),
+    );
+    assert!(tools["tools"].is_array(), "tools/list must answer: {tools}");
+    // Version validation is per request — an unsupported declared
+    // version earns -32022 even mid-session on the modern path.
+    let rejected = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "bad-version",
+                "method": "server/discover",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "1999-01-01",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("unsupported version must be answered, not dropped");
+    assert_eq!(rejected["error"]["code"], -32022);
+    assert_eq!(
+        rejected["error"]["data"]["supported"]
+            .as_array()
+            .unwrap()
+            .len(),
+        MODERN_REQUEST_VERSIONS.len()
+    );
+    // Concurrent requests stay independent: two in-flight requests with
+    // different declared versions are correlated by id, never by any
+    // shared negotiated state.
+    modern.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "concurrent-a", "method": "server/discover",
+        "params": {"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}
+    }));
+    modern.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "concurrent-b", "method": "tools/list",
+        "params": {"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2025-11-25",
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}
+    }));
+    let a = modern
+        .response_for(
+            &serde_json::json!("concurrent-a"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("concurrent-a must be answered");
+    let b = modern
+        .response_for(
+            &serde_json::json!("concurrent-b"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("concurrent-b must be answered");
+    assert!(a["result"].is_object(), "discover concurrent answer: {a}");
+    assert!(
+        b["result"]["tools"].is_array() || b["error"].is_object(),
+        "each request is answered on its own declared context: {b}"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
