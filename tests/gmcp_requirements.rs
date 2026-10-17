@@ -960,3 +960,195 @@ fn md5ish(data: &[u8]) -> u128 {
     }
     ((a as u128) << 64) | b as u128
 }
+
+/// GMCP-203-001-06: operations and evidence — the shipped surfaces must be
+/// inspectable, bounded, and diagnostic; drift detection must be automated
+/// and fail closed on a changed or unreachable source; and the contract
+/// must retain runbook, migration, and rollback guidance plus a recorded
+/// evidence entry for this requirement.
+#[test]
+fn gmcp_req_203_001_06_operations() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Inspectable state: the production report carries the bounded
+    //    metrics an operator or dashboard asserts on ─────────────────
+    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+    assert_eq!(report["verified"], true);
+    assert_eq!(report["rows"].as_u64(), Some(1713));
+    assert_eq!(report["documents"].as_u64(), Some(72));
+
+    // ── Configuration validation: --refetched without --drift is
+    //    meaningless and must be rejected ────────────────────────────
+    let bad = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(
+        !bad.status.success(),
+        "--refetched without --drift must fail usage validation"
+    );
+
+    // ── Deterministic drift pass: the vendored corpus used as the
+    //    refetched directory must match every pin ────────────────────
+    let drift = susi_json(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(drift["drift"], true);
+    assert_eq!(
+        drift["verified"], true,
+        "drift pass must be clean: {}",
+        drift["findings"]
+    );
+    assert_eq!(drift["checked"].as_u64(), Some(72));
+    assert_eq!(drift["checked"], drift["matched"]);
+    assert!(
+        drift["findings"].as_array().unwrap().is_empty(),
+        "an unchanged upstream must produce no findings"
+    );
+
+    // ── Fail closed on upstream drift: flip one byte in a refetched
+    //    copy and the finding must name the drifted document ─────────
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/sources.json"))
+            .expect("sources.json must parse"),
+    )
+    .expect("sources.json must parse");
+    let files = manifest["files"].as_array().expect("manifest files");
+    let drifted_doc = files[0]["document"].as_str().unwrap().to_string();
+    let missing_doc = files[1]["document"].as_str().unwrap().to_string();
+
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(&drifted_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let output = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(
+        !output.status.success(),
+        "a drifted upstream file must fail the check closed"
+    );
+    let finding_report: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
+            .expect("a failed drift pass still emits the JSON report");
+    let findings = finding_report["findings"].as_array().unwrap();
+    assert_eq!(findings.len(), 1, "exactly the edited file must drift");
+    assert_eq!(findings[0]["document"], drifted_doc);
+    assert_eq!(findings[0]["kind"], "hash_drift");
+    assert_eq!(finding_report["verified"], false);
+
+    // ── Fail closed on an unfetchable source: a missing refetched file
+    //    is a finding, never a skip ──────────────────────────────────
+    std::fs::remove_file(refetched.join(&missing_doc)).unwrap();
+    std::fs::write(&victim, &bytes[..bytes.len() - 1]).unwrap();
+    let output = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!output.status.success());
+    let finding_report: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).unwrap();
+    let findings = finding_report["findings"].as_array().unwrap();
+    assert!(
+        findings
+            .iter()
+            .any(|f| f["document"] == missing_doc && f["kind"] == "unfetchable"),
+        "a missing refetched file must fail closed as unfetchable: {findings:?}"
+    );
+
+    // ── Canonical refetch URL parity with the authoring checker ──────
+    assert_eq!(
+        susi_gmcp::requirements_ledger::upstream_url(
+            "ext-tasks",
+            "899c1bbc869567670093face3591b39c28ce3219",
+            "spec/2026-07-28/index.mdx"
+        ),
+        "https://raw.githubusercontent.com/modelcontextprotocol/ext-tasks/899c1bbc869567670093face3591b39c28ce3219/spec/2026-07-28/index.mdx"
+    );
+
+    // ── Runbook, migration, and rollback guidance in the contract ────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-001.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Diagnostics",
+        "Incident triage",
+        "Migration (re-pinning an upstream standard)",
+        "Rollback",
+        "--refetched",
+        "hash_drift",
+        "unfetchable",
+    ] {
+        assert!(
+            contract.contains(token),
+            "contract must document operations guidance: {token}"
+        );
+    }
+
+    // ── Evidence: a complete record for this requirement ─────────────
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-001.jsonl"))
+        .expect("VC-203-001 must retain an evidence artifact");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|r| r["requirement"] == "GMCP-203-001-06")
+        .expect("evidence must retain a record for GMCP-203-001-06");
+    for field in [
+        "check",
+        "exit",
+        "artifact_sha256",
+        "identity",
+        "recorded_unix",
+    ] {
+        assert!(!record[field].is_null(), "evidence record lacks {field}");
+    }
+    assert_eq!(record["exit"], 0);
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}

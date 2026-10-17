@@ -31,8 +31,18 @@ pub enum McpCommands {
     /// Verify the pinned GMCP normative requirements ledger
     /// (.agents/gmcp): vendored corpus hashes, verbatim clauses, and
     /// complete row classification — the shipped production path for
-    /// VC-203-001.
-    Ledger,
+    /// VC-203-001. `--drift` instead refetches every pinned upstream and
+    /// fails closed on a changed or unreachable source.
+    Ledger {
+        /// Check upstream standards drift instead of the local corpus
+        #[arg(long)]
+        drift: bool,
+        /// With `--drift`: compare this pre-fetched corpus directory
+        /// (keyed by manifest document name) instead of the network —
+        /// the deterministic path tests and air-gapped checks use.
+        #[arg(long, requires = "drift")]
+        refetched: Option<std::path::PathBuf>,
+    },
     /// Invoke a tool on a peer MCP endpoint (`host:port`) over the
     /// session-aware channel — the same path cluster replication uses.
     Call {
@@ -172,7 +182,33 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             }
             Ok(false)
         }
-        McpCommands::Ledger => {
+        McpCommands::Ledger { drift, refetched } => {
+            if drift {
+                use susi_gmcp::requirements_ledger as ledger;
+                let report = match refetched {
+                    Some(dir) => ledger::check_drift_against_dir(workspace, &dir),
+                    None => ledger::check_drift_remote(workspace),
+                }
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                print_json(&serde_json::json!({
+                    "drift": true,
+                    "checked": report.checked,
+                    "matched": report.matched,
+                    "verified": report.findings.is_empty(),
+                    "findings": report.findings.iter().map(|f| serde_json::json!({
+                        "document": f.document,
+                        "kind": f.kind,
+                        "detail": f.detail,
+                    })).collect::<Vec<_>>(),
+                }))?;
+                if !report.findings.is_empty() {
+                    bail!(
+                        "upstream drift: {} finding(s) — the pinned corpus is stale and must be re-pinned",
+                        report.findings.len()
+                    );
+                }
+                return Ok(false);
+            }
             let report = susi_gmcp::requirements_ledger::verify_report_json(workspace)
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
             print_json(&report)?;
