@@ -1,0 +1,17 @@
+{
+  "comment": "Negative fixture (VC-203-003): server/discover is version-checked like every other request — an unsupported _meta.protocolVersion earns UnsupportedProtocolVersionError -32022 whose data.supported list is itself the negotiation fallback (contract ambiguity resolution).",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": "discover-0004",
+    "method": "server/discover",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "1999-01-01",
+        "io.modelcontextprotocol/clientCapabilities": {}
+      }
+    }
+  },
+  "expect": "error",
+  "expect_code": -32022,
+  "era": "modern"
+}

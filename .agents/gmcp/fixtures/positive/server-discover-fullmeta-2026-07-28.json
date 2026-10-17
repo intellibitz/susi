@@ -1,0 +1,20 @@
+{
+  "comment": "Positive fixture (VC-203-003): server/discover carrying the complete modern _meta — protocolVersion + clientInfo + clientCapabilities — the exact discover.mdx example shape; answered without any handshake on the stateless modern path.",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": "discover-0003",
+    "method": "server/discover",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {
+          "name": "gmcp-fixture",
+          "version": "1.0"
+        },
+        "io.modelcontextprotocol/clientCapabilities": {}
+      }
+    }
+  },
+  "expect": "result",
+  "era": "modern"
+}
