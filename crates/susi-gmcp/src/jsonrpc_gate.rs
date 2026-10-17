@@ -135,13 +135,14 @@ fn is_ignorable_notification(value: &Value) -> bool {
         || (method.starts_with("notifications/") && !STANDARD.contains(&method))
 }
 
-/// Classify one raw line. The verdict embeds everything the transport
-/// needs to act — the caller owns emission, so the policy is also
-/// testable in-process without a wire.
-pub fn classify_line(line: &[u8], era: &mut EraState) -> GateVerdict {
-    // Parse errors are reported, not swallowed: a malformed line is the
-    // one class where the peer provably needs the signal, and stdio has
-    // no echo-back risk — the peer's own output is not our input.
+/// Classify the transport-independent envelope of one raw JSON-RPC
+/// message — every check a malformed message fails before era-specific
+/// policy applies. Both the stdio line gate and the streamable-HTTP body
+/// gate run this so `mcp serve` and the daemon's `/mcp` endpoint share
+/// one policy boundary.
+pub fn classify_envelope(line: &[u8]) -> GateVerdict {
+    // Parse errors are reported, not swallowed: a malformed message is
+    // the one class where the peer provably needs the signal.
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return reject(-32700, "Parse error", None, None);
     };
@@ -184,7 +185,62 @@ pub fn classify_line(line: &[u8], era: &mut EraState) -> GateVerdict {
     if id.is_none() && is_ignorable_notification(&value) {
         return GateVerdict::Drop;
     }
+    GateVerdict::Forward
+}
 
+/// The JSON-RPC error document both transports emit for a rejection —
+/// the same envelope shape whether it travels as a stdio line or the
+/// body of an HTTP 400.
+fn error_json(code: i64, message: &str, data: Option<&Value>, id: Option<&Value>) -> Value {
+    let mut error = serde_json::json!({"code": code, "message": message});
+    if let Some(data) = data {
+        error["data"] = data.clone();
+    }
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id.cloned().unwrap_or(Value::Null),
+        "error": error,
+    })
+}
+
+/// HTTP entry point: `handle_request` classifies every buffered POST
+/// body through the same envelope policy the stdio gate applies, so the
+/// daemon/gateway surface and `mcp serve` share one boundary. Returns
+/// the error document to answer with, or `None` when the body must reach
+/// the service — forwards *and* compatibility drops both pass (the HTTP
+/// layer answers notifications itself).
+pub fn http_envelope_rejection(body: &[u8]) -> Option<Value> {
+    match classify_envelope(body) {
+        GateVerdict::Reject {
+            code,
+            message,
+            data,
+            id,
+        } => Some(error_json(code, message, data.as_ref(), id.as_ref())),
+        GateVerdict::Forward | GateVerdict::Drop => None,
+    }
+}
+
+/// Classify one raw line on a stdio session. `classify_envelope` runs
+/// first; a message that survives it is checked against the era-specific
+/// `_meta` policy below. The verdict embeds everything the transport
+/// needs to act — the caller owns emission, so the policy is also
+/// testable in-process without a wire.
+pub fn classify_line(line: &[u8], era: &mut EraState) -> GateVerdict {
+    match classify_envelope(line) {
+        GateVerdict::Forward => {}
+        verdict @ (GateVerdict::Drop | GateVerdict::Reject { .. }) => return verdict,
+    }
+    // The envelope verdict proves this parse cannot fail.
+    let value = match serde_json::from_slice::<Value>(line) {
+        Ok(value) => value,
+        Err(_) => return GateVerdict::Forward,
+    };
+    let Some(object) = value.as_object() else {
+        return GateVerdict::Forward;
+    };
+    let id = object.get("id").cloned();
+    let method = object.get("method").and_then(Value::as_str);
     let params = object.get("params").unwrap_or(&Value::Null);
     let meta = params.get("_meta").unwrap_or(&Value::Null);
 
@@ -234,14 +290,7 @@ pub fn classify_line(line: &[u8], era: &mut EraState) -> GateVerdict {
         );
     }
 
-    // The remaining shape checks — typed `params`, method dispatch —
-    // belong to the service; forward the line and let the typed codec
-    // answer anything the envelope leaves open.
-    match serde_json::from_slice::<RxJsonRpcMessage<RoleServer>>(line) {
-        Ok(_) => GateVerdict::Forward,
-        Err(_) if is_ignorable_notification(&value) => GateVerdict::Drop,
-        Err(_) => reject(-32600, "Invalid request", None, id),
-    }
+    GateVerdict::Forward
 }
 
 /// Era state carried across `classify_line` calls on one session.
@@ -312,15 +361,7 @@ where
         data: Option<&Value>,
         id: Option<&Value>,
     ) -> std::io::Result<()> {
-        let mut error = serde_json::json!({"code": code, "message": message});
-        if let Some(data) = data {
-            error["data"] = data.clone();
-        }
-        let line = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id.cloned().unwrap_or(Value::Null),
-            "error": error,
-        });
+        let line = error_json(code, message, data, id);
         let mut bytes = serde_json::to_vec(&line)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         bytes.push(b'\n');
@@ -328,18 +369,28 @@ where
         guard.write_all(&bytes).await
     }
 
-    /// Serialize a service answer, stamping `resultType` onto a result
-    /// payload that lacks one (absent means `complete`, but the field is
-    /// required on the wire).
-    fn encode_outbound(item: &TxJsonRpcMessage<RoleServer>) -> std::io::Result<Vec<u8>> {
+    /// Serialize a service answer with the era-correct `resultType`
+    /// wire shape: on the modern path the field is required on results
+    /// (stamp it when the payload lacks one); on a legacy session the
+    /// field is not defined — the historical wire shape keeps it absent
+    /// (the SDK already strips it; this is the belt-and-suspenders for
+    /// custom results it cannot see).
+    fn encode_outbound(
+        item: &TxJsonRpcMessage<RoleServer>,
+        modern: bool,
+    ) -> std::io::Result<Vec<u8>> {
         let mut value = serde_json::to_value(item)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         if let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) {
-            if !result.contains_key("resultType") {
-                result.insert(
-                    "resultType".to_string(),
-                    Value::String("complete".to_string()),
-                );
+            if modern {
+                if !result.contains_key("resultType") {
+                    result.insert(
+                        "resultType".to_string(),
+                        Value::String("complete".to_string()),
+                    );
+                }
+            } else {
+                result.remove("resultType");
             }
         }
         let mut bytes = serde_json::to_vec(&value)
@@ -361,8 +412,9 @@ where
         item: TxJsonRpcMessage<RoleServer>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
         let write = Arc::clone(&self.write);
+        let modern = self.era.is_modern();
         async move {
-            let bytes = Self::encode_outbound(&item)?;
+            let bytes = Self::encode_outbound(&item, modern)?;
             let mut guard = write.lock().await;
             guard.write_all(&bytes).await
         }

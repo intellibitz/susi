@@ -1798,14 +1798,16 @@ fn gmcp_req_203_002_02_production() {
     //    verdicts on the legacy era ────────────────────────────────────
     let mut wire = StdioSession::spawn(root, &home);
 
-    // Results carry the required resultType on every answered request.
+    // On the legacy era results keep the historical wire shape —
+    // `resultType` is a 2026-07-28 field the compatibility rules strip
+    // (absent is read as `complete`); only the modern path requires it.
     let result = wire.request("ping", serde_json::json!({}));
-    assert_eq!(
-        result["resultType"], "complete",
-        "every result must carry resultType"
+    assert!(
+        result.get("resultType").is_none(),
+        "a 2025-11-25 result must not carry resultType: {result}"
     );
     let result = wire.request("tools/list", serde_json::json!({}));
-    assert_eq!(result["resultType"], "complete");
+    assert!(result.get("resultType").is_none());
 
     // A null id is -32600, not a silent drop.
     let response = wire
@@ -1850,7 +1852,7 @@ fn gmcp_req_203_002_02_production() {
     }));
     std::thread::sleep(std::time::Duration::from_millis(300));
     let result = wire.request("ping", serde_json::json!({}));
-    assert_eq!(result["resultType"], "complete");
+    assert!(result.get("resultType").is_none());
 
     // ── The modern era: per-request _meta rules apply only there ──────
     let mut modern = StdioSession::spawn_modern(root, &home);
@@ -1926,6 +1928,158 @@ fn gmcp_req_203_002_02_production() {
         )
         .expect("a late meta-missing request must be answered");
     assert_eq!(response["error"]["code"], -32602);
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// GMCP-203-002-03: every applicable surface shares one implementation
+/// and one policy boundary. The canonical envelope classification
+/// (`jsonrpc_gate::classify_envelope`) decides identically for the stdio
+/// line transport and the daemon/gateway `/mcp` HTTP transport —
+/// `http_envelope_rejection` is the same function `handle_request` runs
+/// before `service.call`, so a body the wire rejects produces the same
+/// error document on either transport, and tool dispatch stays the
+/// shared plane-bus registry (the same report over direct and wire).
+#[test]
+fn gmcp_req_203_002_03_integration() {
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-jrpc-int-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── The shipped handler runs the canonical gate — the daemon's only
+    //    JSON-RPC ingress (`/mcp` on 9093) classifies through
+    //    `http_envelope_rejection` before the session layer sees a body.
+    let server_src = std::fs::read_to_string(root.join("crates/susi-gmcp/src/server.rs")).unwrap();
+    let handler = server_src
+        .split("fn handle_request")
+        .nth(1)
+        .expect("handle_request must exist");
+    let gate_call = handler
+        .find("http_envelope_rejection(&effective)")
+        .expect("handle_request must run the canonical envelope gate");
+    let dispatch = handler
+        .find("service.call(req)")
+        .expect("handle_request must dispatch to the service");
+    assert!(
+        gate_call < dispatch,
+        "the envelope gate must run before the body reaches the service"
+    );
+
+    // ── Direct and served surfaces share tool dispatch: the same
+    //    canonical report over `mcp call` and the stdio wire. ─────────
+    let cli_report = susi_json(root, &home, &["mcp", "ledger"]);
+    let direct = call_tool_report(&susi_json(
+        root,
+        &home,
+        &["mcp", "call", "susi", "ledger_verify", "{}"],
+    ));
+    let mut wire = StdioSession::spawn(root, &home);
+    let mut wire_modern = StdioSession::spawn_modern(root, &home);
+    let wire_report = call_tool_report(&wire.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    ));
+    assert_eq!(
+        direct, cli_report,
+        "direct dispatch must equal the CLI report"
+    );
+    assert_eq!(
+        wire_report, cli_report,
+        "served dispatch must equal the CLI report"
+    );
+
+    // ── Transport parity: every retained fixture produces the same
+    //    verdict on the served wire and through the HTTP body gate. ────
+    let mut envelope_rejects = 0;
+    for class in ["positive", "negative"] {
+        for entry in std::fs::read_dir(root.join(".agents/gmcp/fixtures").join(class))
+            .unwrap()
+            .flatten()
+        {
+            let fixture: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(entry.path()).unwrap()).unwrap();
+            let Some(request) = fixture.get("request") else {
+                continue;
+            };
+            let name = format!("{class}/{}", entry.file_name().to_str().unwrap());
+            let era = fixture["era"].as_str().unwrap_or("legacy");
+            let session = if era == "modern" {
+                &mut wire_modern
+            } else {
+                &mut wire
+            };
+            let body = serde_json::to_vec(request).unwrap();
+            let observed =
+                match session.request_verbatim(request, std::time::Duration::from_secs(10)) {
+                    None => serde_json::json!({"kind": "silent_drop"}),
+                    Some(response) if response.get("error").is_some() => {
+                        serde_json::json!({"kind": "error", "code": response["error"]["code"]})
+                    }
+                    Some(_) => serde_json::json!({"kind": "result"}),
+                };
+            let http = http_envelope_rejection(&body);
+            match observed["kind"].as_str().unwrap() {
+                "error" => {
+                    if let Some(rejection) = &http {
+                        envelope_rejects += 1;
+                        assert_eq!(
+                            rejection["error"]["code"], observed["code"],
+                            "{name}: HTTP gate rejected with a different code than the wire"
+                        );
+                    }
+                    // When the HTTP gate forwards, the wire's error came
+                    // from a deeper layer — era/meta policy on HTTP lives
+                    // in the SDK's header validation, so parity means "an
+                    // error was answered", not "the same layer rejected".
+                }
+                "result" | "silent_drop" => {
+                    assert!(
+                        http.is_none(),
+                        "{name}: the HTTP gate rejected a body the wire forwards: {http:?}"
+                    );
+                }
+                other => panic!("{name}: unexpected wire outcome {other}"),
+            }
+        }
+    }
+    assert!(
+        envelope_rejects >= 2,
+        "the HTTP gate must share rejections with the wire, got {envelope_rejects}"
+    );
+
+    // ── The HTTP gate emits the identical error document the stdio
+    //    transport writes — one canonical wire shape. ──────────────────
+    for (body, code) in [
+        (b"{not-a-json".as_slice(), -32700i64),
+        (
+            br#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#.as_slice(),
+            -32600,
+        ),
+        (
+            br#"{"jsonrpc":"2.0","id":null,"method":"tools/list"}"#.as_slice(),
+            -32600,
+        ),
+        (br#"{"jsonrpc":"2.0","id":1}"#.as_slice(), -32600),
+        (
+            br#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+    ] {
+        let rejection = http_envelope_rejection(body)
+            .unwrap_or_else(|| panic!("HTTP gate must reject {}", String::from_utf8_lossy(body)));
+        assert_eq!(rejection["error"]["code"], code, "{}", rejection);
+        assert_eq!(rejection["jsonrpc"], "2.0");
+        assert!(rejection["error"]["message"].is_string());
+    }
+    // Valid envelopes and compatibility drops both pass the HTTP gate.
+    assert!(http_envelope_rejection(br#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#).is_none());
+    assert!(http_envelope_rejection(
+        br#"{"jsonrpc":"2.0","method":"notifications/lsp/something"}"#
+    )
+    .is_none());
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
