@@ -1,0 +1,16 @@
+{
+  "comment": "Negative fixture: _meta protocolVersion 1900-01-01 is unknown; the server must answer UnsupportedProtocolVersionError (-32022) with data.supported (versioning.mdx).",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": "version-0001",
+    "method": "tools/list",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "1900-01-01",
+        "io.modelcontextprotocol/clientCapabilities": {}
+      }
+    }
+  },
+  "expect": "error",
+  "expect_code": -32022
+}

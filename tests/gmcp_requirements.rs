@@ -1396,3 +1396,196 @@ fn gmcp_vc_203_001_mastery() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-002-01: the JSON-RPC-substrate contract exists, is pinned to
+/// the ledger's VC-203-002 rows, resolves its ambiguities, names the
+/// canonical production path, and ships its seed fixtures and evidence
+/// location — everything later work packages build against.
+#[test]
+fn gmcp_req_203_002_01_contract() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // ── The contract document exists and carries every required
+    //    section ────────────────────────────────────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-002.md"))
+        .expect("contract-203-002.md must exist");
+    for section in [
+        "Normative clause",
+        "Pinned sources",
+        "Canonical data model",
+        "Behavior table",
+        "Compatibility and deprecation decisions",
+        "Threat model",
+        "SLOs and resource budgets",
+        "Fixtures",
+        "Evidence locations",
+        "Ambiguities resolved",
+    ] {
+        assert!(
+            contract.contains(&format!("## {section}")),
+            "contract must contain a {section} section"
+        );
+    }
+    // Ambiguities the contract must have resolved before implementation.
+    for decision in ["batches", "id: null", "resultType", "initialize"] {
+        assert!(
+            contract.contains(decision),
+            "contract must resolve: {decision}"
+        );
+    }
+
+    // ── The ledger's VC-203-002 rows are the pinned normative set the
+    //    contract binds: exact counts, complete traces, existing
+    //    production path ─────────────────────────────────────────────
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must parse"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-002")
+        .collect();
+    assert_eq!(rows.len(), 157, "the contract binds 157 VC-203-002 rows");
+    let mut revisions = std::collections::BTreeMap::new();
+    for row in &rows {
+        *revisions
+            .entry(row["revision"].as_str().unwrap().to_string())
+            .or_insert(0usize) += 1;
+        let id = row["id"].as_str().unwrap();
+        for field in [
+            "vector",
+            "owner",
+            "production_path",
+            "positive_test",
+            "negative_test",
+            "evidence",
+        ] {
+            assert!(
+                !row["trace"][field].as_str().unwrap_or_default().is_empty(),
+                "{id}: trace.{field} must be non-empty"
+            );
+        }
+        assert_eq!(
+            row["trace"]["evidence"], ".agents/gmcp/evidence/VC-203-002.jsonl",
+            "{id}: evidence must point at this vector's artifact"
+        );
+        let production = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(production).exists(),
+            "{id}: production path {production} must exist"
+        );
+        for cat in row["categories"].as_array().unwrap() {
+            assert!(
+                ["behavior", "error", "security"].contains(&cat.as_str().unwrap()),
+                "{id}: unexpected category {cat}"
+            );
+        }
+    }
+    assert_eq!(revisions.get("2026-07-28"), Some(&107));
+    assert_eq!(revisions.get("2025-11-25"), Some(&50));
+
+    // ── The full pinned-corpus check still passes — the contract did
+    //    not disturb the VC-203-001 machinery ─────────────────────────
+    let checker = Command::new("python3")
+        .arg("scripts/check-gmcp-ledger.py")
+        .current_dir(root)
+        .output()
+        .expect("the checker must run");
+    assert!(
+        checker.status.success(),
+        "checker failed:\n{}",
+        String::from_utf8_lossy(&checker.stderr)
+    );
+
+    // ── Seed fixtures: every file the contract names exists, parses,
+    //    and follows the fixture convention ──────────────────────────
+    let seeds: &[(&str, &str)] = &[
+        ("positive/request-2026-07-28-meta.json", "result"),
+        ("positive/request-progress-token.json", "result"),
+        ("positive/request-trace-context.json", "result"),
+        ("positive/notification-cancelled.json", "none"),
+        ("negative/request-batch-array.json", "error"),
+        ("negative/request-meta-missing-2026-07-28.json", "error"),
+        ("negative/request-unsupported-version.json", "error"),
+    ];
+    for (file, expect) in seeds {
+        let path = root.join(".agents/gmcp/fixtures").join(file);
+        let fixture: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{file} must exist: {e}")),
+        )
+        .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
+        assert!(
+            !fixture["comment"].as_str().unwrap_or_default().is_empty(),
+            "{file} must comment which row/decision it exercises"
+        );
+        assert!(
+            !fixture["request"].is_null(),
+            "{file} must carry a request payload"
+        );
+        assert_eq!(
+            fixture["expect"].as_str().unwrap(),
+            *expect,
+            "{file} expect must be {expect}"
+        );
+        if file.starts_with("negative/") && fixture.get("expect_code").is_some() {
+            assert!(
+                fixture["expect_code"].is_i64() || fixture["expect_code"].is_u64(),
+                "{file} expect_code must be a JSON-RPC error code integer"
+            );
+        }
+    }
+    // The modern-path required _meta fields the positive fixtures carry.
+    let meta_fixture: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/positive/request-2026-07-28-meta.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let meta = &meta_fixture["request"]["params"]["_meta"];
+    for key in [
+        "io.modelcontextprotocol/protocolVersion",
+        "io.modelcontextprotocol/clientCapabilities",
+    ] {
+        assert!(
+            !meta[key].is_null(),
+            "the modern-path fixture must carry required _meta key {key}"
+        );
+    }
+    // The batch fixture is malformed wire input — a non-object payload.
+    let batch: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/negative/request-batch-array.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        batch["request"].is_array(),
+        "the batch fixture must carry the array payload it exercises"
+    );
+
+    // ── Evidence location: the vector's append-only artifact exists
+    //    and holds a complete -01 record ──────────────────────────────
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-002.jsonl"))
+        .expect("VC-203-002 must retain an evidence artifact");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|r| r["requirement"] == "GMCP-203-002-01")
+        .expect("evidence must retain a record for GMCP-203-002-01");
+    for field in [
+        "check",
+        "exit",
+        "detail",
+        "recorded_unix",
+        "artifact_sha256",
+        "identity",
+    ] {
+        assert!(!record[field].is_null(), "evidence record lacks {field}");
+    }
+    assert_eq!(record["exit"], 0);
+}

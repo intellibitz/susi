@@ -1,0 +1,16 @@
+{
+  "comment": "Positive fixture: a request carrying _meta.progressToken opts into notifications/progress (reserved _meta key per basic/index.mdx).",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": "progress-0001",
+    "method": "tools/list",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {},
+        "progressToken": "prog-abc-1"
+      }
+    }
+  },
+  "expect": "result"
+}

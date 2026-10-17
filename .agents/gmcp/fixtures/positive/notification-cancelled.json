@@ -1,0 +1,12 @@
+{
+  "comment": "Positive fixture: notifications/cancelled carries requestId (+ optional reason) and no id \u2014 a notification, so no response is permitted (expect: none).",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "notifications/cancelled",
+    "params": {
+      "requestId": "in-flight-0001",
+      "reason": "operator cancelled"
+    }
+  },
+  "expect": "none"
+}

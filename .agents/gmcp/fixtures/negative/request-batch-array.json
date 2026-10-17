@@ -1,0 +1,16 @@
+{
+  "comment": "Negative fixture: a JSON-RPC batch array. Neither pinned revision defines batches; the array is malformed wire input and must fail closed rather than dispatch each element.",
+  "request": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/list"
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tools/list"
+    }
+  ],
+  "expect": "error"
+}
