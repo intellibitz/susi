@@ -85,7 +85,7 @@ impl GmcpServer {
             let limit = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
                 .unwrap_or_default()
                 .max_rpc_body_bytes();
-            let transport = (
+            let transport = crate::jsonrpc_gate::StdioGate::new(
                 crate::stdio::BoundedLines::new(tokio::io::stdin(), limit),
                 tokio::io::stdout(),
             );

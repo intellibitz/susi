@@ -12,5 +12,6 @@
       }
     }
   },
-  "expect": "result"
+  "expect": "result",
+  "era": "modern"
 }

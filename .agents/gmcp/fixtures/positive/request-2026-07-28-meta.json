@@ -1,5 +1,5 @@
 {
-  "comment": "Positive fixture: tools/list carrying the required per-request _meta protocol fields (io.modelcontextprotocol/protocolVersion + clientCapabilities) on the modern 2026-07-28 path \u2014 the basic/index.mdx table binds both as Required.",
+  "comment": "Positive fixture: tools/list carrying the required per-request _meta protocol fields (io.modelcontextprotocol/protocolVersion + clientCapabilities) on the modern 2026-07-28 path — the basic/index.mdx table binds both as Required.",
   "request": {
     "jsonrpc": "2.0",
     "id": "tools-list-0001",
@@ -15,5 +15,6 @@
       }
     }
   },
-  "expect": "result"
+  "expect": "result",
+  "era": "modern"
 }

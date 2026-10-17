@@ -12,5 +12,6 @@
     }
   },
   "expect": "error",
-  "expect_code": -32022
+  "expect_code": -32022,
+  "era": "modern"
 }

@@ -1,6 +1,6 @@
 {
   "schema": "susi/gmcp-divergences/v1",
-  "comment": "Retained regression record for fixture replays whose spec-expected outcome diverges from observed endpoint behavior. Each entry names the mandated behavior, the owning vector for the fix, and is exercised verbatim by gmcp_req_203_001_05_interop \u2014 an entry that drifts from observed behavior fails the replay.",
+  "comment": "Retained regression record for fixture replays whose spec-expected outcome diverges from observed endpoint behavior. Each entry names the mandated behavior, the owning vector for the fix, and is exercised verbatim by gmcp_req_203_001_05_interop — an entry that drifts from observed behavior fails the replay. VC-203-002 closed the null-id, raw-line and missing-_meta regressions via crates/susi-gmcp/src/jsonrpc_gate.rs (typed -32600/-32700/-32602 answers on the served path); only the fixture-form discover divergence remains.",
   "divergences": [
     {
       "fixture": "positive/server-discover-2026-07-28.json",
@@ -11,35 +11,6 @@
       },
       "owner": "VC-203-001",
       "disposition": "fixture authored the per-request protocol version as params.protocolVersion; the wire contract carries it under params._meta (io.modelcontextprotocol/*). Corrected fixture positive/server-discover-2026-07-28-meta.json retained; original kept verbatim per fixture immutability."
-    },
-    {
-      "fixture": "negative/request-null-id.json",
-      "expect": "error",
-      "observed": {
-        "kind": "silent_drop"
-      },
-      "owner": "VC-203-002",
-      "spec_row": "MCP-2026-0728-basic-index-0047",
-      "disposition": "MCP 2026-07-28 requires rejecting a null request id; the served endpoint drops it without a JSON-RPC -32600/id:null response. Retained regression for the JSON-RPC work package."
-    },
-    {
-      "fixture": "raw:{not-a-json-line}",
-      "expect": "error",
-      "observed": {
-        "kind": "silent_drop"
-      },
-      "owner": "VC-203-002",
-      "disposition": "an unparseable stdio line is dropped without a -32700 parse-error response; same rejection-path regression as the null-id case."
-    },
-    {
-      "fixture": "negative/request-meta-missing-2026-07-28.json",
-      "expect": "error",
-      "observed": {
-        "kind": "result"
-      },
-      "owner": "VC-203-002",
-      "spec_row": "MCP-2026-0728-basic-index",
-      "disposition": "modern-path requests missing the required io.modelcontextprotocol/* _meta fields must be rejected with -32602; the served endpoint answers tools/list without enforcing them. Retained regression for the JSON-RPC metadata work package."
     }
   ]
 }

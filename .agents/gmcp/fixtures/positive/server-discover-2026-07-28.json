@@ -8,5 +8,6 @@
       "protocolVersion": "2026-07-28"
     }
   },
-  "expect": "result"
+  "expect": "result",
+  "era": "modern"
 }
