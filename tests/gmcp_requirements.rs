@@ -2476,3 +2476,173 @@ fn gmcp_req_203_002_05_interop() {
     drop(legacy);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-002-06: the JSON-RPC substrate exposes bounded operator state,
+/// validates its configuration, detects pinned-source drift fail closed, and
+/// retains actionable diagnostics, migration, rollback, and evidence guidance.
+#[test]
+fn gmcp_req_203_002_06_operations() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-jrpc-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // The production CLI is the inspectable operator surface. Its report is
+    // bounded and verified before an operator or dashboard consumes it.
+    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(report["verified"], true);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+    assert_eq!(report["rows"].as_u64(), Some(1713));
+    assert_eq!(report["documents"].as_u64(), Some(72));
+
+    // --refetched is only meaningful with --drift; invalid configuration is
+    // rejected rather than silently skipping the requested comparison.
+    let invalid = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!invalid.status.success());
+
+    let clean = susi_json(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(clean["drift"], true);
+    assert_eq!(clean["verified"], true);
+    assert_eq!(clean["checked"].as_u64(), Some(72));
+    assert_eq!(clean["checked"], clean["matched"]);
+    assert!(clean["findings"].as_array().unwrap().is_empty());
+
+    // A changed pinned document is a diagnostic finding and a non-zero
+    // result, never a warning that allows stale protocol behavior through.
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/sources.json")).unwrap(),
+    )
+    .unwrap();
+    let files = manifest["files"].as_array().unwrap();
+    let drifted_doc = files[0]["document"].as_str().unwrap().to_string();
+    let missing_doc = files[1]["document"].as_str().unwrap().to_string();
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(&drifted_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let drifted = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!drifted.status.success());
+    let drift_report: serde_json::Value =
+        serde_json::from_slice(&drifted.stdout).expect("drift failure must remain JSON");
+    assert_eq!(drift_report["verified"], false);
+    assert!(drift_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|finding| finding["document"] == drifted_doc && finding["kind"] == "hash_drift"));
+
+    // An unavailable source is separately diagnosable and also fails closed.
+    std::fs::remove_file(refetched.join(&missing_doc)).unwrap();
+    std::fs::write(&victim, &bytes[..bytes.len() - 1]).unwrap();
+    let missing = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!missing.status.success());
+    let missing_report: serde_json::Value =
+        serde_json::from_slice(&missing.stdout).expect("missing source must remain JSON");
+    assert!(missing_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|finding| finding["document"] == missing_doc && finding["kind"] == "unfetchable"));
+
+    // The contract is the retained incident handoff: it must tell an
+    // operator what state exists, how to diagnose it, and how to migrate or
+    // roll back a pin without inventing an undocumented recovery path.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-002.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Diagnostics",
+        "Incident triage",
+        "Migration (re-pinning the JSON-RPC standard)",
+        "Rollback",
+        "--refetched",
+        "hash_drift",
+        "unfetchable",
+        "traceparent",
+        "resultType",
+    ] {
+        assert!(contract.contains(token), "contract must document {token}");
+    }
+
+    // Evidence is append-only and tied to the current pinned ledger bytes,
+    // so a changed dependency invalidates stale proof instead of preserving
+    // a green record by wording alone.
+    use sha2::{Digest, Sha256};
+    let ledger_hash = hex::encode(Sha256::digest(
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
+    ));
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-002.jsonl"))
+        .expect("VC-203-002 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["requirement"] == "GMCP-203-002-06")
+        .expect("evidence must retain a record for GMCP-203-002-06");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_002_06_operations"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert!(record["recorded_unix"].as_u64().unwrap() <= now + 60);
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
