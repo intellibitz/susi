@@ -1152,3 +1152,247 @@ fn gmcp_req_203_001_06_operations() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-001-M: vector mastery on the shipped production path. Task
+/// closure and roadmap prose are not proof — this test consumes and
+/// verifies the evidence requirements 01-06 produced: the ledger must
+/// verify through `susi mcp ledger` and the `ledger_verify` tool with an
+/// identical canonical report; every requirement's retained record must
+/// be complete, fresh, signed, committed, and backed by a test that
+/// exists; and automated drift detection must fail closed on a changed
+/// source. Missing, stale, unsigned, locally modified, waived,
+/// mock-only, or zero-test evidence fails the vector.
+#[test]
+fn gmcp_vc_203_001_mastery() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Shipped production path: CLI and tool surfaces verify and
+    //    return the identical canonical report ──────────────────────
+    let cli = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(cli["verified"], true, "production path must verify");
+    assert_eq!(cli["rows"].as_u64(), Some(1713));
+    assert_eq!(cli["documents"].as_u64(), Some(72));
+    let tool = susi_json(root, &home, &["mcp", "call", "susi", "ledger_verify", "{}"]);
+    assert_eq!(
+        call_tool_report(&tool),
+        cli,
+        "the shipped tool must emit the identical canonical report"
+    );
+
+    // ── Row-level traceability on the shipped artifact: every row
+    //    names an owner, an existing production path, both tests, an
+    //    evidence artifact, and a disposition ─────────────────────────
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must parse"),
+    )
+    .expect("ledger must parse");
+    let rows = ledger["requirements"].as_array().expect("requirements");
+    assert_eq!(rows.len(), 1713);
+    for row in rows {
+        let id = row["id"].as_str().unwrap_or("?");
+        for field in [
+            "vector",
+            "owner",
+            "production_path",
+            "positive_test",
+            "negative_test",
+            "evidence",
+        ] {
+            let value = row["trace"][field].as_str().unwrap_or_default();
+            assert!(!value.is_empty(), "{id}: trace.{field} must be non-empty");
+        }
+        let production = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(production).exists(),
+            "{id}: production path {production} must exist"
+        );
+        assert!(
+            !row["disposition"]["status"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+            "{id}: disposition.status must be non-empty"
+        );
+    }
+
+    // ── Evidence verification: complete, fresh, signed, backed by a
+    //    real test — missing, stale, unsigned, waived, mock-only or
+    //    zero-test records fail ───────────────────────────────────────
+    use sha2::{Digest, Sha256};
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-001.jsonl"))
+        .expect("VC-203-001 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        // Waived or mock-only evidence is not proof.
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        // Staleness: the recorded artifact hash must be the ledger's
+        // current bytes — proof of a since-changed artifact is stale.
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be the current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        // Zero-test evidence: the check must be a real command on a
+        // committed artifact — at least one argument must resolve to an
+        // existing repo path, and a `cargo test` command must name a
+        // test that exists in the named file. Prose, task IDs, and
+        // invented commands are not proof.
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            // The committed artifact behind a cargo-test check is the
+            // named test target's file plus the test function itself.
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && test_src.contains(&format!("fn {test_name}")),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-001-01",
+        "GMCP-203-001-02",
+        "GMCP-203-001-03",
+        "GMCP-203-001-04",
+        "GMCP-203-001-05",
+        "GMCP-203-001-06",
+        "GMCP-203-001-M",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── Committed proof: locally modified artifacts are not
+    //    evidence — the pinned tree must be clean against git ────────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    // ── Automated drift detection fails closed: a changed upstream
+    //    file must invalidate the pinned corpus on the shipped path ───
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/sources.json")).unwrap(),
+    )
+    .unwrap();
+    let drifted_doc = manifest["files"][0]["document"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(&drifted_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let output = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(
+        !output.status.success(),
+        "drift detection must fail closed on a changed source"
+    );
+    let findings: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).unwrap();
+    assert!(
+        findings["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["document"] == drifted_doc && f["kind"] == "hash_drift"),
+        "the drift finding must name the changed document: {findings}"
+    );
+
+    // ── The contract itself is retained operational documentation ────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-001.md"))
+        .expect("contract must exist");
+    for token in [
+        "Normative clause",
+        "Pinned sources",
+        "Threat model",
+        "Operations and incident runbook",
+        "Migration (re-pinning an upstream standard)",
+        "Rollback",
+    ] {
+        assert!(contract.contains(token), "contract must retain {token}");
+    }
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
