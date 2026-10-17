@@ -1,0 +1,12 @@
+{
+  "comment": "Negative fixture: violates MCP-2026-0728-basic-index-0047 (the request ID MUST NOT be null, per basic/index.mdx). Any conformant endpoint must reject this request rather than treat the id as absent.",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "method": "tools/list",
+    "params": {
+      "protocolVersion": "2026-07-28"
+    }
+  },
+  "expect": "error"
+}

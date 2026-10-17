@@ -1,0 +1,12 @@
+{
+  "comment": "Positive fixture: a well-formed server/discover request on the MCP 2026-07-28 modern path. Carries per-request version metadata (no initialize handshake exists on the modern path) and a non-null, non-reused string id.",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": "discover-0001",
+    "method": "server/discover",
+    "params": {
+      "protocolVersion": "2026-07-28"
+    }
+  },
+  "expect": "result"
+}
