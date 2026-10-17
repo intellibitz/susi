@@ -2646,3 +2646,329 @@ fn gmcp_req_203_002_06_operations() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-002-M: the vector outcome holds on the shipped production
+/// path — malformed, duplicated, reordered, oversized, and adversarial
+/// messages fail predictably without corrupting another request — and
+/// every retained evidence record for GMCP-203-002-01..06 plus the
+/// mastery record is complete, fresh, signed, committed, and backed by
+/// a real test.
+#[test]
+fn gmcp_vc_203_002_mastery() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::jsonrpc_gate::{classify_envelope, http_envelope_rejection, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-002-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Vector outcome on the shipped wire path: an oversized line is
+    //    answered once, bounded before the SDK buffers it, and cannot
+    //    corrupt the request that shares its read chunk or any request
+    //    after it ────────────────────────────────────────────────────
+    // Dev binaries run as their own instance — the bound lands in the
+    // `.susi-dev` root a `target/` build resolves (Mandate 48).
+    let susi_home = home.join(".susi-dev");
+    std::fs::create_dir_all(&susi_home).unwrap();
+    std::fs::write(
+        susi_home.join("config.json"),
+        r#"{"max_rpc_body_bytes": 1024}"#,
+    )
+    .unwrap();
+    let mut wire = StdioSession::spawn(root, &home);
+    let giant = format!(
+        r#"{{"jsonrpc":"2.0","id":800,"method":"ping","params":{{"pad":"{}"}}}}"#,
+        "x".repeat(4096)
+    );
+    // The dead line's tail shares a read chunk with the next request —
+    // the bound must recover inside the same burst.
+    let mut burst = giant.into_bytes();
+    burst.push(b'\n');
+    burst.extend_from_slice(br#"{"jsonrpc":"2.0","id":801,"method":"ping","params":{}}"#);
+    burst.push(b'\n');
+    wire.send_raw(&burst);
+    let over = wire
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("an oversized line must receive a typed error, not silence");
+    assert_eq!(over["error"]["code"], -32600);
+    let neighbour = wire
+        .response_for(&serde_json::json!(801), std::time::Duration::from_secs(30))
+        .expect("the request sharing the dead line's chunk must still be answered");
+    assert!(neighbour["result"].is_object());
+
+    // Malformed, batched, and null-id envelopes each fail typed and the
+    // stream stays usable after every one of them.
+    wire.send_raw(b"{corrupt\n");
+    let parse = wire
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("malformed input must be answered");
+    assert_eq!(parse["error"]["code"], -32700);
+    wire.send_raw(b"[]\n");
+    let batch = wire
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a batch must be answered");
+    assert_eq!(batch["error"]["code"], -32600);
+    wire.send_raw(br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#);
+    wire.send_raw(b"\n");
+    let null_id = wire
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("a null request id must be answered");
+    assert_eq!(null_id["error"]["code"], -32600);
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 802,
+        "method": "ping",
+        "params": {}
+    }));
+    let alive = wire
+        .response_for(&serde_json::json!(802), std::time::Duration::from_secs(30))
+        .expect("the stream must remain usable after every failure kind");
+    assert!(alive["result"].is_object());
+
+    // Reordered concurrent answers keep their request identity.
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 803,
+        "method": "tools/list",
+        "params": {}
+    }));
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 804,
+        "method": "ping",
+        "params": {}
+    }));
+    for id in [803, 804] {
+        let response = wire
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .expect("concurrent requests must both complete");
+        assert_eq!(response["id"], id);
+    }
+
+    // A notification is never answered, and a client response envelope
+    // (a result-bearing line answering a server→client request) is a
+    // valid message, not an invalid request.
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {"requestId": "never", "reason": "mastery probe"}
+    }));
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 805,
+        "method": "ping",
+        "params": {}
+    }));
+    let response = wire
+        .response_for(&serde_json::json!(805), std::time::Duration::from_secs(30))
+        .expect("a notification must not block the next request");
+    assert_eq!(response["id"], 805);
+    assert!(
+        wire.pending.iter().all(|value| !value["id"].is_null()),
+        "notifications must not emit a response"
+    );
+    assert!(matches!(
+        classify_envelope(br#"{"jsonrpc":"2.0","id":9,"result":{}}"#),
+        GateVerdict::Forward
+    ));
+
+    // Transport parity: the HTTP envelope seam reaches the same verdict
+    // for every envelope class the stdio gate rejects.
+    for (line, code) in [
+        (
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+        (br#"[]"#.as_slice(), -32600),
+        (
+            br#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+    ] {
+        let rejection =
+            http_envelope_rejection(line).expect("HTTP seam must reject the same envelope");
+        assert_eq!(rejection["error"]["code"], code);
+    }
+
+    // The modern era stays deterministic: missing `_meta` fails -32602,
+    // an unsupported version fails -32022 with `data.supported`, and a
+    // fully populated request returns a stamped `resultType`.
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let missing_meta = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "m-meta",
+                "method": "tools/list",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("modern metadata failures must be answered");
+    assert_eq!(missing_meta["error"]["code"], -32602);
+    let unsupported = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "m-vers",
+                "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "1900-01-01",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("unsupported versions must be answered");
+    assert_eq!(unsupported["error"]["code"], -32022);
+    assert!(unsupported["error"]["data"]["supported"].is_array());
+    let modern_result = modern.request(
+        "tools/list",
+        serde_json::json!({"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "progressToken": "mastery-1",
+            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        }}),
+    );
+    assert_eq!(modern_result["resultType"], "complete");
+    drop(wire);
+    drop(modern);
+
+    // ── The contract pins the vector's required vocabulary ──────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-002.md"))
+        .expect("the vector contract must exist");
+    for term in [
+        "-32700",
+        "-32600",
+        "-32022",
+        "resultType",
+        "_meta",
+        "notifications/cancelled",
+        "progressToken",
+        "traceparent",
+        "2026-07-28",
+    ] {
+        assert!(contract.contains(term), "contract must pin {term}");
+    }
+
+    // ── Evidence verification: complete, fresh, signed, backed by a
+    //    real test — missing, stale, unsigned, waived, mock-only or
+    //    zero-test records fail ──────────────────────────────────────
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
+        .expect("the canonical ledger must exist");
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-002.jsonl"))
+        .expect("VC-203-002 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        // Staleness: the recorded hash must be the canonical ledger's
+        // current bytes — proof of a since-changed artifact is stale.
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be the current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        // Zero-test evidence: the check must be a real command on a
+        // committed artifact — a `cargo test` command must name a test
+        // that exists in the named file.
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && test_src.contains(&format!("fn {test_name}")),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-002-01",
+        "GMCP-203-002-02",
+        "GMCP-203-002-03",
+        "GMCP-203-002-04",
+        "GMCP-203-002-05",
+        "GMCP-203-002-06",
+        "GMCP-203-002-M",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── Committed proof: locally modified artifacts are not
+    //    evidence — the vector's tree must be clean against git ──────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
