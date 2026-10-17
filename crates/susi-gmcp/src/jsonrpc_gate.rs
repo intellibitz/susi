@@ -246,7 +246,14 @@ pub fn classify_line(line: &[u8], era: &mut EraState) -> GateVerdict {
 
     // Era tracking happens before the _meta policy: `initialize` pins the
     // negotiated revision, `server/discover` or any
-    // `io.modelcontextprotocol/*` key marks the modern path.
+    // `io.modelcontextprotocol/*` key signals the modern path. A
+    // negotiated-legacy pin never lifts: modern signals on a legacy
+    // session cannot silently flip the policy for later requests
+    // (VC-203-003 — no negotiated-state leak across requests).
+    let modern_signal = method == Some("server/discover")
+        || meta
+            .as_object()
+            .is_some_and(|m| m.keys().any(|k| k.starts_with("io.modelcontextprotocol/")));
     if method == Some("initialize") {
         era.note_initialize(
             params
@@ -254,11 +261,10 @@ pub fn classify_line(line: &[u8], era: &mut EraState) -> GateVerdict {
                 .and_then(Value::as_str)
                 .unwrap_or_default(),
         );
-    } else if method == Some("server/discover") {
+    } else if !era.is_legacy() && modern_signal {
         era.note_modern();
     }
     if let Some(version) = meta.get(META_PROTOCOL_VERSION).and_then(Value::as_str) {
-        era.note_modern();
         if !MODERN_SUPPORTED_VERSIONS.contains(&version) {
             return reject(
                 -32022,
@@ -270,6 +276,25 @@ pub fn classify_line(line: &[u8], era: &mut EraState) -> GateVerdict {
                 id,
             );
         }
+    }
+
+    // A request carrying modern per-request metadata on a
+    // negotiated-legacy session is era-ambiguous input the spec leaves
+    // implementation-defined — the served path would drop it silently,
+    // so the gate answers it deterministically. `initialize` and
+    // `server/discover` are exempt: discover is the dual-era probe, and
+    // a second initialize is a service-level peer error.
+    if id.is_some()
+        && era.is_legacy()
+        && modern_signal
+        && !matches!(method, Some("initialize") | Some("server/discover"))
+    {
+        return reject(
+            -32600,
+            "Invalid Request: per-request protocol metadata on a negotiated-legacy session",
+            None,
+            id,
+        );
     }
 
     // On the modern path every request MUST carry the per-request
@@ -305,6 +330,13 @@ impl EraState {
     /// the service handles, not a downgrade).
     pub fn is_modern(&self) -> bool {
         self.era == Some(Era::Modern)
+    }
+
+    /// A session is legacy once `initialize` negotiated a pre-modern
+    /// revision — the pin is permanent so per-request modern metadata on
+    /// it is era-ambiguous input, not a silent upgrade.
+    pub fn is_legacy(&self) -> bool {
+        self.era == Some(Era::Legacy)
     }
 
     fn note_modern(&mut self) {

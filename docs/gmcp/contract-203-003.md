@@ -136,7 +136,7 @@ serves every entry point (stdio, HTTP, direct dispatch).
 | `serverInfo` spoofing / trust escalation | `serverInfo` is self-reported and unverified: display, logging, and debugging only; consumers MUST NOT change behavior or make security decisions from it (discover.mdx lines 105–106) |
 | Version confusion | per-request `_meta.protocolVersion` validated on every modern request; unknown → deterministic `-32022` with `data.supported` |
 | Negotiated-state leak across concurrent requests | no negotiated state exists on the modern path — version and capabilities are re-declared per request, so a client whose capabilities change mid-stream cannot contaminate another client's request |
-| Era-ambiguous dispatch | the gate classifies per request: a message carrying `io.modelcontextprotocol/*` keys is modern regardless of the connection's earlier era |
+| Era-ambiguous dispatch | per-request classification: a modern-metadata request on a negotiated-legacy session earns deterministic `-32600` (never a silent drop, never a silent era flip); `initialize`/`server/discover` stay dual-era |
 | Discover as fingerprinting surface | the result exposes identity and capabilities only — no session data, no per-client state; identical for every caller |
 | Cache poisoning / stale discovery | `ttlMs >= 0` enforced; `cacheScope` respected; results carrying `inputResponses`/`requestState` MUST NOT be cached (caching.mdx) |
 | Hidden cross-call state | the explicit-handle set is closed: task handles, `progressToken`, `cursor`, `requestState`/`inputResponses`; any other retained client context is a defect |
@@ -208,6 +208,13 @@ detail, timestamp, artifact hash, and identity.
   `server/discover` and `ping` answer on both eras before any
   handshake; everything else requires either `_meta` (modern) or a
   completed `initialize` (legacy) and fails the handshake otherwise.
+- **Era-ambiguous request on a negotiated session**: a request
+  carrying `io.modelcontextprotocol/*` metadata on a
+  negotiated-legacy session would be silently dropped by the service
+  layer — GMCP answers it `-32600` instead, and the rejection never
+  flips the negotiated era, so a hostile or confused request cannot
+  poison later legacy requests on the same connection. The dual-era
+  `server/discover`/`initialize` methods are exempt.
 - **Discover under an unsupported requested version**: resolved to
   `-32022` rather than an unconditional answer — the discover result's
   `supportedVersions` is itself the negotiation payload, so version

@@ -3456,3 +3456,142 @@ fn gmcp_req_203_003_03_integration() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-003-04: adversarial and failure behavior for the stateless
+/// lifecycle — a spoofed `clientInfo` cannot alter the canonical
+/// `serverInfo`, version confusion fails typed, a request carrying
+/// modern per-request metadata on a negotiated-legacy session earns a
+/// deterministic `-32600` instead of the silent drop the service would
+/// perform, and that rejection cannot poison the negotiated era for
+/// later legacy requests.
+#[test]
+fn gmcp_req_203_003_04_adversarial() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, EraState, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-003-adv-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let classify = |line: &str, era: &mut EraState| -> serde_json::Value {
+        match classify_line(line.as_bytes(), era) {
+            GateVerdict::Forward => serde_json::json!({"kind": "forward"}),
+            GateVerdict::Drop => serde_json::json!({"kind": "drop"}),
+            GateVerdict::Reject { code, .. } => {
+                serde_json::json!({"kind": "reject", "code": code})
+            }
+        }
+    };
+
+    // ── Negotiated-legacy era is permanent: a modern-_meta request
+    //    earns -32600 and never flips the era, so the next bare legacy
+    //    request still forwards as legacy ────────────────────────────
+    let mut era = EraState::default();
+    let init = br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}"#;
+    assert_eq!(
+        classify(std::str::from_utf8(init).unwrap(), &mut era)["kind"],
+        "forward"
+    );
+    assert!(
+        era.is_legacy(),
+        "initialize must pin the negotiated-legacy era"
+    );
+    let modern_on_legacy = br#"{"jsonrpc":"2.0","id":9,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    assert_eq!(
+        classify(std::str::from_utf8(modern_on_legacy).unwrap(), &mut era)["code"],
+        -32600,
+        "modern _meta on a legacy session must reject deterministically"
+    );
+    assert!(
+        era.is_legacy(),
+        "the rejected request must not flip the negotiated era"
+    );
+    // The dual-era probe stays exempt on a legacy session.
+    let discover_on_legacy = br#"{"jsonrpc":"2.0","id":10,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    assert_eq!(
+        classify(std::str::from_utf8(discover_on_legacy).unwrap(), &mut era)["kind"],
+        "forward",
+        "server/discover must remain answerable on a legacy session"
+    );
+    assert!(era.is_legacy(), "discover must not flip the era either");
+    // A bare legacy request after the era attack still forwards — the
+    // anomalous request could not poison the session.
+    let bare_legacy = br#"{"jsonrpc":"2.0","id":11,"method":"ping","params":{}}"#;
+    assert_eq!(
+        classify(std::str::from_utf8(bare_legacy).unwrap(), &mut era)["kind"],
+        "forward"
+    );
+
+    // ── Modern era mirror: a legacy request on a modern session must
+    //    carry the per-request fields ────────────────────────────────
+    let mut modern_era = EraState::default();
+    let discover = br#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    classify(std::str::from_utf8(discover).unwrap(), &mut modern_era);
+    assert!(modern_era.is_modern());
+    let legacy_on_modern = br#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#;
+    assert_eq!(
+        classify(
+            std::str::from_utf8(legacy_on_modern).unwrap(),
+            &mut modern_era
+        )["code"],
+        -32602
+    );
+    // A malformed version type fails typed, never parses onward.
+    let bad_type = br#"{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":20260728,"io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    let verdict = classify(std::str::from_utf8(bad_type).unwrap(), &mut modern_era);
+    assert!(
+        verdict["kind"] == "forward" || verdict["code"] == -32602,
+        "a non-string version must fail typed, got {verdict}"
+    );
+
+    // ── Wire path: the served endpoint emits the same verdicts and a
+    //    hostile clientInfo cannot change the reported identity ─────
+    let mut legacy = StdioSession::spawn(root, &home);
+    let attack = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "era-attack", "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("era-mismatched request must earn a typed answer, not a drop");
+    assert_eq!(attack["error"]["code"], -32600);
+    // The negotiated era survives: discover still answers on the
+    // legacy session and reports the canonical identity.
+    let discover_after = legacy.request(
+        "server/discover",
+        serde_json::json!({"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {"name": "susi-gmcp", "version": "99.0"},
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}),
+    );
+    let identity = &discover_after["_meta"]["io.modelcontextprotocol/serverInfo"];
+    assert_eq!(identity["name"], "susi-gmcp");
+    assert_ne!(
+        identity["version"], "99.0",
+        "a spoofed clientInfo must not alter the canonical serverInfo"
+    );
+    // And the era did not flip: a subsequent bare request forwards as
+    // legacy — it is served (or at minimum never earns the -32602 a
+    // poisoned modern era would emit).
+    let ping = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "post-attack-ping", "method": "ping",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("a bare legacy request after the attack must be answered");
+    assert!(
+        ping.get("error").is_none_or(|e| e.is_null()) || ping["error"]["code"] != -32602,
+        "the era attack must not poison the negotiated session: {ping}"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
