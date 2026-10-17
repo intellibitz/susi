@@ -2083,3 +2083,216 @@ fn gmcp_req_203_002_03_integration() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-002-04: adversarial JSON-RPC input is rejected with typed errors,
+/// bounded before the SDK can buffer it, and isolated from neighboring
+/// requests. Cancellation notifications never create a response or corrupt
+/// the request stream, duplicate IDs remain independently correlated, and
+/// modern-version metadata failures stay deterministic after malformed input.
+#[test]
+fn gmcp_req_203_002_04_adversarial() {
+    use susi_gmcp::jsonrpc_gate::{classify_envelope, classify_line, EraState, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-jrpc-adv-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // The in-process policy must fail closed before the SDK sees hostile
+    // envelopes, and each classification must be independent of its peers.
+    let mut era = EraState::default();
+    for (line, code) in [
+        ("{not-json}", -32700),
+        ("[]", -32600),
+        (r#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#, -32600),
+        (r#"{"jsonrpc":"2.0","id":1}"#, -32600),
+        (r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#, -32600),
+    ] {
+        match classify_line(line.as_bytes(), &mut era) {
+            GateVerdict::Reject { code: observed, .. } => assert_eq!(observed, code, "{line}"),
+            other => panic!("{line} must reject, got {other:?}"),
+        }
+    }
+    assert!(matches!(
+        classify_envelope(br#"{"jsonrpc":"2.0","id":9,"method":"ping"}"#),
+        GateVerdict::Forward
+    ));
+    assert!(matches!(
+        classify_envelope(br#"{"jsonrpc":"2.0","method":"notifications/progress"}"#),
+        GateVerdict::Forward
+    ));
+
+    let mut wire = StdioSession::spawn(root, &home);
+
+    // A malformed frame produces a typed response and the following valid
+    // request still reaches the service.
+    wire.send_raw(b"{not-json}\n");
+    let malformed = wire
+        .rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("malformed input must receive a typed error");
+    assert_eq!(malformed["error"]["code"], -32700);
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 700,
+        "method": "ping",
+        "params": {}
+    }));
+    let recovered = wire
+        .response_for(&serde_json::json!(700), std::time::Duration::from_secs(10))
+        .expect("a malformed frame must not poison its neighbor");
+    assert_eq!(recovered["id"], 700);
+    assert!(recovered["result"].is_object());
+
+    // Duplicate IDs are a sender error (the protocol requires request IDs to
+    // be unique), so the server need not promise two responses. It must not
+    // let the duplicate poison a later, correctly identified request.
+    for _ in 0..2 {
+        wire.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 701,
+            "method": "ping",
+            "params": {}
+        }));
+    }
+    let response = wire
+        .response_for(&serde_json::json!(701), std::time::Duration::from_secs(10))
+        .expect("a duplicate request must not prevent one valid response");
+    assert_eq!(response["id"], 701);
+    assert!(response["result"].is_object());
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 705,
+        "method": "ping",
+        "params": {}
+    }));
+    let response = wire
+        .response_for(&serde_json::json!(705), std::time::Duration::from_secs(10))
+        .expect("a duplicate request must not poison a later request");
+    assert_eq!(response["id"], 705);
+    assert!(response["result"].is_object());
+
+    // Concurrent requests can complete in either order, but their IDs must
+    // stay attached to their own response.
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 702,
+        "method": "tools/list",
+        "params": {}
+    }));
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 703,
+        "method": "ping",
+        "params": {}
+    }));
+    for id in [702, 703] {
+        let response = wire
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .expect("concurrent requests must both complete");
+        assert_eq!(response["id"], id);
+        assert!(response["result"].is_object());
+    }
+
+    // Cancellation is a notification: it produces no response, including
+    // invalid/late request references, and the next request remains usable.
+    for request_id in ["in-flight", "missing"] {
+        wire.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": {"requestId": request_id, "reason": "adversarial probe"}
+        }));
+    }
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 704,
+        "method": "ping",
+        "params": {}
+    }));
+    let response = wire
+        .response_for(&serde_json::json!(704), std::time::Duration::from_secs(10))
+        .expect("cancellation notifications must not block the next request");
+    assert_eq!(response["id"], 704);
+    assert!(
+        wire.pending.iter().all(|value| !value["id"].is_null()),
+        "cancellation must not emit a response"
+    );
+
+    // A cancellation notification cannot cancel initialize: a raw session
+    // still completes its handshake and emits only the initialize response.
+    let mut raw = StdioSession::spawn_raw(root, &home);
+    raw.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "gmcp-adv", "version": "1"}
+        }
+    }));
+    raw.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {"requestId": 1}
+    }));
+    let initialize = raw
+        .response_for(&serde_json::json!(1), std::time::Duration::from_secs(30))
+        .expect("initialize must not be cancelled");
+    assert!(initialize["result"].is_object());
+    assert!(
+        raw.pending.iter().all(|value| !value["id"].is_null()),
+        "initialize cancellation must be silent"
+    );
+    raw.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+    }));
+
+    // Modern policy remains deterministic after an unsupported version and a
+    // metadata omission; a fully populated request still succeeds.
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let unsupported = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "bad-version",
+                "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "1900-01-01",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("unsupported versions must be answered");
+    assert_eq!(unsupported["error"]["code"], -32022);
+    assert!(unsupported["error"]["data"]["supported"].is_array());
+    let missing_meta = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "missing-meta",
+                "method": "tools/list",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(10),
+        )
+        .expect("modern metadata failures must be answered");
+    assert_eq!(missing_meta["error"]["code"], -32602);
+    let modern_result = modern.request(
+        "tools/list",
+        serde_json::json!({"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "progressToken": "adv-1",
+            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        }}),
+    );
+    assert_eq!(modern_result["resultType"], "complete");
+
+    drop(raw);
+    drop(modern);
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
