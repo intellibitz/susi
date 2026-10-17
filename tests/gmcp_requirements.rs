@@ -158,18 +158,15 @@ fn gmcp_req_203_001_03_integration() {
             }
         }
     });
-    writeln!(
-        stdin,
-        "{}",
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"gmcp-it","version":"1.0"}}}"#
-    )
-    .expect("initialize must write");
-    writeln!(
-        stdin,
-        "{}",
-        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#
-    )
-    .expect("initialized must write");
+    stdin
+        .write_all(
+            br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"gmcp-it","version":"1.0"}}}"#
+                .as_slice(),
+        )
+        .and_then(|()| {
+            stdin.write_all(b"\n{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n")
+        })
+        .expect("handshake must write");
     stdin.flush().expect("requests must flush");
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
