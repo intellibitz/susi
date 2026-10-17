@@ -131,8 +131,10 @@ fn is_ignorable_notification(value: &Value) -> bool {
     let Some(method) = value.get("method").and_then(Value::as_str) else {
         return false;
     };
+    if method.starts_with("notifications/") {
+        return !STANDARD.contains(&method);
+    }
     !is_standard_method(method)
-        || (method.starts_with("notifications/") && !STANDARD.contains(&method))
 }
 
 /// Classify the transport-independent envelope of one raw JSON-RPC
