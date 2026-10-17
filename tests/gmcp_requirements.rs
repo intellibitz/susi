@@ -107,6 +107,154 @@ fn call_tool_report(result: &serde_json::Value) -> serde_json::Value {
     serde_json::from_str(text).expect("ledger_verify must emit the canonical JSON report")
 }
 
+/// A newline-delimited JSON-RPC session against `susi mcp serve` — the served
+/// MCP surface the daemon and gateway share. Responses are collected on a
+/// reader thread; `request` handles correlation, `request_verbatim` replays
+/// fixtures byte-for-byte (including malformed ids), and Drop kills the child.
+struct StdioSession {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    rx: std::sync::mpsc::Receiver<serde_json::Value>,
+    next_id: u64,
+}
+
+impl StdioSession {
+    fn spawn(root: &Path, home: &Path) -> Self {
+        let mut child = susi_command(root, home, &["mcp", "serve"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the susi binary must spawn `mcp serve`");
+        let mut stdin = child.stdin.take().expect("stdio server must accept stdin");
+        let stdout = child.stdout.take().expect("stdio server must yield stdout");
+        let (tx, rx) = std::sync::mpsc::channel::<serde_json::Value>();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if let Ok(value) = serde_json::from_str(&line) {
+                    if tx.send(value).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        stdin
+            .write_all(
+                br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"gmcp-it","version":"1.0"}}}"#
+                    .as_slice(),
+            )
+            .and_then(|()| {
+                stdin.write_all(
+                    b"\n{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+                )
+            })
+            .expect("handshake must write");
+        stdin.flush().expect("requests must flush");
+        let mut session = Self {
+            child,
+            stdin,
+            rx,
+            next_id: 2,
+        };
+        // Consume the initialize response before callers drive requests.
+        session
+            .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
+            .expect("initialize must be answered");
+        session
+    }
+
+    fn send(&mut self, message: &serde_json::Value) {
+        let line = serde_json::to_string(message).expect("request must serialize");
+        self.stdin
+            .write_all(line.as_bytes())
+            .and_then(|()| self.stdin.write_all(b"\n"))
+            .and_then(|()| self.stdin.flush())
+            .expect("request must write");
+    }
+
+    fn send_raw(&mut self, bytes: &[u8]) {
+        self.stdin
+            .write_all(bytes)
+            .and_then(|()| self.stdin.flush())
+            .expect("raw request must write");
+    }
+
+    fn response_for(
+        &mut self,
+        id: &serde_json::Value,
+        timeout: std::time::Duration,
+    ) -> Option<serde_json::Value> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            let value = self.rx.recv_timeout(remaining).ok()?;
+            if &value["id"] == id {
+                return Some(value);
+            }
+        }
+    }
+
+    /// Correlate a request by id and return its `result`, asserting no
+    /// JSON-RPC error arrived.
+    fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params
+        }));
+        let response = self
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(120))
+            .expect("served endpoint must answer within the bound");
+        assert!(
+            response.get("error").is_none_or(|e| e.is_null()),
+            "JSON-RPC error: {response}"
+        );
+        response["result"].clone()
+    }
+
+    /// Replay a fixture request verbatim and report what came back for it:
+    /// `Some(response)` on an answer within the bound, `None` on a silent drop.
+    fn request_verbatim(
+        &mut self,
+        message: &serde_json::Value,
+        timeout: std::time::Duration,
+    ) -> Option<serde_json::Value> {
+        self.send(message);
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            let value = self.rx.recv_timeout(remaining).ok()?;
+            match message.get("id") {
+                Some(id) if !id.is_null() => {
+                    if &value["id"] == id {
+                        return Some(value);
+                    }
+                }
+                // A null/absent id has no correlation key — the first
+                // response the endpoint emits to it (if any) is the verdict.
+                _ => return Some(value),
+            }
+        }
+    }
+}
+
+impl Drop for StdioSession {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 /// GMCP-203-001-03: the ledger verification capability is wired through the
 /// CLI (`susi mcp ledger`), the direct-call surface (`susi mcp call susi`,
 /// the same path daemon-embedded dispatch uses), and the served MCP surface
@@ -139,79 +287,18 @@ fn gmcp_req_203_001_03_integration() {
     // Entry point 3: the served MCP surface — a stdio JSON-RPC session that
     // dispatches through the shared plane-bus tool registry, the same path
     // the daemon and gateway use.
-    let mut child = susi_command(root, &home, &["mcp", "serve"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("the susi binary must spawn `mcp serve`");
-    let mut stdin = child.stdin.take().expect("stdio server must accept stdin");
-    let stdout = child.stdout.take().expect("stdio server must yield stdout");
-    let (tx, rx) = std::sync::mpsc::channel::<serde_json::Value>();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines() {
-            let Ok(line) = line else { break };
-            if let Ok(value) = serde_json::from_str(&line) {
-                if tx.send(value).is_err() {
-                    break;
-                }
-            }
-        }
-    });
-    stdin
-        .write_all(
-            br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"gmcp-it","version":"1.0"}}}"#
-                .as_slice(),
-        )
-        .and_then(|()| {
-            stdin.write_all(b"\n{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n")
-        })
-        .expect("handshake must write");
-    stdin.flush().expect("requests must flush");
-
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
-    let mut next_id = 2u64;
-    let mut request = |params: serde_json::Value| {
-        let id = next_id;
-        next_id += 1;
-        writeln!(
-            stdin,
-            "{}",
-            serde_json::json!({"jsonrpc": "2.0", "id": id, "method": params["method"], "params": params["params"]})
-        )
-        .expect("request must write");
-        stdin.flush().expect("request must flush");
-        loop {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            assert!(
-                remaining > std::time::Duration::ZERO,
-                "stdio server timed out"
-            );
-            let value = rx
-                .recv_timeout(remaining)
-                .expect("stdio server must answer");
-            if value["id"].as_u64() == Some(id) {
-                assert!(
-                    value.get("error").is_none_or(|e| e.is_null()),
-                    "JSON-RPC error: {value}"
-                );
-                return value["result"].clone();
-            }
-        }
-    };
+    let mut wire = StdioSession::spawn(root, &home);
 
     // tools/list must advertise ledger_verify through the shared registry.
     let mut cursor = serde_json::Value::Null;
     let mut listed = false;
     for _ in 0..16 {
-        let result = request(serde_json::json!({
-            "method": "tools/list",
-            "params": (if cursor.is_null() {
-                serde_json::json!({})
-            } else {
-                serde_json::json!({"cursor": cursor})
-            })
-        }));
+        let params = if cursor.is_null() {
+            serde_json::json!({})
+        } else {
+            serde_json::json!({"cursor": cursor})
+        };
+        let result = wire.request("tools/list", params);
         if result["tools"]
             .as_array()
             .is_some_and(|tools| tools.iter().any(|t| t["name"] == "ledger_verify"))
@@ -230,19 +317,18 @@ fn gmcp_req_203_001_03_integration() {
     assert!(listed, "tools/list must advertise ledger_verify");
 
     // tools/call over the wire must return the canonical report.
-    let result = request(serde_json::json!({
-        "method": "tools/call",
-        "params": {"name": "ledger_verify", "arguments": {}}
-    }));
+    let result = wire.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    );
     let wire_report = call_tool_report(&result);
     assert_eq!(
         wire_report, cli_report,
         "served tools/call must return the canonical report"
     );
 
-    drop(stdin);
-    let _ = child.kill();
-    let _ = child.wait();
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
     let _ = std::fs::remove_dir_all(&scratch);
 }
 
@@ -607,4 +693,270 @@ fn gmcp_req_203_001_04_adversarial() {
     );
 
     let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// GMCP-203-001-05: interoperability and quality for the ledger. Both roles
+/// of the toolchain (the authoring-time Python checker and the shipped Rust
+/// verifier) must agree; every surface must emit the identical canonical
+/// report; verification must be deterministic, read-only, and insensitive to
+/// artifact ordering; the published budgets must hold; and every retained
+/// fixture replays as expected — divergences are recorded in
+/// `fixtures/divergences.json` and must match observed behavior verbatim.
+#[test]
+fn gmcp_req_203_001_05_interop() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Both roles: the authoring checker and the shipped verifier ──────
+    let checker = Command::new("python3")
+        .arg(root.join("scripts/check-gmcp-ledger.py"))
+        .current_dir(root)
+        .output()
+        .expect("python3 must run the GMCP ledger checker");
+    assert!(
+        checker.status.success(),
+        "authoring checker failed: {}",
+        String::from_utf8_lossy(&checker.stderr)
+    );
+    let checker_out = String::from_utf8_lossy(&checker.stdout);
+    let checker_rows: u64 = checker_out
+        .split_whitespace()
+        .nth(3)
+        .and_then(|n| n.parse().ok())
+        .expect("checker must report a row count");
+
+    let start = std::time::Instant::now();
+    let cli_report = susi_json(root, &home, &["mcp", "ledger"]);
+    let cli_elapsed = start.elapsed();
+    assert!(
+        cli_elapsed < std::time::Duration::from_secs(60),
+        "mcp ledger exceeded the published 60s budget: {cli_elapsed:?}"
+    );
+    assert_eq!(
+        cli_report["rows"].as_u64().unwrap(),
+        checker_rows,
+        "checker and verifier must agree on the row count"
+    );
+
+    // ── Differential behavior: direct and served surfaces equal the CLI ─
+    let direct = call_tool_report(&susi_json(
+        root,
+        &home,
+        &["mcp", "call", "susi", "ledger_verify", "{}"],
+    ));
+    assert_eq!(direct, cli_report, "direct call must equal the CLI report");
+
+    let mut wire = StdioSession::spawn(root, &home);
+    let wire_report = call_tool_report(&wire.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    ));
+    assert_eq!(
+        wire_report, cli_report,
+        "served tools/call must equal the CLI report"
+    );
+
+    // ── Property invariants ─────────────────────────────────────────────
+    // Determinism: repeated verification produces identical results.
+    let first = susi_gmcp::requirements_ledger::verify_pinned_ledger(root).unwrap();
+    let second = susi_gmcp::requirements_ledger::verify_pinned_ledger(root).unwrap();
+    assert_eq!(first.rows, second.rows);
+    assert_eq!(first.revisions, second.revisions);
+    assert_eq!(first.dispositions, second.dispositions);
+    assert_eq!(first.categories, second.categories);
+
+    // Read-only: verification leaves every pinned byte untouched.
+    let tree_hash = |root_dir: &Path| {
+        let mut digest = String::new();
+        let mut stack = vec![root_dir.join(".agents/gmcp")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    digest.push_str(&format!("{:x}", md5ish(&std::fs::read(&path).unwrap())));
+                }
+            }
+        }
+        digest
+    };
+    let before = tree_hash(root);
+    let _ = susi_gmcp::requirements_ledger::verify_pinned_ledger(root).unwrap();
+    assert_eq!(tree_hash(root), before, "verification must be read-only");
+
+    // Order-insensitivity: shuffled manifest files and shuffled ledger rows
+    // verify identically on a scratch copy.
+    let work = scratch.join("work");
+    copy_tree(&root.join(".agents/gmcp"), &work.join(".agents/gmcp"));
+    {
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(work.join(".agents/gmcp/sources.json")).unwrap(),
+        )
+        .unwrap();
+        for doc in manifest["repository_documents"].as_array().unwrap() {
+            let rel = doc["document"].as_str().unwrap();
+            let target = work.join(rel);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::copy(root.join(rel), &target).unwrap();
+        }
+    }
+    mutate_json(&work.join(".agents/gmcp/sources.json"), |m| {
+        m["files"].as_array_mut().unwrap().reverse();
+    });
+    mutate_json(&work.join(".agents/gmcp/requirements-ledger.json"), |l| {
+        l["requirements"].as_array_mut().unwrap().reverse();
+    });
+    let shuffled = susi_gmcp::requirements_ledger::verify_pinned_ledger(&work)
+        .expect("reordered artifacts must verify identically");
+    assert_eq!(shuffled.rows, first.rows);
+    assert_eq!(shuffled.revisions, first.revisions);
+
+    // ── Published budgets (docs/gmcp/contract-203-001.md §SLOs) ─────────
+    let ledger_bytes = std::fs::metadata(root.join(".agents/gmcp/requirements-ledger.json"))
+        .unwrap()
+        .len();
+    assert!(
+        ledger_bytes < 10 * 1024 * 1024,
+        "ledger exceeds the published 10 MiB budget: {ledger_bytes}"
+    );
+    let report_len = serde_json::to_string(&cli_report).unwrap().len();
+    assert!(
+        report_len < 64 * 1024,
+        "canonical report exceeds the 64 KiB evidence budget: {report_len}"
+    );
+    let verify_start = std::time::Instant::now();
+    let _ = susi_gmcp::requirements_ledger::verify_pinned_ledger(root).unwrap();
+    assert!(
+        verify_start.elapsed() < std::time::Duration::from_secs(60),
+        "in-process verification exceeded the published budget"
+    );
+
+    // ── Fixture replay + divergence registry ────────────────────────────
+    let divergences: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/fixtures/divergences.json")).unwrap(),
+    )
+    .unwrap();
+    let mut replayed = std::collections::BTreeSet::new();
+    for class in ["positive", "negative"] {
+        for entry in std::fs::read_dir(root.join(".agents/gmcp/fixtures").join(class))
+            .unwrap()
+            .flatten()
+        {
+            let fixture: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(entry.path()).unwrap()).unwrap();
+            let Some(request) = fixture.get("request") else {
+                continue;
+            };
+            let name = format!("{class}/{}", entry.file_name().to_str().unwrap());
+            replayed.insert(name.clone());
+            let observed = match wire.request_verbatim(request, std::time::Duration::from_secs(5)) {
+                None => serde_json::json!({"kind": "silent_drop"}),
+                Some(response) if response.get("error").is_some() => {
+                    serde_json::json!({"kind": "error", "code": response["error"]["code"]})
+                }
+                Some(_) => serde_json::json!({"kind": "result"}),
+            };
+            let expected = fixture["expect"].as_str().unwrap();
+            let met = observed["kind"].as_str().unwrap()
+                == expected
+                    .trim_end_matches("or error")
+                    .trim_end_matches("or result");
+            if met {
+                continue;
+            }
+            let recorded = divergences["divergences"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|d| d["fixture"] == name)
+                .unwrap_or_else(|| {
+                    panic!("unrecorded divergence on {name}: expected {expected}, got {observed}")
+                });
+            assert_eq!(
+                recorded["observed"], observed,
+                "recorded divergence on {name} drifted from observed behavior"
+            );
+        }
+    }
+    // Raw-line divergences (e.g. unparseable stdio bytes) replay byte-for-byte.
+    for divergence in divergences["divergences"].as_array().unwrap() {
+        let fixture = divergence["fixture"].as_str().unwrap();
+        let Some(raw) = fixture.strip_prefix("raw:") else {
+            // File-backed divergences must name a fixture that was replayed.
+            assert!(
+                replayed.contains(fixture),
+                "divergence names a fixture that was never replayed: {fixture}"
+            );
+            continue;
+        };
+        wire.send_raw(raw.as_bytes());
+        wire.send_raw(b"\n");
+        let observed = {
+            let got = wire.rx.recv_timeout(std::time::Duration::from_secs(5)).ok();
+            match got {
+                None => serde_json::json!({"kind": "silent_drop"}),
+                Some(v) if v.get("error").is_some() => {
+                    serde_json::json!({"kind": "error", "code": v["error"]["code"]})
+                }
+                Some(_) => serde_json::json!({"kind": "result"}),
+            }
+        };
+        assert_eq!(
+            divergence["observed"], observed,
+            "raw-line divergence drifted from observed behavior"
+        );
+    }
+
+    // ── Retained evidence: the vector's JSONL must carry complete records
+    //    for every delivered work package ────────────────────────────────
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-001.jsonl"))
+        .expect("VC-203-001 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "artifact_sha256",
+            "identity",
+            "recorded_unix",
+        ] {
+            assert!(!record[field].is_null(), "evidence record lacks {field}");
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-001-01",
+        "GMCP-203-001-02",
+        "GMCP-203-001-03",
+        "GMCP-203-001-04",
+        "GMCP-203-001-05",
+    ] {
+        assert!(
+            covered.contains(req),
+            "evidence must retain a record for {req}"
+        );
+    }
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+fn md5ish(data: &[u8]) -> u128 {
+    // Cheap deterministic content fingerprint for the read-only invariant —
+    // correctness, not cryptographic strength (the pinned SHA-256 checks live
+    // in the verifier itself).
+    let mut a: u64 = 0x9e3779b97f4a7c15;
+    let mut b: u64 = 0xcbf29ce484222325;
+    for (i, byte) in data.iter().enumerate() {
+        a = a.wrapping_mul(0x100000001b3) ^ (*byte as u64);
+        b ^= (*byte as u64).wrapping_add(i as u64);
+        b = b.wrapping_mul(0x9e3779b97f4a7c15);
+    }
+    ((a as u128) << 64) | b as u128
 }
