@@ -24,6 +24,7 @@ export SUSI_PRIMARY_SYNC_ACTIVE=1
 # Git exports GIT_DIR/GIT_INDEX_FILE to hooks, pointing at the calling
 # worktree; the commands below must act on the primary checkout instead.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+. "$(dirname "${BASH_SOURCE[0]}")/flock-compat.sh"
 sync_only=0
 [ "${1:-}" = "--sync-only" ] && sync_only=1
 common=$(git rev-parse --path-format=absolute --git-common-dir)

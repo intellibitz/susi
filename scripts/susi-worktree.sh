@@ -9,6 +9,7 @@
 # parks the primary checkout at origin/main, and prints `cd <path>` as the LAST
 # line so a caller can `eval "$(scripts/susi-worktree.sh | tail -1)"`.
 set -euo pipefail
+. "$(dirname "${BASH_SOURCE[0]}")/flock-compat.sh"
 root=$(git rev-parse --show-toplevel)
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 # Startup changes shared refs/config; serialize it within this clone.
@@ -21,6 +22,10 @@ primary=$(dirname "$common")
 # login: that is one name shared by every agent on the machine, and a worker
 # named after it came out INTELLIBITZ<timestamp> — the human, not the agent.
 detect_tool() {
+    # The ancestor walk below needs POSIX `ps -o`; the MSYS2 ps bundled with
+    # Git for Windows has no -o flag, so on Windows hosts the name falls
+    # back to SUSI_AGENT or the generic `agent` prefix.
+    ps -o ppid= -p $$ >/dev/null 2>&1 || return 0
     local pid=$$ args exe
     local i
     for i in 1 2 3 4 5 6; do
