@@ -224,3 +224,63 @@ detail, timestamp, artifact hash, and identity.
   consulted by the server for its own decisions and never a basis for
   client behavior or security decisions (verbatim discover.mdx
   105–106).
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` is the shared production health check; the six rows
+  this vector binds report `verified` alongside the corpus totals before
+  protocol traffic is trusted.
+- `server/discover` itself is the live inspectable surface for this
+  vector: one call reports `supportedVersions`, `capabilities`,
+  `_meta.serverInfo`, `ttlMs`, and `cacheScope`. An operator can replay
+  `positive/server-discover-fullmeta-2026-07-28.json` against any served
+  endpoint and must receive the canonical result byte-identically.
+- `susi mcp call susi ledger_verify {}` exercises the tool surface on the
+  same dispatch the daemon and gateway share; comparing it with the CLI
+  report is a transport-independent smoke check.
+- `susi mcp ledger --drift --refetched <dir>` is the deterministic,
+  air-gapped drift check covering this vector's pinned discover and
+  lifecycle documents.
+
+### Diagnostics and incident triage
+
+Protocol-layer failures are typed and deterministic — the wire verdict
+IS the diagnostic:
+
+- `-32602` on a modern request means required `io.modelcontextprotocol/*`
+  metadata is absent or malformed; `-32022` means the client asked for a
+  version outside `supportedVersions` (the `data.supported` field lists
+  the registry); `-32600` naming `per-request protocol metadata` means a
+  modern-metadata request arrived on a negotiated-legacy session.
+- A silent drop — any request that earns no response — is a defect, not
+  a verdict: capture the offending line and reproduce it through the
+  fixture replay before triaging further.
+- Drift findings carry the shared `hash_drift`/`unfetchable` kinds; a
+  drifted `server/discover.mdx` or lifecycle document invalidates this
+  vector's evidence until the corpus verifies clean again.
+
+### Incident triage
+
+Treat a drifted pin, an unexpected error code, or a silent drop as an
+incident. Preserve the JSON report, the wire transcript, and the named
+fixture with the incident so the behavior is independently reproducible;
+restore the vendored document from git when the pin is wrong.
+
+### Migration (re-pinning the stateless lifecycle or discover standard)
+
+1. Claim a task and record the upstream revision and reason.
+2. Refresh `.agents/gmcp/spec/` and `sources.json` for the discover and
+   basic-index documents at that exact revision.
+3. Run `scripts/check-gmcp-ledger.py --write`, review the six bound rows,
+   and update fixtures, compatibility decisions, and evidence records.
+4. Run `susi mcp ledger`, the deterministic `--refetched` check, and the
+   full GMCP acceptance gate before publishing.
+
+### Rollback
+
+The vendored specification, manifest, fixtures, divergence records, and
+evidence are committed artifacts. Roll back a bad re-pin with
+`git revert` of its commit, then rerun the CLI and deterministic drift
+checks; do not delete evidence rows or rewrite a prior proof event.

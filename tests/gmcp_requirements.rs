@@ -3834,3 +3834,192 @@ fn gmcp_req_203_003_05_interop() {
     drop(legacy);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-003-06: operations and evidence for the stateless
+/// lifecycle — the ledger CLI is the bounded inspectable surface,
+/// `server/discover` answers as the live capability surface, drift
+/// detection fails closed on this vector's pinned discover document,
+/// the contract carries the incident/migration/rollback runbook, and
+/// the vector's evidence record is retained, signed, and fresh.
+#[test]
+fn gmcp_req_203_003_06_operations() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-003-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // The shared ledger report is the bounded operator surface.
+    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(report["verified"], true);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+
+    // `server/discover` is this vector's live inspectable surface: the
+    // contract-bound fullmeta fixture replays on a served endpoint and
+    // reports the canonical fields an operator consumes.
+    let fixture: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/positive/server-discover-fullmeta-2026-07-28.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let response = modern
+        .request_verbatim(&fixture["request"], std::time::Duration::from_secs(30))
+        .expect("discover must answer on the served surface")["result"]
+        .clone();
+    for field in [
+        "resultType",
+        "supportedVersions",
+        "capabilities",
+        "ttlMs",
+        "cacheScope",
+    ] {
+        assert!(!response[field].is_null(), "discover must expose {field}");
+    }
+    assert!(!response["_meta"]["io.modelcontextprotocol/serverInfo"].is_null());
+    drop(modern);
+
+    // Invalid configuration is rejected rather than silently degraded:
+    // `--refetched` is meaningless without `--drift`.
+    let invalid = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!invalid.status.success());
+
+    // The deterministic drift check is clean on the shipped corpus and
+    // covers this vector's pinned documents.
+    let clean = susi_json(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(clean["drift"], true);
+    assert_eq!(clean["verified"], true);
+    assert_eq!(clean["checked"], clean["matched"]);
+    assert!(clean["findings"].as_array().unwrap().is_empty());
+
+    // A drifted discover document is a named `hash_drift` finding and a
+    // non-zero result — stale protocol proof cannot survive a changed pin.
+    let discover_doc = "docs/specification/2026-07-28/server/discover.mdx";
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(discover_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let drifted = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!drifted.status.success());
+    let drift_report: serde_json::Value =
+        serde_json::from_slice(&drifted.stdout).expect("drift failure must remain JSON");
+    assert_eq!(drift_report["verified"], false);
+    assert!(drift_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| { f["document"] == discover_doc && f["kind"] == "hash_drift" }));
+
+    // An absent discover document fails closed as `unfetchable`.
+    std::fs::remove_file(&victim).unwrap();
+    let missing = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!missing.status.success());
+    let missing_report: serde_json::Value =
+        serde_json::from_slice(&missing.stdout).expect("missing source must remain JSON");
+    assert!(missing_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| { f["document"] == discover_doc && f["kind"] == "unfetchable" }));
+
+    // The contract carries the operator runbook: state, diagnostics,
+    // triage, migration, and rollback are documented — not tribal.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-003.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Diagnostics",
+        "Incident triage",
+        "Migration (re-pinning",
+        "Rollback",
+        "hash_drift",
+        "unfetchable",
+        "-32022",
+        "silent drop",
+        "supportedVersions",
+    ] {
+        assert!(contract.contains(token), "contract must document {token}");
+    }
+
+    // Evidence is retained, signed, and tied to the committed contract
+    // bytes, so a changed runbook invalidates this proof.
+    use sha2::{Digest, Sha256};
+    let contract_hash = hex::encode(Sha256::digest(
+        std::fs::read(root.join("docs/gmcp/contract-203-003.md")).unwrap(),
+    ));
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-003.jsonl"))
+        .expect("VC-203-003 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["requirement"] == "GMCP-203-003-06")
+        .expect("evidence must retain a record for GMCP-203-003-06");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_003_06_operations"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], contract_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert!(record["recorded_unix"].as_u64().unwrap() <= now + 60);
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
