@@ -185,6 +185,22 @@ pub fn classify_envelope(line: &[u8]) -> GateVerdict {
     if id.is_none() && is_ignorable_notification(&value) {
         return GateVerdict::Drop;
     }
+    // Canonical content/metadata boundary (VC-203-008): spec-shaped
+    // content and URI fields are validated here — typed, deterministic
+    // failures instead of the typed codec's silent drops or coercions.
+    if let Some((code, error)) = crate::content::validate_payload(object) {
+        let message = if code == -32602 {
+            "Invalid params: malformed content or metadata field"
+        } else {
+            "Invalid request: malformed content or metadata payload"
+        };
+        return reject(
+            code,
+            message,
+            Some(serde_json::json!({ "reason": error.wire_message() })),
+            id,
+        );
+    }
     GateVerdict::Forward
 }
 

@@ -4538,3 +4538,297 @@ fn gmcp_req_203_008_01_contract() {
     }
     assert_eq!(record["exit"], 0);
 }
+
+/// GMCP-203-008-02: the canonical content/metadata model lives in
+/// `susi_gmcp::content` and runs at the production boundary — the shared
+/// `jsonrpc_gate::classify_envelope` both stdio and HTTP walk every
+/// payload through. Lossless representation (unknown extension fields
+/// round-trip verbatim), boundary validation (URI, MIME, base64,
+/// Unicode, annotation ranges → typed errors), the explicit rmcp
+/// adapter, bounded payloads, and deterministic canonical serialization
+/// are all exercised here — on the module and over the served wire.
+#[test]
+fn gmcp_req_203_008_02_production() {
+    use susi_gmcp::content::{CanonicalContentBlock, ContentError};
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-008-production-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Lossless round-trip: every variant, plus extension fields a
+    //    future revision may define, survive parse → serialize ──────
+    let fixture = std::fs::read_to_string(
+        root.join(".agents/gmcp/fixtures/positive/content-block-annotated-2026-07-28.json"),
+    )
+    .unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(&fixture).unwrap();
+    let payload = &fixture["payload"];
+    let block = CanonicalContentBlock::from_wire(payload)
+        .expect("annotated resource_link fixture must validate");
+    let round_trip = block.to_wire();
+    assert_eq!(
+        &round_trip, payload,
+        "canonical round-trip must be verbatim, extension fields included"
+    );
+    assert_eq!(
+        round_trip["io.example/futureExtension"]["arbitrary"][0], "unknown",
+        "the unknown extension field must survive verbatim"
+    );
+
+    // Every spec variant validates and round-trips.
+    for (variant, value) in [
+        (
+            "text",
+            serde_json::json!({"type":"text","text":"hello \u{4e16}\u{754c}"}),
+        ),
+        (
+            "image",
+            serde_json::json!({"type":"image","data":"aGk=","mimeType":"image/png"}),
+        ),
+        (
+            "audio",
+            serde_json::json!({"type":"audio","data":"AAE=","mimeType":"audio/wav"}),
+        ),
+        (
+            "embedded text resource",
+            serde_json::json!({"type":"resource","resource":{"uri":"file:///a.txt","mimeType":"text/plain","text":"body"}}),
+        ),
+        (
+            "embedded blob resource",
+            serde_json::json!({"type":"resource","resource":{"uri":"file:///a.bin","blob":"AAE="}}),
+        ),
+        ("resource_link", payload.clone()),
+    ] {
+        let parsed = CanonicalContentBlock::from_wire(&value)
+            .unwrap_or_else(|e| panic!("{variant} must validate: {e}"));
+        assert_eq!(
+            parsed.to_wire(),
+            value,
+            "{variant} must round-trip losslessly"
+        );
+    }
+
+    // ── Boundary validation: typed failures, never silent coercion ──
+    let bad_mime_fixture = std::fs::read_to_string(
+        root.join(".agents/gmcp/fixtures/negative/content-block-bad-mime.json"),
+    )
+    .unwrap();
+    let bad_mime_fixture: serde_json::Value = serde_json::from_str(&bad_mime_fixture).unwrap();
+    assert_eq!(
+        CanonicalContentBlock::from_wire(&bad_mime_fixture["payload"]),
+        Err(ContentError::BadMimeType("image")),
+        "the bad-mime fixture must fail typed validation"
+    );
+    for (label, value, want) in [
+        (
+            "bad base64",
+            serde_json::json!({"type":"image","data":"!!!","mimeType":"image/png"}),
+            ContentError::BadBase64("image"),
+        ),
+        (
+            "bad link uri",
+            serde_json::json!({"type":"resource_link","uri":"relative/path","name":"x"}),
+            ContentError::BadUri("resource_link.uri"),
+        ),
+        (
+            "bad link mime",
+            serde_json::json!({"type":"resource_link","uri":"file:///a","name":"x","mimeType":"no mime"}),
+            ContentError::BadMimeType("resource_link.mimeType"),
+        ),
+        (
+            "priority out of range",
+            serde_json::json!({"type":"text","text":"t","annotations":{"priority":1.5}}),
+            ContentError::BadPriority,
+        ),
+        (
+            "bad audience",
+            serde_json::json!({"type":"text","text":"t","annotations":{"audience":["admin"]}}),
+            ContentError::BadAudience,
+        ),
+        (
+            "control character",
+            serde_json::json!({"type":"text","text":"a\u{7}"}),
+            ContentError::BadUnicode("text"),
+        ),
+        (
+            "bad blob base64",
+            serde_json::json!({"type":"resource","resource":{"uri":"file:///a","blob":"%%%="}}),
+            ContentError::BadBase64("resource.blob"),
+        ),
+        (
+            "bad embedded uri",
+            serde_json::json!({"type":"resource","resource":{"uri":"no scheme","text":"t"}}),
+            ContentError::BadUri("resource.uri"),
+        ),
+        (
+            "bad icon src",
+            serde_json::json!({"type":"resource_link","uri":"file:///a","name":"x","icons":[{"src":"not a uri"}]}),
+            ContentError::BadIcon,
+        ),
+        (
+            "unknown variant",
+            serde_json::json!({"type":"hologram","voxels":"AAA="}),
+            ContentError::UnknownVariant,
+        ),
+    ] {
+        assert_eq!(
+            CanonicalContentBlock::from_wire(&value),
+            Err(want),
+            "{label} must fail typed validation"
+        );
+    }
+
+    // Bounded payloads: a nesting deeper than the limit earns a typed
+    // TooLarge, never unbounded recursion.
+    let mut deep = serde_json::json!("leaf");
+    for _ in 0..80 {
+        deep = serde_json::json!({"k": deep});
+    }
+    let deep = serde_json::json!({"type":"text","text":"t","_meta":{"deep":deep}});
+    assert_eq!(
+        CanonicalContentBlock::from_wire(&deep),
+        Err(ContentError::TooLarge)
+    );
+
+    // Deterministic canonical serialization: equal values produce
+    // byte-identical output across parses and key orders.
+    let reordered: serde_json::Value = serde_json::from_str(
+        &serde_json::to_string(&serde_json::json!({
+            "type": "text", "text": "x",
+            "z-ext": 1, "a-ext": 2
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let first = CanonicalContentBlock::from_wire(&reordered).unwrap();
+    let second = CanonicalContentBlock::from_wire(&first.to_wire()).unwrap();
+    assert_eq!(first.canonical_json(), second.canonical_json());
+    assert!(
+        first.canonical_json().find("a-ext").unwrap()
+            < first.canonical_json().find("z-ext").unwrap(),
+        "canonical serialization must be key-ordered"
+    );
+
+    // ── The explicit adapter: canonical → typed rmcp model — every
+    //    spec field maps exactly onto the typed representation ───────
+    let typed = block.to_rmcp().expect("canonical must adapt to rmcp");
+    let typed_wire = serde_json::to_value(&typed).expect("rmcp model must serialize");
+    assert_eq!(typed_wire["type"], "resource_link");
+    assert_eq!(typed_wire["uri"], "file:///workspace/report.pdf");
+    assert_eq!(typed_wire["name"], "quarterly-report");
+    let adapted_priority = typed_wire["annotations"]["priority"]
+        .as_f64()
+        .expect("priority must adapt");
+    assert!(
+        (adapted_priority - 0.8).abs() < 1e-6,
+        "annotations must adapt to the typed model"
+    );
+
+    // ── The shipped wire path: the gate's boundary validation is what
+    //    `mcp serve` runs on every inbound line ──────────────────────
+    let mut session = StdioSession::spawn(root, &home);
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "bad-uri",
+        "method": "resources/read",
+        "params": {"uri": "not a uri at all"}
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("bad-uri"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("malformed resources/read must be answered");
+    assert_eq!(response["error"]["code"], -32602);
+    assert!(
+        response["error"]["data"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("params.uri"),
+        "the typed error must name the offending field: {response}"
+    );
+
+    // A malformed client response (sampling-style content) earns a
+    // typed -32600 instead of the typed codec's silent drop.
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "bad-content",
+        "result": {"content": {"type": "image", "data": "!!!", "mimeType": "image/png"}}
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("bad-content"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("malformed client response must be answered");
+    assert_eq!(response["error"]["code"], -32600);
+    assert!(
+        response["error"]["data"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("base64"),
+        "the typed error must name the base64 failure: {response}"
+    );
+
+    // Malformed roots[] answers are caught the same way.
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "bad-roots",
+        "result": {"roots": [{"uri": "relative/path"}]}
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("bad-roots"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("malformed roots response must be answered");
+    assert_eq!(response["error"]["code"], -32600);
+
+    // A well-formed request still reaches the service — the boundary
+    // rejects only malformed payloads (any non-gate answer counts).
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "ok-read",
+        "method": "resources/read",
+        "params": {"uri": "file:///workspace/ok.txt"}
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("ok-read"),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("well-formed resources/read must be answered");
+    assert_ne!(
+        response["error"]["data"]["reason"]
+            .as_str()
+            .unwrap_or_default(),
+        "content field `params.uri` is not a valid absolute URI",
+        "a well-formed request must pass the boundary: {response}"
+    );
+
+    // ── Transport-independence: the HTTP body gate runs the same
+    //    classify_envelope the stdio path does ───────────────────────
+    for (body, want_code) in [
+        (
+            r#"{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"bad uri"}}"#,
+            -32602,
+        ),
+        (
+            r#"{"jsonrpc":"2.0","id":2,"result":{"content":{"type":"audio","data":"$$","mimeType":"audio/wav"}}}"#,
+            -32600,
+        ),
+        (r#"{"jsonrpc":"2.0","id":3,"method":"ping","params":{}}"#, 0),
+    ] {
+        let verdict = susi_gmcp::jsonrpc_gate::http_envelope_rejection(body.as_bytes());
+        if want_code == 0 {
+            assert!(verdict.is_none(), "a clean body must forward: {body}");
+        } else {
+            assert_eq!(
+                verdict
+                    .as_ref()
+                    .and_then(|v| v.pointer("/error/code"))
+                    .and_then(serde_json::Value::as_i64),
+                Some(i64::from(want_code)),
+                "the HTTP gate must emit the same typed failure: {body}"
+            );
+        }
+    }
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
