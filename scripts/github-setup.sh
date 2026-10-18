@@ -4,6 +4,7 @@
 # on the repo; safe to re-run. Branch protection on main (no force-push, no
 # deletion) is kept as-is and asserted here.
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}
 # Let workflows open PRs (auto-merge.yml's open-pr job).
 gh api -X PUT "repos/$repo/actions/permissions/workflow" \

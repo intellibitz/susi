@@ -71,6 +71,7 @@
 # Runs locally from .githooks/pre-push and server-side in CI ("Workflow
 # Compliance"), where --no-verify cannot skip it.
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 base=${1:?usage: check-workflow-compliance.sh <base> <head> [remote] [branch]}
 head=${2:?usage: check-workflow-compliance.sh <base> <head> [remote] [branch]}

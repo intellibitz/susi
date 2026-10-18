@@ -19,6 +19,7 @@
 #   SUSI_WATCH_CMD     what to start (default: this repo's watcher)
 #   SUSI_WATCH_WAIT    seconds to wait for a fresh heartbeat after starting (10)
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0

@@ -313,7 +313,7 @@ fn watcher_observes_remote_merges_without_local_git_hooks() {
     git(&w.primary, &["switch", "--quiet", "main"]);
     let scripts = w.primary.join("scripts");
     std::fs::create_dir_all(&scripts).unwrap();
-    for name in ["parallel-workflow.sh", "park-primary.sh"] {
+    for name in ["parallel-workflow.sh", "park-primary.sh", "posix-compat.sh"] {
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("scripts")

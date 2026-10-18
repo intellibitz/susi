@@ -106,7 +106,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-adapters-llm", 2),
     ("susi-core", 3),
     ("susi-sandbox-client", 3),
-    ("susi-vendor-wasmer", 2),
+    ("susi-vendor-wasmtime", 2),
     ("susi-vendor-mcp", 0),
     ("susi-vendor-mcp-server", 0),
     ("susi-vendor-tantivy", 2),
@@ -376,7 +376,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -393,7 +393,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -410,7 +410,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -426,7 +426,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -440,7 +440,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -454,7 +454,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -471,7 +471,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -481,7 +481,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-config",
                 "susi-error",
                 "susi-paths",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
                 "susi-native-client",
                 "susi-sandbox",
                 "susi-sandbox-client",
@@ -507,7 +507,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-config",
                 "susi-error",
                 "susi-paths",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
                 "susi-native-client",
                 "susi-sandbox",
                 "susi-sandbox-client",
@@ -541,7 +541,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -557,7 +557,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
@@ -574,7 +574,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-sandbox",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         ("susi-daemon", &["susi-sandbox"]),
@@ -593,14 +593,14 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-core",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
             ],
         ),
         (
             "susi-config",
             &[
                 "susi-core",
-                "susi-vendor-wasmer",
+                "susi-vendor-wasmtime",
                 "susi-sandbox",
                 "susi-tools",
                 "susi-agents",
@@ -616,7 +616,7 @@ fn layer_matrix_forbidden_edges() {
             ],
         ),
         (
-            "susi-vendor-wasmer",
+            "susi-vendor-wasmtime",
             &[
                 "susi-core",
                 "susi-tools",
@@ -659,6 +659,7 @@ fn susi_error_must_not_depend_on_candle_or_features() {
         "reqwest",
         "hyper",
         "wasmer",
+        "wasmtime",
         "bollard",
         "rmcp",
         "susi-gemi",
@@ -689,6 +690,7 @@ fn susi_core_must_not_depend_on_infra_or_features() {
         "reqwest",
         "hyper",
         "wasmer",
+        "wasmtime",
         "bollard",
         "rmcp",
         "susi-gemi",
@@ -702,7 +704,7 @@ fn susi_core_must_not_depend_on_infra_or_features() {
         "susi-agents",
         "susi-tools",
         "susi-sandbox",
-        "susi-vendor-wasmer",
+        "susi-vendor-wasmtime",
     ] {
         assert!(
             !text.contains(forbidden),

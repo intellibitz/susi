@@ -1,34 +1,22 @@
-//! WASM sandbox support for SUSI Swarm Cells.
+//! In-process WASM cell runtime: fuel-metered, memory-capped, with a single
+//! host import (`host_send`) exposed under both the `env` and `susi`
+//! namespaces.
 //!
-//! This module provides a minimal runtime for loading and executing
-//! Rust‑compiled WebAssembly modules (cells) in-process (the daemon's
-//! auto-discovery loads `*.wasm` cells through it), plus [`validate_module`]
-//! for plugin hot-reload. It lives here so wasmer stays linked by this one
-//! vendor crate.
-//! It uses the `wasmer` crate (Cranelift; Singlepass on Windows) — the same
-//! engine `susi-native` runs WASI modules on.
-//!
-//! The design follows the Phase 1 goal of **WASM + namespace isolation**
-//! while keeping the API simple for later extensions (e.g., capability
-//! enforcement, resource limits).
-//!
-//! Host ABI: a cell may import `host_send(ptr: i32, len: i32) -> i32` from
-//! the `env` or `susi` module. The host copies `len` bytes at `ptr` out of
-//! the cell's exported `memory` into a bounded outbox (drained with
-//! [`WasmCell::take_messages`]) and returns `0`, or a negative code when the
-//! message is rejected. Imports are resolved by name, so cells that import
-//! nothing instantiate too.
+//! The wasm engine is wasmtime. Fuel is metered natively
+//! (`Config::consume_fuel` + `Store::set_fuel`) rather than by a compiler
+//! middleware: wasmtime charges fuel per wasm instruction, so `CELL_FUEL`
+//! keeps the same budget semantics the wasmer `Metering` middleware provided.
+//! The declared-maximum memory cap is applied by rewriting the module's
+//! memory section ([`cap_memory`]) before compile; a module that never
+//! declared a maximum still cannot grow past [`MAX_CELL_MEMORY_BYTES`], and
+//! imported memories are refused — the host provides none, so a cell
+//! importing memory fails to instantiate.
 
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use susi_error::{EaiError, EaiResult};
-use wasmer::sys::wasmparser::{Parser, Payload};
-use wasmer::sys::{CompilerConfig, EngineBuilder};
-use wasmer::wasmparser::Operator;
-use wasmer::{
-    Engine, Function, FunctionEnv, FunctionEnvMut, Imports, Instance, Memory, Module, Store,
-};
-use wasmer_middlewares::Metering;
+use wasmparser::{Parser, Payload};
+use wasmtime::{Caller, Engine, Instance, Linker, Memory, Module, Store};
 
 /// Largest single `host_send` payload the host accepts.
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
@@ -54,27 +42,24 @@ struct HostState {
 /// daemon's own memory without bound.
 pub const MAX_CELL_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 
-/// Instruction budget (metering points, one per operator) per cell or
-/// WASI reflex: an infinite loop traps instead of pinning a daemon thread
+/// Instruction budget (fuel, roughly one unit per wasm instruction) per cell
+/// or WASI reflex: an infinite loop traps instead of pinning a daemon thread
 /// forever.
 pub const CELL_FUEL: u64 = 10_000_000_000;
 
-/// Engine with metering compiled in; every instance starts with
+/// Engine with fuel metering compiled in; every store starts with
 /// [`CELL_FUEL`]. Shared by cells and the WASI reflex runner (`wasm.rs`),
 /// which executes model-written code on the same budget.
-pub(crate) fn metered_engine() -> Engine {
-    let metering = Arc::new(Metering::new(CELL_FUEL, |_: &Operator| 1));
-    #[cfg(not(windows))]
-    let mut compiler = wasmer::sys::Cranelift::default();
-    #[cfg(windows)]
-    let mut compiler = wasmer::sys::Singlepass::default();
-    compiler.push_middleware(metering);
-    EngineBuilder::new(compiler).engine().into()
+pub(crate) fn metered_engine() -> EaiResult<Engine> {
+    let mut config = wasmtime::Config::new();
+    config.consume_fuel(true);
+    Engine::new(&config)
+        .map_err(|e| EaiError::sandbox(format!("Failed to create wasm engine: {e}")))
 }
 
 /// Clamp every defined memory's maximum to [`MAX_CELL_MEMORY_BYTES`].
 ///
-/// Wasmer enforces a memory's declared maximum on `memory.grow`, so capping
+/// Wasmtime enforces a memory's declared maximum on `memory.grow`, so capping
 /// the declaration caps the cell — without a custom `Tunables`, whose
 /// required `unsafe fn`s this crate's `unsafe_code` policy reserves for FFI.
 /// Sections other than the memory section are copied through byte-for-byte.
@@ -87,7 +72,7 @@ pub(crate) fn cap_memory(wasm: &[u8]) -> EaiResult<Vec<u8>> {
         let payload =
             payload.map_err(|e| EaiError::sandbox(format!("Failed to parse WASM module: {e}")))?;
         if let Payload::Version {
-            encoding: wasmer::sys::wasmparser::Encoding::Component,
+            encoding: wasmparser::Encoding::Component,
             ..
         } = payload
         {
@@ -119,13 +104,13 @@ pub(crate) fn cap_memory(wasm: &[u8]) -> EaiResult<Vec<u8>> {
 
 /// Re-encode a memory section with each maximum clamped to the cell cap.
 fn capped_memory_section(
-    reader: wasmer::sys::wasmparser::MemorySectionReader<'_>,
+    reader: wasmparser::MemorySectionReader<'_>,
 ) -> EaiResult<wasm_encoder::MemorySection> {
     let mut section = wasm_encoder::MemorySection::new();
     for memory in reader {
         let memory =
             memory.map_err(|e| EaiError::sandbox(format!("Failed to read memory section: {e}")))?;
-        // Checked: this runs before wasmer validates the module, so a
+        // Checked: this runs before wasmtime validates the module, so a
         // malformed page-size exponent must error, not overflow the shift.
         let page_bytes = 1u64
             .checked_shl(memory.page_size_log2.unwrap_or(16))
@@ -153,38 +138,36 @@ fn capped_memory_section(
 ///
 /// * `module_path` – path to the compiled `.wasm` file.
 /// * `instance` – instantiated module ready for calls.
-/// * `store` – the Wasmer store holding the instance.
-/// * `env` – handle to the cell's [`HostState`] inside `store`.
+/// * `store` – the wasmtime store holding the instance and the cell's
+///   [`HostState`].
 pub struct WasmCell {
     module_path: PathBuf,
     instance: Instance,
-    store: Store,
-    env: FunctionEnv<HostState>,
+    store: Store<HostState>,
 }
 
 /// Copy a guest message out of the cell's exported memory into the outbox.
-fn host_send(mut env: FunctionEnvMut<'_, HostState>, ptr: i32, len: i32) -> i32 {
-    let (Ok(start), Ok(len)) = (u64::try_from(ptr), usize::try_from(len)) else {
+fn host_send(mut caller: Caller<'_, HostState>, ptr: i32, len: i32) -> i32 {
+    let (Ok(start), Ok(len)) = (usize::try_from(ptr), usize::try_from(len)) else {
         return SEND_BAD_ARGS;
     };
     if len > MAX_MESSAGE_BYTES {
         return SEND_BAD_ARGS;
     }
-    let (state, store) = env.data_and_store_mut();
-    if state.outbox.len() >= MAX_OUTBOX_MESSAGES {
+    if caller.data().outbox.len() >= MAX_OUTBOX_MESSAGES {
         return SEND_OUTBOX_FULL;
     }
-    let Some(memory) = &state.memory else {
+    let Some(memory) = caller.data().memory else {
         return SEND_NO_MEMORY;
     };
     let mut bytes = vec![0u8; len];
     // `read` bounds-checks `start + len` (overflow included) against the
     // current memory size.
-    if memory.view(&store).read(start, &mut bytes).is_err() {
+    if memory.read(&caller, start, &mut bytes).is_err() {
         return SEND_OUT_OF_BOUNDS;
     }
     tracing::info!("[WasmCell] host_send received {} byte(s)", bytes.len());
-    state.outbox.push(bytes);
+    caller.data_mut().outbox.push(bytes);
     SEND_OK
 }
 
@@ -213,32 +196,38 @@ impl WasmCell {
     }
 
     fn instantiate(bytes: &[u8], module_path: PathBuf) -> EaiResult<Self> {
-        let wasm = wasmer::wat2wasm(bytes)
+        // `wat::parse_bytes` passes already-binary modules through, so cells
+        // built by rustc stay cheap and hand-written WAT still loads.
+        let wasm = wat::parse_bytes(bytes)
             .map_err(|e| EaiError::sandbox(format!("Failed to parse WASM text: {e}")))?;
         let wasm = cap_memory(&wasm)?;
-        let mut store = Store::new(metered_engine());
-        let module = Module::new(&store, &wasm).map_err(|e| {
+        let engine = metered_engine()?;
+        let mut store = Store::new(&engine, HostState::default());
+        store
+            .set_fuel(CELL_FUEL)
+            .map_err(|e| EaiError::sandbox(format!("Failed to set cell fuel: {e}")))?;
+        let module = Module::new(&engine, &wasm).map_err(|e| {
             EaiError::sandbox(format!(
                 "Failed to compile WASM module {}: {e}",
                 module_path.display()
             ))
         })?;
-        let env = FunctionEnv::new(&mut store, HostState::default());
-        let send = Function::new_typed_with_env(&mut store, &env, host_send);
-        let mut imports = Imports::new();
+        let mut linker = Linker::<HostState>::new(&engine);
         for namespace in ["env", "susi"] {
-            imports.define(namespace, "host_send", send.clone());
+            linker
+                .func_wrap(namespace, "host_send", host_send)
+                .map_err(|e| EaiError::sandbox(format!("Failed to define host_send: {e}")))?;
         }
-        let instance = Instance::new(&mut store, &module, &imports)
+        let instance = linker
+            .instantiate(&mut store, &module)
             .map_err(|e| EaiError::sandbox(format!("Failed to instantiate WASM module: {e}")))?;
         // Bound after instantiation: a `start` function that calls
         // `host_send` sees no memory yet and gets SEND_NO_MEMORY.
-        env.as_mut(&mut store).memory = instance.exports.get_memory("memory").ok().cloned();
+        store.data_mut().memory = instance.get_memory(&mut store, "memory");
         Ok(Self {
             module_path,
             instance,
             store,
-            env,
         })
     }
 
@@ -250,7 +239,7 @@ impl WasmCell {
 
     /// Drain the messages the cell has sent via `host_send`, oldest first.
     pub fn take_messages(&mut self) -> Vec<Vec<u8>> {
-        std::mem::take(&mut self.env.as_mut(&mut self.store).outbox)
+        std::mem::take(&mut self.store.data_mut().outbox)
     }
 
     /// Execute the `_start` function (or any exported function name).
@@ -260,16 +249,19 @@ impl WasmCell {
     /// Fails when the export is missing, is not `() -> i32`, or traps
     /// (including running out of [`CELL_FUEL`]).
     pub fn execute(&mut self, func_name: &str) -> EaiResult<String> {
-        let func = self.instance.exports.get_function(func_name).map_err(|_| {
-            EaiError::sandbox(format!("Function '{func_name}' not found in WASM module"))
-        })?;
+        let func = self
+            .instance
+            .get_func(&mut self.store, func_name)
+            .ok_or_else(|| {
+                EaiError::sandbox(format!("Function '{func_name}' not found in WASM module"))
+            })?;
 
         // Entry points take no params and return an i32 status.
         let typed = func
             .typed::<(), i32>(&self.store)
             .map_err(|e| EaiError::sandbox(format!("Failed to cast function signature: {e}")))?;
         let ret = typed
-            .call(&mut self.store)
+            .call(&mut self.store, ())
             .map_err(|e| EaiError::sandbox(format!("WASM function '{func_name}' trapped: {e}")))?;
         Ok(format!("WASM function '{func_name}' returned {ret}"))
     }
@@ -287,8 +279,8 @@ pub fn spawn_wasm_cell(wasm_path: PathBuf) -> EaiResult<WasmCell> {
     WasmCell::load(wasm_path)
 }
 
-/// One default (Cranelift / Singlepass) engine for module validation: plugin
-/// hot-reload compiles candidates to prove they load, and needs no metering.
+/// One default (Cranelift) engine for module validation: plugin hot-reload
+/// compiles candidates to prove they load, and needs no metering.
 static VALIDATION_ENGINE: LazyLock<Engine> = LazyLock::new(Engine::default);
 
 /// Compile `wasm_bytes` (binary format) to prove it is a loadable module,
@@ -297,7 +289,7 @@ static VALIDATION_ENGINE: LazyLock<Engine> = LazyLock::new(Engine::default);
 /// # Errors
 /// The compile error text when the bytes are not a valid module.
 pub fn validate_module(wasm_bytes: &[u8]) -> Result<(), String> {
-    Module::from_binary(&*VALIDATION_ENGINE, wasm_bytes)
+    Module::validate(&VALIDATION_ENGINE, wasm_bytes)
         .map(|_| ())
         .map_err(|e| e.to_string())
 }

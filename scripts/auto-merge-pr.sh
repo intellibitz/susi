@@ -21,6 +21,7 @@
 # explained once per head sha; an environment that cannot run the gate falls
 # back to the resync-and-retest path.
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo} branch=${2:?branch} sha=${3:?sha}
 marker='<!-- susi-auto-merge -->'
 here=$(cd "$(dirname "$0")" && pwd)

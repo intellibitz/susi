@@ -12,6 +12,7 @@
 # Normal, dev and build dependencies all count, as they do for the gate: a
 # dev-dependency edge is a test target that pulls the package in.
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 pkg=${1:?usage: ci-reverse-deps.sh <workspace-package>}
 

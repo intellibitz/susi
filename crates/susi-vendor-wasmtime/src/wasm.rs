@@ -3,37 +3,39 @@
 
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
-use wasmer::Module;
-use wasmer_types::ModuleHash;
-use wasmer_wasix::runners::wasi::{RuntimeOrEngine, WasiRunner};
-use wasmer_wasix::Pipe;
+use wasmtime::{Linker, Module, Store};
+use wasmtime_wasi::p1::WasiP1Ctx;
+use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
+use wasmtime_wasi::WasiCtx;
 
 pub struct WasmHost;
 
 impl WasmHost {
-    /// Pillar Sandbox: run untrusted Wasm (plugins or reflexes) under Wasmer/WASI.
+    /// Pillar Sandbox: run untrusted Wasm (plugins or reflexes) under Wasmtime/WASI.
     pub fn execute_untrusted_wasm(wasm_path: &Path, arg: &str) -> EaiResult<String> {
         Self::execute_reflex(wasm_path, arg)
     }
 
-    /// Executes a distilled reflex from a Wasm file (Wasmer/WASI isolation).
+    /// Executes a distilled reflex from a Wasm file (Wasmtime/WASI isolation).
     ///
-    /// Reflexes are model-written code: the module is compiled on the shared
-    /// metered engine ([`crate::cell::CELL_FUEL`]) and its declared memory
-    /// maximum is clamped by [`crate::cell::cap_memory`], so an infinite loop
-    /// or runaway allocation traps instead of pinning the caller's thread.
-    /// No preopened directories or ambient host capabilities are granted.
+    /// Reflexes are model-written code: the module is compiled on a
+    /// fuel-metered engine ([`crate::cell::CELL_FUEL`]) and its declared
+    /// memory maximum is clamped by [`crate::cell::cap_memory`], so an
+    /// infinite loop or runaway allocation traps instead of pinning the
+    /// caller's thread. No preopened directories or ambient host
+    /// capabilities are granted.
     pub fn execute_reflex(wasm_path: &Path, arg: &str) -> EaiResult<String> {
-        let engine = crate::cell::metered_engine();
+        let engine = crate::cell::metered_engine()?;
         let bytes = std::fs::read(wasm_path).map_err(|e| {
             EaiError::process(format!(
                 "Failed to read Wasm module {}: {e}",
                 wasm_path.display()
             ))
         })?;
-        // `wat2wasm` passes already-binary modules through, so reflexes built
-        // by rustc stay cheap and hand-written WAT probes still load.
-        let wasm = wasmer::wat2wasm(&bytes).map_err(|e| {
+        // `wat::parse_bytes` passes already-binary modules through, so
+        // reflexes built by rustc stay cheap and hand-written WAT probes
+        // still load.
+        let wasm = wat::parse_bytes(&bytes).map_err(|e| {
             EaiError::process(format!(
                 "Failed to parse Wasm module {}: {e}",
                 wasm_path.display()
@@ -47,32 +49,40 @@ impl WasmHost {
             ))
         })?;
 
-        let (stdout_tx, stdout_rx) = Pipe::channel();
+        // No preopened directories, no inherited argv/env/stdin: the only
+        // granted capability is a bounded-capacity stdout pipe.
+        let stdout = MemoryOutputPipe::new(usize::MAX);
+        let mut builder = WasiCtx::builder();
+        builder.stdout(stdout.clone()).arg(arg);
+        let mut store = Store::new(&engine, builder.build_p1());
+        store
+            .set_fuel(crate::cell::CELL_FUEL)
+            .map_err(|e| EaiError::process(format!("Failed to set reflex fuel: {e}")))?;
 
-        let mut runner = WasiRunner::new();
-        runner.with_stdout(Box::new(stdout_tx)).with_args([arg]);
+        let mut linker = Linker::<WasiP1Ctx>::new(&engine);
+        // Both import spellings: rustc's wasm32-wasip1 emits
+        // `wasi_snapshot_preview1`; older hand-built probes may still speak
+        // `wasi_unstable` (preview 0).
+        wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |c| c)
+            .map_err(|e| EaiError::process(format!("Failed to link WASI p1: {e}")))?;
+        wasmtime_wasi::p0::add_to_linker_sync(&mut linker, |c| c)
+            .map_err(|e| EaiError::process(format!("Failed to link WASI p0: {e}")))?;
 
         // This is a blocking call
-        runner
-            .run_wasm(
-                RuntimeOrEngine::Engine(engine),
-                "susi-reflex",
-                module,
-                ModuleHash::random(),
-            )
-            .map_err(|e| EaiError::process(format!("Wasm execution failed: {}", e)))?;
-        // WasiRunner keeps its own Arc-cloned handle to the stdout pipe
-        // (ArcBoxFile); without dropping it here the sender never closes and
-        // the read below blocks forever waiting for EOF that never comes.
-        drop(runner);
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .map_err(|e| EaiError::process(format!("Wasm execution failed: {e}")))?;
+        let start = instance
+            .get_typed_func::<(), ()>(&mut store, "_start")
+            .map_err(|e| EaiError::process(format!("Wasm module exports no _start: {e}")))?;
+        start
+            .call(&mut store, ())
+            .map_err(|e| EaiError::process(format!("Wasm execution failed: {e}")))?;
 
-        // Capture stdout
-        let mut result = String::new();
-        use std::io::Read;
-        let mut reader = stdout_rx;
-        reader
-            .read_to_string(&mut result)
-            .map_err(|e| EaiError::process(format!("Failed to read Wasm output: {}", e)))?;
+        // Capture stdout — MemoryOutputPipe already holds the complete
+        // buffer; no channel EOF dance like the old wasmer Pipe needed.
+        let captured = stdout.contents();
+        let result = String::from_utf8_lossy(&captured);
 
         Ok(if result.trim().is_empty() {
             "Wasm execution success (No Output)".to_string()
@@ -88,9 +98,9 @@ mod tests {
 
     /// Hand-written WAT (not compiled via rustc's wasm32-wasip1 target, which
     /// isn't installed in this environment) so this exercises the real
-    /// Module::from_file -> WasiRunner::run_wasm -> Pipe stdout-capture path
-    /// unconditionally, unlike reflex_synth's end-to-end test which honestly
-    /// skips without that toolchain.
+    /// compile -> instantiate -> stdout-capture path unconditionally, unlike
+    /// reflex_synth's end-to-end test which honestly skips without that
+    /// toolchain.
     const HELLO_WAT: &str = r#"
         (module
             (import "wasi_unstable" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))

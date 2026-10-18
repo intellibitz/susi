@@ -90,15 +90,19 @@ impl World {
             }
         }
         std::fs::create_dir_all(primary.join("scripts")).unwrap();
-        let park = primary.join("scripts/park-primary.sh");
-        std::fs::copy(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/park-primary.sh"),
-            &park,
-        )
-        .unwrap();
+        for s in ["park-primary.sh", "posix-compat.sh"] {
+            std::fs::copy(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("scripts")
+                    .join(s),
+                primary.join("scripts").join(s),
+            )
+            .unwrap();
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+            let park = primary.join("scripts/park-primary.sh");
             std::fs::set_permissions(&park, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         git(&primary, &["add", "-A"]);

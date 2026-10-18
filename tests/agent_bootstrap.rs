@@ -62,7 +62,12 @@ impl World {
             &["remote", "add", "origin", bare.to_str().unwrap()],
         );
         let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
-        for s in ["susi-worktree.sh", "park-primary.sh", "setup-dev.sh"] {
+        for s in [
+            "susi-worktree.sh",
+            "park-primary.sh",
+            "setup-dev.sh",
+            "posix-compat.sh",
+        ] {
             std::fs::copy(
                 repo.join("scripts").join(s),
                 primary.join("scripts").join(s),

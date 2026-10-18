@@ -21,6 +21,9 @@ use std::os::unix::io::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
+#[cfg(windows)]
+use signal_hook::consts::{SIGINT, SIGTERM};
+#[cfg(not(windows))]
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -53,8 +56,17 @@ impl DaemonContext {
 
     pub fn setup_signal_handlers(&self) -> Result<(), EaiError> {
         let shutdown = Arc::clone(&self.shutdown_signal);
+        // signal-hook's blocking `Signals` iterator is unix-only; on Windows
+        // the console SIGINT/SIGTERM land through the flag backend, which
+        // needs no dedicated worker thread.
+        #[cfg(windows)]
+        {
+            let _ = signal_hook::flag::register(SIGINT, Arc::clone(&shutdown));
+            let _ = signal_hook::flag::register(SIGTERM, shutdown);
+        }
         // Supervised like every other long-lived worker: a signal-handler
         // thread that dies would leave the daemon deaf to SIGTERM.
+        #[cfg(not(windows))]
         crate::service_supervision::Supervisor::global().spawn(
             "signal-handler",
             3,
@@ -366,7 +378,7 @@ impl SusiDaemon {
             {
                 use std::process::Command;
                 return Command::new("tasklist")
-                    .args(&["/FI", &format!("PID eq {}", pid)])
+                    .args(["/FI", &format!("PID eq {}", pid)])
                     .output()
                     .map(|o| o.status.success())
                     .unwrap_or(false);
@@ -1604,10 +1616,12 @@ impl SusiDaemon {
     /// The same absolute-path rule as `SusiDirs::instance_root` applies: a
     /// relative `SUSI_HOME` selects no instance root anywhere, so it must not
     /// mint a distinct unit either.
+    #[cfg(target_os = "linux")]
     fn daemon_unit_name() -> String {
         Self::unit_name_for(Self::instance_home().as_deref())
     }
 
+    #[cfg(any(target_os = "linux", test))]
     fn unit_name_for(home: Option<&Path>) -> String {
         match home {
             Some(home) => {
@@ -1623,6 +1637,7 @@ impl SusiDaemon {
     /// The isolated instance root `SUSI_HOME` names, when it names one —
     /// matching `SusiDirs::instance_root`'s absolute-path requirement so unit
     /// naming, env propagation, and path resolution never disagree.
+    #[cfg(target_os = "linux")]
     fn instance_home() -> Option<PathBuf> {
         std::env::var_os("SUSI_HOME")
             .map(PathBuf::from)
@@ -1643,6 +1658,14 @@ impl SusiDaemon {
                 unsafe {
                     libc::kill(pid, libc::SIGTERM);
                 }
+                #[cfg(windows)]
+                // taskkill /T /F on the lock-recorded daemon pid — the
+                // Windows analogue of the SIGTERM above.
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
             }
             let _ = fs::remove_file(&global_lock);
             true
@@ -1672,6 +1695,9 @@ impl SusiDaemon {
 
     #[allow(unsafe_code)]
     fn stop_daemons(global_dir: &Path, scoped_to_instance: bool) -> usize {
+        // Instance scoping only applies to the Linux systemd/proc sweeps below.
+        #[cfg(not(target_os = "linux"))]
+        let _ = scoped_to_instance;
         let mut killed = 0usize;
 
         // 1. The systemd transient unit spawned by ensure_daemon_running's

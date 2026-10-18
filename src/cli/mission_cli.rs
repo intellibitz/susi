@@ -14,11 +14,16 @@ use super::services_cli;
 use super::shell_cli::{glass_box_callback, run_shell, MissionHost};
 use super::status_cli;
 
+// env/PathBuf/Command serve the uninstall path's linux/macos service
+// deregistration blocks; Windows has neither systemd nor launchd.
+#[cfg(unix)]
 use std::env;
 use std::fs;
 use std::io::{self};
 use std::path::Path;
+#[cfg(unix)]
 use std::path::PathBuf;
+#[cfg(unix)]
 use std::process::Command;
 
 use susi::SUSI_VERSION;

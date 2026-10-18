@@ -15,6 +15,7 @@
 #
 #   scripts/check-roadmap-progress.sh
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 roadmap="$root/.agents/roadmap.json"

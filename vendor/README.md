@@ -31,3 +31,22 @@ compiled into rustls make its automatic provider selection ambiguous.
 
 **Upgrading:** copy the new release from `~/.cargo/registry/src/*/reqwest-X.Y.Z`,
 re-apply the two edits above, and update this section.
+
+## esaxx-rs 0.1.10
+
+**Why:** tokenizers enables `esaxx-rs/cpp` via its default `esaxx_fast`
+feature, and esaxx-rs 0.1.10 (unmaintained — latest release) hardcodes
+`.static_crt(true)` in build.rs. On MSVC that emits `/MT`, while every other
+C/C++ object in the tree (onnxruntime, zstd-sys, …) links `/MD`; mixing CRT
+models fails at link with `LNK2038: mismatch detected for 'RuntimeLibrary'`.
+On non-MSVC toolchains `static_crt` is a no-op, so dropping it is a
+Windows-only change.
+
+**Patch** (diff against the crates.io tarball):
+
+- `build.rs`: `.static_crt(true)` removed from the non-macOS `cpp` branch.
+
+`Cargo.lock` from the tarball is dropped (unused for a dependency).
+
+**Upgrading:** copy the new release from `~/.cargo/registry/src/*/esaxx-rs-X.Y.Z`,
+re-apply the edit above, and update this section.

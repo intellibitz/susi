@@ -9,6 +9,7 @@
 #   merge-queue-probe.sh <owner/repo>                # any open PR
 #   merge-queue-probe.sh <owner/repo> <branch> <sha> # just this head
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo}
 
 stale_green() { # sha

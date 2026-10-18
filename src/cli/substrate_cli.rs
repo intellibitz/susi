@@ -60,8 +60,8 @@ fn collect(workspace: &Path) -> serde_json::Value {
             "active_pack": susi_sandbox::extensions::active_pack().id,
         },
         "sandbox": {
-            "wasmer_entry": "WasmHost::execute_untrusted_wasm",
-            "wasmer_isolates": "plugins and reflexes (not host-native agents)",
+            "wasmtime_entry": "WasmHost::execute_untrusted_wasm",
+            "wasmtime_isolates": "plugins and reflexes (not host-native agents)",
             "docker_sandbox_exec": docker_available(),
             "docker_tool": "sandbox_exec",
         },

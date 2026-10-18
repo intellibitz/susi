@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Safe boundaries for the per-task agent loop. Never merge into dirty worktrees.
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 root=$(git rev-parse --show-toplevel)
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 action=${1:-sync}

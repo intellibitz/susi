@@ -76,6 +76,7 @@ impl World {
             "swarm-status.sh",
             "ci-changed-crates.sh",
             "check-hermetic-tests.sh",
+            "posix-compat.sh",
         ] {
             std::fs::copy(
                 Path::new(env!("CARGO_MANIFEST_DIR"))

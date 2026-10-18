@@ -69,6 +69,7 @@ impl World {
             "setup-dev.sh",
             "link-shared-target.sh",
             "workflow-session-start.sh",
+            "posix-compat.sh",
         ] {
             std::fs::copy(
                 repo.join("scripts").join(s),

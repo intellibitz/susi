@@ -1,0 +1,31 @@
+[package]
+name = "susi-vendor-wasmtime"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+susi-error = { workspace = true }
+# The one crate that links wasmtime: the in-process cell runtime (`cell.rs`)
+# and the WASI reflex runner (`wasm.rs`). wasmtime is the all-platform
+# backend: at wasmer 7.4.2 every native compiler backend but V8 carries a
+# compile_error!() under cfg(windows), singlepass is BUSL-1.1, and the v8
+# backend exposes no middleware API for fuel metering. wasmtime is
+# Apache-2.0, first-class on windows-msvc, and meters fuel natively
+# (Config::consume_fuel + Store::set_fuel).
+wasmtime = "49.0.2"
+# `p0` adds the `wasi_unstable` (preview 0) import table: rustc's
+# wasm32-wasip1 emits `wasi_snapshot_preview1`, but hand-built probes still
+# speak the older spelling, and wasmer-wasix accepted both.
+wasmtime-wasi = { version = "49.0.2", features = ["p0"] }
+# In-process cell runtime (`cell.rs`): the declared-max memory-cap rewrite of
+# the module's memory section, and WAT text accepted alongside binary
+# (`wat::parse_bytes` passes already-binary modules through).
+wasm-encoder = "0.259"
+wasmparser = "0.259"
+wat = "1.259"
+tracing = { workspace = true }
+
+[lints]
+workspace = true

@@ -14,6 +14,7 @@
 # A PR idle for STALE_DAYS that is not green is closed with a note (the branch
 # is kept, and a later push reopens the flow).
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo}
 here=$(cd "$(dirname "$0")" && pwd)
 stale_days=${STALE_DAYS:-7}

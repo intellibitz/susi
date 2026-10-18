@@ -423,6 +423,8 @@ fn join_pipe_reader(
 fn terminate_process_group(child: &mut Child, child_id: u32) {
     #[cfg(unix)]
     {
+        // Kill the process group by negative pid: cancel must reach spawned
+        // grandchildren, not only the direct child.
         let group = format!("-{child_id}");
         let _ = Command::new("kill")
             .args(["-TERM", "--", group.as_str()])
@@ -431,6 +433,16 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
         std::thread::sleep(Duration::from_millis(10));
         let _ = Command::new("kill")
             .args(["-KILL", "--", group.as_str()])
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        // taskkill /T kills the whole process tree — the Windows analogue
+        // of the negative-pid group kill above.
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child_id.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
     }

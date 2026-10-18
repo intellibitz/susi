@@ -1,8 +1,13 @@
 //! `bounded_cmd` tests — kept out of the canonical source so crates that
 //! `#[path]`-mount it never compile or run them.
 
+// Every test below shells out to unix tools (`sh`, `sleep`, `cat`); the
+// imports stay gated so the file still compiles clean on Windows.
+#[cfg(unix)]
 use crate::bounded_cmd::output_within;
+#[cfg(unix)]
 use std::process::Command;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]

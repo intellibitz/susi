@@ -9,6 +9,7 @@
 #   ./scripts/prune-old-github-releases.sh
 #   KEEP_SEMVER_RELEASES=2 ./scripts/prune-old-github-releases.sh
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 KEEP="${KEEP_SEMVER_RELEASES:-2}"
 if ! [[ "$KEEP" =~ ^[0-9]+$ ]] || [[ "$KEEP" -lt 1 ]]; then

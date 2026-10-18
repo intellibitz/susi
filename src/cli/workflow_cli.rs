@@ -186,8 +186,9 @@ fn sync_primary(root: &Path) {
 
 fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
     let root = crate::cli::tasks_cli::repo_root(cwd);
-    let status = std::process::Command::new(root.join("scripts/parallel-workflow.sh"))
-        .args(args)
+    let script = root.join("scripts/parallel-workflow.sh");
+    let mut cmd = workflow_script_command(&script, args);
+    let status = cmd
         .env("SUSI_WORKFLOW_BIN", std::env::current_exe()?)
         .current_dir(&root)
         .status()?;
@@ -195,4 +196,54 @@ fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
         bail!("workflow operation failed; resolve the reported blocker and retry");
     }
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn workflow_script_command(script: &Path, args: &[&str]) -> std::process::Command {
+    let mut cmd = std::process::Command::new(script);
+    cmd.args(args);
+    cmd
+}
+
+/// Windows cannot exec a script by its shebang (os error 193): drive it
+/// through a POSIX shell. `sh`/`bash` resolve when susi runs inside Git
+/// Bash; outside it, Git for Windows still ships `usr/bin/sh.exe` beside
+/// its `cmd/git.exe`, which `git --exec-path` locates.
+#[cfg(windows)]
+fn workflow_script_command(script: &Path, args: &[&str]) -> std::process::Command {
+    let shell = windows_posix_shell().unwrap_or_else(|| std::path::PathBuf::from("sh"));
+    let mut cmd = std::process::Command::new(shell);
+    cmd.arg(script).args(args);
+    cmd
+}
+
+#[cfg(windows)]
+fn windows_posix_shell() -> Option<std::path::PathBuf> {
+    for name in ["sh", "bash"] {
+        let ok = std::process::Command::new(name)
+            .args(["-c", "exit 0"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if ok {
+            return Some(std::path::PathBuf::from(name));
+        }
+    }
+    // `git --exec-path` resolves to <git>/mingw64/libexec/git-core; the
+    // bundled POSIX shell lives in <git>/usr/bin or <git>/bin.
+    let out = std::process::Command::new("git")
+        .arg("--exec-path")
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    for rel in ["../usr/bin/sh.exe", "../bin/sh.exe"] {
+        let candidate = Path::new(&exec_path).join(rel);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
 }

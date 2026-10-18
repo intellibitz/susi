@@ -37,7 +37,7 @@
   "susi-vendor-models": 56.0,
   "susi-vendor-syn": 95.0,
   "susi-vendor-tantivy": 89.0,
-  "susi-vendor-wasmer": 83,
+  "susi-vendor-wasmtime": 83,
   "susi-vendor-web": 58.0,
   "xtask": 29.0
  }

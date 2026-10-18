@@ -14,7 +14,7 @@ susi-error = { workspace = true, optional = true }
 susi-config = { workspace = true, optional = true }
 susi-sandbox = { workspace = true, optional = true }
 susi-sandbox-client = { workspace = true, optional = true }
-susi-vendor-wasmer = { workspace = true, optional = true }
+susi-vendor-wasmtime = { workspace = true, optional = true }
 axum = { package = "susi-vendor-axum", path = "../susi-vendor-axum" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
@@ -30,7 +30,7 @@ service-paths = []
 service-error = ["dep:susi-error"]
 service-config = ["dep:susi-config"]
 service-sandbox = ["dep:susi-sandbox", "dep:susi-sandbox-client"]
-service-native = ["dep:susi-vendor-wasmer"]
+service-native = ["dep:susi-vendor-wasmtime"]
 all-services = ["service-paths", "service-error", "service-config", "service-sandbox", "service-native"]
 standalone-service-bins = []
 

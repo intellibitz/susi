@@ -16,6 +16,7 @@
 #   SUSI_BOARD_MAX_AGE   seconds a cached verdict stays valid (300; 0 = always)
 #   SUSI_BOARD_TIMEOUT   seconds each checker may take (60)
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
