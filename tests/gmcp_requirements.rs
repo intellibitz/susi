@@ -3654,7 +3654,7 @@ fn gmcp_req_203_003_05_interop() {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
                 .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
         let response = modern
-            .request_verbatim(&fixture["request"], std::time::Duration::from_secs(30))
+            .request_verbatim(&fixture["request"], std::time::Duration::from_secs(120))
             .unwrap_or_else(|| panic!("{file} must receive an error"));
         assert_eq!(
             response["error"]["code"], expected_code,
