@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-008",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs \u2014 gmcp_req_203_008_01_contract through _06_operations plus gmcp_vc_203_008_mastery (7 tests): the contract binds the 425 VC-203-008 ledger rows for schemas, primitives, content and metadata (normative clause, three-rendering schema corpus pinned, canonical data model owned by susi-gmcp consuming rmcp::model, adapter dispositions, threat model, SLOs); the shipped path enforces the lossless CanonicalContentBlock at the JSON-RPC gate on stdio and HTTP alike \u2014 every content variant round-trips verbatim including unknown extension fields, MIME/URI/base64/Unicode/priority/audience/depth violations earn typed -32602/-32600 verdicts, remote $ref fails closed at tool registration while local $defs compiles, canonical_json serialization is key-order deterministic, and the explicit to_rmcp adapter covers every spec field; interoperability proof replays all bound fixtures against both gates and the reference SDK; operations evidence and the drift-checked runbook are retained; the mastery test consumes and verifies all 01-06 evidence \u2014 complete, fresh, signed, committed, backed by real tests \u2014 and rejects missing, stale, unsigned, modified, waived, mock-only or zero-test evidence.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-23",
+    "T-CODEXGMCPROADMAP-24",
+    "T-CODEXGMCPROADMAP-25",
+    "T-CODEXGMCPROADMAP-26",
+    "T-CODEXGMCPROADMAP-27",
+    "T-CODEXGMCPROADMAP-28",
+    "T-CODEXGMCPROADMAP-29"
+  ],
+  "recorded_by": "DEVIN20261017233611403317",
+  "recorded_unix": 1792292631
+}
