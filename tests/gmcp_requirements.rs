@@ -4326,3 +4326,204 @@ fn gmcp_vc_203_003_mastery() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-008-01: the schemas/primitives/content/metadata contract
+/// (`docs/gmcp/contract-203-008.md`) exists, pins its normative clause
+/// and sources, binds exactly the VC-203-008 ledger rows, names the
+/// canonical production paths, resolves the compatibility/threat
+/// decisions, retains the seed fixtures, and holds a complete -01
+/// evidence record.
+#[test]
+fn gmcp_req_203_008_01_contract() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // ── The contract document exists and carries every required
+    //    section ────────────────────────────────────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-008.md"))
+        .expect("contract-203-008.md must exist");
+    for section in [
+        "Normative clause",
+        "Pinned sources",
+        "Canonical data model",
+        "Behavior table",
+        "Compatibility and deprecation decisions",
+        "Threat model",
+        "SLOs and resource budgets",
+        "Fixtures",
+        "Evidence locations",
+        "Ambiguities resolved",
+    ] {
+        assert!(
+            contract.contains(&format!("## {section}")),
+            "contract must contain a {section} section"
+        );
+    }
+    // Ambiguities the contract must have resolved before implementation.
+    for decision in [
+        "ContentBlock",
+        "Annotations",
+        "includeContext",
+        "adapter",
+        "ttlMs",
+        "resultType",
+        "unknown",
+    ] {
+        assert!(
+            contract.contains(decision),
+            "contract must resolve: {decision}"
+        );
+    }
+
+    // ── The ledger's VC-203-008 rows are the pinned normative set the
+    //    contract binds: exact counts, complete traces, existing
+    //    production paths ────────────────────────────────────────────
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must parse"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-008")
+        .collect();
+    assert_eq!(rows.len(), 425, "the contract binds 425 VC-203-008 rows");
+    let mut revisions = std::collections::BTreeMap::new();
+    for row in &rows {
+        *revisions
+            .entry(row["revision"].as_str().unwrap().to_string())
+            .or_insert(0usize) += 1;
+        let id = row["id"].as_str().unwrap();
+        for field in [
+            "vector",
+            "owner",
+            "production_path",
+            "positive_test",
+            "negative_test",
+            "evidence",
+        ] {
+            assert!(
+                !row["trace"][field].as_str().unwrap_or_default().is_empty(),
+                "{id}: trace.{field} must be non-empty"
+            );
+        }
+        assert_eq!(
+            row["trace"]["evidence"], ".agents/gmcp/evidence/VC-203-008.jsonl",
+            "{id}: evidence must point at this vector's artifact"
+        );
+        for cat in row["categories"].as_array().unwrap() {
+            assert!(
+                ["behavior", "error", "security", "deprecation", "claim"]
+                    .contains(&cat.as_str().unwrap()),
+                "{id}: unexpected category {cat}"
+            );
+        }
+    }
+    assert_eq!(revisions.get("2026-07-28"), Some(&304));
+    assert_eq!(revisions.get("2025-11-25"), Some(&120));
+    assert_eq!(revisions.get("susi@baseline-2026-10-17"), Some(&1));
+
+    // ── Every pinned source the contract names exists and is listed in
+    //    sources.json, so drift detection covers the bound corpus ────
+    let sources: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/sources.json")).unwrap(),
+    )
+    .unwrap();
+    let source_docs: std::collections::BTreeSet<&str> = sources["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["document"].as_str().unwrap())
+        .collect();
+    let bound_docs: std::collections::BTreeSet<&str> = rows
+        .iter()
+        .map(|r| r["source"]["document"].as_str().unwrap())
+        .collect();
+    for doc in &bound_docs {
+        if *doc == "docs/gmcp-roadmap.md" {
+            // The baseline claim's source is our own roadmap — the spec
+            // pins only cover the upstream corpus.
+            continue;
+        }
+        assert!(
+            source_docs.contains(doc),
+            "bound source {doc} must be a pinned file in sources.json"
+        );
+    }
+
+    // ── The full pinned-corpus check still passes — the contract did
+    //    not disturb the VC-203-001 machinery ─────────────────────────
+    let checker = Command::new("python3")
+        .arg("scripts/check-gmcp-ledger.py")
+        .current_dir(root)
+        .output()
+        .expect("the checker must run");
+    assert!(
+        checker.status.success(),
+        "checker failed:\n{}",
+        String::from_utf8_lossy(&checker.stderr)
+    );
+
+    // ── Seed fixtures: every file the contract names exists, parses,
+    //    and follows the payload-fixture convention ──────────────────
+    let seeds: &[(&str, &str)] = &[
+        ("positive/content-block-annotated-2026-07-28.json", "result"),
+        ("negative/content-block-bad-mime.json", "error"),
+    ];
+    for (file, expect) in seeds {
+        let path = root.join(".agents/gmcp/fixtures").join(file);
+        let fixture: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{file} must exist: {e}")),
+        )
+        .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
+        assert!(
+            !fixture["comment"].as_str().unwrap_or_default().is_empty(),
+            "{file} must comment which row/decision it exercises"
+        );
+        assert!(!fixture["payload"].is_null(), "{file} must carry a payload");
+        assert_eq!(fixture["expect"].as_str().unwrap(), *expect);
+        assert_eq!(fixture["era"].as_str().unwrap(), "modern");
+    }
+    // The annotated fixture exercises the lossless surface: icon,
+    // audience, priority, _meta, and an unknown extension field.
+    let annotated: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/positive/content-block-annotated-2026-07-28.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let payload = &annotated["payload"];
+    for key in ["icons", "annotations", "_meta", "uri", "mimeType"] {
+        assert!(
+            !payload[key].is_null(),
+            "the annotated fixture must exercise {key}"
+        );
+    }
+    assert!(
+        payload.get("io.example/futureExtension").is_some(),
+        "the annotated fixture must carry an unknown extension field"
+    );
+
+    // ── Evidence location: the vector's append-only artifact exists
+    //    and holds a complete -01 record ──────────────────────────────
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-008.jsonl"))
+        .expect("VC-203-008 must retain an evidence artifact");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|r| r["requirement"] == "GMCP-203-008-01")
+        .expect("evidence must retain a record for GMCP-203-008-01");
+    for field in [
+        "check",
+        "exit",
+        "detail",
+        "recorded_unix",
+        "artifact_sha256",
+        "identity",
+    ] {
+        assert!(!record[field].is_null(), "evidence record lacks {field}");
+    }
+    assert_eq!(record["exit"], 0);
+}
