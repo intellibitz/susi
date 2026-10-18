@@ -1,0 +1,7 @@
+{
+  "comment": "VC-203-008 adversarial: a response whose content block nests a _meta map deeper than the bounded-resource limit must fail typed at the boundary (-32600 TooLarge), never recurse unboundedly.",
+  "era": "legacy",
+  "expect": "error",
+  "expect_code": -32600,
+  "payload_generator": "deep _meta nesting beyond MAX_DEPTH=64"
+}

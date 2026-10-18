@@ -5050,3 +5050,262 @@ fn gmcp_req_203_008_03_integration() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-008-04: adversarial and failure behavior for the
+/// content/metadata boundary — extension-field injection, protocol-
+/// namespace smuggling, URI/MIME/base64/Unicode spoofs, depth bombs,
+/// external `$ref` smuggling, over-validation resistance, deterministic
+/// replays, and stream recovery after a rejection. Every probe runs the
+/// production path: `susi_gmcp::content`'s canonical validation, the
+/// shared gate, and the served `mcp serve` wire.
+#[test]
+fn gmcp_req_203_008_04_adversarial() {
+    use susi_gmcp::content::{CanonicalContentBlock, ContentError};
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-008-adversarial-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Extension-field injection: envelope-mimicking keys inside a
+    //    content block are preserved verbatim but never interpreted ──
+    let injection: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/negative/content-block-envelope-injection.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let injected_block = &injection["payload"]["result"]["content"];
+    let block = CanonicalContentBlock::from_wire(injected_block)
+        .expect("injected extension keys must still validate — they are data");
+    let wire = block.to_wire();
+    assert_eq!(
+        wire["method"], "tools/call",
+        "the forged method must be preserved as data"
+    );
+    assert_eq!(
+        wire["id"], "spoofed-request",
+        "the forged id must be preserved as data"
+    );
+    assert_eq!(
+        wire["io.modelcontextprotocol/protocolVersion"], "2999-01-01",
+        "the reserved-namespace key is data, not protocol metadata"
+    );
+    // The gate never treats the injected body as a request: the whole
+    // message forwards as the response it is (or drops compatibly).
+    assert!(
+        http_envelope_rejection(
+            serde_json::to_string(&injection["payload"])
+                .unwrap()
+                .as_bytes()
+        )
+        .is_none(),
+        "an extension-injected response must not be rejected as a forged request"
+    );
+
+    // Protocol-reserved keys nested in `arguments` are NOT the
+    // `params._meta` protocol fields the modern path requires — a
+    // modern request missing its real `_meta` still earns -32602 even
+    // when arguments smuggle the namespaced keys.
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    modern.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "smuggle",
+        "method": "tools/call",
+        "params": {
+            "name": "x",
+            "arguments": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }
+        }
+    }));
+    let response = modern
+        .response_for(
+            &serde_json::json!("smuggle"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("the smuggled request must be answered");
+    assert_eq!(
+        response["error"]["code"], -32602,
+        "namespaced keys in arguments must not satisfy the _meta policy: {response}"
+    );
+
+    // ── Spoof battery: every malformed class fails typed ────────────
+    for (label, value, want) in [
+        (
+            "mid-string base64 padding",
+            serde_json::json!({"type":"audio","data":"QUJD=RAAA","mimeType":"audio/wav"}),
+            ContentError::BadBase64("audio"),
+        ),
+        (
+            "CRLF-injected mimeType",
+            serde_json::json!({"type":"image","data":"aGk=","mimeType":"image/png\r\nSet-Cookie: x"}),
+            ContentError::BadMimeType("image"),
+        ),
+        (
+            "control char in resource uri",
+            serde_json::json!({"type":"resource","resource":{"uri":"file:///a\u{0}b","text":"t"}}),
+            ContentError::BadUri("resource.uri"),
+        ),
+        (
+            "negative priority",
+            serde_json::json!({"type":"text","text":"t","annotations":{"priority":-0.5}}),
+            ContentError::BadPriority,
+        ),
+        (
+            "forged audience role",
+            serde_json::json!({"type":"text","text":"t","annotations":{"audience":["system"]}}),
+            ContentError::BadAudience,
+        ),
+        (
+            "control char in link name",
+            serde_json::json!({"type":"resource_link","uri":"file:///a","name":"x\u{0}"}),
+            ContentError::BadUnicode("resource_link.name"),
+        ),
+    ] {
+        assert_eq!(
+            CanonicalContentBlock::from_wire(&value),
+            Err(want),
+            "{label} must fail typed"
+        );
+    }
+    // Document the decision explicitly: `javascript:` is a valid
+    // absolute URI at this boundary (SSRF/origin policy is VC-203-032).
+    assert!(CanonicalContentBlock::from_wire(
+        &serde_json::json!({"type":"resource_link","uri":"javascript:alert(1)","name":"x"})
+    )
+    .is_ok());
+
+    // ── Bounded resources: a nesting bomb earns a typed -32600 ──────
+    let mut deep = serde_json::json!("leaf");
+    for _ in 0..80 {
+        deep = serde_json::json!({"k": deep});
+    }
+    let bomb = serde_json::json!({
+        "jsonrpc": "2.0", "id": "bomb",
+        "result": {"content": [{"type": "text", "text": "x", "_meta": {"deep": deep}}]}
+    });
+    let rejection = http_envelope_rejection(serde_json::to_string(&bomb).unwrap().as_bytes())
+        .expect("a nesting bomb must be rejected");
+    assert_eq!(rejection["error"]["code"], -32600);
+    assert!(
+        rejection["error"]["data"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("bounded"),
+        "the bomb's reason must name the resource bound: {rejection}"
+    );
+
+    // ── Schemeless and traversal URIs fail at the boundary ──────────
+    let schemeless: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/negative/request-resources-read-uri-schemeless.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut session = StdioSession::spawn(root, &home);
+    session.send(&schemeless["request"]);
+    let response = session
+        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(60))
+        .expect("schemeless uri must be answered");
+    assert_eq!(response["error"]["code"], -32602);
+
+    // ── External `$ref` smuggling: a tool schema that tries to fetch
+    //    a remote reference cannot even register — fail-closed at
+    //    compile; local `#/$defs` refs (the pinned corpus) still work ─
+    let service = susi_gmcp::protocol::GmcpService::new(scratch.join("workspace"));
+    let remote_tool: susi_gmcp::rmcp::model::Tool = serde_json::from_value(
+        serde_json::json!({"name":"evil","inputSchema":{"$ref":"https://evil.example/x.json"}}),
+    )
+    .unwrap();
+    assert!(
+        service
+            .register_tool(
+                remote_tool,
+                std::sync::Arc::new(|_, _| Box::pin(async {
+                    Err(susi_gmcp::rmcp::ErrorData::internal_error(
+                        "unreachable",
+                        None,
+                    ))
+                }))
+            )
+            .is_err(),
+        "a remote-$ref inputSchema must never register"
+    );
+    let local_tool: susi_gmcp::rmcp::model::Tool = serde_json::from_value(
+        serde_json::json!({"name":"ok","inputSchema":{"$defs":{"s":{"type":"string"}},"type":"object","properties":{"v":{"$ref":"#/$defs/s"}}}}),
+    )
+    .unwrap();
+    assert!(
+        service
+            .register_tool(
+                local_tool,
+                std::sync::Arc::new(|_, _| Box::pin(async {
+                    Err(susi_gmcp::rmcp::ErrorData::internal_error(
+                        "unreachable",
+                        None,
+                    ))
+                }))
+            )
+            .is_ok(),
+        "a local $defs ref compiles — the pinned corpus is the only resolver"
+    );
+
+    // ── Over-validation resistance: free-form tool `arguments` are
+    //    never judged as spec content — a tools/call carrying a
+    //    content-shaped argument reaches the service, not the gate ───
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "args-not-content",
+        "method": "tools/call",
+        "params": {
+            "name": "definitely-not-a-real-tool",
+            "arguments": {"type": "image", "data": "%%%", "mimeType": "junk"}
+        }
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("args-not-content"),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("tools/call must be answered by the service, not the gate");
+    assert!(
+        response["error"]["data"]["reason"].is_null()
+            || response["error"]["data"]["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+        "free-form arguments must not trip the content boundary: {response}"
+    );
+
+    // ── Recovery: a rejection never corrupts the stream — the next
+    //    well-formed request on the same session answers normally ────
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "after-reject",
+        "method": "resources/list", "params": {}
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("after-reject"),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("the session must keep serving after a rejection");
+    assert!(
+        response.get("result").is_some(),
+        "a well-formed request after a -32602 must reach the service: {response}"
+    );
+
+    // ── Deterministic replay: the same attack body yields the same
+    //    typed verdict — no state leaks between attempts ─────────────
+    let attack =
+        r#"{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"//etc/passwd"}}"#;
+    let first = http_envelope_rejection(attack.as_bytes());
+    let second = http_envelope_rejection(attack.as_bytes());
+    assert_eq!(
+        first, second,
+        "the same body must produce identical verdicts"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}

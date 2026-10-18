@@ -1,0 +1,7 @@
+{
+  "comment": "VC-203-008 adversarial: a resources/read request whose uri is a network-path reference (//host/path, no scheme) is not an absolute URI and must fail -32602 at the boundary rather than reach path resolution.",
+  "era": "legacy",
+  "expect": "error",
+  "expect_code": -32602,
+  "request": {"jsonrpc": "2.0", "id": 42, "method": "resources/read", "params": {"uri": "//etc/passwd"}}
+}

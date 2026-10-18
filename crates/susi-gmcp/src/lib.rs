@@ -10,7 +10,10 @@
     )
 )]
 
-extern crate susi_vendor_mcp_server as rmcp;
+/// The vendored MCP SDK this crate's public handler signatures expose —
+/// consumers name `susi_gmcp::rmcp::model::*` for the typed-API form the
+/// canonical content model adapts into (`content::CanonicalContentBlock::to_rmcp`).
+pub extern crate susi_vendor_mcp_server as rmcp;
 
 pub use susi_abi;
 
