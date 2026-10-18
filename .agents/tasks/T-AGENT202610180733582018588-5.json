@@ -1,0 +1,21 @@
+{
+  "id": "T-AGENT202610180733582018588-5",
+  "title": "Verify mastery: Tune model residency from measured demand",
+  "goal": "Extend current idle and pressure eviction with workload-aware prewarming and hysteresis; a mixed-workload benchmark measures cold starts and proves the cache avoids repeated load/evict oscillation.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_047_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-047",
+  "created_by": "AGENT202610180733582018588",
+  "created_unix": 1792295209,
+  "authored": true
+}

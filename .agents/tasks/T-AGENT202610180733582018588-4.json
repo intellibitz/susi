@@ -1,0 +1,21 @@
+{
+  "id": "T-AGENT202610180733582018588-4",
+  "title": "Verify mastery: Batch compatible local inference requests",
+  "goal": "Introduce bounded batching only for backends that support it, with per-request deadlines and cancellation; load tests demonstrate throughput changes without violating configured latency or memory limits.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_046_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-046",
+  "created_by": "AGENT202610180733582018588",
+  "created_unix": 1792295209,
+  "authored": true
+}

@@ -1,0 +1,26 @@
+{
+  "id": "T-AGENT202610180733582018588-1",
+  "title": "Verify mastery: Detect evaluation contamination",
+  "goal": "Track evaluation-data access and overlaps between training, memory, and held-out fixtures; a contaminated run is excluded from improvement evidence with an inspectable reason.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-E",
+      "test(vc_201_009_mastery)"
+    ]
+  },
+  "roadmap": "VC-201-009",
+  "created_by": "AGENT202610180733582018588",
+  "created_unix": 1792295208,
+  "authored": true,
+  "closed": {
+    "at_unix": 1792296145,
+    "commit": "eb7b6c70217eee9e68f29603a2ca1177a1de2b53",
+    "by": "AGENT202610180733582018588"
+  }
+}
