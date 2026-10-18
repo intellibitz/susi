@@ -1583,7 +1583,7 @@
       "id": "VC-203-003",
       "mastery_target": "For MCP 2026-07-28 and later GMCP is genuinely stateless at the protocol layer: no initialize ceremony or session identifier is required, every request carries and validates version plus client capabilities, every result identifies the server, server/discover is complete and cacheable, and explicit handles bind all cross-call state. Concurrent requests from changing clients cannot leak negotiated state.",
       "priority": "P0",
-      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-003-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_003_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "progress": "DELIVERED (2026-10-18): every GMCP-203-003-* requirement shipped on the production path and proven by gmcp_vc_203_003_mastery; verdict and evidence in .agents/roadmap-verdicts/VC-203-003.json and .agents/gmcp/evidence/VC-203-003.jsonl",
       "type": "CORE",
       "vector": "Modern stateless lifecycle and server discovery"
     },
