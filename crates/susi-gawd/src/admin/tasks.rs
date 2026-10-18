@@ -2280,6 +2280,10 @@ mod tests {
                 // the developer's ~/.gitconfig).
                 run(&dir, &["config", "user.name", "test"]);
                 run(&dir, &["config", "user.email", "test@example.test"]);
+                // Repo-local too: the host's global commit.gpgsign must not
+                // gate fixture commits (keyboxd may be unreachable).
+                run(&dir, &["config", "commit.gpgsign", "false"]);
+                run(&dir, &["config", "tag.gpgsign", "false"]);
                 run(&dir, &["remote", "add", "origin", bare.to_str().unwrap()]);
                 run(&dir, &["commit", "--allow-empty", "-m", "init", "--quiet"]);
                 clones.push(dir);

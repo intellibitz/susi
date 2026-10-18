@@ -37,9 +37,7 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
     if let Some(offset) = offset {
         _env.set("SUSI_PORT_OFFSET", offset);
     }
-    _env.set("HOME", &tmp);
-    _env.set("USERPROFILE", &tmp);
-    _env.set("XDG_CONFIG_HOME", tmp.join("xdg"));
+    _env.set_home(&tmp);
     _env.remove("SUSI_HERMETIC_FORBIDDEN");
     if let Some(token) = host_token {
         let path = susi_paths::SusiDirs::config_dir().join("api_token");

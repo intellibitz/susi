@@ -1477,8 +1477,11 @@ mod tests {
             .node(&NodeId::stable("external_source", "test_adapter"))
             .is_some());
         assert!(g.node(&NodeId::stable("user", "alice")).is_some());
+        // The node key is the canonical path, which on Windows gains the
+        // `\\?\` verbatim prefix — mirror that normalization here.
+        let ws_key = ws.canonicalize().unwrap_or_else(|_| ws.clone());
         assert!(g
-            .node(&NodeId::stable("workspace", &ws.to_string_lossy()))
+            .node(&NodeId::stable("workspace", &ws_key.to_string_lossy()))
             .is_some());
         let subgraph = g.workspace_subgraph(&ws);
         assert!(subgraph.nodes.iter().any(|n| n.id == id));

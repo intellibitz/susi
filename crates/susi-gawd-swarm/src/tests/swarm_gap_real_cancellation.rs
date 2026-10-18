@@ -134,8 +134,7 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
         .unwrap_or_else(|e| e.into_inner());
     let config_dir = test_dir("peer-config");
     let mut env = susi_paths::test_env::EnvGuard::isolated();
-    env.set("HOME", &config_dir);
-    env.set("XDG_CONFIG_HOME", config_dir.join("config"));
+    env.set_home(&config_dir);
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap().to_string();
     let accepted = Arc::new(AtomicBool::new(false));

@@ -88,25 +88,38 @@ pub fn script_command(script: &std::path::Path, args: &[&str]) -> Command {
 }
 
 /// A Python interpreter for `.py` scripts on hosts without shebang exec:
-/// `python3`, then `python`, then the Windows `py` launcher.
+/// `python3`, then `python`, then the Windows `py` launcher. Probed once —
+/// each spawn costs real time on Windows, and PATH does not change
+/// mid-process.
 #[cfg(windows)]
 fn python() -> std::path::PathBuf {
-    for name in ["python3", "python", "py"] {
-        let ok = Command::new(name)
-            .args(["-c", "pass"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if ok {
-            return std::path::PathBuf::from(name);
+    static PY: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    PY.get_or_init(|| {
+        for name in ["python3", "python", "py"] {
+            let ok = Command::new(name)
+                .args(["-c", "pass"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if ok {
+                return std::path::PathBuf::from(name);
+            }
         }
-    }
-    std::path::PathBuf::from("python")
+        std::path::PathBuf::from("python")
+    })
+    .clone()
 }
 
 /// The POSIX shell to run scripts through: `bash` or `sh` on PATH, or Git
 /// for Windows' bundled `usr/bin/sh.exe` found via `git --exec-path`.
+/// Probed once — every `script_command` would otherwise pay one or more
+/// process spawns on Windows.
 pub fn posix_shell() -> std::path::PathBuf {
+    static SH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    SH.get_or_init(posix_shell_uncached).clone()
+}
+
+fn posix_shell_uncached() -> std::path::PathBuf {
     for name in ["bash", "sh"] {
         let ok = Command::new(name)
             .args(["-c", "exit 0"])

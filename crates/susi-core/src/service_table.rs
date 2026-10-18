@@ -323,41 +323,13 @@ pub fn http_probe(port: u16) -> bool {
     }
 }
 
-/// Whether `pid` refers to a live process. `/proc` on Linux; `kill -0`
-/// elsewhere on unix; conservatively "alive" where neither exists — a false
-/// "dead" would make the supervisor respawn a healthy service.
+/// Whether `pid` refers to a live process. The per-OS probes live in
+/// `susi_paths::process` — this leaf order (`paths → … → core`) is the
+/// only place `susi-config`'s lockfile stale-check can reach them.
+/// Conservatively "alive" where no probe exists — a false "dead" would
+/// make the supervisor respawn a healthy service.
 pub fn pid_alive(pid: u32) -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        if !PathBuf::from(format!("/proc/{pid}")).is_dir() {
-            return false;
-        }
-        // A zombie still has a /proc dir but cannot serve or hold
-        // anything — read the state field (the char after the last ')'
-        // in `pid (comm) state ...`; comm itself may contain parens).
-        // Unreadable stat keeps the conservative "alive" answer.
-        fs::read_to_string(format!("/proc/{pid}/stat"))
-            .ok()
-            .and_then(|s| s.rsplit(')').next().map(|tail| tail.to_string()))
-            .and_then(|tail| tail.trim().chars().next())
-            .map(|state| state != 'Z')
-            .unwrap_or(true)
-    }
-    #[cfg(all(unix, not(target_os = "linux")))]
-    {
-        std::process::Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(true)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        true
-    }
+    susi_paths::process::pid_alive(pid)
 }
 
 /// Identify the pid holding a localhost TCP port, when the OS lets us.
@@ -433,21 +405,12 @@ pub fn pid_for_port(_port: u16) -> Option<u32> {
     None
 }
 
-/// Resident set size of `pid` in KiB (`VmRSS` from `/proc/<pid>/status`)
-/// — the footprint column for service tables. `None` when the pid is
-/// dead, unreadable, or the field is absent.
-#[cfg(target_os = "linux")]
+/// Resident set size of `pid` in KiB — the footprint column for service
+/// tables. Per-OS probes live in `susi_paths::process` (`/proc` on Linux,
+/// `tasklist` on Windows); `None` when the pid is dead, unreadable, or
+/// the platform has no probe.
 pub fn rss_kb(pid: u32) -> Option<u64> {
-    let text = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    text.lines()
-        .find_map(|l| l.strip_prefix("VmRSS:"))
-        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
-}
-
-/// No `/proc` on non-Linux platforms — memory footprint is unknown.
-#[cfg(not(target_os = "linux"))]
-pub fn rss_kb(_pid: u32) -> Option<u64> {
-    None
+    susi_paths::process::rss_kb(pid)
 }
 
 /// A snapshot of every leaf service with its live health — what the

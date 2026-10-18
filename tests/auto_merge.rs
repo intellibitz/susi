@@ -112,7 +112,7 @@ exec "${TEST_REAL_GIT:-/usr/bin/git}" "$@"
     }
 
     fn script_env(&self, name: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
-        let path = format!("{}:{}", self.dir.display(), std::env::var("PATH").unwrap());
+        let path = common::path_with_first(&self.dir);
         let out = common::script_command(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("scripts")

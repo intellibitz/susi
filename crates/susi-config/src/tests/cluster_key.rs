@@ -17,9 +17,7 @@ fn set_key_env() -> TempHomeGuard<'static> {
     // Pre-create `.susi` so SusiDirs picks the deterministic legacy path.
     let _ = std::fs::create_dir_all(tmp.join(".susi"));
     let mut env = susi_paths::test_env::EnvGuard::isolated();
-    env.set("HOME", &tmp);
-    env.set("USERPROFILE", &tmp);
-    env.set("XDG_CONFIG_HOME", tmp.join("xdg"));
+    env.set_home(&tmp);
     TempHomeGuard {
         env: Some(env),
         _guard: guard,

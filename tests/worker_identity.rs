@@ -279,7 +279,7 @@ fn worker_identity_start_never_names_the_worker_after_the_git_login() {
     let wrapper = w.root.join("codex");
     std::fs::write(
         &wrapper,
-        format!("#!/bin/bash\n\"{}\" \"$@\"\n", script.display()),
+        format!("#!/bin/bash\n\"{}\" \"$@\"\n", common::posix_path(&script)),
     )
     .unwrap();
     #[cfg(unix)]

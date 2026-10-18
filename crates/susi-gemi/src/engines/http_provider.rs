@@ -1039,7 +1039,7 @@ mod tests {
             std::fs::create_dir_all(&xdg_config).unwrap();
             std::fs::create_dir_all(&xdg_data).unwrap();
             let mut env = susi_paths::test_env::EnvGuard::isolated();
-            env.set("HOME", &dir);
+            env.set_home(&dir);
             env.set("XDG_CONFIG_HOME", &xdg_config);
             env.set("XDG_DATA_HOME", &xdg_data);
             Self {

@@ -562,7 +562,17 @@ impl Runner for ProcessRunner {
         let worker = format!("{}@spawn", self.susi_bin.display());
         let started = Instant::now();
         let out_file = env.workspace.join(".intent-output.txt");
-        let mut cmd = std::process::Command::new(&self.susi_bin);
+        // Tests substitute a script for the binary; Windows cannot exec a
+        // shebang, so `.sh`/`.py` go through the shared interpreter launch.
+        let mut cmd = if self
+            .susi_bin
+            .extension()
+            .is_some_and(|e| e == "sh" || e == "py")
+        {
+            crate::susi_core::bounded_cmd::script_command(&self.susi_bin, &[])
+        } else {
+            std::process::Command::new(&self.susi_bin)
+        };
         cmd.arg(&intent.intent)
             .current_dir(&env.workspace)
             .env_clear()

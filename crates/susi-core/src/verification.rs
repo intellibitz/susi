@@ -148,12 +148,17 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
         Contract::FileAbsent { path } => {
             // A deletion claim about a path outside the workspace cannot be
             // vouched for: `root.join` of an absolute path *replaces* the
-            // root, and `..` climbs out of it, so a nonexistent outside path
-            // used to come back `Verified`.
+            // root, `..` climbs out of it, and a Windows root-relative
+            // `\…` path is absolute for jail purposes even though
+            // `is_absolute` says no — so a nonexistent outside path used to
+            // come back `Verified`.
             if path.is_absolute()
-                || path
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
+                || path.components().any(|c| {
+                    !matches!(
+                        c,
+                        std::path::Component::Normal(_) | std::path::Component::CurDir
+                    )
+                })
             {
                 return ContractVerdict::Unverifiable {
                     reason: format!(
@@ -253,9 +258,12 @@ pub fn verify_contract(contract: &Contract, workspace: &Path) -> ContractVerdict
         }
         Contract::DirExists { path } => {
             if path.is_absolute()
-                || path
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
+                || path.components().any(|c| {
+                    !matches!(
+                        c,
+                        std::path::Component::Normal(_) | std::path::Component::CurDir
+                    )
+                })
             {
                 return ContractVerdict::Unverifiable {
                     reason: format!(

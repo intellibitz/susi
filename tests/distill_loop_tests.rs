@@ -36,6 +36,8 @@ fn wire_test_substrate() {
             std::env::set_var("USERPROFILE", &home);
             std::env::set_var("XDG_CONFIG_HOME", home.join("xdg-config"));
             std::env::set_var("XDG_DATA_HOME", home.join("xdg-data"));
+            std::env::set_var("APPDATA", home.join("appdata"));
+            std::env::set_var("LOCALAPPDATA", home.join("localappdata"));
             std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
         }
         susi_daemon::composition::wire_plane_bus();

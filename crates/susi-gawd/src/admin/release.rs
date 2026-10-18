@@ -955,6 +955,12 @@ mod tests {
         for dir in [&bare, &work] {
             run(dir, &["config", "user.name", "t"]);
             run(dir, &["config", "user.email", "t@t"]);
+            // Unsigned by fixture convention: the host's global
+            // commit.gpgsign/tag.gpgsign (and its gpg health) must not
+            // reach these repos — production tag/commit calls inherit
+            // this local config, not a -c flag only the helpers carry.
+            run(dir, &["config", "commit.gpgsign", "false"]);
+            run(dir, &["config", "tag.gpgsign", "false"]);
         }
         run(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
         run(&work, &["commit", "--allow-empty", "--quiet", "-m", "init"]);

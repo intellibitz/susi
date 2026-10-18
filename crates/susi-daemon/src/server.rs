@@ -161,7 +161,13 @@ impl DaemonLock {
 
             let handle = file.as_raw_handle();
             // SAFETY: OVERLAPPED is a plain C struct for which all-zero is the documented initial state.
-            let mut overlapped = unsafe { std::mem::zeroed() };
+            let mut overlapped: winapi::um::minwinbase::OVERLAPPED = unsafe { std::mem::zeroed() };
+            // Windows byte-range locks are mandatory — locking byte 0 would
+            // make the pid/substrate lines unreadable even to us, where the
+            // unix advisory flock never blocked reads. Lock a sentinel byte
+            // far past any real content instead.
+            // SAFETY: `overlapped` is a valid, live OVERLAPPED union field.
+            unsafe { (*overlapped.u.s_mut()).Offset = u32::MAX };
             // SAFETY: `handle` is a valid open file handle owned by `file` and `overlapped` lives across the call.
             let ret = unsafe {
                 LockFileEx(

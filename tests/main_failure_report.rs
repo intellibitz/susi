@@ -83,10 +83,7 @@ impl World {
     fn report(&self, merged: &str, sha: &str, pr: &str, url: &str) -> (i32, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/report-main-failure.sh");
         let out = common::script_command(&script, &[sha, url])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", common::path_with_first(&self.bins))
             .env("TEST_MERGED_SHA", merged)
             .env("TEST_PR", pr)
             .env("TEST_COMMENTS", &self.comments)

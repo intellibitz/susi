@@ -202,10 +202,7 @@ impl World {
 
     fn finish_env(&self, fail: bool, envs: &[(&str, &str)]) -> std::process::Output {
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", common::path_with_first(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", if fail { "1" } else { "0" })
@@ -229,10 +226,7 @@ impl World {
             &["commit", "--allow-empty", "-qm", "someone else merged"],
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", common::path_with_first(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
@@ -275,10 +269,7 @@ impl World {
     /// poll and a three-second budget so the wait is observable in a test.
     fn finish_without_merging(&self) -> std::process::Output {
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", common::path_with_first(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
@@ -299,10 +290,7 @@ impl World {
             "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(\"$TEST_REAL_GIT\" rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", common::path_with_first(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
@@ -324,10 +312,7 @@ impl World {
             "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(\"$TEST_REAL_GIT\" rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", common::path_with_first(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
@@ -462,8 +447,10 @@ fn the_gates_test_run_is_hermetic() {
     );
     let env = std::fs::read_to_string(w.root.join("gates.env")).unwrap();
     let home = w.root.join("home");
+    // MSYS rewrites HOME to /c/… for script children, so check both forms.
     assert!(
-        !env.contains(&format!("HOME={}", home.display())),
+        !env.contains(&format!("HOME={}", home.display()))
+            && !env.contains(&format!("HOME={}", common::posix_path(&home))),
         "the tests ran with the developer's HOME: {env}"
     );
     assert!(
@@ -912,7 +899,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
         &stub,
         &format!(
             "#!/bin/sh\nprintf '%s\\n' \"$(date +%s)\" > \"{}\"\n",
-            stamp.display()
+            common::posix_path(&stamp)
         ),
     );
     let out = common::script_command(&script, &[])

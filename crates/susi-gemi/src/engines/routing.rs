@@ -1968,7 +1968,7 @@ mod tests {
 
         // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET; restored via `env` below.
         let mut env = susi_paths::test_env::EnvGuard::isolated();
-        env.set("HOME", &tmp);
+        env.set_home(&tmp);
         env.set("XDG_CONFIG_HOME", &config);
         env.set("SUSI_XDG", "0");
 
@@ -2133,12 +2133,22 @@ mod tests {
             ));
             let _ = std::fs::create_dir_all(tmp.join("config"));
             let _ = std::fs::create_dir_all(tmp.join(".susi"));
-            let keys = ["HOME", "XDG_CONFIG_HOME", "SUSI_XDG"];
+            let keys = [
+                "HOME",
+                "USERPROFILE",
+                "APPDATA",
+                "LOCALAPPDATA",
+                "XDG_CONFIG_HOME",
+                "SUSI_XDG",
+            ];
             let prev = keys.map(|k| (k, std::env::var_os(k)));
             // SAFETY: test-only env override, serialized by env_test_lock and
             // restored in Drop.
             unsafe {
                 std::env::set_var("HOME", &tmp);
+                std::env::set_var("USERPROFILE", &tmp);
+                std::env::set_var("APPDATA", tmp.join("appdata"));
+                std::env::set_var("LOCALAPPDATA", tmp.join("localappdata"));
                 std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
                 std::env::set_var("SUSI_XDG", "0");
             }

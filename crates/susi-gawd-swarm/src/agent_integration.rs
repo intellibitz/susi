@@ -563,7 +563,11 @@ pub struct GitIntegrator;
 impl Integrator for GitIntegrator {
     fn integrate(&self, repo: &Path, branch: &str) -> Result<MergeResult, String> {
         let git = |args: &[&str]| -> Result<std::process::Output, String> {
+            // Integration merges are susi bookkeeping — unsigned by
+            // convention, and a host global commit.gpgsign must not gate
+            // them (the keyboxd need not even be reachable).
             Command::new("git")
+                .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
                 .args(args)
                 .current_dir(repo)
                 .output()

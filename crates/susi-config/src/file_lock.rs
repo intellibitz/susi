@@ -39,8 +39,12 @@ impl FileLock {
         // same directory, so it must be created before O_EXCL can succeed.
         fs::create_dir_all(dir).ok()?;
         let lock = dir.join(format!("{name}.lock"));
-        let attempts = (timeout.as_millis() / 10).max(1);
-        for _ in 0..attempts {
+        // Wall-time deadline, not attempt count: the stale check can cost
+        // hundreds of ms per probe (tasklist on Windows), and looping by
+        // attempts once ran 60s — long enough for the held lockfile's own
+        // mtime to trip the 60s staleness rule and be stolen.
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
             match fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -54,14 +58,23 @@ impl FileLock {
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                     if Self::is_stale(&lock) {
                         let _ = fs::remove_file(&lock);
-                        continue;
+                    } else {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
                     }
+                }
+                // A just-dropped lock can sit delete-pending on Windows
+                // (an indexer/AV still holds the handle); the name denies
+                // creation for a moment — that is contention, not failure.
+                #[cfg(windows)]
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
                 Err(_) => return None,
             }
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
         }
-        None
     }
 
     /// Mark the lock freshly held (mtime = now), so `is_stale`'s age rule
@@ -98,13 +111,13 @@ impl FileLock {
     }
 
     /// A lockfile is stale when its recorded pid no longer exists
-    /// (Linux `/proc`), or it has sat unclaimed for over a minute —
+    /// (`susi_paths::process::pid_alive` — `/proc`, `kill -0`, or
+    /// `tasklist` per OS), or it has sat unclaimed for over a minute —
     /// either means the holder died mid-claim.
     fn is_stale(lock: &Path) -> bool {
-        #[cfg(target_os = "linux")]
         if let Ok(body) = fs::read_to_string(lock) {
             if let Ok(pid) = body.trim().parse::<u32>() {
-                if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                if !susi_paths::process::pid_alive(pid) {
                     return true;
                 }
             }
@@ -121,6 +134,18 @@ impl FileLock {
 impl Drop for FileLock {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
+        // Windows removes a file only once every handle closes — a scanner
+        // can keep the name visible (delete-pending) past our remove. Give
+        // it a short window rather than strand the lock for the next
+        // acquirer.
+        #[cfg(windows)]
+        for _ in 0..100 {
+            if !self.path.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            let _ = fs::remove_file(&self.path);
+        }
     }
 }
 

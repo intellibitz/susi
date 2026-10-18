@@ -32,6 +32,22 @@ impl EnvGuard {
         guard
     }
 
+    /// Point every home/config/data/cache variable at `dir`'s subtree
+    /// until drop. `SusiDirs` and `xdg` read `HOME`/`XDG_*` on unix but
+    /// `USERPROFILE`/`APPDATA`/`LOCALAPPDATA` on Windows — a test that
+    /// only swaps `HOME` still reads and writes the real profile there.
+    pub fn set_home(&mut self, dir: impl AsRef<std::path::Path>) -> &mut Self {
+        let dir = dir.as_ref();
+        self.set("HOME", dir);
+        self.set("USERPROFILE", dir);
+        self.set("XDG_CONFIG_HOME", dir.join("xdg-config"));
+        self.set("XDG_DATA_HOME", dir.join("xdg-data"));
+        self.set("XDG_CACHE_HOME", dir.join("xdg-cache"));
+        self.set("APPDATA", dir.join("appdata"));
+        self.set("LOCALAPPDATA", dir.join("localappdata"));
+        self
+    }
+
     /// Set `var` until drop.
     pub fn set(&mut self, var: &'static str, value: impl AsRef<OsStr>) -> &mut Self {
         self.save(var);

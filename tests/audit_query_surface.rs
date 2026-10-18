@@ -72,7 +72,9 @@ fn audit_query_surface() {
         .set("USERPROFILE", &home)
         .set("SUSI_HOME", home.join("instance"))
         .set("XDG_CONFIG_HOME", home.join("xdg"))
-        .set("XDG_DATA_HOME", home.join("xdg-data"));
+        .set("XDG_DATA_HOME", home.join("xdg-data"))
+        .set("APPDATA", home.join("appdata"))
+        .set("LOCALAPPDATA", home.join("localappdata"));
 
     let log = workspace.join(".susi/audit.log");
     append_action(&log, "alice", "mission-a", "tool_execution", 17);

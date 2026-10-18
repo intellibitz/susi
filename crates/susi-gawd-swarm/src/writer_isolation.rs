@@ -97,6 +97,16 @@ fn walk(root: &Path, rel: &Path, skip_all_susi: bool, out: &mut Vec<PathBuf>) ->
     Ok(())
 }
 
+/// `/`-separated relative path for manifest keys and hashing — the same
+/// tree must produce the same keys on every OS (`src\b.rs` on Windows is
+/// `src/b.rs` here).
+fn rel_key(rel: &Path) -> String {
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Snapshot manifest of a directory: relative path → content signature.
 fn manifest_of(root: &Path) -> EaiResult<BTreeMap<String, Sig>> {
     let mut files = Vec::new();
@@ -104,7 +114,7 @@ fn manifest_of(root: &Path) -> EaiResult<BTreeMap<String, Sig>> {
     let mut manifest = BTreeMap::new();
     for rel in files {
         let sig = sig_of(&root.join(&rel))?;
-        manifest.insert(rel.to_string_lossy().into_owned(), sig);
+        manifest.insert(rel_key(&rel), sig);
     }
     Ok(manifest)
 }
@@ -120,7 +130,7 @@ pub fn revision(root: &Path) -> EaiResult<String> {
     let mut h = Sha256::new();
     for rel in files {
         let sig = sig_of(&root.join(&rel))?;
-        h.update(rel.to_string_lossy().as_bytes());
+        h.update(rel_key(&rel).as_bytes());
         h.update([0]);
         h.update(sig.len.to_le_bytes());
         h.update(sig.hash);

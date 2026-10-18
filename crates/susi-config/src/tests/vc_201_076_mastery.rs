@@ -25,7 +25,7 @@ fn with_temp_home<F: FnOnce()>(f: F) {
     ));
     let _ = std::fs::create_dir_all(tmp.join(".susi"));
     let mut env = susi_paths::test_env::EnvGuard::isolated();
-    env.set("HOME", &tmp);
+    env.set_home(&tmp);
     env.set("XDG_CONFIG_HOME", tmp.join("config"));
     env.set("SUSI_XDG", "0");
     env.remove("SUSI_EXTENSION_PACK");

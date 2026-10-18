@@ -54,7 +54,9 @@ fn audit_chain_verifies() {
         .set("USERPROFILE", &home)
         .set("SUSI_HOME", home.join("instance"))
         .set("XDG_CONFIG_HOME", home.join("xdg"))
-        .set("XDG_DATA_HOME", home.join("xdg-data"));
+        .set("XDG_DATA_HOME", home.join("xdg-data"))
+        .set("APPDATA", home.join("appdata"))
+        .set("LOCALAPPDATA", home.join("localappdata"));
 
     let log = workspace.join(".susi/audit.log");
     susi_sandbox::audit_chain::append_signed_entry(&log, "Info", "FIRST", "one", 1).unwrap();

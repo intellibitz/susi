@@ -29,6 +29,8 @@ impl TempHome {
         unsafe {
             std::env::set_var("HOME", &home);
             std::env::set_var("USERPROFILE", &home);
+            std::env::set_var("APPDATA", home.join("appdata"));
+            std::env::set_var("LOCALAPPDATA", home.join("localappdata"));
             std::env::remove_var("XDG_CONFIG_HOME");
             std::env::remove_var("SUSI_EXTENSION_PACK");
             std::env::remove_var("SUSI_PORT_OFFSET");

@@ -96,9 +96,11 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
 ];
 
 /// True when `rel` resolves outside the pack root: absolute paths always
-/// escape; a `..` that climbs above the root escapes (e.g. the bundled default
-/// pack's `../../coding-models.json`, which is permitted only because it
-/// declares `filesystem.read`).
+/// escape — including a drive `Prefix` or a bare `RootDir`, which a
+/// Windows root-relative `\etc\passwd` carries while `is_absolute` still
+/// says no — and a `..` that climbs above the root escapes (e.g. the
+/// bundled default pack's `../../coding-models.json`, which is permitted
+/// only because it declares `filesystem.read`).
 fn path_escapes_pack_root(rel: &str) -> bool {
     let path = Path::new(rel);
     if path.is_absolute() {
@@ -107,6 +109,9 @@ fn path_escapes_pack_root(rel: &str) -> bool {
     let mut depth: u32 = 0;
     for comp in path.components() {
         match comp {
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+                return true;
+            }
             std::path::Component::ParentDir => {
                 if depth == 0 {
                     return true;
@@ -114,9 +119,7 @@ fn path_escapes_pack_root(rel: &str) -> bool {
                 depth -= 1;
             }
             std::path::Component::Normal(_) => depth += 1,
-            std::path::Component::Prefix(_)
-            | std::path::Component::RootDir
-            | std::path::Component::CurDir => {}
+            std::path::Component::CurDir => {}
         }
     }
     false
@@ -197,7 +200,16 @@ pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), String> {
     }
     let can_read_outside = manifest.permissions.iter().any(|p| p == "filesystem.read");
     for (logical, rel) in &manifest.files {
-        if Path::new(rel).is_absolute() {
+        // Rooted means a Prefix or RootDir component — absolute on unix,
+        // and on Windows also root-relative `\x` or drive-anchored `C:\x`,
+        // none of which a pack file may name.
+        let rooted = Path::new(rel).components().next().is_some_and(|c| {
+            matches!(
+                c,
+                std::path::Component::Prefix(_) | std::path::Component::RootDir
+            )
+        });
+        if rooted {
             return Err(format!(
                 "pack `{id}` maps `{logical}` to an absolute path `{rel}` — pack files must be relative to the pack root",
                 id = manifest.id

@@ -191,18 +191,29 @@ mod tests {
 
     #[tokio::test]
     async fn handle_external_returns_stdout_on_success() {
+        // `echo`/`false`/`sh` are not spawnable exes on Windows; `cmd /c`
+        // is the equivalent and tolerates the appended JSON payload.
+        #[cfg(unix)]
         let m = manifest("echo", &[]);
+        #[cfg(windows)]
+        let m = manifest("cmd", &["/c", "echo"]);
         let res = handle_external(request(serde_json::json!({"k": 1})), &m).await;
         assert_eq!(res.status, SyscallStatus::Success);
         assert_eq!(res.id, "req-1");
-        // The JSON payload is appended as the final argument — echo prints it.
-        assert!(res.data["stdout"].as_str().unwrap().contains("\"k\":1"));
+        // The JSON payload is appended as the final argument — echo prints
+        // it. Windows argv quoting escapes the quotes through `cmd`, so
+        // compare on the unescaped form.
+        let stdout = res.data["stdout"].as_str().unwrap().replace('\\', "");
+        assert!(stdout.contains("\"k\":1"), "{stdout}");
         assert!(res.message.is_none());
     }
 
     #[tokio::test]
     async fn handle_external_marks_nonzero_exit_as_error() {
+        #[cfg(unix)]
         let m = manifest("false", &[]);
+        #[cfg(windows)]
+        let m = manifest("cmd", &["/c", "exit 1"]);
         let res = handle_external(request(serde_json::json!({})), &m).await;
         assert_eq!(res.status, SyscallStatus::Error);
         assert_eq!(res.message.as_deref(), Some("Ecosystem execution failed"));
@@ -222,7 +233,10 @@ mod tests {
 
     #[tokio::test]
     async fn handle_external_propagates_stderr() {
+        #[cfg(unix)]
         let m = manifest("sh", &["-c", "echo out; echo err >&2; exit 3"]);
+        #[cfg(windows)]
+        let m = manifest("cmd", &["/c", "echo out& echo err 1>&2& exit /b 3"]);
         let res = handle_external(request(serde_json::json!({})), &m).await;
         assert_eq!(res.status, SyscallStatus::Error);
         assert!(res.data["stdout"].as_str().unwrap().contains("out"));

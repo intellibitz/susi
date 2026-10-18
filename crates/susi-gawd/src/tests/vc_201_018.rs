@@ -46,13 +46,29 @@ fn vc_201_018_rejects_target_bin_install_into_susi_home() {
         via: PromotionPath::DirectTargetInstall,
     });
     assert!(matches!(bad, PromotionDecision::Rejected(_)));
-    assert!(rejects_target_install(
-        Path::new("/repo/target/release/susi"),
-        Path::new("/home/u/.susi/bin/susi"),
-    ));
-    assert!(!rejects_target_install(
-        Path::new("/repo/target/release/susi"),
-        Path::new("/repo/target/debug/susi"),
-    ));
+    // Absolute-path shapes differ by OS — a Windows `\…` root-relative
+    // path is rightly unproven, so assert with native absolute forms.
+    #[cfg(unix)]
+    {
+        assert!(rejects_target_install(
+            Path::new("/repo/target/release/susi"),
+            Path::new("/home/u/.susi/bin/susi"),
+        ));
+        assert!(!rejects_target_install(
+            Path::new("/repo/target/release/susi"),
+            Path::new("/repo/target/debug/susi"),
+        ));
+    }
+    #[cfg(windows)]
+    {
+        assert!(rejects_target_install(
+            Path::new("C:/repo/target/release/susi"),
+            Path::new("C:/Users/u/.susi/bin/susi"),
+        ));
+        assert!(!rejects_target_install(
+            Path::new("C:/repo/target/release/susi"),
+            Path::new("C:/repo/target/debug/susi"),
+        ));
+    }
     assert!(self_build_brief_mentions_release_only());
 }

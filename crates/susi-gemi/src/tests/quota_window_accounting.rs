@@ -152,7 +152,7 @@ fn quota_window_accounting_headroom_scarcity_demotes_failover_order() {
     let _ = std::fs::create_dir_all(tmp.join("config"));
     let _ = std::fs::create_dir_all(tmp.join(".susi"));
     let mut env = susi_paths::test_env::EnvGuard::isolated();
-    env.set("HOME", &tmp);
+    env.set_home(&tmp);
     env.set("XDG_CONFIG_HOME", tmp.join("config"));
     env.set("SUSI_XDG", "0");
 

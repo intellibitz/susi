@@ -3158,7 +3158,11 @@ mod os_tools_wired_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp config dir");
         // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET, which outrank XDG_CONFIG_HOME.
+        // set_home covers USERPROFILE/APPDATA/LOCALAPPDATA too — on Windows
+        // those resolve the dirs, so without them the tests write the real
+        // host's term.json/commit_log.jsonl.
         let mut env = susi_paths::test_env::EnvGuard::isolated();
+        env.set_home(&dir);
         env.set("XDG_CONFIG_HOME", &dir);
         // susi_paths only honors XDG vars under SUSI_XDG when a legacy
         // ~/.susi exists — without this the tests would write the real

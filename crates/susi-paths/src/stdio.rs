@@ -42,7 +42,12 @@ pub fn install_broken_pipe_guard() {
 /// a non-pipe write failure (`Permission denied`) must keep reporting.
 pub(crate) fn is_broken_pipe_message(message: &str) -> bool {
     message.contains("failed printing to")
-        && (message.contains("Broken pipe") || message.contains("os error 32"))
+        && (message.contains("Broken pipe")
+            || message.contains("os error 32")
+            // Windows closes a pipe with ERROR_BROKEN_PIPE (109) or
+            // ERROR_NO_DATA (232), not EPIPE.
+            || message.contains("os error 109")
+            || message.contains("os error 232"))
 }
 
 /// The message a panic hook was handed, for either `panic!` payload form.
@@ -65,6 +70,8 @@ mod tests {
         for message in [
             "failed printing to stdout: Broken pipe (os error 32)",
             "failed printing to stderr: Broken pipe (os error 32)",
+            "failed printing to stdout: The pipe has been ended. (os error 109)",
+            "failed printing to stdout: The pipe is being closed. (os error 232)",
         ] {
             assert!(is_broken_pipe_message(message), "{message}");
         }

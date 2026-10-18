@@ -193,8 +193,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Also scrubs SUSI_HOME/SUSI_PORT_OFFSET; restored when `env` drops.
         let mut env = susi_paths::test_env::EnvGuard::isolated();
-        env.set("HOME", dir.path());
-        env.set("XDG_CONFIG_HOME", dir.path().join("config"));
+        env.set_home(dir.path());
         let ws = json!({"workspace": dir.path().to_str().unwrap()});
         // Status on a fresh workspace returns rows or a typed error — never panic.
         let listed = h.handle(topics::TOOLS_LEADING_LIST, ws.clone());

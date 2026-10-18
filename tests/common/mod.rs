@@ -29,9 +29,7 @@ impl HomeGuard {
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join(".susi")).unwrap();
         let mut env = susi_paths::test_env::EnvGuard::isolated();
-        env.set("HOME", &tmp);
-        env.set("USERPROFILE", &tmp);
-        env.set("XDG_CONFIG_HOME", tmp.join("xdg"));
+        env.set_home(&tmp);
         Self {
             tmp,
             env: Some(env),
@@ -83,6 +81,31 @@ pub fn real_git(exclude_dir: &std::path::Path) -> String {
         }
     }
     "/usr/bin/git".to_string()
+}
+
+/// Render `p` the way MSYS/Git Bash needs it inside generated script text:
+/// `C:\a\b` → `/c/a/b` (a bare `C:\…` loses `\t`-style escapes under the
+/// shell's quoting rules). On unix the path is already in that form.
+pub fn posix_path(p: &std::path::Path) -> String {
+    let s = p.to_string_lossy().replace('\\', "/");
+    let bytes = s.as_bytes();
+    if bytes.len() >= 3 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+        format!("/{}/{}", (bytes[0] as char).to_ascii_lowercase(), &s[3..])
+    } else {
+        s
+    }
+}
+
+/// `dir` prepended to the inherited PATH with the OS list separator (`;`
+/// on Windows, `:` on unix). MSYS children translate the native form to
+/// POSIX themselves; joining with `:` here would corrupt Windows paths.
+pub fn path_with_first(dir: &std::path::Path) -> std::ffi::OsString {
+    std::env::join_paths(
+        std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .unwrap_or_else(|_| dir.as_os_str().to_os_string())
 }
 
 /// `Command` for a generic `run(dir, program, args)` helper: a script path
