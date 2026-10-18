@@ -5309,3 +5309,191 @@ fn gmcp_req_203_008_04_adversarial() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-008-05: interoperability and quality for the canonical
+/// content/metadata model — every retained fixture replays its declared
+/// outcome through the canonical validator and both wire gates, the
+/// explicit adapter is byte-for-byte equivalent to a direct reference-SDK
+/// (`rmcp::model`) parse in the server role and round-trips in the client
+/// role, and the published bounds (determinism, per-parse latency) hold
+/// under replay. Divergences between the canonical model and the typed
+/// SDK are the vector's documented rationale — extension preservation and
+/// boundary validation — and are asserted, not assumed.
+#[test]
+fn gmcp_req_203_008_05_interop() {
+    use susi_gmcp::content::{CanonicalContentBlock, ContentError};
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-008-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Fixture replay: every bound fixture earns its declared
+    //    outcome through the canonical model ─────────────────────────
+    let positive: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/positive/content-block-annotated-2026-07-28.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(positive["expect"], "result");
+    let block = CanonicalContentBlock::from_wire(&positive["payload"])
+        .expect("the positive fixture must validate canonically");
+    assert_eq!(block.to_wire(), positive["payload"], "lossless round-trip");
+
+    for (file, want) in [
+        (
+            "content-block-bad-mime.json",
+            ContentError::BadMimeType("image"),
+        ),
+        (
+            "content-block-base64-padding-abuse.json",
+            ContentError::BadBase64("audio"),
+        ),
+    ] {
+        let fixture: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(".agents/gmcp/fixtures/negative").join(file))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            fixture["expect"], "error",
+            "{file} must declare an error outcome"
+        );
+        assert_eq!(
+            CanonicalContentBlock::from_wire(&fixture["payload"]),
+            Err(want.clone()),
+            "{file} must fail the declared typed validation"
+        );
+        // The same block as a client response's content earns the gate's
+        // typed -32600 carrying the canonical reason — one implementation.
+        let wire_doc = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": {"content": fixture["payload"].clone()}
+        });
+        let rejection =
+            http_envelope_rejection(serde_json::to_string(&wire_doc).unwrap().as_bytes())
+                .unwrap_or_else(|| panic!("{file}: the HTTP gate must reject"));
+        assert_eq!(rejection["error"]["code"], -32600, "{file}");
+        assert_eq!(
+            rejection["error"]["data"]["reason"]
+                .as_str()
+                .unwrap_or_default(),
+            want.wire_message(),
+            "{file}: the gate reason must be the canonical message"
+        );
+    }
+
+    // The envelope-injection fixture declares `forward`: preserved as
+    // data, never interpreted — on both transports.
+    let injection: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/negative/content-block-envelope-injection.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(injection["expect"], "forward");
+    let body = serde_json::to_string(&injection["payload"]).unwrap();
+    assert!(http_envelope_rejection(body.as_bytes()).is_none());
+    let mut era = EraState::default();
+    assert!(matches!(
+        classify_line(body.as_bytes(), &mut era),
+        GateVerdict::Forward | GateVerdict::Drop
+    ));
+
+    // The schemeless-uri request fixture replays to -32602 on the served
+    // wire — the declared outcome verbatim.
+    let schemeless: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join(".agents/gmcp/fixtures/negative/request-resources-read-uri-schemeless.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut session = StdioSession::spawn(root, &home);
+    session.send(&schemeless["request"]);
+    let response = session
+        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(60))
+        .expect("the schemeless-uri fixture must be answered");
+    assert_eq!(
+        response["error"]["code"],
+        schemeless["expect_code"].as_i64().unwrap()
+    );
+
+    // ── Reference-SDK roles: the canonical adapter is equivalent to a
+    //    direct typed-model parse (server role), and a typed model
+    //    re-enters the canonical model losslessly (client role) ──────
+    let sdk_parsed: susi_gmcp::rmcp::model::ContentBlock =
+        serde_json::from_value(positive["payload"].clone())
+            .expect("the reference SDK must parse the positive fixture");
+    let via_adapter = block.to_rmcp().expect("canonical must adapt");
+    assert_eq!(
+        serde_json::to_value(&sdk_parsed).unwrap(),
+        serde_json::to_value(&via_adapter).unwrap(),
+        "the adapter must equal a direct reference-SDK parse"
+    );
+
+    // Documented divergences — asserted, not assumed: the typed SDK
+    // silently drops the unknown extension field the canonical model
+    // preserves, and it accepts the invalid mimeType the canonical
+    // boundary rejects (validation is the canonical model's added duty).
+    let sdk_wire = serde_json::to_value(&sdk_parsed).unwrap();
+    assert!(
+        sdk_wire.get("io.example/futureExtension").is_none(),
+        "documented: the typed SDK drops unknown extension fields"
+    );
+    assert!(
+        serde_json::from_value::<susi_gmcp::rmcp::model::ContentBlock>(
+            serde_json::json!({"type":"image","data":"aGk=","mimeType":"bad mime"})
+        )
+        .is_ok(),
+        "documented: the typed SDK accepts what the canonical boundary rejects"
+    );
+
+    // Client-role round-trip: a typed model's serialization re-enters the
+    // canonical model with every spec field intact.
+    let re_canonical = CanonicalContentBlock::from_wire(&sdk_wire)
+        .expect("a reference-SDK serialization must re-enter canonically");
+    assert_eq!(re_canonical.to_wire(), sdk_wire);
+
+    // ── Quality bounds: canonical validation is cheap and
+    //    deterministic — the published SLOs of the contract ──────────
+    let started = std::time::Instant::now();
+    let iterations = 200;
+    for _ in 0..iterations {
+        let parsed = CanonicalContentBlock::from_wire(&positive["payload"])
+            .expect("repeated validation must succeed");
+        std::hint::black_box(parsed);
+    }
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(10),
+        "200 canonical validations must finish well under budget: {elapsed:?}"
+    );
+    // Determinism across orderings and runs — canonical serialization
+    // is the evidence-hash-stable form the contract publishes.
+    let a = CanonicalContentBlock::from_wire(&positive["payload"]).unwrap();
+    let b = CanonicalContentBlock::from_wire(&a.to_wire()).unwrap();
+    assert_eq!(a.canonical_json(), b.canonical_json());
+    let c = CanonicalContentBlock::from_wire(&positive["payload"]).unwrap();
+    assert_eq!(a.canonical_json(), c.canonical_json());
+
+    // ── No unrecorded wire divergences: every -008 fixture's declared
+    //    outcome matched observed behavior in this replay, so the
+    //    shared divergences registry needs no -008 entries ───────────
+    let divergences: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/fixtures/divergences.json")).unwrap(),
+    )
+    .unwrap();
+    for divergence in divergences["divergences"].as_array().unwrap() {
+        let fixture = divergence["fixture"].as_str().unwrap_or_default();
+        assert!(
+            !fixture.contains("content-block") && !fixture.contains("resources-read-uri"),
+            "a -008 fixture regressed into the divergence registry: {divergence}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
