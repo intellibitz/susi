@@ -823,6 +823,17 @@ fn gmcp_req_203_001_05_interop() {
         wire_report, cli_report,
         "served tools/call must equal the CLI report"
     );
+    // Warm the modern session's tool surface too: the first tools/*
+    // request bootstraps the downstream catalog, which can exceed the
+    // replay's per-fixture bound under parallel load — a cold-start
+    // artifact, not a protocol verdict.
+    let _ = wire_modern.request(
+        "tools/list",
+        serde_json::json!({"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}),
+    );
 
     // ── Property invariants ─────────────────────────────────────────────
     // Determinism: repeated verification produces identical results.
