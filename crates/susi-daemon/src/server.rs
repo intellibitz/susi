@@ -21,6 +21,9 @@ use std::os::unix::io::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
+#[cfg(windows)]
+use signal_hook::consts::{SIGINT, SIGTERM};
+#[cfg(not(windows))]
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -53,8 +56,17 @@ impl DaemonContext {
 
     pub fn setup_signal_handlers(&self) -> Result<(), EaiError> {
         let shutdown = Arc::clone(&self.shutdown_signal);
+        // signal-hook's blocking `Signals` iterator is unix-only; on Windows
+        // the console SIGINT/SIGTERM land through the flag backend, which
+        // needs no dedicated worker thread.
+        #[cfg(windows)]
+        {
+            let _ = signal_hook::flag::register(SIGINT, Arc::clone(&shutdown));
+            let _ = signal_hook::flag::register(SIGTERM, shutdown);
+        }
         // Supervised like every other long-lived worker: a signal-handler
         // thread that dies would leave the daemon deaf to SIGTERM.
+        #[cfg(not(windows))]
         crate::service_supervision::Supervisor::global().spawn(
             "signal-handler",
             3,

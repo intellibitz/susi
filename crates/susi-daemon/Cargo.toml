@@ -22,7 +22,7 @@ susi-tools = { workspace = true }
 susi-agents = { workspace = true }
 dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 susi-http-transport = { workspace = true }
-susi-vendor-wasmer = { workspace = true }
+susi-vendor-wasmtime = { workspace = true }
 susi-vendor-cloud = { workspace = true }
 parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }

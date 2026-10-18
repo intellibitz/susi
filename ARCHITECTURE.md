@@ -25,11 +25,11 @@ susi-core (Evidence, Truth, Provider, Tool, CapabilityRegistry, plane_bus)
         ↓
 susi-error · susi-paths
         ↑
-infrastructure adapters: sandbox · native (Wasmer) · Docker / HTTP / MCP clients
+infrastructure adapters: sandbox · native (Wasmtime) · Docker / HTTP / MCP clients
 ```
 
 **Rule:** domain and contract code must not import frameworks, databases,
-networking clients, UI, OS daemon APIs, Candle, Wasmer, Bollard, or `rmcp`.
+networking clients, UI, OS daemon APIs, Candle, Wasmtime, Bollard, or `rmcp`.
 
 Concrete implementations are assembled only at composition roots.
 
@@ -67,13 +67,13 @@ never consume an unterminated source tail.
 | `susi-paths` | Host path/port contract and its service-backed client (served on `:18080` by `susi-leaf-services`); XDG / substrate paths + host-contract ports, both host bearer policies | `SusiDirs` (service with local fallback), `ports` (host contract 9090–9094, gossip 9095, and the leaf-service defaults `PATHS_SERVICE`…`NATIVE_SERVICE` 18080–18084), `loopback` (the one std-only loopback HTTP/1.0 client every leaf-service client uses: `Endpoint`, `request`, `service_port`, `local_env_override`), `local_paths_json`/`ports_json`, `host_token`/`with_bearer`/`bearer_authorized`/`supervisor_bearer_authorized` | std, serde_json (per-OS user dirs are a std-only `xdg` module) | everything else | no | no | reads env for XDG |
 | `susi-error` | Stable error model + metrics sink (served on `:18081` by `susi-leaf-services`) | `EaiError`, `EaiResult`, `rewrap`, `ResultExt` (`context`/`with_context`, kind-preserving), `eai_err!`/`eai_bail!`, metrics sink, offset-aware service-backed event reporter (`service_port`), `append_posted_event`/`recent_error_entries` | `susi-paths`, std, serde, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
 | `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-adapters-llm` (re-export `inference_wire`); `susi-http-transport` (MCP session client); std, serde, concurrency libs | feature planes; HTTP client crates | providers/tools via registry | process registry | receipt archive paths |
-| `susi-vendor-wasmer` | The one wasmer crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmer, wasmer-wasix, wasmer-middlewares, wasm-encoder | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
-| `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmer, feature planes | no | no | loopback HTTP |
+| `susi-vendor-wasmtime` | The one wasmtime crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmtime, wasmtime-wasi, wasmparser, wasm-encoder, wat | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
+| `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmtime, feature planes | no | no | loopback HTTP |
 | `susi-config` | `SusiConfig` + extension packs + versioned JSON store (served on `:18082` by `susi-leaf-services`) | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP clients, everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Docker (bollard) integration for the `:18083` leaf service (HTTP shell in `susi-leaf-services`); re-exports the client's helpers | `execute_in_docker`, re-exported `SandboxManager`, `manager` | `susi-error`, `susi-config`, `susi-sandbox-client`; bollard, tokio (time) | feature crates | Docker optional | config files | yes |
 | `susi-dsh-cell` | Swarm cell binary wrapping the DeepSeek Harness CLI (`dsh --prompt`) as `inference`/`dsh` capabilities on the shared `susi-abi` cell loop; every syscall requires `SUSI_CELL_TOKEN` | binary only | `susi-abi` (`cell-server`); tokio | workspace crates | no | no | yes (spawns `dsh`) |
 | `susi-universal-cell` | Swarm cell binary that serves any ecosystem plugin described by a JSON manifest (role → `SwarmRole`, capabilities, command) on the shared cell loop; spawned by daemon auto-discovery for executable plugins | binary only | `susi-abi` (`cell-server`); serde, tokio | workspace crates | no | no | yes (spawns the plugin) |
-| `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox`, `susi-sandbox-client`, `susi-vendor-wasmer`; axum, tokio | feature planes | no | no | yes |
+| `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox`, `susi-sandbox-client`, `susi-vendor-wasmtime`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` / `http_post_utf8` | `dual_transport`, `http_conn`, `http_call`, `http_post_utf8`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
 | `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split + Hugging Face tokenizers | `device`, `qwen2_split`, re-exported `candle_*` / `tokenizers` | candle-core, candle-nn, candle-transformers, tokenizers | all workspace crates | no | process device cache | GPU FFI via Candle |
@@ -316,7 +316,7 @@ reference should pass it explicitly.
 |---------|------|----------------------|
 | **Extension pack** | Vendor opinions + capability declarations | `~/.susi/extensions/<id>/manifest.json` |
 | **MCP / peer admit** | External tools and agents | `mcp_config.json`, catalogs, `CapabilityRegistry` |
-| **Wasm reflex** | Sandboxed synthesized skill | Wasmer under data dir |
+| **Wasm reflex** | Sandboxed synthesized skill | Wasmtime under data dir |
 
 Pack manifests support (additive, Mandate 35 flatten for unknowns):
 
@@ -388,7 +388,7 @@ under `fuzz/` (stable smoke in `tests/fuzz_smoke.rs`).
 
 Close to the modularization goal when:
 
-- [x] Domain (`susi-core`) has no networking / Candle / Wasmer / Docker deps.
+- [x] Domain (`susi-core`) has no networking / Candle / Wasmtime / Docker deps.
 - [x] External systems reached through ports (`Provider`, `Tool`, hooks).
 - [x] Concrete wiring only at CLI/daemon composition roots.
 - [x] Features admit via registries / config / packs — not central `if type ==`.
@@ -1361,7 +1361,7 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 394 | `wire_node_id` never a shared constant | ephemeral fallback still unique per process |
 | 395 | P2P table still fed from roster + TURN multiaddr | tick unchanged besides comments |
 | 396 | Auto-tune stays on live task table | not resurrected as a cell-OS sketch |
-| 397 | Vendor APIs remain `susi-vendor-*` | cloud CLIs, mcp-server, candle, wasmer |
+| 397 | Vendor APIs remain `susi-vendor-*` | cloud CLIs, mcp-server, candle, wasmtime |
 | 398 | Root anyhow still CLI-only | provision returns `anyhow::Result` |
 | 399 | Architecture isolation row for daemon HTTP | still "HTTP client crates" forbidden |
 | 400 | Iteration ledger stopped at 300 | this table through 400 |
@@ -1375,7 +1375,7 @@ Cursor and Devin runs. Evidence: EV-2022928-296..302, 307, 308, 310-319.
 | Area | Result |
 |---|---|
 | Leaf services | one axum crate (`susi-leaf-services`) for paths/error/config/sandbox/native; foundation crates carry no HTTP framework or tokio; `/healthz` on every service |
-| Vendor isolation | `susi-vendor-{wasmer,mcp,mcp-server,tantivy,fastembed,chrome,syn,cloud,candle}` hold the third-party SDKs; **every** remaining external crate is owned by a pure re-export facade (`susi-vendor-{serde,serde-json,tokio,hyper,axum,…}` — 48 crates) so non-vendor susi-* crates declare zero third-party deps while `use serde::…` paths stay unchanged; HTTP-client rule is an allow-list over `crates/` |
+| Vendor isolation | `susi-vendor-{wasmtime,mcp,mcp-server,tantivy,fastembed,chrome,syn,cloud,candle}` hold the third-party SDKs; **every** remaining external crate is owned by a pure re-export facade (`susi-vendor-{serde,serde-json,tokio,hyper,axum,…}` — 48 crates) so non-vendor susi-* crates declare zero third-party deps while `use serde::…` paths stay unchanged; HTTP-client rule is an allow-list over `crates/` |
 | Dependencies | every susi-* crate's `[dependencies]`/`[build-dependencies]`/`[dev-dependencies]`/`[target.*]` sections resolve to workspace members only (`susi_crates_declare_zero_external_dependencies` ratchet); `directories`, `once_cell`, `md5`, `crossbeam` dropped earlier |
 | Duplicates | one loopback client (`susi_paths::loopback`), one endpoint lookup, one override store, one port table (`ports::*_SERVICE`), one error model (no `anyhow` in any library crate), one path per module (susi-gemi alias layer removed), 30 unreachable daemon modules removed |
 | Honesty (Mandate 1) | no tree-sitter claim, real registry checksum and peer RTT, real health checks, no discarded-probe wiring, capability-gap replies state what a reflex does and does not do |

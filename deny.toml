@@ -5,16 +5,15 @@
 
 [graph]
 # Restrict the dependency graph to the targets we actually build and
-# publish binaries for (see release.yml / dev-release.yml). In
-# particular this excludes Windows: the cfg(windows) build of wasmer
-# pulls in wasmer-compiler-singlepass, which is BUSL-1.1 licensed and
-# requires a paid Wasmer sponsorship for production use, so it's
-# intentionally excluded from CI's license gate rather than allow-listed.
+# publish binaries for (see release.yml / dev-release.yml). Windows is
+# included: the wasm runtime is wasmtime (Apache-2.0), so the license
+# gate now covers x86_64-pc-windows-msvc like every other target.
 targets = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
 ]
 # intel-mkl-src is an optional dependency reachable only through the
 # `mkl` Cargo feature (candle-core/candle-nn/candle-transformers), which
@@ -26,17 +25,13 @@ targets = [
 # Software License, just not auto-detectable as a clean SPDX expression
 # (cargo-deny's license-text confidence scoring varies by tool version -
 # passes locally on cargo-deny 0.20.2, hard-fails in CI's action), so
-# excluding it from the graph (same "never shipped, don't gate on it"
-# precedent as the Windows/wasmer-singlepass case above) is more robust
-# than an allow-list that depends on the exact scanner version being used.
+# excluding it from the graph is more robust than an allow-list that
+# depends on the exact scanner version being used.
 exclude = ["intel-mkl-src"]
 
 [advisories]
 ignore = [
-    "RUSTSEC-2026-0173", # proc-macro-error2 is unmaintained, waiting for wasmer to migrate to proc-macro-error3
-    "RUSTSEC-2025-0141", # bincode 2.0.1 is unmaintained (maintainer stepped away after a harassment incident); no safe upgrade, pulled transitively via wasmer-wasix
     "RUSTSEC-2024-0436", # paste is unmaintained/archived by its author; no safe upgrade, pulled transitively via candle's gemm crates
-    "RUSTSEC-2024-0449", # unsafe-libyaml is unmaintained with no safe upgrade; transitive via Wasmer's serde_yaml and not directly used by Susi
     "RUSTSEC-2026-0367", # zip 8.6.0 permissions during extraction; transitive via candle-core (no extraction performed)
     "RUSTSEC-2026-0368", # zip 8.6.0 symlink traversal during extraction; transitive via candle-core
     "RUSTSEC-2026-0369", # zip 8.6.0 permissions through symlinks; transitive via candle-core

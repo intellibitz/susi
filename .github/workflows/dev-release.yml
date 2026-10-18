@@ -61,10 +61,10 @@ jobs:
             name: macos-aarch64
             artifact: susi-macos-aarch64
             src: target/dist/susi
-    # Windows builds are not published here: the cfg(windows) build of
-    # wasmer used on that target pulls in wasmer-compiler-singlepass,
-    # which is BUSL-1.1 licensed and requires a paid Wasmer sponsorship
-    # for production use. Re-add once there's a compliant Windows backend.
+    # Windows builds are not yet published here: the wasmtime backend is
+    # license-clean on windows-msvc, so the backend blocker is gone — the
+    # Windows release leg itself (runner, installer, validation) is still
+    # to be added.
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: sccache

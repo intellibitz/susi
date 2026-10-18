@@ -174,7 +174,7 @@ are enforced mechanically where possible; the rest are reviewed in CI.
     susi-vendor-agents, susi-vendor-candle, susi-vendor-chrome,
     susi-vendor-cloud, susi-vendor-fastembed, susi-vendor-mcp,
     susi-vendor-mcp-server, susi-vendor-models, susi-vendor-syn,
-    susi-vendor-tantivy, susi-vendor-wasmer, susi-vendor-web, xtask, root
+    susi-vendor-tantivy, susi-vendor-wasmtime, susi-vendor-web, xtask, root
     package.
   - `#![deny(unsafe_code)]` + per-function `#[allow(unsafe_code)]` with a
     `// SAFETY:` justification: susi-agents, susi-config, susi-daemon,
@@ -218,7 +218,7 @@ this for the panic-path lints.
 - **susi-* crates declare zero third-party dependencies** — normal, build,
   dev, and target-scoped sections alike. Every crates.io/git crate is owned
   by exactly one `susi-vendor-*` crate: an implementation vendor
-  (`susi-vendor-candle`, `susi-vendor-wasmer`, `susi-vendor-mcp*`, …) or a
+  (`susi-vendor-candle`, `susi-vendor-wasmtime`, `susi-vendor-mcp*`, …) or a
   pure re-export facade (`susi-vendor-serde`, `susi-vendor-tokio`, …).
   Consumers write `serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }`
   so `use serde::…` is unchanged. A new external crate means a new facade —

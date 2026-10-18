@@ -281,7 +281,7 @@ fn sandbox_check(scratch: &Path) -> UspCheck {
     let run = |name: &str, wat: &str| -> Result<String, String> {
         let path = scratch.join(name);
         std::fs::write(&path, wat).map_err(|e| e.to_string())?;
-        susi_vendor_wasmer::wasm::WasmHost::execute_untrusted_wasm(&path, "crown")
+        susi_vendor_wasmtime::wasm::WasmHost::execute_untrusted_wasm(&path, "crown")
             .map_err(|e| e.to_string())
     };
     match (
@@ -289,13 +289,13 @@ fn sandbox_check(scratch: &Path) -> UspCheck {
         run("fs_probe.wat", WASM_HOST_FS_PROBE_WAT),
     ) {
         (Ok(hello), Ok(fs)) if hello == "hello world" && fs == "DENIED" => check(
-            "sandbox_wasmer",
+            "sandbox_wasmtime",
             true,
             true,
             "WasmHost ran an untrusted module and denied it host filesystem access",
         ),
         (hello, fs) => check(
-            "sandbox_wasmer",
+            "sandbox_wasmtime",
             true,
             false,
             format!("sandbox probe failed: run={hello:?} host_fs={fs:?}"),

@@ -522,7 +522,7 @@ fn the_slow_all_features_build_is_not_a_serial_step_of_another_shard() {
     let test = job(&jobs, "test");
     assert!(
         test.body.contains("name: leaf-all-features"),
-        "susi-leaf-services --all-features (wasmer's cranelift, ~7.5 min) runs as its own \
+        "susi-leaf-services --all-features (wasmtime's cranelift, ~7.5 min) runs as its own \
          parallel shard"
     );
     let serial = test
