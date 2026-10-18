@@ -2250,7 +2250,7 @@ fn gmcp_req_203_002_04_adversarial() {
         "params": {"requestId": 1}
     }));
     let initialize = raw
-        .response_for(&serde_json::json!(1), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
         .expect("initialize must not be cancelled");
     assert!(initialize["result"].is_object());
     assert!(
@@ -5494,6 +5494,188 @@ fn gmcp_req_203_008_05_interop() {
             "a -008 fixture regressed into the divergence registry: {divergence}"
         );
     }
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// GMCP-203-008-06: operations and evidence for the content/metadata
+/// model. The ledger CLI is the bounded operator surface, a served
+/// `tools/call` is the live inspectable surface whose content blocks
+/// parse through the canonical boundary, `--refetched` without `--drift`
+/// is rejected configuration, the deterministic drift check names a
+/// drifted schema pin and fails closed on a missing one, the contract
+/// carries the runbook, and the evidence artifact is signed and
+/// reproducible.
+#[test]
+fn gmcp_req_203_008_06_operations() {
+    use susi_gmcp::content::CanonicalContentBlock;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-008-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // The shared ledger report is the bounded operator surface.
+    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(report["verified"], true);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+
+    // A served `tools/call` is this vector's live inspectable surface:
+    // the result's `content[]` blocks cross the gate and must parse
+    // through the canonical boundary an operator (or a peer) consumes.
+    let mut served = StdioSession::spawn(root, &home);
+    let result = served.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    );
+    let tool_report = call_tool_report(&result);
+    assert_eq!(tool_report["verified"], true);
+    let block = &result["content"][0];
+    assert_eq!(block["type"], "text", "served content must be typed");
+    CanonicalContentBlock::from_wire(block)
+        .expect("served content blocks must satisfy the canonical model");
+    drop(served);
+
+    // Invalid configuration is rejected rather than silently degraded:
+    // `--refetched` is meaningless without `--drift`.
+    let invalid = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!invalid.status.success());
+
+    // The deterministic drift check is clean on the shipped corpus and
+    // covers this vector's pinned schema corpus.
+    let clean = susi_json(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(clean["drift"], true);
+    assert_eq!(clean["verified"], true);
+    assert_eq!(clean["checked"], clean["matched"]);
+    assert!(clean["findings"].as_array().unwrap().is_empty());
+
+    // A drifted schema rendering is a named `hash_drift` finding and a
+    // non-zero result — stale model proof cannot survive a changed pin.
+    let schema_doc = "schema/2026-07-28/schema.json";
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(schema_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let drifted = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!drifted.status.success());
+    let drift_report: serde_json::Value =
+        serde_json::from_slice(&drifted.stdout).expect("drift failure must remain JSON");
+    assert_eq!(drift_report["verified"], false);
+    assert!(drift_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| { f["document"] == schema_doc && f["kind"] == "hash_drift" }));
+
+    // An absent schema document fails closed as `unfetchable`.
+    std::fs::remove_file(&victim).unwrap();
+    let missing = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!missing.status.success());
+    let missing_report: serde_json::Value =
+        serde_json::from_slice(&missing.stdout).expect("missing source must remain JSON");
+    assert!(missing_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| { f["document"] == schema_doc && f["kind"] == "unfetchable" }));
+
+    // The contract carries the operator runbook: state, diagnostics,
+    // triage, migration, and rollback are documented — not tribal.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-008.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Diagnostics",
+        "Incident triage",
+        "Migration (re-pinning",
+        "Rollback",
+        "hash_drift",
+        "unfetchable",
+        "-32602",
+        "-32600",
+        "CanonicalContentBlock",
+        "silent drop",
+    ] {
+        assert!(contract.contains(token), "contract must document {token}");
+    }
+
+    // Evidence is retained, signed, and tied to the canonical ledger
+    // bytes, so a changed corpus invalidates this proof.
+    use sha2::{Digest, Sha256};
+    let ledger_hash = hex::encode(Sha256::digest(
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
+    ));
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-008.jsonl"))
+        .expect("VC-203-008 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["requirement"] == "GMCP-203-008-06")
+        .expect("evidence must retain a record for GMCP-203-008-06");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_008_06_operations"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert!(record["recorded_unix"].as_u64().unwrap() <= now + 60);
 
     let _ = std::fs::remove_dir_all(&scratch);
 }

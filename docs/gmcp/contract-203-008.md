@@ -168,3 +168,73 @@ ledger bytes so a changed corpus invalidates stale proof.
 - **Extension settings objects**: empty object means support with no
   settings; keys MUST follow the `io.modelcontextprotocol/*` namespacing
   rule for protocol-reserved fields.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` is the shared production health check; the rows this
+  vector binds report `verified` alongside the corpus totals before the
+  content model is trusted.
+- A served `tools/call` is this vector's live inspectable surface:
+  `susi mcp call susi ledger_verify {}` exercises the same dispatch the
+  daemon and gateway share and returns canonical content blocks — the
+  `content[]` array an operator consumes parses through the shipped
+  `CanonicalContentBlock` boundary. Comparing it with the CLI report is
+  a transport-independent smoke check.
+- The negative fixtures are the diagnostic probes: replaying
+  `request-resources-read-uri-schemeless.json` or a `content-block-*`
+  fixture against `susi mcp serve` must produce the typed error the
+  fixture records — never a hang, a panic, or a silent drop.
+- `susi mcp ledger --drift --refetched <dir>` is the deterministic,
+  air-gapped drift check covering this vector's pinned schema corpus —
+  all three renderings (`.json`, `.ts`, `.mdx`) of both revisions plus
+  the caching and pagination documents.
+
+### Diagnostics and incident triage
+
+Content-boundary failures are typed and deterministic — the wire
+verdict IS the diagnostic:
+
+- `-32602` means malformed request parameters — for this vector a
+  schemeless or invalid `params.uri` on `resources/read` and peers.
+- `-32600` means malformed envelope or content — a request or response
+  carrying a content block that fails `CanonicalContentBlock`
+  validation: bad base64 or padding abuse, malformed `mimeType`,
+  invalid or `data:`/`javascript:` URIs where an absolute resource URI
+  is required, `priority` outside `[0,1]`, audience outside
+  `{user,assistant}`, envelope keys smuggled through content metadata,
+  or a nesting/size bomb over the wire budgets.
+- A silent drop — any request that earns no response — is a defect, not
+  a verdict: capture the offending line and reproduce it through the
+  fixture replay before triaging further.
+- Drift findings carry the shared `hash_drift`/`unfetchable` kinds; a
+  drifted schema rendering or utility document invalidates this
+  vector's evidence until the corpus verifies clean again.
+
+### Incident triage
+
+Treat a drifted pin, an unexpected error code, a silently dropped
+request, or a content block that fails canonical validation on the
+served path as an incident. Preserve the JSON report, the wire
+transcript, and the named fixture with the incident so the behavior is
+independently reproducible; restore the vendored document from git when
+the pin is wrong.
+
+### Migration (re-pinning the schema corpus)
+
+1. Claim a task and record the upstream revision and reason.
+2. Refresh `.agents/gmcp/spec/` and `sources.json` for the schema
+   documents at that exact revision — all three renderings of each
+   revision move together as one corpus.
+3. Run `scripts/check-gmcp-ledger.py --write`, review the bound rows,
+   and update fixtures, compatibility decisions, and evidence records.
+4. Run `susi mcp ledger`, the deterministic `--refetched` check, and the
+   full GMCP acceptance gate before publishing.
+
+### Rollback
+
+The vendored specification, manifest, fixtures, divergence records, and
+evidence are committed artifacts. Roll back a bad re-pin with
+`git revert` of its commit, then rerun the CLI and deterministic drift
+checks; do not delete evidence rows or rewrite a prior proof event.
