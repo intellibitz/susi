@@ -253,7 +253,12 @@ fn worker_identity_start_never_names_the_worker_after_the_git_login() {
     let w = World::new("start");
     let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
     std::fs::create_dir_all(w.primary.join("scripts")).unwrap();
-    for s in ["susi-worktree.sh", "park-primary.sh", "setup-dev.sh"] {
+    for s in [
+        "susi-worktree.sh",
+        "park-primary.sh",
+        "setup-dev.sh",
+        "posix-compat.sh",
+    ] {
         std::fs::copy(scripts.join(s), w.primary.join("scripts").join(s)).unwrap();
     }
     w.git(&w.primary, &["add", "-A"]);

@@ -15,6 +15,7 @@
 # (wasmtime's cranelift) is its own leg because as a second step of `foundation`
 # it made that shard ~10 min against ~2.5 min for the rest of it.
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 shards=$(cat <<'SHARDS'
 foundation	-p susi-paths -p susi-error -p susi-config -p susi-abi -p susi-core -p susi-sandbox -p susi-sandbox-client -p susi-http-transport -p susi-native-client -p susi-leaf-services

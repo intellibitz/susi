@@ -32,6 +32,7 @@
 # Prints nothing when the diff touched no crate (docs/CI-only changes), so
 # callers can skip cargo entirely.
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 with_dependents=0
 case "${1:-}" in

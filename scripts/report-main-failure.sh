@@ -13,6 +13,7 @@
 # not comment twice. Silent and successful when the sha cannot be attributed —
 # an unattributable red run is still a red run, but not this script's error.
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 sha=${1:?usage: report-main-failure.sh <main-sha> [run-url]}
 url=${2:-}

@@ -1,8 +1,22 @@
-# flock compatibility shim — source this after `set -euo pipefail`:
-#   . "$(dirname "${BASH_SOURCE[0]}")/flock-compat.sh"
+# POSIX-tool compatibility for hosts without a full unix userland (Git
+# Bash/MSYS2 on Windows). Source after `set -euo pipefail`:
+#   [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 #
-# util-linux flock(1) does not exist on Git Bash/MSYS2, where these workflow
-# scripts must run for Windows hosts. When flock is absent this defines a
+# Two shims:
+#
+# 1. jq() — the native Windows jq build (winget jqlang.jq) writes CRLF line
+#    endings; every `jq -r ... | while read` loop and `$(jq -r ...)` capture in
+#    these scripts then compares values carrying a trailing \r and silently
+#    mismatches. This wrapper normalizes output to LF.
+if command -v jq >/dev/null 2>&1; then
+    jq() {
+        command jq "$@" | tr -d '\r'
+    }
+fi
+#
+# 2. flock — util-linux flock(1) does not exist on Git Bash/MSYS2, where these
+# workflow scripts must run for Windows hosts. When flock is absent this
+# defines a
 # mkdir-based fallback with the same call shape used here:
 #   exec N>"$lock"; flock N     # blocking lock
 #   flock -n N                  # non-blocking lock

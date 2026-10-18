@@ -17,6 +17,7 @@
 # exit 0: the suite passed on <sha>
 # exit 1: it failed, was cancelled, never started, or did not finish in time
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo} ref=${2:?ref} sha=${3:?sha}
 wait_max=${RELEASE_TESTS_WAIT_MAX:-2700}
 poll=${RELEASE_TESTS_POLL:-15}
