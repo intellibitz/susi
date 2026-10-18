@@ -99,10 +99,10 @@ impl World {
             )
             .unwrap();
         }
-        let park = primary.join("scripts/park-primary.sh");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+            let park = primary.join("scripts/park-primary.sh");
             std::fs::set_permissions(&park, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         git(&primary, &["add", "-A"]);
