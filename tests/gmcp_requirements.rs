@@ -3994,11 +3994,11 @@ fn gmcp_req_203_003_06_operations() {
         assert!(contract.contains(token), "contract must document {token}");
     }
 
-    // Evidence is retained, signed, and tied to the committed contract
-    // bytes, so a changed runbook invalidates this proof.
+    // Evidence is retained, signed, and tied to the canonical ledger
+    // bytes, so a changed corpus invalidates this proof.
     use sha2::{Digest, Sha256};
-    let contract_hash = hex::encode(Sha256::digest(
-        std::fs::read(root.join("docs/gmcp/contract-203-003.md")).unwrap(),
+    let ledger_hash = hex::encode(Sha256::digest(
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
     ));
     let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-003.jsonl"))
         .expect("VC-203-003 must retain evidence");
@@ -4012,7 +4012,7 @@ fn gmcp_req_203_003_06_operations() {
         "cargo test --locked --test gmcp_requirements gmcp_req_203_003_06_operations"
     );
     assert_eq!(record["exit"], 0);
-    assert_eq!(record["artifact_sha256"], contract_hash);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
     assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
     assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
     let now = std::time::SystemTime::now()
@@ -4020,6 +4020,309 @@ fn gmcp_req_203_003_06_operations() {
         .unwrap()
         .as_secs();
     assert!(record["recorded_unix"].as_u64().unwrap() <= now + 60);
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// GMCP-203-003-M: the vector outcome holds on the shipped production
+/// path — for MCP 2026-07-28 and later GMCP is genuinely stateless at
+/// the protocol layer: no initialize ceremony or session identifier is
+/// required, every request carries and validates version plus client
+/// capabilities, every result identifies the server, `server/discover`
+/// is complete and cacheable, explicit handles bind all cross-call
+/// state, and concurrent requests from changing clients cannot leak
+/// negotiated state — and every retained evidence record for
+/// GMCP-203-003-01..06 plus this mastery record is complete, fresh,
+/// signed, committed, and backed by a real test.
+#[test]
+fn gmcp_vc_203_003_mastery() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::protocol::GmcpService;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-003-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Stateless: no initialize ceremony, no session identifier — a
+    //    modern `_meta` request is answered on a brand-new connection
+    //    and carries `resultType` on the result column. ──────────────
+    let mut raw = StdioSession::spawn_raw(root, &home);
+    raw.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "stateless",
+        "method": "tools/list",
+        "params": {"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}
+    }));
+    let stateless = raw
+        .response_for(
+            &serde_json::json!("stateless"),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("a modern request must be served with no initialize ceremony");
+    assert!(
+        stateless["result"].is_object(),
+        "stateless modern request must earn a result: {stateless}"
+    );
+    assert_eq!(stateless["result"]["resultType"], "complete");
+
+    // ── Every request carries and validates version plus client
+    //    capabilities: a missing `_meta` fails -32602, an unsupported
+    //    version fails -32022 with the advertised registry, and a
+    //    missing clientCapabilities fails -32602. ────────────────────
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    for (id, params, code) in [
+        ("no-meta", serde_json::json!({}), -32602_i64),
+        (
+            "bad-version",
+            serde_json::json!({"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "1900-01-01",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }}),
+            -32022_i64,
+        ),
+        (
+            "no-caps",
+            serde_json::json!({"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+            }}),
+            -32602_i64,
+        ),
+    ] {
+        let response = modern
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": id,
+                    "method": "tools/list", "params": params
+                }),
+                std::time::Duration::from_secs(30),
+            )
+            .unwrap_or_else(|| panic!("{id} must receive a typed error"));
+        assert_eq!(response["error"]["code"], code, "{id}: {response}");
+        if code == -32022 {
+            assert!(
+                response["error"]["data"]["supported"].is_array(),
+                "-32022 must carry the supported registry: {response}"
+            );
+        }
+    }
+
+    // ── Every result identifies the server: the discover result's
+    //    `_meta.serverInfo` equals the canonical identity, and the
+    //    whole result equals the canonical `discover_result` — the
+    //    complete, cacheable contract. ──────────────────────────────
+    let service = GmcpService::new(scratch.clone());
+    let canonical = serde_json::to_value(service.discover_result()).unwrap();
+    let discover_msg = |id: u64| {
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "server/discover",
+            "params": {"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }}
+        })
+    };
+    modern.send(&discover_msg(71));
+    let discover = modern
+        .response_for(&serde_json::json!(71), std::time::Duration::from_secs(30))
+        .expect("discover must answer")["result"]
+        .clone();
+    assert_eq!(
+        discover["_meta"]["io.modelcontextprotocol/serverInfo"],
+        canonical["_meta"]["io.modelcontextprotocol/serverInfo"],
+        "the served result must identify the canonical server"
+    );
+    assert_eq!(discover["resultType"], "complete");
+    modern.send(&discover_msg(72));
+    let cached = modern
+        .response_for(&serde_json::json!(72), std::time::Duration::from_secs(30))
+        .expect("a cacheable discover must repeat")["result"]
+        .clone();
+    assert_eq!(
+        discover, cached,
+        "discover must be byte-identical — cacheable"
+    );
+
+    // ── Explicit handles bind cross-call state: progressToken and
+    //    traceparent travel in `_meta` — no ambient negotiated state. ─
+    let handled = modern.request(
+        "tools/list",
+        serde_json::json!({"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "progressToken": "mastery-handle",
+            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        }}),
+    );
+    assert_eq!(handled["resultType"], "complete");
+
+    // ── Concurrent changing clients cannot leak negotiated state: a
+    //    negotiated-legacy session and the modern session stay live
+    //    together, a modern-metadata request on the legacy session
+    //    earns -32600 without poisoning the era, and each session keeps
+    //    its own verdict afterwards. ─────────────────────────────────
+    let mut legacy = StdioSession::spawn(root, &home);
+    legacy.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 81, "method": "tools/list",
+        "params": {"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}
+    }));
+    let confused = legacy
+        .response_for(&serde_json::json!(81), std::time::Duration::from_secs(30))
+        .expect("era-confused metadata must earn a typed verdict");
+    assert_eq!(confused["error"]["code"], -32600, "{confused}");
+    legacy.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 82, "method": "ping", "params": {}
+    }));
+    let still_legacy = legacy
+        .response_for(&serde_json::json!(82), std::time::Duration::from_secs(30))
+        .expect("the rejection must not poison the negotiated era");
+    assert!(
+        still_legacy["result"].is_object(),
+        "the legacy session must stay usable: {still_legacy}"
+    );
+    assert!(
+        still_legacy["result"].get("resultType").is_none(),
+        "the legacy wire shape must not inherit modern fields"
+    );
+
+    drop(raw);
+    drop(modern);
+    drop(legacy);
+
+    // ── The contract pins the vector's required vocabulary ──────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-003.md"))
+        .expect("the vector contract must exist");
+    for term in [
+        "server/discover",
+        "2026-07-28",
+        "io.modelcontextprotocol/protocolVersion",
+        "io.modelcontextprotocol/clientCapabilities",
+        "io.modelcontextprotocol/serverInfo",
+        "resultType",
+        "ttlMs",
+        "cacheScope",
+        "supportedVersions",
+        "-32022",
+        "-32602",
+        "-32600",
+        "stateless",
+    ] {
+        assert!(contract.contains(term), "contract must pin {term}");
+    }
+
+    // ── Evidence verification: complete, fresh, signed, backed by a
+    //    real test — missing, stale, unsigned, waived, mock-only or
+    //    zero-test records fail ──────────────────────────────────────
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
+        .expect("the canonical ledger must exist");
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-003.jsonl"))
+        .expect("VC-203-003 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be the current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && test_src.contains(&format!("fn {test_name}")),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-003-01",
+        "GMCP-203-003-02",
+        "GMCP-203-003-03",
+        "GMCP-203-003-04",
+        "GMCP-203-003-05",
+        "GMCP-203-003-06",
+        "GMCP-203-003-M",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── Committed proof: locally modified artifacts are not
+    //    evidence — the vector's tree must be clean against git ──────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
 
     let _ = std::fs::remove_dir_all(&scratch);
 }

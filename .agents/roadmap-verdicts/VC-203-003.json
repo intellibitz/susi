@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-003",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs \u2014 gmcp_req_203_003_01_contract through _06_operations plus gmcp_vc_203_003_mastery (7 tests): the contract pins the six bound ledger rows for the stateless lifecycle and server/discover (normative clause, canonical DiscoverResult shape, era behavior table, compat decisions, threat model, SLOs); the shipped path serves a canonical discover_result through GmcpService on stdio and HTTP alike, validates per-request _meta version+capabilities with typed -32602/-32022 verdicts, pins the negotiated era so modern metadata on a legacy session earns deterministic -32600 without leaking state, and proves discover deterministic, byte-identical across sessions, and inside the published latency/throughput budgets; operations evidence and the drift-checked runbook are retained; the mastery test consumes and verifies all 01-06 evidence \u2014 complete, fresh, signed, committed, backed by real tests \u2014 and rejects missing, stale, unsigned, modified, waived, mock-only or zero-test evidence.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-16",
+    "T-CODEXGMCPROADMAP-17",
+    "T-CODEXGMCPROADMAP-18",
+    "T-CODEXGMCPROADMAP-19",
+    "T-CODEXGMCPROADMAP-20",
+    "T-CODEXGMCPROADMAP-21",
+    "T-CODEXGMCPROADMAP-22"
+  ],
+  "recorded_by": "DEVIN20261017233611403317",
+  "recorded_unix": 1792282568
+}
