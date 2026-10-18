@@ -5679,3 +5679,311 @@ fn gmcp_req_203_008_06_operations() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-008-M: the vector outcome holds on the shipped production
+/// path — every MCP content variant is represented losslessly (text,
+/// image, audio, resource, resource link; annotations, icons, `_meta`,
+/// audience, priority, unknown extension fields), the canonical model
+/// is what the wire gate enforces on the served path, JSON Schema
+/// 2020-12 tool contracts compile locally and refuse external `$ref`
+/// resolution, canonical serialization is deterministic, and this test
+/// consumes and verifies all requirement evidence — missing, stale,
+/// unsigned, waived, mock-only, or zero-test records fail.
+#[test]
+fn gmcp_vc_203_008_mastery() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::content::{CanonicalContentBlock, ContentError};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-008-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Shipped wire path: the served result's content blocks satisfy
+    //    the canonical model, and the gate emits typed failures for
+    //    malformed params and malformed content-bearing payloads. ────
+    let mut session = StdioSession::spawn(root, &home);
+    let result = session.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    );
+    for block in result["content"]
+        .as_array()
+        .expect("content must be an array")
+    {
+        CanonicalContentBlock::from_wire(block).unwrap_or_else(|e| {
+            panic!("served content block must satisfy the canonical model: {e}")
+        });
+    }
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "m-uri",
+        "method": "resources/read", "params": {"uri": "no-scheme"}
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("m-uri"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("malformed URI must earn a typed verdict");
+    assert_eq!(response["error"]["code"], -32602, "{response}");
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "m-content",
+        "result": {"content": {"type": "audio", "data": "###", "mimeType": "audio/wav"}}
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("m-content"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("malformed content must earn a typed verdict");
+    assert_eq!(response["error"]["code"], -32600, "{response}");
+    drop(session);
+
+    // ── Lossless: every content variant round-trips verbatim through
+    //    the canonical model, unknown extension fields included. ─────
+    for (variant, value) in [
+        (
+            "text",
+            serde_json::json!({"type":"text","text":"héllo \u{4e16}\u{754c}"}),
+        ),
+        (
+            "image",
+            serde_json::json!({"type":"image","data":"aGk=","mimeType":"image/png"}),
+        ),
+        (
+            "audio",
+            serde_json::json!({"type":"audio","data":"AAE=","mimeType":"audio/wav"}),
+        ),
+        (
+            "embedded text resource",
+            serde_json::json!({"type":"resource","resource":{"uri":"file:///a.txt","mimeType":"text/plain","text":"body"}}),
+        ),
+        (
+            "embedded blob resource",
+            serde_json::json!({"type":"resource","resource":{"uri":"file:///a.bin","blob":"AAE="}}),
+        ),
+        (
+            "resource_link",
+            serde_json::json!({"type":"resource_link","uri":"file:///r.pdf","name":"r",
+                "mimeType":"application/pdf",
+                "icons":[{"src":"https://i.example/x.png","mimeType":"image/png"}],
+                "annotations":{"audience":["user","assistant"],"priority":0.8,
+                               "lastModified":"2026-10-18T00:00:00Z"},
+                "_meta":{"vendor.example/k":"v"},
+                "ext.example/future":{"nested":[1,true]}}),
+        ),
+    ] {
+        let parsed = CanonicalContentBlock::from_wire(&value)
+            .unwrap_or_else(|e| panic!("{variant} must validate: {e}"));
+        assert_eq!(
+            parsed.to_wire(),
+            value,
+            "{variant} must round-trip losslessly"
+        );
+        // The typed rmcp adapter represents every spec field.
+        assert!(parsed.to_rmcp().is_ok(), "{variant} must adapt to rmcp");
+    }
+
+    // ── Canonical serialization is deterministic across key order ──
+    let a = CanonicalContentBlock::from_wire(&serde_json::json!({
+        "type":"text","text":"t","_meta":{"z":1,"a":2},"annotations":{"priority":0.5}
+    }))
+    .unwrap()
+    .canonical_json();
+    let b = CanonicalContentBlock::from_wire(&serde_json::json!({
+        "annotations":{"priority":0.5},"_meta":{"a":2,"z":1},"text":"t","type":"text"
+    }))
+    .unwrap()
+    .canonical_json();
+    assert_eq!(a, b, "canonical_json must be key-order independent");
+
+    // ── Boundaries are typed failures, never silent coercion ────────
+    for (label, value, want) in [
+        (
+            "bad mime",
+            serde_json::json!({"type":"image","data":"aGk=","mimeType":"no mime"}),
+            ContentError::BadMimeType("image"),
+        ),
+        (
+            "bad base64",
+            serde_json::json!({"type":"image","data":"!!!","mimeType":"image/png"}),
+            ContentError::BadBase64("image"),
+        ),
+        (
+            "schemeless link uri",
+            serde_json::json!({"type":"resource_link","uri":"x","name":"n"}),
+            ContentError::BadUri("resource_link.uri"),
+        ),
+        (
+            "priority out of range",
+            serde_json::json!({"type":"text","text":"t","annotations":{"priority":1.5}}),
+            ContentError::BadPriority,
+        ),
+        (
+            "bad audience",
+            serde_json::json!({"type":"text","text":"t","annotations":{"audience":["root"]}}),
+            ContentError::BadAudience,
+        ),
+    ] {
+        assert_eq!(
+            CanonicalContentBlock::from_wire(&value),
+            Err(want.clone()),
+            "{label} must fail typed"
+        );
+    }
+
+    // ── JSON Schema 2020-12 tool contracts: remote `$ref` fails
+    //    closed at registration; local `#/$defs` compiles. ───────────
+    let service = susi_gmcp::protocol::GmcpService::new(scratch.join("workspace"));
+    let handler = || -> susi_gmcp::protocol::ToolHandler {
+        std::sync::Arc::new(|_, _| {
+            Box::pin(async { Err(susi_gmcp::rmcp::ErrorData::internal_error("x", None)) })
+        })
+    };
+    let remote: susi_gmcp::rmcp::model::Tool = serde_json::from_value(
+        serde_json::json!({"name":"r","inputSchema":{"$ref":"https://evil.example/x.json"}}),
+    )
+    .unwrap();
+    assert!(
+        service.register_tool(remote, handler()).is_err(),
+        "a remote-$ref inputSchema must never register"
+    );
+    let local: susi_gmcp::rmcp::model::Tool = serde_json::from_value(
+        serde_json::json!({"name":"l","inputSchema":{"$defs":{"s":{"type":"string"}},"type":"object","properties":{"v":{"$ref":"#/$defs/s"}}}}),
+    )
+    .unwrap();
+    assert!(
+        service.register_tool(local, handler()).is_ok(),
+        "a local $defs ref must compile — the pinned corpus is the only resolver"
+    );
+
+    // ── The contract pins the vector's required vocabulary ──────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-008.md"))
+        .expect("the vector contract must exist");
+    for term in [
+        "CanonicalContentBlock",
+        "resource_link",
+        "EmbeddedResource",
+        "2020-12",
+        "lossless",
+        "audience",
+        "priority",
+        "ttlMs",
+        "cacheScope",
+        "extension",
+        "-32602",
+        "-32600",
+    ] {
+        assert!(contract.contains(term), "contract must pin {term}");
+    }
+
+    // ── Evidence verification: complete, fresh, signed, backed by a
+    //    real test — missing, stale, unsigned, waived, mock-only or
+    //    zero-test records fail ──────────────────────────────────────
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
+        .expect("the canonical ledger must exist");
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-008.jsonl"))
+        .expect("VC-203-008 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be the current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && test_src.contains(&format!("fn {test_name}")),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-008-01",
+        "GMCP-203-008-02",
+        "GMCP-203-008-03",
+        "GMCP-203-008-04",
+        "GMCP-203-008-05",
+        "GMCP-203-008-06",
+        "GMCP-203-008-M",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── Committed proof: locally modified artifacts are not
+    //    evidence — the vector's tree must be clean against git ──────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
