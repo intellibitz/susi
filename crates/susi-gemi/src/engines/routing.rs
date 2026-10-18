@@ -2121,7 +2121,7 @@ mod tests {
     /// Isolated HOME/XDG + cooldown file for preference-writing tests.
     struct PrefSandbox {
         _cd: CooldownFileGuard,
-        prev: [(&'static str, Option<std::ffi::OsString>); 3],
+        prev: [(&'static str, Option<std::ffi::OsString>); 6],
         tmp: PathBuf,
     }
     impl PrefSandbox {
