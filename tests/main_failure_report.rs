@@ -8,13 +8,15 @@
 //! The script points the pull request at its own failure — exactly once, even if
 //! the job is retried — and stays silent when it cannot attribute the sha.
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// A `gh` that answers the three calls the script makes, and records comments in
 /// a file so a second invocation can really see the first one.
 fn fake_gh(bins: &Path) {
     let script = r#"#!/bin/sh
+jq() { command jq "$@" | tr -d '\r'; } # native Windows jq emits CRLF
 case "$1 $2" in
 "pr list")
     printf '[{"number":%s,"mergeCommit":{"oid":"%s"}}]\n' "${TEST_PR:-0}" "${TEST_MERGED_SHA:-}"
@@ -80,8 +82,7 @@ impl World {
 
     fn report(&self, merged: &str, sha: &str, pr: &str, url: &str) -> (i32, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/report-main-failure.sh");
-        let out = Command::new(script)
-            .args([sha, url])
+        let out = common::script_command(&script, &[sha, url])
             .env(
                 "PATH",
                 format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),

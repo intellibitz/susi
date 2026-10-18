@@ -9,12 +9,13 @@
 //! `scripts/park-primary.sh`: the primary checkout is detached at origin/main,
 //! and left alone (with the reason) when it holds real work.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn run(dir: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(program)
-        .args(args)
+    let out = common::program_command(program, args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
@@ -30,6 +31,13 @@ fn run(dir: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
+    let args = &[
+        ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"].as_slice(),
+        args,
+    ]
+    .concat();
     let (code, out, err) = run(dir, "git", args);
     assert_eq!(code, 0, "git {args:?}: {err}");
     out
@@ -83,7 +91,20 @@ impl World {
 
     fn park_with(&self, from: &Path, args: &[&str]) -> (i32, String, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/park-primary.sh");
-        run(from, script.to_str().unwrap(), args)
+        // POSIX shell script — Windows cannot exec it by path (os error 193).
+        let out = susi_core::bounded_cmd::script_command(&script, args)
+            .current_dir(from)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        )
     }
 
     fn head_is_detached_at_origin_main(&self) -> bool {

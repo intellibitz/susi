@@ -2,11 +2,16 @@
 #![allow(missing_docs)] // integration test crate
 //! Exercise finish against a local bare remote, simulating its merge automation.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) -> String {
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
     let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
         .args(args)
         .current_dir(dir)
         .output()
@@ -147,7 +152,7 @@ impl World {
         // With TEST_RACE_PRIMARY set, the first push instead lands the primary's
         // unpushed main commit on remote main — a merge that raced ours — so the
         // wait loop must integrate and repush (once) before ours can land.
-        executable(&bins.join("git"), "#!/bin/sh\n/usr/bin/git \"$@\" || exit $?\nif [ \"$1\" = push ]; then\n for arg in \"$@\"; do\n  case \"$arg\" in HEAD:refs/heads/*)\n   if [ -n \"$TEST_RACE_PRIMARY\" ] && [ ! -f \"$TEST_RACE_USED\" ]; then\n    : > \"$TEST_RACE_USED\"\n    (cd \"$TEST_RACE_PRIMARY\" && /usr/bin/git push -q origin main)\n   elif [ \"$TEST_NO_MERGE\" != 1 ]; then\n    sha=$(/usr/bin/git rev-parse HEAD); /usr/bin/git --git-dir=\"$TEST_REMOTE\" update-ref refs/heads/main \"$sha\"\n   fi ;;\n  esac\n done\nfi\n");
+        executable(&bins.join("git"), "#!/bin/sh\n\"$TEST_REAL_GIT\" \"$@\" || exit $?\nif [ \"$1\" = push ]; then\n for arg in \"$@\"; do\n  case \"$arg\" in HEAD:refs/heads/*)\n   if [ -n \"$TEST_RACE_PRIMARY\" ] && [ ! -f \"$TEST_RACE_USED\" ]; then\n    : > \"$TEST_RACE_USED\"\n    (cd \"$TEST_RACE_PRIMARY\" && \"$TEST_REAL_GIT\" push -q origin main)\n   elif [ \"$TEST_NO_MERGE\" != 1 ]; then\n    sha=$(\"$TEST_REAL_GIT\" rev-parse HEAD); \"$TEST_REAL_GIT\" --git-dir=\"$TEST_REMOTE\" update-ref refs/heads/main \"$sha\"\n   fi ;;\n  esac\n done\nfi\n");
         let world = Self {
             root,
             primary,
@@ -180,6 +185,9 @@ impl World {
             .env("CARGO_HOME", self.root.join("cargo-home"))
             .env("XDG_CONFIG_HOME", self.root.join("home/xdg"))
             .env_remove("SUSI_HOME")
+            // The stub git/gh in bins/ reach the real binary through this:
+            // Git Bash has no /usr/bin/git.
+            .env("TEST_REAL_GIT", common::real_git(&self.bins))
             // The gate reads these: a developer who exports them must not change
             // what the fixture's gate runs.
             .env_remove("SUSI_HERMETIC_RUNNER")
@@ -288,7 +296,7 @@ impl World {
     fn finish_with_a_green_run(&self) -> std::process::Output {
         executable(
             &self.bins.join("gh"),
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(/usr/bin/git rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(\"$TEST_REAL_GIT\" rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
             .env(
@@ -313,7 +321,7 @@ impl World {
     fn finish_with_a_failing_run(&self) -> std::process::Output {
         executable(
             &self.bins.join("gh"),
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(/usr/bin/git rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(\"$TEST_REAL_GIT\" rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
             .env(
@@ -876,8 +884,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
 
     // A stale heartbeat: the decision is to restart, and nothing else happens.
     std::fs::write(&stamp, "1\n").unwrap();
-    let out = Command::new(&script)
-        .arg("--dry-run")
+    let out = common::script_command(&script, &["--dry-run"])
         .current_dir(&w.work)
         .output()
         .unwrap();
@@ -887,8 +894,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
 
     // No heartbeat at all reads the same way.
     std::fs::remove_file(&stamp).unwrap();
-    let out = Command::new(&script)
-        .arg("--dry-run")
+    let out = common::script_command(&script, &["--dry-run"])
         .current_dir(&w.work)
         .output()
         .unwrap();
@@ -909,7 +915,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
             stamp.display()
         ),
     );
-    let out = Command::new(&script)
+    let out = common::script_command(&script, &[])
         .current_dir(&w.work)
         .env("SUSI_WATCH_CMD", stub.to_str().unwrap())
         .env("SUSI_WATCH_STALE", "1")
@@ -930,7 +936,10 @@ fn the_sync_boundary_heals_a_dead_watcher() {
     );
 
     // A live watcher is left alone.
-    let out = Command::new(&script).current_dir(&w.work).output().unwrap();
+    let out = common::script_command(&script, &[])
+        .current_dir(&w.work)
+        .output()
+        .unwrap();
     assert!(out.status.success());
     assert!(
         String::from_utf8_lossy(&out.stdout).contains("alive"),
@@ -948,7 +957,10 @@ fn the_board_summary_is_cached_between_syncs() {
     let w = World::new("boardcache");
     let script = w.primary.join("scripts/swarm-status.sh");
     let run = || {
-        let out = Command::new(&script).current_dir(&w.work).output().unwrap();
+        let out = common::script_command(&script, &[])
+            .current_dir(&w.work)
+            .output()
+            .unwrap();
         String::from_utf8_lossy(&out.stdout).into_owned()
     };
 
@@ -960,8 +972,7 @@ fn the_board_summary_is_cached_between_syncs() {
         "the second sync must read the cache: {second}"
     );
     // A forced run checks again rather than reading the cache.
-    let forced = Command::new(&script)
-        .arg("--force")
+    let forced = common::script_command(&script, &["--force"])
         .current_dir(&w.work)
         .output()
         .unwrap();

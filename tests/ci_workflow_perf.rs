@@ -601,13 +601,7 @@ impl Fakes {
     /// probes for (`cmake`) exists only when the test put a fake of it there -
     /// the developer's own machine cannot answer for the runner image.
     fn run_isolated(&self, script: &str, envs: &[(&str, &str)]) -> (bool, String, String) {
-        let bash = std::env::var("PATH")
-            .unwrap_or_default()
-            .split(':')
-            .map(|d| Path::new(d).join("bash"))
-            .find(|p| p.is_file())
-            .expect("bash on PATH");
-        let out = std::process::Command::new(bash)
+        let out = std::process::Command::new(susi_core::bounded_cmd::posix_shell())
             .arg(root().join(script))
             .env("PATH", &self.dir)
             .env("FAKE_LOG", self.dir.join("log"))
@@ -624,10 +618,16 @@ impl Fakes {
 
     /// Run `script` with the fakes first on PATH; returns (success, stdout, log).
     fn run(&self, script: &str, envs: &[(&str, &str)]) -> (bool, String, String) {
-        let real_path = std::env::var("PATH").unwrap_or_default();
-        let out = std::process::Command::new("bash")
+        // join_paths emits the OS list separator — MSYS rewrites it to the
+        // POSIX form for the bash child on its own.
+        let real_path = std::env::var_os("PATH").unwrap_or_default();
+        let path = std::env::join_paths(
+            std::iter::once(self.dir.clone()).chain(std::env::split_paths(&real_path)),
+        )
+        .expect("fakes dir is always a valid PATH entry");
+        let out = std::process::Command::new(susi_core::bounded_cmd::posix_shell())
             .arg(root().join(script))
-            .env("PATH", format!("{}:{real_path}", self.dir.display()))
+            .env("PATH", path)
             .env("FAKE_LOG", self.dir.join("log"))
             .envs(envs.iter().copied())
             .output()
@@ -1034,6 +1034,8 @@ fn code_proven_script_judges_the_code_diff_not_the_commit() {
     std::fs::create_dir_all(&dir).unwrap();
     let git = |args: &[&str]| {
         let out = std::process::Command::new("git")
+            // Fixture repos stay hermetic to the host's signing setup.
+            .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
             .args(args)
             .current_dir(&dir)
             .env("GIT_AUTHOR_NAME", "t")

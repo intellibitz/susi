@@ -16,7 +16,10 @@ use std::process::Command;
 
 fn run(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     let mut cmd = Command::new("git");
-    cmd.args(args)
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
+    cmd.args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
+        .args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
@@ -75,6 +78,9 @@ impl World {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
         for (src, dst) in [
             ("scripts/park-primary.sh", "scripts/park-primary.sh"),
+            // park-primary.sh serializes on flock, absent on this host's Git
+            // Bash — the compat shim supplies it.
+            ("scripts/posix-compat.sh", "scripts/posix-compat.sh"),
             (".githooks/sync-primary", ".githooks/sync-primary"),
             (".githooks/post-commit", ".githooks/post-commit"),
             (".githooks/post-merge", ".githooks/post-merge"),

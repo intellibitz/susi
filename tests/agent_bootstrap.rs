@@ -10,13 +10,13 @@
 //! how: `scripts/susi-worktree.sh` (no name needed) and `susi workflow start`
 //! do the whole setup, and every agent tool's auto-loaded file points there.
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .current_dir(dir)
+    let mut cmd = common::program_command(program, args);
+    cmd.current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
@@ -35,6 +35,13 @@ fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32,
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
+    let args = &[
+        ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"].as_slice(),
+        args,
+    ]
+    .concat();
     let (code, out, err) = run(dir, "git", args, &[]);
     assert_eq!(code, 0, "git {args:?}: {err}");
     out

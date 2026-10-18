@@ -22,19 +22,37 @@ primary=$(dirname "$common")
 # login: that is one name shared by every agent on the machine, and a worker
 # named after it came out INTELLIBITZ<timestamp> — the human, not the agent.
 detect_tool() {
-    # The ancestor walk below needs POSIX `ps -o`; the MSYS2 ps bundled with
-    # Git for Windows has no -o flag, so on Windows hosts the name falls
-    # back to SUSI_AGENT or the generic `agent` prefix.
-    ps -o ppid= -p $$ >/dev/null 2>&1 || return 0
     local pid=$$ args exe
     local i
-    for i in 1 2 3 4 5 6; do
-        pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]') || return 0
-        { [ -n "$pid" ] && [ "$pid" -gt 1 ]; } 2>/dev/null || return 0
-        args=$(ps -o args= -p "$pid" 2>/dev/null) || return 0
+    if ps -o ppid= -p $$ >/dev/null 2>&1; then
+        # POSIX ps.
+        for i in 1 2 3 4 5 6; do
+            pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]') || return 0
+            { [ -n "$pid" ] && [ "$pid" -gt 1 ]; } 2>/dev/null || return 0
+            args=$(ps -o args= -p "$pid" 2>/dev/null) || return 0
         # The program's basename and its first argument (`node …/claude`), as
         # the Rust side reads them: a directory in the path names nothing.
-        exe=$(printf '%s\n' "$args" | awk '{ n = split($1, p, "/"); print tolower(p[n]) " " tolower($2) }')
+            exe=$(printf '%s\n' "$args" | awk '{ n = split($1, p, "/"); print tolower(p[n]) " " tolower($2) }')
+            case $exe in
+            *cursor*) echo cursor; return 0 ;;
+            *claude* | *anthropic*) echo claude; return 0 ;;
+            *codex*) echo codex; return 0 ;;
+            *antigravity*) echo antigravity; return 0 ;;
+            *gemini*) echo gemini; return 0 ;;
+            *devin*) echo devin; return 0 ;;
+            *aider*) echo aider; return 0 ;;
+            esac
+        done
+        return 0
+    fi
+    # Git Bash/MSYS2 (Windows): the bundled ps has no -o, but /proc covers the
+    # MSYS process chain — a native Windows ancestor simply ends the walk.
+    [ -r /proc/$$/ppid ] || return 0
+    for i in 1 2 3 4 5 6; do
+        pid=$(cat "/proc/$pid/ppid" 2>/dev/null) || return 0
+        { [ -n "$pid" ] && [ "$pid" -gt 1 ]; } 2>/dev/null || return 0
+        args=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null) || return 0
+        exe=$(printf '%s\n' "$args" | awk '{ n = split($1, p, "/"); n2 = split(p[n], b, "\\\\"); print tolower(b[n2]) " " tolower($2) }')
         case $exe in
         *cursor*) echo cursor; return 0 ;;
         *claude* | *anthropic*) echo claude; return 0 ;;
@@ -99,7 +117,13 @@ echo "worktree: $dest (branch $name)" >&2
 shared_target=$primary/target
 if [ -z "${SUSI_PRIVATE_TARGET:-}" ] && { [ ! -e "$dest/target" ] || [ -L "$dest/target" ]; }; then
     mkdir -p "$shared_target"
-    ln -sfn "$shared_target" "$dest/target"
+    # link_dir (posix-compat.sh): MSYS2 ln -s copies without winsymlinks; a
+    # junction needs no Developer Mode.
+    if type link_dir >/dev/null 2>&1; then
+        link_dir "$shared_target" "$dest/target"
+    else
+        ln -sfn "$shared_target" "$dest/target"
+    fi
     echo "target: shared -> $shared_target" >&2
 fi
 

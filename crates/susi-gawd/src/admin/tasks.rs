@@ -891,7 +891,10 @@ pub fn roadmap_coverage(vectors: &[Vector], open: &[Task], done: &[Task]) -> Vec
 }
 
 fn git(ws: &Path, args: &[&str]) -> EaiResult<String> {
+    // susi's own bookkeeping commits (claims, task board) are unsigned by
+    // convention and must not depend on the host's gpg being reachable.
     let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
         .args(args)
         .current_dir(ws)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -2126,17 +2129,27 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             task.accept.cmd.join(" ")
         );
     } else {
-        let out = Command::new(&task.accept.cmd[0])
-            .args(&task.accept.cmd[1..])
-            .current_dir(ws)
-            .output()
-            .map_err(|e| {
-                // A check that does not exist yet is "not done", not an I/O crash.
-                EaiError::process(format!(
-                    "{id} is not done: acceptance command `{}` could not run ({e})",
-                    task.accept.cmd.join(" ")
-                ))
-            })?;
+        let mut accept = {
+            let program = &task.accept.cmd[0];
+            let args: Vec<&str> = task.accept.cmd[1..].iter().map(String::as_str).collect();
+            // A `scripts/*.sh` acceptance cannot exec by shebang on Windows
+            // (os error 193): drive it through the POSIX shell instead.
+            if cfg!(windows) && (program.starts_with("scripts") || program.ends_with(".sh")) {
+                let script = ws.join(program);
+                susi_core::bounded_cmd::script_command(&script, &args)
+            } else {
+                let mut cmd = Command::new(program);
+                cmd.args(&task.accept.cmd[1..]);
+                cmd
+            }
+        };
+        let out = accept.current_dir(ws).output().map_err(|e| {
+            // A check that does not exist yet is "not done", not an I/O crash.
+            EaiError::process(format!(
+                "{id} is not done: acceptance command `{}` could not run ({e})",
+                task.accept.cmd.join(" ")
+            ))
+        })?;
         // Show the check's own output: the closer should see what proved it.
         eprint!("{}", String::from_utf8_lossy(&out.stderr));
         print!("{}", String::from_utf8_lossy(&out.stdout));

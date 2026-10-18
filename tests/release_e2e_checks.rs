@@ -33,6 +33,8 @@ fn e2e_checks_do_not_discover_a_surrounding_repo() {
     std::fs::create_dir_all(outer.join(".agents/tasks")).unwrap();
     let git = |args: &[&str]| {
         let out = std::process::Command::new("git")
+            // Fixture repos stay hermetic to the host's signing setup.
+            .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
             .args(args)
             .current_dir(&outer)
             .output()

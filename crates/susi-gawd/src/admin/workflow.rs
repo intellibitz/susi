@@ -472,7 +472,10 @@ pub fn ok(checks: &[Check]) -> bool {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
+    // susi's own bookkeeping commits are unsigned by convention and must
+    // not depend on the host's gpg being reachable.
     let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")

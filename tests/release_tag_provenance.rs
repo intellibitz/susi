@@ -9,11 +9,16 @@
 //! or that `main` contained the tagged commit — so a tag on a branch could
 //! publish code no one merged, under a version no one cut.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) {
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
     let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
         .args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
@@ -78,8 +83,7 @@ impl World {
 
     fn check(&self, tag: &str) -> (i32, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-release-tag.sh");
-        let out = Command::new(script)
-            .arg(tag)
+        let out = common::script_command(&script, &[tag])
             .current_dir(&self.repo)
             .output()
             .unwrap();

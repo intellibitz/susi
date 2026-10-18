@@ -9,8 +9,9 @@
 //! `scripts/github-enforce.sh` through a fake `gh`, so the exact ruleset that
 //! would reach GitHub is checked: phases, no bypass actors, relax and status.
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 struct Fake {
     dir: PathBuf,
@@ -50,8 +51,7 @@ esac
     fn run(&self, args: &[&str]) -> (i32, String, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/github-enforce.sh");
         let path = format!("{}:{}", self.dir.display(), std::env::var("PATH").unwrap());
-        let out = Command::new(script)
-            .args(args)
+        let out = common::script_command(&script, args)
             .env("PATH", path)
             .output()
             .unwrap();

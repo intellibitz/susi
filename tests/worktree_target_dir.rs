@@ -12,13 +12,13 @@
 //! — the parked tree's cache is the clone's shared one. These pin the link,
 //! the ignore rule that keeps it out of commits, and the opt-out.
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .current_dir(dir)
+    let mut cmd = common::program_command(program, args);
+    cmd.current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
@@ -38,6 +38,13 @@ fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32,
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
+    let args = &[
+        ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"].as_slice(),
+        args,
+    ]
+    .concat();
     let (code, out, err) = run(dir, "git", args, &[]);
     assert_eq!(code, 0, "git {args:?}: {err}");
     out
@@ -149,7 +156,9 @@ fn an_existing_private_target_is_left_alone() {
     let dest = cd_target(&out);
     // The agent opted to keep its own build tree; re-provisioning the same
     // worktree must not silently convert it.
-    std::fs::remove_file(dest.join("target")).unwrap();
+    // On Windows the shared link may be a junction; remove_dir drops the
+    // reparse point (and a unix symlink-to-dir) without touching the target.
+    std::fs::remove_dir(dest.join("target")).unwrap();
     std::fs::create_dir(dest.join("target")).unwrap();
     let (code, _, err) = w.worktree("worker", &[]);
     assert_eq!(code, 0, "{err}");

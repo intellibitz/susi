@@ -68,13 +68,21 @@ meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || {
     exit 0
 }
 
-# name|crate-dir per workspace package.
-pkgs=$(jq -r '.packages[] | .name + "|" + (.manifest_path | sub("/Cargo.toml$"; ""))' <<<"$meta") || {
+# name|crate-dir per workspace package. cargo's manifest_path is OS-native
+# (`C:\…\Cargo.toml` on Windows), so the suffix and both sides of the later
+# prefix match must survive that spelling — cygpath normalizes where it exists.
+pkgs=$(jq -r '.packages[] | .name + "|" + (.manifest_path | sub("[/\\\\]Cargo\\.toml$"; ""))' <<<"$meta") || {
     echo ALL
     exit 0
 }
 
 root=$PWD
+if command -v cygpath >/dev/null 2>&1; then
+    root=$(cygpath -m "$root")
+    pkgs=$(while IFS='|' read -r name dir; do
+        printf '%s|%s\n' "$name" "$(cygpath -m "$dir" 2>/dev/null || printf '%s' "$dir")"
+    done <<<"$pkgs")
+fi
 rootpkg=$(awk -F'|' -v m="$root" '$2 == m { print $1 }' <<<"$pkgs" | head -1)
 declare -A seen=()
 while IFS= read -r f; do

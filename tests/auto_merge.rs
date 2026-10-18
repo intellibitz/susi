@@ -10,8 +10,9 @@
 //! `gh`: a green PR always merges, a refused one is explained once, and no PR
 //! is left waiting forever.
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 struct Fake {
     dir: PathBuf,
@@ -32,6 +33,7 @@ impl Fake {
             r#"#!/usr/bin/env bash
 D="$(dirname "$0")"
 echo "$*" >> "$D/calls"
+jq() { command jq "$@" | tr -d '\r'; } # native Windows jq emits CRLF
 jqexpr() { local p=; for a in "$@"; do [ "$p" = --jq ] && { echo "$a"; return; }; p=$a; done; }
 argafter() { local flag=$1; shift; local p=; for a in "$@"; do [ "$p" = "$flag" ] && { echo "$a"; return; }; p=$a; done; }
 case "$1 $2" in
@@ -93,7 +95,7 @@ merge-tree) echo "git $*" >> "$D/calls"; [ -f "$D/conflict" ] && exit 1; cat "$D
 commit-tree) echo "git $*" >> "$D/calls"; cat "$D/mcfile" 2>/dev/null || echo mc999; exit 0 ;;
 checkout) echo "git $*" >> "$D/calls"; [ -f "$D/checkoutfail" ] && exit 1; exit 0 ;;
 esac
-exec /usr/bin/git "$@"
+exec "${TEST_REAL_GIT:-/usr/bin/git}" "$@"
 "#,
         )
         .unwrap();
@@ -111,13 +113,16 @@ exec /usr/bin/git "$@"
 
     fn script_env(&self, name: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
         let path = format!("{}:{}", self.dir.display(), std::env::var("PATH").unwrap());
-        let out = Command::new(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
+        let out = common::script_command(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("scripts")
                 .join(name),
+            args,
         )
-        .args(args)
         .env("PATH", path)
+        // The stub is `git` itself, so the real binary is passed around it:
+        // on Windows it is not /usr/bin/git.
+        .env("TEST_REAL_GIT", real_git(&self.dir))
         .envs(envs.iter().copied())
         .output()
         .unwrap();
@@ -170,6 +175,23 @@ impl Drop for Fake {
 
 fn pr(n: u32, branch: &str, sha: &str, updated: &str, draft: bool) -> serde_json::Value {
     serde_json::json!({"number": n, "headRefName": branch, "headRefOid": sha, "updatedAt": updated, "isDraft": draft})
+}
+
+/// The real git, found by scanning PATH past the fixture's own `git` stub.
+/// Forward slashes so the value is usable by the bash stub on Windows.
+fn real_git(stub_dir: &Path) -> String {
+    for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        if dir == stub_dir {
+            continue;
+        }
+        for name in ["git", "git.exe"] {
+            let c = dir.join(name);
+            if c.is_file() {
+                return c.to_string_lossy().replace('\\', "/");
+            }
+        }
+    }
+    "/usr/bin/git".to_string()
 }
 
 const NOW: &str = "2999-01-01T00:00:00Z"; // never stale

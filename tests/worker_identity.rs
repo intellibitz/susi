@@ -14,6 +14,8 @@
 //!   login, so two sessions minted the same `T-PRIMARY-<n>`;
 //! * `susi workflow start` named a new worker after `git config user.name`.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -25,11 +27,18 @@ struct World {
 /// The environment of a worker's shell: a private `$HOME`, no system git
 /// config, and neither `SUSI_AGENT` nor an inherited git identity.
 fn command(program: &str, dir: &Path, home: &Path) -> Command {
-    let mut cmd = Command::new(program);
+    let mut cmd = common::program_command(program, &[]);
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
     cmd.current_dir(dir)
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
+        .env("GIT_CONFIG_KEY_1", "tag.gpgsign")
+        .env("GIT_CONFIG_VALUE_1", "false")
         .env_remove("SUSI_HOME")
         .env_remove("SUSI_AGENT")
         .env_remove("GIT_DIR")

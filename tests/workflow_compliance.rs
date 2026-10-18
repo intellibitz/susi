@@ -10,17 +10,25 @@
 //! `susi tasks` binary: a commit passes only if its `Task:` trailer names a
 //! task that is closed or held by a live claim.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .current_dir(dir)
+    let mut cmd = common::program_command(program, args);
+    cmd.current_dir(dir)
         .env("GIT_AUTHOR_NAME", "agent")
         .env("GIT_AUTHOR_EMAIL", "a@a")
         .env("GIT_COMMITTER_NAME", "agent")
         .env("GIT_COMMITTER_EMAIL", "a@a")
+        // Fixture repos stay hermetic to the host's signing setup: a global
+        // commit.gpgsign with an unreachable keyboxd must not fail commits.
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
+        .env("GIT_CONFIG_KEY_1", "tag.gpgsign")
+        .env("GIT_CONFIG_VALUE_1", "false")
         .env_remove("SUSI_HOME");
     for (k, v) in envs {
         cmd.env(k, v);

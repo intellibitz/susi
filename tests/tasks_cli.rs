@@ -9,11 +9,16 @@
 //! `susi tasks` end to end through the real binary: add → claim (atomic,
 //! second claimant refused) → close only when the acceptance check passes.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) {
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
     let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
         .args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
@@ -221,8 +226,7 @@ fn a_task_already_closed_on_main_cannot_be_closed_again() {
 /// Runs the binary without `SUSI_AGENT`, so the identity falls through to the
 /// worktree and the process tree exactly as it does for a real worker.
 fn susi_no_agent(dir: &Path, home: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(program)
-        .args(args)
+    let out = common::program_command(program, args)
         .current_dir(dir)
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))

@@ -115,7 +115,7 @@ fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> 
     if !script.is_file() {
         bail!("{} not found — is this a susi checkout?", script.display());
     }
-    let mut cmd = std::process::Command::new(&script);
+    let mut cmd = workflow_script_command(&script, &[]);
     cmd.current_dir(&root);
     // Only a name the operator gave is passed on. `who()` would answer with this
     // checkout's identity — `PRIMARY` from the primary checkout, or the shared
@@ -171,8 +171,7 @@ fn sync_primary(root: &Path) {
     if !script.is_file() {
         return;
     }
-    if let Ok(out) = std::process::Command::new(&script)
-        .arg("--sync-only")
+    if let Ok(out) = workflow_script_command(&script, &["--sync-only"])
         .current_dir(root)
         .stderr(std::process::Stdio::null())
         .output()
@@ -198,52 +197,8 @@ fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+/// Windows cannot exec a script by its shebang (os error 193), so scripts
+/// run through the POSIX shell `susi_core::bounded_cmd` resolves.
 fn workflow_script_command(script: &Path, args: &[&str]) -> std::process::Command {
-    let mut cmd = std::process::Command::new(script);
-    cmd.args(args);
-    cmd
-}
-
-/// Windows cannot exec a script by its shebang (os error 193): drive it
-/// through a POSIX shell. `sh`/`bash` resolve when susi runs inside Git
-/// Bash; outside it, Git for Windows still ships `usr/bin/sh.exe` beside
-/// its `cmd/git.exe`, which `git --exec-path` locates.
-#[cfg(windows)]
-fn workflow_script_command(script: &Path, args: &[&str]) -> std::process::Command {
-    let shell = windows_posix_shell().unwrap_or_else(|| std::path::PathBuf::from("sh"));
-    let mut cmd = std::process::Command::new(shell);
-    cmd.arg(script).args(args);
-    cmd
-}
-
-#[cfg(windows)]
-fn windows_posix_shell() -> Option<std::path::PathBuf> {
-    for name in ["sh", "bash"] {
-        let ok = std::process::Command::new(name)
-            .args(["-c", "exit 0"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if ok {
-            return Some(std::path::PathBuf::from(name));
-        }
-    }
-    // `git --exec-path` resolves to <git>/mingw64/libexec/git-core; the
-    // bundled POSIX shell lives in <git>/usr/bin or <git>/bin.
-    let out = std::process::Command::new("git")
-        .arg("--exec-path")
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    for rel in ["../usr/bin/sh.exe", "../bin/sh.exe"] {
-        let candidate = Path::new(&exec_path).join(rel);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    susi_core::bounded_cmd::script_command(script, args)
 }

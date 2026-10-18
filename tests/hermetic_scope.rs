@@ -9,8 +9,9 @@
 //! so it can run for the crates a diff touched. A fake `cargo` lets both the
 //! scope and the leak assertion be checked without compiling anything.
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-hermetic-tests.sh")
@@ -70,10 +71,19 @@ impl World {
     }
 
     fn run_with(&self, envs: &[(&str, &str)], args: &[&str]) -> (i32, String) {
-        let out = Command::new(script())
-            .args(args)
+        let out = common::script_command(&script(), args)
             .env("CARGO_HOME", self.bins.parent().unwrap())
-            .env("PATH", format!("{}:/usr/bin:/bin", self.bins.display()))
+            // /usr/bin carries the coreutils on unix, but git is elsewhere on
+            // a Windows host (Git Bash keeps it in /cmd), so the inherited
+            // PATH trails the controlled head instead of replacing it.
+            .env(
+                "PATH",
+                format!(
+                    "{}:/usr/bin:/bin:{}",
+                    self.bins.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
             .env("TEST_CARGO_CALLS", &self.home)
             .env("TEST_REAL_CARGO", env!("CARGO"))
             .env_remove("SUSI_HERMETIC_RUNNER")

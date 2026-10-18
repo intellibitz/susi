@@ -13,14 +13,24 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 fn git(dir: &Path, args: &[&str]) {
-    let out = command(dir, "git", args, "", &[]);
+    let out = command(dir, "git", &nosign(args), "", &[]);
     assert_eq!(out.0, 0, "git {args:?}: {}", out.2);
 }
 
 fn git_out(dir: &Path, args: &[&str]) -> String {
-    let out = command(dir, "git", args, "", &[]);
+    let out = command(dir, "git", &nosign(args), "", &[]);
     assert_eq!(out.0, 0, "git {args:?}: {}", out.2);
     out.1.trim().to_string()
+}
+
+/// Fixture repos stay hermetic to the host's signing setup: a global
+/// commit.gpgsign with an unreachable keyboxd must not fail commits.
+fn nosign<'a>(args: &'a [&'a str]) -> Vec<&'a str> {
+    [
+        ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"].as_slice(),
+        args,
+    ]
+    .concat()
 }
 
 /// Runs `program` with `stdin` piped in; returns (code, stdout, stderr).
@@ -31,9 +41,16 @@ fn command(
     stdin: &str,
     envs: &[(&str, &str)],
 ) -> (i32, String, String) {
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .current_dir(dir)
+    let mut cmd = if program.ends_with(".sh") || program.contains(".githooks") {
+        // Hooks and scripts are POSIX shell; Windows cannot exec them
+        // directly (os error 193) — resolve a shell via the shared helper.
+        susi_core::bounded_cmd::script_command(Path::new(program), args)
+    } else {
+        let mut c = Command::new(program);
+        c.args(args);
+        c
+    };
+    cmd.current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")

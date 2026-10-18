@@ -741,7 +741,10 @@ mod tests {
     }
 
     fn git(repo: &Path, args: &[&str]) {
+        // Fixture repos stay hermetic to the host's signing setup: a global
+        // commit.gpgsign with an unreachable keyboxd must not fail commits.
         let o = Command::new("git")
+            .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
             .args(args)
             .current_dir(repo)
             .output()

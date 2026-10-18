@@ -124,7 +124,8 @@ owed_merges_of() {
         [ "$owner" = "$agent" ] || continue
         # A receipt whose close reached main is published work whose record has
         # simply not been cleaned up yet — never a reason to refuse a push.
-        git cat-file -e "origin/main:.agents/tasks/done/$id.json" 2>/dev/null && continue
+        # MSYS_NO_PATHCONV: Git Bash rewrites `origin/main:…` as a path list.
+        MSYS_NO_PATHCONV=1 git cat-file -e "origin/main:.agents/tasks/done/$id.json" 2>/dev/null && continue
         printf '%s\n' "$id"
     done < <(git for-each-ref --format='%(refname)' refs/closed/ 2>/dev/null || true)
 }
@@ -360,7 +361,7 @@ while read -r c; do
             # Unknown freshness is not a reason to refuse: an unreachable
             # origin/main only means this check cannot tell.
             git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || continue
-            git cat-file -e "origin/main:$program" 2>/dev/null && continue
+            MSYS_NO_PATHCONV=1 git cat-file -e "origin/main:$program" 2>/dev/null && continue
             err "commit $short declares $id with acceptance \`$program\`, which is not a checker on origin/main — a task may not write the script that declares it done. Use a test (\`cargo test <filter>\`) or a checker already merged"
             ;;
         *)

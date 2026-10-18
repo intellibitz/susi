@@ -10,8 +10,9 @@
 //! full suite" is the part worth pinning: a branch-push run only compiles and
 //! lints, so a green one proves nothing about the tests.
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const SHA: &str = "abc1234";
 /// Far enough ahead that the script's "created after the dispatch" test holds.
@@ -48,6 +49,7 @@ impl Fake {
             r#"#!/usr/bin/env bash
 D="$(dirname "$0")"
 echo "$*" >> "$D/calls"
+jq() { command jq "$@" | tr -d '\r'; } # native Windows jq emits CRLF
 jqexpr() { local p=; for a in "$@"; do [ "$p" = --jq ] && { echo "$a"; return; }; p=$a; done; }
 case "$1 $2" in
 "run list") if [ -f "$D/dispatched" ]; then cat "$D/after.json"; else cat "$D/before.json"; fi ;;
@@ -77,10 +79,10 @@ esac
 
     fn run(&self, envs: &[(&str, &str)]) -> (i32, String) {
         let path = format!("{}:{}", self.dir.display(), std::env::var("PATH").unwrap());
-        let out = Command::new(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/release-await-tests.sh"),
+        let out = common::script_command(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/release-await-tests.sh"),
+            &["o/r", "v1.2.3", SHA],
         )
-        .args(["o/r", "v1.2.3", SHA])
         .env("PATH", path)
         .env("RELEASE_TESTS_POLL", "0")
         .envs(envs.iter().copied())

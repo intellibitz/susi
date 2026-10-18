@@ -14,6 +14,24 @@ if command -v jq >/dev/null 2>&1; then
     }
 fi
 #
+# 1b. link_dir() — MSYS2's `ln -s` silently deep-copies unless winsymlinks is
+# set; a native symlink needs Developer Mode while a directory junction does
+# not. The junction is therefore the fallback when the real link fails. Only
+# for directories (cargo `target/` sharing).
+link_dir() {
+    local shared=$1 link=$2
+    if [ -n "${MSYSTEM:-}" ]; then
+        MSYS=winsymlinks:nativestrict ln -sfn "$shared" "$link" 2>/dev/null && return 0
+        [ -L "$link" ] && return 0
+        local winlink winshared
+        winlink=$(cygpath -w "$link" 2>/dev/null || printf '%s' "$link")
+        winshared=$(cygpath -w "$shared" 2>/dev/null || printf '%s' "$shared")
+        cmd //c "mklink /J \"$winlink\" \"$winshared\"" >/dev/null 2>&1
+    else
+        ln -sfn "$shared" "$link" 2>/dev/null
+    fi
+}
+#
 # 2. flock — util-linux flock(1) does not exist on Git Bash/MSYS2, where these
 # workflow scripts must run for Windows hosts. When flock is absent this
 # defines a

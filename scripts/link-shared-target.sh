@@ -25,6 +25,7 @@
 # same moment wait for each other. With most units already built the compile
 # phases are short, and SUSI_PRIVATE_TARGET=1 trades the wait for the cold build.
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 dir=${1:-$(git rev-parse --show-toplevel 2>/dev/null)}
 [ -n "$dir" ] && [ -d "$dir" ] || exit 0
@@ -43,6 +44,11 @@ fi
 
 shared=$primary/target
 mkdir -p "$shared" 2>/dev/null || exit 0
-ln -sfn "$shared" "$link" 2>/dev/null || exit 0
+if type link_dir >/dev/null 2>&1; then
+    link_dir "$shared" "$link" || exit 0
+else
+    ln -sfn "$shared" "$link" 2>/dev/null || exit 0
+fi
+[ -L "$link" ] || exit 0
 echo "target: shared -> $shared" >&2
 exit 0

@@ -43,6 +43,10 @@ fn wire_test_substrate() {
             std::env::set_var("HOME", &tmp);
             std::env::set_var("USERPROFILE", &tmp);
             std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
+            // Windows resolves susi dirs from %APPDATA%/%LOCALAPPDATA%, not
+            // XDG — without these the suite reads the real user profile.
+            std::env::set_var("APPDATA", tmp.join("appdata"));
+            std::env::set_var("LOCALAPPDATA", tmp.join("localappdata"));
             // Set the inference seam before any global registry or engine is
             // initialized.  The tests run in parallel, so setting it only in
             // the two inference tests leaves a race where another test can

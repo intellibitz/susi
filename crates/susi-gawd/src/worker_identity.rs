@@ -185,7 +185,10 @@ pub fn judge(own: &Own, others: &[(PathBuf, String)], logins: &[String]) -> (Sta
 /// A git invocation that sees the repository it is pointed at, not the one a
 /// calling hook exported through `GIT_DIR`.
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
+    // susi's own bookkeeping commits are unsigned by convention and must
+    // not depend on the host's gpg being reachable.
     let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
         .args(args)
         .current_dir(dir)
         .env_remove("GIT_DIR")

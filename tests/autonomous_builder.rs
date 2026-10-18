@@ -23,7 +23,10 @@ use susi_gawd::autonomous_builder::{run_cycle, Delegation};
 static SERIAL: Mutex<()> = Mutex::new(());
 
 fn git(dir: &Path, args: &[&str]) -> String {
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
     let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"])
         .args(args)
         .current_dir(dir)
         .output()

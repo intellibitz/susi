@@ -9,17 +9,24 @@
 //! `susi workflow check` against real git topologies: a primary checkout, a
 //! worktree, a stale clone, missing hooks and missing claims.
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .current_dir(dir)
+    let mut cmd = common::program_command(program, args);
+    // Fixture repos stay hermetic to the host's signing setup: a global
+    // commit.gpgsign with an unreachable keyboxd must not fail commits.
+    cmd.current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
         .env("GIT_COMMITTER_EMAIL", "t@t")
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
+        .env("GIT_CONFIG_KEY_1", "tag.gpgsign")
+        .env("GIT_CONFIG_VALUE_1", "false")
         .env_remove("SUSI_HOME");
     for (k, v) in envs {
         cmd.env(k, v);
@@ -137,6 +144,8 @@ impl World {
             &["workflow", "check"],
             &[
                 ("HOME", self.home.to_str().unwrap()),
+                // Windows resolves home via %USERPROFILE% first — pin both.
+                ("USERPROFILE", self.home.to_str().unwrap()),
                 ("XDG_CONFIG_HOME", self.home.join("xdg").to_str().unwrap()),
                 ("SUSI_AGENT", "test"),
             ],
@@ -151,6 +160,7 @@ impl World {
             args,
             &[
                 ("HOME", self.home.to_str().unwrap()),
+                ("USERPROFILE", self.home.to_str().unwrap()),
                 ("XDG_CONFIG_HOME", self.home.join("xdg").to_str().unwrap()),
                 ("SUSI_AGENT", "test"),
             ],
