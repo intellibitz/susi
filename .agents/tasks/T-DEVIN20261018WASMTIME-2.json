@@ -1,0 +1,18 @@
+{
+  "id": "T-DEVIN20261018WASMTIME-2",
+  "title": "Fix Windows-only test failures so the workspace suite passes on windows-msvc",
+  "goal": "The wasmtime port made susi build on Windows, but the local gate (cargo nextest --workspace) surfaces roughly a hundred Windows-only test failures: tests that exec .sh scripts through Command directly (os error 193), tests assuming /tmp or unix path semantics, process-group termination expectations, stdout-close semantics, and temp-tree cleanup races on Windows file locking. Fix each cluster at its root (invoke scripts through a POSIX shell on Windows, cfg-gate genuinely unix-only behavior, use taskkill /T where Unix kills process groups, normalize temp-dir handling), keeping behavior identical on unix so the suite is green on both platforms.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--workspace",
+      "--locked"
+    ]
+  },
+  "created_by": "DEVIN20261018WASMTIME",
+  "created_unix": 1792358697
+}
