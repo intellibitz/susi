@@ -9,6 +9,7 @@
 //! Mandate 49: any agent's git activity in a worktree keeps the primary
 //! checkout's `main` current, through `.githooks/sync-primary`.
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -81,6 +82,9 @@ impl World {
         ] {
             let to = primary.join(dst);
             std::fs::copy(repo.join(src), &to).unwrap();
+            // Git for Windows runs hooks through its bundled sh regardless of
+            // file mode; the exec bit only exists on unix.
+            #[cfg(unix)]
             std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         git(&primary, &["add", "-A"]);
@@ -206,10 +210,14 @@ fn hooks_sync_primary_is_wired_into_every_git_activity_hook() {
     for h in ["post-commit", "post-merge", "post-checkout", "pre-push"] {
         let text = std::fs::read_to_string(repo.join(h)).unwrap();
         assert!(text.contains("sync-primary"), "{h} must call sync-primary");
-        let mode = std::fs::metadata(repo.join(h))
-            .unwrap()
-            .permissions()
-            .mode();
-        assert!(mode & 0o111 != 0, "{h} must be executable");
+        // Windows has no exec bit — Git for Windows runs hooks via sh anyway.
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(repo.join(h))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert!(mode & 0o111 != 0, "{h} must be executable");
+        }
     }
 }

@@ -155,9 +155,26 @@ fn restart(name: &str) -> Result<()> {
             rec.pid
         );
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        bail!("restart is unix-only for now (pid {})", rec.pid);
+        // taskkill /T /F — the Windows analogue of SIGTERM on a supervised
+        // child; the daemon respawns it like a unix restart.
+        let ok = std::process::Command::new("taskkill")
+            .args(["/PID", &rec.pid.to_string(), "/T", "/F"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            bail!("failed to taskkill {name} (pid {})", rec.pid);
+        }
+        println!(
+            "killed {name} (pid {}); the daemon will respawn it",
+            rec.pid
+        );
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        bail!("restart is unsupported on this platform (pid {})", rec.pid);
     }
     Ok(())
 }
@@ -214,9 +231,23 @@ fn stop(name: &str) -> Result<()> {
             "stopped {name} (pid {pid}); supervisor holds it down until `susi services start {name}`"
         );
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        bail!("stop is unix-only for now (pid {pid})");
+        let ok = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            bail!("{name} marked stopped but taskkill pid {pid} failed");
+        }
+        println!(
+            "stopped {name} (pid {pid}); supervisor holds it down until `susi services start {name}`"
+        );
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        bail!("stop is unsupported on this platform (pid {pid})");
     }
     Ok(())
 }

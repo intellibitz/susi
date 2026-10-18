@@ -5,6 +5,9 @@
 //! never capture keystrokes, passwords, or hidden UI content.
 
 use std::path::Path;
+// The samplers are Linux-only; the import gates with them so the no-op
+// builds on other platforms stay warning-free.
+#[cfg(target_os = "linux")]
 use susi_core::context_graph::ContextGraph;
 
 /// Sample one round of OS context and record it into the global context graph.

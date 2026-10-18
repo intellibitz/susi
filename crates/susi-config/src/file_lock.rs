@@ -101,13 +101,11 @@ impl FileLock {
     /// (Linux `/proc`), or it has sat unclaimed for over a minute —
     /// either means the holder died mid-claim.
     fn is_stale(lock: &Path) -> bool {
+        #[cfg(target_os = "linux")]
         if let Ok(body) = fs::read_to_string(lock) {
             if let Ok(pid) = body.trim().parse::<u32>() {
-                #[cfg(target_os = "linux")]
-                {
-                    if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
-                        return true;
-                    }
+                if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                    return true;
                 }
             }
         }
