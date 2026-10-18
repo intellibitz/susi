@@ -12,11 +12,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "addr2line",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "ahash",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -52,11 +47,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "any_ascii",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "anyhow",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -72,17 +62,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "arrayvec",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "async-trait",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "atomic-take",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -102,22 +82,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "backtrace",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "base64",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "bincode",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "bincode_derive",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -137,17 +102,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "bitflags",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "bitpacking",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "blake3",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -187,32 +142,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "bstr",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "bumpalo",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "bumpalo-herd",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "bus",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "bytecheck",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "bytecheck_derive",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -242,11 +172,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "bytesize",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "candle-core",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -263,6 +188,11 @@
     },
     {
       "crate_name": "candle-transformers",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "cap-primitives",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -302,21 +232,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "ciborium",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "ciborium-io",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "ciborium-ll",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "cipher",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -347,16 +262,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "colored",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "colosseum",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "combine",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -377,32 +282,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "constant_time_eq",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "convert_case",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "cooked-waker",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "core_detect",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "corosensei",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "cpp_demangle",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -462,6 +342,11 @@
       "first_party_exception": false
     },
     {
+      "crate_name": "cranelift-native",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
       "crate_name": "crc32fast",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -478,11 +363,6 @@
     },
     {
       "crate_name": "crossbeam-epoch",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "crossbeam-queue",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -522,27 +402,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "darling",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "darling_core",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
       "crate_name": "darling_core",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "darling_core",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "darling_macro",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -602,12 +467,22 @@
       "first_party_exception": false
     },
     {
+      "crate_name": "directories-next",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
       "crate_name": "dirs",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
       "crate_name": "dirs-sys",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "dirs-sys-next",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -622,17 +497,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "document-features",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "downcast-rs",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "dunce",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -648,16 +513,6 @@
     },
     {
       "crate_name": "dyn-stack-macros",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "dynasm",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "dynasmrt",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -682,26 +537,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "enum-iterator",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "enum-iterator-derive",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "enumset",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "enumset_derive",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "equivalent",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -719,12 +554,7 @@
     {
       "crate_name": "esaxx-rs",
       "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "fallible-iterator",
-      "unsafe_fns": 1,
-      "first_party_exception": false
+      "first_party_exception": true
     },
     {
       "crate_name": "fancy-regex",
@@ -743,11 +573,6 @@
     },
     {
       "crate_name": "fastembed",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "filetime",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -782,11 +607,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "foldhash",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "form_urlencoded",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -797,12 +617,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "fs4",
+      "crate_name": "fs-set-times",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
-      "crate_name": "fs_extra",
+      "crate_name": "fs4",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -848,6 +668,11 @@
     },
     {
       "crate_name": "futures-util",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "fxprof-processed-profile",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -912,42 +737,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "gimli",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "gimli",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "glob",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "globset",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "h2",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
       "crate_name": "half",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "hash32",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "hashbrown",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -968,16 +763,6 @@
     },
     {
       "crate_name": "headless_chrome",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "heapless",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "heck",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1102,11 +887,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "ignore",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "indexmap",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -1122,22 +902,27 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "insta",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "inventory",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
-      "crate_name": "ipnet",
+      "crate_name": "io-extras",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
-      "crate_name": "iprange",
+      "crate_name": "io-lifetimes",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "io-lifetimes",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "ipnet",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1152,12 +937,17 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "itertools",
+      "crate_name": "itoa",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
-      "crate_name": "itoa",
+      "crate_name": "ittapi",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "ittapi-sys",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1178,16 +968,6 @@
     },
     {
       "crate_name": "jni-sys-macros",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "jobserver",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "js-sys",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1227,57 +1007,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "lexical-sort",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "libc",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
-      "crate_name": "libloading",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "libm",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "libunwind",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "libwild",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "linked-hash-map",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "linked_hash_set",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "linker-layout",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "linker-trace",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "linker-utils",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1288,11 +1023,6 @@
     },
     {
       "crate_name": "litemap",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "litrs",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1317,17 +1047,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "lz4_flex",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "macro_rules_attribute-proc_macro",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "managed",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1347,6 +1067,11 @@
       "first_party_exception": false
     },
     {
+      "crate_name": "maybe-owned",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
       "crate_name": "md-5",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -1362,7 +1087,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "memmap2",
+      "crate_name": "memfd",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1407,11 +1132,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "more-asserts",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "multiversion",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -1427,16 +1147,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "munge",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "munge_macro",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "murmurhash32",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -1448,11 +1158,6 @@
     },
     {
       "crate_name": "nix",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "nom",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1517,16 +1222,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "num_enum",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "num_enum_derive",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "objc2",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -1548,11 +1243,6 @@
     },
     {
       "crate_name": "objc2-metal",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "object",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1652,57 +1342,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "perf-event",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "perf-event-open-sys",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "perfetto-recorder",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "petgraph",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
-      "crate_name": "phf",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "phf_generator",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "phf_macros",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "phf_shared",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "pin-project",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "pin-project-lite",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "pin-utils",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1747,21 +1392,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "proc-macro-crate",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "proc-macro-error-attr2",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "proc-macro-error-attr3",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "proc-macro2",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -1777,27 +1407,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "prost",
+      "crate_name": "pulley-interpreter",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
-      "crate_name": "prost-derive",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "ptr_meta",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "ptr_meta_derive",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "pulldown-cmark",
+      "crate_name": "pulley-macros",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1827,11 +1442,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "rancor",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "rand",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -1853,11 +1463,6 @@
     },
     {
       "crate_name": "rand_core",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "rangemap",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1922,37 +1527,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "region",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "rend",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "replace_with",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "reqwest",
       "unsafe_fns": 1,
       "first_party_exception": true
     },
     {
       "crate_name": "ring",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "rkyv",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "rkyv_derive",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -1987,6 +1567,11 @@
       "first_party_exception": false
     },
     {
+      "crate_name": "rustix-linux-procfs",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
       "crate_name": "rustls-native-certs",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -2017,16 +1602,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "rusty_pool",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "ruzstd",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "ryu",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -2037,22 +1612,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "saffron",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "same-file",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
       "crate_name": "scopeguard",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "self_cell",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2107,11 +1672,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "serde_yaml",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "sha1",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -2128,26 +1688,11 @@
     },
     {
       "crate_name": "sha2",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "sharded-offset-map",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
       "crate_name": "sharded-slab",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "sharded-vec-writer",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "shared-buffer",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2177,16 +1722,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "similar",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "siphasher",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "sketches-ddsketch",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -2198,11 +1733,6 @@
     },
     {
       "crate_name": "smallvec",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "smoltcp",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2238,11 +1768,6 @@
     },
     {
       "crate_name": "static_assertions",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "strip-ansi-escapes",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2332,22 +1857,7 @@
       "first_party_exception": true
     },
     {
-      "crate_name": "symbolic-common",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "symbolic-demangle",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "symlink",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "syn",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2422,11 +1932,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "tar",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "target-lexicon",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -2437,17 +1942,22 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "terminal_size",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "termios",
+      "crate_name": "termcolor",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
       "crate_name": "thiserror",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "thiserror",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "thiserror-impl",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2507,11 +2017,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "toml_edit",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "toml_parser",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -2562,16 +2067,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "twox-hash",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "typed-arena",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "typed-path",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -2612,11 +2107,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "unicode-normalization",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "unicode-normalization-alignments",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -2642,27 +2132,12 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "unsafe-libyaml",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "untrusted",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
-      "crate_name": "unty",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "url",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "urlencoding",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2697,62 +2172,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "virtual-fs",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "virtual-mio",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "virtual-net",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "virtue",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "vsimd",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "vte",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wai-bindgen-gen-core",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wai-bindgen-gen-rust",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wai-bindgen-gen-rust-wasm",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wai-bindgen-rust",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wai-bindgen-rust-impl",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wai-parser",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2772,27 +2192,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "wasm-bindgen",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasm-bindgen-futures",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasm-bindgen-macro",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasm-bindgen-macro-support",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasm-bindgen-shared",
+      "crate_name": "wasm-compose",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2807,72 +2207,7 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "wasm-encoder",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-compiler",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-compiler-cranelift",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-compiler-singlepass",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-config",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-derive",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-journal",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-middlewares",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-package",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-types",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-vm",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-wasix",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "wasmer-wasix-types",
+      "crate_name": "wasm-metadata",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2883,11 +2218,91 @@
     },
     {
       "crate_name": "wasmparser",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmprinter",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-environ",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-cache",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-component-macro",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-component-util",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
       "crate_name": "wasmtime-internal-core",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-cranelift",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-fiber",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-jit-debug",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-jit-icache-coherence",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-unwinder",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-versioned-export-macros",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-internal-wit-bindgen",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-wasi",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wasmtime-wasi-io",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wast",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2902,27 +2317,42 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "web-sys",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "web-time",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "webc",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "which",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
     {
+      "crate_name": "wiggle",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wiggle-generate",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wiggle-macro",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
       "crate_name": "winnow",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wit-component",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "wit-parser",
+      "unsafe_fns": 1,
+      "first_party_exception": false
+    },
+    {
+      "crate_name": "witx",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -2933,16 +2363,6 @@
     },
     {
       "crate_name": "x25519-dalek",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "xattr",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
-      "crate_name": "xxhash-rust",
       "unsafe_fns": 1,
       "first_party_exception": false
     },
@@ -3002,11 +2422,6 @@
       "first_party_exception": false
     },
     {
-      "crate_name": "zlib-rs",
-      "unsafe_fns": 1,
-      "first_party_exception": false
-    },
-    {
       "crate_name": "zmij",
       "unsafe_fns": 1,
       "first_party_exception": false
@@ -3035,12 +2450,7 @@
     },
     {
       "crate_name": "addr2line",
-      "version": "0.25.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "addr2line",
-      "version": "0.27.1",
+      "version": "0.26.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3066,6 +2476,11 @@
     {
       "crate_name": "allocator-api2",
       "version": "0.2.21",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "ambient-authority",
+      "version": "0.0.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3104,11 +2519,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "any_ascii",
-      "version": "0.1.7",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "anyhow",
       "version": "1.0.104",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3121,11 +2531,6 @@
     {
       "crate_name": "arc-swap",
       "version": "1.9.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "arrayvec",
-      "version": "0.7.8",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3146,11 +2551,6 @@
     {
       "crate_name": "async-trait",
       "version": "0.1.92",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "atomic-take",
-      "version": "1.1.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3179,11 +2579,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "backtrace",
-      "version": "0.3.76",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "base64",
       "version": "0.13.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3196,21 +2591,6 @@
     {
       "crate_name": "base64",
       "version": "0.23.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "bincode",
-      "version": "2.0.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "bincode_derive",
-      "version": "2.0.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "bindgen",
-      "version": "0.72.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3230,22 +2610,12 @@
     },
     {
       "crate_name": "bitflags",
-      "version": "1.3.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "bitflags",
       "version": "2.13.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "bitpacking",
       "version": "0.9.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "blake3",
-      "version": "1.8.7",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3289,33 +2659,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "bstr",
-      "version": "1.13.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "bumpalo",
       "version": "3.20.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "bumpalo-herd",
-      "version": "0.1.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "bus",
-      "version": "2.4.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "bytecheck",
-      "version": "0.8.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "bytecheck_derive",
-      "version": "0.8.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3344,11 +2689,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "bytesize",
-      "version": "2.7.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "candle-core",
       "version": "0.11.0",
       "provenance": "git+https://github.com/huggingface/candle?rev=1bbda281093b29a62ab2331b239894778b3aefb2#1bbda281093b29a62ab2331b239894778b3aefb2"
@@ -3369,6 +2709,11 @@
       "provenance": "git+https://github.com/huggingface/candle?rev=1bbda281093b29a62ab2331b239894778b3aefb2#1bbda281093b29a62ab2331b239894778b3aefb2"
     },
     {
+      "crate_name": "cap-primitives",
+      "version": "4.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
       "crate_name": "cast",
       "version": "0.3.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3386,11 +2731,6 @@
     {
       "crate_name": "census",
       "version": "0.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "cexpr",
-      "version": "0.6.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3444,11 +2784,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "clang-sys",
-      "version": "1.9.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "clap",
       "version": "4.6.7",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3469,11 +2804,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "cmake",
-      "version": "0.1.58",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "cmov",
       "version": "0.5.4",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3486,16 +2816,6 @@
     {
       "crate_name": "colorchoice",
       "version": "1.0.5",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "colored",
-      "version": "3.1.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "colosseum",
-      "version": "0.2.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3529,23 +2849,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "constant_time_eq",
-      "version": "0.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "convert_case",
       "version": "0.8.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "convert_case",
-      "version": "0.10.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "cooked-waker",
-      "version": "5.0.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3579,16 +2884,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "corosensei",
-      "version": "0.3.4",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "cpp_demangle",
-      "version": "0.4.5",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "cpp_demangle",
       "version": "0.5.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3605,62 +2900,67 @@
     },
     {
       "crate_name": "cranelift-assembler-x64",
-      "version": "0.135.2",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-assembler-x64-meta",
-      "version": "0.135.2",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-bforest",
-      "version": "0.135.0",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-bitset",
-      "version": "0.135.0",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-codegen",
-      "version": "0.135.0",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-codegen-meta",
-      "version": "0.135.2",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-codegen-shared",
-      "version": "0.135.2",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-control",
-      "version": "0.135.2",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-entity",
-      "version": "0.135.0",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-frontend",
-      "version": "0.135.0",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-isle",
-      "version": "0.135.0",
+      "version": "0.136.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "cranelift-native",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "cranelift-srcgen",
-      "version": "0.135.2",
+      "version": "0.136.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3691,11 +2991,6 @@
     {
       "crate_name": "crossbeam-epoch",
       "version": "0.9.21",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "crossbeam-queue",
-      "version": "0.3.14",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3745,11 +3040,6 @@
     },
     {
       "crate_name": "darling",
-      "version": "0.21.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "darling",
       "version": "0.24.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
@@ -3760,22 +3050,12 @@
     },
     {
       "crate_name": "darling_core",
-      "version": "0.21.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "darling_core",
       "version": "0.24.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "darling_macro",
       "version": "0.20.11",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "darling_macro",
-      "version": "0.21.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3809,26 +3089,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "defmt",
-      "version": "0.3.100",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "defmt",
-      "version": "1.1.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "defmt-macros",
-      "version": "1.1.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "defmt-parser",
-      "version": "1.0.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "der-parser",
       "version": "10.0.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3854,16 +3114,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "derive_more",
-      "version": "2.1.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "derive_more-impl",
-      "version": "2.1.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "digest",
       "version": "0.10.7",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3874,6 +3124,11 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
+      "crate_name": "directories-next",
+      "version": "2.0.0",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
       "crate_name": "dirs",
       "version": "6.0.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3881,6 +3136,11 @@
     {
       "crate_name": "dirs-sys",
       "version": "0.5.0",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "dirs-sys-next",
+      "version": "0.1.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3904,11 +3164,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "dunce",
-      "version": "1.0.5",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "dyn-clone",
       "version": "1.0.20",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -3921,16 +3176,6 @@
     {
       "crate_name": "dyn-stack-macros",
       "version": "0.1.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "dynasm",
-      "version": "5.1.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "dynasmrt",
-      "version": "5.1.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -3979,26 +3224,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "enum-iterator",
-      "version": "2.3.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "enum-iterator-derive",
-      "version": "1.5.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "enumset",
-      "version": "1.1.14",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "enumset_derive",
-      "version": "0.15.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "equivalent",
       "version": "1.0.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -4016,17 +3241,7 @@
     {
       "crate_name": "esaxx-rs",
       "version": "0.1.10",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "escape8259",
-      "version": "0.5.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "fallible-iterator",
-      "version": "0.3.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+      "provenance": "path"
     },
     {
       "crate_name": "fancy-regex",
@@ -4059,18 +3274,13 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "filetime",
-      "version": "0.2.29",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "find-msvc-tools",
       "version": "0.1.13",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "fixedbitset",
-      "version": "0.5.7",
+      "version": "0.4.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4100,11 +3310,6 @@
     },
     {
       "crate_name": "foldhash",
-      "version": "0.1.5",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "foldhash",
       "version": "0.2.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
@@ -4119,13 +3324,13 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "fs4",
-      "version": "0.13.1",
+      "crate_name": "fs-set-times",
+      "version": "0.20.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "fs_extra",
-      "version": "1.3.0",
+      "crate_name": "fs4",
+      "version": "0.13.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4171,6 +3376,11 @@
     {
       "crate_name": "futures-util",
       "version": "0.3.34",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "fxprof-processed-profile",
+      "version": "0.8.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4230,27 +3440,7 @@
     },
     {
       "crate_name": "gimli",
-      "version": "0.32.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "gimli",
       "version": "0.33.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "gimli",
-      "version": "0.34.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "glob",
-      "version": "0.3.4",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "globset",
-      "version": "0.4.20",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4264,18 +3454,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "hash32",
-      "version": "0.3.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "hashbrown",
       "version": "0.14.5",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "hashbrown",
-      "version": "0.15.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4296,16 +3476,6 @@
     {
       "crate_name": "headless_chrome",
       "version": "1.0.22",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "heapless",
-      "version": "0.9.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "heck",
-      "version": "0.3.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4474,11 +3644,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "ignore",
-      "version": "0.4.33",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "indexmap",
       "version": "2.14.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -4494,23 +3659,28 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "insta",
-      "version": "1.48.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "inventory",
       "version": "0.3.24",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "ipnet",
-      "version": "2.12.2",
+      "crate_name": "io-extras",
+      "version": "0.19.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "iprange",
-      "version": "0.6.7",
+      "crate_name": "io-lifetimes",
+      "version": "2.0.4",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "io-lifetimes",
+      "version": "3.0.1",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "ipnet",
+      "version": "2.12.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4530,22 +3700,22 @@
     },
     {
       "crate_name": "itertools",
-      "version": "0.13.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "itertools",
       "version": "0.14.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "itertools",
-      "version": "0.15.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "itoa",
       "version": "1.0.18",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "ittapi",
+      "version": "0.4.0",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "ittapi-sys",
+      "version": "0.4.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4614,18 +3784,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "lexical-sort",
-      "version": "0.3.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "libc",
       "version": "0.2.189",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "libloading",
-      "version": "0.8.9",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4636,46 +3796,6 @@
     {
       "crate_name": "libredox",
       "version": "0.1.25",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "libtest-mimic",
-      "version": "0.8.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "libunwind",
-      "version": "1.3.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "libwild",
-      "version": "0.10.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "linked-hash-map",
-      "version": "0.5.6",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "linked_hash_set",
-      "version": "0.1.6",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "linker-layout",
-      "version": "0.10.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "linker-trace",
-      "version": "0.10.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "linker-utils",
-      "version": "0.10.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4719,28 +3839,13 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "lz4_flex",
-      "version": "0.14.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "lzma-rust2",
       "version": "0.15.8",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "mach2",
-      "version": "0.4.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "mach2",
       "version": "0.6.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "macho-unwind-info",
-      "version": "0.5.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4751,11 +3856,6 @@
     {
       "crate_name": "macro_rules_attribute-proc_macro",
       "version": "0.2.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "managed",
-      "version": "0.8.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4774,6 +3874,11 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
+      "crate_name": "maybe-owned",
+      "version": "0.3.4",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
       "crate_name": "md-5",
       "version": "0.11.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -4789,8 +3894,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "memmap2",
-      "version": "0.6.2",
+      "crate_name": "memfd",
+      "version": "0.6.6",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4820,11 +3925,6 @@
     },
     {
       "crate_name": "miniz_oxide",
-      "version": "0.8.9",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "miniz_oxide",
       "version": "0.9.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
@@ -4844,11 +3944,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "more-asserts",
-      "version": "0.3.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "multiversion",
       "version": "0.9.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -4864,16 +3959,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "munge",
-      "version": "0.4.7",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "munge_macro",
-      "version": "0.4.7",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "murmurhash32",
       "version": "0.3.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -4886,11 +3971,6 @@
     {
       "crate_name": "nix",
       "version": "0.31.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "nom",
-      "version": "5.1.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -4964,16 +4044,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "num_enum",
-      "version": "0.7.6",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "num_enum_derive",
-      "version": "0.7.6",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "objc2",
       "version": "0.6.4",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5006,11 +4076,6 @@
     {
       "crate_name": "objc2-open-directory",
       "version": "0.3.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "object",
-      "version": "0.37.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5094,11 +4159,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "parking",
-      "version": "2.2.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "parking_lot",
       "version": "0.12.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5119,11 +4179,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "path-clean",
-      "version": "1.0.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "pem",
       "version": "4.0.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5134,43 +4189,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "perf-event",
-      "version": "0.4.8",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "perf-event-open-sys",
-      "version": "4.0.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "perfetto-recorder",
-      "version": "0.3.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "petgraph",
-      "version": "0.8.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "phf",
-      "version": "0.14.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "phf_generator",
-      "version": "0.14.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "phf_macros",
-      "version": "0.14.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "phf_shared",
-      "version": "0.14.0",
+      "version": "0.6.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5186,11 +4206,6 @@
     {
       "crate_name": "pin-project-lite",
       "version": "0.2.17",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "pin-utils",
-      "version": "0.1.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5250,37 +4265,7 @@
     },
     {
       "crate_name": "prettyplease",
-      "version": "0.2.37",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "prettyplease",
       "version": "0.3.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "proc-macro-crate",
-      "version": "3.5.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "proc-macro-error-attr2",
-      "version": "2.0.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "proc-macro-error-attr3",
-      "version": "3.1.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "proc-macro-error2",
-      "version": "2.0.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "proc-macro-error3",
-      "version": "3.1.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5314,18 +4299,13 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "ptr_meta",
-      "version": "0.3.2",
+      "crate_name": "pulley-interpreter",
+      "version": "49.0.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "ptr_meta_derive",
-      "version": "0.3.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "pulldown-cmark",
-      "version": "0.8.0",
+      "crate_name": "pulley-macros",
+      "version": "49.0.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5379,11 +4359,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "rancor",
-      "version": "0.1.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "rand",
       "version": "0.9.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5429,11 +4404,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "rangemap",
-      "version": "1.8.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "raw-cpuid",
       "version": "11.6.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5471,6 +4441,11 @@
     {
       "crate_name": "redox_syscall",
       "version": "0.5.18",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "redox_users",
+      "version": "0.4.6",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5514,21 +4489,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "region",
-      "version": "4.0.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "rend",
-      "version": "0.5.4",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "replace_with",
-      "version": "0.1.8",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "reqwest",
       "version": "0.13.5",
       "provenance": "path"
@@ -5536,16 +4496,6 @@
     {
       "crate_name": "ring",
       "version": "0.17.14",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "rkyv",
-      "version": "0.8.18",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "rkyv_derive",
-      "version": "0.8.18",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5589,8 +4539,13 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
+      "crate_name": "rustix-linux-procfs",
+      "version": "0.1.1",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
       "crate_name": "rustls",
-      "version": "0.23.45",
+      "version": "0.23.46",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5629,16 +4584,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "rusty_pool",
-      "version": "0.7.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "ruzstd",
-      "version": "0.9.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "ryu",
       "version": "1.0.23",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5646,11 +4591,6 @@
     {
       "crate_name": "safetensors",
       "version": "0.8.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "saffron",
-      "version": "0.1.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5689,11 +4629,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "self_cell",
-      "version": "1.3.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "semver",
       "version": "1.0.28",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5706,11 +4641,6 @@
     {
       "crate_name": "serde",
       "version": "1.0.229",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "serde-wasm-bindgen",
-      "version": "0.6.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5759,11 +4689,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "serde_yaml",
-      "version": "0.9.34+deprecated",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "sha1",
       "version": "0.10.7",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5784,28 +4709,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "sharded-offset-map",
-      "version": "0.3.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "sharded-slab",
       "version": "0.1.7",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "sharded-vec-writer",
-      "version": "0.4.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "shared-buffer",
-      "version": "0.1.4",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "shlex",
-      "version": "1.3.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5844,16 +4749,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "similar",
-      "version": "2.7.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "siphasher",
-      "version": "1.0.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "sketches-ddsketch",
       "version": "0.4.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5866,11 +4761,6 @@
     {
       "crate_name": "smallvec",
       "version": "1.16.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "smoltcp",
-      "version": "0.13.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -5909,11 +4799,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "strip-ansi-escapes",
-      "version": "0.2.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "strsim",
       "version": "0.11.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -5935,7 +4820,7 @@
     },
     {
       "crate_name": "susi",
-      "version": "0.21.10",
+      "version": "0.21.20",
       "provenance": "path"
     },
     {
@@ -5965,7 +4850,7 @@
     },
     {
       "crate_name": "susi-daemon",
-      "version": "0.21.10",
+      "version": "0.21.20",
       "provenance": "path"
     },
     {
@@ -5980,7 +4865,7 @@
     },
     {
       "crate_name": "susi-gawd",
-      "version": "0.21.10",
+      "version": "0.21.20",
       "provenance": "path"
     },
     {
@@ -6000,7 +4885,7 @@
     },
     {
       "crate_name": "susi-gemi",
-      "version": "0.21.10",
+      "version": "0.21.20",
       "provenance": "path"
     },
     {
@@ -6010,7 +4895,7 @@
     },
     {
       "crate_name": "susi-gmcp",
-      "version": "0.21.10",
+      "version": "0.21.20",
       "provenance": "path"
     },
     {
@@ -6045,7 +4930,7 @@
     },
     {
       "crate_name": "susi-server",
-      "version": "0.21.10",
+      "version": "0.21.20",
       "provenance": "path"
     },
     {
@@ -6339,7 +5224,7 @@
       "provenance": "path"
     },
     {
-      "crate_name": "susi-vendor-wasmer",
+      "crate_name": "susi-vendor-wasmtime",
       "version": "0.1.0",
       "provenance": "path"
     },
@@ -6359,23 +5244,8 @@
       "provenance": "path"
     },
     {
-      "crate_name": "symbolic-common",
-      "version": "13.9.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "symbolic-demangle",
-      "version": "13.9.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "symlink",
       "version": "0.1.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "syn",
-      "version": "1.0.109",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -6469,11 +5339,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "tar",
-      "version": "0.4.46",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "target-lexicon",
       "version": "0.13.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -6484,13 +5349,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "terminal_size",
-      "version": "0.4.4",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "termios",
-      "version": "0.3.3",
+      "crate_name": "termcolor",
+      "version": "1.4.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -6589,11 +5449,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "toml_edit",
-      "version": "0.25.15+spec-1.1.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "toml_parser",
       "version": "1.1.3+spec-1.1.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -6679,16 +5534,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "twox-hash",
-      "version": "2.1.4",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "typed-arena",
-      "version": "2.0.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "typed-path",
       "version": "0.12.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -6734,11 +5579,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "unicode-normalization",
-      "version": "0.1.25",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "unicode-normalization-alignments",
       "version": "0.1.12",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -6751,11 +5591,6 @@
     {
       "crate_name": "unicode-width",
       "version": "0.2.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "unicode-xid",
-      "version": "0.2.6",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -6774,18 +5609,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "unsafe-libyaml",
-      "version": "0.2.11",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "untrusted",
       "version": "0.9.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "unty",
-      "version": "0.0.4",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -6801,11 +5626,6 @@
     {
       "crate_name": "url",
       "version": "2.5.8",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "urlencoding",
-      "version": "2.1.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -6849,73 +5669,13 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "virtual-fs",
-      "version": "0.704.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "virtual-mio",
-      "version": "0.704.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "virtual-net",
-      "version": "0.704.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "virtue",
-      "version": "0.0.18",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "vsimd",
       "version": "0.8.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "vte",
-      "version": "0.14.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wai-bindgen-gen-core",
-      "version": "0.2.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wai-bindgen-gen-rust",
-      "version": "0.2.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wai-bindgen-gen-rust-wasm",
-      "version": "0.2.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wai-bindgen-rust",
-      "version": "0.2.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wai-bindgen-rust-impl",
-      "version": "0.2.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wai-parser",
-      "version": "0.2.3",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "wait-timeout",
       "version": "0.2.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "waker-fn",
-      "version": "1.2.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -6964,18 +5724,23 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "wasm-encoder",
-      "version": "0.255.0",
+      "crate_name": "wasm-compose",
+      "version": "0.258.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "wasm-encoder",
-      "version": "0.257.1",
+      "version": "0.258.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "wasm-encoder",
       "version": "0.259.0",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasm-metadata",
+      "version": "0.258.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -6984,78 +5749,8 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "wasmer",
-      "version": "7.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-compiler",
-      "version": "7.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-compiler-cranelift",
-      "version": "7.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-compiler-singlepass",
-      "version": "7.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-config",
-      "version": "0.704.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-derive",
-      "version": "7.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-journal",
-      "version": "0.704.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-middlewares",
-      "version": "7.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-package",
-      "version": "0.704.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-types",
-      "version": "7.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-vm",
-      "version": "7.4.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-wasix",
-      "version": "0.704.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmer-wasix-types",
-      "version": "0.704.2",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "wasmparser",
-      "version": "0.255.0",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
-      "crate_name": "wasmparser",
-      "version": "0.257.1",
+      "version": "0.258.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -7064,8 +5759,88 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
+      "crate_name": "wasmprinter",
+      "version": "0.258.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-environ",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-cache",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-component-macro",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-component-util",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
       "crate_name": "wasmtime-internal-core",
-      "version": "48.0.0",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-cranelift",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-fiber",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-jit-debug",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-jit-icache-coherence",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-unwinder",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-versioned-export-macros",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-internal-wit-bindgen",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-wasi",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wasmtime-wasi-io",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wast",
+      "version": "35.0.2",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -7089,11 +5864,6 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "webc",
-      "version": "12.0.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "webpki-root-certs",
       "version": "1.0.9",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
@@ -7106,6 +5876,21 @@
     {
       "crate_name": "which",
       "version": "8.0.6",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wiggle",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wiggle-generate",
+      "version": "49.0.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wiggle-macro",
+      "version": "49.0.3",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -7185,6 +5970,11 @@
     },
     {
       "crate_name": "windows-sys",
+      "version": "0.48.0",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows-sys",
       "version": "0.52.0",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
@@ -7200,6 +5990,11 @@
     },
     {
       "crate_name": "windows-targets",
+      "version": "0.48.5",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows-targets",
       "version": "0.52.6",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
@@ -7210,12 +6005,27 @@
     },
     {
       "crate_name": "windows_aarch64_gnullvm",
+      "version": "0.48.5",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows_aarch64_gnullvm",
       "version": "0.52.6",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "windows_aarch64_msvc",
+      "version": "0.48.5",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows_aarch64_msvc",
       "version": "0.52.6",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows_i686_gnu",
+      "version": "0.48.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -7230,7 +6040,17 @@
     },
     {
       "crate_name": "windows_i686_msvc",
+      "version": "0.48.5",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows_i686_msvc",
       "version": "0.52.6",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows_x86_64_gnu",
+      "version": "0.48.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -7240,7 +6060,17 @@
     },
     {
       "crate_name": "windows_x86_64_gnullvm",
+      "version": "0.48.5",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows_x86_64_gnullvm",
       "version": "0.52.6",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "windows_x86_64_msvc",
+      "version": "0.48.5",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -7259,8 +6089,28 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
+      "crate_name": "winx",
+      "version": "0.36.4",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
       "crate_name": "wit-bindgen",
       "version": "0.57.1",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wit-component",
+      "version": "0.258.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "wit-parser",
+      "version": "0.258.3",
+      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "crate_name": "witx",
+      "version": "0.9.1",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -7279,19 +6129,9 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
-      "crate_name": "xattr",
-      "version": "1.6.1",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
-    },
-    {
       "crate_name": "xtask",
       "version": "0.1.0",
       "provenance": "path"
-    },
-    {
-      "crate_name": "xxhash-rust",
-      "version": "0.8.18",
-      "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
       "crate_name": "yasna",
@@ -7305,7 +6145,7 @@
     },
     {
       "crate_name": "yoke-derive",
-      "version": "0.8.3",
+      "version": "0.8.4",
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     },
     {
@@ -7384,5 +6224,5 @@
       "provenance": "registry+https://github.com/rust-lang/crates.io-index"
     }
   ],
-  "recorded_unix": 1791131158
+  "recorded_unix": 1792352009
 }
