@@ -17,5 +17,10 @@
   "roadmap": "VC-201-017",
   "created_by": "AGENT202610180733582018588",
   "created_unix": 1792295208,
-  "authored": true
+  "authored": true,
+  "closed": {
+    "at_unix": 1792296537,
+    "commit": "9b80626e14b8759152aa09883ef2ef67038e4a47",
+    "by": "AGENT202610180733582018588"
+  }
 }
