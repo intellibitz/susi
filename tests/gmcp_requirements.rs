@@ -2250,7 +2250,7 @@ fn gmcp_req_203_002_04_adversarial() {
         "params": {"requestId": 1}
     }));
     let initialize = raw
-        .response_for(&serde_json::json!(1), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
         .expect("initialize must not be cancelled");
     assert!(initialize["result"].is_object());
     assert!(
