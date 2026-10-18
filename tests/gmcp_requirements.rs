@@ -4832,3 +4832,221 @@ fn gmcp_req_203_008_02_production() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-008-03: every surface — `mcp serve` stdio, the daemon/gateway
+/// HTTP `/mcp` handler, and the in-process gate — runs the same content
+/// and metadata boundary: `jsonrpc_gate::classify_envelope` calling
+/// `content::validate_payload` on the canonical `susi_gmcp::content`
+/// model. A corpus of malformed and well-formed bodies must produce
+/// identical typed verdicts on both transports, and the wire `reason`
+/// must be the canonical `ContentError`'s own message — one model, not
+/// parallel implementations.
+#[test]
+fn gmcp_req_203_008_03_integration() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-008-integration-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── Verdict parity: identical bodies → identical verdicts on the
+    //    stdio line gate and the HTTP body gate ──────────────────────
+    // Each entry: (label, body, expected code or None for forward).
+    let corpus: &[(&str, &str, Option<i64>)] = &[
+        // Envelope rules both transports share.
+        ("not json", "{oops", Some(-32700)),
+        (
+            "batch",
+            r#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#,
+            Some(-32600),
+        ),
+        (
+            "null id",
+            r#"{"jsonrpc":"2.0","id":null,"method":"ping","params":{}}"#,
+            Some(-32600),
+        ),
+        (
+            "bad envelope version",
+            r#"{"jsonrpc":"1.9","id":1,"method":"ping","params":{}}"#,
+            Some(-32600),
+        ),
+        // Canonical content/metadata boundary (VC-203-008).
+        (
+            "bad resources/read uri",
+            r#"{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"not a uri"}}"#,
+            Some(-32602),
+        ),
+        (
+            "missing resources/read uri",
+            r#"{"jsonrpc":"2.0","id":6,"method":"resources/read","params":{}}"#,
+            Some(-32602),
+        ),
+        (
+            "bad subscribe uri",
+            r#"{"jsonrpc":"2.0","id":7,"method":"resources/subscribe","params":{"uri":"rel/path"}}"#,
+            Some(-32602),
+        ),
+        (
+            "bad completion ref uri",
+            r#"{"jsonrpc":"2.0","id":8,"method":"completion/complete","params":{"ref":{"type":"ref/resource","uri":"no"},"argument":{"name":"x","value":"y"}}}"#,
+            Some(-32602),
+        ),
+        (
+            "bad response content mime",
+            r#"{"jsonrpc":"2.0","id":9,"result":{"content":{"type":"image","data":"aGk=","mimeType":"bad mime"}}}"#,
+            Some(-32600),
+        ),
+        (
+            "bad response content base64",
+            r#"{"jsonrpc":"2.0","id":10,"result":{"content":[{"type":"audio","data":"$$","mimeType":"audio/wav"}]}}"#,
+            Some(-32600),
+        ),
+        (
+            "bad roots uri",
+            r#"{"jsonrpc":"2.0","id":11,"result":{"roots":[{"uri":"rel"}]}}"#,
+            Some(-32600),
+        ),
+        // Well-formed values forward identically.
+        (
+            "clean resources/read",
+            r#"{"jsonrpc":"2.0","id":12,"method":"resources/read","params":{"uri":"file:///a.txt"}}"#,
+            None,
+        ),
+        (
+            "clean content response",
+            r#"{"jsonrpc":"2.0","id":13,"result":{"content":{"type":"text","text":"hi","x-future":true}}}"#,
+            None,
+        ),
+        (
+            "elicitation form data",
+            r#"{"jsonrpc":"2.0","id":14,"result":{"action":"accept","content":{"name":"alice","age":3}}}"#,
+            None,
+        ),
+        (
+            "clean ping",
+            r#"{"jsonrpc":"2.0","id":15,"method":"ping","params":{}}"#,
+            None,
+        ),
+    ];
+    for (label, body, want) in corpus {
+        // HTTP surface: the daemon/gateway `/mcp` handler calls this.
+        let http = http_envelope_rejection(body.as_bytes());
+        // Stdio surface: the same line through the served transport's
+        // classifier on a fresh era (no negotiation yet).
+        let mut era = EraState::default();
+        let stdio = classify_line(body.as_bytes(), &mut era);
+        match (want, &http) {
+            (None, None) => {
+                assert!(
+                    matches!(stdio, GateVerdict::Forward | GateVerdict::Drop),
+                    "{label}: stdio must forward/drop the clean body, got {stdio:?}"
+                );
+            }
+            (None, Some(http_error)) => {
+                panic!("{label}: HTTP gate rejected a clean body: {http_error}");
+            }
+            (Some(code), Some(http_error)) => {
+                assert_eq!(
+                    http_error
+                        .pointer("/error/code")
+                        .and_then(serde_json::Value::as_i64),
+                    Some(*code),
+                    "{label}: HTTP gate must emit {code}: {http_error}"
+                );
+                let GateVerdict::Reject {
+                    code: stdio_code, ..
+                } = stdio
+                else {
+                    panic!("{label}: stdio gate must reject with {code}, got {stdio:?}")
+                };
+                assert_eq!(
+                    *code, stdio_code,
+                    "{label}: stdio and HTTP verdicts must match"
+                );
+            }
+            (Some(code), None) => panic!("{label}: HTTP gate forwarded; expected {code}"),
+        }
+    }
+
+    // ── One canonical model: the wire `reason` IS the ContentError
+    //    message the canonical model emits — no parallel wording ─────
+    let bad_uri_body =
+        r#"{"jsonrpc":"2.0","id":20,"method":"resources/read","params":{"uri":"no uri"}}"#;
+    let http_doc = http_envelope_rejection(bad_uri_body.as_bytes()).expect("must reject");
+    let wire_reason = http_doc["error"]["data"]["reason"]
+        .as_str()
+        .expect("rejection must carry a typed reason");
+    let canonical_reason = susi_gmcp::content::ContentError::BadUri("params.uri").wire_message();
+    assert_eq!(
+        wire_reason, canonical_reason,
+        "the gate's reason must be the canonical model's own message"
+    );
+
+    // ── The served wire agrees: same corpus member, same verdict ────
+    let mut session = StdioSession::spawn(root, &home);
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "intg-bad-uri",
+        "method": "resources/read",
+        "params": {"uri": "no uri"}
+    }));
+    let response = session
+        .response_for(
+            &serde_json::json!("intg-bad-uri"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("served session must answer the malformed request");
+    assert_eq!(
+        response["error"]["data"]["reason"]
+            .as_str()
+            .unwrap_or_default(),
+        canonical_reason,
+        "served stdio must surface the canonical reason verbatim"
+    );
+    // And the modern-era surface applies the same boundary — the
+    // policy never depends on which era the session negotiated.
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    modern.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "intg-modern-bad",
+        "method": "resources/read",
+        "params": {
+            "uri": "no uri",
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }
+        }
+    }));
+    let response = modern
+        .response_for(
+            &serde_json::json!("intg-modern-bad"),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("modern session must answer the malformed request");
+    assert_eq!(response["error"]["code"], -32602);
+    assert_eq!(
+        response["error"]["data"]["reason"]
+            .as_str()
+            .unwrap_or_default(),
+        canonical_reason
+    );
+
+    // ── Structural proof of one boundary: the only HTTP entry points
+    //    the daemon/gateway serve run `http_envelope_rejection`, and
+    //    both it and `classify_line` share `classify_envelope` ───────
+    let gate_src = std::fs::read_to_string(root.join("crates/susi-gmcp/src/jsonrpc_gate.rs"))
+        .expect("gate source must be readable");
+    assert!(
+        gate_src.contains("pub fn classify_envelope")
+            && gate_src.contains("crate::content::validate_payload(object)"),
+        "classify_envelope must run the canonical content boundary"
+    );
+    let server_src = std::fs::read_to_string(root.join("crates/susi-gmcp/src/server.rs"))
+        .expect("server source must be readable");
+    assert!(
+        server_src.contains("jsonrpc_gate::http_envelope_rejection")
+            && server_src.contains("jsonrpc_gate::StdioGate"),
+        "the served transports must both run the shared gate"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}

@@ -534,18 +534,24 @@ pub fn validate_payload(object: &Map<String, Value>) -> Option<(i64, ContentErro
 
     // URI-bearing requests: a malformed `uri`/`ref.uri` is an invalid
     // params failure, never a service-level surprise.
-    let uri_param = match method {
+    match method {
         Some("resources/read") | Some("resources/subscribe") | Some("resources/unsubscribe") => {
-            params.get("uri")
+            // `uri` is a required param on the resource methods —
+            // absent, mistyped, or malformed are all invalid params.
+            match params.get("uri").and_then(Value::as_str) {
+                Some(s) if is_valid_uri(s) => {}
+                _ => return Some((-32602, ContentError::BadUri("params.uri"))),
+            }
         }
-        Some("completion/complete") => params.pointer("/ref/uri"),
-        _ => None,
-    };
-    if let Some(uri) = uri_param {
-        match uri.as_str() {
-            Some(s) if is_valid_uri(s) => {}
-            _ => return Some((-32602, ContentError::BadUri("params.uri"))),
+        Some("completion/complete") => {
+            if let Some(uri) = params.pointer("/ref/uri") {
+                match uri.as_str() {
+                    Some(s) if is_valid_uri(s) => {}
+                    _ => return Some((-32602, ContentError::BadUri("params.ref.uri"))),
+                }
+            }
         }
+        _ => {}
     }
 
     // Client responses: `result` members a sampling/elicitation/roots
