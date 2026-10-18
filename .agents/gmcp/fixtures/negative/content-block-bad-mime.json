@@ -1,0 +1,10 @@
+{
+  "comment": "VC-203-008 validation: an image content block whose mimeType is not a valid type/subtype token must fail typed validation at the boundary, never silently coerce.",
+  "era": "modern",
+  "expect": "error",
+  "payload": {
+    "type": "image",
+    "data": "iVBORw0KGgoAAAANSUhEUg==",
+    "mimeType": "not a mime type!!"
+  }
+}

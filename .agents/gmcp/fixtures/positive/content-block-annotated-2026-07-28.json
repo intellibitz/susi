@@ -1,0 +1,18 @@
+{
+  "comment": "VC-203-008 lossless round-trip: a fully annotated resource_link content block carrying icon, audience, priority, _meta, and an unknown extension field that must survive serialize/parse verbatim.",
+  "era": "modern",
+  "expect": "result",
+  "payload": {
+    "type": "resource_link",
+    "uri": "file:///workspace/report.pdf",
+    "name": "quarterly-report",
+    "title": "Q3 report",
+    "description": "Q3 financial report PDF",
+    "mimeType": "application/pdf",
+    "size": 1048576,
+    "icons": [{"src": "https://icons.example.com/pdf-64.png", "mimeType": "image/png", "sizes": ["64x64"]}],
+    "annotations": {"audience": ["user", "assistant"], "priority": 0.8, "lastModified": "2026-10-18T00:00:00Z"},
+    "_meta": {"vendor.example/tracking": "trace-9f2c", "io.modelcontextprotocol/test": "reserved"},
+    "io.example/futureExtension": {"arbitrary": ["unknown", 1, true]}
+  }
+}
