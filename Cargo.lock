@@ -5403,6 +5403,7 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
  "susi-vendor-url",
+ "susi-vendor-winapi",
 ]
 
 [[package]]

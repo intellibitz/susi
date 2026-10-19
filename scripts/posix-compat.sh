@@ -54,40 +54,43 @@ if ! command -v flock >/dev/null 2>&1; then
         done
         fd=$1
         target=$(readlink "/proc/self/fd/$fd" 2>/dev/null) || return 1
-        dir="$target.flock.d"
+        lock="$target.flock"
         if [ "$unlock" = 1 ]; then
-            rm -f "$dir/pid"
-            rmdir "$dir" 2>/dev/null
+            # rmdir of the long-gone .flock.d scheme must not leak its
+            # nonzero status — callers run under `set -e`.
+            rm -f "$lock" "$target.flock.d/pid" 2>/dev/null || true
+            rmdir "$target.flock.d" 2>/dev/null || true
             return 0
         fi
+        # The lock is a noclobber-created FILE carrying the owner pid:
+        # `set -C` makes `>` fail on an existing name, so create and pid
+        # publish are one atomic step — no mkdir→write window a reaper
+        # could steal mid-publish. Reclaim is plain `rm`: losing reapers
+        # just remove nothing, and the single create that follows decides
+        # ownership, so two contenders can never both hold it.
         while true; do
-            if mkdir "$dir" 2>/dev/null; then
-                echo $$ >"$dir/pid"
+            if (set -C; echo $$ >"$lock") 2>/dev/null; then
                 return 0
             fi
-            owner=$(cat "$dir/pid" 2>/dev/null) || owner=""
+            owner=$(cat "$lock" 2>/dev/null) || owner=""
             if [ -n "$owner" ]; then
-                # A dead holder's dir is reclaimed the same way a real
+                # A dead holder's file is reclaimed the same way a real
                 # flock's fd release would free the lock on process exit.
                 if ! kill -0 "$owner" 2>/dev/null; then
-                    rm -f "$dir/pid"
-                    rmdir "$dir" 2>/dev/null
+                    rm -f "$lock" 2>/dev/null
                     continue
                 fi
             else
-                # The holder was killed between mkdir and the pid write —
-                # without a grace window this stale dir would wedge every
-                # later acquisition (blocking spins, -n always fails).
-                # Wait out the write race once, then reclaim.
+                # An empty file is a holder killed mid-create. Give the
+                # create's echo a grace window, then reclaim.
                 sleep 1
-                owner=$(cat "$dir/pid" 2>/dev/null) || owner=""
+                owner=$(cat "$lock" 2>/dev/null) || owner=""
                 if [ -z "$owner" ]; then
-                    rmdir "$dir" 2>/dev/null
+                    rm -f "$lock" 2>/dev/null
                     continue
                 fi
                 if ! kill -0 "$owner" 2>/dev/null; then
-                    rm -f "$dir/pid"
-                    rmdir "$dir" 2>/dev/null
+                    rm -f "$lock" 2>/dev/null
                 fi
                 continue
             fi

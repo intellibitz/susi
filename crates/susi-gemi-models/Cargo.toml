@@ -23,6 +23,9 @@ hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 url = { package = "susi-vendor-url", path = "../susi-vendor-url" }
 libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
+[target."cfg(windows)".dependencies]
+winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
+
 [features]
 default = []
 cuda = ["susi-vendor-candle/cuda"]

@@ -15,6 +15,10 @@ use std::path::{Path, PathBuf};
 #[doc(hidden)]
 pub struct FileLock {
     path: PathBuf,
+    /// The exclusively-held handle on Windows — sharing mode zero makes the
+    /// *open* the lock, so the kernel itself releases it on process death.
+    #[cfg(windows)]
+    _hold: fs::File,
 }
 
 impl FileLock {
@@ -39,40 +43,93 @@ impl FileLock {
         // same directory, so it must be created before O_EXCL can succeed.
         fs::create_dir_all(dir).ok()?;
         let lock = dir.join(format!("{name}.lock"));
-        // Wall-time deadline, not attempt count: the stale check can cost
-        // hundreds of ms per probe (tasklist on Windows), and looping by
-        // attempts once ran 60s — long enough for the held lockfile's own
-        // mtime to trip the 60s staleness rule and be stolen.
+        // Wall-time deadline, not attempt count: on unix the stale check
+        // can cost hundreds of ms per probe, and looping by attempts once
+        // ran 60s — long enough for the held lockfile's own mtime to trip
+        // the 60s staleness rule and be stolen.
         let deadline = std::time::Instant::now() + timeout;
-        loop {
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&lock)
-            {
-                Ok(mut f) => {
-                    use std::io::Write;
-                    let _ = writeln!(f, "{}", std::process::id());
-                    return Some(Self { path: lock });
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    if Self::is_stale(&lock) {
-                        let _ = fs::remove_file(&lock);
-                    } else {
+
+        // Windows: an exclusive-share open IS the lock — the kernel denies
+        // the next open while a holder lives and releases it the moment the
+        // holder's handle closes, even on a crash, so there is no lockfile
+        // create/delete churn and no pid bookkeeping to go stale. Contenders
+        // see PermissionDenied (a held share, or a transient scanner) and
+        // simply retry within the same wall-time budget.
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            loop {
+                match fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .share_mode(0)
+                    .open(&lock)
+                {
+                    Ok(mut f) => {
+                        use std::io::Write;
+                        let _ = writeln!(f, "{}", std::process::id());
+                        return Some(Self {
+                            path: lock,
+                            _hold: f,
+                        });
+                    }
+                    // ERROR_SHARING_VIOLATION (a live holder) surfaces as
+                    // Uncategorized, not PermissionDenied — and a transient
+                    // scanner is PermissionDenied. Both are contention.
+                    Err(e)
+                        if e.kind() == std::io::ErrorKind::PermissionDenied
+                            || e.raw_os_error() == Some(32) =>
+                    {
                         std::thread::sleep(std::time::Duration::from_millis(10));
                     }
+                    Err(_) => return None,
                 }
-                // A just-dropped lock can sit delete-pending on Windows
-                // (an indexer/AV still holds the handle); the name denies
-                // creation for a moment — that is contention, not failure.
-                #[cfg(windows)]
-                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
+                if std::time::Instant::now() >= deadline {
+                    return None;
                 }
-                Err(_) => return None,
             }
-            if std::time::Instant::now() >= deadline {
-                return None;
+        }
+
+        // Unix: advisory create_new on the lockfile; the file records the
+        // holder pid so a crashed locker's file is reclaimed (is_stale) —
+        // the OS has no auto-release for an existence-based lock.
+        // The pid probe is throttled to once per half-second of sustained
+        // contention: a live holder's millisecond-scale section yields long
+        // before the deadline and probing is not free everywhere.
+        #[cfg(not(windows))]
+        {
+            let mut last_probe: Option<std::time::Instant> = None;
+            loop {
+                match fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&lock)
+                {
+                    Ok(mut f) => {
+                        use std::io::Write;
+                        let _ = writeln!(f, "{}", std::process::id());
+                        return Some(Self { path: lock });
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let probe = match last_probe {
+                            Some(t) if t.elapsed() < std::time::Duration::from_millis(500) => false,
+                            _ => {
+                                last_probe = Some(std::time::Instant::now());
+                                Self::is_stale(&lock)
+                            }
+                        };
+                        if probe {
+                            let _ = fs::remove_file(&lock);
+                        } else {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                    }
+                    Err(_) => return None,
+                }
+                if std::time::Instant::now() >= deadline {
+                    return None;
+                }
             }
         }
     }
@@ -80,6 +137,13 @@ impl FileLock {
     /// Mark the lock freshly held (mtime = now), so `is_stale`'s age rule
     /// does not treat a live, legitimately long holder as wedged.
     pub fn refresh(&self) {
+        // The exclusive-share handle is the only accessor on Windows — the
+        // file denies even its holder a second open while it is held.
+        #[cfg(windows)]
+        {
+            let _ = self._hold.set_modified(std::time::SystemTime::now());
+        }
+        #[cfg(not(windows))]
         if let Ok(file) = fs::OpenOptions::new().write(true).open(&self.path) {
             let _ = file.set_modified(std::time::SystemTime::now());
         }
@@ -113,7 +177,10 @@ impl FileLock {
     /// A lockfile is stale when its recorded pid no longer exists
     /// (`susi_paths::process::pid_alive` — `/proc`, `kill -0`, or
     /// `tasklist` per OS), or it has sat unclaimed for over a minute —
-    /// either means the holder died mid-claim.
+    /// either means the holder died mid-claim. Unix acquire relies on this;
+    /// Windows never consults it (the kernel enforces the share-mode lock)
+    /// but tests exercise it on every platform.
+    #[cfg(any(test, not(windows)))]
     fn is_stale(lock: &Path) -> bool {
         if let Ok(body) = fs::read_to_string(lock) {
             if let Ok(pid) = body.trim().parse::<u32>() {
@@ -133,19 +200,11 @@ impl FileLock {
 
 impl Drop for FileLock {
     fn drop(&mut self) {
+        // Unix removes the name so the next O_EXCL create wins. On Windows
+        // the still-open exclusive-share handle denies the delete's own open,
+        // so the file persists — which is correct there: the persistent file
+        // is the lock object and the kernel releases the share on close.
         let _ = fs::remove_file(&self.path);
-        // Windows removes a file only once every handle closes — a scanner
-        // can keep the name visible (delete-pending) past our remove. Give
-        // it a short window rather than strand the lock for the next
-        // acquirer.
-        #[cfg(windows)]
-        for _ in 0..100 {
-            if !self.path.exists() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            let _ = fs::remove_file(&self.path);
-        }
     }
 }
 
@@ -174,9 +233,19 @@ mod tests {
         }
     }
 
-    fn age(lock: &Path, secs: u64) {
-        let file = fs::OpenOptions::new().write(true).open(lock).unwrap();
-        file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(secs))
+    /// Backdate the lockfile's mtime — through the holder's own handle on
+    /// Windows, where the exclusive-share open denies even the holder a
+    /// second path open.
+    fn age(held: &FileLock, secs: u64) {
+        let when = std::time::SystemTime::now() - std::time::Duration::from_secs(secs);
+        #[cfg(windows)]
+        held._hold.set_modified(when).unwrap();
+        #[cfg(not(windows))]
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&held.path)
+            .unwrap()
+            .set_modified(when)
             .unwrap();
     }
 
@@ -185,7 +254,7 @@ mod tests {
         let dir = Scratch::new("long");
         let held = FileLock::acquire(dir.path(), "long").unwrap();
         let lock = dir.path().join("long.lock");
-        age(&lock, 120);
+        age(&held, 120);
         assert!(
             FileLock::is_stale(&lock),
             "a 2-minute-old lock reads as wedged"

@@ -4,6 +4,7 @@
 //! forbids `unsafe`, so Windows goes through `tasklist` instead of
 //! `OpenProcess` FFI.
 
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
 /// Whether `pid` refers to a live process. `/proc` on Linux; `kill -0`

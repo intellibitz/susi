@@ -469,6 +469,30 @@ impl HardwareProfiler {
         (cpus, gpu_info)
     }
 
+    /// Windows memory counters via `GlobalMemoryStatusEx` — a free kernel
+    /// call, where the previous `powershell -Command Get-CimInstance`
+    /// probe cost 1.5–3s of wall time on *every* `get_profile()`.
+    /// Returns `(total_gb, available_gb)`.
+    #[cfg(target_os = "windows")]
+    #[allow(unsafe_code)]
+    fn windows_memory_gb() -> Option<(usize, usize)> {
+        use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        // SAFETY: all-zero is a valid MEMORYSTATUSEX except dwLength, which
+        // is set to the real size before the call; `stat` is a live,
+        // writable buffer of the stated size.
+        let mut stat: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+        stat.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+        // SAFETY: `stat` outlives the call and is properly initialized above.
+        if unsafe { GlobalMemoryStatusEx(&mut stat) } == 0 {
+            return None;
+        }
+        const GB: u64 = 1024 * 1024 * 1024;
+        Some((
+            (stat.ullTotalPhys / GB) as usize,
+            (stat.ullAvailPhys / GB) as usize,
+        ))
+    }
+
     #[allow(unsafe_code)]
     pub fn determine_total_ram_gb() -> usize {
         if cfg!(target_os = "linux") {
@@ -508,6 +532,10 @@ impl HardwareProfiler {
             }
             return 16;
         } else if cfg!(target_os = "windows") {
+            #[cfg(target_os = "windows")]
+            if let Some((total, _avail)) = Self::windows_memory_gb() {
+                return total;
+            }
             return 16;
         }
         8
@@ -557,23 +585,9 @@ impl HardwareProfiler {
                 return (pages.saturating_mul(page_size) / 1073741824) as usize;
             }
         }
-        if cfg!(target_os = "windows") {
-            if let Ok(output) = std::process::Command::new("powershell.exe")
-                .args([
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory",
-                ])
-                .output()
-            {
-                if let Ok(kb) = String::from_utf8_lossy(&output.stdout)
-                    .trim()
-                    .parse::<u64>()
-                {
-                    return (kb / 1048576) as usize;
-                }
-            }
+        #[cfg(target_os = "windows")]
+        if let Some((_total, avail)) = Self::windows_memory_gb() {
+            return avail;
         }
         0 // Unknown available memory must not authorize automatic downloads.
     }
