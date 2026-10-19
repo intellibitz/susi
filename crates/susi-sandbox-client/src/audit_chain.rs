@@ -126,8 +126,15 @@ pub(crate) fn append_with_key(
             .and_then(|n| n.to_str())
             .unwrap_or("audit")
     );
-    let _file_lock = crate::susi_config::file_lock::FileLock::acquire(dir, &lock_name)
-        .ok_or_else(|| std::io::Error::other("audit chain lock unavailable"))?;
+    // Appends serialize hundreds of times per writer under real contention;
+    // a dropped ledger entry is worse than a longer wait, so this budget
+    // sits past the default contention window.
+    let _file_lock = crate::susi_config::file_lock::FileLock::acquire_within(
+        dir,
+        &lock_name,
+        std::time::Duration::from_secs(15),
+    )
+    .ok_or_else(|| std::io::Error::other("audit chain lock unavailable"))?;
     let prev = last_hash(audit_file, key)?;
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

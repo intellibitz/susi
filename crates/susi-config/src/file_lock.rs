@@ -58,6 +58,7 @@ impl FileLock {
         #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
+            let mut attempt = 0u64;
             loop {
                 match fs::OpenOptions::new()
                     .read(true)
@@ -81,7 +82,7 @@ impl FileLock {
                         if e.kind() == std::io::ErrorKind::PermissionDenied
                             || e.raw_os_error() == Some(32) =>
                     {
-                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        std::thread::sleep(Self::contention_pause(&mut attempt));
                     }
                     Err(_) => return None,
                 }
@@ -100,6 +101,7 @@ impl FileLock {
         #[cfg(not(windows))]
         {
             let mut last_probe: Option<std::time::Instant> = None;
+            let mut attempt = 0u64;
             loop {
                 match fs::OpenOptions::new()
                     .write(true)
@@ -122,7 +124,7 @@ impl FileLock {
                         if probe {
                             let _ = fs::remove_file(&lock);
                         } else {
-                            std::thread::sleep(std::time::Duration::from_millis(10));
+                            std::thread::sleep(Self::contention_pause(&mut attempt));
                         }
                     }
                     Err(_) => return None,
@@ -132,6 +134,16 @@ impl FileLock {
                 }
             }
         }
+    }
+
+    /// Back off on contention with per-process jitter: `thread::sleep`
+    /// quantizes to the ~15.6ms timer tick on Windows, so flat polls wake
+    /// every contender on the same boundary and the same thread wins the
+    /// handoff again and again until a peer's deadline lapses.
+    fn contention_pause(attempt: &mut u64) -> std::time::Duration {
+        *attempt = attempt.wrapping_add(1);
+        let jitter = (std::process::id() as u64).wrapping_add(*attempt) % 11;
+        std::time::Duration::from_millis(8 + jitter)
     }
 
     /// Mark the lock freshly held (mtime = now), so `is_stale`'s age rule
