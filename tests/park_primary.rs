@@ -365,7 +365,9 @@ fn watcher_observes_remote_merges_without_local_git_hooks() {
     );
     git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
     let expected = git(&other, &["rev-parse", "HEAD"]);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    // The watcher ticks on SUSI_SYNC_INTERVAL then runs a real fetch+merge;
+    // under suite load a tick plus a git spawn can take tens of seconds.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
     while git(&w.primary, &["rev-parse", "HEAD"]) != expected
         && std::time::Instant::now() < deadline
     {
