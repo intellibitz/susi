@@ -186,8 +186,13 @@ fn hooks_sync_primary_is_throttled_and_the_interval_is_configurable() {
     assert_eq!(w.commit_in_worktree(&[FG]), 0);
     let synced = w.primary_head();
     w.origin_advances();
-    // Within the default 30s window the second commit does not fetch again.
-    assert_eq!(w.commit_in_worktree(&[FG]), 0);
+    // Within the interval the second commit does not fetch again. Pin the
+    // window far past any wall-clock jitter: under suite load the gap
+    // between the two spawned commits can exceed the 30s default.
+    assert_eq!(
+        w.commit_in_worktree(&[FG, ("SUSI_SYNC_INTERVAL", "3600")]),
+        0
+    );
     assert_eq!(w.primary_head(), synced, "throttled: no second sync");
     assert_eq!(w.commit_in_worktree(&[FG, ("SUSI_SYNC_INTERVAL", "0")]), 0);
     assert_eq!(w.primary_head(), w.server_main(), "interval 0 syncs again");
