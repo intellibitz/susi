@@ -91,11 +91,14 @@ impl World {
             )
             .unwrap();
         }
-        // A fresh heartbeat, so `sync`'s watcher heal is a no-op here: these
-        // tests must never spawn a background watcher into the temp fixture.
+        // A heartbeat far in the future, so `sync`'s watcher heal is a no-op
+        // no matter how long the test runs under suite load: a stamp that
+        // merely started fresh goes stale mid-test on a slow host, and every
+        // spawn then leaves a real watcher loop ticking git fetches inside
+        // the temp fixture until World::drop removes it.
         std::fs::write(
             primary.join(".git/susi-primary-watch.stamp"),
-            format!("{}\n", now_unix()),
+            format!("{}\n", now_unix() + 86_400),
         )
         .unwrap();
         executable(&scripts.join("accept.sh"), "#!/bin/sh\nexit 0\n");
@@ -905,8 +908,12 @@ fn the_sync_boundary_heals_a_dead_watcher() {
     let out = common::script_command(&script, &[])
         .current_dir(&w.work)
         .env("SUSI_WATCH_CMD", common::posix_path(&stub))
-        .env("SUSI_WATCH_STALE", "1")
-        .env("SUSI_WATCH_WAIT", "5")
+        // The poll runs once a second and process spawn is slow on Windows —
+        // a 1s staleness window could expire before the stub's write is even
+        // observed, and a 5s wait before the stub spawns. Both are budgets,
+        // not the property under test.
+        .env("SUSI_WATCH_STALE", "60")
+        .env("SUSI_WATCH_WAIT", "60")
         .output()
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
