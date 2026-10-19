@@ -2189,10 +2189,30 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
 fn acceptance_command(argv: &[String]) -> Command {
     let program = argv.first().map(String::as_str).unwrap_or_default();
     #[cfg(windows)]
-    if program.starts_with("scripts/") || program.starts_with("scripts\\") {
-        let mut command = Command::new("sh");
-        command.arg(program).args(&argv[1..]);
-        return command;
+    {
+        let interpreter = match Path::new(program).extension().and_then(|ext| ext.to_str()) {
+            Some("sh") => Some("sh"),
+            _ => None,
+        };
+        if let Some(executable) = interpreter {
+            let mut command = Command::new(executable);
+            command.arg(program).args(&argv[1..]);
+            return command;
+        }
+        if Path::new(program).extension().and_then(|ext| ext.to_str()) == Some("py") {
+            // Use Git Bash as the parent so Python inherits its POSIX utility
+            // path too; checkers may invoke grep/sed as part of acceptance.
+            let mut command = Command::new("sh");
+            command
+                .args([
+                    "-c",
+                    "export PYTHONIOENCODING=utf-8; exec python3 \"$@\"",
+                    "susi-acceptance",
+                ])
+                .arg(program)
+                .args(&argv[1..]);
+            return command;
+        }
     }
     let mut command = Command::new(program);
     command.args(&argv[1..]);

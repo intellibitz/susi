@@ -25,6 +25,20 @@ struct World {
 /// The environment of a worker's shell: a private `$HOME`, no system git
 /// config, and neither `SUSI_AGENT` nor an inherited git identity.
 fn command(program: &str, dir: &Path, home: &Path) -> Command {
+    #[cfg(windows)]
+    let mut cmd = if Path::new(program).is_file()
+        && Path::new(program)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("exe")
+    {
+        let mut shell = Command::new("sh");
+        shell.arg(program);
+        shell
+    } else {
+        Command::new(program)
+    };
+    #[cfg(not(windows))]
     let mut cmd = Command::new(program);
     cmd.current_dir(dir)
         .env("HOME", home)
