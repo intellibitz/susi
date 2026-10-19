@@ -934,6 +934,14 @@ fn parallel_roadmap_e2e_credit_lockout_reassign_and_shared_pool_ceiling() {
         if ran.len() == 3 {
             break;
         }
+        // A job that produced output is complete — mirror verified_closure
+        // marking it done, or the lapsed lease below re-arms finished work
+        // and a later round double-runs it.
+        for o in &rep.outcomes {
+            if o.output.is_some() {
+                IntegrationQueue::finish(&queue, &o.job_id);
+            }
+        }
         queue.expire_claims(); // leases lapse; next round retries
     }
     assert_eq!(ran.len(), 3, "all tasks finish on surviving models");
