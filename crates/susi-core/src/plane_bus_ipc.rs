@@ -823,8 +823,22 @@ mod tests {
     #[test]
     fn cross_process_request_reaches_sibling_pid_dir() {
         let bus_root = tempdir("busroot");
-        let mut child = match std::process::Command::new("sleep")
-            .arg("30")
+        // Any ~30s-lived child works: `sleep` on unix, `ping -n 31` on
+        // Windows (there is no builtin sleep and `timeout` exits at once
+        // when stdin is nul).
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut c = std::process::Command::new("ping");
+            c.args(["-n", "31", "127.0.0.1"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut cmd = {
+            let mut c = std::process::Command::new("sleep");
+            c.arg("30");
+            c
+        };
+        let mut child = match cmd
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
