@@ -52,6 +52,7 @@ fn gmcp_req_203_001_02_production() {
         .current_dir(root)
         .env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
+        .env("SUSI_INTENT_LADDER_DISABLE", "1")
         .env_remove("SUSI_HOME")
         .output()
         .expect("the susi binary must run `mcp ledger`");
@@ -91,6 +92,10 @@ fn susi_command(root: &Path, home: &Path, args: &[&str]) -> Command {
         .env("USERPROFILE", home)
         .env("APPDATA", home.join("appdata"))
         .env("LOCALAPPDATA", home.join("localappdata"))
+        // A fixture daemon's intent ladder would treat the repo root (its
+        // CWD) as the workspace and author repair tasks into the real
+        // .agents/tasks — keep it off inside tests.
+        .env("SUSI_INTENT_LADDER_DISABLE", "1")
         .env_remove("SUSI_HOME");
     command
 }

@@ -52,11 +52,18 @@ impl SusiRuntimeAdmin {
                     // hermetically — scratch SUSI_HOME, throwaway
                     // workspace, no live estate, no egress — and the
                     // scorecard lands under the susi home.
-                    let root = susi_gawd::intent_ladder::repo_root();
-                    if let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &root) {
-                        // A failed rung becomes a repair task whose close
-                        // is the intent passing again (VC-201-012).
-                        let _ = susi_gawd::intent_ladder::gap_tasks(&root, &card, "SUSI");
+                    // Test harnesses set SUSI_INTENT_LADDER_DISABLE so a
+                    // fixture daemon never runs the ladder against whatever
+                    // checkout it was spawned in: repo_root() is the CWD, so
+                    // a daemon started with CWD=repo would author repair
+                    // tasks into that repo's real .agents/tasks.
+                    if std::env::var_os("SUSI_INTENT_LADDER_DISABLE").is_none() {
+                        let root = susi_gawd::intent_ladder::repo_root();
+                        if let Ok(card) = susi_gawd::intent_ladder::startup_slice(&home, &root) {
+                            // A failed rung becomes a repair task whose close
+                            // is the intent passing again (VC-201-012).
+                            let _ = susi_gawd::intent_ladder::gap_tasks(&root, &card, "SUSI");
+                        }
                     }
 
                     let mut last_pulse = std::time::Instant::now();
@@ -678,8 +685,14 @@ impl Maintenance {
             budget: 8,
             needs_consent: false, // scratch HOME + scrubbed env: no estate, no egress
         };
-        if let crate::eco_probe_scheduler::Decision::Run { .. } =
-            self.probes.decide(&ladder, now, cond)
+        // SUSI_INTENT_LADDER_DISABLE keeps a fixture/test daemon from running
+        // the ladder against its CWD checkout (repo_root() is the CWD, so a
+        // daemon spawned in a real repo would author repair tasks into it).
+        if std::env::var_os("SUSI_INTENT_LADDER_DISABLE").is_none()
+            && matches!(
+                self.probes.decide(&ladder, now, cond),
+                crate::eco_probe_scheduler::Decision::Run { .. }
+            )
         {
             let root = susi_gawd::intent_ladder::repo_root();
             match susi_gawd::intent_ladder::full_run(&self.home, &root) {
