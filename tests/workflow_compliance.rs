@@ -17,7 +17,7 @@ fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32,
     #[cfg(windows)]
     let mut cmd = if Path::new(program).extension().and_then(|ext| ext.to_str()) == Some("sh") {
         let mut shell = Command::new("sh");
-        shell.arg(program);
+        shell.arg(program).env("MSYS_NO_PATHCONV", "1");
         shell
     } else {
         Command::new(program)
@@ -66,6 +66,9 @@ impl Env {
         }
         git(&bare, &["init", "--bare", "--quiet"]);
         git(&repo, &["init", "--quiet", "-b", "main"]);
+        git(&repo, &["config", "user.name", "agent"]);
+        git(&repo, &["config", "user.email", "a@a"]);
+        git(&repo, &["config", "commit.gpgsign", "false"]);
         git(&repo, &["remote", "add", "origin", bare.to_str().unwrap()]);
         // A checker that already exists on main: the fixture acceptance these
         // tests declare, so their tasks are re-runnable (and `close`, which
@@ -1046,6 +1049,22 @@ fn a_second_owed_merge_is_refused_but_one_pipelines_at_the_server() {
     git(&e.repo, &["commit", "--quiet", "-m", "publish both closes"]); // task-only: exempt
     git(&e.repo, &["push", "--quiet", "origin", "HEAD:main"]);
     git(&e.repo, &["fetch", "--quiet", "origin"]);
+    git(
+        &e.repo,
+        &[
+            "cat-file",
+            "-e",
+            "origin/main:.agents/tasks/done/T-TEST-1.json",
+        ],
+    );
+    git(
+        &e.repo,
+        &[
+            "cat-file",
+            "-e",
+            "origin/main:.agents/tasks/done/T-TEST-2.json",
+        ],
+    );
     let before = e.head();
     e.commit("e", "feat: e", Some("T-TEST-3"));
     let (code, err) = e.check(&before);

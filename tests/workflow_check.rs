@@ -76,6 +76,7 @@ impl World {
         for repo in [&bare, &primary] {
             git(repo, &["config", "user.name", "t"]);
             git(repo, &["config", "user.email", "t@t"]);
+            git(repo, &["config", "commit.gpgsign", "false"]);
         }
         git(
             &primary,
