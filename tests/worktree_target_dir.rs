@@ -15,8 +15,25 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn script_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("sh");
+        command.arg(script).env("MSYS_NO_PATHCONV", "1");
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(script)
+    }
+}
+
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
-    let mut cmd = Command::new(program);
+    let mut cmd = if program.ends_with(".sh") {
+        script_command(Path::new(program))
+    } else {
+        Command::new(program)
+    };
     cmd.args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
@@ -149,6 +166,9 @@ fn an_existing_private_target_is_left_alone() {
     let dest = cd_target(&out);
     // The agent opted to keep its own build tree; re-provisioning the same
     // worktree must not silently convert it.
+    #[cfg(windows)]
+    std::fs::remove_dir(dest.join("target")).unwrap();
+    #[cfg(not(windows))]
     std::fs::remove_file(dest.join("target")).unwrap();
     std::fs::create_dir(dest.join("target")).unwrap();
     let (code, _, err) = w.worktree("worker", &[]);

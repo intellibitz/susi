@@ -39,10 +39,17 @@ case "${OSTYPE:-}" in
         # Windows path discovery uses APPDATA/LOCALAPPDATA, not XDG. Keep both
         # the Susi instance and native build-tool caches inside this run's temp
         # home so a hermetic test cannot see or mutate the user's AppData.
-        mkdir -p "$testhome/appdata/roaming" "$testhome/appdata/local/ort-cache"
+        mkdir -p "$testhome/appdata/roaming" "$testhome/appdata/local/ort-cache" \
+            "$testhome/appdata/local/temp"
         export APPDATA="$(cygpath -aw "$testhome/appdata/roaming")"
         export LOCALAPPDATA="$(cygpath -aw "$testhome/appdata/local")"
         export ORT_CACHE_DIR="$(cygpath -aw "$testhome/appdata/local/ort-cache")"
+        # Rust's std::env::temp_dir and native Windows tools honor these
+        # variables. MSYS may export /tmp here, which native Git/Cargo tests
+        # cannot use for temporary repositories or worktrees.
+        export TMP="$(cygpath -aw "$testhome/appdata/local/temp")"
+        export TEMP="$TMP"
+        export TMPDIR="$testhome/appdata/local/temp"
         ;;
 esac
 export SUSI_HOME="$home"
