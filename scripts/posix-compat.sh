@@ -66,9 +66,29 @@ if ! command -v flock >/dev/null 2>&1; then
                 return 0
             fi
             owner=$(cat "$dir/pid" 2>/dev/null) || owner=""
-            if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-                rm -f "$dir/pid"
-                rmdir "$dir" 2>/dev/null
+            if [ -n "$owner" ]; then
+                # A dead holder's dir is reclaimed the same way a real
+                # flock's fd release would free the lock on process exit.
+                if ! kill -0 "$owner" 2>/dev/null; then
+                    rm -f "$dir/pid"
+                    rmdir "$dir" 2>/dev/null
+                    continue
+                fi
+            else
+                # The holder was killed between mkdir and the pid write —
+                # without a grace window this stale dir would wedge every
+                # later acquisition (blocking spins, -n always fails).
+                # Wait out the write race once, then reclaim.
+                sleep 1
+                owner=$(cat "$dir/pid" 2>/dev/null) || owner=""
+                if [ -z "$owner" ]; then
+                    rmdir "$dir" 2>/dev/null
+                    continue
+                fi
+                if ! kill -0 "$owner" 2>/dev/null; then
+                    rm -f "$dir/pid"
+                    rmdir "$dir" 2>/dev/null
+                fi
                 continue
             fi
             [ "$nonblock" = 1 ] && return 1
