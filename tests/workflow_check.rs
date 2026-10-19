@@ -131,30 +131,35 @@ impl World {
     }
 
     fn check(&self, dir: &Path) -> (i32, String) {
+        let home = self.home.to_str().unwrap();
+        let xdg = self.home.join("xdg");
+        let mut envs = vec![
+            ("HOME", home),
+            ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+            ("SUSI_AGENT", "test"),
+        ];
+        #[cfg(windows)]
+        envs.push(("USERPROFILE", home));
         let (code, out, _) = run(
             dir,
             env!("CARGO_BIN_EXE_susi"),
             &["workflow", "check"],
-            &[
-                ("HOME", self.home.to_str().unwrap()),
-                ("XDG_CONFIG_HOME", self.home.join("xdg").to_str().unwrap()),
-                ("SUSI_AGENT", "test"),
-            ],
+            &envs,
         );
         (code, out)
     }
 
     fn susi(&self, dir: &Path, args: &[&str]) -> (i32, String, String) {
-        run(
-            dir,
-            env!("CARGO_BIN_EXE_susi"),
-            args,
-            &[
-                ("HOME", self.home.to_str().unwrap()),
-                ("XDG_CONFIG_HOME", self.home.join("xdg").to_str().unwrap()),
-                ("SUSI_AGENT", "test"),
-            ],
-        )
+        let home = self.home.to_str().unwrap();
+        let xdg = self.home.join("xdg");
+        let mut envs = vec![
+            ("HOME", home),
+            ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+            ("SUSI_AGENT", "test"),
+        ];
+        #[cfg(windows)]
+        envs.push(("USERPROFILE", home));
+        run(dir, env!("CARGO_BIN_EXE_susi"), args, &envs)
     }
 
     fn claim_a_task(&self) {
@@ -163,6 +168,10 @@ impl World {
             &["tasks", "add", "job", "--accept", "cargo --version"],
         );
         assert_eq!(code, 0, "{err}");
+        git(&self.wt, &["add", ".agents/tasks/T-TEST-1.json"]);
+        git(&self.wt, &["commit", "--quiet", "-m", "fixture task"]);
+        git(&self.wt, &["push", "--quiet", "origin", "HEAD:main"]);
+        git(&self.wt, &["fetch", "--quiet", "origin"]);
         let (code, _, err) =
             self.susi(&self.wt, &["tasks", "claim", "T-TEST-1", "--scope", "work"]);
         assert_eq!(code, 0, "{err}");
