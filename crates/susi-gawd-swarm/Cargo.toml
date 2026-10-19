@@ -23,5 +23,8 @@ susi-vendor-agents = { workspace = true }
 susi-vendor-models = { workspace = true }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
+[target."cfg(windows)".dependencies]
+winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
+
 [lints]
 workspace = true

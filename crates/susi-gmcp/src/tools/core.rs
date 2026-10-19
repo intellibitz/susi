@@ -507,11 +507,7 @@ impl CoreTools {
                          not supervise — restart is refused"
                     )));
                 }
-                let ok = Command::new("kill")
-                    .args(["-TERM", &rec.pid.to_string()])
-                    .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false);
+                let ok = send_signal(rec.pid, "TERM");
                 if ok {
                     Ok(format!(
                         "sent SIGTERM to {} (pid {}); the daemon supervisor will respawn it",
@@ -588,11 +584,7 @@ impl CoreTools {
                  reaches pids the daemon spawned"
             )));
         }
-        let ok = Command::new("kill")
-            .args([format!("-{sig_name}"), pid.to_string()])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let ok = send_signal(pid, sig_name);
         if ok {
             Ok(format!("sent SIG{sig_name} to pid {pid}"))
         } else {
@@ -1635,6 +1627,36 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
         return Ok(repaired_total);
     }
     Err(last_err)
+}
+
+/// Signal a supervised pid: `kill -<sig>` on unix; `taskkill /PID /F` on
+/// Windows, which has no signal granularity — TERM and KILL both mean
+/// terminate.
+fn send_signal(pid: u32, sig_name: &str) -> bool {
+    #[cfg(unix)]
+    {
+        Command::new("kill")
+            .args([format!("-{sig_name}"), pid.to_string()])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        let _ = sig_name;
+        Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (pid, sig_name);
+        false
+    }
 }
 
 /// Pull a coordinator's records (seq >= `from_seq`) from one peer's

@@ -11,6 +11,86 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::susi_error::{EaiError, EaiResult};
 
+#[cfg(windows)]
+mod win32_job {
+    use winapi::shared::minwindef::FALSE;
+    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::jobapi2::{AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject};
+    use winapi::um::processthreadsapi::OpenProcess;
+    use winapi::um::winnt::{HANDLE, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+
+    /// A Win32 job object grouping a spawned command so cancellation can
+    /// reach every descendant. `taskkill /T` alone misses grandchildren
+    /// spawned through MSYS/cygwin shells — their Windows parent linkage
+    /// does not chain back to the process we started — while job
+    /// membership is inherited regardless of how a child was created.
+    pub struct JobHandle(HANDLE);
+
+    impl JobHandle {
+        /// Create a job and assign `child_pid` to it. `None` when the host
+        /// refuses (e.g. this process already runs under a job that denies
+        /// nested membership) — `taskkill /T` remains the fallback.
+        #[allow(unsafe_code)]
+        pub fn assign(child_pid: u32) -> Option<JobHandle> {
+            // SAFETY: null attributes and name create an anonymous job the
+            // caller owns; the returned handle is null-checked next.
+            let job = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+            if job.is_null() {
+                return None;
+            }
+            // SAFETY: `child_pid` belongs to a just-spawned child;
+            // PROCESS_SET_QUOTA|PROCESS_TERMINATE are the access rights
+            // AssignProcessToJobObject requires, and the handle is closed
+            // on every path below.
+            let proc =
+                unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, child_pid) };
+            if proc.is_null() {
+                // SAFETY: `job` is a live handle owned here.
+                unsafe { CloseHandle(job) };
+                return None;
+            }
+            // SAFETY: both handles are live and owned; a false return only
+            // means the process could not join the job.
+            let ok = unsafe { AssignProcessToJobObject(job, proc) };
+            // SAFETY: `proc` is a live handle owned here.
+            unsafe { CloseHandle(proc) };
+            if ok == 0 {
+                // SAFETY: `job` is a live handle owned here.
+                unsafe { CloseHandle(job) };
+                return None;
+            }
+            Some(JobHandle(job))
+        }
+
+        /// Terminate every process in the job — the Windows analogue of a
+        /// unix process-group kill, reachable past broken parent chains.
+        #[allow(unsafe_code)]
+        pub fn terminate(&self) {
+            // SAFETY: `self.0` is a live job handle owned by self.
+            unsafe {
+                TerminateJobObject(self.0, 1);
+            }
+        }
+    }
+
+    impl Drop for JobHandle {
+        #[allow(unsafe_code)]
+        fn drop(&mut self) {
+            // SAFETY: `self.0` is a live job handle owned by self.
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
+/// Job objects are Windows-only; unix kills process groups by pid, so the
+/// type exists there only to keep signatures uniform.
+#[cfg(not(windows))]
+mod win32_job {
+    pub enum JobHandle {}
+}
+
 #[derive(Debug)]
 struct RuntimeState {
     cancelled: bool,
@@ -362,19 +442,25 @@ pub fn run_cancellable_command(
         .spawn()
         .map_err(|e| EaiError::process(format!("spawn cancellable command: {e}")))?;
     let child_id = child.id();
+    // Group the child under a job so cancellation reaches descendants that
+    // the Win32 parent chain does not link (MSYS grandchildren).
+    #[cfg(windows)]
+    let job = win32_job::JobHandle::assign(child_id);
+    #[cfg(not(windows))]
+    let job: Option<win32_job::JobHandle> = None;
     let stdout = child.stdout.take().map(spawn_pipe_reader);
     let stderr = child.stderr.take().map(spawn_pipe_reader);
 
     let exit = loop {
         if handle.should_stop() {
-            terminate_process_group(&mut child, child_id);
+            terminate_process_group(&mut child, child_id, job.as_ref());
             break child.wait().ok();
         }
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
             Err(_) => {
-                terminate_process_group(&mut child, child_id);
+                terminate_process_group(&mut child, child_id, job.as_ref());
                 break child.wait().ok();
             }
         }
@@ -420,9 +506,10 @@ fn join_pipe_reader(
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn terminate_process_group(child: &mut Child, child_id: u32) {
+fn terminate_process_group(child: &mut Child, child_id: u32, job: Option<&win32_job::JobHandle>) {
     #[cfg(unix)]
     {
+        let _ = job;
         // Kill the process group by negative pid: cancel must reach spawned
         // grandchildren, not only the direct child.
         let group = format!("-{child_id}");
@@ -438,13 +525,19 @@ fn terminate_process_group(child: &mut Child, child_id: u32) {
     }
     #[cfg(windows)]
     {
-        // taskkill /T kills the whole process tree — the Windows analogue
-        // of the negative-pid group kill above.
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child_id.to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        // Terminating the job reaches every descendant, including MSYS
+        // grandchildren the Win32 parent chain does not link. taskkill /T
+        // is the fallback for when the job assignment itself failed — its
+        // spawn alone would cost most of the cancellation budget.
+        if let Some(job) = job {
+            job.terminate();
+        } else {
+            let _ = Command::new("taskkill")
+                .args(["/PID", &child_id.to_string(), "/T", "/F"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
     }
     let _ = child.kill();
 }

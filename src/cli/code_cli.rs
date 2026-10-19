@@ -770,7 +770,7 @@ pub fn execute(args: CodeArgs, workspace: &Path) -> anyhow::Result<()> {
     // Run check command if specified
     let mut check_passed = None;
     if let Some(ref check_cmd) = args.check {
-        let status = Command::new("sh")
+        let status = Command::new(susi_core::bounded_cmd::posix_shell())
             .arg("-c")
             .arg(check_cmd)
             .current_dir(workspace)

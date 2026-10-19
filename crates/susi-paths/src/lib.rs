@@ -328,6 +328,20 @@ pub fn percent_encode_path(s: &str) -> String {
     percent_encode(s, b"/")
 }
 
+/// Render `p` the way MSYS/Git Bash needs it inside generated script text:
+/// `C:\a\b` → `/c/a/b` (a bare `C:\…` loses `\t`-style escapes under the
+/// shell's quoting rules). On unix the path is already in that form.
+#[must_use]
+pub fn posix_path(p: &Path) -> String {
+    let s = p.to_string_lossy().replace('\\', "/");
+    let bytes = s.as_bytes();
+    if bytes.len() >= 3 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+        format!("/{}/{}", (bytes[0] as char).to_ascii_lowercase(), &s[3..])
+    } else {
+        s
+    }
+}
+
 /// The host path contract as the `susi-paths` service answers it: always
 /// the local resolver (the service *is* the source of truth).
 #[must_use]

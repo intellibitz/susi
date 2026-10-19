@@ -83,17 +83,10 @@ pub fn real_git(exclude_dir: &std::path::Path) -> String {
     "/usr/bin/git".to_string()
 }
 
-/// Render `p` the way MSYS/Git Bash needs it inside generated script text:
-/// `C:\a\b` → `/c/a/b` (a bare `C:\…` loses `\t`-style escapes under the
-/// shell's quoting rules). On unix the path is already in that form.
+/// Render `p` the way MSYS/Git Bash needs it inside generated script text
+/// (`susi_paths::posix_path`, re-exported for the test helpers).
 pub fn posix_path(p: &std::path::Path) -> String {
-    let s = p.to_string_lossy().replace('\\', "/");
-    let bytes = s.as_bytes();
-    if bytes.len() >= 3 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
-        format!("/{}/{}", (bytes[0] as char).to_ascii_lowercase(), &s[3..])
-    } else {
-        s
-    }
+    susi_paths::posix_path(p)
 }
 
 /// `dir` prepended to the inherited PATH with the OS list separator (`;`

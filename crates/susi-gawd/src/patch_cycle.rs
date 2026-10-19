@@ -318,7 +318,7 @@ pub fn apply_patch_cycle(
     let mut test_stdout = String::new();
     let mut test_stderr = String::new();
     if let Some(test_cmd) = request.test_command.clone() {
-        let output = match Command::new("sh")
+        let output = match Command::new(crate::susi_core::bounded_cmd::posix_shell())
             .arg("-c")
             .arg(&test_cmd)
             .current_dir(&exec_ws)
@@ -332,7 +332,7 @@ pub fn apply_patch_cycle(
         test_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
     } else if !susi_repo {
         let test_cmd = detect_test_command(&exec_ws);
-        let output = match Command::new("sh")
+        let output = match Command::new(crate::susi_core::bounded_cmd::posix_shell())
             .arg("-c")
             .arg(&test_cmd)
             .current_dir(&exec_ws)

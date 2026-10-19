@@ -5354,6 +5354,7 @@ dependencies = [
  "susi-vendor-serde-json",
  "susi-vendor-sha2",
  "susi-vendor-tokio",
+ "susi-vendor-winapi",
 ]
 
 [[package]]

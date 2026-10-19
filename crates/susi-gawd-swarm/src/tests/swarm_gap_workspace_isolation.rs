@@ -57,7 +57,7 @@ fn scoped_tool(name: &str, args: &Value, workspace: &Path) -> EaiResult<String> 
             "test exec_command refused a path outside the worker scope",
         ));
     }
-    let output = Command::new("sh")
+    let output = Command::new(crate::susi_core::bounded_cmd::posix_shell())
         .args(["-c", command])
         .current_dir(workspace)
         .output()

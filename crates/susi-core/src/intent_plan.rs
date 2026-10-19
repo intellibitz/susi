@@ -623,7 +623,7 @@ fn exec_leaf(
         }
         "exec_command" => {
             let command = inputs.get("command").map(String::as_str).unwrap_or("");
-            let output = std::process::Command::new("sh")
+            let output = std::process::Command::new(crate::bounded_cmd::posix_shell())
                 .arg("-c")
                 .arg(command)
                 .current_dir(workspace)

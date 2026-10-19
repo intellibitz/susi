@@ -28,11 +28,22 @@ fn test_dir(tag: &str) -> PathBuf {
 fn swarm_gap_real_cancellation_kills_process_descendants() {
     let dir = test_dir("process");
     let marker = dir.join("pids");
+    // `/proc/<pid>/winpid` maps the MSYS pid to the Windows pid so the
+    // liveness check below can see the descendant through `tasklist`; on
+    // unix the file does not exist and the real pid is written as-is.
     let script = format!(
-        "sleep 30 & child=$!; printf '%s %s\\n' \"$$\" \"$child\" > {}; wait \"$child\"",
-        marker.display()
+        "sleep 30 & child=$!; wp=$child; \
+         [ -r /proc/$child/winpid ] && wp=$(cat /proc/$child/winpid); \
+         printf '%s %s\\n' \"$$\" \"$wp\" > '{}'; wait \"$child\"",
+        susi_paths::posix_path(&marker)
     );
-    let command = vec!["sh".to_string(), "-c".to_string(), script];
+    let command = vec![
+        crate::susi_core::bounded_cmd::posix_shell()
+            .to_string_lossy()
+            .into_owned(),
+        "-c".to_string(),
+        script,
+    ];
     let handle = CancellationHandle::with_deadline_after(Duration::from_secs(30));
     let worker_handle = handle.clone();
     let worker_dir = dir.clone();
@@ -188,10 +199,5 @@ fn swarm_gap_real_cancellation_marks_peer_work_unresolved_without_late_mutation(
 }
 
 fn process_is_alive(pid: u32) -> bool {
-    std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    susi_paths::process::pid_alive(pid)
 }
