@@ -905,6 +905,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
             common::posix_path(&stamp)
         ),
     );
+    let before = now_unix();
     let out = common::script_command(&script, &[])
         .current_dir(&w.work)
         .env("SUSI_WATCH_CMD", common::posix_path(&stub))
@@ -919,14 +920,17 @@ fn the_sync_boundary_heals_a_dead_watcher() {
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "{text}");
     assert!(text.contains("restarted"), "the heal must say so: {text}");
+    // The stamp was deleted above, so any value in it now is this heal's —
+    // but assert the stub wrote it during this call, not however long the
+    // script's wait loop ran under load.
     let fresh: u64 = std::fs::read_to_string(&stamp)
         .unwrap()
         .trim()
         .parse()
         .unwrap();
     assert!(
-        now_unix().saturating_sub(fresh) <= 5,
-        "the heartbeat must be fresh after the heal"
+        fresh >= before.saturating_sub(2) && fresh <= now_unix(),
+        "the heartbeat must be written by this heal: {fresh} not in [{before}, now]"
     );
 
     // A live watcher is left alone.
