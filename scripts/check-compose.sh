@@ -3,7 +3,8 @@
 # susi to ollama and vllm; validates with `docker compose config` when
 # docker is present, structurally otherwise.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
+ROOT="$(susi_cd "$(dirname "$0")/.."; pwd)"
 FILE="$ROOT/deploy/compose/docker-compose.yml"
 
 [[ -f "$FILE" ]] || { echo "missing deploy/compose/docker-compose.yml" >&2; exit 1; }

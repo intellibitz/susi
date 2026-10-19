@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
+ROOT="$(susi_cd "$(dirname "$0")/.."; pwd)"
 HELPER="$ROOT/crates/susi-config/src/zc_uninstall.rs"
 [[ -f "$HELPER" ]] || { echo "missing zc_uninstall.rs" >&2; exit 1; }
 grep -q 'uninstall_paths\|UninstallPlan' "$HELPER"

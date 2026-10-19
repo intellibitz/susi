@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 # Session-start hook for agent tools (Claude Code SessionStart, or any wrapper):
 # run the workflow check and print the result into the session, so the agent
 # learns the rules and what to fix before it edits. It never blocks a session.
-cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 0
+susi_cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 0
 # A worktree the desktop app made has a private target/ and would cold-compile
 # every dependency; share the clone's instead (a no-op where it already is, or
 # where a build already lives in target/). See scripts/link-shared-target.sh.

@@ -11,8 +11,9 @@
 #
 #   scripts/check-tracked-artifacts.sh          # exits 1 if build output is tracked
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-cd "$root" || exit 0
+susi_cd "$root" || exit 0
 patterns='^(debug|target|build|out|dist|node_modules|\.venv|__pycache__)/|^\.kilo/|^\.claude/worktrees/|^\.rustc_info\.json$|\.(pyc|rlib|rmeta)$'
 bad=$(git ls-files | grep -E "$patterns" || true)
 if [ -n "$bad" ]; then

@@ -2,7 +2,8 @@
 # Helm chart contract: the susi chart exists, carries daemon + engine +
 # GPU-node + secrets surfaces, and renders/lints when helm is available.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
+ROOT="$(susi_cd "$(dirname "$0")/.."; pwd)"
 CHART="$ROOT/helm/susi"
 
 [[ -f "$CHART/Chart.yaml" ]] || { echo "missing helm/susi/Chart.yaml" >&2; exit 1; }

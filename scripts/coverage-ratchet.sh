@@ -23,7 +23,8 @@
 #                                              # measured values (review the
 #                                              # diff — never lower a floor)
 set -euo pipefail
-cd "$(dirname "$0")/.."
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
+susi_cd "$(dirname "$0")/.."
 
 run_cov() {
     cargo llvm-cov --workspace --summary-only > "$1"

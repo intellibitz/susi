@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/../scripts/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/../scripts/posix-compat.sh"
 # Mandates 49/50 (Worktree Workflow, Task Queue) enforcement. Called by pre-commit,
 # pre-merge-commit and pre-push:  workflow-guard <commit|merge|push>
 #
@@ -19,8 +20,8 @@ stage=${1:-commit}
 
 primary_checkout() {
     local gd cd
-    gd=$(cd "$(git rev-parse --git-dir)" && pwd -P)
-    cd=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
+    gd=$(susi_cd "$(git rev-parse --git-dir)"; pwd -P)
+    cd=$(susi_cd "$(git rev-parse --git-common-dir)"; pwd -P)
     [ "$gd" = "$cd" ]
 }
 

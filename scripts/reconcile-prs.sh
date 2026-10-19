@@ -16,7 +16,7 @@
 set -uo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo}
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(susi_cd "$(dirname "$0")"; pwd)
 stale_days=${STALE_DAYS:-7}
 marker='<!-- susi-reconcile -->'
 now=$(date +%s)

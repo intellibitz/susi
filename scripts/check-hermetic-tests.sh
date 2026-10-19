@@ -20,7 +20,7 @@
 # followed by a hermetic repeat.
 set -euo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
-cd "$(git rev-parse --show-toplevel)"
+susi_cd "$(git rev-parse --show-toplevel)"
 real_home="${HOME}"
 home=$(mktemp -d)
 testhome=$(mktemp -d)

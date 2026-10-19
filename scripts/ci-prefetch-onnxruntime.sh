@@ -22,7 +22,8 @@
 #   scripts/ci-prefetch-onnxruntime.sh
 set -uo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
+susi_cd "$(git rev-parse --show-toplevel)"
 
 attempts="${ORT_PREFETCH_ATTEMPTS:-4}"
 for attempt in $(seq 1 "$attempts"); do

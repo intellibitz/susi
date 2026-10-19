@@ -4,7 +4,8 @@
 # each with a runner and expected journey outcomes; the CI workflow runs
 # the journey per profile on that OS family.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
+ROOT="$(susi_cd "$(dirname "$0")/.."; pwd)"
 MATRIX="$ROOT/.github/zc-matrix/matrix.json"
 WF="$ROOT/.github/workflows/zc-matrix.yml"
 

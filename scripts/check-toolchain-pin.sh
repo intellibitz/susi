@@ -11,9 +11,10 @@
 #
 #   scripts/check-toolchain-pin.sh
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-cd "$root"
+susi_cd "$root"
 
 file=rust-toolchain.toml
 [ -f "$file" ] || {

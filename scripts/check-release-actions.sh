@@ -11,8 +11,9 @@
 # Offline, or without `gh`, it says so and passes: an unreachable API is not
 # evidence that a pin is wrong.
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-cd "$root" || exit 0
+susi_cd "$root" || exit 0
 command -v gh >/dev/null 2>&1 || {
     echo "⏭️  workflow actions: no gh on PATH; cannot resolve references"
     exit 0

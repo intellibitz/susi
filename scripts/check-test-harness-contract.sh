@@ -18,9 +18,10 @@
 #
 #   scripts/check-test-harness-contract.sh
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-cd "$root"
+susi_cd "$root"
 
 found=0
 while IFS= read -r manifest; do

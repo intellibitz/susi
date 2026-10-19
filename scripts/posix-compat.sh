@@ -14,6 +14,22 @@ if command -v jq >/dev/null 2>&1; then
     }
 fi
 #
+# 1a. susi_cd() — under MSYS2 `cd` returns "Device or resource busy" while a
+# native Windows process transiently holds the target directory (a CWD or
+# handle without delete-sharing breaks Cygwin's chdir). The window is
+# transient, so retry for a bounded period before surfacing the real error.
+susi_cd() {
+    local target=$1 tries=0
+    until cd "$target" 2>/dev/null; do
+        tries=$((tries + 1))
+        if [ "$tries" -ge 300 ]; then
+            cd "$target"   # final attempt surfaces the real error
+            return
+        fi
+        sleep 0.2
+    done
+}
+#
 # 1b. link_dir() — MSYS2's `ln -s` silently deep-copies unless winsymlinks is
 # set; a native symlink needs Developer Mode while a directory junction does
 # not. The junction is therefore the fallback when the real link fails. Only

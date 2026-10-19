@@ -32,7 +32,7 @@ primary=$(dirname "$common")
 # Serialize all watchers/hooks that mutate the primary index and branch.
 exec 7>"$common/susi-primary-update.lock"
 flock 7
-cd "$primary"
+susi_cd "$primary"
 [ "$(git rev-parse --path-format=absolute --git-dir)" = "$common" ] \
     || { echo "park-primary: $primary is not the primary checkout" >&2; exit 2; }
 

@@ -36,6 +36,7 @@
 # the timer retries, and the cached build makes the retry cheap).
 
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 SUSI_HOME="${HOME}/.susi"
 BIN_DIR="${SUSI_HOME}/bin"
@@ -136,7 +137,7 @@ build_tag() {
     fi
 
     log "building ${tag} (features: ${features:-none}) in ${SRC}"
-    (cd "$SRC" && CARGO_TARGET_DIR="$TARGET" nice -n 10 cargo "${args[@]}")
+    (susi_cd "$SRC" && CARGO_TARGET_DIR="$TARGET" nice -n 10 cargo "${args[@]}")
 }
 
 # ---- liveness ---------------------------------------------------------------

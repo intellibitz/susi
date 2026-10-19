@@ -17,7 +17,8 @@ set -uo pipefail
 
 base=${1:?usage: merge-gate.sh <base-sha>}
 here=$(cd "$(dirname "$0")" && pwd)
-cd "$(git rev-parse --show-toplevel)"
+[ ! -f "$here/posix-compat.sh" ] || . "$here/posix-compat.sh"
+susi_cd "$(git rev-parse --show-toplevel)"
 
 "$here/check-test-harness-contract.sh" || exit 1
 cargo fmt --all --check || exit 1

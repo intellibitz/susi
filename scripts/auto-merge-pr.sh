@@ -24,7 +24,7 @@ set -uo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo} branch=${2:?branch} sha=${3:?sha}
 marker='<!-- susi-auto-merge -->'
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(susi_cd "$(dirname "$0")"; pwd)
 
 # Attest the merge on the shared remote: for every task the pull request named,
 # push refs/merged/<task> = {task, head, merge, pr, merged_unix}. This job is

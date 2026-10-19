@@ -26,6 +26,8 @@
 #   scripts/prune-worktrees.sh --apply --all   # remove any provably finished one
 set -uo pipefail
 
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
+
 apply=0
 everything=0
 for arg in "$@"; do
@@ -40,8 +42,8 @@ for arg in "$@"; do
 done
 
 common=$(git rev-parse --path-format=absolute --git-common-dir) || exit 1
-primary=$(cd "$(dirname "$common")" && pwd -P)
-here=$(cd "$(git rev-parse --show-toplevel)" && pwd -P)
+primary=$(susi_cd "$(dirname "$common")"; pwd -P)
+here=$(susi_cd "$(git rev-parse --show-toplevel)"; pwd -P)
 me=$(git config --get susi.agent 2>/dev/null || true)
 
 git fetch --quiet origin || {

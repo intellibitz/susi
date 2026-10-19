@@ -9,8 +9,9 @@
 # Never blocks: the board block it feeds is advisory, and "could not read" is
 # reported as unknown rather than as debt.
 set -uo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-cd "$root" || exit 0
+susi_cd "$root" || exit 0
 susi_bin=${SUSI_WORKFLOW_BIN:-susi}
 command -v "$susi_bin" >/dev/null 2>&1 || {
     echo "⏭️  owed merges: no $susi_bin on PATH"

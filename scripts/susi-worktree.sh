@@ -145,7 +145,7 @@ git -C "$dest" config --worktree user.name "$worker"
 git -C "$dest" config --worktree user.email "$(printf '%s' "$worker" | tr '[:upper:]' '[:lower:]')@localhost"
 
 # Hooks + ledger merge driver for the clone (shared by every worktree of it).
-(cd "$dest" && scripts/setup-dev.sh) >&2
+(susi_cd "$dest" && scripts/setup-dev.sh) >&2
 
 # Keep the primary checkout parked at origin/main so it never drifts onto a
 # stale branch that invites work (non-fatal: it refuses if it has real work).
@@ -153,7 +153,7 @@ git -C "$dest" config --worktree user.email "$(printf '%s' "$worker" | tr '[:upp
 
 # A remote merge cannot invoke local hooks: keep a local singleton watcher.
 if [ -x "$dest/scripts/parallel-workflow.sh" ] && [ -z "${SUSI_PRIMARY_WATCH_DISABLE:-}" ]; then
-    (cd "$dest" && scripts/parallel-workflow.sh start-watch) 9>&-
+    (susi_cd "$dest" && scripts/parallel-workflow.sh start-watch) 9>&-
 fi
 
 echo "ready: atomic loop — \`susi workflow check\`, then sync→claim one→work→commit→sync→push→sync" >&2

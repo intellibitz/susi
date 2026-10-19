@@ -402,6 +402,47 @@ fn gmcp_req_203_001_03_integration() {
     let _ = std::fs::remove_dir_all(&scratch);
 }
 
+/// `git status` must settle to a clean answer over the pinned proof tree.
+/// A concurrent susi run can transiently take the index lock or write under
+/// `.agents/gmcp`, so a one-shot sample is flaky: retry until status reports
+/// success *and* an empty porcelain list (bounded — a genuinely dirty tree
+/// still fails, just after giving a transient writer room to finish).
+fn assert_committed_proof(root: &Path, extra: &[&str]) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut args = vec![
+        "status",
+        "--porcelain",
+        "--",
+        ".agents/gmcp",
+        "docs/gmcp",
+        "tests/gmcp_requirements.rs",
+    ];
+    args.extend_from_slice(extra);
+    loop {
+        let status = Command::new("git")
+            .args(&args)
+            .current_dir(root)
+            .output()
+            .expect("git status must run — committed proof is required");
+        let clean = String::from_utf8_lossy(&status.stdout).trim().is_empty();
+        if status.status.success() && clean {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            assert!(
+                status.status.success(),
+                "git status must succeed to prove committed artifacts:\n{}",
+                String::from_utf8_lossy(&status.stderr)
+            );
+            panic!(
+                "locally modified artifacts are not proof:\n{}",
+                String::from_utf8_lossy(&status.stdout)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+}
+
 fn copy_tree(src: &Path, dst: &Path) {
     for entry in std::fs::read_dir(src).unwrap() {
         let entry = entry.unwrap();
@@ -1437,23 +1478,7 @@ fn gmcp_vc_203_001_mastery() {
 
     // ── Committed proof: locally modified artifacts are not
     //    evidence — the pinned tree must be clean against git ────────
-    let status = Command::new("git")
-        .args([
-            "status",
-            "--porcelain",
-            "--",
-            ".agents/gmcp",
-            "docs/gmcp",
-            "tests/gmcp_requirements.rs",
-        ])
-        .current_dir(root)
-        .output()
-        .expect("git status must run — committed proof is required");
-    assert!(
-        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
-        "locally modified artifacts are not proof:\n{}",
-        String::from_utf8_lossy(&status.stdout)
-    );
+    assert_committed_proof(root, &[]);
 
     // ── Automated drift detection fails closed: a changed upstream
     //    file must invalidate the pinned corpus on the shipped path ───
@@ -2974,24 +2999,7 @@ fn gmcp_vc_203_002_mastery() {
 
     // ── Committed proof: locally modified artifacts are not
     //    evidence — the vector's tree must be clean against git ──────
-    let status = Command::new("git")
-        .args([
-            "status",
-            "--porcelain",
-            "--",
-            ".agents/gmcp",
-            "docs/gmcp",
-            "tests/gmcp_requirements.rs",
-            "crates/susi-gmcp",
-        ])
-        .current_dir(root)
-        .output()
-        .expect("git status must run — committed proof is required");
-    assert!(
-        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
-        "locally modified artifacts are not proof:\n{}",
-        String::from_utf8_lossy(&status.stdout)
-    );
+    assert_committed_proof(root, &["crates/susi-gmcp"]);
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
@@ -4328,24 +4336,7 @@ fn gmcp_vc_203_003_mastery() {
 
     // ── Committed proof: locally modified artifacts are not
     //    evidence — the vector's tree must be clean against git ──────
-    let status = Command::new("git")
-        .args([
-            "status",
-            "--porcelain",
-            "--",
-            ".agents/gmcp",
-            "docs/gmcp",
-            "tests/gmcp_requirements.rs",
-            "crates/susi-gmcp",
-        ])
-        .current_dir(root)
-        .output()
-        .expect("git status must run — committed proof is required");
-    assert!(
-        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
-        "locally modified artifacts are not proof:\n{}",
-        String::from_utf8_lossy(&status.stdout)
-    );
+    assert_committed_proof(root, &["crates/susi-gmcp"]);
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
@@ -5978,24 +5969,7 @@ fn gmcp_vc_203_008_mastery() {
 
     // ── Committed proof: locally modified artifacts are not
     //    evidence — the vector's tree must be clean against git ──────
-    let status = Command::new("git")
-        .args([
-            "status",
-            "--porcelain",
-            "--",
-            ".agents/gmcp",
-            "docs/gmcp",
-            "tests/gmcp_requirements.rs",
-            "crates/susi-gmcp",
-        ])
-        .current_dir(root)
-        .output()
-        .expect("git status must run — committed proof is required");
-    assert!(
-        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
-        "locally modified artifacts are not proof:\n{}",
-        String::from_utf8_lossy(&status.stdout)
-    );
+    assert_committed_proof(root, &["crates/susi-gmcp"]);
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
