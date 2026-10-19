@@ -167,7 +167,7 @@ impl DaemonLock {
             // unix advisory flock never blocked reads. Lock a sentinel byte
             // far past any real content instead.
             // SAFETY: `overlapped` is a valid, live OVERLAPPED union field.
-            unsafe { (*overlapped.u.s_mut()).Offset = u32::MAX };
+            unsafe { overlapped.u.s_mut().Offset = u32::MAX };
             // SAFETY: `handle` is a valid open file handle owned by `file` and `overlapped` lives across the call.
             let ret = unsafe {
                 LockFileEx(
