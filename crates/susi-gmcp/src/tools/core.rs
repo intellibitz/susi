@@ -2906,6 +2906,11 @@ mod unwired_governance_tests {
         std::env::remove_var("SUSI_HOME");
         std::env::set_var("SUSI_XDG", "1");
         std::env::set_var("XDG_CACHE_HOME", &dir);
+        // Windows resolves the cache dir from %LOCALAPPDATA%, never XDG —
+        // without this the rendezvous stays at the real profile and a live
+        // daemon can satisfy `gawd.*` topics, defeating the unwired premise.
+        std::env::set_var("LOCALAPPDATA", &dir);
+        std::env::set_var("APPDATA", dir.join("roaming"));
     }
 
     /// Serializes wired vs. unwired audit-gate tests inside this process:

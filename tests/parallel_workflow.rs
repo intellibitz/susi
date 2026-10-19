@@ -904,7 +904,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
     );
     let out = common::script_command(&script, &[])
         .current_dir(&w.work)
-        .env("SUSI_WATCH_CMD", stub.to_str().unwrap())
+        .env("SUSI_WATCH_CMD", common::posix_path(&stub))
         .env("SUSI_WATCH_STALE", "1")
         .env("SUSI_WATCH_WAIT", "5")
         .output()

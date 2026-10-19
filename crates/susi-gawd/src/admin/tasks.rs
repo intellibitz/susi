@@ -2136,6 +2136,14 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             // (os error 193): drive it through the POSIX shell instead.
             if cfg!(windows) && (program.starts_with("scripts") || program.ends_with(".sh")) {
                 let script = ws.join(program);
+                // Through the shell a missing script reads as exit 127; a
+                // check that does not exist yet is "not done", not a run.
+                if !script.exists() {
+                    return Err(EaiError::process(format!(
+                        "{id} is not done: acceptance command `{}` could not run (no such script)",
+                        task.accept.cmd.join(" ")
+                    )));
+                }
                 susi_core::bounded_cmd::script_command(&script, &args)
             } else {
                 let mut cmd = Command::new(program);

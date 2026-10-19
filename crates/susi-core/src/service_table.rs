@@ -308,7 +308,10 @@ pub fn http_probe(port: u16) -> bool {
     let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(300)) else {
         return false;
     };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    // Generous enough that a loaded host (parallel test run, slow thread
+    // scheduling) cannot make a healthy responder look wedged; a truly
+    // wedged listener never answers regardless of the bound.
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(2_000)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(300)));
     if stream
         .write_all(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
