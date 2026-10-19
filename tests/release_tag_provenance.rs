@@ -12,6 +12,19 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn script_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("sh");
+        command.arg(script);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(script)
+    }
+}
+
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .args(args)
@@ -78,7 +91,7 @@ impl World {
 
     fn check(&self, tag: &str) -> (i32, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-release-tag.sh");
-        let out = Command::new(script)
+        let out = script_command(&script)
             .arg(tag)
             .current_dir(&self.repo)
             .output()

@@ -34,6 +34,17 @@ export USERPROFILE="$testhome"
 export XDG_CONFIG_HOME="$testhome/xdg-config"
 export XDG_DATA_HOME="$testhome/xdg-data"
 export XDG_CACHE_HOME="$testhome/xdg-cache"
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        # Windows path discovery uses APPDATA/LOCALAPPDATA, not XDG. Keep both
+        # the Susi instance and native build-tool caches inside this run's temp
+        # home so a hermetic test cannot see or mutate the user's AppData.
+        mkdir -p "$testhome/appdata/roaming" "$testhome/appdata/local/ort-cache"
+        export APPDATA="$(cygpath -aw "$testhome/appdata/roaming")"
+        export LOCALAPPDATA="$(cygpath -aw "$testhome/appdata/local")"
+        export ORT_CACHE_DIR="$(cygpath -aw "$testhome/appdata/local/ort-cache")"
+        ;;
+esac
 export SUSI_HOME="$home"
 export SUSI_HERMETIC_FORBIDDEN="$home"
 # Drop a launch-time port offset the same way a real inherited env might set it.

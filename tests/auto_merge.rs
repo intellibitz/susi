@@ -13,6 +13,32 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn script_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "git() { \"$SUSI_TEST_GIT\" \"$@\"; }; export -f git; \"$1\" \"${@:2}\"",
+            "susi-test",
+        ]);
+        command.arg(script);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(script)
+    }
+}
+
+fn path_with_prefix(prefix: &Path) -> std::ffi::OsString {
+    let mut paths = vec![prefix.to_path_buf()];
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&path));
+    }
+    std::env::join_paths(paths).unwrap()
+}
+
 struct Fake {
     dir: PathBuf,
 }
@@ -93,7 +119,7 @@ merge-tree) echo "git $*" >> "$D/calls"; [ -f "$D/conflict" ] && exit 1; cat "$D
 commit-tree) echo "git $*" >> "$D/calls"; cat "$D/mcfile" 2>/dev/null || echo mc999; exit 0 ;;
 checkout) echo "git $*" >> "$D/calls"; [ -f "$D/checkoutfail" ] && exit 1; exit 0 ;;
 esac
-exec /usr/bin/git "$@"
+exec git.exe "$@"
 "#,
         )
         .unwrap();
@@ -110,14 +136,15 @@ exec /usr/bin/git "$@"
     }
 
     fn script_env(&self, name: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
-        let path = format!("{}:{}", self.dir.display(), std::env::var("PATH").unwrap());
-        let out = Command::new(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
+        let path = path_with_prefix(&self.dir);
+        let out = script_command(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("scripts")
                 .join(name),
         )
         .args(args)
         .env("PATH", path)
+        .env("SUSI_TEST_GIT", self.dir.join("git"))
         .envs(envs.iter().copied())
         .output()
         .unwrap();
@@ -191,7 +218,13 @@ fn a_green_pr_merges_pinned_to_the_tested_commit_and_the_main_suite_runs() {
         serde_json::json!({}),
     );
     let (code, out) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
-    assert_eq!(code, 0, "{out}");
+    assert_eq!(
+        code,
+        0,
+        "{out}\npushes: {}\ncalls: {}",
+        f.git_pushes(),
+        f.calls()
+    );
     assert!(
         f.calls()
             .contains("pr merge 5 --repo o/r --merge --match-head-commit aaa"),
@@ -225,8 +258,19 @@ fn a_merge_identical_to_the_tested_head_is_attested_and_still_runs_the_main_suit
     f.flag("treecmp", "identical");
     f.flag("prcommits", "feat work\n\nTask: T-FIXTURE-7\n");
     let (code, out) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
-    assert_eq!(code, 0, "{out}");
-    assert!(out.contains("identical"), "{out}");
+    assert_eq!(
+        code,
+        0,
+        "{out}\npushes: {}\ncalls: {}",
+        f.git_pushes(),
+        f.calls()
+    );
+    assert!(
+        out.contains("identical"),
+        "{out}\npushes: {}\ncalls: {}",
+        f.git_pushes(),
+        f.calls()
+    );
     assert!(
         f.calls()
             .contains("workflow run test.yml --repo o/r --ref main"),

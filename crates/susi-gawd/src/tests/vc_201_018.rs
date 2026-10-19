@@ -4,8 +4,6 @@ use crate::rsi_promotion::{
     self_build_brief_mentions_release_only, PromotionAttempt, PromotionDecision, PromotionPath,
     ALLOWED_PROMOTERS,
 };
-use std::path::Path;
-
 fn verified() -> Verification {
     Verification {
         verified: true,
@@ -41,18 +39,19 @@ fn vc_201_018_passing_experiment_yields_reviewable_rc() {
 
 #[test]
 fn vc_201_018_rejects_target_bin_install_into_susi_home() {
+    let root = std::env::temp_dir().join("susi-vc-201-018");
     let bad = decide_promotion(&PromotionAttempt {
         candidate: produce_release_candidate(&verified(), "e2", "d", "e").unwrap(),
         via: PromotionPath::DirectTargetInstall,
     });
     assert!(matches!(bad, PromotionDecision::Rejected(_)));
     assert!(rejects_target_install(
-        Path::new("/repo/target/release/susi"),
-        Path::new("/home/u/.susi/bin/susi"),
+        &root.join("repo/target/release/susi"),
+        &root.join("home/.susi/bin/susi"),
     ));
     assert!(!rejects_target_install(
-        Path::new("/repo/target/release/susi"),
-        Path::new("/repo/target/debug/susi"),
+        &root.join("repo/target/release/susi"),
+        &root.join("repo/target/debug/susi"),
     ));
     assert!(self_build_brief_mentions_release_only());
 }

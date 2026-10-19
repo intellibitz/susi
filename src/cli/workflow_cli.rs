@@ -115,7 +115,9 @@ fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> 
     if !script.is_file() {
         bail!("{} not found — is this a susi checkout?", script.display());
     }
-    let mut cmd = std::process::Command::new(&script);
+    let args = name.into_iter().collect::<Vec<_>>();
+    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut cmd = workflow_script_command(&script, &arg_refs);
     cmd.current_dir(&root);
     // Only a name the operator gave is passed on. `who()` would answer with this
     // checkout's identity — `PRIMARY` from the primary checkout, or the shared
@@ -125,9 +127,6 @@ fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> 
         cmd.env("SUSI_AGENT", explicit);
     } else {
         cmd.env_remove("SUSI_AGENT");
-    }
-    if let Some(n) = name {
-        cmd.arg(n);
     }
     // The script narrates on stderr and prints `cd <path>` last on stdout.
     let out = cmd.stderr(std::process::Stdio::inherit()).output()?;

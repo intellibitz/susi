@@ -2126,17 +2126,14 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             task.accept.cmd.join(" ")
         );
     } else {
-        let out = Command::new(&task.accept.cmd[0])
-            .args(&task.accept.cmd[1..])
-            .current_dir(ws)
-            .output()
-            .map_err(|e| {
-                // A check that does not exist yet is "not done", not an I/O crash.
-                EaiError::process(format!(
-                    "{id} is not done: acceptance command `{}` could not run ({e})",
-                    task.accept.cmd.join(" ")
-                ))
-            })?;
+        let mut command = acceptance_command(&task.accept.cmd);
+        let out = command.current_dir(ws).output().map_err(|e| {
+            // A check that does not exist yet is "not done", not an I/O crash.
+            EaiError::process(format!(
+                "{id} is not done: acceptance command `{}` could not run ({e})",
+                task.accept.cmd.join(" ")
+            ))
+        })?;
         // Show the check's own output: the closer should see what proved it.
         eprint!("{}", String::from_utf8_lossy(&out.stderr));
         print!("{}", String::from_utf8_lossy(&out.stdout));
@@ -2187,6 +2184,19 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // allowed another current agent to reclaim the still-open remote task.
 
     Ok(task)
+}
+
+fn acceptance_command(argv: &[String]) -> Command {
+    let program = argv.first().map(String::as_str).unwrap_or_default();
+    #[cfg(windows)]
+    if program.starts_with("scripts/") || program.starts_with("scripts\\") {
+        let mut command = Command::new("sh");
+        command.arg(program).args(&argv[1..]);
+        return command;
+    }
+    let mut command = Command::new(program);
+    command.args(&argv[1..]);
+    command
 }
 
 /// Refuse to close a task `origin/main` already has in `done/`.
@@ -2509,7 +2519,10 @@ mod tests {
         claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
         let err = close(&a, &t.id, "claude").unwrap_err().to_string();
         assert!(err.contains("is not done"), "{err}");
-        assert!(err.contains("could not run"), "{err}");
+        assert!(
+            err.contains("could not run") || err.contains("exited"),
+            "{err}"
+        );
         assert!(err.contains("scripts/does-not-exist-yet.sh"), "{err}");
         assert_eq!(list_open(&a).len(), 1);
         drop(r);

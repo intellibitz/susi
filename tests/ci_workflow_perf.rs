@@ -18,6 +18,79 @@
 
 use std::path::{Path, PathBuf};
 
+fn script_command(script: &Path) -> std::process::Command {
+    #[cfg(windows)]
+    let mut command = std::process::Command::new("sh");
+    #[cfg(not(windows))]
+    let mut command = std::process::Command::new("bash");
+    command.arg(script);
+    command
+}
+
+fn set_script_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    #[cfg(windows)]
+    {
+        let git_bin = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .find(|path| path.join("bash.exe").is_file())
+            .map(|path| path.join("chmod.exe"));
+        if let Some(chmod) = git_bin {
+            let _ = std::process::Command::new(chmod)
+                .arg("+x")
+                .arg(path)
+                .status();
+        }
+    }
+}
+
+fn path_with_prefix(prefix: &Path, include_host: bool) -> std::ffi::OsString {
+    #[cfg(windows)]
+    {
+        let git_bin = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .find(|path| path.join("cygpath.exe").is_file());
+        let cygpath = git_bin.as_ref().map(|path| path.join("cygpath.exe"));
+        let to_posix = |path: &Path| -> String {
+            if let Some(cygpath) = &cygpath {
+                if let Ok(output) = std::process::Command::new(cygpath)
+                    .arg("-u")
+                    .arg(path)
+                    .output()
+                {
+                    if output.status.success() {
+                        return String::from_utf8_lossy(&output.stdout).trim().to_owned();
+                    }
+                }
+            }
+            path.to_string_lossy().replace('\\', "/")
+        };
+        let mut paths = vec![to_posix(prefix)];
+        if include_host {
+            if let Some(path) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&path).map(|part| to_posix(&part)));
+            }
+        } else if let Some(git_bin) = git_bin {
+            paths.push(to_posix(&git_bin));
+        }
+        std::ffi::OsString::from(paths.join(":"))
+    }
+    #[cfg(not(windows))]
+    {
+        let mut paths = vec![prefix.to_path_buf()];
+        if include_host {
+            if let Some(path) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&path));
+            }
+        } else {
+            paths.extend([PathBuf::from("/usr/bin"), PathBuf::from("/bin")]);
+        }
+        std::env::join_paths(paths).unwrap()
+    }
+}
+
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -590,26 +663,15 @@ impl Fakes {
     fn fake(&self, name: &str, body: &str) {
         let path = self.dir.join(name);
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        set_script_executable(&path);
     }
 
     /// Like `run`, but PATH is the fakes directory alone, so a tool the script
     /// probes for (`cmake`) exists only when the test put a fake of it there -
     /// the developer's own machine cannot answer for the runner image.
     fn run_isolated(&self, script: &str, envs: &[(&str, &str)]) -> (bool, String, String) {
-        let bash = std::env::var("PATH")
-            .unwrap_or_default()
-            .split(':')
-            .map(|d| Path::new(d).join("bash"))
-            .find(|p| p.is_file())
-            .expect("bash on PATH");
-        let out = std::process::Command::new(bash)
-            .arg(root().join(script))
-            .env("PATH", &self.dir)
+        let out = script_command(&root().join(script))
+            .env("PATH", path_with_prefix(&self.dir, false))
             .env("FAKE_LOG", self.dir.join("log"))
             .envs(envs.iter().copied())
             .output()
@@ -623,11 +685,10 @@ impl Fakes {
     }
 
     /// Run `script` with the fakes first on PATH; returns (success, stdout, log).
+    #[cfg(not(windows))]
     fn run(&self, script: &str, envs: &[(&str, &str)]) -> (bool, String, String) {
-        let real_path = std::env::var("PATH").unwrap_or_default();
-        let out = std::process::Command::new("bash")
-            .arg(root().join(script))
-            .env("PATH", format!("{}:{real_path}", self.dir.display()))
+        let out = script_command(&root().join(script))
+            .env("PATH", path_with_prefix(&self.dir, true))
             .env("FAKE_LOG", self.dir.join("log"))
             .envs(envs.iter().copied())
             .output()
@@ -690,6 +751,7 @@ fn system_deps_are_installed_only_when_the_runner_image_lacks_them() {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn mold_is_installed_once_and_skipped_where_it_has_no_build() {
     let f = Fakes::new("mold");
     f.fake("sudo", r#"exec "$@""#);
@@ -1057,8 +1119,7 @@ fn code_proven_script_judges_the_code_diff_not_the_commit() {
     git(&["commit", "--quiet", "-m", "metadata"]);
     let proven_script = root().join("scripts/ci-code-proven.sh");
     let run = |args: &[&str]| {
-        std::process::Command::new("bash")
-            .arg(&proven_script)
+        script_command(&proven_script)
             .args(args)
             .current_dir(&dir)
             .output()
@@ -1124,6 +1185,7 @@ fn pending_attestations_are_the_only_thing_verify_builds_for() {
 /// failure reports "pending" — the only safe direction, since the job then
 /// builds and decides for real.
 #[test]
+#[cfg(not(windows))]
 fn pending_script_counts_merged_without_verified() {
     let f = Fakes::new("pending");
     f.fake(
@@ -1218,8 +1280,7 @@ fn the_shard_map_the_scope_step_uses_matches_the_matrix() {
     let text = read(".github/workflows/test.yml");
     let test_jobs = jobs(&text);
     let test = job(&test_jobs, "test");
-    let script = std::process::Command::new("bash")
-        .arg(root().join("scripts/ci-test-shards.sh"))
+    let script = script_command(&root().join("scripts/ci-test-shards.sh"))
         .output()
         .unwrap();
     assert!(

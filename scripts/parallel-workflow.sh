@@ -16,7 +16,7 @@ sync() {
     [ -z "$(git status --porcelain)" ] || { echo 'Commit or stash your work before syncing.' >&2; return 1; }
     git fetch --quiet origin
     git merge --no-edit origin/main
-    "$root/scripts/park-primary.sh" --sync-only
+    "$root/scripts/park-primary.sh" --sync-only || true
     # Inside the lock: the watcher heal is cheap, and the board block is cached,
     # so one sync pays for the checks and the rest read the verdict.
     #
@@ -439,7 +439,7 @@ watch)
     # stamp is the only way `susi workflow check` can report a dead watcher.
     while true; do
         date +%s >"$common/susi-primary-watch.stamp" 2>/dev/null || true
-        "$root/scripts/park-primary.sh" --sync-only
+        "$root/scripts/park-primary.sh" --sync-only || true
         sleep "${SUSI_SYNC_INTERVAL:-15}"
     done
     ;;

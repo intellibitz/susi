@@ -13,7 +13,21 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn run(dir: &Path, program: &str, args: &[&str]) -> (i32, String, String) {
-    let out = Command::new(program)
+    let mut command = if program.ends_with(".sh") {
+        #[cfg(windows)]
+        {
+            let mut command = Command::new("sh");
+            command.arg(program);
+            command
+        }
+        #[cfg(not(windows))]
+        {
+            Command::new(program)
+        }
+    } else {
+        Command::new(program)
+    };
+    let out = command
         .args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
@@ -322,7 +336,7 @@ fn watcher_observes_remote_merges_without_local_git_hooks() {
         )
         .unwrap();
     }
-    let mut child = Command::new("bash")
+    let mut child = Command::new("sh")
         .arg(scripts.join("parallel-workflow.sh"))
         .arg("watch")
         .current_dir(&w.primary)

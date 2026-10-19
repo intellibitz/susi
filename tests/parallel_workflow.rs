@@ -3,10 +3,32 @@
 //! Exercise finish against a local bare remote, simulating its merge automation.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+fn script_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("sh");
+        command.arg(script);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(script)
+    }
+}
+
+fn path_with_prefix(prefix: &Path) -> std::ffi::OsString {
+    let mut paths = vec![prefix.to_path_buf()];
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&path));
+    }
+    std::env::join_paths(paths).unwrap()
+}
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false"])
         .args(args)
         .current_dir(dir)
         .output()
@@ -63,6 +85,11 @@ impl World {
         git(&primary, &["init", "-q", "-b", "main"]);
         git(&primary, &["config", "user.name", "test"]);
         git(&primary, &["config", "user.email", "test@example.test"]);
+        git(&primary, &["config", "commit.gpgsign", "false"]);
+        executable(
+            &primary.join(".git/hooks/pre-push"),
+            "#!/bin/sh\nwhile read local_ref local_sha remote_ref remote_sha; do\n case \"$remote_ref\" in\n  refs/heads/worker)\n   if [ -n \"$TEST_RACE_PRIMARY\" ] && [ ! -f \"$TEST_RACE_USED\" ]; then\n    : > \"$TEST_RACE_USED\"\n    git -C \"$TEST_RACE_PRIMARY\" push -q origin main\n   elif [ \"$TEST_NO_MERGE\" != 1 ]; then\n    git -C \"$TEST_REMOTE\" update-ref refs/heads/main \"$local_sha\"\n   fi ;;\n esac\ndone\n",
+        );
         git(
             &primary,
             &["remote", "add", "origin", remote.to_str().unwrap()],
@@ -147,7 +174,7 @@ impl World {
         // With TEST_RACE_PRIMARY set, the first push instead lands the primary's
         // unpushed main commit on remote main — a merge that raced ours — so the
         // wait loop must integrate and repush (once) before ours can land.
-        executable(&bins.join("git"), "#!/bin/sh\n/usr/bin/git \"$@\" || exit $?\nif [ \"$1\" = push ]; then\n for arg in \"$@\"; do\n  case \"$arg\" in HEAD:refs/heads/*)\n   if [ -n \"$TEST_RACE_PRIMARY\" ] && [ ! -f \"$TEST_RACE_USED\" ]; then\n    : > \"$TEST_RACE_USED\"\n    (cd \"$TEST_RACE_PRIMARY\" && /usr/bin/git push -q origin main)\n   elif [ \"$TEST_NO_MERGE\" != 1 ]; then\n    sha=$(/usr/bin/git rev-parse HEAD); /usr/bin/git --git-dir=\"$TEST_REMOTE\" update-ref refs/heads/main \"$sha\"\n   fi ;;\n  esac\n done\nfi\n");
+        executable(&bins.join("git"), "#!/bin/sh\nexec git.exe \"$@\"\n");
         let world = Self {
             root,
             primary,
@@ -193,11 +220,9 @@ impl World {
     }
 
     fn finish_env(&self, fail: bool, envs: &[(&str, &str)]) -> std::process::Output {
-        self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+        let mut command = self.susi(&["workflow", "finish", "T-WORKER-1"]);
+        command
+            .env("PATH", path_with_prefix(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", if fail { "1" } else { "0" })
@@ -205,9 +230,60 @@ impl World {
             // touches no crate, so the scoped gate skips clippy entirely.
             .env("SUSI_LOCAL_GATE", if fail { "full" } else { "scoped" })
             .env("TEST_REAL_CARGO", env!("CARGO"))
-            .envs(envs.iter().copied())
-            .output()
-            .unwrap()
+            .envs(envs.iter().copied());
+        #[cfg(windows)]
+        {
+            let no_merge = envs
+                .iter()
+                .any(|(key, value)| *key == "TEST_NO_MERGE" && *value == "1");
+            let initial_branch = Command::new("git")
+                .args(["--git-dir"])
+                .arg(&self.remote)
+                .args(["rev-parse", "--verify", "refs/heads/worker"])
+                .output()
+                .unwrap();
+            let initial_branch = initial_branch.status.success().then(|| {
+                String::from_utf8_lossy(&initial_branch.stdout)
+                    .trim()
+                    .to_owned()
+            });
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+            let mut child = command.spawn().unwrap();
+            if !no_merge {
+                for _ in 0..1_500 {
+                    if child.try_wait().unwrap().is_some() {
+                        break;
+                    }
+                    let pushed = Command::new("git")
+                        .args(["--git-dir"])
+                        .arg(&self.remote)
+                        .args(["rev-parse", "--verify", "refs/heads/worker"])
+                        .output()
+                        .unwrap();
+                    if pushed.status.success() {
+                        let sha = String::from_utf8_lossy(&pushed.stdout).trim().to_owned();
+                        if initial_branch.as_deref() == Some(sha.as_str()) {
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                            continue;
+                        }
+                        let merged = Command::new("git")
+                            .args(["--git-dir"])
+                            .arg(&self.remote)
+                            .args(["update-ref", "refs/heads/main", &sha])
+                            .status()
+                            .unwrap();
+                        assert!(merged.success(), "fixture merge update failed");
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            }
+            child.wait_with_output().unwrap()
+        }
+        #[cfg(not(windows))]
+        {
+            command.output().unwrap()
+        }
     }
 
     /// `finish` while another merge lands on main exactly as our branch
@@ -221,10 +297,7 @@ impl World {
             &["commit", "--allow-empty", "-qm", "someone else merged"],
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", path_with_prefix(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
@@ -267,10 +340,7 @@ impl World {
     /// poll and a three-second budget so the wait is observable in a test.
     fn finish_without_merging(&self) -> std::process::Output {
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", path_with_prefix(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
@@ -288,13 +358,10 @@ impl World {
     fn finish_with_a_green_run(&self) -> std::process::Output {
         executable(
             &self.bins.join("gh"),
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(/usr/bin/git rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(git.exe rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", path_with_prefix(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
@@ -313,13 +380,10 @@ impl World {
     fn finish_with_a_failing_run(&self) -> std::process::Output {
         executable(
             &self.bins.join("gh"),
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(/usr/bin/git rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(git.exe rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
-            .env(
-                "PATH",
-                format!("{}:{}", self.bins.display(), std::env::var("PATH").unwrap()),
-            )
+            .env("PATH", path_with_prefix(&self.bins))
             .env("TEST_REMOTE", &self.remote)
             .env("TEST_GATES", self.root.join("gates"))
             .env("TEST_GATE_FAIL", "0")
@@ -754,8 +818,12 @@ fn finish_hands_off_immediately_with_nowait() {
         "nowait hands off immediately: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("--no-wait"), "{err}");
+    let output = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(output.contains("--no-wait"), "{output}");
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
     let claims = git(
         &w.remote,
@@ -876,7 +944,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
 
     // A stale heartbeat: the decision is to restart, and nothing else happens.
     std::fs::write(&stamp, "1\n").unwrap();
-    let out = Command::new(&script)
+    let out = script_command(&script)
         .arg("--dry-run")
         .current_dir(&w.work)
         .output()
@@ -887,7 +955,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
 
     // No heartbeat at all reads the same way.
     std::fs::remove_file(&stamp).unwrap();
-    let out = Command::new(&script)
+    let out = script_command(&script)
         .arg("--dry-run")
         .current_dir(&w.work)
         .output()
@@ -909,7 +977,7 @@ fn the_sync_boundary_heals_a_dead_watcher() {
             stamp.display()
         ),
     );
-    let out = Command::new(&script)
+    let out = script_command(&script)
         .current_dir(&w.work)
         .env("SUSI_WATCH_CMD", stub.to_str().unwrap())
         .env("SUSI_WATCH_STALE", "1")
@@ -930,7 +998,10 @@ fn the_sync_boundary_heals_a_dead_watcher() {
     );
 
     // A live watcher is left alone.
-    let out = Command::new(&script).current_dir(&w.work).output().unwrap();
+    let out = script_command(&script)
+        .current_dir(&w.work)
+        .output()
+        .unwrap();
     assert!(out.status.success());
     assert!(
         String::from_utf8_lossy(&out.stdout).contains("alive"),
@@ -948,7 +1019,10 @@ fn the_board_summary_is_cached_between_syncs() {
     let w = World::new("boardcache");
     let script = w.primary.join("scripts/swarm-status.sh");
     let run = || {
-        let out = Command::new(&script).current_dir(&w.work).output().unwrap();
+        let out = script_command(&script)
+            .current_dir(&w.work)
+            .output()
+            .unwrap();
         String::from_utf8_lossy(&out.stdout).into_owned()
     };
 
@@ -960,7 +1034,7 @@ fn the_board_summary_is_cached_between_syncs() {
         "the second sync must read the cache: {second}"
     );
     // A forced run checks again rather than reading the cache.
-    let forced = Command::new(&script)
+    let forced = script_command(&script)
         .arg("--force")
         .current_dir(&w.work)
         .output()
