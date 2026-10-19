@@ -78,6 +78,11 @@ fn susi_command(root: &Path, home: &Path, args: &[&str]) -> Command {
         .current_dir(root)
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("xdg"))
+        // Windows resolves the profile through these, not HOME — without
+        // the redirect the fixture reads and writes the real account.
+        .env("USERPROFILE", home)
+        .env("APPDATA", home.join("appdata"))
+        .env("LOCALAPPDATA", home.join("localappdata"))
         .env_remove("SUSI_HOME");
     command
 }
