@@ -71,6 +71,14 @@ fn gmcp_req_203_001_02_production() {
     assert!(report["revisions"]["2025-11-25"].as_u64().unwrap_or(0) > 0);
 }
 
+/// `mcp serve` pays a cold-start preamble (hardware probe, catalog warm-up)
+/// that multiplies under parallel-suite load; on Windows process spawn and
+/// probing are an order of magnitude slower, so the bound must clear a
+/// loaded cold start while still separating "slow" from a silent drop.
+fn session_answer() -> std::time::Duration {
+    std::time::Duration::from_secs(if cfg!(windows) { 300 } else { 120 })
+}
+
 fn susi_command(root: &Path, home: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_susi"));
     command
@@ -125,6 +133,8 @@ struct StdioSession {
     /// answers concurrent requests out of order, so a non-matching line
     /// is stashed for its caller rather than discarded.
     pending: Vec<serde_json::Value>,
+    root: std::path::PathBuf,
+    home: std::path::PathBuf,
 }
 
 impl StdioSession {
@@ -156,6 +166,8 @@ impl StdioSession {
             rx,
             next_id: 2,
             pending: Vec::new(),
+            root: root.to_path_buf(),
+            home: home.to_path_buf(),
         }
     }
 
@@ -179,7 +191,7 @@ impl StdioSession {
         session.stdin.flush().expect("requests must flush");
         // Consume the initialize response before callers drive requests.
         session
-            .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
+            .response_for(&serde_json::json!(1), session_answer())
             .expect("initialize must be answered");
         session
     }
@@ -200,10 +212,7 @@ impl StdioSession {
             }}
         }));
         session
-            .response_for(
-                &serde_json::json!("modern-handshake"),
-                std::time::Duration::from_secs(120),
-            )
+            .response_for(&serde_json::json!("modern-handshake"), session_answer())
             .expect("server/discover must be answered");
         session
     }
@@ -258,7 +267,7 @@ impl StdioSession {
             "params": params
         }));
         let response = self
-            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(120))
+            .response_for(&serde_json::json!(id), session_answer())
             .expect("served endpoint must answer within the bound");
         assert!(
             response.get("error").is_none_or(|e| e.is_null()),
@@ -320,8 +329,26 @@ impl StdioSession {
 
 impl Drop for StdioSession {
     fn drop(&mut self) {
+        // Kill the server, then stop the dev-instance daemon and leaf
+        // services `mcp serve` auto-started for this fixture — a panicked
+        // assert would otherwise leak a whole service set that keeps
+        // burning CPU and starves the tests still running.
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let mut stop = susi_command(&self.root, &self.home, &["stop"]);
+        stop.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Ok(mut stopping) = stop.spawn() {
+            for _ in 0..300 {
+                if stopping.try_wait().map(|o| o.is_some()).unwrap_or(true) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let _ = stopping.kill();
+            let _ = stopping.wait();
+        }
     }
 }
 
@@ -2287,7 +2314,7 @@ fn gmcp_req_203_002_04_adversarial() {
         "params": {"requestId": 1}
     }));
     let initialize = raw
-        .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
+        .response_for(&serde_json::json!(1), session_answer())
         .expect("initialize must not be cancelled");
     assert!(initialize["result"].is_object());
     assert!(
@@ -3457,7 +3484,7 @@ fn gmcp_req_203_003_03_integration() {
                    "clientInfo": {"name": "gmcp-it", "version": "1.0"}}
     }));
     let init = legacy
-        .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
+        .response_for(&serde_json::json!(1), session_answer())
         .expect("initialize must be answered");
     legacy.send(&serde_json::json!({
         "jsonrpc": "2.0", "method": "notifications/initialized"
@@ -3674,7 +3701,7 @@ fn gmcp_req_203_003_05_interop() {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
                 .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
         let response = modern
-            .request_verbatim(&fixture["request"], std::time::Duration::from_secs(120))
+            .request_verbatim(&fixture["request"], session_answer())
             .unwrap_or_else(|| panic!("{file} must receive an error"));
         assert_eq!(
             response["error"]["code"], expected_code,
@@ -4089,10 +4116,7 @@ fn gmcp_vc_203_003_mastery() {
         }}
     }));
     let stateless = raw
-        .response_for(
-            &serde_json::json!("stateless"),
-            std::time::Duration::from_secs(120),
-        )
+        .response_for(&serde_json::json!("stateless"), session_answer())
         .expect("a modern request must be served with no initialize ceremony");
     assert!(
         stateless["result"].is_object(),
@@ -4792,10 +4816,7 @@ fn gmcp_req_203_008_02_production() {
         "params": {"uri": "file:///workspace/ok.txt"}
     }));
     let response = session
-        .response_for(
-            &serde_json::json!("ok-read"),
-            std::time::Duration::from_secs(120),
-        )
+        .response_for(&serde_json::json!("ok-read"), session_answer())
         .expect("well-formed resources/read must be answered");
     assert_ne!(
         response["error"]["data"]["reason"]
@@ -5268,10 +5289,7 @@ fn gmcp_req_203_008_04_adversarial() {
         }
     }));
     let response = session
-        .response_for(
-            &serde_json::json!("args-not-content"),
-            std::time::Duration::from_secs(120),
-        )
+        .response_for(&serde_json::json!("args-not-content"), session_answer())
         .expect("tools/call must be answered by the service, not the gate");
     assert!(
         response["error"]["data"]["reason"].is_null()
@@ -5289,10 +5307,7 @@ fn gmcp_req_203_008_04_adversarial() {
         "method": "resources/list", "params": {}
     }));
     let response = session
-        .response_for(
-            &serde_json::json!("after-reject"),
-            std::time::Duration::from_secs(120),
-        )
+        .response_for(&serde_json::json!("after-reject"), session_answer())
         .expect("the session must keep serving after a rejection");
     assert!(
         response.get("result").is_some(),
