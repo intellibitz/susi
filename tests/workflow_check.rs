@@ -170,8 +170,6 @@ impl World {
         assert_eq!(code, 0, "{err}");
         git(&self.wt, &["add", ".agents/tasks/T-TEST-1.json"]);
         git(&self.wt, &["commit", "--quiet", "-m", "fixture task"]);
-        git(&self.wt, &["push", "--quiet", "origin", "HEAD:main"]);
-        git(&self.wt, &["fetch", "--quiet", "origin"]);
         let (code, _, err) =
             self.susi(&self.wt, &["tasks", "claim", "T-TEST-1", "--scope", "work"]);
         assert_eq!(code, 0, "{err}");
@@ -504,7 +502,7 @@ fn a_stale_installed_release_is_reported_without_blocking_the_loop() {
     let w = World::new("release-stale");
     w.claim_a_task();
     // The host is running the release built from what main is on right now.
-    let installed = git_out(&w.wt, &["rev-parse", "HEAD"]);
+    let installed = git_out(&w.wt, &["rev-parse", "origin/main"]);
     install_release(&w, &installed);
     // Then main moves ahead of it, and this worktree syncs as the loop requires.
     advance_origin(&w);
@@ -644,7 +642,7 @@ fn landing_the_release_on_main_is_not_drift() {
 fn a_current_release_passes_and_a_dev_host_reports_no_marker() {
     let w = World::new("release-current");
     w.claim_a_task();
-    let head = git_out(&w.wt, &["rev-parse", "HEAD"]);
+    let head = git_out(&w.wt, &["rev-parse", "origin/main"]);
 
     let (_, out) = w.check(&w.wt);
     assert!(out.contains("✅ installed susi"), "{out}");

@@ -14,6 +14,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn run(dir: &Path, program: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String, String) {
+    #[cfg(windows)]
+    let mut cmd = if Path::new(program).extension().and_then(|ext| ext.to_str()) == Some("sh") {
+        let mut shell = Command::new("sh");
+        shell.arg(program);
+        shell
+    } else {
+        Command::new(program)
+    };
+    #[cfg(not(windows))]
     let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(dir)
