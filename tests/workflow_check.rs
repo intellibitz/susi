@@ -65,6 +65,8 @@ impl World {
         }
         git(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
         git(&primary, &["init", "--quiet", "-b", "main"]);
+        #[cfg(windows)]
+        git(&primary, &["config", "core.filemode", "false"]);
         // The fixture owns its identity. A test that lets git fall back to the
         // *machine's* global config passes only where a developer has one: on a
         // CI runner `git merge` then fails with "Committer identity unknown"
@@ -105,7 +107,22 @@ impl World {
             let park = primary.join("scripts/park-primary.sh");
             std::fs::set_permissions(&park, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        #[cfg(windows)]
+        {
+            let park = primary.join("scripts/park-primary.sh");
+            let status = Command::new("sh")
+                .args(["-c", "chmod +x \"$1\"", "sh"])
+                .arg(&park)
+                .status()
+                .unwrap();
+            assert!(status.success(), "chmod +x {park:?}");
+        }
         git(&primary, &["add", "-A"]);
+        #[cfg(windows)]
+        git(
+            &primary,
+            &["update-index", "--chmod=+x", "scripts/park-primary.sh"],
+        );
         git(&primary, &["commit", "--quiet", "-m", "init"]);
         git(&primary, &["push", "--quiet", "origin", "HEAD:main"]);
         git(&primary, &["fetch", "--quiet", "origin"]);

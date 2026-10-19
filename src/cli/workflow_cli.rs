@@ -170,8 +170,8 @@ fn sync_primary(root: &Path) {
     if !script.is_file() {
         return;
     }
-    if let Ok(out) = std::process::Command::new(&script)
-        .arg("--sync-only")
+    let mut command = workflow_script_command(&script, &["--sync-only"]);
+    if let Ok(out) = command
         .current_dir(root)
         .stderr(std::process::Stdio::null())
         .output()
