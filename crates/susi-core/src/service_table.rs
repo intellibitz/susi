@@ -649,12 +649,17 @@ mod tests {
         assert!(probe(port), "TCP probe sees the listener");
         assert!(!http_probe(port), "HTTP probe must see through the wedge");
 
-        // A minimal HTTP responder passes both.
+        // A minimal HTTP responder passes both. It must read the request
+        // before answering: on Windows, closing a socket that still holds
+        // unread inbound data aborts with RST and can kill the response in
+        // flight — a fake wedge the probe would (rightly) report.
         let serving = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = serving.local_addr().unwrap().port();
         std::thread::spawn(move || {
             for s in serving.incoming().flatten() {
                 let mut s = s;
+                let mut buf = [0u8; 64];
+                let _ = s.read(&mut buf);
                 let _ = s.write_all(b"HTTP/1.0 404 Not Found\r\n\r\n");
             }
         });
