@@ -52,9 +52,14 @@ fn main() {
         .and_then(Value::as_str)
         .unwrap_or("");
     let narrative = entry.get("progress").and_then(Value::as_str).unwrap_or("");
+    let facts = match RepoFacts::load(&options.repo) {
+        Ok(facts) => facts,
+        Err(error) => fail(&error.to_string()),
+    };
     let request = AuthorRequest {
         vector: format!("{} {}", options.vector, title),
         target: target.to_string(),
+        packages: facts.packages.iter().cloned().collect(),
         narrative: tail(narrative, 4000),
         max_tasks: options.max_tasks,
     };
@@ -65,10 +70,6 @@ fn main() {
     };
     let plan = match author_plan(&config, &request) {
         Ok(plan) => plan,
-        Err(error) => fail(&error.to_string()),
-    };
-    let facts = match RepoFacts::load(&options.repo) {
-        Ok(facts) => facts,
         Err(error) => fail(&error.to_string()),
     };
     if let Err(error) = validate_plan(&plan, &facts) {

@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSPHASE0-14",
+  "title": "harness: workspace-aware authoring prompt",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792529655,
+  "closed": {
+    "at_unix": 1792529802,
+    "commit": "2eb13c2b25fa6ce61f22a5208d2777605948bed4",
+    "by": "HARNESSPHASE0"
+  }
+}
