@@ -135,10 +135,19 @@ impl<R: CommandRunner> SusiTarget<R> {
 
     /// Create a worktree on a fresh branch and return its path.
     ///
+    /// Worktree creation is serialized inside this process: `workflow start`
+    /// takes a repository-level lock and fails rather than waits, so two
+    /// prepares that start at the same time would lose one. The guard covers
+    /// only the start; the agent runs that follow still run in parallel.
+    ///
     /// # Errors
     ///
     /// Returns an error when `workflow start` fails or prints no `cd <path>`.
     pub fn start_worktree(&self, name: &str) -> EaiResult<PathBuf> {
+        static WORKTREE_START: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = WORKTREE_START
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let output = self.susi(
             vec![
                 "workflow".to_string(),
