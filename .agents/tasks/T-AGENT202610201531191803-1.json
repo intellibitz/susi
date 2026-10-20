@@ -1,0 +1,21 @@
+{
+  "id": "T-AGENT202610201531191803-1",
+  "title": "Canary scorer: regression over the declared limit stops the trial",
+  "goal": "Unit coverage for dev_canary::evaluate_canary: a candidate metric that regresses past the declared regression_limit earns StopTrial.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "-E",
+      "test(intent_ladder_canaries)"
+    ]
+  },
+  "created_by": "AGENT202610201531191803",
+  "created_unix": 1792491102
+}
