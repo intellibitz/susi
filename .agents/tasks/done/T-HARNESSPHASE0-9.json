@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSPHASE0-9",
+  "title": "harness: susi task orchestration (worktree, agent, verify, land)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792522903,
+  "closed": {
+    "at_unix": 1792522981,
+    "commit": "142d2799a0a51a3595811647f6b62e55ebd30b5d",
+    "by": "HARNESSPHASE0"
+  }
+}

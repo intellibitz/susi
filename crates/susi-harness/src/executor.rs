@@ -82,6 +82,12 @@ pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
         .map_err(|error| EaiError::internal(format!("render openclaw config: {error}")))?;
     std::fs::write(&config_path, document)
         .map_err(|error| EaiError::io(format!("write {}: {error}", config_path.display())))?;
+    // A prompt with newlines cannot be passed as an argument to a `.cmd`
+    // shim on Windows (the spawn is refused as batch-invalid), so it travels
+    // as a file; that also keeps long prompts off the command line.
+    let prompt_path = config.state_dir.join("prompt.md");
+    std::fs::write(&prompt_path, &config.prompt)
+        .map_err(|error| EaiError::io(format!("write {}: {error}", prompt_path.display())))?;
 
     let mut command = Command::new(&config.program);
     command
@@ -94,7 +100,8 @@ pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
         .arg("--json")
         .arg("--timeout")
         .arg(config.timeout.as_secs().to_string())
-        .arg(&config.prompt)
+        .arg("--message-file")
+        .arg(&prompt_path)
         .env("OPENCLAW_STATE_DIR", &config.state_dir)
         .env("OPENCLAW_CONFIG_PATH", &config_path)
         .stdin(Stdio::null())
