@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSSUPHARNESSRUNBOOK-1",
+  "title": "docs: add a harness runbook",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSSUPHARNESSRUNBOOK",
+  "created_unix": 1792527315
+}
