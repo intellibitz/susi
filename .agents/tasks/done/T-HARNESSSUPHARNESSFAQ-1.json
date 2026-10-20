@@ -13,5 +13,10 @@
     ]
   },
   "created_by": "HARNESSSUPHARNESSFAQ",
-  "created_unix": 1792528408
+  "created_unix": 1792528408,
+  "closed": {
+    "at_unix": 1792529213,
+    "commit": "6d58aa1841dd95d41750cd4be9faef95ebfeb4f9",
+    "by": "HARNESSSUPHARNESSFAQ"
+  }
 }
