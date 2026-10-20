@@ -1,22 +1,30 @@
 //! The metering gateway.
 //!
 //! Workers point their OpenAI-compatible base URL here. The gateway forwards a
-//! **non-streaming** chat completion, reads the provider's own `usage` (cache
-//! hits included), prices it from the catalogue, and appends a ledger row
-//! before returning the answer — so a call that reached a provider is never
-//! spend without a record.
+//! chat completion, reads the provider's own `usage` (cache hits included),
+//! prices it from the catalogue, and appends a ledger row — so a call that
+//! reached a provider is never spend without a record.
 //!
-//! Streaming is refused in this phase: an unmetered stream is exactly the
-//! spend the harness exists to make visible.
+//! Both shapes are metered:
+//!
+//! - **Buffered** (`stream: false`) — the answer is read in full, priced, then
+//!   returned.
+//! - **Streamed** (`stream: true`) — SSE chunks are forwarded as they arrive;
+//!   the gateway forces `stream_options.include_usage` upstream and prices the
+//!   final usage chunk before the stream closes. A stream that ends without a
+//!   usage chunk is logged loudly and writes no row: it is uncountable, and
+//!   inventing a number would be worse than saying so.
 
 use crate::catalog::PriceCatalogue;
 use crate::ledger::{append_entry, Dispatch, LedgerEntry, Outcome};
+use crate::pricing::ModelPrice;
 use crate::usage::token_usage_from_json;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use futures::StreamExt;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,6 +48,15 @@ pub struct GatewayState {
     pub api_key: String,
     /// Upstream call timeout, in seconds.
     pub timeout_secs: u64,
+}
+
+/// One dispatch the gateway is about to price.
+struct Attempt {
+    mission: String,
+    task: String,
+    attempt: u32,
+    model: String,
+    price: ModelPrice,
 }
 
 /// Build the gateway router.
@@ -74,16 +91,10 @@ async fn completions(
     let Ok(request) = serde_json::from_str::<Value>(&body) else {
         return error_response(StatusCode::BAD_REQUEST, "request body is not JSON");
     };
-    if request
+    let streaming = request
         .get("stream")
         .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            "streaming is not metered yet; send stream=false",
-        );
-    }
+        .unwrap_or(false);
     let Some(model) = request.get("model").and_then(Value::as_str) else {
         return error_response(StatusCode::BAD_REQUEST, "request has no model");
     };
@@ -100,6 +111,43 @@ async fn completions(
         .and_then(|value| value.parse::<u32>().ok())
         .unwrap_or(1);
 
+    let forwarded = if streaming {
+        with_usage_in_stream(&request, &body)
+    } else {
+        body
+    };
+
+    let attempt = Attempt {
+        mission,
+        task,
+        attempt,
+        model: model.to_string(),
+        price,
+    };
+
+    if streaming {
+        stream_upstream(state, attempt, forwarded).await
+    } else {
+        buffered_upstream(state, attempt, forwarded).await
+    }
+}
+
+fn with_usage_in_stream(request: &Value, original: &str) -> String {
+    let mut request = request.clone();
+    if let Value::Object(map) = &mut request {
+        map.insert("stream_options".into(), json!({ "include_usage": true }));
+    }
+    serde_json::to_string(&request).unwrap_or_else(|_| original.to_string())
+}
+
+async fn buffered_upstream(state: Arc<GatewayState>, attempt: Attempt, body: String) -> Response {
+    let Attempt {
+        mission,
+        task,
+        attempt,
+        model,
+        price,
+    } = attempt;
     let started_unix_ms = now_ms();
     let url = state.upstream_chat_url.clone();
     let api_key = state.api_key.clone();
@@ -169,7 +217,7 @@ async fn completions(
             mission,
             task,
             attempt,
-            model: model.to_string(),
+            model,
             provider: state.provider.clone(),
             usage,
             price,
@@ -177,23 +225,11 @@ async fn completions(
             ended_unix_ms,
             outcome: Outcome::Completed,
         });
-        let ledger_path = state.ledger_path.clone();
-        let appended =
-            tokio::task::spawn_blocking(move || append_entry(&ledger_path, &entry)).await;
-        match appended {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                return error_response(
-                    StatusCode::BAD_GATEWAY,
-                    &format!("ledger append failed: {error}"),
-                );
-            }
-            Err(error) => {
-                return error_response(
-                    StatusCode::BAD_GATEWAY,
-                    &format!("ledger task failed: {error}"),
-                );
-            }
+        if let Err(error) = append_entry(&state.ledger_path, &entry) {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("ledger append failed: {error}"),
+            );
         }
     }
 
@@ -203,6 +239,125 @@ async fn completions(
         response.headers_mut().insert(header::CONTENT_TYPE, value);
     }
     response
+}
+
+async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: String) -> Response {
+    let Attempt {
+        mission,
+        task,
+        attempt,
+        model,
+        price,
+    } = attempt;
+    let started_unix_ms = now_ms();
+    let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel::<Result<(u16, String), String>>();
+    let url = state.upstream_chat_url.clone();
+    let api_key = state.api_key.clone();
+    let timeout_secs = state.timeout_secs;
+    let provider = state.provider.clone();
+    let ledger_path = state.ledger_path.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let authorization = format!("Bearer {api_key}");
+        let forwarded = [
+            ("authorization", authorization.as_str()),
+            ("content-type", "application/json"),
+        ];
+        let call = match susi_http_transport::http_call_with_body(
+            "POST",
+            &url,
+            &forwarded,
+            Some(body.as_bytes()),
+            timeout_secs,
+            0,
+        ) {
+            Ok(call) => call,
+            Err(error) => {
+                let _ = meta_tx.send(Err(format!("upstream call failed: {error}")));
+                return;
+            }
+        };
+        let status = call.status;
+        let content_type = call
+            .header("content-type")
+            .unwrap_or("text/event-stream")
+            .to_string();
+        if meta_tx.send(Ok((status, content_type))).is_err() {
+            return;
+        }
+        if !(200..300).contains(&status) {
+            if let Ok(bytes) = call.into_bytes(MAX_RESPONSE_BYTES) {
+                let _ = chunk_tx.blocking_send(bytes);
+            }
+            return;
+        }
+
+        let mut reader = std::io::BufReader::new(call.into_reader());
+        let mut usage = None;
+        loop {
+            let mut line = Vec::new();
+            match std::io::BufRead::read_until(&mut reader, b'\n', &mut line) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+            if let Some(data) = sse_data(&line) {
+                if let Ok(value) = serde_json::from_str::<Value>(data) {
+                    if let Ok(parsed) = token_usage_from_json(&value) {
+                        usage = Some(parsed);
+                    }
+                }
+            }
+            if chunk_tx.blocking_send(line).is_err() {
+                return;
+            }
+        }
+        match usage {
+            Some(usage) => {
+                let entry = LedgerEntry::settle(Dispatch {
+                    mission,
+                    task,
+                    attempt,
+                    model,
+                    provider,
+                    usage,
+                    price,
+                    started_unix_ms,
+                    ended_unix_ms: now_ms(),
+                    outcome: Outcome::Completed,
+                });
+                if let Err(error) = append_entry(&ledger_path, &entry) {
+                    eprintln!("harness-gateway: ledger append failed: {error}");
+                }
+            }
+            None => eprintln!(
+                "harness-gateway: stream for {model} ({mission}/{task} attempt {attempt}) ended without usage; not recorded"
+            ),
+        }
+    });
+
+    match meta_rx.await {
+        Ok(Ok((status, content_type))) => {
+            let stream = futures::stream::poll_fn(move |cx| chunk_rx.poll_recv(cx))
+                .map(Ok::<Vec<u8>, std::io::Error>);
+            let mut response = Response::new(axum::body::Body::from_stream(stream));
+            *response.status_mut() =
+                StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
+            if let Ok(value) = HeaderValue::from_str(&content_type) {
+                response.headers_mut().insert(header::CONTENT_TYPE, value);
+            }
+            response
+        }
+        Ok(Err(message)) => error_response(StatusCode::BAD_GATEWAY, &message),
+        Err(_) => error_response(StatusCode::BAD_GATEWAY, "upstream task failed"),
+    }
+}
+
+fn sse_data(line: &[u8]) -> Option<&str> {
+    let text = std::str::from_utf8(line).ok()?;
+    let trimmed = text.trim_end_matches(['\r', '\n']);
+    trimmed.strip_prefix("data:").map(str::trim_start)
 }
 
 fn error_response(status: StatusCode, message: &str) -> Response {
@@ -306,6 +461,19 @@ mod tests {
         }))
     }
 
+    async fn streamed() -> impl IntoResponse {
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/event-stream")],
+            concat!(
+                "data: {\"id\":\"cmpl-3\",\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\n",
+                "data: {\"id\":\"cmpl-3\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,",
+                "\"completion_tokens\":2,\"prompt_cache_hit_tokens\":4}}\n\n",
+                "data: [DONE]\n\n"
+            ),
+        )
+    }
+
     async fn failing() -> (StatusCode, Json<Value>) {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -349,6 +517,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_streamed_completion_is_forwarded_and_priced() {
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(streamed))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
+
+        let (status, body) = post_json(
+            gateway,
+            r#"{"model":"deepseek-flash","stream":true,"messages":[]}"#,
+            &[("x-susi-mission", "m-2"), ("x-susi-task", "t-2")],
+        )
+        .await;
+
+        assert_eq!(status, 200);
+        assert!(body.contains("data: [DONE]"));
+        let entries = read_entries(&ledger_path).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mission, "m-2");
+        assert_eq!(entries[0].task, "t-2");
+        assert_eq!(entries[0].usage.input, 10);
+        assert_eq!(entries[0].usage.cache_hit, 4);
+        assert_eq!(entries[0].usage.output, 2);
+        // 6 miss * $0.15 + 4 hit * $0.003 + 2 out * $0.60 per million, rounded up.
+        assert_eq!(entries[0].cost.micros(), 3);
+    }
+
+    #[tokio::test]
     async fn an_unpriced_model_is_refused_without_a_row() {
         let upstream = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
         let dir = tempfile::tempdir().unwrap();
@@ -356,23 +551,6 @@ mod tests {
         let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
         let (status, _) = post_json(gateway, r#"{"model":"mystery","messages":[]}"#, &[]).await;
-        assert_eq!(status, 400);
-        assert!(!ledger_path.exists());
-    }
-
-    #[tokio::test]
-    async fn streaming_is_refused_without_a_row() {
-        let dir = tempfile::tempdir().unwrap();
-        let ledger_path = dir.path().join("ledger.jsonl");
-        let upstream = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
-        let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
-
-        let (status, _) = post_json(
-            gateway,
-            r#"{"model":"deepseek-flash","stream":true,"messages":[]}"#,
-            &[],
-        )
-        .await;
         assert_eq!(status, 400);
         assert!(!ledger_path.exists());
     }

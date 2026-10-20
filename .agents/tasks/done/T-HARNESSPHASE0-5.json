@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSPHASE0-5",
+  "title": "harness: stream metering and OpenClaw end-to-end smoke",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792517282,
+  "closed": {
+    "at_unix": 1792517397,
+    "commit": "7c6582fa54739ab3ce276d43b7b0ab540bb130db",
+    "by": "HARNESSPHASE0"
+  }
+}

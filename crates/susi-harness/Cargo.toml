@@ -10,6 +10,7 @@ susi-error = { workspace = true }
 susi-http-transport = { workspace = true }
 axum = { package = "susi-vendor-axum", path = "../susi-vendor-axum" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+futures = { package = "susi-vendor-futures", path = "../susi-vendor-futures" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
