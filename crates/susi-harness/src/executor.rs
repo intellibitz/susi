@@ -135,6 +135,10 @@ pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
 
     let out = String::from_utf8_lossy(&stdout.join().unwrap_or_default()).into_owned();
     let err = String::from_utf8_lossy(&stderr.join().unwrap_or_default()).into_owned();
+    // Keep the envelope and the log beside the prompt: when a run fails, the
+    // reason has to be diagnosable without replaying it.
+    let _ = std::fs::write(config.state_dir.join("result.json"), &out);
+    let _ = std::fs::write(config.state_dir.join("stderr.log"), &err);
     Ok(parse_envelope(&out).unwrap_or_else(|| RunOutcome::Failed {
         message: format!(
             "no JSON envelope from openclaw; stderr tail: {}",
