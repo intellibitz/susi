@@ -1,0 +1,17 @@
+[package]
+name = "susi-harness"
+version = "0.21.20"
+license = "Apache-2.0"
+edition = "2021"
+description = "SUSI self-build harness: durable ledger, event stream and control-API contracts that drive autonomous agents building SUSI."
+
+[dependencies]
+susi-error = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }

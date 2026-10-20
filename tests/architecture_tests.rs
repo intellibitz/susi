@@ -130,6 +130,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-gawd-swarm", 6),
     ("susi-gemi", 6),
     ("susi-gawd-a2a", 7),
+    ("susi-harness", 8),
     ("susi-gawd", 8),
     ("susi-daemon", 9),
     ("susi", 10),

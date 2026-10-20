@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSPHASE0-1",
+  "title": "Phase 0: susi-harness ledger, event and control-API contracts",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792510477,
+  "closed": {
+    "at_unix": 1792513492,
+    "commit": "8c8f268126509b4af6ae35e1c9643da51442893d",
+    "by": "HARNESSPHASE0"
+  }
+}
