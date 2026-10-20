@@ -10,9 +10,11 @@
 //! the target's own rules (worktree, claim, acceptance, finish) mechanical, so
 //! an agent can be dropped into the worktree without a human driving git.
 
+use crate::executor::{ExecutorConfig, RunOutcome, Runner};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use susi_error::{EaiError, EaiResult};
 
 /// One finished command.
@@ -67,15 +69,39 @@ pub struct ProcessRunner;
 
 impl CommandRunner for ProcessRunner {
     fn run(&self, program: &Path, args: &[String], cwd: &Path) -> EaiResult<RunOutput> {
-        let output = Command::new(program)
+        // Redirect to files rather than pipes: `workflow start` leaves a
+        // primary-checkout watcher running, and that child inherits the
+        // handles. With a pipe, `Command::output()` never sees EOF and the
+        // adapter hangs forever; with files, the exit status is enough.
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        let base = std::env::temp_dir().join(format!("susi-run-{}-{stamp}", std::process::id()));
+        let stdout_path = base.with_extension("out");
+        let stderr_path = base.with_extension("err");
+        let stdout_file = std::fs::File::create(&stdout_path).map_err(|error| {
+            EaiError::process(format!("create {}: {error}", stdout_path.display()))
+        })?;
+        let stderr_file = std::fs::File::create(&stderr_path).map_err(|error| {
+            EaiError::process(format!("create {}: {error}", stderr_path.display()))
+        })?;
+        let status = Command::new(program)
             .args(args)
             .current_dir(cwd)
-            .output()
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(stdout_file))
+            .stderr(Stdio::from(stderr_file))
+            .status()
             .map_err(|error| EaiError::process(format!("run {}: {error}", program.display())))?;
+        let stdout = std::fs::read_to_string(&stdout_path).unwrap_or_default();
+        let stderr = std::fs::read_to_string(&stderr_path).unwrap_or_default();
+        let _ = std::fs::remove_file(&stdout_path);
+        let _ = std::fs::remove_file(&stderr_path);
         Ok(RunOutput {
-            status: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            status: status.code().unwrap_or(-1),
+            stdout,
+            stderr,
         })
     }
 }
@@ -197,9 +223,21 @@ impl<R: CommandRunner> SusiTarget<R> {
             .map_err(|error| EaiError::io(format!("parse {}: {error}", path.display())))?;
         let accept = value
             .get("accept")
-            .and_then(Value::as_str)
             .ok_or_else(|| EaiError::config(format!("task {id} declares no acceptance")))?;
-        let argv: Vec<String> = accept.split_whitespace().map(str::to_string).collect();
+        // The queue stores the parsed argv (`{"cmd": [...]}`), but a
+        // hand-written task may still carry the original string.
+        let argv: Vec<String> = if let Some(text) = accept.as_str() {
+            text.split_whitespace().map(str::to_string).collect()
+        } else if let Some(cmd) = accept.get("cmd").and_then(Value::as_array) {
+            cmd.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        } else {
+            return Err(EaiError::config(format!(
+                "task {id} has no acceptance argv"
+            )));
+        };
         if argv.is_empty() {
             return Err(EaiError::config(format!(
                 "task {id} declares an empty acceptance"
@@ -244,6 +282,139 @@ impl<R: CommandRunner> SusiTarget<R> {
         }
         Ok(output)
     }
+
+    /// True when the worktree has no uncommitted changes and at least one
+    /// commit ahead of `origin/main`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot be run.
+    pub fn worktree_is_committed(&self, worktree: &Path) -> EaiResult<bool> {
+        let status = self.runner.run(
+            Path::new("git"),
+            &["status".to_string(), "--porcelain".to_string()],
+            worktree,
+        )?;
+        if !status.success() {
+            return Err(EaiError::process(format!(
+                "git status failed: {}",
+                status.tail()
+            )));
+        }
+        if !status.stdout.trim().is_empty() {
+            return Ok(false);
+        }
+        let log = self.runner.run(
+            Path::new("git"),
+            &[
+                "log".to_string(),
+                "origin/main..HEAD".to_string(),
+                "--oneline".to_string(),
+            ],
+            worktree,
+        )?;
+        if !log.success() {
+            return Err(EaiError::process(format!("git log failed: {}", log.tail())));
+        }
+        Ok(!log.stdout.trim().is_empty())
+    }
+}
+
+/// What an agent should do in a prepared susi worktree.
+pub struct SusiTaskSpec {
+    /// Worktree/branch name (also the mission tag on the ledger).
+    pub worktree_name: String,
+    /// Task title.
+    pub title: String,
+    /// The task's acceptance command.
+    pub accept: String,
+    /// Paths the task reserves.
+    pub scopes: Vec<String>,
+    /// The instruction for the agent (the task id and trailer are appended).
+    pub prompt: String,
+    /// OpenClaw executable.
+    pub program: PathBuf,
+    /// Gateway base URL.
+    pub gateway_url: String,
+    /// Model id.
+    pub model: String,
+    /// Per-turn deadline.
+    pub timeout: Duration,
+    /// Adapter state root.
+    pub state_dir: PathBuf,
+}
+
+/// What one prepared run produced.
+pub struct SusiRunReport {
+    /// The worktree the agent worked in.
+    pub worktree: PathBuf,
+    /// The task id the adapter added and claimed.
+    pub task: String,
+    /// The agent's outcome.
+    pub agent: RunOutcome,
+    /// Whether the agent left a clean commit ahead of `origin/main`.
+    pub committed: bool,
+    /// Whether the declared acceptance passed in the worktree.
+    pub accepted: bool,
+}
+
+/// Prepare a worktree, add and claim a task, run the agent in it, and verify.
+///
+/// The agent is told the task id and the trailer it must commit with; it is
+/// told not to run `susi` itself, because the adapter already owns the claim.
+///
+/// # Errors
+///
+/// Returns an error when the worktree, task, claim or agent cannot be started.
+pub fn run_task<R: CommandRunner>(
+    target: &SusiTarget<R>,
+    spec: &SusiTaskSpec,
+    runner: &dyn Runner,
+) -> EaiResult<SusiRunReport> {
+    let worktree = target.start_worktree(&spec.worktree_name)?;
+    let task = target.add_task(&worktree, &spec.title, &spec.accept)?;
+    target.claim(&worktree, &task, &spec.scopes)?;
+    let prompt = format!(
+        "{}\n\nTask id: {task}. When the work is done, run `git add -A` and commit with a message whose last line is exactly `Task: {task}`. Do not run any `susi` command, do not push, and change nothing outside the task.",
+        spec.prompt
+    );
+    let agent = runner.run(&ExecutorConfig {
+        program: spec.program.clone(),
+        gateway_url: spec.gateway_url.clone(),
+        model: spec.model.clone(),
+        workspace: worktree.clone(),
+        state_dir: spec.state_dir.join(&task),
+        mission: spec.worktree_name.clone(),
+        task: task.clone(),
+        attempt: 1,
+        timeout: spec.timeout,
+        prompt,
+    })?;
+    let committed = if matches!(&agent, RunOutcome::Succeeded { .. }) {
+        target.worktree_is_committed(&worktree)?
+    } else {
+        false
+    };
+    let accepted = committed && target.accept(&worktree, &task).is_ok();
+    Ok(SusiRunReport {
+        worktree,
+        task,
+        agent,
+        committed,
+        accepted,
+    })
+}
+
+/// Publish an accepted run through `workflow finish`.
+///
+/// # Errors
+///
+/// Returns an error when finish stops for repair.
+pub fn land<R: CommandRunner>(
+    target: &SusiTarget<R>,
+    report: &SusiRunReport,
+) -> EaiResult<RunOutput> {
+    target.finish(&report.worktree, &report.task)
 }
 
 fn task_file(worktree: &Path, id: &str) -> EaiResult<PathBuf> {
@@ -420,6 +591,20 @@ mod tests {
     }
 
     #[test]
+    fn acceptance_argv_is_read_from_the_queue_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks = dir.path().join(".agents").join("tasks");
+        std::fs::create_dir_all(&tasks).unwrap();
+        std::fs::write(
+            tasks.join("T-2.json"),
+            r#"{"accept":{"cmd":["cargo","test","-p","susi-harness"]}}"#,
+        )
+        .unwrap();
+        let argv = target(vec![]).acceptance_argv(dir.path(), "T-2").unwrap();
+        assert_eq!(argv, vec!["cargo", "test", "-p", "susi-harness"]);
+    }
+
+    #[test]
     fn a_failed_command_is_an_error_with_its_tail() {
         let target = target(vec![RunOutput {
             status: 1,
@@ -428,6 +613,95 @@ mod tests {
         }]);
         let error = target.start_worktree("demo").unwrap_err();
         assert!(error.to_string().contains("no such task"));
+    }
+
+    struct FakeExec {
+        outcome: RunOutcome,
+        prompts: Mutex<Vec<String>>,
+    }
+
+    impl Runner for FakeExec {
+        fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+            self.prompts.lock().unwrap().push(config.prompt.clone());
+            Ok(self.outcome.clone())
+        }
+    }
+
+    #[test]
+    fn a_prepared_run_claims_commits_accepts_and_reports() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks = dir.path().join(".agents").join("tasks");
+        std::fs::create_dir_all(&tasks).unwrap();
+        std::fs::write(
+            tasks.join("T-AGENT-1.json"),
+            r#"{"accept":"cargo test -p susi-harness"}"#,
+        )
+        .unwrap();
+        let target = target(vec![
+            ok(&format!("cd {}\n", dir.path().display())),
+            ok("added T-AGENT-1 — commit\n"),
+            ok(""),
+            ok(""),
+            ok("abc123 docs\n"),
+            ok(""),
+        ]);
+        let exec = FakeExec {
+            outcome: RunOutcome::Succeeded {
+                final_text: "done".into(),
+                reported_cost_usd: None,
+            },
+            prompts: Mutex::new(Vec::new()),
+        };
+        let spec = SusiTaskSpec {
+            worktree_name: "smoke".into(),
+            title: "docs".into(),
+            accept: "cargo test -p susi-harness".into(),
+            scopes: vec!["docs/harness.md".into()],
+            prompt: "write docs".into(),
+            program: PathBuf::from("openclaw"),
+            gateway_url: "http://127.0.0.1:1".into(),
+            model: "deepseek-flash".into(),
+            timeout: Duration::from_secs(5),
+            state_dir: dir.path().join("state"),
+        };
+        let report = run_task(&target, &spec, &exec).unwrap();
+        assert_eq!(report.task, "T-AGENT-1");
+        assert!(report.committed);
+        assert!(report.accepted);
+        let prompts = exec.prompts.lock().unwrap();
+        assert!(prompts[0].contains("Task: T-AGENT-1"));
+    }
+
+    #[test]
+    fn an_agent_failure_is_not_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = target(vec![
+            ok(&format!("cd {}\n", dir.path().display())),
+            ok("added T-AGENT-2 — commit\n"),
+            ok(""),
+        ]);
+        let exec = FakeExec {
+            outcome: RunOutcome::Failed {
+                message: "nope".into(),
+            },
+            prompts: Mutex::new(Vec::new()),
+        };
+        let spec = SusiTaskSpec {
+            worktree_name: "smoke".into(),
+            title: "docs".into(),
+            accept: "cargo test -p susi-harness".into(),
+            scopes: vec!["docs/harness.md".into()],
+            prompt: "write docs".into(),
+            program: PathBuf::from("openclaw"),
+            gateway_url: "http://127.0.0.1:1".into(),
+            model: "deepseek-flash".into(),
+            timeout: Duration::from_secs(5),
+            state_dir: dir.path().join("state"),
+        };
+        let report = run_task(&target, &spec, &exec).unwrap();
+        assert_eq!(report.task, "T-AGENT-2");
+        assert!(!report.committed);
+        assert!(!report.accepted);
     }
 
     #[test]
