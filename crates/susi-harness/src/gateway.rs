@@ -105,10 +105,16 @@ async fn completions(
         );
     };
 
-    let mission = header_tag(&headers, "x-susi-mission").unwrap_or_else(|| "unscoped".into());
-    let task = header_tag(&headers, "x-susi-task").unwrap_or_else(|| "unscoped".into());
+    let tagged = run_tag(&headers);
+    let mission = header_tag(&headers, "x-susi-mission")
+        .or_else(|| tagged.as_ref().map(|(mission, _, _)| mission.clone()))
+        .unwrap_or_else(|| "unscoped".into());
+    let task = header_tag(&headers, "x-susi-task")
+        .or_else(|| tagged.as_ref().map(|(_, task, _)| task.clone()))
+        .unwrap_or_else(|| "unscoped".into());
     let attempt = header_tag(&headers, "x-susi-attempt")
         .and_then(|value| value.parse::<u32>().ok())
+        .or_else(|| tagged.map(|(_, _, attempt)| attempt))
         .unwrap_or(1);
 
     let forwarded = if streaming {
@@ -364,6 +370,25 @@ fn error_response(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({ "error": { "message": message } }))).into_response()
 }
 
+/// A per-run key: `Bearer susi:<mission>:<task>:<attempt>`.
+///
+/// OpenClaw cannot add custom headers, but its provider config carries an API
+/// key — so the executor writes the run's identity there and the gateway reads
+/// it back. The upstream never sees this key; the gateway substitutes its own.
+fn run_tag(headers: &HeaderMap) -> Option<(String, String, u32)> {
+    let authorization = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let key = authorization.strip_prefix("Bearer ")?.trim();
+    let rest = key.strip_prefix("susi:")?;
+    let mut parts = rest.split(':');
+    let mission = parts.next()?.trim();
+    let task = parts.next()?.trim();
+    let attempt = parts.next().unwrap_or("1").parse().unwrap_or(1);
+    if parts.next().is_some() || mission.is_empty() || task.is_empty() {
+        return None;
+    }
+    Some((mission.to_string(), task.to_string(), attempt))
+}
+
 fn header_tag(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get(name)
@@ -541,6 +566,28 @@ mod tests {
         assert_eq!(entries[0].usage.output, 2);
         // 6 miss * $0.15 + 4 hit * $0.003 + 2 out * $0.60 per million, rounded up.
         assert_eq!(entries[0].cost.micros(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_run_key_attributes_the_row() {
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
+
+        let (status, _) = post_json(
+            gateway,
+            r#"{"model":"deepseek-flash","messages":[]}"#,
+            &[("authorization", "Bearer susi:pilot-2:exec-1:3")],
+        )
+        .await;
+
+        assert_eq!(status, 200);
+        let entries = read_entries(&ledger_path).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mission, "pilot-2");
+        assert_eq!(entries[0].task, "exec-1");
+        assert_eq!(entries[0].attempt, 3);
     }
 
     #[tokio::test]
