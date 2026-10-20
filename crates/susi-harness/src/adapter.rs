@@ -161,6 +161,26 @@ impl<R: CommandRunner> SusiTarget<R> {
         })
     }
 
+    /// Sync a reused worktree with `origin/main`.
+    ///
+    /// A worktree that is reused across mission attempts can be many commits
+    /// behind; the claim refuses a stale branch, so sync before claiming.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the worktree cannot be synced (for example, it
+    /// has uncommitted work from a failed attempt).
+    pub fn sync(&self, worktree: &Path) -> EaiResult<()> {
+        let output = self.susi(vec!["workflow".to_string(), "sync".to_string()], worktree)?;
+        if !output.success() {
+            return Err(EaiError::process(format!(
+                "workflow sync failed: {}",
+                output.tail()
+            )));
+        }
+        Ok(())
+    }
+
     /// Add a task in the worktree; returns its id.
     ///
     /// # Errors
@@ -372,6 +392,7 @@ pub fn run_task<R: CommandRunner>(
     runner: &dyn Runner,
 ) -> EaiResult<SusiRunReport> {
     let worktree = target.start_worktree(&spec.worktree_name)?;
+    target.sync(&worktree)?;
     let task = target.add_task(&worktree, &spec.title, &spec.accept)?;
     target.claim(&worktree, &task, &spec.scopes)?;
     let prompt = format!(
@@ -639,6 +660,7 @@ mod tests {
         .unwrap();
         let target = target(vec![
             ok(&format!("cd {}\n", dir.path().display())),
+            ok(""),
             ok("added T-AGENT-1 — commit\n"),
             ok(""),
             ok(""),
@@ -677,6 +699,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let target = target(vec![
             ok(&format!("cd {}\n", dir.path().display())),
+            ok(""),
             ok("added T-AGENT-2 — commit\n"),
             ok(""),
         ]);

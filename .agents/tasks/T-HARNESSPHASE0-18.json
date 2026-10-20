@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSPHASE0-18",
+  "title": "harness: sync a reused worktree before claiming",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792531968
+}
