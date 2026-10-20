@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "AGENTSUSI",
-  "created_unix": 1792428282
+  "created_unix": 1792428282,
+  "closed": {
+    "at_unix": 1792473877,
+    "commit": "94b32d8d88cf7c2052246e18366d21359c1bcd5f",
+    "by": "AGENTSUSI"
+  }
 }
