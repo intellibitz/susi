@@ -151,13 +151,17 @@ impl World {
     fn check(&self, dir: &Path) -> (i32, String) {
         let home = self.home.to_str().unwrap();
         let xdg = self.home.join("xdg");
-        let mut envs = vec![
+        let envs = vec![
             ("HOME", home),
             ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
             ("SUSI_AGENT", "test"),
         ];
         #[cfg(windows)]
-        envs.push(("USERPROFILE", home));
+        let envs = {
+            let mut envs = envs;
+            envs.push(("USERPROFILE", home));
+            envs
+        };
         let (code, out, _) = run(
             dir,
             env!("CARGO_BIN_EXE_susi"),
@@ -170,13 +174,17 @@ impl World {
     fn susi(&self, dir: &Path, args: &[&str]) -> (i32, String, String) {
         let home = self.home.to_str().unwrap();
         let xdg = self.home.join("xdg");
-        let mut envs = vec![
+        let envs = vec![
             ("HOME", home),
             ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
             ("SUSI_AGENT", "test"),
         ];
         #[cfg(windows)]
-        envs.push(("USERPROFILE", home));
+        let envs = {
+            let mut envs = envs;
+            envs.push(("USERPROFILE", home));
+            envs
+        };
         run(dir, env!("CARGO_BIN_EXE_susi"), args, &envs)
     }
 
