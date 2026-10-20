@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSPHASE0-3",
+  "title": "harness: metering gateway for OpenAI-compatible completions",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792514835
+}

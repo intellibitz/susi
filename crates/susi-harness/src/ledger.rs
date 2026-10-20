@@ -37,6 +37,11 @@ pub enum FailureClass {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
+    /// The model call completed at the provider and produced an answer.
+    ///
+    /// This is the gateway's outcome: the call happened and was priced, but
+    /// whether the work passes acceptance is a later, separate verdict.
+    Completed,
     /// The attempt produced work that passed acceptance.
     Accepted,
     /// The model or provider failed.
