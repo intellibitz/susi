@@ -42,6 +42,8 @@
 //!   metered gateway.
 //! - [`supervisor`] runs a plan task by task, persisting after each one so an
 //!   interrupted mission resumes instead of restarting.
+//! - [`validate`] checks a plan against the repository: package names resolve,
+//!   scopes live under an existing directory, acceptance is test-shaped.
 //! - [`api`] is the command surface every cockpit speaks.
 //!
 //! The invariants the contracts keep:
@@ -66,3 +68,4 @@ pub mod pricing;
 pub mod scheduler;
 pub mod supervisor;
 pub mod usage;
+pub mod validate;
