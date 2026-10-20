@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSPHASE0-2",
+  "title": "harness: price catalogue and provider usage parsing",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792514313,
+  "closed": {
+    "at_unix": 1792514493,
+    "commit": "8fd6ac7fc6433744c69fbd39129cb5db32fb367a",
+    "by": "HARNESSPHASE0"
+  }
+}
