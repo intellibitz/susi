@@ -3,7 +3,9 @@
 //! Exercise finish against a local bare remote, simulating its merge automation.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
+#[cfg(windows)]
+use std::process::Stdio;
 
 fn script_command(script: &Path) -> Command {
     #[cfg(windows)]
