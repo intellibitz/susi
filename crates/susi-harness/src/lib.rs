@@ -34,6 +34,8 @@
 //!   the gateway attributes every call it makes.
 //! - [`scheduler`] runs a mission's tasks concurrently, trying the candidate
 //!   models in order and recording every attempt.
+//! - [`adapter`] makes a susi target's own rules mechanical: worktree, claim,
+//!   acceptance, finish.
 //! - [`api`] is the command surface every cockpit speaks.
 //!
 //! The invariants the contracts keep:
@@ -44,6 +46,7 @@
 //! - The event stream is append-only and ordered by `seq`; a cockpit only
 //!   renders it and never becomes a second source of truth.
 
+pub mod adapter;
 pub mod api;
 pub mod catalog;
 pub mod event;
