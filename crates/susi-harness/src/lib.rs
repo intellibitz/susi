@@ -23,6 +23,8 @@
 //!   micro-USD, prices per million tokens, cache hits priced far below misses.
 //! - [`catalog`] holds the price data itself: a model the catalogue cannot
 //!   price is refused at dispatch, because unpriced spend cannot be accounted.
+//! - [`cockpit`] is the read-only status surface: spend per mission and the
+//!   event feed, polled by the panel once a second.
 //! - [`usage`] turns a provider's own JSON into [`pricing::TokenUsage`],
 //!   including DeepSeek's and Gemini's cache-hit counts.
 //! - [`ledger`] is the append-only record of every attempt, priced at the rate
@@ -51,6 +53,7 @@
 pub mod adapter;
 pub mod api;
 pub mod catalog;
+pub mod cockpit;
 pub mod event;
 pub mod executor;
 pub mod gateway;

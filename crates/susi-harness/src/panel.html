@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>susi cockpit</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #0b0d10; color: #c9d1d9; }
+  header { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #1f242b; }
+  h1 { font-size: 13px; margin: 0; letter-spacing: .09em; text-transform: uppercase; color: #e6edf3; }
+  #clock { color: #6e7681; }
+  main { padding: 18px; display: grid; gap: 22px; max-width: 1100px; }
+  .summary { display: flex; gap: 32px; }
+  .stat .k { color: #6e7681; text-transform: uppercase; letter-spacing: .07em; font-size: 10px; }
+  .stat .v { font-size: 21px; color: #e6edf3; font-variant-numeric: tabular-nums; }
+  h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: #6e7681; margin: 0 0 6px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #161b22; }
+  th { color: #6e7681; font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #feed { list-style: none; margin: 0; padding: 0; }
+  #feed li { padding: 5px 0; border-bottom: 1px solid #161b22; display: flex; gap: 12px; }
+  .t { color: #6e7681; min-width: 70px; }
+  .k { color: #58a6ff; min-width: 110px; }
+  .muted { color: #8b949e; }
+  .err { color: #f85149; }
+</style>
+</head>
+<body>
+<header><h1>susi cockpit</h1><span id="clock">connecting…</span></header>
+<main>
+  <section class="summary">
+    <div class="stat"><div class="k">spend</div><div class="v" id="spend">—</div></div>
+    <div class="stat"><div class="k">missions</div><div class="v" id="missions">—</div></div>
+    <div class="stat"><div class="k">events</div><div class="v" id="eventCount">—</div></div>
+  </section>
+  <section>
+    <h2>missions</h2>
+    <table>
+      <thead><tr><th>mission</th><th>tasks</th><th>calls</th><th>cost</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+  <section>
+    <h2>activity</h2>
+    <ul id="feed"></ul>
+  </section>
+</main>
+<script>
+const usd = micros => '$' + (micros / 1e6).toFixed(6);
+const cell = (text, numeric) => {
+  const td = document.createElement('td');
+  td.textContent = text;
+  if (numeric) td.className = 'num';
+  return td;
+};
+async function tick() {
+  try {
+    const response = await fetch('/api/status', { cache: 'no-store' });
+    const snapshot = await response.json();
+    document.getElementById('spend').textContent = usd(snapshot.total_cost_micro_usd);
+    document.getElementById('missions').textContent = snapshot.missions.length;
+    document.getElementById('eventCount').textContent = snapshot.events.length;
+    const rows = document.getElementById('rows');
+    rows.replaceChildren(...snapshot.missions.map(m => {
+      const tr = document.createElement('tr');
+      tr.append(cell(m.mission), cell(m.tasks, true), cell(m.calls, true), cell(usd(m.cost_micro_usd), true));
+      return tr;
+    }));
+    const feed = document.getElementById('feed');
+    feed.replaceChildren(...snapshot.events.slice().reverse().map(event => {
+      const li = document.createElement('li');
+      const time = document.createElement('span');
+      time.className = 't';
+      time.textContent = new Date(event.at_unix_ms).toLocaleTimeString();
+      const kind = document.createElement('span');
+      kind.className = 'k';
+      kind.textContent = event.kind;
+      const summary = document.createElement('span');
+      summary.textContent = event.summary;
+      li.append(time, kind, summary);
+      return li;
+    }));
+    const clock = document.getElementById('clock');
+    clock.className = 'muted';
+    clock.textContent = 'live · ' + new Date().toLocaleTimeString();
+  } catch (error) {
+    const clock = document.getElementById('clock');
+    clock.className = 'err';
+    clock.textContent = 'offline';
+  }
+}
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
