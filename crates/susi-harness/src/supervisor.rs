@@ -371,11 +371,11 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
     }
 }
 
-fn describe(outcome: &RunOutcome) -> &'static str {
+fn describe(outcome: &RunOutcome) -> String {
     match outcome {
-        RunOutcome::Succeeded { .. } => "succeeded",
-        RunOutcome::Failed { .. } => "failed",
-        RunOutcome::TimedOut => "timed_out",
+        RunOutcome::Succeeded { .. } => "succeeded".to_string(),
+        RunOutcome::Failed { message } => format!("failed: {message}"),
+        RunOutcome::TimedOut => "timed_out".to_string(),
     }
 }
 
