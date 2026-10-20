@@ -1,0 +1,18 @@
+{
+  "id": "T-HARNESSPAR3PARALLELFAQ-1",
+  "title": "docs: add a parallel FAQ",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSPAR3PARALLELFAQ",
+  "created_unix": 1792540288
+}
