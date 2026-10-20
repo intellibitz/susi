@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSPHASE0-11",
+  "title": "harness: cockpit status API and panel",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792524228,
+  "closed": {
+    "at_unix": 1792525192,
+    "commit": "5561608262b82ad8717255812d1f5415d6e57b40",
+    "by": "HARNESSPHASE0"
+  }
+}
