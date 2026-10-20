@@ -18,6 +18,7 @@ use std::time::Duration;
 use susi_harness::adapter::SusiTarget;
 use susi_harness::executor::OpenClaw;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
+use susi_harness::validate::{validate_plan, RepoFacts};
 
 struct Options {
     plan: PathBuf,
@@ -41,6 +42,13 @@ fn main() {
         Ok(plan) => plan,
         Err(error) => fail(&error.to_string()),
     };
+    let facts = match RepoFacts::load(&options.repo) {
+        Ok(facts) => facts,
+        Err(error) => fail(&error.to_string()),
+    };
+    if let Err(error) = validate_plan(&plan, &facts) {
+        fail(&format!("plan rejected: {error}"));
+    }
     let target = SusiTarget::new(options.repo, options.susi_program);
     let openclaw = OpenClaw;
     let executor = SusiExecutor {

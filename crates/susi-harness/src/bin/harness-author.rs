@@ -15,10 +15,12 @@
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
+use susi_harness::validate::{validate_plan, RepoFacts};
 
 struct Options {
     gateway: String,
     model: String,
+    repo: PathBuf,
     roadmap: PathBuf,
     vector: String,
     out: PathBuf,
@@ -65,6 +67,13 @@ fn main() {
         Ok(plan) => plan,
         Err(error) => fail(&error.to_string()),
     };
+    let facts = match RepoFacts::load(&options.repo) {
+        Ok(facts) => facts,
+        Err(error) => fail(&error.to_string()),
+    };
+    if let Err(error) = validate_plan(&plan, &facts) {
+        fail(&format!("authored plan rejected: {error}"));
+    }
     let document = serde_json::to_string_pretty(&plan).unwrap_or_default();
     if let Err(error) = std::fs::write(&options.out, &document) {
         fail(&format!("write {}: {error}", options.out.display()));
@@ -90,6 +99,7 @@ fn tail(text: &str, limit: usize) -> String {
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut gateway = String::new();
     let mut model = String::new();
+    let mut repo = PathBuf::from(".");
     let mut roadmap = PathBuf::new();
     let mut vector = String::new();
     let mut out = PathBuf::from("plan.json");
@@ -99,6 +109,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         match argument.as_str() {
             "--gateway" => gateway = take(&mut args, &argument)?,
             "--model" => model = take(&mut args, &argument)?,
+            "--repo" => repo = PathBuf::from(take(&mut args, &argument)?),
             "--roadmap" => roadmap = PathBuf::from(take(&mut args, &argument)?),
             "--vector" => vector = take(&mut args, &argument)?,
             "--out" => out = PathBuf::from(take(&mut args, &argument)?),
@@ -127,6 +138,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     Ok(Options {
         gateway,
         model,
+        repo,
         roadmap,
         vector,
         out,
@@ -162,11 +174,12 @@ mod tests {
             "--roadmap",
             ".agents/roadmap.json",
             "--vector",
-            "VC-202-025",
+            "VC-203-001",
         ]))
         .unwrap();
         assert_eq!(options.max_tasks, 3);
         assert_eq!(options.out, PathBuf::from("plan.json"));
+        assert_eq!(options.repo, PathBuf::from("."));
     }
 
     #[test]
