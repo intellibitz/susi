@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSPHASE0C-1",
+  "title": "harness: serialize worktree starts so parallel prepares both begin",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0C",
+  "created_unix": 1792538380
+}
