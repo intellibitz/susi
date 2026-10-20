@@ -31,6 +31,7 @@ struct Options {
     timeout: Duration,
     prefix: String,
     adapter_state: PathBuf,
+    parallel: usize,
 }
 
 fn main() {
@@ -61,7 +62,7 @@ fn main() {
         timeout: options.timeout,
         state_dir: options.adapter_state,
     };
-    let supervisor = Supervisor::new(options.state, &executor);
+    let supervisor = Supervisor::new(options.state, &executor).with_parallelism(options.parallel);
     let report = match supervisor.run(&plan) {
         Ok(report) => report,
         Err(error) => fail(&error.to_string()),
@@ -92,6 +93,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut timeout: u64 = 900;
     let mut prefix = String::from("harness");
     let mut adapter_state = PathBuf::new();
+    let mut parallel: usize = 1;
 
     while let Some(argument) = args.next() {
         match argument.as_str() {
@@ -109,6 +111,11 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             }
             "--prefix" => prefix = take(&mut args, &argument)?,
             "--adapter-state" => adapter_state = PathBuf::from(take(&mut args, &argument)?),
+            "--parallel" => {
+                parallel = take(&mut args, &argument)?
+                    .parse()
+                    .map_err(|_| "parallel must be a number".to_string())?;
+            }
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -143,6 +150,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         timeout: Duration::from_secs(timeout),
         prefix,
         adapter_state,
+        parallel,
     })
 }
 
