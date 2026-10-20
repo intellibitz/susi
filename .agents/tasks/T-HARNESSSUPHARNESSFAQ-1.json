@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSSUPHARNESSFAQ-1",
+  "title": "docs: add a harness FAQ",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSSUPHARNESSFAQ",
+  "created_unix": 1792528408
+}
