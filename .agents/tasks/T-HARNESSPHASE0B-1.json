@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSPHASE0B-1",
+  "title": "gateway: configurable upstream timeout",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0B",
+  "created_unix": 1792533160
+}

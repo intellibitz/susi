@@ -34,6 +34,7 @@ struct Options {
     upstream: String,
     provider: String,
     api_key_env: String,
+    timeout: u64,
 }
 
 fn main() {
@@ -66,7 +67,7 @@ async fn run(options: Options) -> Result<(), String> {
         upstream_chat_url: options.upstream,
         provider: options.provider,
         api_key,
-        timeout_secs: 120,
+        timeout_secs: options.timeout,
     });
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", options.port))
         .await
@@ -88,6 +89,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut upstream = String::new();
     let mut provider = String::from("upstream");
     let mut api_key_env = String::from("DEEPSEEK_API_KEY");
+    let mut timeout: u64 = 120;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--port" => {
@@ -100,6 +102,11 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--upstream" => upstream = take(&mut args, &flag)?,
             "--provider" => provider = take(&mut args, &flag)?,
             "--api-key-env" => api_key_env = take(&mut args, &flag)?,
+            "--timeout" => {
+                timeout = take(&mut args, &flag)?
+                    .parse()
+                    .map_err(|_| "timeout must be a number of seconds".to_string())?;
+            }
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -119,6 +126,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         upstream,
         provider,
         api_key_env,
+        timeout,
     })
 }
 
@@ -158,6 +166,7 @@ mod tests {
         assert_eq!(options.catalogue, PathBuf::from("prices.json"));
         assert_eq!(options.provider, "deepseek");
         assert_eq!(options.api_key_env, "DEEPSEEK_API_KEY");
+        assert_eq!(options.timeout, 120);
     }
 
     #[test]
