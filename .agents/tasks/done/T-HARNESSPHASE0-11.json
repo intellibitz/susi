@@ -13,5 +13,10 @@
     ]
   },
   "created_by": "HARNESSPHASE0",
-  "created_unix": 1792524228
+  "created_unix": 1792524228,
+  "closed": {
+    "at_unix": 1792524399,
+    "commit": "a1d529e326ebfd624f4b2e940a3219133c4ee28e",
+    "by": "HARNESSPHASE0"
+  }
 }
