@@ -3,12 +3,14 @@
 //! A read-only status surface over what the harness already writes: the ledger
 //! (spend per mission) and the event feed (what happened). It recomputes on
 //! every request, so there is no second source of truth to drift; the panel
-//! polls it once a second.
+//! receives a snapshot over SSE once a second (with a slow HTTP poll as a
+//! fallback).
 
 use crate::event::{read_events, Event};
 use crate::ledger::read_entries;
 use crate::money::MicroUsd;
 use axum::extract::State;
+use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::Html;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -95,6 +97,7 @@ pub fn router(cockpit: Arc<Cockpit>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/api/status", get(status))
+        .route("/api/events", get(events))
         .route("/health", get(health))
         .with_state(cockpit)
 }
@@ -121,6 +124,22 @@ async fn health() -> &'static str {
 
 async fn status(State(cockpit): State<Arc<Cockpit>>) -> Json<Snapshot> {
     Json(cockpit.snapshot())
+}
+
+async fn events(
+    State(cockpit): State<Arc<Cockpit>>,
+) -> Sse<impl futures::Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
+    let interval = tokio::time::interval(std::time::Duration::from_secs(1));
+    let stream =
+        futures::stream::unfold((cockpit, interval), |(cockpit, mut interval)| async move {
+            interval.tick().await;
+            let data = serde_json::to_string(&cockpit.snapshot()).unwrap_or_default();
+            Some((
+                Ok::<_, std::convert::Infallible>(SseEvent::default().data(data)),
+                (cockpit, interval),
+            ))
+        });
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 #[cfg(test)]
@@ -197,6 +216,47 @@ mod tests {
 
         let panel = get_text(address, "/").await;
         assert!(panel.contains("susi cockpit"));
+    }
+
+    #[tokio::test]
+    async fn the_event_route_streams_sse() {
+        let dir = tempfile::tempdir().unwrap();
+        let cockpit = Arc::new(cockpit(dir.path()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, super::router(cockpit)).await;
+        });
+
+        let text = tokio::task::spawn_blocking(move || {
+            use std::io::{Read, Write};
+            let mut stream = std::net::TcpStream::connect(address).unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                .unwrap();
+            stream
+                .write_all(b"GET /api/events HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .unwrap();
+            let mut collected = Vec::new();
+            loop {
+                let mut buffer = [0u8; 1024];
+                match stream.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(read) => {
+                        collected.extend_from_slice(&buffer[..read]);
+                        if String::from_utf8_lossy(&collected).contains("data:") {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            String::from_utf8_lossy(&collected).into_owned()
+        })
+        .await
+        .unwrap();
+        assert!(text.contains("text/event-stream"));
+        assert!(text.contains("data:"));
     }
 
     async fn get_text(address: SocketAddr, path: &str) -> String {

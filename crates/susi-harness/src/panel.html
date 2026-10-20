@@ -55,44 +55,63 @@ const cell = (text, numeric) => {
   if (numeric) td.className = 'num';
   return td;
 };
-async function tick() {
+function markLive() {
+  const clock = document.getElementById('clock');
+  clock.className = 'muted';
+  clock.textContent = 'live · ' + new Date().toLocaleTimeString();
+}
+function render(snapshot) {
+  document.getElementById('spend').textContent = usd(snapshot.total_cost_micro_usd);
+  document.getElementById('missions').textContent = snapshot.missions.length;
+  document.getElementById('eventCount').textContent = snapshot.events.length;
+  const rows = document.getElementById('rows');
+  rows.replaceChildren(...snapshot.missions.map(m => {
+    const tr = document.createElement('tr');
+    tr.append(cell(m.mission), cell(m.tasks, true), cell(m.calls, true), cell(usd(m.cost_micro_usd), true));
+    return tr;
+  }));
+  const feed = document.getElementById('feed');
+  feed.replaceChildren(...snapshot.events.slice().reverse().map(event => {
+    const li = document.createElement('li');
+    const time = document.createElement('span');
+    time.className = 't';
+    time.textContent = new Date(event.at_unix_ms).toLocaleTimeString();
+    const kind = document.createElement('span');
+    kind.className = 'k';
+    kind.textContent = event.kind;
+    const summary = document.createElement('span');
+    summary.textContent = event.summary;
+    li.append(time, kind, summary);
+    return li;
+  }));
+}
+async function snapshotOnce() {
   try {
     const response = await fetch('/api/status', { cache: 'no-store' });
-    const snapshot = await response.json();
-    document.getElementById('spend').textContent = usd(snapshot.total_cost_micro_usd);
-    document.getElementById('missions').textContent = snapshot.missions.length;
-    document.getElementById('eventCount').textContent = snapshot.events.length;
-    const rows = document.getElementById('rows');
-    rows.replaceChildren(...snapshot.missions.map(m => {
-      const tr = document.createElement('tr');
-      tr.append(cell(m.mission), cell(m.tasks, true), cell(m.calls, true), cell(usd(m.cost_micro_usd), true));
-      return tr;
-    }));
-    const feed = document.getElementById('feed');
-    feed.replaceChildren(...snapshot.events.slice().reverse().map(event => {
-      const li = document.createElement('li');
-      const time = document.createElement('span');
-      time.className = 't';
-      time.textContent = new Date(event.at_unix_ms).toLocaleTimeString();
-      const kind = document.createElement('span');
-      kind.className = 'k';
-      kind.textContent = event.kind;
-      const summary = document.createElement('span');
-      summary.textContent = event.summary;
-      li.append(time, kind, summary);
-      return li;
-    }));
-    const clock = document.getElementById('clock');
-    clock.className = 'muted';
-    clock.textContent = 'live · ' + new Date().toLocaleTimeString();
+    render(await response.json());
+    markLive();
   } catch (error) {
     const clock = document.getElementById('clock');
     clock.className = 'err';
     clock.textContent = 'offline';
   }
 }
-tick();
-setInterval(tick, 1000);
+const source = new EventSource('/api/events');
+source.onmessage = event => {
+  try {
+    render(JSON.parse(event.data));
+    markLive();
+  } catch (error) {
+    // A malformed frame is skipped; the next one arrives in a second.
+  }
+};
+source.onerror = () => {
+  const clock = document.getElementById('clock');
+  clock.className = 'err';
+  clock.textContent = 'reconnecting…';
+};
+snapshotOnce();
+setInterval(snapshotOnce, 5000);
 </script>
 </body>
 </html>
