@@ -36,6 +36,8 @@
 //!   models in order and recording every attempt.
 //! - [`adapter`] makes a susi target's own rules mechanical: worktree, claim,
 //!   acceptance, finish.
+//! - [`supervisor`] runs a plan task by task, persisting after each one so an
+//!   interrupted mission resumes instead of restarting.
 //! - [`api`] is the command surface every cockpit speaks.
 //!
 //! The invariants the contracts keep:
@@ -56,4 +58,5 @@ pub mod ledger;
 pub mod money;
 pub mod pricing;
 pub mod scheduler;
+pub mod supervisor;
 pub mod usage;

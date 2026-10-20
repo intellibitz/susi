@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSPHASE0-10",
+  "title": "harness: supervisor loop with plan, resume and susi executor",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792523662
+}
