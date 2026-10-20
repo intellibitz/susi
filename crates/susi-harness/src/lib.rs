@@ -28,6 +28,8 @@
 //! - [`ledger`] is the append-only record of every attempt, priced at the rate
 //!   in force when it ran, so spend can always be explained after the fact.
 //! - [`event`] is the live, human-readable feed: one row per action, no code.
+//! - [`gateway`] meters a completion: forward it, price the provider's own
+//!   usage, and append the ledger row before answering.
 //! - [`api`] is the command surface every cockpit speaks.
 //!
 //! The invariants the contracts keep:
@@ -41,6 +43,7 @@
 pub mod api;
 pub mod catalog;
 pub mod event;
+pub mod gateway;
 pub mod ledger;
 pub mod money;
 pub mod pricing;

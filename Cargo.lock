@@ -5447,9 +5447,12 @@ name = "susi-harness"
 version = "0.21.20"
 dependencies = [
  "susi-error",
+ "susi-http-transport",
+ "susi-vendor-axum",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-tempfile",
+ "susi-vendor-tokio",
 ]
 
 [[package]]
