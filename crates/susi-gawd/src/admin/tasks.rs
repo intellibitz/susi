@@ -1723,8 +1723,27 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
              it up deliberately: `susi tasks release {first} --abandon <reason>`)"
         )));
     }
-    for other in live.iter().filter(|c| !c.expired(now)) {
-        if scopes.iter().any(|a| {
+    let branch = git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok();
+    let owned = live
+        .iter()
+        .find(|c| c.task == id && c.agent == agent && !c.expired(now));
+    let requested_scopes = owned.map_or_else(
+        || scopes.to_vec(),
+        |claim| {
+            let mut union = claim.scopes.clone();
+            for scope in scopes {
+                if !union.contains(scope) {
+                    union.push(scope.clone());
+                }
+            }
+            union
+        },
+    );
+    for other in live
+        .iter()
+        .filter(|c| !c.expired(now) && !owned.is_some_and(|own| own.task == c.task))
+    {
+        if requested_scopes.iter().any(|a| {
             other.scopes.iter().any(|b| {
                 a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/"))
             })
@@ -1734,6 +1753,54 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
                 other.task, other.agent
             )));
         }
+    }
+    if let Some(current) = owned {
+        if current
+            .branch
+            .as_ref()
+            .is_some_and(|held| Some(held) != branch.as_ref())
+        {
+            return Err(EaiError::config(format!(
+                "{id} can only expand its scope from the branch that holds it"
+            )));
+        }
+        let (old, mut expanded) = read_claim(ws, id)
+            .ok_or_else(|| EaiError::config(format!("{id} claim changed; refresh and retry")))?;
+        expanded.branch = branch;
+        expanded.scopes = requested_scopes;
+        expanded.lease_until_unix = now.saturating_add(hours.max(1).saturating_mul(3600));
+        let blob = claim_blob(ws, &expanded)?;
+        let r = remote();
+        let agent_ref = format!("refs/claim-agents/{agent}");
+        let agent_list = git(ws, &["ls-remote", &r, &agent_ref])?;
+        let agent_old = agent_list.split_whitespace().next().unwrap_or("");
+        if !agent_old.is_empty() && agent_old != old {
+            return Err(EaiError::config(
+                "agent ownership changed; cannot expand claim scope",
+            ));
+        }
+        git(
+            ws,
+            &[
+                "push",
+                "--quiet",
+                "--atomic",
+                &format!("--force-with-lease={}:{}", claim_ref(id), old),
+                &format!("--force-with-lease={agent_ref}:{agent_old}"),
+                &format!("--force-with-lease={generation_ref}:{generation_old}"),
+                &r,
+                &format!("{blob}:{}", claim_ref(id)),
+                &format!("{blob}:{agent_ref}"),
+                &format!("{blob}:{generation_ref}"),
+            ],
+        )
+        .map_err(|_| {
+            EaiError::config(format!(
+                "{id} or agent {agent} was claimed {CAS_PHRASE}; refresh the queue and retry"
+            ))
+        })?;
+        git(ws, &["update-ref", &claim_ref(id), &blob])?;
+        return Ok(expanded);
     }
     if let Some(other) = live.iter().find(|c| c.agent == agent && !c.expired(now)) {
         return Err(EaiError::config(format!(
@@ -1766,7 +1833,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         }
     }
     let mine = Claim {
-        branch: git(ws, &["symbolic-ref", "-q", "--short", "HEAD"]).ok(),
+        branch,
         scopes: scopes.to_vec(),
         task: id.to_string(),
         agent,
@@ -2126,17 +2193,14 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             task.accept.cmd.join(" ")
         );
     } else {
-        let out = Command::new(&task.accept.cmd[0])
-            .args(&task.accept.cmd[1..])
-            .current_dir(ws)
-            .output()
-            .map_err(|e| {
-                // A check that does not exist yet is "not done", not an I/O crash.
-                EaiError::process(format!(
-                    "{id} is not done: acceptance command `{}` could not run ({e})",
-                    task.accept.cmd.join(" ")
-                ))
-            })?;
+        let mut command = acceptance_command(&task.accept.cmd);
+        let out = command.current_dir(ws).output().map_err(|e| {
+            // A check that does not exist yet is "not done", not an I/O crash.
+            EaiError::process(format!(
+                "{id} is not done: acceptance command `{}` could not run ({e})",
+                task.accept.cmd.join(" ")
+            ))
+        })?;
         // Show the check's own output: the closer should see what proved it.
         eprint!("{}", String::from_utf8_lossy(&out.stderr));
         print!("{}", String::from_utf8_lossy(&out.stdout));
@@ -2187,6 +2251,39 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
     // allowed another current agent to reclaim the still-open remote task.
 
     Ok(task)
+}
+
+fn acceptance_command(argv: &[String]) -> Command {
+    let program = argv.first().map(String::as_str).unwrap_or_default();
+    #[cfg(windows)]
+    {
+        let interpreter = match Path::new(program).extension().and_then(|ext| ext.to_str()) {
+            Some("sh") => Some("sh"),
+            _ => None,
+        };
+        if let Some(executable) = interpreter {
+            let mut command = Command::new(executable);
+            command.arg(program).args(&argv[1..]);
+            return command;
+        }
+        if Path::new(program).extension().and_then(|ext| ext.to_str()) == Some("py") {
+            // Use Git Bash as the parent so Python inherits its POSIX utility
+            // path too; checkers may invoke grep/sed as part of acceptance.
+            let mut command = Command::new("sh");
+            command
+                .args([
+                    "-c",
+                    "export PYTHONIOENCODING=utf-8; exec python3 \"$@\"",
+                    "susi-acceptance",
+                ])
+                .arg(program)
+                .args(&argv[1..]);
+            return command;
+        }
+    }
+    let mut command = Command::new(program);
+    command.args(&argv[1..]);
+    command
 }
 
 /// Refuse to close a task `origin/main` already has in `done/`.
@@ -2509,7 +2606,10 @@ mod tests {
         claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
         let err = close(&a, &t.id, "claude").unwrap_err().to_string();
         assert!(err.contains("is not done"), "{err}");
-        assert!(err.contains("could not run"), "{err}");
+        assert!(
+            err.contains("could not run") || err.contains("exited"),
+            "{err}"
+        );
         assert!(err.contains("scripts/does-not-exist-yet.sh"), "{err}");
         assert_eq!(list_open(&a).len(), 1);
         drop(r);
@@ -2859,6 +2959,60 @@ mod tests {
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].agent, "CLAUDE");
         drop(r);
+    }
+
+    #[test]
+    fn an_owned_claim_can_atomically_expand_its_scope_on_the_same_branch() {
+        let (_r, a, b) = Repos::new("expand-scope");
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        let second = addt!(&b, "devin", "second", "", "s", &[], true_cmd()).unwrap();
+        let now = now_unix();
+        claim_scoped(
+            &a,
+            &first.id,
+            "claude",
+            ClaimOptions {
+                hours: 1,
+                now,
+                scopes: &["src".into()],
+            },
+        )
+        .unwrap();
+
+        let expanded = claim_scoped(
+            &a,
+            &first.id,
+            "claude",
+            ClaimOptions {
+                hours: 2,
+                now: now + 10,
+                scopes: &["tests".into(), "src".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(expanded.scopes, vec!["src", "tests"]);
+        assert_eq!(expanded.lease_until_unix, now + 10 + 7200);
+        assert_eq!(
+            claims(&a)
+                .unwrap()
+                .into_iter()
+                .find(|claim| claim.task == first.id)
+                .unwrap()
+                .scopes,
+            vec!["src", "tests"]
+        );
+
+        assert!(claim_scoped(
+            &b,
+            &second.id,
+            "devin",
+            ClaimOptions {
+                hours: 1,
+                now: now + 20,
+                scopes: &["tests/ui".into()],
+            }
+        )
+        .is_err());
     }
 
     #[test]

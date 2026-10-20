@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENTSUSI-2",
+  "title": "Repair Windows SUSI workflow and local gate",
+  "goal": "Repair the Windows workflow loop end to end: launch POSIX setup scripts through the supported shell; make changed-crate detection work with Windows Cargo metadata paths; isolate Windows APPDATA, LOCALAPPDATA, and native build caches during hermetic tests; and adapt shell-script integration-test launchers so the scoped gate can run natively. Preserve the current primary checkout and make best-effort primary sync failures nonblocking.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "agent_bootstrap",
+      "susi_workflow_start_wraps_the_same_setup"
+    ]
+  },
+  "created_by": "AGENTSUSI",
+  "created_unix": 1792428282,
+  "closed": {
+    "at_unix": 1792476386,
+    "commit": "0efec273b36bf5d39c04820ed5c83da397e7b57a",
+    "by": "AGENTSUSI"
+  }
+}

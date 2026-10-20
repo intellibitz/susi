@@ -56,6 +56,10 @@ failed=0
 
 while IFS= read -r wt; do
     [ -n "$wt" ] || continue
+    git_path=$wt
+    case "${OSTYPE:-}" in
+        msys*|cygwin*) git_path=$(cygpath -aw "$wt" 2>/dev/null) || git_path=$wt ;;
+    esac
     path=$(cd "$wt" 2>/dev/null && pwd -P) || {
         echo "  missing directory    $wt (run git worktree prune)"
         continue
@@ -68,12 +72,12 @@ while IFS= read -r wt; do
         echo "  current              $path"
         continue
     fi
-    head=$(git -C "$path" rev-parse HEAD 2>/dev/null) || {
+    head=$(git -C "$git_path" rev-parse HEAD 2>/dev/null) || {
         echo "  unreadable           $path"
         kept=$((kept + 1))
         continue
     }
-    if [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then
+    if [ -n "$(git -C "$git_path" status --porcelain 2>/dev/null)" ]; then
         echo "  uncommitted changes  $path"
         kept=$((kept + 1))
         continue
@@ -84,7 +88,7 @@ while IFS= read -r wt; do
         continue
     fi
 
-    owner=$(git -C "$path" config --get susi.agent 2>/dev/null || true)
+    owner=$(git -C "$git_path" config --get susi.agent 2>/dev/null || true)
     mine=0
     if [ -n "$me" ] && [ "$owner" = "$me" ]; then
         mine=1
@@ -100,7 +104,7 @@ while IFS= read -r wt; do
         reclaimed=$((reclaimed + 1))
         continue
     fi
-    if git worktree remove "$path" 2>/dev/null; then
+    if git worktree remove "$git_path" 2>/dev/null; then
         echo "  removed              $path"
         reclaimed=$((reclaimed + 1))
     else

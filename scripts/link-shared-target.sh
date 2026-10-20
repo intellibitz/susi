@@ -43,6 +43,18 @@ fi
 
 shared=$primary/target
 mkdir -p "$shared" 2>/dev/null || exit 0
-ln -sfn "$shared" "$link" 2>/dev/null || exit 0
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        # Creating directory symlinks can require Developer Mode or an
+        # elevated token. A junction has the same directory-link behavior for
+        # Cargo and can be created by an ordinary user.
+        win_link=$(cygpath -aw "$link" 2>/dev/null) || exit 0
+        win_shared=$(cygpath -aw "$shared" 2>/dev/null) || exit 0
+        LINK="$win_link" SHARED="$win_shared" MSYS2_ARG_CONV_EXCL='*' \
+            cmd.exe /d /c 'mklink /J %LINK% %SHARED%' \
+            >/dev/null 2>&1 || exit 0
+        ;;
+    *) ln -sfn "$shared" "$link" 2>/dev/null || exit 0 ;;
+esac
 echo "target: shared -> $shared" >&2
 exit 0

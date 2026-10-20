@@ -27,7 +27,8 @@ while IFS=$'\t' read -r num branch sha updated draft; do
     [ "$draft" = true ] && continue
 
     run=$(gh run list --repo "$repo" --workflow test.yml --commit "$sha" \
-        --json status,conclusion,url --jq '.[0] // empty | [.status, .conclusion, .url] | @tsv' 2>/dev/null || true)
+        --json status,conclusion,url --jq '.[0] // empty | [.status, .conclusion, .url] | @tsv' \
+        2>/dev/null | tr -d '\r' || true)
     status=$(printf '%s' "$run" | cut -f1)
     conclusion=$(printf '%s' "$run" | cut -f2)
     url=$(printf '%s' "$run" | cut -f3)
@@ -60,5 +61,6 @@ Fix it and push; this PR merges itself once the run is green."
     fi
 done < <(gh pr list --repo "$repo" --base main --state open \
     --json number,headRefName,headRefOid,updatedAt,isDraft \
-    --jq 'sort_by(.number) | .[] | [.number, .headRefName, .headRefOid, .updatedAt, .isDraft] | @tsv')
+    --jq 'sort_by(.number) | .[] | [.number, .headRefName, .headRefOid, .updatedAt, .isDraft] | @tsv' |
+    tr -d '\r')
 exit "$rc"

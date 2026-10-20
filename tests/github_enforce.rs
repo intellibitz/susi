@@ -12,6 +12,27 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn script_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("sh");
+        command.arg(script);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(script)
+    }
+}
+
+fn path_with_prefix(prefix: &Path) -> std::ffi::OsString {
+    let mut paths = vec![prefix.to_path_buf()];
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&path));
+    }
+    std::env::join_paths(paths).unwrap()
+}
+
 struct Fake {
     dir: PathBuf,
 }
@@ -49,8 +70,8 @@ esac
 
     fn run(&self, args: &[&str]) -> (i32, String, String) {
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/github-enforce.sh");
-        let path = format!("{}:{}", self.dir.display(), std::env::var("PATH").unwrap());
-        let out = Command::new(script)
+        let path = path_with_prefix(&self.dir);
+        let out = script_command(&script)
             .args(args)
             .env("PATH", path)
             .output()

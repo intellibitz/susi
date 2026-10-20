@@ -12,6 +12,19 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn script_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("sh");
+        command.arg(script);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(script)
+    }
+}
+
 fn script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-hermetic-tests.sh")
 }
@@ -20,6 +33,7 @@ struct World {
     root: PathBuf,
     bins: PathBuf,
     home: PathBuf,
+    paths: PathBuf,
 }
 
 impl World {
@@ -49,7 +63,7 @@ impl World {
         // `metadata` is answered by the real cargo: the nextest runner reads the
         // workspace to pick the doc-test packages, and a fake has no workspace.
         let body = format!(
-            "#!/usr/bin/env bash\nif [ \"$1\" = metadata ]; then exec \"$TEST_REAL_CARGO\" \"$@\"; fi\necho \"$*\" >>\"$TEST_CARGO_CALLS\"\n{leak}exit 0\n"
+            "#!/usr/bin/env bash\nif [ \"$1\" = metadata ]; then exec \"$TEST_REAL_CARGO\" \"$@\"; fi\necho \"$*\" >>\"$TEST_CARGO_CALLS\"\nprintf '%s\\n' \"${{APPDATA:-}}\" \"${{LOCALAPPDATA:-}}\" \"${{ORT_CACHE_DIR:-}}\" >\"$TEST_CARGO_PATHS\"\n{leak}exit 0\n"
         );
         let path = bins.join("cargo");
         std::fs::write(&path, body).unwrap();
@@ -60,6 +74,7 @@ impl World {
         }
         Self {
             home: root.join("throwaway.tsv"),
+            paths: root.join("native-paths.txt"),
             root,
             bins,
         }
@@ -70,11 +85,17 @@ impl World {
     }
 
     fn run_with(&self, envs: &[(&str, &str)], args: &[&str]) -> (i32, String) {
-        let out = Command::new(script())
+        let path = std::env::join_paths([
+            self.bins.as_os_str(),
+            std::env::var_os("PATH").as_deref().unwrap_or_default(),
+        ])
+        .unwrap();
+        let out = script_command(&script())
             .args(args)
             .env("CARGO_HOME", self.bins.parent().unwrap())
-            .env("PATH", format!("{}:/usr/bin:/bin", self.bins.display()))
+            .env("PATH", path)
             .env("TEST_CARGO_CALLS", &self.home)
+            .env("TEST_CARGO_PATHS", &self.paths)
             .env("TEST_REAL_CARGO", env!("CARGO"))
             .env_remove("SUSI_HERMETIC_RUNNER")
             .env_remove("SUSI_HERMETIC_RETRIES")
@@ -94,6 +115,29 @@ impl World {
     fn cargo_calls(&self) -> String {
         std::fs::read_to_string(&self.home).unwrap_or_default()
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_native_config_and_build_caches_are_redirected() {
+    let w = World::new("windows-paths", false);
+    let (code, out) = w.run(&["-p", "susi"]);
+    assert_eq!(code, 0, "{out}");
+    let paths = std::fs::read_to_string(&w.paths).unwrap();
+    let real_appdata = std::env::var("APPDATA").unwrap_or_default().to_lowercase();
+    let real_local = std::env::var("LOCALAPPDATA")
+        .unwrap_or_default()
+        .to_lowercase();
+    let paths: Vec<_> = paths.lines().map(str::to_lowercase).collect();
+    assert_eq!(paths.len(), 3, "{paths:?}");
+    assert_ne!(paths[0], real_appdata, "{paths:?}");
+    assert_ne!(paths[1], real_local, "{paths:?}");
+    assert!(paths[0].ends_with("\\appdata\\roaming"), "{paths:?}");
+    assert!(paths[1].ends_with("\\appdata\\local"), "{paths:?}");
+    assert!(
+        paths[2].ends_with("\\appdata\\local\\ort-cache"),
+        "{paths:?}"
+    );
 }
 
 impl Drop for World {

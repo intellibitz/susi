@@ -69,12 +69,12 @@ meta=$(cargo metadata --no-deps --format-version 1 2>/dev/null) || {
 }
 
 # name|crate-dir per workspace package.
-pkgs=$(jq -r '.packages[] | .name + "|" + (.manifest_path | sub("/Cargo.toml$"; ""))' <<<"$meta") || {
+pkgs=$(jq -r '.packages[] | .name + "|" + (.manifest_path | gsub("\\\\"; "/") | sub("/Cargo.toml$"; ""))' <<<"$meta") || {
     echo ALL
     exit 0
 }
 
-root=$PWD
+root=$(git rev-parse --show-toplevel)
 rootpkg=$(awk -F'|' -v m="$root" '$2 == m { print $1 }' <<<"$pkgs" | head -1)
 declare -A seen=()
 while IFS= read -r f; do

@@ -24,7 +24,23 @@ cd "$(git rev-parse --show-toplevel)"
 real_home="${HOME}"
 home=$(mktemp -d)
 testhome=$(mktemp -d)
-trap 'rm -rf "$home" "$testhome"' EXIT
+cleanup_hermetic_dirs() {
+    local status=$? attempt=0
+    trap - EXIT
+    while [ "$attempt" -lt 6 ]; do
+        if rm -rf "$home" "$testhome" 2>/dev/null; then
+            return "$status"
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+    # Windows may recreate INetCache while a just-exited test process is
+    # flushing its native cache. Report the leftover, but preserve the actual
+    # test result instead of turning a passing hermetic run into a false fail.
+    echo "warning: could not remove hermetic temporary directories after retries" >&2
+    return "$status"
+}
+trap cleanup_hermetic_dirs EXIT
 export CARGO_HOME="${CARGO_HOME:-$real_home/.cargo}"
 export RUSTUP_HOME="${RUSTUP_HOME:-$real_home/.rustup}"
 # The real cargo shim must stay reachable after HOME is replaced.
@@ -34,6 +50,24 @@ export USERPROFILE="$testhome"
 export XDG_CONFIG_HOME="$testhome/xdg-config"
 export XDG_DATA_HOME="$testhome/xdg-data"
 export XDG_CACHE_HOME="$testhome/xdg-cache"
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        # Windows path discovery uses APPDATA/LOCALAPPDATA, not XDG. Keep both
+        # the Susi instance and native build-tool caches inside this run's temp
+        # home so a hermetic test cannot see or mutate the user's AppData.
+        mkdir -p "$testhome/appdata/roaming" "$testhome/appdata/local/ort-cache" \
+            "$testhome/appdata/local/temp"
+        export APPDATA="$(cygpath -aw "$testhome/appdata/roaming")"
+        export LOCALAPPDATA="$(cygpath -aw "$testhome/appdata/local")"
+        export ORT_CACHE_DIR="$(cygpath -aw "$testhome/appdata/local/ort-cache")"
+        # Rust's std::env::temp_dir and native Windows tools honor these
+        # variables. MSYS may export /tmp here, which native Git/Cargo tests
+        # cannot use for temporary repositories or worktrees.
+        export TMP="$(cygpath -aw "$testhome/appdata/local/temp")"
+        export TEMP="$TMP"
+        export TMPDIR="$testhome/appdata/local/temp"
+        ;;
+esac
 export SUSI_HOME="$home"
 export SUSI_HERMETIC_FORBIDDEN="$home"
 # Drop a launch-time port offset the same way a real inherited env might set it.

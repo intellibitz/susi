@@ -13,6 +13,27 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn script_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("sh");
+        command.arg(script);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(script)
+    }
+}
+
+fn path_with_prefix(prefix: &Path) -> std::ffi::OsString {
+    let mut paths = vec![prefix.to_path_buf()];
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&path));
+    }
+    std::env::join_paths(paths).unwrap()
+}
+
 const SHA: &str = "abc1234";
 /// Far enough ahead that the script's "created after the dispatch" test holds.
 const LATER: &str = "2099-01-01T00:00:00Z";
@@ -76,9 +97,9 @@ esac
     }
 
     fn run(&self, envs: &[(&str, &str)]) -> (i32, String) {
-        let path = format!("{}:{}", self.dir.display(), std::env::var("PATH").unwrap());
-        let out = Command::new(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/release-await-tests.sh"),
+        let path = path_with_prefix(&self.dir);
+        let out = script_command(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/release-await-tests.sh"),
         )
         .args(["o/r", "v1.2.3", SHA])
         .env("PATH", path)

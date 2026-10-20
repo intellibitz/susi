@@ -315,6 +315,14 @@ impl StdioSession {
 
 impl Drop for StdioSession {
     fn drop(&mut self) {
+        #[cfg(windows)]
+        {
+            let pid = self.child.id().to_string();
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid, "/T", "/F"])
+                .status();
+        }
+        #[cfg(not(windows))]
         let _ = self.child.kill();
         let _ = self.child.wait();
     }

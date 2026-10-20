@@ -96,11 +96,9 @@ echo "worktree: $dest (branch $name)" >&2
 # tests/ci_workflow_perf.rs pins the config. A worktree made another way (the
 # desktop app) gets the same link from the SessionStart hook, which runs
 # scripts/link-shared-target.sh; keep the two rules in step.
-shared_target=$primary/target
-if [ -z "${SUSI_PRIVATE_TARGET:-}" ] && { [ ! -e "$dest/target" ] || [ -L "$dest/target" ]; }; then
-    mkdir -p "$shared_target"
-    ln -sfn "$shared_target" "$dest/target"
-    echo "target: shared -> $shared_target" >&2
+if [ -z "${SUSI_PRIVATE_TARGET:-}" ] && \
+    { [ ! -e "$dest/target" ] || [ -L "$dest/target" ]; }; then
+    "$root/scripts/link-shared-target.sh" "$dest" >&2 || true
 fi
 
 # Persist a unique worker identity, even when all tools share one Git login.

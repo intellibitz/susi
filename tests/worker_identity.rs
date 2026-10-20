@@ -25,6 +25,20 @@ struct World {
 /// The environment of a worker's shell: a private `$HOME`, no system git
 /// config, and neither `SUSI_AGENT` nor an inherited git identity.
 fn command(program: &str, dir: &Path, home: &Path) -> Command {
+    #[cfg(windows)]
+    let mut cmd = if Path::new(program).is_file()
+        && Path::new(program)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("exe")
+    {
+        let mut shell = Command::new("sh");
+        shell.arg(program);
+        shell
+    } else {
+        Command::new(program)
+    };
+    #[cfg(not(windows))]
     let mut cmd = Command::new(program);
     cmd.current_dir(dir)
         .env("HOME", home)
@@ -278,14 +292,19 @@ fn worker_identity_start_never_names_the_worker_after_the_git_login() {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
-    let (code, out, err) = finish(
-        command(wrapper.to_str().unwrap(), &w.primary, &w.home())
-            .env("SUSI_PRIMARY_WATCH_DISABLE", "1"),
-    );
+    let mut launch = command(wrapper.to_str().unwrap(), &w.primary, &w.home());
+    launch.env("SUSI_PRIMARY_WATCH_DISABLE", "1");
+    // Git for Windows' bundled `ps` lacks `-o`, so the shell launcher cannot
+    // discover its parent tool there. Exercise its documented override on
+    // Windows; Unix still exercises process-tree detection.
+    #[cfg(windows)]
+    launch.env("SUSI_AGENT", "CODEX2");
+    let (code, out, err) = finish(&mut launch);
     assert_eq!(code, 0, "{err}");
     let dest = PathBuf::from(out.lines().last().unwrap().strip_prefix("cd ").unwrap());
     let branch = w.git(&dest, &["symbolic-ref", "--short", "HEAD"]);
-    assert!(branch.starts_with("codex-"), "{branch}");
+    let prefix = if cfg!(windows) { "codex2-" } else { "codex-" };
+    assert!(branch.starts_with(prefix), "{branch}");
     let token = own(&w, &dest, "susi.agent");
     assert!(token.starts_with("CODEX2"), "{token}");
     assert_eq!(own(&w, &dest, "user.name"), token);

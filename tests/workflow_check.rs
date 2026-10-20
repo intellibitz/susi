@@ -65,6 +65,8 @@ impl World {
         }
         git(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
         git(&primary, &["init", "--quiet", "-b", "main"]);
+        #[cfg(windows)]
+        git(&primary, &["config", "core.filemode", "false"]);
         // The fixture owns its identity. A test that lets git fall back to the
         // *machine's* global config passes only where a developer has one: on a
         // CI runner `git merge` then fails with "Committer identity unknown"
@@ -74,6 +76,7 @@ impl World {
         for repo in [&bare, &primary] {
             git(repo, &["config", "user.name", "t"]);
             git(repo, &["config", "user.email", "t@t"]);
+            git(repo, &["config", "commit.gpgsign", "false"]);
         }
         git(
             &primary,
@@ -105,7 +108,22 @@ impl World {
             let park = primary.join("scripts/park-primary.sh");
             std::fs::set_permissions(&park, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        #[cfg(windows)]
+        {
+            let park = primary.join("scripts/park-primary.sh");
+            let status = Command::new("sh")
+                .args(["-c", "chmod +x \"$1\"", "sh"])
+                .arg(&park)
+                .status()
+                .unwrap();
+            assert!(status.success(), "chmod +x {park:?}");
+        }
         git(&primary, &["add", "-A"]);
+        #[cfg(windows)]
+        git(
+            &primary,
+            &["update-index", "--chmod=+x", "scripts/park-primary.sh"],
+        );
         git(&primary, &["commit", "--quiet", "-m", "init"]);
         git(&primary, &["push", "--quiet", "origin", "HEAD:main"]);
         git(&primary, &["fetch", "--quiet", "origin"]);
@@ -131,30 +149,43 @@ impl World {
     }
 
     fn check(&self, dir: &Path) -> (i32, String) {
+        let home = self.home.to_str().unwrap();
+        let xdg = self.home.join("xdg");
+        let envs = vec![
+            ("HOME", home),
+            ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+            ("SUSI_AGENT", "test"),
+        ];
+        #[cfg(windows)]
+        let envs = {
+            let mut envs = envs;
+            envs.push(("USERPROFILE", home));
+            envs
+        };
         let (code, out, _) = run(
             dir,
             env!("CARGO_BIN_EXE_susi"),
             &["workflow", "check"],
-            &[
-                ("HOME", self.home.to_str().unwrap()),
-                ("XDG_CONFIG_HOME", self.home.join("xdg").to_str().unwrap()),
-                ("SUSI_AGENT", "test"),
-            ],
+            &envs,
         );
         (code, out)
     }
 
     fn susi(&self, dir: &Path, args: &[&str]) -> (i32, String, String) {
-        run(
-            dir,
-            env!("CARGO_BIN_EXE_susi"),
-            args,
-            &[
-                ("HOME", self.home.to_str().unwrap()),
-                ("XDG_CONFIG_HOME", self.home.join("xdg").to_str().unwrap()),
-                ("SUSI_AGENT", "test"),
-            ],
-        )
+        let home = self.home.to_str().unwrap();
+        let xdg = self.home.join("xdg");
+        let envs = vec![
+            ("HOME", home),
+            ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+            ("SUSI_AGENT", "test"),
+        ];
+        #[cfg(windows)]
+        let envs = {
+            let mut envs = envs;
+            envs.push(("USERPROFILE", home));
+            envs
+        };
+        run(dir, env!("CARGO_BIN_EXE_susi"), args, &envs)
     }
 
     fn claim_a_task(&self) {
@@ -163,6 +194,8 @@ impl World {
             &["tasks", "add", "job", "--accept", "cargo --version"],
         );
         assert_eq!(code, 0, "{err}");
+        git(&self.wt, &["add", ".agents/tasks/T-TEST-1.json"]);
+        git(&self.wt, &["commit", "--quiet", "-m", "fixture task"]);
         let (code, _, err) =
             self.susi(&self.wt, &["tasks", "claim", "T-TEST-1", "--scope", "work"]);
         assert_eq!(code, 0, "{err}");
@@ -495,7 +528,7 @@ fn a_stale_installed_release_is_reported_without_blocking_the_loop() {
     let w = World::new("release-stale");
     w.claim_a_task();
     // The host is running the release built from what main is on right now.
-    let installed = git_out(&w.wt, &["rev-parse", "HEAD"]);
+    let installed = git_out(&w.wt, &["rev-parse", "origin/main"]);
     install_release(&w, &installed);
     // Then main moves ahead of it, and this worktree syncs as the loop requires.
     advance_origin(&w);
@@ -635,7 +668,7 @@ fn landing_the_release_on_main_is_not_drift() {
 fn a_current_release_passes_and_a_dev_host_reports_no_marker() {
     let w = World::new("release-current");
     w.claim_a_task();
-    let head = git_out(&w.wt, &["rev-parse", "HEAD"]);
+    let head = git_out(&w.wt, &["rev-parse", "origin/main"]);
 
     let (_, out) = w.check(&w.wt);
     assert!(out.contains("✅ installed susi"), "{out}");

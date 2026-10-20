@@ -15,12 +15,29 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn script_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("sh");
+        command.arg(script);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        let mut command = Command::new("bash");
+        command.arg(script);
+        command
+    }
+}
+
 fn script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/ci-changed-crates.sh")
 }
 
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
+        .arg("-c")
+        .arg("commit.gpgsign=false")
         .args(args)
         .current_dir(dir)
         // An outer hook's repository must never be the one a fixture commits to.
@@ -107,8 +124,7 @@ impl Workspace {
 
     /// The script's output lines, and its exit code.
     fn run(&self, args: &[&str]) -> (i32, Vec<String>) {
-        let out = Command::new("bash")
-            .arg(script())
+        let out = script_command(&script())
             .args(args)
             .current_dir(&self.root)
             .env("BASE_REF", "main")
@@ -216,12 +232,12 @@ fn an_unknown_argument_is_refused_rather_than_silently_ignored() {
 /// it, plus the package itself. The branch gate intersects this set with the
 /// affected crates to decide whether a push can reach the ONNX download.
 fn revdeps(dir: &Path, pkg: &str) -> Vec<String> {
-    let out = Command::new("bash")
-        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/ci-reverse-deps.sh"))
-        .arg(pkg)
-        .current_dir(dir)
-        .output()
-        .unwrap();
+    let out =
+        script_command(&Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/ci-reverse-deps.sh"))
+            .arg(pkg)
+            .current_dir(dir)
+            .output()
+            .unwrap();
     assert!(
         out.status.success(),
         "ci-reverse-deps {pkg}: {}",

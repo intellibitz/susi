@@ -18,6 +18,7 @@ fn run(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     let mut cmd = Command::new("git");
     cmd.args(args)
         .current_dir(dir)
+        .env_remove("SUSI_PRIMARY_SYNC_ACTIVE")
         .env("GIT_AUTHOR_NAME", "t")
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
@@ -36,6 +37,20 @@ fn run(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
         .trim()
         .to_string(),
     )
+}
+
+fn make_executable(path: &Path) {
+    #[cfg(unix)]
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    #[cfg(windows)]
+    {
+        let status = Command::new("sh")
+            .args(["-c", "chmod +x \"$1\"", "sh"])
+            .arg(path)
+            .status()
+            .expect("Git for Windows must provide chmod");
+        assert!(status.success(), "chmod +x {path:?}");
+    }
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -68,6 +83,8 @@ impl World {
         std::fs::create_dir_all(primary.join(".githooks")).unwrap();
         git(&bare, &["init", "--bare", "--quiet", "-b", "main"]);
         git(&primary, &["init", "--quiet", "-b", "main"]);
+        #[cfg(windows)]
+        git(&primary, &["config", "core.filemode", "false"]);
         git(
             &primary,
             &["remote", "add", "origin", bare.to_str().unwrap()],
@@ -75,6 +92,7 @@ impl World {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
         for (src, dst) in [
             ("scripts/park-primary.sh", "scripts/park-primary.sh"),
+            ("scripts/posix-compat.sh", "scripts/posix-compat.sh"),
             (".githooks/sync-primary", ".githooks/sync-primary"),
             (".githooks/post-commit", ".githooks/post-commit"),
             (".githooks/post-merge", ".githooks/post-merge"),
@@ -82,12 +100,17 @@ impl World {
         ] {
             let to = primary.join(dst);
             std::fs::copy(repo.join(src), &to).unwrap();
-            // Git for Windows runs hooks through its bundled sh regardless of
-            // file mode; the exec bit only exists on unix.
-            #[cfg(unix)]
-            std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o755)).unwrap();
+            make_executable(&to);
         }
         git(&primary, &["add", "-A"]);
+        #[cfg(windows)]
+        for path in ["scripts/park-primary.sh", ".githooks/post-commit"] {
+            git(&primary, &["update-index", "--chmod=+x", path]);
+            assert!(
+                git(&primary, &["ls-files", "-s", path]).starts_with("100755 "),
+                "Windows fixture must preserve executable mode for {path}"
+            );
+        }
         git(&primary, &["commit", "--quiet", "-m", "init"]);
         git(&primary, &["push", "--quiet", "origin", "HEAD:main"]);
         git(&primary, &["fetch", "--quiet", "origin"]);

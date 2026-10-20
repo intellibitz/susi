@@ -562,6 +562,19 @@ impl Runner for ProcessRunner {
         let worker = format!("{}@spawn", self.susi_bin.display());
         let started = Instant::now();
         let out_file = env.workspace.join(".intent-output.txt");
+        #[cfg(windows)]
+        let mut cmd = if self
+            .susi_bin
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("sh"))
+        {
+            let mut command = std::process::Command::new("sh");
+            command.arg(&self.susi_bin);
+            command
+        } else {
+            std::process::Command::new(&self.susi_bin)
+        };
+        #[cfg(not(windows))]
         let mut cmd = std::process::Command::new(&self.susi_bin);
         cmd.arg(&intent.intent)
             .current_dir(&env.workspace)

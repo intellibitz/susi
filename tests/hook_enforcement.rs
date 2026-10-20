@@ -31,6 +31,15 @@ fn command(
     stdin: &str,
     envs: &[(&str, &str)],
 ) -> (i32, String, String) {
+    #[cfg(windows)]
+    let mut cmd = if program.contains(".githooks") {
+        let mut command = Command::new("sh");
+        command.arg(program);
+        command
+    } else {
+        Command::new(program)
+    };
+    #[cfg(not(windows))]
     let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(dir)
