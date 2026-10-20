@@ -28,6 +28,8 @@ pub struct AuthorRequest {
     pub vector: String,
     /// The vector's mastery target.
     pub target: String,
+    /// Workspace package names, so acceptance can use exact `-p` ids.
+    pub packages: Vec<String>,
     /// Recent narrative (may be truncated).
     pub narrative: String,
     /// Upper bound on tasks.
@@ -38,9 +40,10 @@ pub struct AuthorRequest {
 #[must_use]
 pub fn prompt(request: &AuthorRequest) -> String {
     format!(
-        "Roadmap vector: {vector}\nMastery target: {target}\nMost recent narrative (may be truncated):\n{narrative}\n\nReturn a plan of at most {max_tasks} tasks. Each task must be executable by one coding agent in one worktree, and its scopes must not overlap another task's.",
+        "Roadmap vector: {vector}\nMastery target: {target}\nWorkspace packages (use these exact names in `-p`): {packages}\nMost recent narrative (may be truncated):\n{narrative}\n\nReturn a plan of at most {max_tasks} tasks. Prefer one small, self-contained increment that one agent can finish in under 15 minutes; if the vector is large, plan only its first concrete step. Each task must be executable by one coding agent in one worktree, and its scopes must not overlap another task's.",
         vector = request.vector,
         target = request.target,
+        packages = request.packages.join(", "),
         narrative = request.narrative,
         max_tasks = request.max_tasks
     )
@@ -143,17 +146,21 @@ mod tests {
         AuthorRequest {
             vector: "VC-202-025 agent identity".into(),
             target: "durable worker identity".into(),
+            packages: vec!["susi-harness".into(), "susi-gmcp".into()],
             narrative: "recent work".into(),
             max_tasks: 3,
         }
     }
 
     #[test]
-    fn the_prompt_carries_the_vector_and_the_limit() {
+    fn the_prompt_carries_the_vector_the_packages_and_the_limit() {
         let text = prompt(&request());
         assert!(text.contains("VC-202-025"));
         assert!(text.contains("durable worker identity"));
+        assert!(text.contains("susi-harness"));
+        assert!(text.contains("susi-gmcp"));
         assert!(text.contains("at most 3 tasks"));
+        assert!(text.contains("under 15 minutes"));
     }
 
     #[test]
