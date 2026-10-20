@@ -18,7 +18,7 @@ use std::time::Duration;
 use susi_error::{EaiError, EaiResult};
 
 /// One task in a supervisor plan.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlanTask {
     /// Stable key within the plan (also the worktree suffix and state key).
     pub key: String,
@@ -34,7 +34,7 @@ pub struct PlanTask {
 }
 
 /// A mission plan.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Plan {
     /// Mission id.
     pub mission: String,
@@ -68,7 +68,13 @@ impl Plan {
         Self::from_json(&text)
     }
 
-    fn validate(&self) -> EaiResult<()> {
+    /// Validate the plan's shape: a mission, at least one task, unique keys,
+    /// and no empty acceptance, prompt or scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EaiError::config` naming the first violation.
+    pub fn validate(&self) -> EaiResult<()> {
         if self.mission.trim().is_empty() {
             return Err(EaiError::config("plan mission is required"));
         }

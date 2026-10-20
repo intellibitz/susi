@@ -38,6 +38,8 @@
 //!   models in order and recording every attempt.
 //! - [`adapter`] makes a susi target's own rules mechanical: worktree, claim,
 //!   acceptance, finish.
+//! - [`author`] turns a roadmap vector into a validated plan through the
+//!   metered gateway.
 //! - [`supervisor`] runs a plan task by task, persisting after each one so an
 //!   interrupted mission resumes instead of restarting.
 //! - [`api`] is the command surface every cockpit speaks.
@@ -52,6 +54,7 @@
 
 pub mod adapter;
 pub mod api;
+pub mod author;
 pub mod catalog;
 pub mod cockpit;
 pub mod event;
