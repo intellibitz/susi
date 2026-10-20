@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSPHASE0-16",
+  "title": "harness: parallel susi missions",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792530629,
+  "closed": {
+    "at_unix": 1792531079,
+    "commit": "1be5761e727dbb68d0746a6651477566462cc711",
+    "by": "HARNESSPHASE0"
+  }
+}
