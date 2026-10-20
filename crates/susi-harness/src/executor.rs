@@ -136,6 +136,29 @@ pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
     }))
 }
 
+/// A thing that can execute one turn.
+///
+/// The scheduler depends on this trait, not on OpenClaw, so a mission can be
+/// tested without spawning a real agent.
+pub trait Runner: Sync {
+    /// Run one turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns the executor's operational error (spawn, I/O), not an agent
+    /// failure — those are [`RunOutcome`] values.
+    fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome>;
+}
+
+/// The real OpenClaw runner.
+pub struct OpenClaw;
+
+impl Runner for OpenClaw {
+    fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+        run(config)
+    }
+}
+
 fn drain(mut pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let mut buffer = Vec::new();

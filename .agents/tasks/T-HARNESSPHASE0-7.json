@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSPHASE0-7",
+  "title": "harness: mission scheduler with concurrency, ladder and event log",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792519172
+}
