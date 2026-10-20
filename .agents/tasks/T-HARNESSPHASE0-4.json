@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSPHASE0-4",
+  "title": "harness: runnable metering gateway and one real metered call",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSPHASE0",
+  "created_unix": 1792515894
+}
