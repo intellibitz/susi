@@ -5443,6 +5443,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-harness"
+version = "0.21.20"
+dependencies = [
+ "susi-error",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-tempfile",
+]
+
+[[package]]
 name = "susi-http-transport"
 version = "0.1.0"
 dependencies = [

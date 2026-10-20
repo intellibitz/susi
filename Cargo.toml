@@ -37,8 +37,9 @@ members = [
     "crates/susi-gawd-swarm",
     "crates/susi-gawd-a2a",
     "crates/susi-gawd", "crates/susi-daemon", "crates/susi-server",
-    "crates/susi-dsh-cell"
-, "crates/susi-universal-cell",
+    "crates/susi-dsh-cell",
+    "crates/susi-harness",
+    "crates/susi-universal-cell",
     "crates/susi-vendor-anyhow",
     "crates/susi-vendor-axum",
     "crates/susi-vendor-base64",
