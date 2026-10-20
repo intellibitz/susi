@@ -13,5 +13,10 @@
     ]
   },
   "created_by": "HARNESSSUPHARNESSRUNBOOK",
-  "created_unix": 1792527315
+  "created_unix": 1792527315,
+  "closed": {
+    "at_unix": 1792528148,
+    "commit": "d227ce3489a97a03439612846a12d662a9179d26",
+    "by": "HARNESSSUPHARNESSRUNBOOK"
+  }
 }
