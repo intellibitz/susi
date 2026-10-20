@@ -392,6 +392,9 @@ pub fn init_hooks() {
 #[path = "tests/gap_task_from_failure.rs"]
 mod gap_task_from_failure_tests;
 #[cfg(test)]
+#[path = "tests/intent_ladder_canaries.rs"]
+mod intent_ladder_canaries_tests;
+#[cfg(test)]
 #[path = "tests/intent_ladder_startup.rs"]
 mod intent_ladder_startup_tests;
 #[cfg(test)]
