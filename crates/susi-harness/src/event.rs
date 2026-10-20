@@ -7,6 +7,9 @@
 
 use crate::money::MicroUsd;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::path::Path;
+use susi_error::{EaiError, EaiResult};
 
 /// What kind of action an event records.
 ///
@@ -103,6 +106,49 @@ impl Event {
     }
 }
 
+/// Append one event as a JSON line.
+///
+/// # Errors
+///
+/// Returns `EaiError::io` when the event cannot be encoded or the file cannot
+/// be opened or written.
+pub fn append_event(path: &Path, event: &Event) -> EaiResult<()> {
+    let line = serde_json::to_string(event)
+        .map_err(|error| EaiError::io(format!("encode event: {error}")))?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| EaiError::io(format!("open event log {}: {error}", path.display())))?;
+    writeln!(file, "{line}")
+        .map_err(|error| EaiError::io(format!("append event log {}: {error}", path.display())))
+}
+
+/// Read the feed in append order.
+///
+/// # Errors
+///
+/// Returns `EaiError::io` when the file cannot be read or a line is malformed.
+pub fn read_events(path: &Path) -> EaiResult<Vec<Event>> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| EaiError::io(format!("read event log {}: {error}", path.display())))?;
+    let mut events = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let event = serde_json::from_str(line).map_err(|error| {
+            EaiError::io(format!(
+                "event log {} line {}: {error}",
+                path.display(),
+                index + 1
+            ))
+        })?;
+        events.push(event);
+    }
+    Ok(events)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +176,19 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         let back: Event = serde_json::from_str(&json).unwrap();
         assert_eq!(back, event);
+    }
+
+    #[test]
+    fn the_feed_round_trips_through_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let first = Event::new(1, 10, EventKind::MissionStarted, "started").with_mission("m");
+        let second = Event::new(2, 20, EventKind::TaskDispatched, "task")
+            .with_mission("m")
+            .with_task("t");
+        append_event(&path, &first).unwrap();
+        append_event(&path, &second).unwrap();
+        assert_eq!(read_events(&path).unwrap(), vec![first, second]);
     }
 
     #[test]

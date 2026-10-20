@@ -32,6 +32,8 @@
 //!   usage, and append the ledger row before answering.
 //! - [`executor`] runs one OpenClaw turn to a deadline, with a per-run key so
 //!   the gateway attributes every call it makes.
+//! - [`scheduler`] runs a mission's tasks concurrently, trying the candidate
+//!   models in order and recording every attempt.
 //! - [`api`] is the command surface every cockpit speaks.
 //!
 //! The invariants the contracts keep:
@@ -50,4 +52,5 @@ pub mod gateway;
 pub mod ledger;
 pub mod money;
 pub mod pricing;
+pub mod scheduler;
 pub mod usage;
