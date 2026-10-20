@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSSUSIDOCS-1",
+  "title": "docs: add a susi harness overview",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSSUSIDOCS",
+  "created_unix": 1792522120
+}
