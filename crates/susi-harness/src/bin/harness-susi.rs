@@ -178,6 +178,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
             alternates,
             timeout: Duration::from_secs(timeout),
             state_dir: state,
+            task: None,
         },
     })
 }

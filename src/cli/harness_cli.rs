@@ -20,6 +20,7 @@ use susi_harness::executor::OpenClaw;
 use susi_harness::litellm::Launcher;
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::Policy;
+use susi_harness::queue;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
 
@@ -47,6 +48,28 @@ pub enum HarnessCommands {
         /// Worker models tasks are spread across (comma-separated)
         #[arg(long, default_value = "deepseek-chat,gemini-flash")]
         workers: String,
+    },
+    /// Plan a batch of dependency-ready queue tasks; each entry claims its id
+    #[command(name = "plan")]
+    PlanQueue {
+        /// The susi target repository
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Where to write the plan
+        #[arg(long, default_value = "plan.json")]
+        out: PathBuf,
+        /// Mission id
+        #[arg(long, default_value = "roadmap-batch")]
+        mission: String,
+        /// Upper bound on tasks in the batch
+        #[arg(long, default_value_t = 1)]
+        limit: usize,
+        /// Worker models, assigned round-robin (comma-separated)
+        #[arg(long, default_value = "deepseek-chat,gemini-flash")]
+        workers: String,
+        /// Only tasks whose roadmap vector is this id
+        #[arg(long)]
+        roadmap: Option<String>,
     },
     /// Run a plan: prepare in parallel, land in order, persist after each task
     Run {
@@ -242,6 +265,22 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
         } => author(
             &gateway, &model, &roadmap, &vector, &out, max_tasks, &workers, cwd,
         ),
+        HarnessCommands::PlanQueue {
+            repo,
+            out,
+            mission,
+            limit,
+            workers,
+            roadmap,
+        } => plan_queue(
+            &repo,
+            &out,
+            &mission,
+            limit,
+            &workers,
+            roadmap.as_deref(),
+            cwd,
+        ),
         HarnessCommands::Run {
             plan,
             repo,
@@ -290,6 +329,45 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             python,
         } => scorecard(&events, &task, json, require_complete, &python, cwd),
     }
+}
+
+/// Write a plan over dependency-ready queue tasks.
+#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
+fn plan_queue(
+    repo: &Path,
+    out: &Path,
+    mission: &str,
+    limit: usize,
+    workers: &str,
+    roadmap: Option<&str>,
+    cwd: &Path,
+) -> Result<()> {
+    let repo = if repo == Path::new(".") {
+        cwd.to_path_buf()
+    } else {
+        repo.to_path_buf()
+    };
+    let workers: Vec<String> = workers
+        .split(',')
+        .map(str::trim)
+        .filter(|worker| !worker.is_empty())
+        .map(str::to_string)
+        .collect();
+    let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap)?;
+    std::fs::write(out, serde_json::to_string_pretty(&plan)?)
+        .with_context(|| format!("write {}", out.display()))?;
+    println!(
+        "wrote {} — mission {} with {} task(s): {}",
+        out.display(),
+        plan.mission,
+        plan.tasks.len(),
+        plan.tasks
+            .iter()
+            .map(|task| format!("{} -> {}", task.key, task.task.as_deref().unwrap_or("new")))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Ok(())
 }
 
 /// Run the repository's scorecard against the lifecycle ledger.

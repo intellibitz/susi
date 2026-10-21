@@ -1,0 +1,24 @@
+{
+  "id": "T-HARNESSCEO1-5",
+  "title": "Let the harness claim existing roadmap tasks and plan a queue batch",
+  "goal": "The normal path mints a new task per plan entry. To drain the roadmap queue, a plan entry must be able to name an existing task id, claim it in a fresh worktree, and run its declared acceptance; add a planner that turns dependency-ready, scope-disjoint queue tasks into such a plan.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-015",
+  "created_by": "HARNESSCEO1",
+  "created_unix": 1792617900,
+  "closed": {
+    "at_unix": 1792618382,
+    "commit": "446766838adf2c9f7555239eba86eb5ab74e12d7",
+    "by": "HARNESSCEO1"
+  }
+}

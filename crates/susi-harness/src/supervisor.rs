@@ -30,7 +30,7 @@ use susi_error::{EaiError, EaiResult};
 pub struct PlanTask {
     /// Stable key within the plan (also the worktree suffix and state key).
     pub key: String,
-    /// Task title handed to `susi tasks add`.
+    /// Task title handed to `susi tasks add` (or the queue task's title).
     pub title: String,
     /// The task's acceptance command.
     pub accept: String,
@@ -43,6 +43,12 @@ pub struct PlanTask {
     /// Gemini worker on the next.
     #[serde(default)]
     pub model: Option<String>,
+    /// An existing queue task to claim instead of minting a new one.
+    ///
+    /// When set, the worktree already carries the task record, the adapter
+    /// claims that id, and the acceptance comes from the record.
+    #[serde(default)]
+    pub task: Option<String>,
     /// The instruction for the agent.
     pub prompt: String,
 }
@@ -453,6 +459,7 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             alternates,
             timeout: self.timeout,
             state_dir: self.state_dir.join(&task.key),
+            task: task.task.clone(),
         };
         let guard = self
             .budget
@@ -657,6 +664,7 @@ mod tests {
                     accept: "cargo test -p susi-harness".into(),
                     scopes: vec!["docs/harness.md".into()],
                     model: None,
+                    task: None,
                     prompt: "do it".into(),
                 })
                 .collect(),
