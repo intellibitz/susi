@@ -191,6 +191,9 @@ async fn buffered_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Str
         }
     };
     let status = call.status;
+    // LiteLLM sets this header only when it served the answer from its cache;
+    // the provider was not called, so the row must not charge for it.
+    let cached = call.header("x-litellm-cache-key").is_some();
     let content_type = call
         .header("content-type")
         .unwrap_or("application/json")
@@ -231,6 +234,7 @@ async fn buffered_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Str
             ended_unix_ms,
             outcome: Outcome::Completed,
         });
+        let entry = if cached { entry.as_cached() } else { entry };
         if let Err(error) = append_entry(&state.ledger_path, &entry) {
             return error_response(
                 StatusCode::BAD_GATEWAY,

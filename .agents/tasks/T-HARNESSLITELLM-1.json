@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSLITELLM-1",
+  "title": "harness: run LiteLLM as the cached model proxy, with DeepSeek, SiliconFlow and DashScope models",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSLITELLM",
+  "created_unix": 1792590331
+}

@@ -102,6 +102,10 @@ pub struct LedgerEntry {
     pub price: ModelPrice,
     /// Settled cost.
     pub cost: MicroUsd,
+    /// True when the proxy served the answer from its cache, so no provider
+    /// spend occurred. The tokens still describe the cached answer.
+    #[serde(default)]
+    pub cached: bool,
     /// Start, milliseconds since the Unix epoch.
     pub started_unix_ms: u64,
     /// End, milliseconds since the Unix epoch.
@@ -124,10 +128,20 @@ impl LedgerEntry {
             usage: dispatch.usage,
             price: dispatch.price,
             cost,
+            cached: false,
             started_unix_ms: dispatch.started_unix_ms,
             ended_unix_ms: dispatch.ended_unix_ms,
             outcome: dispatch.outcome,
         }
+    }
+
+    /// Mark the row as served by the proxy's cache: the provider was not
+    /// called, so the row costs nothing even though it records the tokens.
+    #[must_use]
+    pub fn as_cached(mut self) -> Self {
+        self.cached = true;
+        self.cost = MicroUsd::ZERO;
+        self
     }
 
     /// Wall-clock latency of the attempt, saturating on a non-monotonic clock.
@@ -226,6 +240,25 @@ mod tests {
         assert_eq!(settled.cost, MicroUsd::from_micros(217_200));
         assert_eq!(settled.price, price());
         assert_eq!(settled.latency_ms(), 1_500);
+        assert!(!settled.cached);
+    }
+
+    #[test]
+    fn a_cached_row_costs_nothing_and_says_so() {
+        let cached = entry("T-HARNESSPHASE0-1", Outcome::Accepted).as_cached();
+        assert!(cached.cached);
+        assert_eq!(cached.cost, MicroUsd::ZERO);
+        assert_eq!(cached.usage, TokenUsage::new(3_000_000, 2_400_000, 200_000));
+        let json = serde_json::to_string(&cached).unwrap();
+        assert!(json.contains("\"cached\":true"));
+    }
+
+    #[test]
+    fn an_old_row_without_the_cached_field_reads_as_not_cached() {
+        let mut value = serde_json::to_value(entry("T-1", Outcome::Accepted)).unwrap();
+        value.as_object_mut().unwrap().remove("cached");
+        let parsed: LedgerEntry = serde_json::from_value(value).unwrap();
+        assert!(!parsed.cached);
     }
 
     #[test]
