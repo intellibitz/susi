@@ -451,10 +451,13 @@ fn run(
     if budget.is_some() && catalogue.is_none() {
         bail!("--budget-usd needs --catalogue: an unpriced attempt cannot be bounded");
     }
+    // Every named worker stays on the ladder. The task's own model is moved to
+    // the front by the adapter, so a task assigned a non-default worker still
+    // has a stronger model to escalate to when it does not pass.
     let alternates: Vec<String> = workers
         .split(',')
         .map(str::trim)
-        .filter(|worker| !worker.is_empty() && *worker != model)
+        .filter(|worker| !worker.is_empty())
         .map(str::to_string)
         .collect();
     let susi_program =
