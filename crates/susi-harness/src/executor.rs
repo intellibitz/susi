@@ -220,7 +220,7 @@ impl Runner for OpenClaw {
 /// SQLite state in the directory we chose instead of a temporary one whose
 /// cleanup races its own writers.
 fn agent_command(config: &ExecutorConfig, config_path: &Path, prompt_path: &Path) -> Command {
-    let mut command = Command::new(&config.program);
+    let mut command = Command::new(resolve_program(&config.program));
     command
         .arg("agent")
         .arg("exec")
@@ -346,6 +346,28 @@ fn tail(text: &str) -> String {
     }
     let start = text.len() - LIMIT;
     text.get(start..).unwrap_or(text).to_string()
+}
+
+/// Resolve the agent program.
+///
+/// A bare `openclaw` resolves to the npm shim when it exists. The WindowsApps
+/// alias is the sandboxed Store build: it spawns a persistent session host and
+/// a sandbox broker for the tool call, and the worktree the harness handed it
+/// is outside that sandbox — runs that looked successful made no repository
+/// change and left state locks behind. An explicit path is never rewritten.
+fn resolve_program(program: &Path) -> PathBuf {
+    if program != Path::new("openclaw") {
+        return program.to_path_buf();
+    }
+    let Some(appdata) = std::env::var_os("APPDATA") else {
+        return program.to_path_buf();
+    };
+    let shim = PathBuf::from(appdata).join("npm").join("openclaw.cmd");
+    if shim.is_file() {
+        shim
+    } else {
+        program.to_path_buf()
+    }
 }
 
 /// Whether the workspace has uncommitted or untracked changes.
@@ -558,6 +580,12 @@ mod tests {
         assert_eq!(workspace_changed(dir.path()), Some(false));
         std::fs::write(dir.path().join("written.txt"), "work").unwrap();
         assert_eq!(workspace_changed(dir.path()), Some(true));
+    }
+
+    #[test]
+    fn an_explicit_program_is_never_rewritten() {
+        let explicit = Path::new("C:/tools/openclaw-custom.exe");
+        assert_eq!(resolve_program(explicit), explicit);
     }
 
     #[test]
