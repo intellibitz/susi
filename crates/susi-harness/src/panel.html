@@ -5,86 +5,333 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>susi cockpit</title>
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #0b0d10; color: #c9d1d9; }
-  header { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #1f242b; }
-  h1 { font-size: 13px; margin: 0; letter-spacing: .09em; text-transform: uppercase; color: #e6edf3; }
-  #clock { color: #6e7681; }
-  main { padding: 18px; display: grid; gap: 22px; max-width: 1100px; }
-  .summary { display: flex; gap: 32px; }
-  .stat .k { color: #6e7681; text-transform: uppercase; letter-spacing: .07em; font-size: 10px; }
-  .stat .v { font-size: 21px; color: #e6edf3; font-variant-numeric: tabular-nums; }
-  h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: #6e7681; margin: 0 0 6px; }
+  :root {
+    color-scheme: dark;
+    --bg: #0a0c10;
+    --panel: #10141a;
+    --line: #1d232c;
+    --ink: #d7dee8;
+    --muted: #7d8794;
+    --faint: #59616c;
+    --accent: #6ea8fe;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.5 var(--mono); }
+  body.embed header { display: none; }
+  body.embed main { padding: 10px; }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; background: var(--bg); z-index: 2;
+  }
+  h1 { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; margin: 0; color: #fff; }
+  h1 span { color: var(--accent); }
+  #clock { color: var(--muted); font-size: 11px; }
+  #clock.live::before { content: "●"; color: var(--ok); margin-right: 6px; }
+  #clock.err::before { content: "●"; color: var(--bad); margin-right: 6px; }
+  main { padding: 16px 18px 40px; max-width: 1280px; margin: 0 auto; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .k { color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-size: 9.5px; }
+  .v { font-size: 24px; color: #fff; font-variant-numeric: tabular-nums; margin-top: 3px; }
+  .bar { height: 5px; background: #1b2129; border-radius: 3px; margin-top: 9px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--ok); }
+  .bar i.warn { background: var(--warn); }
+  .bar i.bad { background: var(--bad); }
+  #warnings { display: grid; gap: 6px; margin-bottom: 14px; }
+  #warnings:empty { display: none; }
+  .warning { border: 1px solid #4a3410; background: #241a08; color: #f0c674; border-radius: 6px; padding: 7px 10px; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  h2 { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #161b22; }
-  th { color: #6e7681; font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--faint); font-weight: 500; font-size: 9.5px; text-transform: uppercase; letter-spacing: .08em; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  #feed { list-style: none; margin: 0; padding: 0; }
-  #feed li { padding: 5px 0; border-bottom: 1px solid #161b22; display: flex; gap: 12px; }
-  .t { color: #6e7681; min-width: 70px; }
-  .k { color: #58a6ff; min-width: 110px; }
-  .muted { color: #8b949e; }
-  .err { color: #f85149; }
+  .state { text-transform: uppercase; font-size: 9.5px; letter-spacing: .07em; padding: 2px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+  .state.running { color: var(--accent); border-color: #1f3b66; background: #0d1929; }
+  .state.done { color: var(--ok); border-color: #1d3a24; background: #0d1a11; }
+  .state.failed, .state.aborted { color: var(--bad); border-color: #4a1c1a; background: #1e0e0d; }
+  .state.paused { color: var(--warn); border-color: #4a3410; background: #241a08; }
+  .muted { color: var(--muted); }
+  .bad { color: var(--bad); }
+  .ok { color: var(--ok); }
+  #feed { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow: auto; }
+  #feed li { display: grid; grid-template-columns: 62px 86px 1fr; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+  #feed .t { color: var(--faint); font-variant-numeric: tabular-nums; }
+  #feed .g { color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; }
+  #feed .g.bad { color: var(--bad); }
+  #feed .g.ok { color: var(--ok); }
+  #feed .g.warn { color: var(--warn); }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button {
+    font: inherit; font-size: 12px; color: var(--ink); background: #171d26;
+    border: 1px solid #2b333f; border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: #fff; }
+  button.danger { border-color: #5a2320; color: #ffb3ae; }
+  button.danger:hover { border-color: var(--bad); }
+  input { font: inherit; font-size: 12px; color: var(--ink); background: #0c1016; border: 1px solid #2b333f; border-radius: 6px; padding: 6px 8px; width: 90px; }
+  #ack { min-height: 18px; color: var(--muted); font-size: 11px; margin-top: 8px; }
+  #ack.good { color: var(--ok); }
+  #ack.bad { color: var(--bad); }
+  .split { display: grid; gap: 14px; }
+  .empty { color: var(--faint); padding: 8px 0; }
+  .cmd { color: var(--muted); font-size: 11px; }
+  #controls-log { list-style: none; margin: 8px 0 0; padding: 0; max-height: 130px; overflow: auto; }
+  #controls-log li { padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+  #decisions { list-style: none; margin: 0; padding: 0; }
+  #decisions li { padding: 6px 0; border-bottom: 1px solid var(--line); color: var(--warn); font-size: 12px; }
 </style>
 </head>
 <body>
-<header><h1>susi cockpit</h1><span id="clock">connecting…</span></header>
+<header>
+  <h1>susi <span>·</span> ceo cockpit</h1>
+  <span id="clock">connecting…</span>
+</header>
 <main>
-  <section class="summary">
-    <div class="stat"><div class="k">spend</div><div class="v" id="spend">—</div></div>
-    <div class="stat"><div class="k">missions</div><div class="v" id="missions">—</div></div>
-    <div class="stat"><div class="k">events</div><div class="v" id="eventCount">—</div></div>
+  <section class="stats">
+    <div class="card">
+      <div class="k">spend</div>
+      <div class="v" id="spend">—</div>
+      <div class="bar"><i id="spendBar" style="width:0"></i></div>
+    </div>
+    <div class="card"><div class="k">budget left</div><div class="v" id="remaining">—</div></div>
+    <div class="card"><div class="k">tasks landed</div><div class="v" id="tasks">—</div></div>
+    <div class="card"><div class="k">workers</div><div class="v" id="workers">—</div></div>
+    <div class="card"><div class="k">live events</div><div class="v" id="eventCount">—</div></div>
   </section>
-  <section>
-    <h2>missions</h2>
-    <table>
-      <thead><tr><th>mission</th><th>tasks</th><th>calls</th><th>cost</th></tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </section>
-  <section>
-    <h2>activity</h2>
-    <ul id="feed"></ul>
-  </section>
+
+  <div id="warnings"></div>
+
+  <div class="grid">
+    <div class="split">
+      <section class="card">
+        <h2>missions</h2>
+        <table>
+          <thead><tr><th>mission</th><th>state</th><th>tasks</th><th>calls</th><th>spend</th><th>workers</th></tr></thead>
+          <tbody id="missionRows"></tbody>
+        </table>
+        <div id="missionsEmpty" class="empty">no mission has spent anything yet</div>
+      </section>
+
+      <section class="card">
+        <h2>workers · cost-ranked</h2>
+        <table>
+          <thead><tr><th>model</th><th>provider</th><th>calls</th><th>ok / bad</th><th>spend</th><th>rate / M</th></tr></thead>
+          <tbody id="workerRows"></tbody>
+        </table>
+        <div id="workersEmpty" class="empty">no model has been called yet</div>
+      </section>
+    </div>
+
+    <div class="split">
+      <section class="card">
+        <h2>operator</h2>
+        <div class="controls" id="controls">
+          <button data-cmd="pause">pause</button>
+          <button data-cmd="resume">resume</button>
+          <button data-cmd="abort" class="danger">abort</button>
+          <span class="cmd">top up</span>
+          <input id="topupProvider" value="deepseek" aria-label="provider">
+          <input id="topupAmount" value="1" aria-label="amount in dollars">
+          <button data-cmd="topup">top up</button>
+        </div>
+        <div id="ack" aria-live="polite"></div>
+        <ul id="controls-log"></ul>
+      </section>
+
+      <section class="card">
+        <h2>decisions</h2>
+        <ul id="decisions"></ul>
+        <div id="decisionsEmpty" class="empty">nothing waiting on a human</div>
+      </section>
+
+      <section class="card">
+        <h2>activity</h2>
+        <ul id="feed"></ul>
+        <div id="feedEmpty" class="empty">waiting for the supervisor</div>
+      </section>
+    </div>
+  </div>
 </main>
 <script>
-const usd = micros => '$' + (micros / 1e6).toFixed(6);
-const cell = (text, numeric) => {
+const usd = micros => '$' + (micros / 1e6).toFixed(micros < 10000 ? 6 : 4);
+const cell = (text, className) => {
   const td = document.createElement('td');
   td.textContent = text;
-  if (numeric) td.className = 'num';
+  if (className) td.className = className;
   return td;
 };
+const setText = (id, text) => { document.getElementById(id).textContent = text; };
+let focused = null;
+
 function markLive() {
   const clock = document.getElementById('clock');
-  clock.className = 'muted';
+  clock.className = 'live';
   clock.textContent = 'live · ' + new Date().toLocaleTimeString();
 }
+
 function render(snapshot) {
-  document.getElementById('spend').textContent = usd(snapshot.total_cost_micro_usd);
-  document.getElementById('missions').textContent = snapshot.missions.length;
-  document.getElementById('eventCount').textContent = snapshot.events.length;
-  const rows = document.getElementById('rows');
-  rows.replaceChildren(...snapshot.missions.map(m => {
+  const spend = snapshot.total_cost_micro_usd || 0;
+  setText('spend', usd(spend));
+  const limit = snapshot.budget_micro_usd;
+  if (limit) {
+    setText('remaining', usd(snapshot.budget_remaining_micro_usd || 0) + ' of ' + usd(limit));
+    const bar = document.getElementById('spendBar');
+    const ratio = Math.min(1, spend / limit);
+    bar.style.width = (ratio * 100).toFixed(1) + '%';
+    bar.className = ratio >= 0.9 ? 'bad' : ratio >= 0.8 ? 'warn' : '';
+  } else {
+    setText('remaining', 'no cap');
+    document.getElementById('spendBar').style.width = '0';
+  }
+
+  const missions = snapshot.missions || [];
+  const newest = missions.slice().sort((a, b) => (b.updated_unix_ms || 0) - (a.updated_unix_ms || 0))[0];
+  if (newest) focused = newest.mission;
+  const landed = missions.reduce((sum, mission) => sum + (mission.done || 0), 0);
+  const planned = missions.reduce((sum, mission) => sum + (mission.planned || 0), 0);
+  setText('tasks', planned ? landed + ' / ' + planned : String(landed));
+  setText('workers', String((snapshot.workers || []).length));
+  setText('eventCount', String((snapshot.events || []).length));
+
+  const warnings = document.getElementById('warnings');
+  warnings.replaceChildren(...(snapshot.warnings || []).map(text => {
+    const div = document.createElement('div');
+    div.className = 'warning';
+    div.textContent = text;
+    return div;
+  }));
+
+  const missionRows = document.getElementById('missionRows');
+  missionRows.replaceChildren(...missions.map(mission => {
     const tr = document.createElement('tr');
-    tr.append(cell(m.mission), cell(m.tasks, true), cell(m.calls, true), cell(usd(m.cost_micro_usd), true));
+    const state = document.createElement('span');
+    state.className = 'state ' + mission.state;
+    state.textContent = mission.state;
+    const stateCell = document.createElement('td');
+    stateCell.append(state);
+    tr.append(
+      cell(mission.mission),
+      stateCell,
+      cell(mission.planned ? (mission.done + ' / ' + mission.planned) : String(mission.tasks), 'num'),
+      cell(String(mission.calls), 'num'),
+      cell(usd(mission.cost_micro_usd), 'num'),
+      cell((mission.workers || []).join(' · ') || '—', 'muted'),
+    );
     return tr;
   }));
+  document.getElementById('missionsEmpty').style.display = missions.length ? 'none' : 'block';
+
+  const workerRows = document.getElementById('workerRows');
+  workerRows.replaceChildren(...(snapshot.workers || []).map(worker => {
+    const tr = document.createElement('tr');
+    const rate = worker.price
+      ? '$' + (worker.price.input_miss / 1e6).toFixed(3) + ' in · $' + (worker.price.output / 1e6).toFixed(3) + ' out'
+      : 'unpriced';
+    tr.append(
+      cell(worker.model),
+      cell((worker.providers || []).join(', '), 'muted'),
+      cell(String(worker.calls), 'num'),
+      cell(worker.successes + ' / ' + worker.failures, 'num ' + (worker.failures ? 'bad' : 'ok')),
+      cell(usd(worker.cost_micro_usd), 'num'),
+      cell(rate, 'muted'),
+    );
+    return tr;
+  }));
+  document.getElementById('workersEmpty').style.display = (snapshot.workers || []).length ? 'none' : 'block';
+
   const feed = document.getElementById('feed');
-  feed.replaceChildren(...snapshot.events.slice().reverse().map(event => {
+  const events = (snapshot.events || []).slice().reverse();
+  feed.replaceChildren(...events.map(event => {
     const li = document.createElement('li');
     const time = document.createElement('span');
     time.className = 't';
     time.textContent = new Date(event.at_unix_ms).toLocaleTimeString();
     const kind = document.createElement('span');
-    kind.className = 'k';
-    kind.textContent = event.kind;
+    kind.className = 'g ' + groupClass(event.kind);
+    kind.textContent = event.kind.replaceAll('_', ' ');
     const summary = document.createElement('span');
-    summary.textContent = event.summary;
+    summary.textContent = event.summary + (event.task ? ' · ' + event.task : '');
     li.append(time, kind, summary);
     return li;
   }));
+  document.getElementById('feedEmpty').style.display = events.length ? 'none' : 'block';
+
+  const decisions = (snapshot.decisions || []).filter(decision => !decision.resolved);
+  const list = document.getElementById('decisions');
+  list.replaceChildren(...decisions.map(decision => {
+    const li = document.createElement('li');
+    li.textContent = new Date(decision.at_unix_ms).toLocaleTimeString() + ' · ' + decision.summary;
+    return li;
+  }));
+  document.getElementById('decisionsEmpty').style.display = decisions.length ? 'none' : 'block';
+
+  const log = document.getElementById('controls-log');
+  log.replaceChildren(...(snapshot.controls || []).slice().reverse().map(record => {
+    const li = document.createElement('li');
+    li.textContent = new Date(record.at_unix_ms).toLocaleTimeString() + ' · ' +
+      (record.accepted ? '✓ ' : '✗ ') + JSON.stringify(record.command);
+    li.className = record.accepted ? '' : 'bad';
+    return li;
+  }));
 }
+
+function groupClass(kind) {
+  if (kind === 'budget_exhausted' || kind === 'mission_stuck' || kind === 'mission_aborted') return 'bad';
+  if (kind === 'budget_warning' || kind === 'mission_paused' || kind === 'decision_requested') return 'warn';
+  if (kind === 'mission_finished' || kind === 'task_finished') return 'ok';
+  return '';
+}
+
+async function sendCommand(command) {
+  const ack = document.getElementById('ack');
+  try {
+    const response = await fetch('/api/command', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(command),
+    });
+    const result = await response.json();
+    ack.className = result.accepted ? 'good' : 'bad';
+    ack.textContent = (result.accepted ? '✓ ' : '✗ ') + result.message;
+  } catch (error) {
+    ack.className = 'bad';
+    ack.textContent = '✗ the cockpit did not answer';
+  }
+}
+
+document.getElementById('controls').addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const kind = button.dataset.cmd;
+  if (!focused) {
+    const ack = document.getElementById('ack');
+    ack.className = 'bad';
+    ack.textContent = 'no mission to control yet';
+    return;
+  }
+  if (kind === 'topup') {
+    const provider = document.getElementById('topupProvider').value.trim() || 'deepseek';
+    const dollars = document.getElementById('topupAmount').value.trim() || '1';
+    if (!/^\d+(\.\d{1,6})?$/.test(dollars)) {
+      const ack = document.getElementById('ack');
+      ack.className = 'bad';
+      ack.textContent = 'the amount must be a dollar figure such as 0.50';
+      return;
+    }
+    const micros = Math.round(Number(dollars) * 1e6);
+    sendCommand({ command: 'top_up', provider, amount: micros });
+    return;
+  }
+  sendCommand({ command: kind, mission_id: focused });
+});
+
 async function snapshotOnce() {
   try {
     const response = await fetch('/api/status', { cache: 'no-store' });
@@ -96,6 +343,8 @@ async function snapshotOnce() {
     clock.textContent = 'offline';
   }
 }
+
+if (/[?&]embed=1/.test(location.search)) document.body.classList.add('embed');
 const source = new EventSource('/api/events');
 source.onmessage = event => {
   try {

@@ -1,20 +1,38 @@
 //! The mission scheduler.
 //!
 //! A mission is a set of tasks; each task is one headless turn tried against
-//! the mission's candidate models, cheapest first. Up to `max_parallel` tasks
-//! run at once. The gateway prices every call (so the ledger is the spend
-//! record) and this module writes the mission's narrative to `events.jsonl`
-//! for the cockpit.
+//! the mission's candidate models. The candidates are **ranked by expected cost
+//! per accepted task** ([`crate::policy`]) and tried cheapest-first. Up to
+//! `max_parallel` tasks run at once.
+//!
+//! Two guards keep spend honest:
+//!
+//! - Before a turn is dispatched, [`BudgetGuard`] must admit its worst-case
+//!   estimate against what the ledger already shows and what the other
+//!   in-flight turns reserved. A refused turn is reported as
+//!   [`AttemptOutcome::Skipped`]; the task is left for a top-up, never retried
+//!   into the wall.
+//! - The ladder escalates on failure, retries a transient provider error at
+//!   most once on the same model, and stops when two models fail the same way.
+//!
+//! The gateway prices every call (so the ledger is the spend record) and this
+//! module writes the mission's narrative to `events.jsonl` for the cockpit.
 //!
 //! The scheduler depends on [`Runner`], not on OpenClaw, so a mission can be
 //! tested without spawning an agent.
 
+use crate::budget::{Admission, Budget, BudgetGuard};
+use crate::catalog::PriceCatalogue;
 use crate::event::{append_event, Event, EventKind};
 use crate::executor::{ExecutorConfig, RunOutcome, Runner};
 use crate::ledger::read_entries;
 use crate::money::MicroUsd;
+use crate::policy::{
+    history, rank_models, FailureKind, Ladder, NextAttempt, Policy, StopReason, UsageProfile,
+};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use susi_error::{EaiError, EaiResult};
@@ -30,6 +48,15 @@ pub struct TaskSpec {
     pub workspace: PathBuf,
 }
 
+/// How a task's ladder stopped without succeeding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskStop {
+    /// The next attempt would have crossed the mission budget.
+    Budget,
+    /// The ladder's own limit: attempts used up, or two models failed alike.
+    Ladder(StopReason),
+}
+
 /// Everything a mission needs to run.
 #[derive(Debug, Clone)]
 pub struct MissionConfig {
@@ -37,7 +64,7 @@ pub struct MissionConfig {
     pub id: String,
     /// Tasks to run.
     pub tasks: Vec<TaskSpec>,
-    /// Candidate models, cheapest first; each failed attempt moves to the next.
+    /// Candidate models; ranked by expected cost when a catalogue is present.
     pub candidates: Vec<String>,
     /// Maximum tasks in flight at once.
     pub max_parallel: usize,
@@ -49,8 +76,16 @@ pub struct MissionConfig {
     pub gateway_url: String,
     /// Per-mission state root; each task gets `<state>/<task>/attempt-<n>`.
     pub state_dir: PathBuf,
-    /// Ledger the gateway writes, read back for the mission total.
+    /// Ledger the gateway writes, read back for spend and history.
     pub ledger_path: PathBuf,
+    /// Optional per-task spending limit.
+    pub budget: Option<Budget>,
+    /// Escalation policy.
+    pub policy: Policy,
+    /// Token profile used to compare models before a task has run.
+    pub usage: UsageProfile,
+    /// Price catalogue used to rank and estimate; required with a budget.
+    pub catalogue: Option<PriceCatalogue>,
 }
 
 /// How one attempt ended.
@@ -73,6 +108,11 @@ pub enum AttemptOutcome {
         /// Why.
         message: String,
     },
+    /// The attempt was not run because it would have crossed the budget.
+    Skipped {
+        /// Why, in the operator's language.
+        reason: String,
+    },
 }
 
 /// One model attempt on one task.
@@ -84,6 +124,8 @@ pub struct AttemptResult {
     pub outcome: AttemptOutcome,
     /// Wall-clock duration.
     pub elapsed_ms: u64,
+    /// Pessimistic cost of the attempt, when the catalogue could price it.
+    pub estimate: Option<MicroUsd>,
 }
 
 /// One task's final state.
@@ -95,6 +137,8 @@ pub struct TaskResult {
     pub attempts: Vec<AttemptResult>,
     /// Whether any attempt succeeded.
     pub succeeded: bool,
+    /// Set when the ladder stopped without a success.
+    pub stopped: Option<TaskStop>,
 }
 
 impl TaskResult {
@@ -108,8 +152,15 @@ impl TaskResult {
                 AttemptOutcome::Succeeded { final_text } => Some(final_text.as_str()),
                 AttemptOutcome::Failed { .. }
                 | AttemptOutcome::TimedOut
-                | AttemptOutcome::Error { .. } => None,
+                | AttemptOutcome::Error { .. }
+                | AttemptOutcome::Skipped { .. } => None,
             })
+    }
+
+    /// True when the budget, not the ladder, is what stopped this task.
+    #[must_use]
+    pub fn budget_stopped(&self) -> bool {
+        self.stopped == Some(TaskStop::Budget)
     }
 }
 
@@ -126,6 +177,12 @@ pub struct MissionReport {
     pub failed: usize,
     /// Total priced spend recorded for this mission.
     pub total_cost: MicroUsd,
+    /// The mission's limit, when it had one.
+    pub budget_limit: Option<MicroUsd>,
+    /// True when at least one task was left undone for lack of budget.
+    pub budget_exhausted: bool,
+    /// Tasks the ladder gave up on (repeated failure or attempt cap).
+    pub stuck: usize,
     /// Event feed written for the cockpit.
     pub events_path: PathBuf,
 }
@@ -134,10 +191,31 @@ pub struct MissionReport {
 ///
 /// # Errors
 ///
-/// Currently infallible beyond what the event log tolerates; the signature
-/// keeps room for a mission that cannot even start (e.g. an empty candidate
-/// list) without breaking callers.
+/// Returns `EaiError::config` for a mission that cannot start (no candidates,
+/// no price catalogue with a budget, or an unpriceable candidate), and
+/// `EaiError::io` when the state root cannot be created.
 pub fn run_mission(config: &MissionConfig, runner: &dyn Runner) -> EaiResult<MissionReport> {
+    if config.budget.is_some() && config.catalogue.is_none() {
+        return Err(EaiError::config(
+            "a mission budget needs a price catalogue: an unpriced attempt cannot be bounded",
+        ));
+    }
+    let ranked = match &config.catalogue {
+        Some(catalogue) => {
+            let entries = read_entries(&config.ledger_path).unwrap_or_default();
+            let history = history(&entries);
+            rank_models(catalogue, &config.candidates, config.usage, &history)?
+                .into_iter()
+                .map(|candidate| candidate.model)
+                .collect()
+        }
+        None => config.candidates.clone(),
+    };
+    if ranked.is_empty() {
+        return Err(EaiError::config(
+            "a mission needs at least one candidate model",
+        ));
+    }
     std::fs::create_dir_all(&config.state_dir).map_err(|error| {
         EaiError::io(format!(
             "create mission state {}: {error}",
@@ -154,13 +232,19 @@ pub fn run_mission(config: &MissionConfig, runner: &dyn Runner) -> EaiResult<Mis
         &config.id,
         None,
         format!(
-            "{} task(s), {} candidate(s), {} parallel",
+            "{} task(s), {} parallel, ladder {}; {}",
             config.tasks.len(),
-            config.candidates.len(),
-            config.max_parallel
+            config.max_parallel,
+            ranked.join(" -> "),
+            match config.budget {
+                Some(budget) => format!("budget {}", budget.limit),
+                None => "no budget cap".to_string(),
+            }
         ),
     );
 
+    let guard = config.budget.map(BudgetGuard::new);
+    let warned = AtomicBool::new(false);
     let queue = Mutex::new(config.tasks.iter().collect::<VecDeque<_>>());
     let results = Mutex::new(Vec::new());
     let workers = config.max_parallel.clamp(1, config.tasks.len().max(1));
@@ -174,7 +258,15 @@ pub fn run_mission(config: &MissionConfig, runner: &dyn Runner) -> EaiResult<Mis
                 let Some(task) = task else {
                     break;
                 };
-                let result = run_task(task, config, runner, &events);
+                let result = run_task(
+                    task,
+                    config,
+                    &ranked,
+                    guard.as_ref(),
+                    &warned,
+                    runner,
+                    &events,
+                );
                 results
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -189,6 +281,11 @@ pub fn run_mission(config: &MissionConfig, runner: &dyn Runner) -> EaiResult<Mis
     results.sort_by(|left, right| left.task.cmp(&right.task));
     let succeeded = results.iter().filter(|result| result.succeeded).count();
     let failed = results.len() - succeeded;
+    let budget_exhausted = results.iter().any(TaskResult::budget_stopped);
+    let stuck = results
+        .iter()
+        .filter(|result| matches!(result.stopped, Some(TaskStop::Ladder(_))))
+        .count();
     events.emit(
         EventKind::MissionFinished,
         &config.id,
@@ -202,89 +299,200 @@ pub fn run_mission(config: &MissionConfig, runner: &dyn Runner) -> EaiResult<Mis
         succeeded,
         failed,
         total_cost,
+        budget_limit: config.budget.map(|budget| budget.limit),
+        budget_exhausted,
+        stuck,
         events_path,
     })
 }
 
+#[allow(clippy::too_many_arguments)] // the mission's shared context plus the one task it runs; grouping them would only rename the same list
 fn run_task(
     task: &TaskSpec,
     config: &MissionConfig,
+    ranked: &[String],
+    guard: Option<&BudgetGuard>,
+    warned: &AtomicBool,
     runner: &dyn Runner,
     events: &EventSink,
 ) -> TaskResult {
     let mut attempts = Vec::new();
     let mut succeeded = false;
-    for (index, model) in config.candidates.iter().enumerate() {
-        let attempt_number = u32::try_from(index + 1).unwrap_or(u32::MAX);
+    let mut stopped = None;
+    let mut ladder = Ladder::new(ranked.to_vec(), config.policy);
+    loop {
+        let attempt = match ladder.next_attempt() {
+            NextAttempt::Attempt(attempt) => attempt,
+            NextAttempt::Stop(reason) => {
+                stopped = Some(TaskStop::Ladder(reason));
+                break;
+            }
+        };
+        let price = config
+            .catalogue
+            .as_ref()
+            .and_then(|catalogue| catalogue.price(&attempt.model));
+        let estimate = match (config.budget, price) {
+            (Some(budget), Some(price)) => Some(budget.estimate(price, &task.prompt)),
+            _ => None,
+        };
+        if let (Some(guard), Some(estimate)) = (guard, estimate) {
+            let spent = Budget::spent(&config.ledger_path, &config.id);
+            if let Admission::Exhausted {
+                spent,
+                estimate: wanted,
+                limit,
+            } = guard.admit(spent, estimate)
+            {
+                events.emit(
+                    EventKind::BudgetExhausted,
+                    &config.id,
+                    Some(&task.id),
+                    format!(
+                        "{} not dispatched: {wanted} would cross {limit} (spent {spent})",
+                        task.id
+                    ),
+                );
+                attempts.push(AttemptResult {
+                    model: attempt.model,
+                    outcome: AttemptOutcome::Skipped {
+                        reason: format!("budget: spent {spent} of {limit}"),
+                    },
+                    elapsed_ms: 0,
+                    estimate: Some(estimate),
+                });
+                stopped = Some(TaskStop::Budget);
+                break;
+            }
+        }
         events.emit(
             EventKind::TaskDispatched,
             &config.id,
             Some(&task.id),
-            format!("{} -> {} (attempt {attempt_number})", task.id, model),
+            format!(
+                "{} -> {} (attempt {}){}",
+                task.id,
+                attempt.model,
+                attempt.number,
+                estimate
+                    .map(|estimate| format!(", reserved {estimate}"))
+                    .unwrap_or_default()
+            ),
         );
         let started = Instant::now();
         let outcome = runner.run(&ExecutorConfig {
             program: config.program.clone(),
             gateway_url: config.gateway_url.clone(),
-            model: model.clone(),
+            model: attempt.model.clone(),
             workspace: task.workspace.clone(),
             state_dir: config
                 .state_dir
                 .join(&task.id)
-                .join(format!("attempt-{index}")),
+                .join(format!("attempt-{}", attempt.number)),
             mission: config.id.clone(),
             task: task.id.clone(),
-            attempt: attempt_number,
+            attempt: attempt.number,
             timeout: config.timeout,
             prompt: task.prompt.clone(),
         });
         let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let attempt = match outcome {
+        if let (Some(guard), Some(estimate)) = (guard, estimate) {
+            let spent = Budget::spent(&config.ledger_path, &config.id);
+            guard.settle(spent, estimate);
+            if guard.budget().at_risk(spent) && !warned.swap(true, Ordering::SeqCst) {
+                events.emit(
+                    EventKind::BudgetWarning,
+                    &config.id,
+                    None,
+                    format!(
+                        "spent {} of {}; attempts stop when the next one would cross the cap",
+                        spent.total,
+                        guard.budget().limit
+                    ),
+                );
+            }
+        }
+        let attempt_result = match outcome {
             Ok(RunOutcome::Succeeded { final_text, .. }) => {
                 succeeded = true;
                 AttemptResult {
-                    model: model.clone(),
+                    model: attempt.model.clone(),
                     outcome: AttemptOutcome::Succeeded { final_text },
                     elapsed_ms,
+                    estimate,
                 }
             }
-            Ok(RunOutcome::Failed { message }) => AttemptResult {
-                model: model.clone(),
-                outcome: AttemptOutcome::Failed { message },
-                elapsed_ms,
-            },
-            Ok(RunOutcome::TimedOut) => AttemptResult {
-                model: model.clone(),
-                outcome: AttemptOutcome::TimedOut,
-                elapsed_ms,
-            },
-            Err(error) => AttemptResult {
-                model: model.clone(),
-                outcome: AttemptOutcome::Error {
-                    message: error.to_string(),
-                },
-                elapsed_ms,
-            },
+            Ok(RunOutcome::Failed { message }) => {
+                let kind = FailureKind::classify(&message);
+                let result = AttemptResult {
+                    model: attempt.model.clone(),
+                    outcome: AttemptOutcome::Failed {
+                        message: message.clone(),
+                    },
+                    elapsed_ms,
+                    estimate,
+                };
+                ladder.record(&attempt.model, kind, &message);
+                result
+            }
+            Ok(RunOutcome::TimedOut) => {
+                let result = AttemptResult {
+                    model: attempt.model.clone(),
+                    outcome: AttemptOutcome::TimedOut,
+                    elapsed_ms,
+                    estimate,
+                };
+                ladder.record(&attempt.model, FailureKind::Timeout, "timed out");
+                result
+            }
+            Err(error) => {
+                let message = error.to_string();
+                let result = AttemptResult {
+                    model: attempt.model.clone(),
+                    outcome: AttemptOutcome::Error {
+                        message: message.clone(),
+                    },
+                    elapsed_ms,
+                    estimate,
+                };
+                ladder.record(&attempt.model, FailureKind::Executor, &message);
+                result
+            }
         };
         events.emit(
             EventKind::TaskFinished,
             &config.id,
             Some(&task.id),
             format!(
-                "{} attempt {attempt_number}: {}",
+                "{} attempt {}: {}",
                 task.id,
-                describe(&attempt.outcome)
+                attempt.number,
+                describe(&attempt_result.outcome)
             ),
         );
-        attempts.push(attempt);
+        attempts.push(attempt_result);
         if succeeded {
             break;
+        }
+        if let Some(next) = ladder.current_model() {
+            if next != attempt.model {
+                events.emit(
+                    EventKind::ModelEscalated,
+                    &config.id,
+                    Some(&task.id),
+                    format!(
+                        "{}: {} did not pass, escalating to {}",
+                        task.id, attempt.model, next
+                    ),
+                );
+            }
         }
     }
     TaskResult {
         task: task.id.clone(),
         attempts,
         succeeded,
+        stopped,
     }
 }
 
@@ -294,6 +502,7 @@ fn describe(outcome: &AttemptOutcome) -> &'static str {
         AttemptOutcome::Failed { .. } => "failed",
         AttemptOutcome::TimedOut => "timed out",
         AttemptOutcome::Error { .. } => "executor error",
+        AttemptOutcome::Skipped { .. } => "skipped (budget)",
     }
 }
 
@@ -348,19 +557,65 @@ mod tests {
 
     struct FakeRunner {
         failing: Vec<String>,
+        identical_failure: bool,
+        calls: Mutex<Vec<String>>,
     }
 
     impl Runner for FakeRunner {
         fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
+            self.calls.lock().unwrap().push(config.model.clone());
             if self.failing.contains(&config.model) {
-                return Ok(RunOutcome::Failed {
-                    message: format!("{} failed", config.model),
-                });
+                let message = if self.identical_failure {
+                    "acceptance failed".to_string()
+                } else {
+                    format!("{} failed", config.model)
+                };
+                return Ok(RunOutcome::Failed { message });
             }
             Ok(RunOutcome::Succeeded {
                 final_text: format!("{} ok", config.model),
                 reported_cost_usd: None,
             })
+        }
+    }
+
+    fn runner(failing: Vec<&str>) -> FakeRunner {
+        FakeRunner {
+            failing: failing.into_iter().map(str::to_string).collect(),
+            identical_failure: false,
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn runner_with_identical_failures(failing: Vec<&str>) -> FakeRunner {
+        FakeRunner {
+            failing: failing.into_iter().map(str::to_string).collect(),
+            identical_failure: true,
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn catalogue() -> PriceCatalogue {
+        let mut models = std::collections::BTreeMap::new();
+        models.insert(
+            "cheap".to_string(),
+            ModelPrice {
+                input_miss: MicroUsd::from_micros(100_000),
+                input_hit: MicroUsd::from_micros(10_000),
+                output: MicroUsd::from_micros(200_000),
+            },
+        );
+        models.insert(
+            "capable".to_string(),
+            ModelPrice {
+                input_miss: MicroUsd::from_micros(1_000_000),
+                input_hit: MicroUsd::from_micros(100_000),
+                output: MicroUsd::from_micros(2_000_000),
+            },
+        );
+        PriceCatalogue {
+            schema: crate::catalog::PRICE_SCHEMA.to_string(),
+            models,
         }
     }
 
@@ -391,6 +646,10 @@ mod tests {
             gateway_url: "http://127.0.0.1:1".into(),
             state_dir: dir.to_path_buf(),
             ledger_path: dir.join("ledger.jsonl"),
+            budget: None,
+            policy: Policy::default(),
+            usage: UsageProfile::agent(),
+            catalogue: None,
         }
     }
 
@@ -399,7 +658,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut config = mission(dir.path(), 1, vec!["cheap"]);
         config.state_dir = dir.path().join("nested").join("state");
-        let report = run_mission(&config, &FakeRunner { failing: vec![] }).unwrap();
+        let report = run_mission(&config, &runner(vec![])).unwrap();
         assert!(report.events_path.exists());
         let events = read_events(&report.events_path).unwrap();
         assert_eq!(events.len(), 8);
@@ -417,40 +676,20 @@ mod tests {
     fn every_task_runs_and_succeeds() {
         let dir = tempfile::tempdir().unwrap();
         let config = mission(dir.path(), 2, vec!["cheap"]);
-        let report = run_mission(&config, &FakeRunner { failing: vec![] }).unwrap();
+        let report = run_mission(&config, &runner(vec![])).unwrap();
         assert_eq!(report.succeeded, 3);
         assert_eq!(report.failed, 0);
         assert!(report
             .results
             .iter()
             .all(|result| result.final_text() == Some("cheap ok")));
-        let events = read_events(&report.events_path).unwrap();
-        assert!(events
-            .iter()
-            .any(|event| event.kind == EventKind::MissionStarted));
-        assert!(events
-            .iter()
-            .any(|event| event.kind == EventKind::MissionFinished));
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| event.kind == EventKind::TaskFinished)
-                .count(),
-            3
-        );
     }
 
     #[test]
     fn a_failing_model_falls_to_the_next_candidate() {
         let dir = tempfile::tempdir().unwrap();
         let config = mission(dir.path(), 1, vec!["cheap", "capable"]);
-        let report = run_mission(
-            &config,
-            &FakeRunner {
-                failing: vec!["cheap".into()],
-            },
-        )
-        .unwrap();
+        let report = run_mission(&config, &runner(vec!["cheap"])).unwrap();
         assert_eq!(report.succeeded, 3);
         let first = &report.results[0];
         assert_eq!(first.attempts.len(), 2);
@@ -463,16 +702,81 @@ mod tests {
     fn an_exhausted_ladder_fails_the_task() {
         let dir = tempfile::tempdir().unwrap();
         let config = mission(dir.path(), 1, vec!["cheap", "capable"]);
-        let report = run_mission(
-            &config,
-            &FakeRunner {
-                failing: vec!["cheap".into(), "capable".into()],
-            },
-        )
-        .unwrap();
+        let report = run_mission(&config, &runner(vec!["cheap", "capable"])).unwrap();
         assert_eq!(report.failed, 3);
         assert_eq!(report.results[0].attempts.len(), 2);
         assert!(!report.results[0].succeeded);
+        assert!(matches!(
+            report.results[0].stopped,
+            Some(TaskStop::Ladder(StopReason::Exhausted))
+        ));
+    }
+
+    #[test]
+    fn the_same_failure_on_two_models_stops_the_task_early() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = mission(dir.path(), 1, vec!["cheap", "capable", "third"]);
+        let runner = runner_with_identical_failures(vec!["cheap", "capable", "third"]);
+        let report = run_mission(&config, &runner).unwrap();
+        assert_eq!(report.stuck, 3);
+        assert_eq!(report.results[0].attempts.len(), 2);
+        assert!(matches!(
+            report.results[0].stopped,
+            Some(TaskStop::Ladder(StopReason::Stuck { .. }))
+        ));
+        assert!(runner
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|model| model != "third"));
+    }
+
+    #[test]
+    fn a_catalogue_ranks_candidates_by_expected_cost() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = mission(dir.path(), 1, vec!["capable", "cheap"]);
+        config.catalogue = Some(catalogue());
+        let runner = runner(vec!["capable"]);
+        let report = run_mission(&config, &runner).unwrap();
+        let first = &report.results[0];
+        assert_eq!(first.attempts[0].model, "cheap");
+        assert_eq!(first.final_text(), Some("cheap ok"));
+        assert!(runner
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|model| model != "capable"));
+    }
+
+    #[test]
+    fn a_budget_refuses_the_attempt_instead_of_running_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = mission(dir.path(), 1, vec!["cheap"]);
+        config.catalogue = Some(catalogue());
+        config.budget = Some(Budget::new(MicroUsd::from_micros(1)));
+        let runner = runner(vec![]);
+        let report = run_mission(&config, &runner).unwrap();
+        assert_eq!(report.succeeded, 0);
+        assert!(report.budget_exhausted);
+        assert!(runner.calls.lock().unwrap().is_empty());
+        assert!(matches!(
+            report.results[0].attempts[0].outcome,
+            AttemptOutcome::Skipped { .. }
+        ));
+        let events = read_events(&report.events_path).unwrap();
+        assert!(events
+            .iter()
+            .any(|event| event.kind == EventKind::BudgetExhausted));
+    }
+
+    #[test]
+    fn a_budget_without_a_catalogue_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = mission(dir.path(), 1, vec!["cheap"]);
+        config.budget = Some(Budget::new(MicroUsd::from_micros(1)));
+        assert!(run_mission(&config, &runner(vec![])).is_err());
     }
 
     #[test]
@@ -498,7 +802,7 @@ mod tests {
         append_entry(&ledger, &entry).unwrap();
         let mut config = mission(dir.path(), 1, vec!["cheap"]);
         config.ledger_path = ledger;
-        let report = run_mission(&config, &FakeRunner { failing: vec![] }).unwrap();
+        let report = run_mission(&config, &runner(vec![])).unwrap();
         assert_eq!(report.total_cost, MicroUsd::from_micros(150_000));
     }
 }

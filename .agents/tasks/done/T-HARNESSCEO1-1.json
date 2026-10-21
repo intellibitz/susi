@@ -1,0 +1,23 @@
+{
+  "id": "T-HARNESSCEO1-1",
+  "title": "Budget-aware escalation and the CEO cockpit for the harness",
+  "goal": "Spend is bounded before an attempt, a failed model escalates to a cost-ranked better one instead of looping, and the operator sees and controls the mission from any harness desktop.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSCEO1",
+  "created_unix": 1792607641,
+  "closed": {
+    "at_unix": 1792610455,
+    "commit": "4d96799b3b65e79aa9b1884e2f02fbfdbbf2c75c",
+    "by": "HARNESSCEO1"
+  }
+}

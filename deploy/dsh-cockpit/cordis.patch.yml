@@ -1,0 +1,3 @@
+- insert:
+    - id: susi-cockpit
+      name: '@local/susi-cockpit'

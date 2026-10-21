@@ -14,9 +14,14 @@
 
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use susi_harness::adapter::SusiTarget;
+use susi_harness::budget::Budget;
+use susi_harness::catalog::PriceCatalogue;
 use susi_harness::executor::OpenClaw;
+use susi_harness::money::MicroUsd;
+use susi_harness::policy::Policy;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
 
@@ -28,6 +33,12 @@ struct Options {
     program: PathBuf,
     gateway_url: String,
     model: String,
+    alternates: Vec<String>,
+    catalogue: Option<PriceCatalogue>,
+    budget: Option<Budget>,
+    ledger: PathBuf,
+    controls: PathBuf,
+    max_attempts: usize,
     timeout: Duration,
     prefix: String,
     adapter_state: PathBuf,
@@ -59,10 +70,23 @@ fn main() {
         program: options.program,
         gateway_url: options.gateway_url,
         model: options.model,
+        alternates: options.alternates,
+        catalogue: options.catalogue,
+        budget: options.budget,
+        ledger_path: options.ledger,
+        mission: plan.mission.clone(),
+        policy: Policy {
+            max_attempts: options.max_attempts,
+            ..Policy::default()
+        },
         timeout: options.timeout,
         state_dir: options.adapter_state,
+        guard: std::sync::OnceLock::new(),
+        exhausted: AtomicBool::new(false),
     };
-    let supervisor = Supervisor::new(options.state, &executor).with_parallelism(options.parallel);
+    let supervisor = Supervisor::new(options.state, &executor)
+        .with_parallelism(options.parallel)
+        .with_controls(options.controls);
     let report = match supervisor.run(&plan) {
         Ok(report) => report,
         Err(error) => fail(&error.to_string()),
@@ -71,7 +95,11 @@ fn main() {
         "mission": report.mission,
         "done": report.done,
         "failed": report.failed,
-        "skipped": report.skipped
+        "skipped": report.skipped,
+        "unstarted": report.unstarted,
+        "budget_exhausted": report.budget_exhausted,
+        "paused": report.paused,
+        "aborted": report.aborted
     });
     println!(
         "{}",
@@ -90,6 +118,12 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut program = PathBuf::new();
     let mut gateway_url = String::new();
     let mut model = String::new();
+    let mut alternates = Vec::new();
+    let mut catalogue_path: Option<PathBuf> = None;
+    let mut budget: Option<Budget> = None;
+    let mut ledger = PathBuf::from("out/ledger.jsonl");
+    let mut controls = PathBuf::from("out/control.jsonl");
+    let mut max_attempts: usize = 4;
     let mut timeout: u64 = 900;
     let mut prefix = String::from("harness");
     let mut adapter_state = PathBuf::new();
@@ -104,6 +138,21 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--program" => program = PathBuf::from(take(&mut args, &argument)?),
             "--gateway" => gateway_url = take(&mut args, &argument)?,
             "--model" => model = take(&mut args, &argument)?,
+            "--alternate" => alternates.push(take(&mut args, &argument)?),
+            "--catalogue" => catalogue_path = Some(PathBuf::from(take(&mut args, &argument)?)),
+            "--budget-usd" => {
+                let amount = take(&mut args, &argument)?;
+                let micros = MicroUsd::parse_usd(&amount)
+                    .ok_or_else(|| format!("--budget-usd {amount} is not a dollar amount"))?;
+                budget = Some(Budget::new(micros));
+            }
+            "--ledger" => ledger = PathBuf::from(take(&mut args, &argument)?),
+            "--controls" => controls = PathBuf::from(take(&mut args, &argument)?),
+            "--attempts" => {
+                max_attempts = take(&mut args, &argument)?
+                    .parse()
+                    .map_err(|_| "attempts must be a number".to_string())?;
+            }
             "--timeout" => {
                 timeout = take(&mut args, &argument)?
                     .parse()
@@ -138,6 +187,13 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     if state.as_os_str().is_empty() {
         state = plan.with_file_name("supervisor-state.json");
     }
+    if budget.is_some() && catalogue_path.is_none() {
+        return Err("--budget-usd needs --catalogue: an unpriced attempt cannot be bounded".into());
+    }
+    let catalogue = match catalogue_path {
+        Some(path) => Some(PriceCatalogue::load(&path).map_err(|error| error.to_string())?),
+        None => None,
+    };
 
     Ok(Options {
         plan,
@@ -147,6 +203,12 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         program,
         gateway_url,
         model,
+        alternates,
+        catalogue,
+        budget,
+        ledger,
+        controls,
+        max_attempts: max_attempts.max(1),
         timeout: Duration::from_secs(timeout),
         prefix,
         adapter_state,

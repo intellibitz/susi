@@ -10,7 +10,11 @@
 //! the target's own rules (worktree, claim, acceptance, finish) mechanical, so
 //! an agent can be dropped into the worktree without a human driving git.
 
+use crate::budget::{estimate_tokens, Admission, Budget, BudgetGuard, DEFAULT_OUTPUT_RESERVE};
+use crate::catalog::PriceCatalogue;
 use crate::executor::{ExecutorConfig, RunOutcome, Runner};
+use crate::money::MicroUsd;
+use crate::policy::{FailureKind, Ladder, NextAttempt, Policy, StopReason};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -347,6 +351,99 @@ impl<R: CommandRunner> SusiTarget<R> {
         }
         Ok(!log.stdout.trim().is_empty())
     }
+
+    /// Commit the task record and return the commit a retry resets to.
+    ///
+    /// The record has to be committed before the agent runs: if the attempt is
+    /// rejected, the adapter resets the worktree and runs a stronger model, and
+    /// an uncommitted task record would be wiped by that reset — losing the
+    /// claim's own record and leaving an orphan worktree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot stage or commit the record.
+    pub fn commit_task_record(&self, worktree: &Path, id: &str) -> EaiResult<String> {
+        let path = format!(".agents/tasks/{id}.json");
+        let add = self.git(worktree, &["add", "--", &path])?;
+        if !add.success() {
+            return Err(EaiError::process(format!(
+                "git add {path} failed: {}",
+                add.tail()
+            )));
+        }
+        let message = format!("Record {id}\n\nTask: {id}");
+        let commit = self.git(worktree, &["commit", "-m", &message])?;
+        if !commit.success() {
+            return Err(EaiError::process(format!(
+                "git commit of {path} failed: {}",
+                commit.tail()
+            )));
+        }
+        let head = self.git(worktree, &["rev-parse", "HEAD"])?;
+        if !head.success() {
+            return Err(EaiError::process(format!(
+                "git rev-parse failed: {}",
+                head.tail()
+            )));
+        }
+        Ok(head.stdout.trim().to_string())
+    }
+
+    /// Discard everything a rejected attempt wrote, keeping the task record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot reset the worktree.
+    pub fn reset_to(&self, worktree: &Path, commit: &str) -> EaiResult<()> {
+        let reset = self.git(worktree, &["reset", "--hard", commit])?;
+        if !reset.success() {
+            return Err(EaiError::process(format!(
+                "git reset --hard {commit} failed: {}",
+                reset.tail()
+            )));
+        }
+        let clean = self.git(worktree, &["clean", "-fd", "-e", ".agents/tasks"])?;
+        if !clean.success() {
+            return Err(EaiError::process(format!(
+                "git clean failed: {}",
+                clean.tail()
+            )));
+        }
+        Ok(())
+    }
+
+    fn git(&self, worktree: &Path, args: &[&str]) -> EaiResult<RunOutput> {
+        let argv: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
+        self.runner.run(Path::new("git"), &argv, worktree)
+    }
+}
+
+/// How a prepared run is bounded and escalated.
+pub struct SusiRunPolicy<'a> {
+    /// Price catalogue used to rank alternates and estimate spend.
+    pub catalogue: Option<&'a PriceCatalogue>,
+    /// Shared budget guard, when the mission has a cap.
+    pub guard: Option<&'a BudgetGuard>,
+    /// Ledger the gateway writes (spend authority).
+    pub ledger_path: &'a Path,
+    /// Mission id every attempt is billed to.
+    pub mission: &'a str,
+    /// Escalation policy.
+    pub policy: Policy,
+}
+
+impl SusiRunPolicy<'_> {
+    /// A run with no budget and no catalogue: the task's model is the only one.
+    #[must_use]
+    pub fn unmetered() -> SusiRunPolicy<'static> {
+        SusiRunPolicy {
+            catalogue: None,
+            guard: None,
+            ledger_path: Path::new(""),
+            mission: "",
+            policy: Policy::default(),
+        }
+    }
 }
 
 /// What an agent should do in a prepared susi worktree.
@@ -365,12 +462,29 @@ pub struct SusiTaskSpec {
     pub program: PathBuf,
     /// Gateway base URL.
     pub gateway_url: String,
-    /// Model id.
+    /// Model id the task prefers.
     pub model: String,
+    /// Models to escalate to when the preferred one does not pass.
+    pub alternates: Vec<String>,
     /// Per-turn deadline.
     pub timeout: Duration,
     /// Adapter state root.
     pub state_dir: PathBuf,
+}
+
+/// One model attempt inside a prepared task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SusiAttemptRecord {
+    /// Model tried.
+    pub model: String,
+    /// Whether the agent left a clean commit.
+    pub committed: bool,
+    /// Whether the declared acceptance passed.
+    pub accepted: bool,
+    /// The agent's own verdict, in the operator's language.
+    pub outcome: String,
+    /// Estimated cost of the attempt, when it could be priced.
+    pub estimate: Option<MicroUsd>,
 }
 
 /// What one prepared run produced.
@@ -379,18 +493,29 @@ pub struct SusiRunReport {
     pub worktree: PathBuf,
     /// The task id the adapter added and claimed.
     pub task: String,
-    /// The agent's outcome.
+    /// The model of the accepted attempt (or the last one tried).
+    pub model: String,
+    /// The last agent outcome.
     pub agent: RunOutcome,
-    /// Whether the agent left a clean commit ahead of `origin/main`.
+    /// Whether the accepted attempt left a clean commit ahead of `origin/main`.
     pub committed: bool,
-    /// Whether the declared acceptance passed in the worktree.
+    /// Whether the declared acceptance passed.
     pub accepted: bool,
+    /// Every attempt, in order.
+    pub attempts: Vec<SusiAttemptRecord>,
+    /// True when the ladder stopped because the budget would be crossed.
+    pub budget_exhausted: bool,
 }
 
 /// Prepare a worktree, add and claim a task, run the agent in it, and verify.
 ///
 /// The agent is told the task id and the trailer it must commit with; it is
 /// told not to run `susi` itself, because the adapter already owns the claim.
+///
+/// When an attempt does not pass, the worktree is reset to the task record and
+/// the next model on the ladder runs. A rejected attempt is never published,
+/// and a repeated failure across models stops the task instead of spending the
+/// rest of the budget on the same wall.
 ///
 /// # Errors
 ///
@@ -399,11 +524,14 @@ pub fn run_task<R: CommandRunner>(
     target: &SusiTarget<R>,
     spec: &SusiTaskSpec,
     runner: &dyn Runner,
+    policy: &SusiRunPolicy<'_>,
 ) -> EaiResult<SusiRunReport> {
     let worktree = target.start_worktree(&spec.worktree_name)?;
     target.sync(&worktree)?;
     let task = target.add_task(&worktree, &spec.title, &spec.accept)?;
     target.claim(&worktree, &task, &spec.scopes)?;
+    let base = target.commit_task_record(&worktree, &task)?;
+    let ranked = rank_alternates(spec, policy)?;
     let prompt = format!(
         "Work in this order: read only what you need to identify the exact API you are changing, \
 then make the edit. Your first write must happen before you have read more than ten files; do \
@@ -411,31 +539,156 @@ not survey the repository. After the first write, run the task's acceptance comm
 on real output.\n\n{}\n\nTask id: {task}. When the work is done, run `git add -A` and commit with a message whose last line is exactly `Task: {task}`. Do not run any `susi` command, do not push, and change nothing outside the task.",
         spec.prompt
     );
-    let agent = runner.run(&ExecutorConfig {
-        program: spec.program.clone(),
-        gateway_url: spec.gateway_url.clone(),
-        model: spec.model.clone(),
-        workspace: worktree.clone(),
-        state_dir: spec.state_dir.join(&task),
-        mission: spec.worktree_name.clone(),
-        task: task.clone(),
-        attempt: 1,
-        timeout: spec.timeout,
-        prompt,
-    })?;
-    let committed = if matches!(&agent, RunOutcome::Succeeded { .. }) {
-        target.worktree_is_committed(&worktree)?
-    } else {
-        false
-    };
-    let accepted = committed && target.accept(&worktree, &task).is_ok();
+    let mut ladder = Ladder::new(ranked, policy.policy);
+    let mut attempts = Vec::new();
+    let mut last_outcome = None;
+    let mut last_model = spec.model.clone();
+    let mut committed = false;
+    let mut accepted = false;
+    let mut budget_exhausted = false;
+    loop {
+        let attempt = match ladder.next_attempt() {
+            NextAttempt::Attempt(attempt) => attempt,
+            NextAttempt::Stop(reason) => {
+                if attempts.is_empty() {
+                    last_outcome = Some(RunOutcome::Failed {
+                        message: describe_stop(&reason),
+                    });
+                }
+                break;
+            }
+        };
+        last_model = attempt.model.clone();
+        let estimate = policy
+            .catalogue
+            .and_then(|catalogue| catalogue.price(&attempt.model))
+            .map(|price| estimate_tokens(price, &prompt, DEFAULT_OUTPUT_RESERVE));
+        if let (Some(guard), Some(estimate)) = (policy.guard, estimate) {
+            let spent = Budget::spent(policy.ledger_path, policy.mission);
+            if let Admission::Exhausted { .. } = guard.admit(spent, estimate) {
+                last_outcome = Some(RunOutcome::Failed {
+                    message: format!(
+                        "budget: spent {} of {}; attempt not dispatched",
+                        spent.total,
+                        guard.budget().limit
+                    ),
+                });
+                budget_exhausted = true;
+                break;
+            }
+        }
+        let agent = runner.run(&ExecutorConfig {
+            program: spec.program.clone(),
+            gateway_url: spec.gateway_url.clone(),
+            model: attempt.model.clone(),
+            workspace: worktree.clone(),
+            state_dir: spec
+                .state_dir
+                .join(&task)
+                .join(format!("attempt-{}", attempt.number)),
+            mission: policy.mission.to_string(),
+            task: task.clone(),
+            attempt: attempt.number,
+            timeout: spec.timeout,
+            prompt: prompt.clone(),
+        })?;
+        let attempt_committed = if matches!(&agent, RunOutcome::Succeeded { .. }) {
+            target.worktree_is_committed(&worktree)?
+        } else {
+            false
+        };
+        let attempt_accepted = attempt_committed && target.accept(&worktree, &task).is_ok();
+        if let (Some(guard), Some(estimate)) = (policy.guard, estimate) {
+            let spent = Budget::spent(policy.ledger_path, policy.mission);
+            guard.settle(spent, estimate);
+        }
+        attempts.push(SusiAttemptRecord {
+            model: attempt.model.clone(),
+            committed: attempt_committed,
+            accepted: attempt_accepted,
+            outcome: describe_outcome(&agent),
+            estimate,
+        });
+        if attempt_accepted {
+            committed = attempt_committed;
+            accepted = true;
+            last_outcome = Some(agent);
+            break;
+        }
+        let (kind, message) = failure_of(&agent);
+        ladder.record(&attempt.model, kind, &message);
+        // A rejected attempt is discarded: the next model starts from the
+        // task record, not from work that already failed acceptance.
+        target.reset_to(&worktree, &base)?;
+        last_outcome = Some(agent);
+    }
     Ok(SusiRunReport {
         worktree,
         task,
-        agent,
+        model: last_model,
+        agent: last_outcome.unwrap_or(RunOutcome::Failed {
+            message: "the ladder stopped before any attempt ran".to_string(),
+        }),
         committed,
         accepted,
+        attempts,
+        budget_exhausted,
     })
+}
+
+/// The model order for a task: its own choice first, then the ranked rest.
+fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> EaiResult<Vec<String>> {
+    let mut models = vec![spec.model.clone()];
+    for model in &spec.alternates {
+        if !models.contains(model) {
+            models.push(model.clone());
+        }
+    }
+    let mut ranked = match policy.catalogue {
+        Some(catalogue) => {
+            let entries = crate::ledger::read_entries(policy.ledger_path).unwrap_or_default();
+            crate::policy::rank_models(
+                catalogue,
+                &models,
+                crate::policy::UsageProfile::agent(),
+                &crate::policy::history(&entries),
+            )?
+            .into_iter()
+            .map(|candidate| candidate.model)
+            .collect::<Vec<_>>()
+        }
+        None => models.clone(),
+    };
+    // The task's own model is a deliberate assignment; keep it first, then the
+    // ranked alternates.
+    if let Some(position) = ranked.iter().position(|model| model == &spec.model) {
+        let preferred = ranked.remove(position);
+        ranked.insert(0, preferred);
+    }
+    Ok(ranked)
+}
+
+fn failure_of(agent: &RunOutcome) -> (FailureKind, String) {
+    match agent {
+        RunOutcome::Succeeded { .. } => (FailureKind::Semantic, "accepted".to_string()),
+        RunOutcome::Failed { message } => (FailureKind::classify(message), message.clone()),
+        RunOutcome::TimedOut => (FailureKind::Timeout, "agent timed out".to_string()),
+    }
+}
+
+fn describe_outcome(agent: &RunOutcome) -> String {
+    match agent {
+        RunOutcome::Succeeded { .. } => "succeeded".to_string(),
+        RunOutcome::Failed { message } => format!("failed: {message}"),
+        RunOutcome::TimedOut => "timed out".to_string(),
+    }
+}
+
+fn describe_stop(reason: &StopReason) -> String {
+    match reason {
+        StopReason::Exhausted => "the attempt cap was reached".to_string(),
+        StopReason::Stuck { signature } => format!("stopped after the same failure: {signature}"),
+    }
 }
 
 /// Publish an accepted run through `workflow finish`.
@@ -676,6 +929,9 @@ mod tests {
             ok("added T-AGENT-1 — commit\n"),
             ok(""),
             ok(""),
+            ok(""),
+            ok("base123\n"),
+            ok(""),
             ok("abc123 docs\n"),
             ok(""),
         ]);
@@ -695,13 +951,15 @@ mod tests {
             program: PathBuf::from("openclaw"),
             gateway_url: "http://127.0.0.1:1".into(),
             model: "deepseek-flash".into(),
+            alternates: Vec::new(),
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
         };
-        let report = run_task(&target, &spec, &exec).unwrap();
+        let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-AGENT-1");
         assert!(report.committed);
         assert!(report.accepted);
+        assert_eq!(report.attempts.len(), 1);
         let prompts = exec.prompts.lock().unwrap();
         assert!(prompts[0].contains("Task: T-AGENT-1"));
         assert!(prompts[0].contains("before you have read more than ten files"));
@@ -715,6 +973,11 @@ mod tests {
             ok(&format!("cd {}\n", dir.path().display())),
             ok(""),
             ok("added T-AGENT-2 — commit\n"),
+            ok(""),
+            ok(""),
+            ok(""),
+            ok("base123\n"),
+            ok(""),
             ok(""),
         ]);
         let exec = FakeExec {
@@ -732,13 +995,15 @@ mod tests {
             program: PathBuf::from("openclaw"),
             gateway_url: "http://127.0.0.1:1".into(),
             model: "deepseek-flash".into(),
+            alternates: Vec::new(),
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
         };
-        let report = run_task(&target, &spec, &exec).unwrap();
+        let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-AGENT-2");
         assert!(!report.committed);
         assert!(!report.accepted);
+        assert_eq!(report.attempts.len(), 1);
     }
 
     #[test]

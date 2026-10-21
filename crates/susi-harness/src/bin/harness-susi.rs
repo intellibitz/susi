@@ -19,7 +19,7 @@
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
-use susi_harness::adapter::{land, run_task, SusiTarget, SusiTaskSpec};
+use susi_harness::adapter::{land, run_task, SusiRunPolicy, SusiTarget, SusiTaskSpec};
 use susi_harness::executor::{OpenClaw, RunOutcome};
 
 struct RunOptions {
@@ -38,7 +38,12 @@ fn main() {
         "harness-susi: preparing {} and running the agent; this can take minutes",
         options.spec.worktree_name
     );
-    let report = match run_task(&target, &options.spec, &OpenClaw) {
+    let report = match run_task(
+        &target,
+        &options.spec,
+        &OpenClaw,
+        &SusiRunPolicy::unmetered(),
+    ) {
         Ok(report) => report,
         Err(error) => fail(&error.to_string()),
     };
@@ -96,6 +101,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
     let mut scopes: Vec<String> = Vec::new();
     let mut gateway = String::new();
     let mut model = String::new();
+    let mut alternates = Vec::new();
     let mut program = PathBuf::new();
     let mut timeout: u64 = 600;
     let mut state = PathBuf::new();
@@ -111,6 +117,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
             "--scope" => scopes.push(take(&mut args, &argument)?),
             "--gateway" => gateway = take(&mut args, &argument)?,
             "--model" => model = take(&mut args, &argument)?,
+            "--alternate" => alternates.push(take(&mut args, &argument)?),
             "--program" => program = PathBuf::from(take(&mut args, &argument)?),
             "--timeout" => {
                 timeout = take(&mut args, &argument)?
@@ -168,6 +175,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
             program,
             gateway_url: gateway,
             model,
+            alternates,
             timeout: Duration::from_secs(timeout),
             state_dir: state,
         },

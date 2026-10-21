@@ -61,6 +61,8 @@ pub(crate) struct Cli {
     pub(crate) intent: Vec<String>,
 }
 
+#[allow(clippy::large_enum_variant)]
+// a CLI flag bag: every variant is argument storage, and boxing one would only relocate the flags clap derives in place
 #[derive(Subcommand)]
 pub(crate) enum Commands {
     /// Manage external task executors end to end
