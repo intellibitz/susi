@@ -26,12 +26,22 @@ pub enum EventKind {
     MissionResumed,
     /// A mission reached its acceptance.
     MissionFinished,
+    /// A mission was abandoned by the operator.
+    MissionAborted,
     /// The capability ladder was exhausted without acceptance.
     MissionStuck,
+    /// The mission crossed its budget warning line.
+    BudgetWarning,
+    /// An attempt was refused because it would cross the budget.
+    BudgetExhausted,
     /// A task was handed to an executor.
     TaskDispatched,
     /// A task settled (accepted, rejected or cancelled).
     TaskFinished,
+    /// A cheaper model did not pass and a stronger one is next.
+    ModelEscalated,
+    /// The operator paused, resumed, aborted or topped up.
+    ControlReceived,
     /// A model call started or finished.
     ModelCall,
     /// An executor ran a tool.

@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "title": "SUSI CEO Cockpit",
+    "description": "Live spend, landed tasks, the cost-ranked worker ladder and pause/abort controls for a SUSI orchestration mission, embedded in the Harness desktop."
+  },
+  "panel": {
+    "title": "CEO cockpit",
+    "offline": "The cockpit server is not answering. Start it with: susi harness cockpit --ledger out/ledger.jsonl --plan plan.json --controls out/control.jsonl --port 9181",
+    "url": "Cockpit URL",
+    "save": "Save",
+    "reload": "Reload",
+    "open": "Open in a tab"
+  }
+}

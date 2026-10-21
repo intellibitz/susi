@@ -23,6 +23,10 @@
 //!   micro-USD, prices per million tokens, cache hits priced far below misses.
 //! - [`catalog`] holds the price data itself: a model the catalogue cannot
 //!   price is refused at dispatch, because unpriced spend cannot be accounted.
+//! - [`budget`] admits an attempt only when its worst-case estimate, the money
+//!   already spent and the attempts already in flight all fit the mission cap.
+//! - [`policy`] ranks models by expected cost per accepted task (learned from
+//!   the ledger) and escalates on failure without retrying the same model.
 //! - [`cockpit`] is the read-only status surface: spend per mission and the
 //!   event feed, polled by the panel once a second.
 //! - [`usage`] turns a provider's own JSON into [`pricing::TokenUsage`],
@@ -59,14 +63,17 @@
 pub mod adapter;
 pub mod api;
 pub mod author;
+pub mod budget;
 pub mod catalog;
 pub mod cockpit;
+pub mod control;
 pub mod event;
 pub mod executor;
 pub mod gateway;
 pub mod ledger;
 pub mod litellm;
 pub mod money;
+pub mod policy;
 pub mod pricing;
 pub mod scheduler;
 pub mod supervisor;

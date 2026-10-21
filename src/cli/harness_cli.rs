@@ -8,12 +8,18 @@
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 use susi_harness::adapter::SusiTarget;
 use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
-use susi_harness::cockpit::Cockpit;
+use susi_harness::budget::Budget;
+use susi_harness::catalog::PriceCatalogue;
+use susi_harness::cockpit::{serve, Cockpit};
 use susi_harness::executor::OpenClaw;
 use susi_harness::litellm::Launcher;
+use susi_harness::money::MicroUsd;
+use susi_harness::policy::Policy;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
 
@@ -67,6 +73,25 @@ pub enum HarnessCommands {
         /// Worktree name prefix
         #[arg(long, default_value = "harness")]
         prefix: String,
+        /// Models a task may escalate to when its own model does not pass
+        /// (comma-separated)
+        #[arg(long, default_value = "")]
+        workers: String,
+        /// Mission cap in dollars; requires --catalogue
+        #[arg(long)]
+        budget_usd: Option<String>,
+        /// Price catalogue used to rank workers and bound spend
+        #[arg(long)]
+        catalogue: Option<PathBuf>,
+        /// Ledger the gateway writes (spend authority)
+        #[arg(long, default_value = "out/ledger.jsonl")]
+        ledger: PathBuf,
+        /// Control log the cockpit writes pause/resume/abort to
+        #[arg(long, default_value = "out/control.jsonl")]
+        controls: PathBuf,
+        /// Hard cap on attempts per task
+        #[arg(long, default_value_t = 4)]
+        attempts: usize,
         /// Where the adapter keeps prompts and results
         #[arg(long, default_value = "harness-state")]
         adapter_state: PathBuf,
@@ -76,6 +101,39 @@ pub enum HarnessCommands {
         /// The susi binary the adapter drives (default: this one)
         #[arg(long)]
         susi: Option<PathBuf>,
+    },
+    /// Serve the CEO cockpit: spend, tasks, workers, warnings and controls
+    Cockpit {
+        /// Ledger the gateway writes
+        #[arg(long)]
+        ledger: PathBuf,
+        /// Event feed (default: beside the ledger)
+        #[arg(long)]
+        events: Option<PathBuf>,
+        /// Supervisor resume state to show task progress
+        #[arg(long)]
+        state: Option<PathBuf>,
+        /// Plan the supervisor is running
+        #[arg(long)]
+        plan: Option<PathBuf>,
+        /// Control log the operator's commands are appended to
+        #[arg(long)]
+        controls: Option<PathBuf>,
+        /// Price catalogue, so each worker's rate is shown
+        #[arg(long)]
+        catalogue: Option<PathBuf>,
+        /// Mission cap in dollars
+        #[arg(long)]
+        budget_usd: Option<String>,
+        /// Mission to focus
+        #[arg(long)]
+        mission: Option<String>,
+        /// Interface to bind
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port to bind
+        #[arg(long, default_value_t = 9181)]
+        port: u16,
     },
     /// Start the LiteLLM proxy the gateway points at (caching + providers)
     Litellm {
@@ -128,10 +186,30 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             let cockpit = Cockpit {
                 ledger_path: ledger,
                 events_path: events.unwrap_or_default(),
+                state_path: None,
+                plan_path: None,
+                controls_path: None,
+                catalogue_path: None,
+                budget: None,
+                mission: None,
             };
             println!("{}", serde_json::to_string_pretty(&cockpit.snapshot())?);
             Ok(())
         }
+        HarnessCommands::Cockpit {
+            ledger,
+            events,
+            state,
+            plan,
+            controls,
+            catalogue,
+            budget_usd,
+            mission,
+            host,
+            port,
+        } => serve_cockpit(
+            ledger, events, state, plan, controls, catalogue, budget_usd, mission, &host, port,
+        ),
         HarnessCommands::Author {
             gateway,
             model,
@@ -152,6 +230,12 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             timeout,
             parallel,
             prefix,
+            workers,
+            budget_usd,
+            catalogue,
+            ledger,
+            controls,
+            attempts,
             adapter_state,
             program,
             susi,
@@ -164,12 +248,64 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             timeout,
             parallel,
             &prefix,
+            &workers,
+            budget_usd.as_deref(),
+            catalogue,
+            &ledger,
+            &controls,
+            attempts,
             &adapter_state,
             &program,
             susi,
             cwd,
         ),
     }
+}
+
+#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
+fn serve_cockpit(
+    ledger: PathBuf,
+    events: Option<PathBuf>,
+    state: Option<PathBuf>,
+    plan: Option<PathBuf>,
+    controls: Option<PathBuf>,
+    catalogue: Option<PathBuf>,
+    budget_usd: Option<String>,
+    mission: Option<String>,
+    host: &str,
+    port: u16,
+) -> Result<()> {
+    let events = events.unwrap_or_else(|| ledger.with_file_name("events.jsonl"));
+    let budget = budget_usd
+        .as_deref()
+        .map(|amount| {
+            MicroUsd::parse_usd(amount)
+                .map(Budget::new)
+                .with_context(|| format!("--budget-usd {amount} is not a dollar amount"))
+        })
+        .transpose()?;
+    let cockpit = Arc::new(Cockpit {
+        ledger_path: ledger,
+        events_path: events,
+        state_path: state,
+        plan_path: plan,
+        controls_path: controls,
+        catalogue_path: catalogue,
+        budget,
+        mission,
+    });
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build the cockpit runtime")?;
+    runtime.block_on(async move {
+        let listener = tokio::net::TcpListener::bind((host, port))
+            .await
+            .with_context(|| format!("bind {host}:{port}"))?;
+        let address = listener.local_addr().context("cockpit address")?;
+        println!("susi cockpit listening on http://{address}");
+        serve(listener, cockpit).await.context("serve the cockpit")
+    })
 }
 
 #[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
@@ -282,6 +418,12 @@ fn run(
     timeout: u64,
     parallel: usize,
     prefix: &str,
+    workers: &str,
+    budget_usd: Option<&str>,
+    catalogue: Option<PathBuf>,
+    ledger: &Path,
+    controls: &Path,
+    attempts: usize,
     adapter_state: &Path,
     program: &Path,
     susi: Option<PathBuf>,
@@ -295,6 +437,26 @@ fn run(
     };
     let facts = RepoFacts::load(&repo).context("read the workspace's packages")?;
     validate_plan(&plan, &facts).context("validate the plan")?;
+    let catalogue = catalogue
+        .map(|path| PriceCatalogue::load(&path))
+        .transpose()
+        .context("load the price catalogue")?;
+    let budget = budget_usd
+        .map(|amount| {
+            MicroUsd::parse_usd(amount)
+                .map(Budget::new)
+                .with_context(|| format!("--budget-usd {amount} is not a dollar amount"))
+        })
+        .transpose()?;
+    if budget.is_some() && catalogue.is_none() {
+        bail!("--budget-usd needs --catalogue: an unpriced attempt cannot be bounded");
+    }
+    let alternates: Vec<String> = workers
+        .split(',')
+        .map(str::trim)
+        .filter(|worker| !worker.is_empty() && *worker != model)
+        .map(str::to_string)
+        .collect();
     let susi_program =
         susi.unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi")));
     let target = SusiTarget::new(repo, susi_program);
@@ -306,10 +468,23 @@ fn run(
         program: program.to_path_buf(),
         gateway_url: gateway.to_string(),
         model: model.to_string(),
+        alternates,
+        catalogue,
+        budget,
+        ledger_path: ledger.to_path_buf(),
+        mission: plan.mission.clone(),
+        policy: Policy {
+            max_attempts: attempts.max(1),
+            ..Policy::default()
+        },
         timeout: Duration::from_secs(timeout),
         state_dir: adapter_state.to_path_buf(),
+        guard: std::sync::OnceLock::new(),
+        exhausted: AtomicBool::new(false),
     };
-    let supervisor = Supervisor::new(state, &executor).with_parallelism(parallel);
+    let supervisor = Supervisor::new(state, &executor)
+        .with_parallelism(parallel)
+        .with_controls(controls);
     let report = supervisor.run(&plan).context("run the mission")?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     if !report.failed.is_empty() {

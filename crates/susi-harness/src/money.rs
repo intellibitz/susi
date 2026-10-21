@@ -51,6 +51,69 @@ impl MicroUsd {
     pub fn checked_sub(self, other: Self) -> Option<Self> {
         self.0.checked_sub(other.0).map(Self)
     }
+
+    /// Add, saturating at `u64::MAX` rather than wrapping into a free total.
+    #[must_use]
+    pub fn saturating_add(self, other: Self) -> Self {
+        Self(self.0.saturating_add(other.0))
+    }
+
+    /// Multiply by a whole number, saturating rather than wrapping.
+    ///
+    /// A projected cost is an estimate; a wrapped estimate would look cheap and
+    /// let a mission spend money it does not have.
+    #[must_use]
+    pub fn saturating_mul(self, factor: u64) -> Self {
+        Self(self.0.saturating_mul(factor))
+    }
+
+    /// The smaller of two amounts.
+    #[must_use]
+    pub const fn min(self, other: Self) -> Self {
+        if self.0 < other.0 {
+            self
+        } else {
+            other
+        }
+    }
+
+    /// Parse a decimal dollar amount such as `0.25` or `12` into micro-USD.
+    ///
+    /// Integer arithmetic only: a float would reintroduce exactly the rounding
+    /// this type exists to avoid. More than six decimal places are refused
+    /// rather than silently truncated.
+    #[must_use]
+    pub fn parse_usd(text: &str) -> Option<Self> {
+        let text = text.trim();
+        let (dollars, cents) = match text.split_once('.') {
+            Some((dollars, cents)) => (dollars, cents),
+            None => (text, ""),
+        };
+        if dollars.is_empty() && cents.is_empty() {
+            return None;
+        }
+        if !dollars.chars().all(|c| c.is_ascii_digit())
+            || !cents.chars().all(|c| c.is_ascii_digit())
+            || cents.len() > 6
+        {
+            return None;
+        }
+        let dollars: u64 = if dollars.is_empty() {
+            0
+        } else {
+            dollars.parse().ok()?
+        };
+        let mut micros = cents.to_string();
+        while micros.len() < 6 {
+            micros.push('0');
+        }
+        let cents: u64 = if micros.is_empty() {
+            0
+        } else {
+            micros.parse().ok()?
+        };
+        Some(Self(dollars.checked_mul(1_000_000)?.checked_add(cents)?))
+    }
 }
 
 impl fmt::Display for MicroUsd {
@@ -76,6 +139,39 @@ mod tests {
             MicroUsd::from_micros(u64::MAX).checked_add(MicroUsd::from_micros(1)),
             None
         );
+    }
+
+    #[test]
+    fn saturating_arithmetic_never_wraps() {
+        let big = MicroUsd::from_micros(u64::MAX - 1);
+        assert_eq!(
+            big.saturating_add(MicroUsd::from_micros(10)),
+            MicroUsd::from_micros(u64::MAX)
+        );
+        assert_eq!(big.saturating_mul(2), MicroUsd::from_micros(u64::MAX));
+        assert_eq!(
+            MicroUsd::from_micros(5).min(MicroUsd::from_micros(3)),
+            MicroUsd::from_micros(3)
+        );
+    }
+
+    #[test]
+    fn dollars_parse_without_floats() {
+        assert_eq!(
+            MicroUsd::parse_usd("0.25"),
+            Some(MicroUsd::from_micros(250_000))
+        );
+        assert_eq!(
+            MicroUsd::parse_usd("12"),
+            Some(MicroUsd::from_micros(12_000_000))
+        );
+        assert_eq!(
+            MicroUsd::parse_usd("1.000001"),
+            Some(MicroUsd::from_micros(1_000_001))
+        );
+        assert_eq!(MicroUsd::parse_usd("0.1234567"), None);
+        assert_eq!(MicroUsd::parse_usd("abc"), None);
+        assert_eq!(MicroUsd::parse_usd("1.2.3"), None);
     }
 
     #[test]

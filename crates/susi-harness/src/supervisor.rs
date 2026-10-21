@@ -9,11 +9,18 @@
 //! prepares a worktree, claims the task, runs the agent, verifies, and lands
 //! it. Tests use a fake executor, so the loop is exercised without a repo.
 
-use crate::adapter::{land, run_task, CommandRunner, SusiRunReport, SusiTarget, SusiTaskSpec};
+use crate::adapter::{
+    land, run_task, CommandRunner, SusiRunPolicy, SusiRunReport, SusiTarget, SusiTaskSpec,
+};
+use crate::budget::{Budget, BudgetGuard};
+use crate::catalog::PriceCatalogue;
+use crate::control::ControlState;
 use crate::executor::{RunOutcome, Runner};
+use crate::policy::Policy;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use susi_error::{EaiError, EaiResult};
 
@@ -147,6 +154,14 @@ pub struct SupervisorReport {
     pub failed: Vec<(String, String)>,
     /// Task keys skipped because an earlier run landed them.
     pub skipped: Vec<String>,
+    /// Task keys not started because the mission budget was exhausted.
+    pub unstarted: Vec<String>,
+    /// True when the budget stopped the run early.
+    pub budget_exhausted: bool,
+    /// True when the operator paused the mission.
+    pub paused: bool,
+    /// True when the operator aborted the mission.
+    pub aborted: bool,
 }
 
 /// Prepares and lands a planned task.
@@ -173,6 +188,14 @@ pub trait TaskExecutor: Sync {
     /// Returns the executor's operational error; a task that simply did not
     /// land is [`TaskStatus::Failed`].
     fn land(&self, prepared: Self::Prepared) -> EaiResult<TaskStatus>;
+
+    /// True once the mission budget refused an attempt.
+    ///
+    /// The supervisor checks this after every task and stops the plan instead
+    /// of starting work the mission cannot pay for.
+    fn budget_exhausted(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -201,6 +224,8 @@ pub struct Supervisor<'a, E: TaskExecutor> {
     pub executor: &'a E,
     /// How many tasks prepare at once (landing is always serial).
     pub max_parallel: usize,
+    /// Operator control log, when the cockpit can pause or abort the mission.
+    pub control_path: Option<PathBuf>,
 }
 
 impl<'a, E: TaskExecutor> Supervisor<'a, E> {
@@ -211,6 +236,7 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
             state_path: state_path.into(),
             executor,
             max_parallel: 1,
+            control_path: None,
         }
     }
 
@@ -218,6 +244,13 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
     #[must_use]
     pub fn with_parallelism(mut self, max_parallel: usize) -> Self {
         self.max_parallel = max_parallel.max(1);
+        self
+    }
+
+    /// Read operator commands from this log before each batch.
+    #[must_use]
+    pub fn with_controls(mut self, path: impl Into<PathBuf>) -> Self {
+        self.control_path = Some(path.into());
         self
     }
 
@@ -247,8 +280,27 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
                 !finished
             })
             .collect();
-        for batch in pending.chunks(self.max_parallel.max(1)) {
-            for (task, result) in self.prepare_batch(batch) {
+        let mut unstarted = Vec::new();
+        let mut budget_exhausted = false;
+        let mut paused = false;
+        let mut aborted = false;
+        let parallel = self.max_parallel.max(1);
+        'plan: for (batch_index, batch) in pending.chunks(parallel).enumerate() {
+            if let Some(path) = &self.control_path {
+                let controls = ControlState::load(path);
+                if controls.blocks_new_work() {
+                    paused = controls.paused;
+                    aborted = controls.aborted;
+                    let consumed = batch_index * parallel;
+                    unstarted = pending
+                        .iter()
+                        .skip(consumed)
+                        .map(|task| task.key.clone())
+                        .collect();
+                    break 'plan;
+                }
+            }
+            for (offset, (task, result)) in self.prepare_batch(batch).into_iter().enumerate() {
                 let status = match result {
                     Ok(prepared) => self.executor.land(prepared),
                     Err(error) => Ok(TaskStatus::Failed {
@@ -258,7 +310,18 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
                 .unwrap_or_else(|error| TaskStatus::Failed {
                     reason: error.to_string(),
                 });
+                let stop = self.executor.budget_exhausted();
                 record(&mut state, &self.state_path, task, status, &mut tally)?;
+                if stop {
+                    budget_exhausted = true;
+                    let consumed = batch_index * parallel + offset + 1;
+                    unstarted = pending
+                        .iter()
+                        .skip(consumed)
+                        .map(|task| task.key.clone())
+                        .collect();
+                    break 'plan;
+                }
             }
         }
         Ok(SupervisorReport {
@@ -266,6 +329,10 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
             done: tally.done,
             failed: tally.failed,
             skipped,
+            unstarted,
+            budget_exhausted,
+            paused,
+            aborted,
         })
     }
 
@@ -335,18 +402,35 @@ pub struct SusiExecutor<'a, R: CommandRunner> {
     pub program: PathBuf,
     /// Gateway base URL.
     pub gateway_url: String,
-    /// Model id.
+    /// Model id used when a task does not name one.
     pub model: String,
+    /// Models to escalate to when the preferred one does not pass.
+    pub alternates: Vec<String>,
+    /// Price catalogue used to rank alternates and estimate spend.
+    pub catalogue: Option<PriceCatalogue>,
+    /// Mission budget; when absent the mission is unmetered.
+    pub budget: Option<Budget>,
+    /// Ledger the gateway writes (spend authority).
+    pub ledger_path: PathBuf,
+    /// Mission id every attempt is billed to.
+    pub mission: String,
+    /// Escalation policy.
+    pub policy: Policy,
     /// Per-turn deadline.
     pub timeout: Duration,
     /// Per-task adapter state root.
     pub state_dir: PathBuf,
+    /// Built on the first prepare when a budget is set.
+    pub guard: std::sync::OnceLock<BudgetGuard>,
+    /// Set once the budget refused an attempt.
+    pub exhausted: AtomicBool,
 }
 
 impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
     type Prepared = SusiRunReport;
 
     fn prepare(&self, task: &PlanTask) -> EaiResult<SusiRunReport> {
+        let preferred = task.model.clone().unwrap_or_else(|| self.model.clone());
         let spec = SusiTaskSpec {
             worktree_name: format!("{}-{}", self.worktree_prefix, task.key),
             title: task.title.clone(),
@@ -355,18 +439,34 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             prompt: task.prompt.clone(),
             program: self.program.clone(),
             gateway_url: self.gateway_url.clone(),
-            model: task.model.clone().unwrap_or_else(|| self.model.clone()),
+            model: preferred,
+            alternates: self.alternates.clone(),
             timeout: self.timeout,
             state_dir: self.state_dir.join(&task.key),
         };
-        run_task(self.target, &spec, self.runner)
+        let guard = self
+            .budget
+            .map(|budget| self.guard.get_or_init(|| BudgetGuard::new(budget)));
+        let run_policy = SusiRunPolicy {
+            catalogue: self.catalogue.as_ref(),
+            guard,
+            ledger_path: &self.ledger_path,
+            mission: &self.mission,
+            policy: self.policy,
+        };
+        let report = run_task(self.target, &spec, self.runner, &run_policy)?;
+        if report.budget_exhausted {
+            self.exhausted.store(true, Ordering::SeqCst);
+        }
+        Ok(report)
     }
 
     fn land(&self, report: SusiRunReport) -> EaiResult<TaskStatus> {
         if !report.accepted {
             return Ok(TaskStatus::Failed {
                 reason: format!(
-                    "agent {} / committed {} / acceptance not passed",
+                    "{} attempt(s); {} / committed {} / acceptance not passed",
+                    report.attempts.len(),
                     describe(&report.agent),
                     report.committed
                 ),
@@ -374,6 +474,10 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
         }
         land(self.target, &report)?;
         Ok(TaskStatus::Done { task: report.task })
+    }
+
+    fn budget_exhausted(&self) -> bool {
+        self.exhausted.load(Ordering::SeqCst)
     }
 }
 
