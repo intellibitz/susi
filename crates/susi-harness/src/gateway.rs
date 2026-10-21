@@ -48,6 +48,12 @@ pub struct GatewayState {
     pub api_key: String,
     /// Upstream call timeout, in seconds.
     pub timeout_secs: u64,
+    /// Upper bound placed on `max_tokens` in every forwarded request.
+    ///
+    /// A worker turn that asks for tens of thousands of output tokens can run
+    /// for half an hour and then die on the transport deadline; capping it
+    /// makes the turn iterate instead of outrunning the clock.
+    pub max_output_tokens: Option<u32>,
 }
 
 /// One dispatch the gateway is about to price.
@@ -88,9 +94,13 @@ async fn completions(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let Ok(request) = serde_json::from_str::<Value>(&body) else {
+    let Ok(mut request) = serde_json::from_str::<Value>(&body) else {
         return error_response(StatusCode::BAD_REQUEST, "request body is not JSON");
     };
+    if let Some(cap) = state.max_output_tokens {
+        clamp_output_tokens(&mut request, cap);
+    }
+    let body = serde_json::to_string(&request).unwrap_or(body);
     let streaming = request
         .get("stream")
         .and_then(Value::as_bool)
@@ -407,6 +417,30 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Cap the output tokens a request may ask for.
+///
+/// A turn that requests tens of thousands of output tokens can outrun the
+/// transport deadline and die having written nothing; the cap makes it
+/// iterate instead. A request that asks for fewer is left alone.
+fn clamp_output_tokens(request: &mut Value, cap: u32) {
+    let Some(object) = request.as_object_mut() else {
+        return;
+    };
+    let cap = u64::from(cap);
+    let mut found = false;
+    for key in ["max_tokens", "max_completion_tokens"] {
+        if let Some(value) = object.get(key).and_then(Value::as_u64) {
+            found = true;
+            if value > cap {
+                object.insert(key.to_string(), Value::from(cap));
+            }
+        }
+    }
+    if !found {
+        object.insert("max_tokens".to_string(), Value::from(cap));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,6 +475,7 @@ mod tests {
             provider: "deepseek".into(),
             api_key: "test-key".into(),
             timeout_secs: 10,
+            max_output_tokens: None,
         })
     }
 
@@ -631,5 +666,24 @@ mod tests {
             post_json(gateway, r#"{"model":"deepseek-flash","messages":[]}"#, &[]).await;
         assert_eq!(status, 502);
         assert!(!ledger_path.exists());
+    }
+
+    #[test]
+    fn a_requests_output_tokens_are_capped_not_raised() {
+        let mut large = serde_json::json!({"model": "m", "max_tokens": 50_000});
+        clamp_output_tokens(&mut large, 8_000);
+        assert_eq!(large["max_tokens"], 8_000);
+
+        let mut small = serde_json::json!({"model": "m", "max_tokens": 100});
+        clamp_output_tokens(&mut small, 8_000);
+        assert_eq!(small["max_tokens"], 100);
+
+        let mut absent = serde_json::json!({"model": "m"});
+        clamp_output_tokens(&mut absent, 8_000);
+        assert_eq!(absent["max_tokens"], 8_000);
+
+        let mut not_object = serde_json::json!([1]);
+        clamp_output_tokens(&mut not_object, 8_000);
+        assert_eq!(not_object, serde_json::json!([1]));
     }
 }
