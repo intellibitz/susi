@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSLITELLM-2",
+  "title": "harness: tell the agent to write first, then verify",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSLITELLM",
+  "created_unix": 1792591162,
+  "closed": {
+    "at_unix": 1792591306,
+    "commit": "8d73c6a4d173b1976b00349888bc00a6de20957b",
+    "by": "HARNESSLITELLM"
+  }
+}

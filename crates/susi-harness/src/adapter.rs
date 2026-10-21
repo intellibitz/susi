@@ -405,7 +405,10 @@ pub fn run_task<R: CommandRunner>(
     let task = target.add_task(&worktree, &spec.title, &spec.accept)?;
     target.claim(&worktree, &task, &spec.scopes)?;
     let prompt = format!(
-        "{}\n\nTask id: {task}. When the work is done, run `git add -A` and commit with a message whose last line is exactly `Task: {task}`. Do not run any `susi` command, do not push, and change nothing outside the task.",
+        "Work in this order: read only what you need to identify the exact API you are changing, \
+then make the edit. Your first write must happen before you have read more than ten files; do \
+not survey the repository. After the first write, run the task's acceptance command and iterate \
+on real output.\n\n{}\n\nTask id: {task}. When the work is done, run `git add -A` and commit with a message whose last line is exactly `Task: {task}`. Do not run any `susi` command, do not push, and change nothing outside the task.",
         spec.prompt
     );
     let agent = runner.run(&ExecutorConfig {
@@ -701,6 +704,8 @@ mod tests {
         assert!(report.accepted);
         let prompts = exec.prompts.lock().unwrap();
         assert!(prompts[0].contains("Task: T-AGENT-1"));
+        assert!(prompts[0].contains("before you have read more than ten files"));
+        assert!(prompts[0].contains("write docs"));
     }
 
     #[test]
