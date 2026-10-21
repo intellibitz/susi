@@ -316,6 +316,47 @@ impl<R: CommandRunner> SusiTarget<R> {
         Ok(output)
     }
 
+    /// True when HEAD carries a commit after `base` and the tree is clean.
+    ///
+    /// The adapter commits the task record before the agent runs, so a simple
+    /// "commits ahead of `origin/main`" check is true even when the agent wrote
+    /// nothing — and the declared acceptance (often an unrelated crate's test)
+    /// would then pass on unchanged code. Work means a commit *after the
+    /// record*, not the record itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot be run.
+    pub fn worktree_has_work_after(&self, worktree: &Path, base: &str) -> EaiResult<bool> {
+        if base.trim().is_empty() {
+            return Ok(false);
+        }
+        let status = self.runner.run(
+            Path::new("git"),
+            &["status".to_string(), "--porcelain".to_string()],
+            worktree,
+        )?;
+        if !status.success() {
+            return Err(EaiError::process(format!(
+                "git status failed: {}",
+                status.tail()
+            )));
+        }
+        if !status.stdout.trim().is_empty() {
+            return Ok(false);
+        }
+        let range = format!("{base}..HEAD");
+        let log = self.runner.run(
+            Path::new("git"),
+            &["log".to_string(), "--oneline".to_string(), range],
+            worktree,
+        )?;
+        if !log.success() {
+            return Err(EaiError::process(format!("git log failed: {}", log.tail())));
+        }
+        Ok(!log.stdout.trim().is_empty())
+    }
+
     /// True when the worktree has no uncommitted changes and at least one
     /// commit ahead of `origin/main`.
     ///
@@ -593,7 +634,7 @@ on real output.\n\n{}\n\nTask id: {task}. When the work is done, run `git add -A
             prompt: prompt.clone(),
         })?;
         let attempt_committed = if matches!(&agent, RunOutcome::Succeeded { .. }) {
-            target.worktree_is_committed(&worktree)?
+            target.worktree_has_work_after(&worktree, &base)?
         } else {
             false
         };
@@ -1004,6 +1045,52 @@ mod tests {
         assert!(!report.committed);
         assert!(!report.accepted);
         assert_eq!(report.attempts.len(), 1);
+    }
+
+    #[test]
+    fn a_record_only_commit_is_not_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks = dir.path().join(".agents").join("tasks");
+        std::fs::create_dir_all(&tasks).unwrap();
+        std::fs::write(
+            tasks.join("T-AGENT-3.json"),
+            r#"{"accept":"cargo test -p susi-harness"}"#,
+        )
+        .unwrap();
+        let target = target(vec![
+            ok(&format!("cd {}\n", dir.path().display())),
+            ok(""),
+            ok("added T-AGENT-3 — commit\n"),
+            ok(""),
+            ok(""),
+            ok(""),
+            ok("base123\n"),
+            ok(""),
+            ok(""),
+        ]);
+        let exec = FakeExec {
+            outcome: RunOutcome::Succeeded {
+                final_text: "done".into(),
+                reported_cost_usd: None,
+            },
+            prompts: Mutex::new(Vec::new()),
+        };
+        let spec = SusiTaskSpec {
+            worktree_name: "smoke".into(),
+            title: "docs".into(),
+            accept: "cargo test -p susi-harness".into(),
+            scopes: vec!["docs/harness.md".into()],
+            prompt: "write docs".into(),
+            program: PathBuf::from("openclaw"),
+            gateway_url: "http://127.0.0.1:1".into(),
+            model: "deepseek-flash".into(),
+            alternates: Vec::new(),
+            timeout: Duration::from_secs(5),
+            state_dir: dir.path().join("state"),
+        };
+        let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
+        assert!(!report.committed);
+        assert!(!report.accepted);
     }
 
     #[test]
