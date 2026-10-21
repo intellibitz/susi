@@ -71,6 +71,7 @@ pub mod event;
 pub mod executor;
 pub mod gateway;
 pub mod ledger;
+pub mod lifecycle;
 pub mod litellm;
 pub mod money;
 pub mod policy;

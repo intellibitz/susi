@@ -43,8 +43,17 @@ EVENT_FILE = Path(".agents/rsi-loop.jsonl")
 
 def git(*args: str, cwd: Path) -> str:
     """Return git output, or an empty string when this is not a git checkout."""
+    # Commit messages are bytes from every authoring tool. Decoding them with
+    # the Windows console code page (cp1252) crashes on a valid UTF-8 message,
+    # and one bad byte must not hide the whole scorecard.
     result = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
     return result.stdout if result.returncode == 0 else ""
 

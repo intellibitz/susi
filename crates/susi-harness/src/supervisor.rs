@@ -16,6 +16,7 @@ use crate::budget::{Budget, BudgetGuard};
 use crate::catalog::PriceCatalogue;
 use crate::control::ControlState;
 use crate::executor::{RunOutcome, Runner};
+use crate::lifecycle::{self, LifecycleEvent};
 use crate::policy::Policy;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -420,6 +421,8 @@ pub struct SusiExecutor<'a, R: CommandRunner> {
     pub timeout: Duration,
     /// Per-task adapter state root.
     pub state_dir: PathBuf,
+    /// Self-build lifecycle ledger the scorecard reads; `None` disables it.
+    pub lifecycle_path: Option<PathBuf>,
     /// Built on the first prepare when a budget is set.
     pub guard: std::sync::OnceLock<BudgetGuard>,
     /// Set once the budget refused an attempt.
@@ -465,6 +468,7 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
         if report.budget_exhausted {
             self.exhausted.store(true, Ordering::SeqCst);
         }
+        self.emit_work(&report);
         Ok(report)
     }
 
@@ -480,12 +484,87 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             });
         }
         land(self.target, &report)?;
+        self.emit_merged(&report);
         Ok(TaskStatus::Done { task: report.task })
     }
 
     fn budget_exhausted(&self) -> bool {
         self.exhausted.load(Ordering::SeqCst)
     }
+}
+
+impl<R: CommandRunner> SusiExecutor<'_, R> {
+    /// Record what the prepare phase proved, before landing.
+    fn emit_work(&self, report: &SusiRunReport) {
+        let Some(path) = &self.lifecycle_path else {
+            return;
+        };
+        let detail = format!(
+            "{} attempt(s); {}",
+            report.attempts.len(),
+            describe(&report.agent)
+        );
+        for event in work_events(
+            &report.task,
+            report.committed,
+            report.accepted,
+            detail,
+            lifecycle::now_unix(),
+        ) {
+            write_lifecycle(path, &event);
+        }
+    }
+
+    /// Record the merge and what the task cost, once landing returned.
+    ///
+    /// `workflow finish` returns only after the accepted close is published, so
+    /// this point is the first one where the harness can truthfully say
+    /// `merged` rather than `pushed`.
+    fn emit_merged(&self, report: &SusiRunReport) {
+        let Some(path) = &self.lifecycle_path else {
+            return;
+        };
+        let cost = lifecycle::task_cost(&self.ledger_path, &self.mission, &report.task);
+        write_lifecycle(
+            path,
+            &LifecycleEvent::merged(&report.task, lifecycle::now_unix(), cost),
+        );
+    }
+}
+
+/// A lifecycle write must never fail a mission that otherwise succeeded: the
+/// scorecard is evidence, not a gate. A broken path is reported on stderr.
+fn write_lifecycle(path: &Path, event: &LifecycleEvent) {
+    if let Err(error) = lifecycle::append(path, event) {
+        eprintln!("harness: lifecycle write failed: {error}");
+    }
+}
+
+/// The events a prepared task earns: a committed change is `implemented`, a
+/// passing acceptance is `gated`, and anything else is a `defect` carrying the
+/// reason. Pure, so the decision is testable without a repository.
+fn work_events(
+    task: &str,
+    committed: bool,
+    accepted: bool,
+    detail: String,
+    at_unix: u64,
+) -> Vec<LifecycleEvent> {
+    let mut events = Vec::new();
+    if committed {
+        events.push(LifecycleEvent::new(task, "implemented", at_unix));
+    }
+    if accepted {
+        events.push(LifecycleEvent::new(task, "gated", at_unix));
+    } else {
+        events.push(LifecycleEvent::defect(
+            task,
+            at_unix,
+            "not-accepted",
+            detail,
+        ));
+    }
+    events
 }
 
 fn describe(outcome: &RunOutcome) -> String {
@@ -654,5 +733,23 @@ mod tests {
         }"#;
         assert!(Plan::from_json(no_scopes).is_err());
         assert!(Plan::from_json("{}").is_err());
+    }
+
+    fn phases(events: &[LifecycleEvent]) -> Vec<&str> {
+        events.iter().map(|event| event.phase.as_str()).collect()
+    }
+
+    #[test]
+    fn a_prepared_task_earns_its_lifecycle_events() {
+        let accepted = work_events("T-1", true, true, "ok".into(), 10);
+        assert_eq!(phases(&accepted), vec!["implemented", "gated"]);
+
+        let rejected = work_events("T-1", true, false, "tests red".into(), 10);
+        assert_eq!(phases(&rejected), vec!["implemented", "defect"]);
+        assert_eq!(rejected[1].outcome.as_deref(), Some("not-accepted"));
+        assert_eq!(rejected[1].detail.as_deref(), Some("tests red"));
+
+        let nothing = work_events("T-1", false, false, "no work".into(), 10);
+        assert_eq!(phases(&nothing), vec!["defect"]);
     }
 }

@@ -1,0 +1,19 @@
+{
+  "id": "T-HARNESSCEO1-4",
+  "title": "Emit harness cost and defects into the self-build lifecycle ledger",
+  "goal": "The RSI scorecard reads .agents/rsi-loop.jsonl for cost and defect evidence, but nothing writes it. The harness is the component that knows per-task spend and failed attempts; emit merged cost and defect events, and give the scorecard a production caller in the susi CLI.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-015",
+  "created_by": "HARNESSCEO1",
+  "created_unix": 1792616608
+}
