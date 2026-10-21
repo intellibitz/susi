@@ -81,3 +81,8 @@ The iframe has not loaded yet, or the server is not running. Start
 `susi harness cockpit … --port 9181` in the mission workspace. The panel's URL is
 editable and the setting is stored in the browser, so a cockpit on another port
 works without reinstalling the plugin.
+
+## Embedding the cockpit in another desktop
+
+The panel is one HTML page with no build step. Embed `http://127.0.0.1:9181/?embed=1` in an iframe; the JSON API at `/api/status` is the contract for a native surface. The DeepSeek Harness plugin in `deploy/dsh-cockpit` is the reference: a sidebar entry and a main panel around the same page.
+

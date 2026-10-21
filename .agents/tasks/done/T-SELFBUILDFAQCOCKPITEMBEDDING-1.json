@@ -1,0 +1,23 @@
+{
+  "id": "T-SELFBUILDFAQCOCKPITEMBEDDING-1",
+  "title": "docs: document cockpit embedding in the harness FAQ",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "SELFBUILDFAQCOCKPITEMBEDDING",
+  "created_unix": 1792613394,
+  "closed": {
+    "at_unix": 1792613638,
+    "commit": "da78eb058ae30a75004f0f28b32a50d01ae6c614",
+    "by": "SELFBUILDFAQCOCKPITEMBEDDING"
+  }
+}
