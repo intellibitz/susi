@@ -96,9 +96,18 @@ fn validate_acceptance(accept: &str, key: &str, facts: &RepoFacts) -> EaiResult<
                 }
             }
             if packages.is_empty() {
-                return Err(EaiError::config(format!(
-                    "task {key}: acceptance names no package"
-                )));
+                // A concrete integration-test target or a nextest filter still
+                // selects tests, and the queue's own close runs the command.
+                // Requiring `-p` would reject valid roadmap tasks.
+                let has_target = argv.windows(2).any(|window| window[0] == "--test");
+                let has_filter = argv
+                    .iter()
+                    .any(|argument| *argument == "-E" || argument.starts_with("test("));
+                if !has_target && !has_filter {
+                    return Err(EaiError::config(format!(
+                        "task {key}: acceptance names no package or test target"
+                    )));
+                }
             }
             for package in packages {
                 if !facts.packages.contains(package) {
@@ -120,7 +129,7 @@ fn validate_acceptance(accept: &str, key: &str, facts: &RepoFacts) -> EaiResult<
             }
         }
         _ => Err(EaiError::config(format!(
-            "task {key}: acceptance must be `cargo test|nextest ... -p <crate>` or an existing `scripts/` checker"
+            "task {key}: acceptance must be `cargo test|nextest` with `-p`, a `--test` target or an `-E` filter, or an existing `scripts/` checker"
         ))),
     }
 }
@@ -201,6 +210,24 @@ mod tests {
         )
         .is_ok());
         assert!(validate_plan(&plan("scripts/check.sh", "docs"), &facts).is_ok());
+        // Queue tasks name a concrete test target or filter instead of a
+        // package; that is still a test-shaped acceptance.
+        assert!(validate_plan(
+            &plan(
+                "cargo test --locked --test gmcp_requirements gmcp_req_1",
+                "docs"
+            ),
+            &facts
+        )
+        .is_ok());
+        assert!(validate_plan(
+            &plan(
+                "cargo nextest run --locked -E test(vc_201_046_mastery)",
+                "docs"
+            ),
+            &facts
+        )
+        .is_ok());
     }
 
     #[test]
@@ -218,6 +245,7 @@ mod tests {
         assert!(validate_plan(&plan("cargo check -p susi-harness", "docs"), &facts).is_err());
         assert!(validate_plan(&plan("scripts/missing.sh", "docs"), &facts).is_err());
         assert!(validate_plan(&plan("cargo --version", "docs"), &facts).is_err());
+        assert!(validate_plan(&plan("cargo test", "docs"), &facts).is_err());
     }
 
     #[test]
