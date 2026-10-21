@@ -47,6 +47,10 @@ fn main() {
             print(json!({"ok": false, "error": "timed out"}));
             std::process::exit(1);
         }
+        Ok(RunOutcome::Stalled { message }) => {
+            print(json!({"ok": false, "error": message}));
+            std::process::exit(1);
+        }
         Err(error) => fail(&error.to_string()),
     }
 }
@@ -73,6 +77,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
     let mut task = String::new();
     let mut attempt: u32 = 1;
     let mut timeout: u64 = 600;
+    let mut stall_secs: u64 = 0;
     let mut prompt_words: Vec<String> = Vec::new();
 
     while let Some(argument) = args.next() {
@@ -93,6 +98,11 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
                 timeout = take(&mut args, &argument)?
                     .parse()
                     .map_err(|_| "timeout must be a number of seconds".to_string())?;
+            }
+            "--stall-secs" => {
+                stall_secs = take(&mut args, &argument)?
+                    .parse()
+                    .map_err(|_| "stall-secs must be a number of seconds".to_string())?;
             }
             other if other.starts_with("--") => {
                 return Err(format!("unknown argument {other}"));
@@ -133,6 +143,8 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
         task,
         attempt,
         timeout: Duration::from_secs(timeout),
+        stall_after: (stall_secs > 0).then(|| Duration::from_secs(stall_secs)),
+        ledger_path: None,
         prompt: prompt_words.join(" "),
     })
 }

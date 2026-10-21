@@ -59,6 +59,13 @@ Spend is bounded before an attempt, not discovered after the bill.
 - The cockpit warns at four fifths of the cap and the panel's bar turns amber,
   then red at nine tenths.
 
+A turn that makes calls but never writes is not progress either. The adapter
+watches the worktree while a worker runs; when it has not changed for
+`--stall-secs` (default 300), the process tree is killed and the attempt is
+recorded as `stalled`, which the ladder escalates like any other semantic
+failure. The wall-clock timeout remains the outer bound; the stall guard is the
+one that stops a reading loop before it can spend the mission.
+
 A mission budget needs a price catalogue: `susi harness run --budget-usd 0.50
 --catalogue deploy/litellm/prices.json ...`.
 

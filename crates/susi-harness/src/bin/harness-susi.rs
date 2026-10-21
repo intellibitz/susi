@@ -51,6 +51,7 @@ fn main() {
         RunOutcome::Succeeded { final_text, .. } => final_text.clone(),
         RunOutcome::Failed { message } => message.clone(),
         RunOutcome::TimedOut => "timed out".to_string(),
+        RunOutcome::Stalled { message } => message.clone(),
     };
     let summary = json!({
         "task": report.task,
@@ -89,6 +90,7 @@ fn describe(outcome: &RunOutcome) -> &'static str {
         RunOutcome::Succeeded { .. } => "succeeded",
         RunOutcome::Failed { .. } => "failed",
         RunOutcome::TimedOut => "timed_out",
+        RunOutcome::Stalled { .. } => "stalled",
     }
 }
 

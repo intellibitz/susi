@@ -425,6 +425,8 @@ pub struct SusiExecutor<'a, R: CommandRunner> {
     pub policy: Policy,
     /// Per-turn deadline.
     pub timeout: Duration,
+    /// Kill a turn whose worktree has not changed for this long.
+    pub stall_after: Duration,
     /// Per-task adapter state root.
     pub state_dir: PathBuf,
     /// Self-build lifecycle ledger the scorecard reads; `None` disables it.
@@ -470,6 +472,7 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             ledger_path: &self.ledger_path,
             mission: &self.mission,
             policy: self.policy,
+            stall_after: self.stall_after,
         };
         let report = run_task(self.target, &spec, self.runner, &run_policy)?;
         if report.budget_exhausted {
@@ -579,6 +582,7 @@ fn describe(outcome: &RunOutcome) -> String {
         RunOutcome::Succeeded { .. } => "succeeded".to_string(),
         RunOutcome::Failed { message } => format!("failed: {message}"),
         RunOutcome::TimedOut => "timed_out".to_string(),
+        RunOutcome::Stalled { message } => format!("stalled: {message}"),
     }
 }
 

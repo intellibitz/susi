@@ -41,6 +41,15 @@ pub struct ExecutorConfig {
     pub attempt: u32,
     /// Wall-clock deadline.
     pub timeout: Duration,
+    /// Kill the turn when the workspace has not changed for this long.
+    ///
+    /// With a ledger, the clock starts at the task's first priced call, so a
+    /// slow agent startup is not mistaken for a stall. Without one, it starts
+    /// when the process does.
+    pub stall_after: Option<Duration>,
+    /// Ledger the gateway writes, used to see call activity while the
+    /// workspace stays untouched.
+    pub ledger_path: Option<PathBuf>,
     /// The instruction handed to the agent.
     pub prompt: String,
 }
@@ -62,6 +71,11 @@ pub enum RunOutcome {
     },
     /// The wall clock expired; the process tree was killed.
     TimedOut,
+    /// The workspace stopped changing mid-turn; the process tree was killed.
+    Stalled {
+        /// Why and for how long.
+        message: String,
+    },
 }
 
 /// Run one headless turn, killing the process tree at the deadline.
@@ -99,21 +113,65 @@ pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
     // A grace period over the agent's own deadline, so its own timeout can
     // fire first and report why; past this we kill the tree ourselves.
     let deadline = Instant::now() + config.timeout + Duration::from_secs(30);
+    let mut stall_after = config.stall_after;
+    let mut last_write: Option<Instant> = None;
+    let mut calls_seen: usize = 0;
+    // Without a ledger there is no call clock; start one when the process does.
+    let mut first_call = config.ledger_path.is_none().then(Instant::now);
+    let mut next_progress_check = Instant::now() + Duration::from_secs(10);
     loop {
         match child.try_wait() {
             Ok(Some(_status)) => break,
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Ok(None) => {
-                kill_tree(&mut child);
-                return Ok(RunOutcome::TimedOut);
-            }
+            Ok(None) => {}
             Err(error) => {
                 kill_tree(&mut child);
                 return Err(EaiError::process(format!("wait for agent: {error}")));
             }
         }
+        let now = Instant::now();
+        if now >= deadline {
+            kill_tree(&mut child);
+            return Ok(RunOutcome::TimedOut);
+        }
+        if let Some(limit) = stall_after {
+            if now >= next_progress_check {
+                next_progress_check = now + Duration::from_secs(10);
+                match workspace_changed(&config.workspace) {
+                    Some(true) => {
+                        last_write = Some(now);
+                    }
+                    Some(false) => {
+                        if let Some(path) = &config.ledger_path {
+                            if let Some(calls) = ledger_calls(path, &config.mission, &config.task) {
+                                if calls > calls_seen {
+                                    calls_seen = calls;
+                                    if first_call.is_none() {
+                                        first_call = Some(now);
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(started) = last_write.or(first_call) {
+                            let quiet = now.duration_since(started);
+                            if quiet > limit {
+                                kill_tree(&mut child);
+                                return Ok(RunOutcome::Stalled {
+                                    message: format!(
+                                        "no workspace change for {}s after {} call(s); the turn was stopped",
+                                        quiet.as_secs(),
+                                        calls_seen
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                    // Not a git worktree: a non-change cannot be proven, so
+                    // the guard disables itself for this turn.
+                    None => stall_after = None,
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 
     let out = String::from_utf8_lossy(&stdout.join().unwrap_or_default()).into_owned();
@@ -290,6 +348,45 @@ fn tail(text: &str) -> String {
     text.get(start..).unwrap_or(text).to_string()
 }
 
+/// Whether the workspace has uncommitted or untracked changes.
+///
+/// `None` means the question cannot be answered (not a git checkout, git
+/// missing), and the stall guard must not guess.
+fn workspace_changed(workspace: &Path) -> Option<bool> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(workspace)
+        .args(["status", "--porcelain"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
+}
+
+/// Priced calls already recorded for one mission and task.
+///
+/// `None` means the ledger cannot be read; the guard then has no call clock and
+/// must not invent one.
+fn ledger_calls(path: &Path, mission: &str, task: &str) -> Option<usize> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut calls = 0;
+    for line in text.lines() {
+        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if entry.get("mission").and_then(Value::as_str) == Some(mission)
+            && entry.get("task").and_then(Value::as_str) == Some(task)
+        {
+            calls += 1;
+        }
+    }
+    Some(calls)
+}
+
 #[cfg(windows)]
 fn kill_tree(child: &mut Child) {
     let pid = child.id().to_string();
@@ -322,6 +419,8 @@ mod tests {
             task: "exec-1".into(),
             attempt: 3,
             timeout: Duration::from_secs(60),
+            stall_after: None,
+            ledger_path: None,
             prompt: "say OK".into(),
         }
     }
@@ -443,5 +542,35 @@ mod tests {
     #[test]
     fn no_envelope_is_none() {
         assert_eq!(parse_envelope("plain text only"), None);
+    }
+
+    #[test]
+    fn a_workspace_change_is_only_provable_in_a_git_checkout() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(workspace_changed(dir.path()), None);
+        let initialized = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir.path())
+            .status();
+        if !initialized.map(|status| status.success()).unwrap_or(false) {
+            return; // git is not available in this test environment
+        }
+        assert_eq!(workspace_changed(dir.path()), Some(false));
+        std::fs::write(dir.path().join("written.txt"), "work").unwrap();
+        assert_eq!(workspace_changed(dir.path()), Some(true));
+    }
+
+    #[test]
+    fn ledger_calls_counts_only_that_task() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.jsonl");
+        std::fs::write(
+            &path,
+            "{\"mission\":\"m\",\"task\":\"t\"}\n{\"mission\":\"m\",\"task\":\"t\"}\n\
+             {\"mission\":\"m\",\"task\":\"x\"}\nnot json\n",
+        )
+        .unwrap();
+        assert_eq!(ledger_calls(&path, "m", "t"), Some(2));
+        assert_eq!(ledger_calls(&dir.path().join("absent"), "m", "t"), None);
     }
 }

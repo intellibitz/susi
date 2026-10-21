@@ -1,0 +1,24 @@
+{
+  "id": "T-HARNESSCEO1-7",
+  "title": "Stop a worker turn that makes calls but writes nothing",
+  "goal": "Two roadmap attempts spent 46 calls and .106 reading without a repository write. Kill a turn when the worktree has not changed for a bounded time, report it as stalled, and let the ladder escalate instead of waiting for the wall-clock deadline.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-015",
+  "created_by": "HARNESSCEO1",
+  "created_unix": 1792622619,
+  "closed": {
+    "at_unix": 1792623213,
+    "commit": "afe48c4abc3b5ac09a38fef32f3bd3edf72e87bf",
+    "by": "HARNESSCEO1"
+  }
+}
