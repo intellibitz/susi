@@ -15,5 +15,10 @@
   },
   "roadmap": "VC-202-015",
   "created_by": "HARNESSCEO1",
-  "created_unix": 1792622619
+  "created_unix": 1792622619,
+  "closed": {
+    "at_unix": 1792623213,
+    "commit": "afe48c4abc3b5ac09a38fef32f3bd3edf72e87bf",
+    "by": "HARNESSCEO1"
+  }
 }
