@@ -35,6 +35,7 @@ struct Options {
     provider: String,
     api_key_env: String,
     timeout: u64,
+    max_output_tokens: Option<u32>,
 }
 
 fn main() {
@@ -68,6 +69,7 @@ async fn run(options: Options) -> Result<(), String> {
         provider: options.provider,
         api_key,
         timeout_secs: options.timeout,
+        max_output_tokens: options.max_output_tokens,
     });
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", options.port))
         .await
@@ -90,6 +92,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut provider = String::from("upstream");
     let mut api_key_env = String::from("DEEPSEEK_API_KEY");
     let mut timeout: u64 = 120;
+    let mut max_output_tokens: Option<u32> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--port" => {
@@ -106,6 +109,13 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
                 timeout = take(&mut args, &flag)?
                     .parse()
                     .map_err(|_| "timeout must be a number of seconds".to_string())?;
+            }
+            "--max-output-tokens" => {
+                max_output_tokens = Some(
+                    take(&mut args, &flag)?
+                        .parse()
+                        .map_err(|_| "max-output-tokens must be a number".to_string())?,
+                );
             }
             other => return Err(format!("unknown argument {other}")),
         }
@@ -127,6 +137,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         provider,
         api_key_env,
         timeout,
+        max_output_tokens,
     })
 }
 
@@ -167,6 +178,7 @@ mod tests {
         assert_eq!(options.provider, "deepseek");
         assert_eq!(options.api_key_env, "DEEPSEEK_API_KEY");
         assert_eq!(options.timeout, 120);
+        assert!(options.max_output_tokens.is_none());
     }
 
     #[test]

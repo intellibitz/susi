@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSLITELLM-6",
+  "title": "gateway: cap the output tokens a worker turn may request",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSLITELLM",
+  "created_unix": 1792601145
+}
