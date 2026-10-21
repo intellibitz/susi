@@ -131,7 +131,7 @@ pub enum TaskStatus {
 }
 
 /// What the supervisor did.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SupervisorReport {
     /// Mission id.
     pub mission: String,

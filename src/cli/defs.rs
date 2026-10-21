@@ -24,6 +24,7 @@ use super::extensions_cli;
 use super::framework_cli;
 use super::frontier_cli;
 use super::gemini_cli;
+use super::harness_cli;
 use super::intent_cli;
 use super::mcp_cli;
 use super::model_cli;
@@ -109,6 +110,11 @@ pub(crate) enum Commands {
     Workflow {
         #[command(subcommand)]
         action: workflow_cli::WorkflowCommands,
+    },
+    /// Harness orchestration: author a plan, run a mission, read the cockpit
+    Harness {
+        #[command(subcommand)]
+        action: harness_cli::HarnessCommands,
     },
     /// The shared task queue: add, claim (atomic), close (only when the check passes)
     Tasks {
