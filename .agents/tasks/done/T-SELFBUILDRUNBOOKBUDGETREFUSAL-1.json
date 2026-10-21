@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "SELFBUILDRUNBOOKBUDGETREFUSAL",
-  "created_unix": 1792612436
+  "created_unix": 1792612436,
+  "closed": {
+    "at_unix": 1792612685,
+    "commit": "595c4e6f5ad2a77815e92073e46484a91af13462",
+    "by": "SELFBUILDRUNBOOKBUDGETREFUSAL"
+  }
 }
