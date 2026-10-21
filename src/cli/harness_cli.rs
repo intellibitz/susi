@@ -13,6 +13,7 @@ use susi_harness::adapter::SusiTarget;
 use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
 use susi_harness::cockpit::Cockpit;
 use susi_harness::executor::OpenClaw;
+use susi_harness::litellm::Launcher;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
 
@@ -73,6 +74,27 @@ pub enum HarnessCommands {
         #[arg(long)]
         susi: Option<PathBuf>,
     },
+    /// Start the LiteLLM proxy the gateway points at (caching + providers)
+    Litellm {
+        /// LiteLLM config file
+        #[arg(long, default_value = "deploy/litellm/config.yaml")]
+        config: PathBuf,
+        /// Interface to bind
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port to bind
+        #[arg(long, default_value_t = 4000)]
+        port: u16,
+        /// The litellm executable
+        #[arg(long, default_value = "litellm")]
+        litellm: PathBuf,
+        /// Where the proxy log is written
+        #[arg(long, default_value = "harness-litellm")]
+        state: PathBuf,
+        /// How long to wait for liveness, seconds
+        #[arg(long, default_value_t = 120)]
+        ready_timeout: u64,
+    },
     /// Print the cockpit snapshot for a ledger
     Status {
         /// Ledger the gateway wrote
@@ -91,6 +113,14 @@ pub enum HarnessCommands {
 /// Returns the first error from authoring, validation, execution or I/O.
 pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
     match action {
+        HarnessCommands::Litellm {
+            config,
+            host,
+            port,
+            litellm,
+            state,
+            ready_timeout,
+        } => start_proxy(config, host, port, litellm, state, ready_timeout),
         HarnessCommands::Status { ledger, events } => {
             let cockpit = Cockpit {
                 ledger_path: ledger,
@@ -134,6 +164,35 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             cwd,
         ),
     }
+}
+
+#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
+fn start_proxy(
+    config: PathBuf,
+    host: String,
+    port: u16,
+    program: PathBuf,
+    state: PathBuf,
+    ready_timeout: u64,
+) -> Result<()> {
+    let launcher = Launcher {
+        config,
+        host: host.clone(),
+        port,
+        program,
+        state_dir: state,
+        ready_timeout: Duration::from_secs(ready_timeout),
+    };
+    for name in launcher.missing_keys()? {
+        eprintln!("susi harness litellm: {name} is unset; models that use it fail until it is set");
+    }
+    let mut child = launcher.launch()?;
+    println!("litellm listening on http://{host}:{port}");
+    let status = child.wait().context("wait for litellm")?;
+    if !status.success() {
+        bail!("litellm exited with {status}");
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
