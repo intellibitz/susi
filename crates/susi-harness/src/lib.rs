@@ -29,6 +29,8 @@
 //!   including DeepSeek's and Gemini's cache-hit counts.
 //! - [`ledger`] is the append-only record of every attempt, priced at the rate
 //!   in force when it ran, so spend can always be explained after the fact.
+//! - [`litellm`] is the model proxy behind the gateway: one OpenAI-compatible
+//!   surface over DeepSeek, SiliconFlow, DashScope and Gemini, with caching.
 //! - [`event`] is the live, human-readable feed: one row per action, no code.
 //! - [`gateway`] meters a completion: forward it, price the provider's own
 //!   usage, and append the ledger row before answering.
@@ -63,6 +65,7 @@ pub mod event;
 pub mod executor;
 pub mod gateway;
 pub mod ledger;
+pub mod litellm;
 pub mod money;
 pub mod pricing;
 pub mod scheduler;

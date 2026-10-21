@@ -1,0 +1,45 @@
+{
+  "schema": "susi/harness/prices/v1",
+  "models": {
+    "deepseek-flash": {
+      "input_hit": 3000,
+      "input_miss": 150000,
+      "output": 600000
+    },
+    "deepseek-chat": {
+      "input_hit": 28000,
+      "input_miss": 280000,
+      "output": 420000
+    },
+    "deepseek-reasoner": {
+      "input_hit": 28000,
+      "input_miss": 280000,
+      "output": 420000
+    },
+    "siliconflow-qwen": {
+      "input_hit": 350000,
+      "input_miss": 350000,
+      "output": 1200000
+    },
+    "siliconflow-deepseek": {
+      "input_hit": 250000,
+      "input_miss": 250000,
+      "output": 1000000
+    },
+    "dashscope-qwen-plus": {
+      "input_hit": 400000,
+      "input_miss": 400000,
+      "output": 1200000
+    },
+    "dashscope-qwen-max": {
+      "input_hit": 1600000,
+      "input_miss": 1600000,
+      "output": 6400000
+    },
+    "gemini-flash": {
+      "input_hit": 30000,
+      "input_miss": 300000,
+      "output": 2500000
+    }
+  }
+}
