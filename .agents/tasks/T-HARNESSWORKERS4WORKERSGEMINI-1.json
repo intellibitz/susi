@@ -1,0 +1,18 @@
+{
+  "id": "T-HARNESSWORKERS4WORKERSGEMINI-1",
+  "title": "docs: add a gemini worker note",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSWORKERS4WORKERSGEMINI",
+  "created_unix": 1792605931
+}
