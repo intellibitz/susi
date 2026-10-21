@@ -393,6 +393,8 @@ fn run_task(
             task: task.id.clone(),
             attempt: attempt.number,
             timeout: config.timeout,
+            stall_after: None,
+            ledger_path: None,
             prompt: task.prompt.clone(),
         });
         let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -433,6 +435,18 @@ fn run_task(
                     estimate,
                 };
                 ladder.record(&attempt.model, kind, &message);
+                result
+            }
+            Ok(RunOutcome::Stalled { message }) => {
+                let result = AttemptResult {
+                    model: attempt.model.clone(),
+                    outcome: AttemptOutcome::Failed {
+                        message: message.clone(),
+                    },
+                    elapsed_ms,
+                    estimate,
+                };
+                ladder.record(&attempt.model, FailureKind::Semantic, &message);
                 result
             }
             Ok(RunOutcome::TimedOut) => {

@@ -41,6 +41,7 @@ struct Options {
     rsi_log: Option<PathBuf>,
     max_attempts: usize,
     timeout: Duration,
+    stall_after: Duration,
     prefix: String,
     adapter_state: PathBuf,
     parallel: usize,
@@ -81,6 +82,7 @@ fn main() {
             ..Policy::default()
         },
         timeout: options.timeout,
+        stall_after: options.stall_after,
         state_dir: options.adapter_state,
         lifecycle_path: options.rsi_log,
         guard: std::sync::OnceLock::new(),
@@ -127,6 +129,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut controls = PathBuf::from("out/control.jsonl");
     let mut rsi_log: Option<PathBuf> = None;
     let mut max_attempts: usize = 4;
+    let mut stall_secs: u64 = 300;
     let mut timeout: u64 = 900;
     let mut prefix = String::from("harness");
     let mut adapter_state = PathBuf::new();
@@ -161,6 +164,11 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
                 timeout = take(&mut args, &argument)?
                     .parse()
                     .map_err(|_| "timeout must be a number of seconds".to_string())?;
+            }
+            "--stall-secs" => {
+                stall_secs = take(&mut args, &argument)?
+                    .parse()
+                    .map_err(|_| "stall-secs must be a number of seconds".to_string())?;
             }
             "--prefix" => prefix = take(&mut args, &argument)?,
             "--adapter-state" => adapter_state = PathBuf::from(take(&mut args, &argument)?),
@@ -215,6 +223,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         rsi_log,
         max_attempts: max_attempts.max(1),
         timeout: Duration::from_secs(timeout),
+        stall_after: Duration::from_secs(stall_secs.max(30)),
         prefix,
         adapter_state,
         parallel,

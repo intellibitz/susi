@@ -24,6 +24,8 @@ use susi_harness::queue;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
 
+#[allow(clippy::large_enum_variant)]
+// a CLI flag bag: every variant is argument storage, and boxing one would only relocate the flags clap derives in place
 #[derive(Debug, Subcommand)]
 pub enum HarnessCommands {
     /// Author a plan from a roadmap vector, through the metered gateway
@@ -90,6 +92,9 @@ pub enum HarnessCommands {
         /// Per-turn deadline, seconds
         #[arg(long, default_value_t = 900)]
         timeout: u64,
+        /// Kill a turn whose worktree has not changed for this many seconds
+        #[arg(long, default_value_t = 300)]
+        stall_secs: u64,
         /// Tasks prepared at once (landing is always serial)
         #[arg(long, default_value_t = 1)]
         parallel: usize,
@@ -288,6 +293,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             gateway,
             model,
             timeout,
+            stall_secs,
             parallel,
             prefix,
             workers,
@@ -307,6 +313,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             &gateway,
             &model,
             timeout,
+            stall_secs,
             parallel,
             &prefix,
             &workers,
@@ -562,6 +569,7 @@ fn run(
     gateway: &str,
     model: &str,
     timeout: u64,
+    stall_secs: u64,
     parallel: usize,
     prefix: &str,
     workers: &str,
@@ -628,6 +636,7 @@ fn run(
             ..Policy::default()
         },
         timeout: Duration::from_secs(timeout),
+        stall_after: Duration::from_secs(stall_secs.max(30)),
         state_dir: adapter_state.to_path_buf(),
         lifecycle_path: Some(rsi_log.to_path_buf()),
         guard: std::sync::OnceLock::new(),
