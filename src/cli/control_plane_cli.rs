@@ -23,6 +23,7 @@ use super::extensions_cli;
 use super::framework_cli;
 use super::frontier_cli;
 use super::gemini_cli;
+use super::harness_cli;
 use super::intent_cli;
 use super::mcp_cli;
 use super::model_cli;
@@ -56,6 +57,7 @@ use susi_daemon::SusiDaemon;
 /// Returns `Ok(exit_code)` when the command was handled; `Err(command)` hands
 /// the unconsumed command back so the caller can continue to substrate boot +
 /// mission dispatch.
+#[allow(clippy::result_large_err)] // Err is the whole unconsumed `Commands`, handed back by design
 pub(crate) fn dispatch(
     command: Option<Commands>,
 ) -> Result<std::process::ExitCode, Option<Commands>> {
@@ -96,6 +98,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Workflow { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             workflow_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Harness { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            harness_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Tasks { action }) = command {
@@ -294,6 +301,7 @@ pub(crate) fn dispatch(
 /// Handle the `mcp` command pre-boot branch. Returns `Ok(exit_code)` when
 /// handled; `Err(command)` hands it back for the substrate-boot path
 /// (`mcp serve` / bare `mcp` serve SUSI's stdio endpoint post-boot).
+#[allow(clippy::result_large_err)] // Err is the whole unconsumed `Commands`, handed back by design
 pub(crate) fn dispatch_mcp(
     command: Option<Commands>,
 ) -> Result<std::process::ExitCode, Option<Commands>> {

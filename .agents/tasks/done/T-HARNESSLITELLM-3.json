@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSLITELLM-3",
+  "title": "susi harness: drive the orchestration from the susi binary",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSLITELLM",
+  "created_unix": 1792599830,
+  "closed": {
+    "at_unix": 1792599898,
+    "commit": "d3dc94ddb57e8e4d53f0364c9760f5d1b6e6d703",
+    "by": "HARNESSLITELLM"
+  }
+}

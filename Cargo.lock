@@ -5111,6 +5111,7 @@ dependencies = [
  "susi-gawd-swarm",
  "susi-gemi",
  "susi-gmcp",
+ "susi-harness",
  "susi-leaf-services",
  "susi-paths",
  "susi-sandbox",
