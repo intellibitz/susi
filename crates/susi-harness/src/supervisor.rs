@@ -29,6 +29,12 @@ pub struct PlanTask {
     /// Paths the task reserves.
     #[serde(default)]
     pub scopes: Vec<String>,
+    /// Worker model for this task. When absent, the executor's model is used.
+    ///
+    /// One mission can therefore run a DeepSeek worker on one task and a
+    /// Gemini worker on the next.
+    #[serde(default)]
+    pub model: Option<String>,
     /// The instruction for the agent.
     pub prompt: String,
 }
@@ -349,7 +355,7 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             prompt: task.prompt.clone(),
             program: self.program.clone(),
             gateway_url: self.gateway_url.clone(),
-            model: self.model.clone(),
+            model: task.model.clone().unwrap_or_else(|| self.model.clone()),
             timeout: self.timeout,
             state_dir: self.state_dir.join(&task.key),
         };
@@ -460,6 +466,7 @@ mod tests {
                     title: format!("task {key}"),
                     accept: "cargo test -p susi-harness".into(),
                     scopes: vec!["docs/harness.md".into()],
+                    model: None,
                     prompt: "do it".into(),
                 })
                 .collect(),

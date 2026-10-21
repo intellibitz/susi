@@ -26,6 +26,7 @@ struct Options {
     out: PathBuf,
     max_tasks: usize,
     timeout: u64,
+    workers: Vec<String>,
 }
 
 fn main() {
@@ -60,6 +61,7 @@ fn main() {
         vector: format!("{} {}", options.vector, title),
         target: target.to_string(),
         packages: facts.packages.iter().cloned().collect(),
+        workers: options.workers,
         narrative: tail(narrative, 4000),
         max_tasks: options.max_tasks,
     };
@@ -106,6 +108,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut out = PathBuf::from("plan.json");
     let mut max_tasks: usize = 3;
     let mut timeout: u64 = 300;
+    let mut workers: Vec<String> = vec!["deepseek-chat".into(), "gemini-flash".into()];
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--gateway" => gateway = take(&mut args, &argument)?,
@@ -118,6 +121,13 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
                 max_tasks = take(&mut args, &argument)?
                     .parse()
                     .map_err(|_| "max-tasks must be a number".to_string())?;
+            }
+            "--workers" => {
+                workers = take(&mut args, &argument)?
+                    .split(',')
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .collect();
             }
             "--timeout" => {
                 timeout = take(&mut args, &argument)?
@@ -145,6 +155,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         out,
         max_tasks,
         timeout,
+        workers,
     })
 }
 
