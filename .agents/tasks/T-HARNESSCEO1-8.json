@@ -1,0 +1,19 @@
+{
+  "id": "T-HARNESSCEO1-8",
+  "title": "Prefer the npm OpenClaw shim over the sandboxed Store alias",
+  "goal": "The executor documents that the npm shim must be used, but the default program string 'openclaw' resolves to the sandboxed WindowsApps alias, which spawns persistent session hosts and cannot reliably write the worktree. Resolve a bare 'openclaw' to the npm shim when it exists.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-015",
+  "created_by": "HARNESSCEO1",
+  "created_unix": 1792624310
+}
