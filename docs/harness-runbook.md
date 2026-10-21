@@ -120,3 +120,8 @@ the last operator commands.
   hard cap. Raise `--budget-usd` to spend more.
 - The ledger is append-only. Never edit it by hand; a correction is a new entry
   in the accounting, not a rewrite of history.
+
+## Budget refusals
+
+A refused attempt is not a failure of the model. The cockpit reports `budget_exhausted` and the task stays unstarted. Read the ledger for what the attempts cost, raise the cap with `--budget-usd`, and rerun the same command: the supervisor skips what landed and starts with the task that was refused.
+
