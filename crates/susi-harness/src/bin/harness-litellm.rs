@@ -13,9 +13,8 @@
 //! Launch the LiteLLM proxy that sits behind the metered gateway.
 
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
-use susi_harness::litellm::{argv, environment_names, readiness_url, DEFAULT_CONFIG};
+use std::time::Duration;
+use susi_harness::litellm::{Launcher, DEFAULT_CONFIG};
 
 struct Options {
     config: PathBuf,
@@ -37,37 +36,18 @@ fn main() {
 }
 
 fn run(options: Options) -> Result<(), String> {
-    let text = std::fs::read_to_string(&options.config)
-        .map_err(|error| format!("read {}: {error}", options.config.display()))?;
-    for name in environment_names(&text) {
-        let unset = std::env::var(&name)
-            .map(|value| value.trim().is_empty())
-            .unwrap_or(true);
-        if unset {
-            eprintln!("harness-litellm: {name} is unset; models that use it fail until it is set");
-        }
+    let launcher = Launcher {
+        config: options.config,
+        host: options.host.clone(),
+        port: options.port,
+        program: options.litellm,
+        state_dir: options.state,
+        ready_timeout: Duration::from_secs(options.ready_timeout),
+    };
+    for name in launcher.missing_keys().map_err(|error| error.to_string())? {
+        eprintln!("harness-litellm: {name} is unset; models that use it fail until it is set");
     }
-    std::fs::create_dir_all(&options.state)
-        .map_err(|error| format!("create {}: {error}", options.state.display()))?;
-    let log_path = options.state.join("litellm.log");
-    let log = std::fs::File::create(&log_path)
-        .map_err(|error| format!("create {}: {error}", log_path.display()))?;
-    let stderr = log
-        .try_clone()
-        .map_err(|error| format!("clone {}: {error}", log_path.display()))?;
-    let mut child = Command::new(&options.litellm)
-        .args(argv(&options.config, &options.host, options.port))
-        // LiteLLM prints model names as UTF-8; without this, a redirected
-        // Windows console defaults to cp1252 and startup dies on the first
-        // non-ASCII character.
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUTF8", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(stderr))
-        .spawn()
-        .map_err(|error| format!("spawn {}: {error}", options.litellm.display()))?;
-    wait_ready(&mut child, &options)?;
+    let mut child = launcher.launch().map_err(|error| error.to_string())?;
     println!(
         "harness-litellm listening on http://{}:{}",
         options.host, options.port
@@ -76,39 +56,9 @@ fn run(options: Options) -> Result<(), String> {
         .wait()
         .map_err(|error| format!("wait for litellm: {error}"))?;
     if !status.success() {
-        return Err(format!(
-            "litellm exited with {status}; see {}",
-            log_path.display()
-        ));
+        return Err(format!("litellm exited with {status}"));
     }
     Ok(())
-}
-
-fn wait_ready(child: &mut Child, options: &Options) -> Result<(), String> {
-    let url = readiness_url(&options.host, options.port);
-    let deadline = Instant::now() + Duration::from_secs(options.ready_timeout);
-    let mut last = String::from("no attempt yet");
-    while Instant::now() < deadline {
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| format!("poll litellm: {error}"))?
-        {
-            return Err(format!(
-                "litellm exited before it was ready ({status}); see {}",
-                options.state.join("litellm.log").display()
-            ));
-        }
-        match susi_http_transport::http_call("GET", &url, &[], 2, 0) {
-            Ok(response) if (200..300).contains(&response.status) => return Ok(()),
-            Ok(response) => last = format!("status {}", response.status),
-            Err(error) => last = error,
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    Err(format!(
-        "litellm was not ready after {} s ({last})",
-        options.ready_timeout
-    ))
 }
 
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {

@@ -93,6 +93,8 @@ The mission loop is reachable from the susi binary, not only from the
 `harness-*` bins:
 
 ```sh
+susi harness litellm --config deploy/litellm/config.yaml --port 4000
+
 susi harness author --gateway http://127.0.0.1:9188 --model deepseek-chat \
   --roadmap .agents/roadmap.json VC-203-001 --out plan.json
 
@@ -103,6 +105,6 @@ susi harness status --ledger out/ledger.jsonl
 ```
 
 `author` writes a validated plan, `run` drives the supervisor (prepare in
-parallel, land in order, resume from state), and `status` prints the cockpit
-snapshot. The proxy itself is still launched with `harness-litellm`; nothing
-about the orchestration lives outside the repository.
+parallel, land in order, resume from state), `status` prints the cockpit
+snapshot, and `litellm` starts the proxy the gateway points at — nothing about
+the orchestration lives outside the repository.
