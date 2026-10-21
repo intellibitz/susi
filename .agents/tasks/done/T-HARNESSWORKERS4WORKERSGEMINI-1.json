@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "HARNESSWORKERS4WORKERSGEMINI",
-  "created_unix": 1792605931
+  "created_unix": 1792605931,
+  "closed": {
+    "at_unix": 1792606816,
+    "commit": "f9b11537f8f38cbbe202e8cfc849c927625da3b8",
+    "by": "HARNESSWORKERS4WORKERSGEMINI"
+  }
 }
