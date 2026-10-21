@@ -92,10 +92,11 @@ pub fn plan_batch(
     let records = read_records(&tasks_dir)?;
     let priorities = roadmap_priorities(repo);
     let total = records.len();
+    let crates = crate_names(repo);
     let mut ready = Vec::new();
-    let (mut already_done, mut no_accept, mut no_scope, mut blocked, mut filtered) =
+    let (mut already_done, mut no_accept, mut inferred, mut blocked, mut filtered) =
         (0, 0, 0, 0, 0);
-    for task in records {
+    for mut task in records {
         if done.contains(&task.id) {
             already_done += 1;
             continue;
@@ -110,13 +111,18 @@ pub fn plan_batch(
             no_accept += 1;
             continue;
         }
-        if task.scopes.is_empty() {
-            no_scope += 1;
-            continue;
-        }
         if task.deps.iter().any(|dep| !done.contains(dep)) {
             blocked += 1;
             continue;
+        }
+        if task.scopes.is_empty() {
+            // Legacy roadmap records were authored without scopes: scopes only
+            // ever lived on claims, and these tasks never had one. Infer a
+            // conservative reservation from the goal instead of leaving the
+            // whole queue unclaimable; a wrong guess fails the claim or the
+            // acceptance, it never silently widens a commit.
+            task.scopes = infer_scopes(repo, &task, &crates);
+            inferred += 1;
         }
         ready.push(task);
     }
@@ -145,7 +151,7 @@ pub fn plan_batch(
     }
     if selected.is_empty() {
         return Err(EaiError::config(format!(
-            "no dependency-ready queue task has a free scope (open {total}, ready {}, already-done {already_done}, no-accept {no_accept}, no-scope {no_scope}, dep-blocked {blocked}, roadmap-filtered {filtered}, done ids {})",
+            "no dependency-ready queue task has a free scope (open {total}, ready {}, already-done {already_done}, no-accept {no_accept}, inferred-scope {inferred}, dep-blocked {blocked}, roadmap-filtered {filtered}, done ids {})",
             records.len(),
             done.len()
         )));
@@ -253,6 +259,145 @@ fn normalize(path: &str) -> String {
         .trim_start_matches("./")
         .trim_end_matches('/')
         .to_string()
+}
+
+/// The workspace crate names, used to spot a crate a goal names.
+fn crate_names(repo: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(repo.join("crates")) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .collect();
+    names.sort();
+    names
+}
+
+/// Infer a conservative scope set for a legacy task that declares none.
+///
+/// The goal usually names its crate or paths. Keywords map the broad areas
+/// (GMCP, engine, daemon, …) to the crate that owns them. Metadata paths are
+/// always included so the worker can record a verdict or its own task file.
+/// The result is reduced to the shallowest paths: a claim on `crates/x` covers
+/// `crates/x/src/y`, and reserving both would only make the batch planner
+/// treat two tasks as conflicting.
+fn infer_scopes(repo: &Path, task: &TaskRecord, crates: &[String]) -> Vec<String> {
+    let text = format!(
+        "{} {} {}",
+        task.title,
+        task.goal,
+        task.roadmap.as_deref().unwrap_or_default()
+    )
+    .to_lowercase();
+    let mut scopes: BTreeSet<String> = BTreeSet::new();
+    for token in text.split(|character: char| {
+        character.is_whitespace()
+            || matches!(
+                character,
+                '`' | '"' | '\'' | ',' | '(' | ')' | '[' | ']' | ':' | ';' | '*'
+            )
+    }) {
+        let token = token.trim_end_matches(['.', '!', '?', '/']);
+        if token.len() <= 7 || token.contains("..") {
+            continue;
+        }
+        if [
+            "crates/", "tests/", "docs/", "deploy/", "scripts/", ".agents/",
+        ]
+        .iter()
+        .any(|prefix| token.starts_with(prefix))
+        {
+            scopes.insert(token.to_string());
+        }
+    }
+    for krate in crates {
+        if text.contains(krate) {
+            scopes.insert(format!("crates/{krate}"));
+        }
+    }
+    let keywords: &[(&[&str], &[&str])] = &[
+        (
+            &["gmcp", "mcp"],
+            &[
+                "crates/susi-gmcp",
+                "tests/gmcp_requirements.rs",
+                "docs/gmcp",
+            ],
+        ),
+        (
+            &["gawd", "brain", "swarm"],
+            &["crates/susi-gawd", "crates/susi-gawd-swarm"],
+        ),
+        (&["gemi", "engine"], &["crates/susi-gemi"]),
+        (
+            &["model", "provider", "inference", "embedding"],
+            &["crates/susi-vendor-models"],
+        ),
+        (&["daemon"], &["crates/susi-daemon"]),
+        (&["server"], &["crates/susi-server"]),
+        (&["sandbox"], &["crates/susi-sandbox"]),
+        (&["a2a"], &["crates/susi-gawd-a2a"]),
+        (
+            &[
+                "harness",
+                "orchestr",
+                "gateway",
+                "litellm",
+                "openclaw",
+                "budget",
+                "cockpit",
+                "supervisor",
+            ],
+            &["crates/susi-harness"],
+        ),
+    ];
+    let gmcp = text.contains("gmcp") || text.contains("mcp");
+    for (needles, paths) in keywords {
+        // An MCP task talks about "model requests" without owning the model
+        // provider crate; the GMCP mapping already names its real homes.
+        if gmcp && needles.contains(&"model") {
+            continue;
+        }
+        if needles.iter().any(|needle| text.contains(needle)) {
+            for path in *paths {
+                if path_exists_or_parent(repo, path) {
+                    scopes.insert((*path).to_string());
+                }
+            }
+        }
+    }
+    if let Some(roadmap) = &task.roadmap {
+        scopes.insert(format!(".agents/roadmap-verdicts/{roadmap}.json"));
+    }
+    scopes.insert(format!(".agents/tasks/{}.json", task.id));
+    reduce_scopes(scopes)
+}
+
+/// True when the path exists, or its parent directory does, so a scope can name
+/// a file the worker is about to create.
+fn path_exists_or_parent(repo: &Path, path: &str) -> bool {
+    let target = repo.join(path);
+    if target.exists() {
+        return true;
+    }
+    target.parent().is_some_and(|parent| parent.is_dir())
+}
+
+fn reduce_scopes(scopes: BTreeSet<String>) -> Vec<String> {
+    let mut all: Vec<String> = scopes.into_iter().collect();
+    all.sort_by(|left, right| left.len().cmp(&right.len()).then_with(|| left.cmp(right)));
+    let mut reduced: Vec<String> = Vec::new();
+    'each: for scope in all {
+        for parent in &reduced {
+            if scope == *parent || scope.starts_with(&format!("{parent}/")) {
+                continue 'each;
+            }
+        }
+        reduced.push(scope);
+    }
+    reduced
 }
 
 fn read_ids(dir: &Path) -> EaiResult<BTreeSet<String>> {
@@ -428,6 +573,47 @@ mod tests {
         let plan = plan_batch(dir.path(), "m", 10, &[], Some("VC-B")).unwrap();
         assert_eq!(plan.tasks.len(), 1);
         assert_eq!(plan.tasks[0].task.as_deref(), Some("T-B"));
+    }
+
+    #[test]
+    fn a_legacy_task_gets_scopes_inferred_from_its_goal() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".agents/tasks/done")).unwrap();
+        std::fs::create_dir_all(dir.path().join("crates/susi-gmcp")).unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+        std::fs::write(dir.path().join("crates/susi-gmcp/Cargo.toml"), "").unwrap();
+        write_task(
+            &dir.path().join(".agents/tasks"),
+            "T-GMCP.json",
+            r#"{
+                "id":"T-GMCP","title":"GMCP contract","roadmap":"VC-X",
+                "goal":"Add the GMCP contract test in tests/gmcp_requirements.rs",
+                "accept":{"cmd":["cargo","test","--test","gmcp_requirements","req"]}
+            }"#,
+        );
+        let plan = plan_batch(dir.path(), "m", 1, &[], Some("VC-X")).unwrap();
+        let task = &plan.tasks[0];
+        assert_eq!(task.task.as_deref(), Some("T-GMCP"));
+        assert!(
+            task.scopes.iter().any(|scope| scope == "crates/susi-gmcp"),
+            "{:?}",
+            task.scopes
+        );
+        assert!(
+            task.scopes
+                .iter()
+                .any(|scope| scope == "tests/gmcp_requirements.rs"),
+            "{:?}",
+            task.scopes
+        );
+        assert!(
+            task.scopes
+                .iter()
+                .any(|scope| scope == ".agents/roadmap-verdicts/VC-X.json"),
+            "{:?}",
+            task.scopes
+        );
     }
 
     #[test]

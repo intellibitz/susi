@@ -1,0 +1,24 @@
+{
+  "id": "T-HARNESSCEO1-6",
+  "title": "Scope the roadmap queue and accept its test-shaped commands",
+  "goal": "Legacy roadmap tasks declare no scopes and their acceptances often name a --test target or -E filter instead of -p. Infer safe scopes from the goal and accept those queue-shaped test commands so the harness can claim and run the backlog.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "roadmap": "VC-202-015",
+  "created_by": "HARNESSCEO1",
+  "created_unix": 1792619002,
+  "closed": {
+    "at_unix": 1792619622,
+    "commit": "ac8ab12cb01817a5f3636c154c9f713d5f225b08",
+    "by": "HARNESSCEO1"
+  }
+}
