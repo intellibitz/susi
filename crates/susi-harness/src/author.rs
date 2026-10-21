@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use susi_error::{EaiError, EaiResult};
 
 /// The fixed instruction every authoring call carries.
-pub const AUTHOR_SYSTEM: &str = "You are SUSI's build supervisor. Return only a JSON object with `mission` (a short id) and `tasks` (array). Each task has: `key` (kebab-case, unique), `title`, `accept` (an argv string), `scopes` (repo-relative paths), and `prompt` (a self-contained instruction for a coding agent). No prose outside the JSON. Hard rules: at most the requested number of tasks; `accept` must be test-shaped (`cargo test ...` or `cargo nextest run ...`) or an existing `scripts/` checker; scopes are paths that exist or are clearly new; do not include work the narrative says is already delivered.";
+pub const AUTHOR_SYSTEM: &str = "You are SUSI's build supervisor. Return only a JSON object with `mission` (a short id) and `tasks` (array). Each task has: `key` (kebab-case, unique), `title`, `accept` (an argv string), `scopes` (repo-relative paths), `model` (one of the listed workers), and `prompt` (a self-contained instruction for a coding agent). No prose outside the JSON. Hard rules: at most the requested number of tasks; `accept` must be test-shaped (`cargo test ...` or `cargo nextest run ...`) or an existing `scripts/` checker; scopes are paths that exist or are clearly new; do not include work the narrative says is already delivered.";
 
 /// Where the authoring call goes.
 pub struct AuthorConfig {
@@ -30,6 +30,8 @@ pub struct AuthorRequest {
     pub target: String,
     /// Workspace package names, so acceptance can use exact `-p` ids.
     pub packages: Vec<String>,
+    /// Worker models a task may be assigned: each task gets exactly one.
+    pub workers: Vec<String>,
     /// Recent narrative (may be truncated).
     pub narrative: String,
     /// Upper bound on tasks.
@@ -40,10 +42,11 @@ pub struct AuthorRequest {
 #[must_use]
 pub fn prompt(request: &AuthorRequest) -> String {
     format!(
-        "Roadmap vector: {vector}\nMastery target: {target}\nWorkspace packages (use these exact names in `-p`): {packages}\nMost recent narrative (may be truncated):\n{narrative}\n\nReturn a plan of at most {max_tasks} tasks. Prefer one small, self-contained increment that one agent can finish in under 15 minutes; if the vector is large, plan only its first concrete step. Each task must be executable by one coding agent in one worktree, and its scopes must not overlap another task's.",
+        "Roadmap vector: {vector}\nMastery target: {target}\nWorkspace packages (use these exact names in `-p`): {packages}\nWorker models (assign each task exactly one as `model`): {workers}\nMost recent narrative (may be truncated):\n{narrative}\n\nReturn a plan of at most {max_tasks} tasks. Prefer one small, self-contained increment that one agent can finish in under 15 minutes; if the vector is large, plan only its first concrete step. Each task must be executable by one coding agent in one worktree, and its scopes must not overlap another task's. Spread the tasks across the workers when more than one is listed.",
         vector = request.vector,
         target = request.target,
         packages = request.packages.join(", "),
+        workers = request.workers.join(", "),
         narrative = request.narrative,
         max_tasks = request.max_tasks
     )
@@ -147,20 +150,40 @@ mod tests {
             vector: "VC-202-025 agent identity".into(),
             target: "durable worker identity".into(),
             packages: vec!["susi-harness".into(), "susi-gmcp".into()],
+            workers: vec!["deepseek-chat".into(), "gemini-flash".into()],
             narrative: "recent work".into(),
             max_tasks: 3,
         }
     }
 
     #[test]
-    fn the_prompt_carries_the_vector_the_packages_and_the_limit() {
+    fn the_prompt_carries_the_vector_the_packages_the_workers_and_the_limit() {
         let text = prompt(&request());
         assert!(text.contains("VC-202-025"));
         assert!(text.contains("durable worker identity"));
         assert!(text.contains("susi-harness"));
         assert!(text.contains("susi-gmcp"));
+        assert!(text.contains("deepseek-chat"));
+        assert!(text.contains("gemini-flash"));
         assert!(text.contains("at most 3 tasks"));
         assert!(text.contains("under 15 minutes"));
+    }
+
+    #[test]
+    fn a_task_can_name_its_worker_model() {
+        let content = r#"{
+          "mission": "m",
+          "tasks": [{
+            "key": "a",
+            "title": "t",
+            "accept": "cargo test -p susi-harness",
+            "scopes": ["docs/harness.md"],
+            "model": "gemini-flash",
+            "prompt": "p"
+          }]
+        }"#;
+        let plan = parse_plan(content).unwrap();
+        assert_eq!(plan.tasks[0].model.as_deref(), Some("gemini-flash"));
     }
 
     #[test]

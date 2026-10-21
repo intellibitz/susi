@@ -1,0 +1,17 @@
+{
+  "id": "T-HARNESSLITELLM-7",
+  "title": "harness: per-task worker model so one mission runs deepseek and gemini workers",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSLITELLM",
+  "created_unix": 1792604334
+}

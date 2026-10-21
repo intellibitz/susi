@@ -38,6 +38,9 @@ pub enum HarnessCommands {
         /// Upper bound on tasks
         #[arg(long, default_value_t = 3)]
         max_tasks: usize,
+        /// Worker models tasks are spread across (comma-separated)
+        #[arg(long, default_value = "deepseek-chat,gemini-flash")]
+        workers: String,
     },
     /// Run a plan: prepare in parallel, land in order, persist after each task
     Run {
@@ -136,7 +139,10 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             vector,
             out,
             max_tasks,
-        } => author(&gateway, &model, &roadmap, &vector, &out, max_tasks, cwd),
+            workers,
+        } => author(
+            &gateway, &model, &roadmap, &vector, &out, max_tasks, &workers, cwd,
+        ),
         HarnessCommands::Run {
             plan,
             repo,
@@ -203,6 +209,7 @@ fn author(
     vector: &str,
     out: &Path,
     max_tasks: usize,
+    workers: &str,
     cwd: &Path,
 ) -> Result<()> {
     let text = std::fs::read_to_string(roadmap)
@@ -234,6 +241,11 @@ fn author(
         vector: format!("{vector} {title}"),
         target: target.to_string(),
         packages: facts.packages.iter().cloned().collect(),
+        workers: workers
+            .split(',')
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect(),
         narrative: tail(narrative, 4000),
         max_tasks,
     };

@@ -179,6 +179,7 @@ mod tests {
                 title: "t".into(),
                 accept: accept.into(),
                 scopes: vec![scope.into()],
+                model: None,
                 prompt: "p".into(),
             }],
         }
