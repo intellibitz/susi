@@ -151,6 +151,24 @@ Every task is a real task in the queue: its own worktree, its own claim, its own
 acceptance, its own pull request. The harness does not bypass the repository's
 rules; it makes them mechanical.
 
+## Draining the roadmap queue
+
+`susi harness plan` turns the queue into a mission that **claims existing
+tasks** instead of minting new ones:
+
+```sh
+susi harness plan --repo . --limit 2 --mission roadmap-batch --out plan.json
+susi harness run plan.json ... --budget-usd 1.00
+```
+
+Each plan entry names a task id. The adapter creates the worktree, syncs it,
+claims that id with the scopes the task declares, runs its acceptance, commits
+the worker's change, and lands it through `workflow finish` — the task record is
+already on the branch, so nothing is re-minted. Selection is dependency-ready
+only, P0 before P1, smaller first, and **scope-disjoint** within a batch: two
+workers editing the same tree would only conflict at merge. `--roadmap VC-…`
+narrows a batch to one vector.
+
 ## Self-build scorecard
 
 The RSI scorecard reads phases git can prove and lifecycle facts git cannot.

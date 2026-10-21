@@ -76,6 +76,7 @@ pub mod litellm;
 pub mod money;
 pub mod policy;
 pub mod pricing;
+pub mod queue;
 pub mod scheduler;
 pub mod supervisor;
 pub mod usage;

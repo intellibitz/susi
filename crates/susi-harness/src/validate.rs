@@ -180,6 +180,7 @@ mod tests {
                 accept: accept.into(),
                 scopes: vec![scope.into()],
                 model: None,
+                task: None,
                 prompt: "p".into(),
             }],
         }

@@ -1,0 +1,438 @@
+//! Turn the roadmap queue into a mission plan.
+//!
+//! The normal mission mints a task per plan entry. Draining the roadmap queue
+//! needs the opposite: choose tasks that are already dependency-ready, group
+//! ones whose scopes do not overlap (so their pull requests cannot conflict),
+//! and emit a plan whose entries name the existing task ids. The adapter then
+//! claims each task in its own worktree and runs the acceptance the task
+//! already declares.
+
+use crate::supervisor::{Plan, PlanTask};
+use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use susi_error::{EaiError, EaiResult};
+
+#[derive(Debug, Deserialize)]
+struct TaskRecord {
+    id: String,
+    title: String,
+    #[serde(default)]
+    goal: String,
+    #[serde(default)]
+    deps: Vec<String>,
+    #[serde(default)]
+    scopes: Vec<String>,
+    #[serde(default)]
+    accept: Option<Acceptance>,
+    #[serde(default)]
+    roadmap: Option<String>,
+    #[serde(default)]
+    size: Option<String>,
+    #[serde(default)]
+    created_unix: u64,
+}
+
+/// The queue stores acceptance as argv; a hand-written task may still hold the
+/// original string.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Acceptance {
+    Argv {
+        #[serde(default)]
+        cmd: Vec<String>,
+    },
+    Text(String),
+}
+
+impl Acceptance {
+    fn command(&self) -> Option<String> {
+        match self {
+            Self::Argv { cmd } if !cmd.is_empty() => Some(cmd.join(" ")),
+            Self::Argv { .. } => None,
+            Self::Text(text) if !text.trim().is_empty() => Some(text.clone()),
+            Self::Text(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct Roadmap {
+    #[serde(default)]
+    vectors: Vec<Vector>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Vector {
+    id: String,
+    #[serde(default)]
+    priority: String,
+}
+
+/// Build a mission plan from dependency-ready queue tasks.
+///
+/// `limit` bounds the batch; tasks are taken in priority order (P0 first, then
+/// smaller first) and a task whose scopes overlap an already chosen task is
+/// skipped, because two workers editing the same tree would conflict on merge.
+///
+/// # Errors
+///
+/// Returns `EaiError::io` when the queue cannot be read, `EaiError::config`
+/// when a task record is malformed or no candidate is ready.
+pub fn plan_batch(
+    repo: &Path,
+    mission: &str,
+    limit: usize,
+    workers: &[String],
+    only_roadmap: Option<&str>,
+) -> EaiResult<Plan> {
+    let limit = limit.max(1);
+    let tasks_dir = repo.join(".agents").join("tasks");
+    let done = read_ids(&tasks_dir.join("done"))?;
+    let records = read_records(&tasks_dir)?;
+    let priorities = roadmap_priorities(repo);
+    let total = records.len();
+    let mut ready = Vec::new();
+    let (mut already_done, mut no_accept, mut no_scope, mut blocked, mut filtered) =
+        (0, 0, 0, 0, 0);
+    for task in records {
+        if done.contains(&task.id) {
+            already_done += 1;
+            continue;
+        }
+        if let Some(roadmap) = only_roadmap {
+            if task.roadmap.as_deref() != Some(roadmap) {
+                filtered += 1;
+                continue;
+            }
+        }
+        if task.accept.as_ref().and_then(Acceptance::command).is_none() {
+            no_accept += 1;
+            continue;
+        }
+        if task.scopes.is_empty() {
+            no_scope += 1;
+            continue;
+        }
+        if task.deps.iter().any(|dep| !done.contains(dep)) {
+            blocked += 1;
+            continue;
+        }
+        ready.push(task);
+    }
+    let mut records = ready;
+
+    records.sort_by(|left, right| {
+        priority_rank(left, &priorities)
+            .cmp(&priority_rank(right, &priorities))
+            .then_with(|| size_rank(left).cmp(&size_rank(right)))
+            .then_with(|| right.created_unix.cmp(&left.created_unix))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    let mut selected: Vec<&TaskRecord> = Vec::new();
+    for task in &records {
+        if selected
+            .iter()
+            .any(|other| scopes_overlap(&task.scopes, &other.scopes))
+        {
+            continue;
+        }
+        selected.push(task);
+        if selected.len() == limit {
+            break;
+        }
+    }
+    if selected.is_empty() {
+        return Err(EaiError::config(format!(
+            "no dependency-ready queue task has a free scope (open {total}, ready {}, already-done {already_done}, no-accept {no_accept}, no-scope {no_scope}, dep-blocked {blocked}, roadmap-filtered {filtered}, done ids {})",
+            records.len(),
+            done.len()
+        )));
+    }
+
+    let tasks = selected
+        .iter()
+        .enumerate()
+        .map(|(index, task)| PlanTask {
+            key: slug(&task.id),
+            title: task.title.clone(),
+            accept: task
+                .accept
+                .as_ref()
+                .and_then(Acceptance::command)
+                .unwrap_or_default(),
+            scopes: task.scopes.clone(),
+            model: if workers.is_empty() {
+                None
+            } else {
+                Some(workers[index % workers.len()].clone())
+            },
+            task: Some(task.id.clone()),
+            prompt: prompt_for(task),
+        })
+        .collect::<Vec<_>>();
+    let plan = Plan {
+        mission: mission.to_string(),
+        tasks,
+    };
+    plan.validate()?;
+    Ok(plan)
+}
+
+fn prompt_for(task: &TaskRecord) -> String {
+    let goal = if task.goal.trim().is_empty() {
+        todo_goal(&task.title)
+    } else {
+        task.goal.clone()
+    };
+    format!(
+        "Implement the queued task .agents/tasks/{id}.json. Read that file first. \
+Goal: {goal} \
+Work only inside the scopes it declares and make its acceptance command pass. \
+If the goal names work outside those scopes, stop and report the gap instead of widening the change.",
+        id = task.id,
+        goal = goal.trim()
+    )
+}
+
+fn todo_goal(title: &str) -> String {
+    format!("Deliver \"{title}\".")
+}
+
+fn priority_rank(task: &TaskRecord, priorities: &BTreeMap<String, String>) -> u8 {
+    match task.roadmap.as_deref().and_then(|id| priorities.get(id)) {
+        Some(priority) if priority.eq_ignore_ascii_case("P0") => 0,
+        Some(priority) if priority.eq_ignore_ascii_case("P1") => 1,
+        Some(priority) if priority.eq_ignore_ascii_case("P2") => 2,
+        _ => 3,
+    }
+}
+
+fn size_rank(task: &TaskRecord) -> u8 {
+    match task.size.as_deref() {
+        Some("s") => 0,
+        Some("m") => 1,
+        Some("l") => 2,
+        _ => 3,
+    }
+}
+
+fn slug(id: &str) -> String {
+    let slug: String = id
+        .trim_start_matches("T-")
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug.trim_matches('-').to_string();
+    slug.chars().take(48).collect()
+}
+
+/// True when two scope lists could touch the same file.
+fn scopes_overlap(left: &[String], right: &[String]) -> bool {
+    left.iter()
+        .any(|a| right.iter().any(|b| paths_overlap(a, b)))
+}
+
+fn paths_overlap(left: &str, right: &str) -> bool {
+    let left = normalize(left);
+    let right = normalize(right);
+    left == right
+        || left.starts_with(&format!("{right}/"))
+        || right.starts_with(&format!("{left}/"))
+}
+
+fn normalize(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn read_ids(dir: &Path) -> EaiResult<BTreeSet<String>> {
+    let mut ids = BTreeSet::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
+        Err(error) => {
+            return Err(EaiError::io(format!(
+                "read task dir {}: {error}",
+                dir.display()
+            )))
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| EaiError::io(format!("read task dir: {error}")))?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+            ids.insert(stem.to_string());
+        }
+    }
+    Ok(ids)
+}
+
+fn read_records(dir: &Path) -> EaiResult<Vec<TaskRecord>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(EaiError::io(format!(
+                "read task dir {}: {error}",
+                dir.display()
+            )))
+        }
+    };
+    let mut records = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| EaiError::io(format!("read task dir: {error}")))?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| EaiError::io(format!("read {}: {error}", path.display())))?;
+        let record: TaskRecord = serde_json::from_str(&text)
+            .map_err(|error| EaiError::io(format!("parse {}: {error}", path.display())))?;
+        records.push(record);
+    }
+    Ok(records)
+}
+
+fn roadmap_priorities(repo: &Path) -> BTreeMap<String, String> {
+    let path = repo.join(".agents").join("roadmap.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return BTreeMap::new();
+    };
+    let Ok(roadmap) = serde_json::from_str::<Roadmap>(&text) else {
+        return BTreeMap::new();
+    };
+    roadmap
+        .vectors
+        .into_iter()
+        .map(|vector| (vector.id, vector.priority))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_task(dir: &Path, name: &str, body: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join(name), body).unwrap();
+    }
+
+    fn repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".agents/tasks/done")).unwrap();
+        std::fs::write(
+            dir.path().join(".agents/roadmap.json"),
+            r#"{"vectors":[
+                {"id":"VC-A","priority":"P0"},
+                {"id":"VC-B","priority":"P1"}
+            ]}"#,
+        )
+        .unwrap();
+        write_task(
+            &dir.path().join(".agents/tasks/done"),
+            "T-DEP.json",
+            r#"{"id":"T-DEP","title":"dep","scopes":["x"]}"#,
+        );
+        write_task(
+            &dir.path().join(".agents/tasks"),
+            "T-A.json",
+            r#"{
+                "id":"T-A","title":"alpha","deps":["T-DEP"],"roadmap":"VC-A",
+                "scopes":["crates/susi-gmcp"],"size":"m","created_unix":3,
+                "accept":{"cmd":["cargo","test","-p","susi-gmcp","req_a"]}
+            }"#,
+        );
+        write_task(
+            &dir.path().join(".agents/tasks"),
+            "T-B.json",
+            r#"{
+                "id":"T-B","title":"beta","roadmap":"VC-B",
+                "scopes":["crates/susi-gmcp/src/lib.rs"],"size":"s","created_unix":2,
+                "accept":"cargo test -p susi-gmcp req_b"
+            }"#,
+        );
+        write_task(
+            &dir.path().join(".agents/tasks"),
+            "T-C.json",
+            r#"{
+                "id":"T-C","title":"blocked","deps":["T-MISSING"],"roadmap":"VC-A",
+                "scopes":["crates/other"],"accept":"cargo test -p other req_c"
+            }"#,
+        );
+        write_task(
+            &dir.path().join(".agents/tasks"),
+            "T-D.json",
+            r#"{
+                "id":"T-D","title":"delta","roadmap":"VC-A",
+                "scopes":["crates/disjoint"],"size":"s","created_unix":1,
+                "accept":{"cmd":["cargo","test","-p","disjoint","req_d"]}
+            }"#,
+        );
+        dir
+    }
+
+    #[test]
+    fn a_batch_takes_ready_disjoint_tasks_and_names_their_ids() {
+        let dir = repo();
+        let plan = plan_batch(
+            dir.path(),
+            "roadmap-batch",
+            2,
+            &["deepseek-chat".to_string(), "gemini-flash".to_string()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(plan.mission, "roadmap-batch");
+        let ids: Vec<&str> = plan
+            .tasks
+            .iter()
+            .filter_map(|task| task.task.as_deref())
+            .collect();
+        assert_eq!(ids, vec!["T-D", "T-A"]);
+        assert_eq!(plan.tasks[0].accept, "cargo test -p disjoint req_d");
+        assert_eq!(plan.tasks[0].model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(plan.tasks[1].model.as_deref(), Some("gemini-flash"));
+        assert!(plan.tasks.iter().all(|task| task.task.is_some()));
+    }
+
+    #[test]
+    fn overlapping_or_blocked_tasks_are_skipped() {
+        let dir = repo();
+        let plan = plan_batch(dir.path(), "m", 10, &[], None).unwrap();
+        let ids: Vec<&str> = plan
+            .tasks
+            .iter()
+            .filter_map(|task| task.task.as_deref())
+            .collect();
+        assert!(!ids.contains(&"T-B"), "T-B overlaps T-A: {ids:?}");
+        assert!(!ids.contains(&"T-C"), "T-C is dependency-blocked: {ids:?}");
+    }
+
+    #[test]
+    fn a_roadmap_filter_narrows_the_batch() {
+        let dir = repo();
+        let plan = plan_batch(dir.path(), "m", 10, &[], Some("VC-B")).unwrap();
+        assert_eq!(plan.tasks.len(), 1);
+        assert_eq!(plan.tasks[0].task.as_deref(), Some("T-B"));
+    }
+
+    #[test]
+    fn no_ready_task_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(plan_batch(dir.path(), "m", 2, &[], None).is_err());
+    }
+}

@@ -447,6 +447,22 @@ impl<R: CommandRunner> SusiTarget<R> {
         Ok(!log.stdout.trim().is_empty())
     }
 
+    /// The worktree's current head commit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot be run or cannot resolve HEAD.
+    pub fn head(&self, worktree: &Path) -> EaiResult<String> {
+        let head = self.git(worktree, &["rev-parse", "HEAD"])?;
+        if !head.success() {
+            return Err(EaiError::process(format!(
+                "git rev-parse HEAD failed: {}",
+                head.tail()
+            )));
+        }
+        Ok(head.stdout.trim().to_string())
+    }
+
     /// Commit the task record and return the commit a retry resets to.
     ///
     /// The record has to be committed before the agent runs: if the attempt is
@@ -565,6 +581,8 @@ pub struct SusiTaskSpec {
     pub timeout: Duration,
     /// Adapter state root.
     pub state_dir: PathBuf,
+    /// An existing queue task to claim instead of adding one.
+    pub task: Option<String>,
 }
 
 /// One model attempt inside a prepared task.
@@ -623,9 +641,21 @@ pub fn run_task<R: CommandRunner>(
 ) -> EaiResult<SusiRunReport> {
     let worktree = target.start_worktree(&spec.worktree_name)?;
     target.sync(&worktree)?;
-    let task = target.add_task(&worktree, &spec.title, &spec.accept)?;
-    target.claim(&worktree, &task, &spec.scopes)?;
-    let base = target.commit_task_record(&worktree, &task)?;
+    // An existing task already has its record on the branch: claim it and keep
+    // the synced head as the base a rejected attempt resets to. A new task is
+    // minted here and its record is committed first, for the same reason.
+    let (task, base) = match &spec.task {
+        Some(existing) => {
+            target.claim(&worktree, existing, &spec.scopes)?;
+            (existing.clone(), target.head(&worktree)?)
+        }
+        None => {
+            let task = target.add_task(&worktree, &spec.title, &spec.accept)?;
+            target.claim(&worktree, &task, &spec.scopes)?;
+            let base = target.commit_task_record(&worktree, &task)?;
+            (task, base)
+        }
+    };
     let ranked = rank_alternates(spec, policy)?;
     let prompt = format!(
         "Work in this order: read only what you need to identify the exact API you are changing, \
@@ -1073,6 +1103,7 @@ mod tests {
             alternates: Vec::new(),
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
+            task: None,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-AGENT-1");
@@ -1084,6 +1115,68 @@ mod tests {
         assert!(prompts[0].contains("Do not run any git command"));
         assert!(prompts[0].contains("before you have read more than ten files"));
         assert!(prompts[0].contains("write docs"));
+    }
+
+    #[test]
+    fn an_existing_queue_task_is_claimed_not_minted() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks = dir.path().join(".agents").join("tasks");
+        std::fs::create_dir_all(&tasks).unwrap();
+        std::fs::write(
+            tasks.join("T-EXIST-1.json"),
+            r#"{"id":"T-EXIST-1","accept":"cargo test -p susi-harness"}"#,
+        )
+        .unwrap();
+        let target = target(vec![
+            ok(&format!("cd {}\n", dir.path().display())),
+            ok(""),
+            ok(""),
+            ok("base123\n"),
+            ok(""),
+            ok(""),
+            ok("M docs/harness.md\n"),
+            ok(""),
+            ok(""),
+            ok("abc123 docs\n"),
+            ok(""),
+        ]);
+        let exec = FakeExec {
+            outcome: RunOutcome::Succeeded {
+                final_text: "done".into(),
+                reported_cost_usd: None,
+            },
+            prompts: Mutex::new(Vec::new()),
+        };
+        let spec = SusiTaskSpec {
+            worktree_name: "queued".into(),
+            title: "existing".into(),
+            accept: "cargo test -p susi-harness".into(),
+            scopes: vec!["docs/harness.md".into()],
+            prompt: "do the queued task".into(),
+            program: PathBuf::from("openclaw"),
+            gateway_url: "http://127.0.0.1:1".into(),
+            model: "deepseek-chat".into(),
+            alternates: Vec::new(),
+            timeout: Duration::from_secs(5),
+            state_dir: dir.path().join("state"),
+            task: Some("T-EXIST-1".into()),
+        };
+        let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
+        assert_eq!(report.task, "T-EXIST-1");
+        assert!(report.committed);
+        assert!(report.accepted);
+        let calls: Vec<String> = target
+            .runner
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|call| call.1.join(" "))
+            .collect();
+        assert!(calls
+            .iter()
+            .any(|call| call.starts_with("tasks claim T-EXIST-1")));
+        assert!(!calls.iter().any(|call| call.starts_with("tasks add")));
     }
 
     #[test]
@@ -1118,6 +1211,7 @@ mod tests {
             alternates: Vec::new(),
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
+            task: None,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-AGENT-2");
@@ -1167,6 +1261,7 @@ mod tests {
             alternates: Vec::new(),
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
+            task: None,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert!(!report.committed);
