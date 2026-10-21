@@ -1,0 +1,23 @@
+{
+  "id": "T-HARNESSWORKERS4WORKERSDEEPSEEK-1",
+  "title": "docs: add a deepseek worker note",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSWORKERS4WORKERSDEEPSEEK",
+  "created_unix": 1792606006,
+  "closed": {
+    "at_unix": 1792606497,
+    "commit": "4445504153eddbeb2409aeb068ae28518b002d84",
+    "by": "HARNESSWORKERS4WORKERSDEEPSEEK"
+  }
+}
