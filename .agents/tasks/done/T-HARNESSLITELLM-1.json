@@ -13,5 +13,10 @@
     ]
   },
   "created_by": "HARNESSLITELLM",
-  "created_unix": 1792590331
+  "created_unix": 1792590331,
+  "closed": {
+    "at_unix": 1792590940,
+    "commit": "cf7e9ff866cdc3bd3304a28ce24c51a6c9b1fe0f",
+    "by": "HARNESSLITELLM"
+  }
 }
