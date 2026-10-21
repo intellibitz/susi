@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSLITELLM-4",
+  "title": "docs: point the LiteLLM page at susi harness",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "HARNESSLITELLM",
+  "created_unix": 1792600217,
+  "closed": {
+    "at_unix": 1792600285,
+    "commit": "97c88c9335e947754512bd9e5dd88f2310ed7a08",
+    "by": "HARNESSLITELLM"
+  }
+}
