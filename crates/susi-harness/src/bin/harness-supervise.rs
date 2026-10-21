@@ -38,6 +38,7 @@ struct Options {
     budget: Option<Budget>,
     ledger: PathBuf,
     controls: PathBuf,
+    rsi_log: Option<PathBuf>,
     max_attempts: usize,
     timeout: Duration,
     prefix: String,
@@ -81,6 +82,7 @@ fn main() {
         },
         timeout: options.timeout,
         state_dir: options.adapter_state,
+        lifecycle_path: options.rsi_log,
         guard: std::sync::OnceLock::new(),
         exhausted: AtomicBool::new(false),
     };
@@ -123,6 +125,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut budget: Option<Budget> = None;
     let mut ledger = PathBuf::from("out/ledger.jsonl");
     let mut controls = PathBuf::from("out/control.jsonl");
+    let mut rsi_log: Option<PathBuf> = None;
     let mut max_attempts: usize = 4;
     let mut timeout: u64 = 900;
     let mut prefix = String::from("harness");
@@ -148,6 +151,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             }
             "--ledger" => ledger = PathBuf::from(take(&mut args, &argument)?),
             "--controls" => controls = PathBuf::from(take(&mut args, &argument)?),
+            "--rsi-log" => rsi_log = Some(PathBuf::from(take(&mut args, &argument)?)),
             "--attempts" => {
                 max_attempts = take(&mut args, &argument)?
                     .parse()
@@ -208,6 +212,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         budget,
         ledger,
         controls,
+        rsi_log,
         max_attempts: max_attempts.max(1),
         timeout: Duration::from_secs(timeout),
         prefix,

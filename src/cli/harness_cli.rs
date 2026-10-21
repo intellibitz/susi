@@ -89,6 +89,9 @@ pub enum HarnessCommands {
         /// Control log the cockpit writes pause/resume/abort to
         #[arg(long, default_value = "out/control.jsonl")]
         controls: PathBuf,
+        /// Self-build lifecycle ledger the RSI scorecard reads
+        #[arg(long, default_value = ".agents/rsi-loop.jsonl")]
+        rsi_log: PathBuf,
         /// Hard cap on attempts per task
         #[arg(long, default_value_t = 4)]
         attempts: usize,
@@ -101,6 +104,24 @@ pub enum HarnessCommands {
         /// The susi binary the adapter drives (default: this one)
         #[arg(long)]
         susi: Option<PathBuf>,
+    },
+    /// Print the self-build (RSI) scorecard for the mission lifecycle ledger
+    Scorecard {
+        /// Lifecycle ledger the supervisor writes
+        #[arg(long, default_value = ".agents/rsi-loop.jsonl")]
+        events: PathBuf,
+        /// Limit the report to one task (repeatable)
+        #[arg(long)]
+        task: Vec<String>,
+        /// Machine-readable report
+        #[arg(long)]
+        json: bool,
+        /// Fail unless every task reached every phase
+        #[arg(long)]
+        require_complete: bool,
+        /// Python executable
+        #[arg(long, default_value = "python")]
+        python: PathBuf,
     },
     /// Serve the CEO cockpit: spend, tasks, workers, warnings and controls
     Cockpit {
@@ -235,6 +256,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             catalogue,
             ledger,
             controls,
+            rsi_log,
             attempts,
             adapter_state,
             program,
@@ -253,13 +275,59 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             catalogue,
             &ledger,
             &controls,
+            &rsi_log,
             attempts,
             &adapter_state,
             &program,
             susi,
             cwd,
         ),
+        HarnessCommands::Scorecard {
+            events,
+            task,
+            json,
+            require_complete,
+            python,
+        } => scorecard(&events, &task, json, require_complete, &python, cwd),
     }
+}
+
+/// Run the repository's scorecard against the lifecycle ledger.
+///
+/// The script owns the report format; this command makes it reachable from the
+/// binary, so a task's loop is measured by a caller instead of by a human who
+/// remembers to run a script.
+#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
+fn scorecard(
+    events: &Path,
+    tasks: &[String],
+    json: bool,
+    require_complete: bool,
+    python: &Path,
+    cwd: &Path,
+) -> Result<()> {
+    let mut command = std::process::Command::new(python);
+    command
+        .arg("scripts/check-rsi-scorecard.py")
+        .arg("--events")
+        .arg(events);
+    for task in tasks {
+        command.arg("--task").arg(task);
+    }
+    if json {
+        command.arg("--json");
+    }
+    if require_complete {
+        command.arg("--require-complete");
+    }
+    let status = command
+        .current_dir(cwd)
+        .status()
+        .with_context(|| format!("run {} scripts/check-rsi-scorecard.py", python.display()))?;
+    if !status.success() {
+        bail!("scorecard exited with {status}");
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
@@ -423,6 +491,7 @@ fn run(
     catalogue: Option<PathBuf>,
     ledger: &Path,
     controls: &Path,
+    rsi_log: &Path,
     attempts: usize,
     adapter_state: &Path,
     program: &Path,
@@ -482,6 +551,7 @@ fn run(
         },
         timeout: Duration::from_secs(timeout),
         state_dir: adapter_state.to_path_buf(),
+        lifecycle_path: Some(rsi_log.to_path_buf()),
         guard: std::sync::OnceLock::new(),
         exhausted: AtomicBool::new(false),
     };

@@ -151,6 +151,29 @@ Every task is a real task in the queue: its own worktree, its own claim, its own
 acceptance, its own pull request. The harness does not bypass the repository's
 rules; it makes them mechanical.
 
+## Self-build scorecard
+
+The RSI scorecard reads phases git can prove and lifecycle facts git cannot.
+The harness writes the second kind to `.agents/rsi-loop.jsonl`:
+
+```sh
+susi harness run plan.json ... --rsi-log .agents/rsi-loop.jsonl
+susi harness scorecard --events .agents/rsi-loop.jsonl [--task T-…] [--json]
+```
+
+- `implemented` when the worker's change is committed, `gated` when the
+  acceptance passed, or `defect` with the outcome and reason when it did not.
+- `merged`, with the task's spend in USD from the ledger, only after
+  `workflow finish` returns and the close is published — not when the branch is
+  merely pushed.
+- `released` and `promoted` are deliberately never fabricated. They stay
+  missing in the report until a release actually carries the task, which is
+  what the scorecard's first-missing-phase display is for.
+
+`susi harness scorecard` is the production caller for
+`scripts/check-rsi-scorecard.py`, so measuring a loop no longer depends on a
+human remembering a script.
+
 ## Where the money goes
 
 The ledger is the answer. One JSON line per priced call with the mission, task,
