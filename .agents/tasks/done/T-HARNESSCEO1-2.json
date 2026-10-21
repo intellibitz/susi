@@ -1,0 +1,23 @@
+{
+  "id": "T-HARNESSCEO1-2",
+  "title": "Pass the per-run config and state dir to the OpenClaw worker",
+  "goal": "A worker run must use the config the harness generated for it; the ambient config is not a provider source.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSCEO1",
+  "created_unix": 1792611458,
+  "closed": {
+    "at_unix": 1792612949,
+    "commit": "68aba85c513b2ccbf5249c2caf122cddc8ecce70",
+    "by": "HARNESSCEO1"
+  }
+}

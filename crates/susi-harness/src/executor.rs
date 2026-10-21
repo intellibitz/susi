@@ -16,7 +16,7 @@
 
 use serde_json::{json, Value};
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use susi_error::{EaiError, EaiResult};
@@ -89,24 +89,7 @@ pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
     std::fs::write(&prompt_path, &config.prompt)
         .map_err(|error| EaiError::io(format!("write {}: {error}", prompt_path.display())))?;
 
-    let mut command = Command::new(&config.program);
-    command
-        .arg("agent")
-        .arg("exec")
-        .arg("--model")
-        .arg(format!("harness/{}", config.model))
-        .arg("--cwd")
-        .arg(&config.workspace)
-        .arg("--json")
-        .arg("--timeout")
-        .arg(config.timeout.as_secs().to_string())
-        .arg("--message-file")
-        .arg(&prompt_path)
-        .env("OPENCLAW_STATE_DIR", &config.state_dir)
-        .env("OPENCLAW_CONFIG_PATH", &config_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let mut command = agent_command(config, &config_path, &prompt_path);
     let mut child = command.spawn().map_err(|error| {
         EaiError::process(format!("spawn {}: {error}", config.program.display()))
     })?;
@@ -168,6 +151,40 @@ impl Runner for OpenClaw {
     fn run(&self, config: &ExecutorConfig) -> EaiResult<RunOutcome> {
         run(config)
     }
+}
+
+/// Build the headless turn, pinning the config and state directory.
+///
+/// The environment variables alone are not enough: a running OpenClaw
+/// gateway or tray can keep resolving models from the ambient config, and then
+/// the `harness` provider this run just declared does not exist. `--config`
+/// pins the run to the file the harness wrote. `--state-dir` keeps the run's
+/// SQLite state in the directory we chose instead of a temporary one whose
+/// cleanup races its own writers.
+fn agent_command(config: &ExecutorConfig, config_path: &Path, prompt_path: &Path) -> Command {
+    let mut command = Command::new(&config.program);
+    command
+        .arg("agent")
+        .arg("exec")
+        .arg("--model")
+        .arg(format!("harness/{}", config.model))
+        .arg("--cwd")
+        .arg(&config.workspace)
+        .arg("--config")
+        .arg(config_path)
+        .arg("--state-dir")
+        .arg(&config.state_dir)
+        .arg("--json")
+        .arg("--timeout")
+        .arg(config.timeout.as_secs().to_string())
+        .arg("--message-file")
+        .arg(prompt_path)
+        .env("OPENCLAW_STATE_DIR", &config.state_dir)
+        .env("OPENCLAW_CONFIG_PATH", config_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
 }
 
 fn drain(mut pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
@@ -322,6 +339,29 @@ mod tests {
             "harness/deepseek-flash"
         );
         assert!(value["agents"]["defaults"]["models"]["harness/deepseek-flash"].is_object());
+    }
+
+    #[test]
+    fn the_command_pins_the_generated_config_and_state_dir() {
+        let config = config();
+        let command = agent_command(
+            &config,
+            Path::new("state/openclaw.json"),
+            Path::new("state/prompt.md"),
+        );
+        let args: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--config" && pair[1] == "state/openclaw.json"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--state-dir" && pair[1] == "state"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--message-file" && pair[1] == "state/prompt.md"));
     }
 
     #[test]
