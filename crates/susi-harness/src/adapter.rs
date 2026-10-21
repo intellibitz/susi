@@ -316,6 +316,60 @@ impl<R: CommandRunner> SusiTarget<R> {
         Ok(output)
     }
 
+    /// True when `base` is still an ancestor of HEAD.
+    ///
+    /// A worker must never rewrite the branch's history; if it did, the base
+    /// commit it was given is no longer in the line it claims to extend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot be run.
+    pub fn base_is_ancestor(&self, worktree: &Path, base: &str) -> EaiResult<bool> {
+        let probe = self.git(worktree, &["merge-base", "--is-ancestor", base, "HEAD"])?;
+        Ok(probe.success())
+    }
+
+    /// Stage and commit whatever the worker left in the working tree.
+    ///
+    /// The adapter owns git, not the worker: a worker that runs `git reset` or
+    /// `git commit --amend` can drop history it was handed, and no prompt can
+    /// make that safe. The worker edits files; the commit, its trailer and its
+    /// exact task are the adapter's.
+    ///
+    /// Returns `false` when there was nothing to commit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when staging or committing fails.
+    pub fn commit_work(&self, worktree: &Path, id: &str) -> EaiResult<bool> {
+        let add = self.git(worktree, &["add", "-A"])?;
+        if !add.success() {
+            return Err(EaiError::process(format!(
+                "git add -A failed: {}",
+                add.tail()
+            )));
+        }
+        let status = self.git(worktree, &["status", "--porcelain"])?;
+        if !status.success() {
+            return Err(EaiError::process(format!(
+                "git status failed: {}",
+                status.tail()
+            )));
+        }
+        if status.stdout.trim().is_empty() {
+            return Ok(false);
+        }
+        let message = format!("Complete {id}\n\nTask: {id}");
+        let commit = self.git(worktree, &["commit", "-m", &message])?;
+        if !commit.success() {
+            return Err(EaiError::process(format!(
+                "git commit of the worker's changes failed: {}",
+                commit.tail()
+            )));
+        }
+        Ok(true)
+    }
+
     /// True when HEAD carries a commit after `base` and the tree is clean.
     ///
     /// The adapter commits the task record before the agent runs, so a simple
@@ -577,7 +631,10 @@ pub fn run_task<R: CommandRunner>(
         "Work in this order: read only what you need to identify the exact API you are changing, \
 then make the edit. Your first write must happen before you have read more than ten files; do \
 not survey the repository. After the first write, run the task's acceptance command and iterate \
-on real output.\n\n{}\n\nTask id: {task}. When the work is done, run `git add -A` and commit with a message whose last line is exactly `Task: {task}`. Do not run any `susi` command, do not push, and change nothing outside the task.",
+on real output.\n\n{}\n\nTask id: {task}. Leave the finished changes in the working tree. Do not \
+run any git command: the harness stages and commits them for you, with the task trailer. Do not \
+reset, rebase, amend or move a commit, do not run any `susi` command, do not push, and change \
+nothing outside the task.",
         spec.prompt
     );
     let mut ladder = Ladder::new(ranked, policy.policy);
@@ -633,12 +690,22 @@ on real output.\n\n{}\n\nTask id: {task}. When the work is done, run `git add -A
             timeout: spec.timeout,
             prompt: prompt.clone(),
         })?;
-        let attempt_committed = if matches!(&agent, RunOutcome::Succeeded { .. }) {
-            target.worktree_has_work_after(&worktree, &base)?
-        } else {
-            false
-        };
-        let attempt_accepted = attempt_committed && target.accept(&worktree, &task).is_ok();
+        let (attempt_committed, history_rewritten) =
+            if matches!(&agent, RunOutcome::Succeeded { .. }) {
+                if target.base_is_ancestor(&worktree, &base)? {
+                    let committed_now = target.commit_work(&worktree, &task)?;
+                    (
+                        committed_now && target.worktree_has_work_after(&worktree, &base)?,
+                        false,
+                    )
+                } else {
+                    (false, true)
+                }
+            } else {
+                (false, false)
+            };
+        let attempt_accepted =
+            attempt_committed && !history_rewritten && target.accept(&worktree, &task).is_ok();
         if let (Some(guard), Some(estimate)) = (policy.guard, estimate) {
             let spent = Budget::spent(policy.ledger_path, policy.mission);
             guard.settle(spent, estimate);
@@ -656,7 +723,14 @@ on real output.\n\n{}\n\nTask id: {task}. When the work is done, run `git add -A
             last_outcome = Some(agent);
             break;
         }
-        let (kind, message) = failure_of(&agent);
+        let (kind, message) = if history_rewritten {
+            (
+                FailureKind::Semantic,
+                "worker rewrote the branch history it was given".to_string(),
+            )
+        } else {
+            failure_of(&agent)
+        };
         ladder.record(&attempt.model, kind, &message);
         // A rejected attempt is discarded: the next model starts from the
         // task record, not from work that already failed acceptance.
@@ -973,6 +1047,10 @@ mod tests {
             ok(""),
             ok("base123\n"),
             ok(""),
+            ok(""),
+            ok("M docs/harness.md\n"),
+            ok(""),
+            ok(""),
             ok("abc123 docs\n"),
             ok(""),
         ]);
@@ -1002,7 +1080,8 @@ mod tests {
         assert!(report.accepted);
         assert_eq!(report.attempts.len(), 1);
         let prompts = exec.prompts.lock().unwrap();
-        assert!(prompts[0].contains("Task: T-AGENT-1"));
+        assert!(prompts[0].contains("Task id: T-AGENT-1"));
+        assert!(prompts[0].contains("Do not run any git command"));
         assert!(prompts[0].contains("before you have read more than ten files"));
         assert!(prompts[0].contains("write docs"));
     }
@@ -1065,6 +1144,7 @@ mod tests {
             ok(""),
             ok(""),
             ok("base123\n"),
+            ok(""),
             ok(""),
             ok(""),
         ]);
