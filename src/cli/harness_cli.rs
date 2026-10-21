@@ -297,6 +297,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
 /// The script owns the report format; this command makes it reachable from the
 /// binary, so a task's loop is measured by a caller instead of by a human who
 /// remembers to run a script.
+#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
 fn scorecard(
     events: &Path,
     tasks: &[String],
