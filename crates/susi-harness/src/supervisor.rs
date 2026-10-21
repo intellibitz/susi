@@ -431,6 +431,13 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
 
     fn prepare(&self, task: &PlanTask) -> EaiResult<SusiRunReport> {
         let preferred = task.model.clone().unwrap_or_else(|| self.model.clone());
+        // The mission's default model is a worker on every task, even when the
+        // task names a different one: otherwise a task assigned the cheap
+        // worker has no stronger rung to escalate to.
+        let mut alternates = self.alternates.clone();
+        if !alternates.iter().any(|candidate| candidate == &self.model) {
+            alternates.push(self.model.clone());
+        }
         let spec = SusiTaskSpec {
             worktree_name: format!("{}-{}", self.worktree_prefix, task.key),
             title: task.title.clone(),
@@ -440,7 +447,7 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             program: self.program.clone(),
             gateway_url: self.gateway_url.clone(),
             model: preferred,
-            alternates: self.alternates.clone(),
+            alternates,
             timeout: self.timeout,
             state_dir: self.state_dir.join(&task.key),
         };

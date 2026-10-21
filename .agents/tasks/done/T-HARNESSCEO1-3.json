@@ -1,0 +1,23 @@
+{
+  "id": "T-HARNESSCEO1-3",
+  "title": "Keep the default worker on every task's escalation ladder",
+  "goal": "A task assigned a non-default worker must still escalate to the mission's default model when its own worker does not pass.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSCEO1",
+  "created_unix": 1792613299,
+  "closed": {
+    "at_unix": 1792613879,
+    "commit": "46b33cafe6e7d3d06b6c4ed9c3c17416266ef302",
+    "by": "HARNESSCEO1"
+  }
+}
