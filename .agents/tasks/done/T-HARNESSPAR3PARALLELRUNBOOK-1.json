@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "HARNESSPAR3PARALLELRUNBOOK",
-  "created_unix": 1792540255
+  "created_unix": 1792540255,
+  "closed": {
+    "at_unix": 1792540910,
+    "commit": "2e5b4ecb1b277c8be5e7b754d316c7e6645ed23a",
+    "by": "HARNESSPAR3PARALLELRUNBOOK"
+  }
 }
