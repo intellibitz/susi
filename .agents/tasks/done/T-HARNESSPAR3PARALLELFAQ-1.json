@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "HARNESSPAR3PARALLELFAQ",
-  "created_unix": 1792540288
+  "created_unix": 1792540288,
+  "closed": {
+    "at_unix": 1792541199,
+    "commit": "c9a7519c4ee34408d1b1f86ce322fd24ab9c0de7",
+    "by": "HARNESSPAR3PARALLELFAQ"
+  }
 }
