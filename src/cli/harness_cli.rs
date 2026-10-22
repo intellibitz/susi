@@ -20,6 +20,7 @@ use susi_harness::executor::OpenClaw;
 use susi_harness::litellm::Launcher;
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::Policy;
+use susi_harness::providers::{Registry, Wire};
 use susi_harness::queue;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
@@ -218,6 +219,8 @@ pub enum HarnessCommands {
         #[arg(long)]
         events: Option<PathBuf>,
     },
+    /// Print the provider registry, models and aliases as JSON (no network)
+    Models,
 }
 
 /// Run one `susi harness` command.
@@ -235,6 +238,10 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             state,
             ready_timeout,
         } => start_proxy(config, host, port, litellm, state, ready_timeout),
+        HarnessCommands::Models => {
+            println!("{}", serde_json::to_string_pretty(&registry_json())?);
+            Ok(())
+        }
         HarnessCommands::Status { ledger, events } => {
             let cockpit = Cockpit {
                 ledger_path: ledger,
@@ -673,6 +680,46 @@ fn tail(text: &str, limit: usize) -> String {
     text.get(text.len() - limit..).unwrap_or(text).to_string()
 }
 
+/// The provider registry as JSON: each provider with its models, a flat model
+/// list a picker can filter, and the aliases that resolve to model ids.
+fn registry_json() -> serde_json::Value {
+    let registry = Registry::builtin();
+    let mut providers = Vec::new();
+    let mut models = Vec::new();
+    for provider in registry.providers() {
+        let wire = match provider.wire {
+            Wire::OpenAi => "openai",
+            Wire::Anthropic => "anthropic",
+        };
+        let mut records = Vec::new();
+        for model in &provider.models {
+            let record = serde_json::json!({
+                "id": model.id,
+                "provider": provider.id,
+                "backend": model.backend,
+                "context": model.capabilities.context,
+                "tools": model.capabilities.tools,
+                "streaming": model.capabilities.streaming,
+                "vision": model.capabilities.vision,
+            });
+            records.push(record.clone());
+            models.push(record);
+        }
+        providers.push(serde_json::json!({
+            "id": provider.id,
+            "wire": wire,
+            "endpoint": provider.endpoint,
+            "key_env": provider.key_envs,
+            "models": records,
+        }));
+    }
+    serde_json::json!({
+        "providers": providers,
+        "models": models,
+        "aliases": registry.aliases(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::HarnessCommands;
@@ -701,5 +748,14 @@ mod tests {
             }
             _ => panic!("expected harness cockpit"),
         }
+    }
+
+    #[test]
+    fn models_parses_without_a_gateway() {
+        let cli = Cli::try_parse_from(["susi", "harness", "models"]).unwrap();
+        let Some(Commands::Harness { action }) = cli.command else {
+            panic!("expected the harness command");
+        };
+        assert!(matches!(action, HarnessCommands::Models));
     }
 }

@@ -1,0 +1,25 @@
+{
+  "id": "T-HARNESSOS-14",
+  "title": "Native parity: models picker, offline proxy proof, docs",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--test",
+      "native_proxy_e2e",
+      "native_proxy"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792702355,
+  "closed": {
+    "at_unix": 1792703052,
+    "commit": "db37eea2474f203afe8e24ca38d8bdf99a482482",
+    "by": "HARNESSOS"
+  }
+}

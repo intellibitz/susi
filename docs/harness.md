@@ -125,7 +125,8 @@ susi harness cockpit \
 
 - `GET /` — the panel (add `?embed=1` for a frameless embed).
 - `GET /api/status` — one JSON snapshot: spend, budget, missions, workers,
-  decisions, warnings, controls, recent events, and the agent graph (`graph`).
+  decisions, warnings, controls, recent events, the agent graph (`graph`), and
+  spend per graph role in the focused mission (`role_spend`).
   The graph is read from `--graph` (the cockpit's `graph_path`), which takes
   precedence over `SUSI_HARNESS_GRAPH`, or from `graph.jsonl` beside the ledger
   when neither names a bus.
