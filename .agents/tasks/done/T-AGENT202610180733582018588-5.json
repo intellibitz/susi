@@ -17,5 +17,10 @@
   "roadmap": "VC-201-047",
   "created_by": "AGENT202610180733582018588",
   "created_unix": 1792295209,
-  "authored": true
+  "authored": true,
+  "closed": {
+    "at_unix": 1792645623,
+    "commit": "2b8ba16ec7cb9af30d96f883606a18101659330b",
+    "by": "ANTIGRAVITYHARNESSORCHESTRATION"
+  }
 }
