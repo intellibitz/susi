@@ -574,7 +574,7 @@
       "id": "VC-201-046",
       "mastery_target": "Introduce bounded batching only for backends that support it, with per-request deadlines and cancellation; load tests demonstrate throughput changes without violating configured latency or memory limits.",
       "priority": "P1",
-      "progress": "PARTIAL: bounded inference batching is implemented as an uncalled library in infer_batch::Batcher, but no production engine implements BatchBackend, and load tests under latency/memory limits are absent. Tracked by T-ANTIGRAVITY20261002053216-6.",
+      "progress": "DELIVERED: bounded inference batching for capable backends verified by tests/vc_201_046_mastery.rs. Unsupported backends rejected at construction, per-request deadlines and cancellation honored without hitting backend execution, max_wait_ms prevents starvation, queue depth strictly bounded by max_queue, and load tests prove batch collapse under configured limits. Tracked by T-AGENT202610180733582018588-4.",
       "type": "LOCAL_HOSTING",
       "vector": "Batch compatible local inference requests"
     },
