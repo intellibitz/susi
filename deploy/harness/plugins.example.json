@@ -1,0 +1,15 @@
+{
+  "plugins": [
+    {
+      "name": "web",
+      "kind": "mcp",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"],
+      "capabilities": ["tools", "network"],
+      "tools": [
+        {"name": "web_search", "policy": "ask"},
+        {"name": "fetch_page", "policy": "ask"}
+      ]
+    }
+  ]
+}

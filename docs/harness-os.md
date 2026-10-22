@@ -1,7 +1,8 @@
 # SUSI harness as an AI OS
 
-Status: target architecture. The "What exists" sections are on `main` today;
-the phases are the path from there, not a description of it.
+Status: phases 1–5 have landed on `main`; phases 6–7 are the path from there.
+"Delivered" below means the code and its tests are merged, not that the OS is
+complete.
 
 An agent operating system is not a chat window. It is a runtime that schedules
 work, admits spend before spending it, isolates agents from each other and from
@@ -57,7 +58,11 @@ Four invariants hold the model together:
 - **A shell.** The cockpit serves a snapshot and an SSE feed, and operator
   commands are validated and logged, then applied at the next task boundary.
 
-## The seams that are missing
+## The seams that were missing
+
+Phases 1–5 closed these: a provider registry, a public ingress, a tool and MCP
+layer, an agent graph, and a plugin manifest. Each section describes what the
+seam was and what replaced it.
 
 ### 1. Provider registry
 
@@ -147,13 +152,17 @@ its own budget.
 | Phase | Deliverable | Gate | Queued as |
 |---|---|---|---|
 | 0 | Finish native defaults (T-5), then retire the LiteLLM/OpenClaw wording in [harness.md](harness.md) | `cargo test -p susi-harness --lib` + doc review | T-ANTIGRAVITYHARNESSORCHESTRATION-5, T-HARNESSOS-1 |
-| 1 | Provider registry, capability handshake, generic adapter, aliases | `cargo test -p susi-harness --lib provider_registry` | T-HARNESSOS-2 |
-| 2 | Public ingress, per-key budgets, `/v1/models`, direct mode | `cargo test -p susi-harness --lib ingress` | T-HARNESSOS-3 |
-| 3 | Tool registry, MCP client/server, approval policy | `cargo test -p susi-harness --lib tool_registry` | T-HARNESSOS-4 |
-| 4 | Agent graph: roles, handoffs, reviewer | `cargo test -p susi-harness --lib agent_graph` | T-HARNESSOS-5 |
-| 5 | Plugin manifest (MCP first, WASM later) | `cargo test -p susi-harness --lib plugin_manifest` | T-HARNESSOS-6 |
+| 1 | ✅ Provider registry, capability handshake, generic adapter, aliases | `cargo test -p susi-harness --lib provider_registry` | T-HARNESSOS-2 |
+| 2 | ✅ Public ingress, per-key budgets, `/v1/models`, direct mode | `cargo test -p susi-harness --lib ingress` | T-HARNESSOS-3 |
+| 3 | ✅ Tool registry, MCP client, approval policy | `cargo test -p susi-harness --lib tool_registry` | T-HARNESSOS-4 |
+| 4 | ✅ Agent graph: roles, handoffs, reviewer | `cargo test -p susi-harness --lib agent_graph` | T-HARNESSOS-5 |
+| 5 | ✅ Plugin manifest, JSON today (MCP first, WASM later) | `cargo test -p susi-harness --lib plugin_manifest` | T-HARNESSOS-6 |
 | 6 | Mission control: graph, per-agent spend, approvals, replay | `cargo test -p susi-harness --lib cockpit` | not queued |
 | 7 | The proof mission below | e2e check in `susi_gawd::admin::E2E_CHECKS` | not queued |
+
+The manifest is `harness.plugins.json` rather than TOML: the tree carries no
+TOML parser, and the data format here is JSON. See
+[plugins.rs](../crates/susi-harness/src/plugins.rs).
 
 Phases 6 and 7 are named but not queued: their shape depends on what phase 4
 teaches about the message bus and the reviewer.

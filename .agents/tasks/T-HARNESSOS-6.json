@@ -1,7 +1,7 @@
 {
   "id": "T-HARNESSOS-6",
   "title": "harness: plugin manifest for providers, tools and agents",
-  "goal": "Add a harness.toml manifest loaded at startup that registers providers, tools and agents without a rebuild: out-of-process MCP first, in-process WASM components later. Ship a sample out-of-tree plugin and prove it loads and is refused when it asks for an undeclared capability.",
+  "goal": "Add a harness.plugins.json manifest loaded at startup that registers providers, tools and agents without a rebuild: out-of-process MCP first, in-process WASM components later. Ship a sample out-of-tree plugin and prove it loads and is refused when it asks for an undeclared capability. JSON rather than TOML because the tree carries no TOML parser and data here is JSON.",
   "size": "m",
   "deps": [
     "T-HARNESSOS-4"
