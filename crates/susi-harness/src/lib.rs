@@ -64,6 +64,7 @@ pub mod adapter;
 pub mod api;
 pub mod author;
 pub mod budget;
+pub mod cache;
 pub mod catalog;
 pub mod cockpit;
 pub mod control;

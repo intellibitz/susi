@@ -15,6 +15,7 @@
 //!   usage chunk is logged loudly and writes no row: it is uncountable, and
 //!   inventing a number would be worse than saying so.
 
+use crate::cache::ResponseCache;
 use crate::catalog::PriceCatalogue;
 use crate::ledger::{append_entry, Dispatch, LedgerEntry, Outcome};
 use crate::pricing::ModelPrice;
@@ -54,6 +55,8 @@ pub struct GatewayState {
     /// for half an hour and then die on the transport deadline; capping it
     /// makes the turn iterate instead of outrunning the clock.
     pub max_output_tokens: Option<u32>,
+    /// Optional in-memory and persistent SHA-256 request/response cache.
+    pub cache: Option<Arc<ResponseCache>>,
 }
 
 /// One dispatch the gateway is about to price.
@@ -141,10 +144,46 @@ async fn completions(
         price,
     };
 
+    let cache_key = ResponseCache::compute_key(&request);
+    if !streaming {
+        if let Some(ref cache) = state.cache {
+            if let Some(cached_response) = cache.get(&cache_key) {
+                let usage = token_usage_from_json(&cached_response).unwrap_or_default();
+                let entry = LedgerEntry::settle(Dispatch {
+                    mission: attempt.mission.clone(),
+                    task: attempt.task.clone(),
+                    attempt: attempt.attempt,
+                    model: attempt.model.clone(),
+                    provider: state.provider.clone(),
+                    usage,
+                    price: attempt.price,
+                    started_unix_ms: now_ms(),
+                    ended_unix_ms: now_ms(),
+                    outcome: Outcome::Completed,
+                })
+                .as_cached();
+                let _ = append_entry(&state.ledger_path, &entry);
+
+                let body_bytes = serde_json::to_vec(&cached_response).unwrap_or_default();
+                let mut res = Response::new(axum::body::Body::from(body_bytes));
+                *res.status_mut() = StatusCode::OK;
+                res.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
+                res.headers_mut().insert(
+                    header::HeaderName::from_static("x-susi-cache-key"),
+                    HeaderValue::from_str(&cache_key).unwrap_or(HeaderValue::from_static("hit")),
+                );
+                return res;
+            }
+        }
+    }
+
     if streaming {
         stream_upstream(state, attempt, forwarded).await
     } else {
-        buffered_upstream(state, attempt, forwarded).await
+        buffered_upstream(state, attempt, forwarded, cache_key).await
     }
 }
 
@@ -156,7 +195,12 @@ fn with_usage_in_stream(request: &Value, original: &str) -> String {
     serde_json::to_string(&request).unwrap_or_else(|_| original.to_string())
 }
 
-async fn buffered_upstream(state: Arc<GatewayState>, attempt: Attempt, body: String) -> Response {
+async fn buffered_upstream(
+    state: Arc<GatewayState>,
+    attempt: Attempt,
+    body: String,
+    cache_key: String,
+) -> Response {
     let Attempt {
         mission,
         task,
@@ -203,7 +247,8 @@ async fn buffered_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Str
     let status = call.status;
     // LiteLLM sets this header only when it served the answer from its cache;
     // the provider was not called, so the row must not charge for it.
-    let cached = call.header("x-litellm-cache-key").is_some();
+    let cached =
+        call.header("x-litellm-cache-key").is_some() || call.header("x-susi-cache-key").is_some();
     let content_type = call
         .header("content-type")
         .unwrap_or("application/json")
@@ -244,6 +289,9 @@ async fn buffered_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Str
             ended_unix_ms,
             outcome: Outcome::Completed,
         });
+        if let Some(ref cache) = state.cache {
+            cache.set(&cache_key, &value);
+        }
         let entry = if cached { entry.as_cached() } else { entry };
         if let Err(error) = append_entry(&state.ledger_path, &entry) {
             return error_response(
@@ -476,6 +524,7 @@ mod tests {
             api_key: "test-key".into(),
             timeout_secs: 10,
             max_output_tokens: None,
+            cache: None,
         })
     }
 
@@ -685,5 +734,73 @@ mod tests {
         let mut not_object = serde_json::json!([1]);
         clamp_output_tokens(&mut not_object, 8_000);
         assert_eq!(not_object, serde_json::json!([1]));
+    }
+
+    #[tokio::test]
+    async fn a_cached_request_is_served_at_zero_cost() {
+        let temp = tempfile::tempdir().unwrap();
+        let ledger = temp.path().join("ledger.jsonl");
+
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|_: String| async {
+                (
+                    StatusCode::OK,
+                    [("content-type", "application/json")],
+                    json!({
+                        "id": "1",
+                        "choices": [{"message": {"role": "assistant", "content": "cached output"}}],
+                        "usage": {"prompt_tokens": 10, "completion_tokens": 5}
+                    })
+                    .to_string(),
+                )
+            }),
+        );
+        let upstream = spawn(app).await;
+
+        let cache = Arc::new(ResponseCache::new(Some(temp.path().to_path_buf())));
+        let state = Arc::new(GatewayState {
+            catalogue: catalogue(),
+            ledger_path: ledger.clone(),
+            upstream_chat_url: format!("http://{upstream}/v1/chat/completions"),
+            provider: "deepseek".into(),
+            api_key: "test-key".into(),
+            timeout_secs: 10,
+            max_output_tokens: None,
+            cache: Some(cache),
+        });
+        let gateway = spawn(router(state)).await;
+
+        let body = json!({
+            "model": "deepseek-flash",
+            "messages": [{"role": "user", "content": "ping"}]
+        })
+        .to_string();
+
+        // Call 1: Populates cache
+        let (status, _) = post_json(
+            gateway,
+            &body,
+            &[("x-susi-mission", "m1"), ("x-susi-task", "t1")],
+        )
+        .await;
+        assert_eq!(status, 200);
+
+        // Call 2: Hit cache
+        let (status, resp2) = post_json(
+            gateway,
+            &body,
+            &[("x-susi-mission", "m1"), ("x-susi-task", "t1")],
+        )
+        .await;
+        assert_eq!(status, 200);
+        let val: Value = serde_json::from_str(&resp2).unwrap();
+        assert_eq!(val["choices"][0]["message"]["content"], "cached output");
+
+        // Verify ledger recorded cache hit with 0 micro-USD
+        let entries = read_entries(&ledger).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries[1].cached);
+        assert_eq!(entries[1].cost.micros(), 0);
     }
 }
