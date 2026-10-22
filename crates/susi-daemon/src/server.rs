@@ -115,6 +115,9 @@ pub struct RunningDaemon {
 
 pub struct DaemonLock {
     file: fs::File,
+    /// The `substrate.lock` path, so the pid record can be mirrored to the
+    /// unlocked sidecar readers fall back to.
+    path: PathBuf,
 }
 
 impl DaemonLock {
@@ -189,26 +192,48 @@ impl DaemonLock {
             }
         }
 
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+        })
     }
 
     /// Writes `pid\nsubstrate_home`. Second line is host identity only —
-    /// never a project cwd.
+    /// never a project cwd. Mirrors the same record into the unlocked
+    /// sidecar: Windows byte-range locks are enforced against every other
+    /// handle (even inside the same process), so a pid written only into
+    /// the locked file is unreadable to `check_status`, which is how `stop`
+    /// once reported a daemon it could not even identify.
     fn write_pid(&mut self, substrate_home: &Path) -> Result<(), String> {
+        let record = format!("{}\n{}", std::process::id(), substrate_home.display());
         self.file.set_len(0).map_err(|e| e.to_string())?;
         self.file
             .seek(SeekFrom::Start(0))
             .map_err(|e| e.to_string())?;
-        write!(
-            self.file,
-            "{}\n{}",
-            std::process::id(),
-            substrate_home.display()
-        )
-        .map_err(|e| e.to_string())?;
+        write!(self.file, "{record}").map_err(|e| e.to_string())?;
         self.file.flush().map_err(|e| e.to_string())?;
+        fs::write(lock_record_path(&self.path), record).map_err(|e| e.to_string())?;
         Ok(())
     }
+}
+
+/// Unlocked mirror of the daemon lock record (`substrate.lock` → `substrate.pid`).
+fn lock_record_path(lock_file_path: &Path) -> PathBuf {
+    lock_file_path.with_extension("pid")
+}
+
+/// Read the daemon record, preferring the locked file and falling back to
+/// its unlocked sidecar (the Windows-mandatory-lock case above).
+fn read_lock_record(lock_file_path: &Path) -> Option<String> {
+    fs::read_to_string(lock_file_path)
+        .ok()
+        .or_else(|| fs::read_to_string(lock_record_path(lock_file_path)).ok())
+}
+
+/// Remove both the lock and its readable mirror.
+fn remove_lock_files(lock_file_path: &Path) {
+    let _ = fs::remove_file(lock_file_path);
+    let _ = fs::remove_file(lock_record_path(lock_file_path));
 }
 
 impl SusiDaemon {
@@ -347,7 +372,7 @@ impl SusiDaemon {
     }
 
     fn read_recorded_substrate_home(lock_file_path: &Path) -> Option<PathBuf> {
-        let content = fs::read_to_string(lock_file_path).ok()?;
+        let content = read_lock_record(lock_file_path)?;
         let mut lines = content.lines();
         lines.next()?; // PID line
         lines.next().map(PathBuf::from)
@@ -359,7 +384,7 @@ impl SusiDaemon {
             return None;
         }
 
-        if let Ok(content) = fs::read_to_string(lock_file_path)
+        if let Some(content) = read_lock_record(lock_file_path)
             && let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>()
         {
             #[cfg(unix)]
@@ -368,7 +393,7 @@ impl SusiDaemon {
                 if unsafe { libc::kill(pid as i32, 0) } == 0 {
                     return Some(pid);
                 } else {
-                    let _ = fs::remove_file(lock_file_path);
+                    remove_lock_files(lock_file_path);
                     return None;
                 }
             }
@@ -377,7 +402,7 @@ impl SusiDaemon {
                 if Self::is_process_alive(lock_file_path) {
                     return Some(pid);
                 } else {
-                    let _ = fs::remove_file(lock_file_path);
+                    remove_lock_files(lock_file_path);
                     return None;
                 }
             }
@@ -387,7 +412,7 @@ impl SusiDaemon {
 
     #[allow(unsafe_code)]
     fn is_process_alive(lock_file_path: &Path) -> bool {
-        let Ok(content) = fs::read_to_string(lock_file_path) else {
+        let Some(content) = read_lock_record(lock_file_path) else {
             return false;
         };
         let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>() else {
@@ -1804,7 +1829,7 @@ impl SusiDaemon {
     #[allow(unsafe_code)]
     pub fn stop_daemon(_workspace: &Path, global_dir: &Path) -> bool {
         let global_lock = Self::get_lock_file(global_dir);
-        let Ok(content) = fs::read_to_string(&global_lock) else {
+        let Some(content) = read_lock_record(&global_lock) else {
             return false;
         };
         let pid = content
@@ -1822,7 +1847,7 @@ impl SusiDaemon {
         // Keep the lock while its process survives: it still names the daemon
         // holding the ports, and deleting it would hide a live instance.
         if pid.is_none_or(|pid| !Self::process_alive(pid)) {
-            let _ = fs::remove_file(&global_lock);
+            remove_lock_files(&global_lock);
         }
         true
     }
@@ -1884,8 +1909,7 @@ impl SusiDaemon {
 
         // 2. Lock-file path — the common case.
         let global_lock = Self::get_lock_file(global_dir);
-        let lock_pid = fs::read_to_string(&global_lock)
-            .ok()
+        let lock_pid = read_lock_record(&global_lock)
             .and_then(|content| content.lines().next()?.trim().parse::<u32>().ok());
         if let Some(pid) = lock_pid.filter(|pid| *pid != own_pid && Self::process_alive(*pid)) {
             pids.push(pid);
@@ -1938,7 +1962,7 @@ impl SusiDaemon {
         // The lock names a daemon only while that daemon lives; remove it
         // once (and only once) the recorded pid is gone.
         if lock_pid.is_none_or(|pid| !Self::process_alive(pid)) {
-            let _ = fs::remove_file(&global_lock);
+            remove_lock_files(&global_lock);
         }
 
         StopOutcome {
@@ -2206,7 +2230,7 @@ mod tests {
         // A contended acquire must not truncate the holder's pid lines —
         // a wiped lock file makes check_status report "not running" for a
         // live daemon.
-        let contents = std::fs::read_to_string(&global_lock_path).unwrap_or_default();
+        let contents = read_lock_record(&global_lock_path).unwrap_or_default();
         assert!(
             !contents.trim().is_empty(),
             "contended acquire wiped the lock file"
