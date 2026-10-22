@@ -18,7 +18,7 @@ use crate::catalog::PriceCatalogue;
 use crate::control::{self, ControlRecord};
 use crate::event::{append_event, read_events, Event, EventKind};
 use crate::ledger::{read_entries, LedgerEntry, Outcome};
-use crate::mission_control::GraphView;
+use crate::mission_control::{GraphView, Replay, ReplayEvent};
 use crate::money::MicroUsd;
 use crate::pricing::ModelPrice;
 use axum::extract::State;
@@ -147,6 +147,9 @@ pub struct Snapshot {
     pub graph: GraphView,
     /// Spend per graph role in the focused mission, ordered by role.
     pub role_spend: Vec<RoleSpend>,
+    /// The focused mission's replay: a deterministic, read-only timeline of its
+    /// events, ledger rows and graph handoffs, oldest first.
+    pub replay: Vec<ReplayEvent>,
 }
 
 /// One graph role's spend in the focused mission.
@@ -323,10 +326,19 @@ impl Cockpit {
         if controls.len() > 20 {
             controls = controls.split_off(controls.len() - 20);
         }
+        let graph = graph_for(self);
+        // Build the replay from the full feed before `events` is trimmed for
+        // the panel: the replay has its own, wider cap of 200 steps.
+        let replay = Replay::build(
+            &events,
+            &entries,
+            &graph,
+            focus.as_deref().unwrap_or_default(),
+        )
+        .events;
         if events.len() > 50 {
             events = events.split_off(events.len() - 50);
         }
-        let graph = graph_for(self);
         let role_spend = spend_by_role(&entries, focus.as_deref(), &graph.roles);
 
         Snapshot {
@@ -342,6 +354,7 @@ impl Cockpit {
             events,
             graph,
             role_spend,
+            replay,
         }
     }
 
@@ -689,6 +702,48 @@ mod tests {
         assert_eq!(snapshot.graph.messages.len(), 2);
         assert_eq!(snapshot.graph.roles, vec!["planner", "reviewer"]);
         assert!(snapshot.graph.approved());
+    }
+
+    #[test]
+    fn the_snapshot_replays_the_focused_mission_from_events_ledger_and_graph() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cockpit = cockpit(dir.path());
+        cockpit.mission = Some("m-1".into());
+        append_event(
+            &cockpit.events_path,
+            &Event::new(2, 20, EventKind::TaskDispatched, "task t-1").with_mission("m-1"),
+        )
+        .unwrap();
+        let graph = dir.path().join("mission-graph.jsonl");
+        std::fs::write(
+            &graph,
+            "{\"from\":\"planner\",\"to\":\"coders\",\"kind\":\"plan\",\"payload\":{}}\n",
+        )
+        .unwrap();
+        cockpit.graph_path = Some(graph);
+
+        let snapshot = cockpit.snapshot();
+        assert_eq!(
+            snapshot
+                .replay
+                .iter()
+                .map(|step| (step.at_unix_ms, step.kind.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, "ledger:deepseek-flash"),
+                (1, "ledger:deepseek-flash"),
+                (10, "event:mission_started"),
+                (10, "graph:planner->coders:plan"),
+                (20, "event:task_dispatched"),
+            ]
+        );
+        let ledger_costs: Vec<u64> = snapshot
+            .replay
+            .iter()
+            .filter(|step| step.kind == "ledger:deepseek-flash")
+            .map(|step| step.cost_micro_usd)
+            .collect();
+        assert_eq!(ledger_costs, vec![100, 200]);
     }
 
     #[test]

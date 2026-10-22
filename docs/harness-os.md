@@ -174,7 +174,7 @@ its own budget.
 | 3 | ✅ Tool registry, MCP client, approval policy | `cargo test -p susi-harness --lib tool_registry` | T-HARNESSOS-4 |
 | 4 | ✅ Agent graph: roles, handoffs, reviewer | `cargo test -p susi-harness --lib agent_graph` | T-HARNESSOS-5 |
 | 5 | ✅ Plugin manifest, JSON today (MCP first, WASM later) | `cargo test -p susi-harness --lib plugin_manifest` | T-HARNESSOS-6 |
-| 6 | ✅ Mission control: graph view in the snapshot (per-agent spend delivered; replay pending) | `cargo test -p susi-harness --lib cockpit` | T-HARNESSOS-10 |
+| 6 | ✅ Mission control: graph, per-agent spend, approvals, replay | `cargo test -p susi-harness --lib cockpit` | T-HARNESSOS-10 |
 | 7 | ✅ Live agent-graph missions: `harness-mission` runs planner, coders and reviewer as real turns (reviewer acceptance is "the run succeeded" until a verdict protocol exists) | proof mission below still needs provider keys and worktrees | T-HARNESSOS-12 |
 
 The manifest is `harness.plugins.json` rather than TOML: the tree carries no
@@ -202,7 +202,9 @@ that turns a roadmap vector into a validated plan; coders that run tools and
 the repository's acceptance; a reviewer that gates each diff; merges that land
 through the normal pull request path; a ledger total under the cap. `kill -9`
 mid-run, restart, and it resumes without double-spending or re-serving
-completed work. The cockpit replays the whole thing from the journal.
+completed work. The cockpit's `replay` reassembles that journal — the event
+feed, the ledger rows and the graph handoffs — into one deterministic,
+read-only timeline.
 
 When that runs unattended, the harness is an AI OS in the sense that matters:
 it can be handed work and trusted with the resources to do it.
