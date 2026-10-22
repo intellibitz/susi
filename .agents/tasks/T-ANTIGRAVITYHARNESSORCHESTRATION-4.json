@@ -1,0 +1,18 @@
+{
+  "id": "T-ANTIGRAVITYHARNESSORCHESTRATION-4",
+  "title": "[Harness Sovereign] Phase 2: Native autonomous coding worker replacing OpenClaw",
+  "goal": "Implement pure Rust multi-turn autonomous coding loop with tool calling (view_file, write_to_file, replace_file_content, run_command, list_dir) in NativeWorker, eliminating Node.js, npm shims, and OpenClaw runtime dependencies. Add closed-loop diagnostic feedback and hermetic verification.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "ANTIGRAVITYHARNESSORCHESTRATION",
+  "created_unix": 1792680302
+}
