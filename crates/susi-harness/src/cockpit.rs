@@ -18,6 +18,7 @@ use crate::catalog::PriceCatalogue;
 use crate::control::{self, ControlRecord};
 use crate::event::{append_event, read_events, Event, EventKind};
 use crate::ledger::{read_entries, Outcome};
+use crate::mission_control::GraphView;
 use crate::money::MicroUsd;
 use crate::pricing::ModelPrice;
 use axum::extract::State;
@@ -139,6 +140,8 @@ pub struct Snapshot {
     pub warnings: Vec<String>,
     /// The most recent events, oldest first.
     pub events: Vec<Event>,
+    /// The agent graph's handoffs, when a bus is available.
+    pub graph: GraphView,
 }
 
 impl Cockpit {
@@ -307,6 +310,7 @@ impl Cockpit {
         if events.len() > 50 {
             events = events.split_off(events.len() - 50);
         }
+        let graph = graph_for(self);
 
         Snapshot {
             generated_unix_ms: now,
@@ -319,6 +323,7 @@ impl Cockpit {
             controls,
             warnings,
             events,
+            graph,
         }
     }
 
@@ -332,6 +337,25 @@ impl Cockpit {
                     .and_then(|entries| entries.last().map(|entry| entry.mission.clone()))
             })
     }
+}
+
+/// Where the cockpit reads the agent-graph bus from.
+///
+/// `SUSI_HARNESS_GRAPH` names it explicitly; otherwise a `graph.jsonl` beside
+/// the ledger is used, which is where a mission's runner writes it. No bus is
+/// not an error: the snapshot simply has an empty graph.
+fn graph_for(cockpit: &Cockpit) -> GraphView {
+    if let Ok(named) = std::env::var("SUSI_HARNESS_GRAPH") {
+        let named = named.trim();
+        if !named.is_empty() {
+            return GraphView::load(Path::new(named));
+        }
+    }
+    let beside_ledger = cockpit.ledger_path.with_file_name("graph.jsonl");
+    if beside_ledger.exists() {
+        return GraphView::load(&beside_ledger);
+    }
+    GraphView::default()
 }
 
 impl MissionView {
@@ -594,6 +618,23 @@ mod tests {
             budget: None,
             mission: None,
         }
+    }
+
+    #[test]
+    fn cockpit_graph_appears_beside_the_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        let cockpit = cockpit(dir.path());
+        assert!(cockpit.snapshot().graph.is_empty());
+        std::fs::write(
+            dir.path().join("graph.jsonl"),
+            "{\"from\":\"planner\",\"to\":\"coders\",\"kind\":\"plan\",\"payload\":{}}\n\
+             {\"from\":\"reviewer\",\"to\":\"coders\",\"kind\":\"approval\",\"payload\":{}}\n",
+        )
+        .unwrap();
+        let snapshot = cockpit.snapshot();
+        assert_eq!(snapshot.graph.messages.len(), 2);
+        assert_eq!(snapshot.graph.roles, vec!["planner", "reviewer"]);
+        assert!(snapshot.graph.approved());
     }
 
     #[test]

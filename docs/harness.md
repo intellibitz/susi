@@ -125,7 +125,9 @@ susi harness cockpit \
 
 - `GET /` — the panel (add `?embed=1` for a frameless embed).
 - `GET /api/status` — one JSON snapshot: spend, budget, missions, workers,
-  decisions, warnings, controls, recent events.
+  decisions, warnings, controls, recent events, and the agent graph (`graph`).
+  The graph is read from `SUSI_HARNESS_GRAPH`, or from `graph.jsonl` beside the
+  ledger when that variable is unset.
 - `GET /api/events` — the same snapshot once a second over SSE.
 - `POST /api/command` — `{"command":"pause","mission_id":"…"}`, `resume`,
   `abort`, `top_up`, `redirect`, `decide`. The command is validated, appended to
