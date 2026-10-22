@@ -1,0 +1,19 @@
+{
+  "id": "T-HARNESSOS-8",
+  "title": "mission control: render the agent graph bus",
+  "goal": "Render the agent-graph bus (JSON lines from agents::Bus) as a mission-control view: handoffs in order, roles involved, approval/rejection counts and the last verdict, with malformed lines skipped. Library-only so a Windows root-package change does not drag the whole workspace suite into the gate; the cockpit panel wiring lands separately.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "mission_control"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792696358
+}
