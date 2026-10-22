@@ -77,6 +77,7 @@ pub mod ledger;
 pub mod lifecycle;
 pub mod litellm;
 pub mod mcp;
+pub mod mission_control;
 pub mod money;
 pub mod plugins;
 pub mod policy;
