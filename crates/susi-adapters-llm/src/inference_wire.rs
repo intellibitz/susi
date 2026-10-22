@@ -233,6 +233,113 @@ pub fn gemini_model_path(model: &str) -> &str {
     model.strip_prefix("models/").unwrap_or(model)
 }
 
+/// Convert an OpenAI-compatible `/chat/completions` payload to Anthropic `/v1/messages`.
+///
+/// Extracts any `system` message into the top-level `system` property, preserves `user`
+/// and `assistant` turns, maps `max_tokens` (required by Anthropic, defaults to 4096),
+/// and passes through `temperature`.
+pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
+    let model = openai
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or("claude-3-5-sonnet-20241022");
+    let max_tokens = openai
+        .get("max_tokens")
+        .or_else(|| openai.get("max_completion_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(4096);
+
+    let mut system_prompt = String::new();
+    let mut messages = Vec::new();
+
+    if let Some(msg_array) = openai.get("messages").and_then(Value::as_array) {
+        for msg in msg_array {
+            let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
+            let content = msg
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if role == "system" {
+                if !system_prompt.is_empty() {
+                    system_prompt.push_str(
+                        "
+
+",
+                    );
+                }
+                system_prompt.push_str(content);
+            } else if role == "user" || role == "assistant" {
+                messages.push(json!({
+                    "role": role,
+                    "content": content
+                }));
+            }
+        }
+    }
+
+    if messages.is_empty() {
+        return Err("no user or assistant messages found in payload".to_string());
+    }
+
+    let mut payload = json!({
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": messages
+    });
+
+    if !system_prompt.is_empty() {
+        payload["system"] = json!(system_prompt);
+    }
+
+    if let Some(temp) = openai.get("temperature") {
+        payload["temperature"] = temp.clone();
+    }
+
+    Ok(payload)
+}
+
+/// Convert an Anthropic Messages API response into an OpenAI-compatible `/chat/completions` reply.
+pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value, String> {
+    error_envelope(anthropic)?;
+    let text = anthropic_text(anthropic)?;
+
+    let input_tokens = anthropic
+        .pointer("/usage/input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let output_tokens = anthropic
+        .pointer("/usage/output_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+
+    let id = anthropic
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("anthropic-cmpl");
+
+    Ok(json!({
+        "id": id,
+        "object": "chat.completion",
+        "created": 0,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": text
+                },
+                "finish_reason": "stop"
+            }
+        ],
+        "usage": {
+            "prompt_tokens": input_tokens,
+            "completion_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens
+        }
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +457,45 @@ mod tests {
         );
         assert_eq!(openai_completions_body("m", "p", 8)["prompt"], "p");
         assert_eq!(triton_body("p", 8)["parameters"]["max_tokens"], 8);
+    }
+
+    #[test]
+    fn openai_to_anthropic_and_back_round_trips() {
+        let openai_req = json!({
+            "model": "claude-3-5-sonnet",
+            "messages": [
+                {"role": "system", "content": "You are a test assistant."},
+                {"role": "user", "content": "Hello Claude"}
+            ],
+            "max_tokens": 1024,
+            "temperature": 0.5
+        });
+
+        let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
+        assert_eq!(anthropic_req["model"], "claude-3-5-sonnet");
+        assert_eq!(anthropic_req["system"], "You are a test assistant.");
+        assert_eq!(anthropic_req["max_tokens"], 1024);
+        assert_eq!(anthropic_req["messages"][0]["role"], "user");
+        assert_eq!(anthropic_req["messages"][0]["content"], "Hello Claude");
+
+        let anthropic_resp = json!({
+            "id": "msg_123",
+            "content": [
+                {"type": "text", "text": "Hello human!"}
+            ],
+            "usage": {
+                "input_tokens": 15,
+                "output_tokens": 8
+            }
+        });
+
+        let openai_resp = anthropic_to_openai_chat(&anthropic_resp, "claude-3-5-sonnet").unwrap();
+        assert_eq!(
+            openai_resp["choices"][0]["message"]["content"],
+            "Hello human!"
+        );
+        assert_eq!(openai_resp["usage"]["prompt_tokens"], 15);
+        assert_eq!(openai_resp["usage"]["completion_tokens"], 8);
+        assert_eq!(openai_resp["usage"]["total_tokens"], 23);
     }
 }

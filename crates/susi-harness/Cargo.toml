@@ -8,6 +8,7 @@ description = "SUSI self-build harness: durable ledger, event stream and control
 [dependencies]
 susi-error = { workspace = true }
 susi-http-transport = { workspace = true }
+susi-adapters-llm = { workspace = true }
 axum = { package = "susi-vendor-axum", path = "../susi-vendor-axum" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 futures = { package = "susi-vendor-futures", path = "../susi-vendor-futures" }
