@@ -84,3 +84,4 @@ pub mod usage;
 pub mod validate;
 
 pub mod router;
+pub mod worker;
