@@ -1,0 +1,19 @@
+{
+  "id": "T-HARNESSOS-9",
+  "title": "mission: dry-run the agent graph before spending",
+  "goal": "Add agents::Graph::steps() (the run order after validation) and teach harness-mission an optional agents block with dry_run: true: build the planner/coders/reviewer graph, validate models and tools, and print the steps without calling a model. A non-dry-run agents mission is refused explicitly until live graph execution lands.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "agent_steps"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792696983
+}
