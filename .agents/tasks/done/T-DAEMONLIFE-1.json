@@ -1,0 +1,24 @@
+{
+  "id": "T-DAEMONLIFE-1",
+  "title": "Fix Windows daemon lifecycle: generous bounded start readiness and verified, escalating stop",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-daemon",
+      "--locked",
+      "await_stop"
+    ]
+  },
+  "created_by": "DAEMONLIFE",
+  "created_unix": 1792707339,
+  "closed": {
+    "at_unix": 1792709273,
+    "commit": "574417b2f76aa98db40d5ac1b3a6f4a62880a121",
+    "by": "DAEMONLIFE"
+  }
+}
