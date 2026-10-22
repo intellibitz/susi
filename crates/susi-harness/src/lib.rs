@@ -75,6 +75,7 @@ pub mod ingress;
 pub mod ledger;
 pub mod lifecycle;
 pub mod litellm;
+pub mod mcp;
 pub mod money;
 pub mod policy;
 pub mod pricing;
@@ -82,6 +83,7 @@ pub mod providers;
 pub mod queue;
 pub mod scheduler;
 pub mod supervisor;
+pub mod tools;
 pub mod usage;
 pub mod validate;
 
