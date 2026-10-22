@@ -97,6 +97,14 @@ async fn completions(
     headers: HeaderMap,
     body: String,
 ) -> Response {
+    complete(state, headers, body).await
+}
+
+/// Forward one completion through the meter.
+///
+/// The authenticated ingress calls this after its own admission checks; the
+/// gateway's own route calls it directly.
+pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String) -> Response {
     let Ok(mut request) = serde_json::from_str::<Value>(&body) else {
         return error_response(StatusCode::BAD_REQUEST, "request body is not JSON");
     };

@@ -1,4 +1,4 @@
-﻿#![forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 #![cfg_attr(
     test,
     allow(
@@ -20,6 +20,10 @@
 //! harness-gateway --catalogue prices.json --ledger ledger.jsonl \
 //!   --upstream https://api.deepseek.com/chat/completions --provider deepseek
 //! ```
+//!
+//! With `--accounts accounts.json` the same process also authenticates callers:
+//! each bearer token names an account with a money cap and a rate limit, and
+//! `/v1/models` lists the registry. Without it the gateway stays loopback-open.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -36,6 +40,7 @@ struct Options {
     api_key_env: String,
     timeout: u64,
     max_output_tokens: Option<u32>,
+    accounts: Option<PathBuf>,
 }
 
 fn main() {
@@ -87,9 +92,20 @@ async fn run(options: Options) -> Result<(), String> {
         .map_err(|error| format!("local_addr: {error}"))?;
     println!("harness-gateway listening on http://{address}");
     let _ = std::io::stdout().flush();
-    serve(listener, state)
-        .await
-        .map_err(|error| format!("serve: {error}"))
+    match options.accounts {
+        Some(path) => {
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| format!("accounts {}: {error}", path.display()))?;
+            let ingress =
+                susi_harness::ingress::Ingress::parse(&text).map_err(|error| error.to_string())?;
+            susi_harness::ingress::serve(listener, state, Arc::new(ingress))
+                .await
+                .map_err(|error| format!("serve: {error}"))
+        }
+        None => serve(listener, state)
+            .await
+            .map_err(|error| format!("serve: {error}")),
+    }
 }
 
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
@@ -101,6 +117,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut api_key_env = String::from("DEEPSEEK_API_KEY");
     let mut timeout: u64 = 120;
     let mut max_output_tokens: Option<u32> = None;
+    let mut accounts: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--port" => {
@@ -113,6 +130,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--upstream" => upstream = take(&mut args, &flag)?,
             "--provider" => provider = take(&mut args, &flag)?,
             "--api-key-env" => api_key_env = take(&mut args, &flag)?,
+            "--accounts" => accounts = Some(PathBuf::from(take(&mut args, &flag)?)),
             "--timeout" => {
                 timeout = take(&mut args, &flag)?
                     .parse()
@@ -146,6 +164,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         api_key_env,
         timeout,
         max_output_tokens,
+        accounts,
     })
 }
 
@@ -203,6 +222,22 @@ mod tests {
         assert_eq!(options.api_key_env, "DEEPSEEK_API_KEY");
         assert_eq!(options.timeout, 120);
         assert!(options.max_output_tokens.is_none());
+    }
+
+    #[test]
+    fn parses_an_accounts_file() {
+        let options = parse(args(&[
+            "--catalogue",
+            "prices.json",
+            "--ledger",
+            "ledger.jsonl",
+            "--upstream",
+            "direct",
+            "--accounts",
+            "accounts.json",
+        ]))
+        .unwrap();
+        assert_eq!(options.accounts, Some(PathBuf::from("accounts.json")));
     }
 
     #[test]

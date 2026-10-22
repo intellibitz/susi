@@ -71,6 +71,7 @@ pub mod control;
 pub mod event;
 pub mod executor;
 pub mod gateway;
+pub mod ingress;
 pub mod ledger;
 pub mod lifecycle;
 pub mod litellm;
