@@ -61,6 +61,7 @@
 //!   renders it and never becomes a second source of truth.
 
 pub mod adapter;
+pub mod agents;
 pub mod api;
 pub mod author;
 pub mod budget;
