@@ -1,0 +1,23 @@
+{
+  "id": "T-ANTIGRAVITYHARNESSORCHESTRATION-1",
+  "title": "feat(harness): expand budget model catalog with DashScope, SiliconFlow and Anthropic",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "ANTIGRAVITYHARNESSORCHESTRATION",
+  "created_unix": 1792642430,
+  "closed": {
+    "at_unix": 1792642704,
+    "commit": "206a853c8901782555feb8a36c1270c271867e35",
+    "by": "ANTIGRAVITYHARNESSORCHESTRATION"
+  }
+}

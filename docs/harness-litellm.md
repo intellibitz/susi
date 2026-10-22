@@ -53,9 +53,10 @@ OpenClaw reaches the gateway with `--model harness/<model_name>`.
 | Key | Models |
 |---|---|
 | `DEEPSEEK_API_KEY` | `deepseek-chat`, `deepseek-reasoner` |
-| `SILICONFLOW_API_KEY` | `siliconflow-qwen`, `siliconflow-deepseek` |
-| `DASHSCOPE_API_KEY` | `dashscope-qwen-plus`, `dashscope-qwen-max` |
-| `GEMINI_API_KEY` | `gemini-flash` |
+| `SILICONFLOW_API_KEY` | `siliconflow-qwen`, `siliconflow-deepseek`, `siliconflow-qwen-coder` |
+| `DASHSCOPE_API_KEY` | `dashscope-qwen-plus`, `dashscope-qwen-max`, `dashscope-qwen-coder` |
+| GEMINI_API_KEY | gemini-flash |
+| ANTHROPIC_API_KEY | claude-3-5-haiku, claude-3-5-sonnet |
 | `LITELLM_MASTER_KEY` | optional; requires a bearer key on the proxy |
 
 A model whose key is unset fails only when it is called.

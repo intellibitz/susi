@@ -3,7 +3,7 @@
 # The harness gateway points at this proxy and stays the control point:
 # attribution, price and ledger are the gateway's. LiteLLM owns the provider
 # layer and its cache, so one OpenAI-compatible URL serves DeepSeek,
-# SiliconFlow, DashScope and Gemini, and a repeated request costs nothing.
+# SiliconFlow, DashScope, Gemini and Anthropic, and a repeated request costs nothing.
 #
 #   harness-litellm --config deploy/litellm/config.yaml --port 4000
 #
@@ -34,6 +34,12 @@ model_list:
       api_base: https://api.siliconflow.cn/v1
       api_key: os.environ/SILICONFLOW_API_KEY
 
+  - model_name: siliconflow-qwen-coder
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-Coder-32B-Instruct
+      api_base: https://api.siliconflow.cn/v1
+      api_key: os.environ/SILICONFLOW_API_KEY
+
   # DashScope, OpenAI-compatible mode.
   - model_name: dashscope-qwen-plus
     litellm_params:
@@ -47,10 +53,27 @@ model_list:
       api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
       api_key: os.environ/DASHSCOPE_API_KEY
 
+  - model_name: dashscope-qwen-coder
+    litellm_params:
+      model: openai/qwen2.5-coder-32b-instruct
+      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: os.environ/DASHSCOPE_API_KEY
+
   - model_name: gemini-flash
     litellm_params:
       model: gemini/gemini-2.5-flash
       api_key: os.environ/GEMINI_API_KEY
+
+  # Anthropic Claude (Power Escalation Tier)
+  - model_name: claude-3-5-haiku
+    litellm_params:
+      model: anthropic/claude-3-5-haiku-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-3-5-sonnet
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
 
 litellm_settings:
   # Exact-match response cache, per proxy process. Repeat a request and it is
