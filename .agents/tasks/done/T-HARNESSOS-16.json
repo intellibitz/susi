@@ -1,0 +1,23 @@
+{
+  "id": "T-HARNESSOS-16",
+  "title": "Harness phase 6: deterministic replay timeline in the cockpit snapshot",
+  "goal": "Assemble replay from events, ledger and graph; expose it in Snapshot; document phase 6 complete",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "replay"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792703692,
+  "closed": {
+    "at_unix": 1792704569,
+    "commit": "38f60174cd1c74f29b71bd00a328585690353f9a",
+    "by": "HARNESSOS"
+  }
+}
