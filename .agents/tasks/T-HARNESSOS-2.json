@@ -1,0 +1,19 @@
+{
+  "id": "T-HARNESSOS-2",
+  "title": "harness: provider registry with capability negotiation",
+  "goal": "Replace router.rs's six match arms with a data-driven provider registry: embedded JSON (id, wire family, base URL, key env, models with context/tools/vision/streaming and price ref) plus a user override file, alias resolution, and a generic OpenAI-compatible adapter so any provider is configuration. Refuse or degrade before dispatch when a model lacks a required capability. Wire gateway.rs and the binaries through the registry; keep the ledger and policy contracts unchanged.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "provider_registry"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792690543
+}

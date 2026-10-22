@@ -1,0 +1,22 @@
+{
+  "id": "T-HARNESSOS-5",
+  "title": "harness: agent graph with roles, handoffs and a reviewer gate",
+  "goal": "Add an agent spec (role, model alias, tool subset, budget, isolation, max turns), a typed message bus persisted in the event log, and the plan -> fan-out coders in disjoint worktrees -> review -> integrate topology. A reviewer gates a diff against acceptance and requests changes; every node is budgeted and journaled.",
+  "size": "l",
+  "deps": [
+    "T-HARNESSOS-3",
+    "T-HARNESSOS-4"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "agent_graph"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792690545
+}
