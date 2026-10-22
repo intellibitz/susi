@@ -111,6 +111,20 @@ async fn completions(
     let Some(model) = request.get("model").and_then(Value::as_str) else {
         return error_response(StatusCode::BAD_REQUEST, "request has no model");
     };
+    // A turn that declares tools needs a model that can call them. The check
+    // runs before the call is priced, so an incapable model costs nothing.
+    let needs_tools = request
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| !tools.is_empty());
+    if needs_tools {
+        let denied = crate::providers::Registry::builtin()
+            .require(model, &[crate::providers::Capability::Tools])
+            .err();
+        if let Some(error) = denied {
+            return error_response(StatusCode::BAD_REQUEST, &error.to_string());
+        }
+    }
     let Some(price) = state.catalogue.price(model) else {
         return error_response(
             StatusCode::BAD_REQUEST,
