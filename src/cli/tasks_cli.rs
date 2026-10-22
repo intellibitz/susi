@@ -14,6 +14,10 @@ pub enum TaskCommands {
         /// Also show closed tasks
         #[arg(long)]
         done: bool,
+        /// Emit machine-readable JSON (this is already the default; accepted so
+        /// scripts can be explicit, matching `susi tasks audit --json`)
+        #[arg(long)]
+        json: bool,
     },
     /// Add a task; it needs an acceptance command that decides "done"
     Add {
@@ -322,8 +326,13 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
     let root = repo_root(cwd);
     // Task work needs the repo hooks; install them if this clone lacks them.
     susi_gawd::admin::workflow::ensure_infrastructure(&root);
-    match action.unwrap_or(TaskCommands::List { done: false }) {
-        TaskCommands::List { done } => {
+    match action.unwrap_or(TaskCommands::List {
+        done: false,
+        json: false,
+    }) {
+        // `json` selects nothing new: list output has always been JSON, and the
+        // flag exists for scripting parity with `tasks audit --json`.
+        TaskCommands::List { done, json: _ } => {
             // Claims live on the remote; an unreachable remote must not hide the
             // tasks themselves.
             let (claims, claims_note) = match tasks::claims(&root) {

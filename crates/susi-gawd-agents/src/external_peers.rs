@@ -15,8 +15,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
-#[cfg(test)]
-use std::time::Instant;
 
 /// Resolve the live driver binary for a CLI peer spec.
 pub fn resolve_driver(spec: &ExternalPeerAgentSpec) -> Option<PathBuf> {
@@ -78,6 +76,13 @@ fn render_args(spec: &ExternalPeerAgentSpec, goal: &str, workspace: &Path) -> Ve
         .iter()
         .map(|a| a.replace("{goal}", goal).replace("{workspace}", &ws))
         .collect()
+}
+
+/// The task an external peer is actually handed: the operator's goal with the
+/// self-build contract prefixed when that peer works in SUSI's own tree
+/// (identity.json Mandate 48). A no-op elsewhere, and never stacked.
+fn peer_goal(workspace: &Path, goal: &str) -> String {
+    crate::susi_core::self_build::brief_task(workspace, goal)
 }
 
 fn run_peer_process(
@@ -291,6 +296,13 @@ impl GawdAgent for ExternalPeerAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> crate::susi_core::susi_error::EaiResult<String> {
+        // Mandate 48: a peer may write into SUSI's own tree, so the task it is
+        // handed carries the self-build contract whether or not that tool reads
+        // AGENTS.md. `brief_task` is a no-op outside a SUSI checkout and never
+        // stacks the contract twice; evidence keeps the operator's raw goal.
+        let raw_goal = goal;
+        let briefed_goal = peer_goal(workspace, raw_goal);
+        let goal = briefed_goal.as_str();
         if peer_protocol(&self.spec) == "managed" {
             let result = crate::susi_core::plane_bus::agents::external_managed_goal(
                 &self.spec.name,
@@ -326,7 +338,7 @@ impl GawdAgent for ExternalPeerAgent {
         let arguments = serde_json::json!({
             "protocol": protocol,
             "api_base": self.spec.api_base,
-            "goal": goal,
+            "goal": raw_goal,
         });
 
         // Network peers receive the mission goal; the privacy posture
@@ -516,7 +528,7 @@ mod tests {
         let ws = std::env::temp_dir().join(format!(
             "susi_peer_echo_{}_{}",
             std::process::id(),
-            Instant::now().elapsed().as_nanos()
+            std::time::Instant::now().elapsed().as_nanos()
         ));
         let _ = std::fs::create_dir_all(&ws);
         let session =
@@ -526,6 +538,32 @@ mod tests {
         assert!(res.contains("peer-ok:hello"), "{res}");
         assert!(!session.receipts().is_empty());
         let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn peer_goal_carries_the_self_build_contract_into_susi_trees() {
+        // Mandate 48: a delegated peer in SUSI's own tree is a code-writing
+        // path, so the contract travels in the task itself (the vendor-catalog
+        // path and the DAG already do this; peers must too).
+        let root = std::env::temp_dir().join(format!(
+            "susi_peer_goal_{}_{}",
+            std::process::id(),
+            std::time::Instant::now().elapsed().as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".agents")).unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"susi\"\n").unwrap();
+        std::fs::write(root.join(".agents/identity.json"), "{}").unwrap();
+        let goal = peer_goal(&root, "fix the parser");
+        assert!(goal.contains("SELF-BUILD CONTRACT"), "{goal}");
+        assert!(goal.contains("~/.susi/bin"), "{goal}");
+        assert!(goal.contains("fix the parser"), "{goal}");
+        // Outside a SUSI checkout the peer gets exactly the operator's goal.
+        let plain = std::env::temp_dir().join(format!("susi_peer_plain_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&plain);
+        assert_eq!(peer_goal(&plain, "fix the parser"), "fix the parser");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&plain);
     }
 
     #[test]
