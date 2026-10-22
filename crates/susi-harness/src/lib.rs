@@ -78,6 +78,7 @@ pub mod lifecycle;
 pub mod litellm;
 pub mod mcp;
 pub mod money;
+pub mod plugins;
 pub mod policy;
 pub mod pricing;
 pub mod providers;
