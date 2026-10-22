@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "FINISHLOCK",
-  "created_unix": 1792707792
+  "created_unix": 1792707792,
+  "closed": {
+    "at_unix": 1792709768,
+    "commit": "1ca11a0c216704f83fda9bd33532928ff38d676c",
+    "by": "FINISHLOCK"
+  }
 }
