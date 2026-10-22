@@ -6512,3 +6512,66 @@ fn gmcp_req_203_006_02_production() {
         );
     }
 }
+
+#[test]
+fn gmcp_req_203_009_02_production() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-009-prod-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_susi"))
+        .args(["mcp", "ledger"])
+        .current_dir(root)
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join("xdg"))
+        .env_remove("SUSI_HOME")
+        .output()
+        .expect("the susi binary must run `mcp ledger`");
+    let _ = std::fs::remove_dir_all(&scratch);
+    assert!(
+        output.status.success(),
+        "susi mcp ledger failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
+        .expect("`mcp ledger` must print a JSON report");
+    assert_eq!(report["verified"], true);
+    assert!(
+        report["rows"].as_u64().unwrap_or(0) >= 67,
+        "the shipped ledger must still hold the vector's rows"
+    );
+    assert!(report["vectors"].as_u64().unwrap_or(0) > 0);
+    assert!(
+        report["revisions"]["2025-11-25"].as_u64().unwrap_or(0) > 0,
+        "revision 2025-11-25 must be verified"
+    );
+    assert!(
+        report["revisions"]["2026-07-28"].as_u64().unwrap_or(0) > 0,
+        "revision 2026-07-28 must be verified"
+    );
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-009.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-009")
+        .collect();
+    assert_eq!(rows.len(), 67, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
