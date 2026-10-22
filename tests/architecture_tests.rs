@@ -1313,6 +1313,10 @@ fn self_build_contract_reaches_every_code_writing_path() {
             "self_build::brief_task",
         ),
         (
+            "crates/susi-gawd-agents/src/external_peers.rs",
+            "self_build::brief_task",
+        ),
+        (
             "crates/susi-gawd-swarm/src/dag.rs",
             "self_build::brief_task",
         ),

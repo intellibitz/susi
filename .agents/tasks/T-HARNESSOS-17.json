@@ -1,0 +1,18 @@
+{
+  "id": "T-HARNESSOS-17",
+  "title": "Mandate 48 brief for external peer agents; tasks list --json",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd-agents",
+      "peer_goal"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792705003
+}
