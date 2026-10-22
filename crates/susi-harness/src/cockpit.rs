@@ -17,7 +17,7 @@ use crate::budget::Budget;
 use crate::catalog::PriceCatalogue;
 use crate::control::{self, ControlRecord};
 use crate::event::{append_event, read_events, Event, EventKind};
-use crate::ledger::{read_entries, Outcome};
+use crate::ledger::{read_entries, LedgerEntry, Outcome};
 use crate::mission_control::GraphView;
 use crate::money::MicroUsd;
 use crate::pricing::ModelPrice;
@@ -48,6 +48,9 @@ pub struct Cockpit {
     pub controls_path: Option<PathBuf>,
     /// Price catalogue, for showing each worker's rate.
     pub catalogue_path: Option<PathBuf>,
+    /// Agent-graph bus file, when the operator named one; overrides the
+    /// environment and the `graph.jsonl` beside the ledger.
+    pub graph_path: Option<PathBuf>,
     /// Mission cap to display, when the operator started the cockpit with one.
     pub budget: Option<Budget>,
     /// Mission to focus; otherwise the plan's mission, otherwise the newest.
@@ -142,6 +145,19 @@ pub struct Snapshot {
     pub events: Vec<Event>,
     /// The agent graph's handoffs, when a bus is available.
     pub graph: GraphView,
+    /// Spend per graph role in the focused mission, ordered by role.
+    pub role_spend: Vec<RoleSpend>,
+}
+
+/// One graph role's spend in the focused mission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RoleSpend {
+    /// The role, as the agent graph names it.
+    pub role: String,
+    /// Ledger calls the role made in the focused mission.
+    pub calls: usize,
+    /// Spend in micro-USD.
+    pub cost_micro_usd: u64,
 }
 
 impl Cockpit {
@@ -311,6 +327,7 @@ impl Cockpit {
             events = events.split_off(events.len() - 50);
         }
         let graph = graph_for(self);
+        let role_spend = spend_by_role(&entries, focus.as_deref(), &graph.roles);
 
         Snapshot {
             generated_unix_ms: now,
@@ -324,6 +341,7 @@ impl Cockpit {
             warnings,
             events,
             graph,
+            role_spend,
         }
     }
 
@@ -341,10 +359,13 @@ impl Cockpit {
 
 /// Where the cockpit reads the agent-graph bus from.
 ///
-/// `SUSI_HARNESS_GRAPH` names it explicitly; otherwise a `graph.jsonl` beside
-/// the ledger is used, which is where a mission's runner writes it. No bus is
-/// not an error: the snapshot simply has an empty graph.
+/// `graph_path` names it first; then `SUSI_HARNESS_GRAPH`; otherwise a
+/// `graph.jsonl` beside the ledger is used, which is where a mission's runner
+/// writes it. No bus is not an error: the snapshot simply has an empty graph.
 fn graph_for(cockpit: &Cockpit) -> GraphView {
+    if let Some(named) = &cockpit.graph_path {
+        return GraphView::load(named);
+    }
     if let Ok(named) = std::env::var("SUSI_HARNESS_GRAPH") {
         let named = named.trim();
         if !named.is_empty() {
@@ -356,6 +377,38 @@ fn graph_for(cockpit: &Cockpit) -> GraphView {
         return GraphView::load(&beside_ledger);
     }
     GraphView::default()
+}
+
+/// Sum the focused mission's ledger calls per graph role, ordered by role.
+///
+/// A role the graph knows but the ledger never paid for keeps a zero row, so
+/// the panel can show the whole team; ledger tasks that are not graph roles
+/// (a supervisor key, say) are not attributed to an agent.
+fn spend_by_role(entries: &[LedgerEntry], focus: Option<&str>, roles: &[String]) -> Vec<RoleSpend> {
+    let Some(focus) = focus else {
+        return Vec::new();
+    };
+    let mut spend: BTreeMap<&str, (usize, u64)> = roles
+        .iter()
+        .map(|role| (role.as_str(), (0usize, 0u64)))
+        .collect();
+    for entry in entries {
+        if entry.mission != focus {
+            continue;
+        }
+        if let Some((calls, cost)) = spend.get_mut(entry.task.as_str()) {
+            *calls += 1;
+            *cost = cost.saturating_add(entry.cost.micros());
+        }
+    }
+    spend
+        .into_iter()
+        .map(|(role, (calls, cost_micro_usd))| RoleSpend {
+            role: role.to_string(),
+            calls,
+            cost_micro_usd,
+        })
+        .collect()
 }
 
 impl MissionView {
@@ -615,6 +668,7 @@ mod tests {
             plan_path: None,
             controls_path: None,
             catalogue_path: None,
+            graph_path: None,
             budget: None,
             mission: None,
         }
@@ -635,6 +689,48 @@ mod tests {
         assert_eq!(snapshot.graph.messages.len(), 2);
         assert_eq!(snapshot.graph.roles, vec!["planner", "reviewer"]);
         assert!(snapshot.graph.approved());
+    }
+
+    #[test]
+    fn a_named_graph_supplies_roles_and_per_role_spend() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cockpit = cockpit(dir.path());
+        cockpit.mission = Some("m-1".into());
+        append_entry(&cockpit.ledger_path, &entry("m-1", "planner", 700)).unwrap();
+        append_entry(&cockpit.ledger_path, &entry("m-2", "planner", 900)).unwrap();
+        let graph = dir.path().join("mission-graph.jsonl");
+        std::fs::write(
+            &graph,
+            "{\"from\":\"planner\",\"to\":\"coders\",\"kind\":\"plan\",\"payload\":{}}\n\
+             {\"from\":\"coders\",\"to\":\"reviewer\",\"kind\":\"work\",\"payload\":{}}\n\
+             {\"from\":\"reviewer\",\"to\":\"planner\",\"kind\":\"approval\",\"payload\":{}}\n",
+        )
+        .unwrap();
+        cockpit.graph_path = Some(graph);
+        let snapshot = cockpit.snapshot();
+        assert_eq!(snapshot.graph.roles, vec!["coders", "planner", "reviewer"]);
+        assert_eq!(
+            snapshot
+                .role_spend
+                .iter()
+                .map(|spend| spend.role.as_str())
+                .collect::<Vec<_>>(),
+            vec!["coders", "planner", "reviewer"]
+        );
+        let planner = snapshot
+            .role_spend
+            .iter()
+            .find(|spend| spend.role == "planner")
+            .unwrap();
+        assert_eq!(planner.calls, 1);
+        assert_eq!(planner.cost_micro_usd, 700);
+        let coders = snapshot
+            .role_spend
+            .iter()
+            .find(|spend| spend.role == "coders")
+            .unwrap();
+        assert_eq!(coders.calls, 0);
+        assert_eq!(coders.cost_micro_usd, 0);
     }
 
     #[test]
@@ -710,6 +806,7 @@ mod tests {
             plan_path: Some(plan),
             controls_path: None,
             catalogue_path: None,
+            graph_path: None,
             budget: None,
             mission: None,
         };

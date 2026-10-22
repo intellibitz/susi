@@ -1,0 +1,24 @@
+{
+  "id": "T-HARNESSOS-13",
+  "title": "[harness phase 6] Mission control: graph path and per-agent spend",
+  "goal": "Cockpit.graph_path takes precedence for the agent graph; Snapshot.role_spend sums the focused mission's ledger rows per graph role; CLI --graph wired; docs updated.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "cockpit"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792700695,
+  "closed": {
+    "at_unix": 1792701531,
+    "commit": "c032f8f127ddb5cd5241d22759dabff7451cf379",
+    "by": "HARNESSOS"
+  }
+}
