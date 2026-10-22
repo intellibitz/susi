@@ -1,0 +1,19 @@
+{
+  "id": "T-HARNESSOS-11",
+  "title": "test: keep parallel workflow tests from hanging on Windows",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792698186
+}

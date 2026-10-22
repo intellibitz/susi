@@ -1,5 +1,11 @@
+// These fixtures are POSIX shell: the fake `cargo`/`git`/`gh` tools are
+// `#!/bin/sh` scripts, `sh` runs `scripts/*.sh`, and the fixture relies on
+// `chmod` and symlinks. A native Windows host cannot reproduce that process
+// model, and the file has stalled the root-package gate there for 16+ minutes,
+// so Windows skips it. Unix (Linux, macOS and CI) still runs every test.
+#![allow(missing_docs)] // integration test crate (and an empty crate on Windows)
+#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // test fixtures/assertions
-#![allow(missing_docs)] // integration test crate
 //! Exercise finish against a local bare remote, simulating its merge automation.
 
 use std::path::{Path, PathBuf};
