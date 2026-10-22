@@ -6054,3 +6054,48 @@ fn gmcp_req_203_013_01_contract() {
         assert!(contract.contains(needle), "contract must resolve {needle}");
     }
 }
+
+#[test]
+fn gmcp_req_203_004_01_contract() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-004.md"))
+        .expect("contract document must exist");
+    for section in [
+        "Normative clause",
+        "Pinned sources",
+        "Canonical data model",
+        "Behavior table",
+        "Compatibility and deprecation decisions",
+        "Threat model",
+        "SLOs and resource budgets",
+        "Fixtures",
+        "Evidence locations",
+        "Ambiguities resolved",
+    ] {
+        assert!(
+            contract.contains(&format!("## {section}")),
+            "contract must contain a {section} section"
+        );
+    }
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-004")
+        .collect();
+    assert_eq!(rows.len(), 108, "the contract binds 108 VC-203-004 rows");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            contract.contains(path),
+            "contract must name production path {path}"
+        );
+    }
+}
