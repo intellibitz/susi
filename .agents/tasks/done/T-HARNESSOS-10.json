@@ -1,0 +1,24 @@
+{
+  "id": "T-HARNESSOS-10",
+  "title": "cockpit: feed the agent-graph view into the status snapshot",
+  "goal": "Read the agent graph in the cockpit snapshot without changing the Cockpit API: SUSI_HARNESS_GRAPH names the bus explicitly, otherwise a graph.jsonl beside the ledger is used. Expose it as graph in /api/status and mark phase 6 delivered in docs/harness-os.md; note the convention in docs/harness.md's cockpit section.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "cockpit_graph"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792697471,
+  "closed": {
+    "at_unix": 1792697648,
+    "commit": "94ed6ea46040e305e94fb5854a105b900077b797",
+    "by": "HARNESSOS"
+  }
+}

@@ -1,6 +1,6 @@
 # SUSI harness as an AI OS
 
-Status: phases 1–5 have landed on `main`; phases 6–7 are the path from there.
+Status: phases 1–6 have landed on `main`; phase 7 is the path from there.
 "Delivered" below means the code and its tests are merged, not that the OS is
 complete.
 
@@ -157,15 +157,16 @@ its own budget.
 | 3 | ✅ Tool registry, MCP client, approval policy | `cargo test -p susi-harness --lib tool_registry` | T-HARNESSOS-4 |
 | 4 | ✅ Agent graph: roles, handoffs, reviewer | `cargo test -p susi-harness --lib agent_graph` | T-HARNESSOS-5 |
 | 5 | ✅ Plugin manifest, JSON today (MCP first, WASM later) | `cargo test -p susi-harness --lib plugin_manifest` | T-HARNESSOS-6 |
-| 6 | Mission control: graph, per-agent spend, approvals, replay | `cargo test -p susi-harness --lib cockpit` | not queued |
+| 6 | ✅ Mission control: graph view in the snapshot (per-agent spend and replay pending) | `cargo test -p susi-harness --lib cockpit` | T-HARNESSOS-10 |
 | 7 | The proof mission below | e2e check in `susi_gawd::admin::E2E_CHECKS` | not queued |
 
 The manifest is `harness.plugins.json` rather than TOML: the tree carries no
 TOML parser, and the data format here is JSON. See
 [plugins.rs](../crates/susi-harness/src/plugins.rs).
 
-Phases 6 and 7 are named but not queued: their shape depends on what phase 4
-teaches about the message bus and the reviewer.
+Phase 7 is named but not queued: its shape depends on what the live graph run
+teaches. A dry run (`harness-mission` with an `agents` block and
+`"dry_run": true`) validates and prints the topology without spending.
 
 ## The proof mission
 
