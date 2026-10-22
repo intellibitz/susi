@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "ANTIGRAVITYHARNESSORCHESTRATION",
-  "created_unix": 1792642430
+  "created_unix": 1792642430,
+  "closed": {
+    "at_unix": 1792642704,
+    "commit": "206a853c8901782555feb8a36c1270c271867e35",
+    "by": "ANTIGRAVITYHARNESSORCHESTRATION"
+  }
 }
