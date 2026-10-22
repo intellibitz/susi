@@ -1,4 +1,4 @@
-//! The OpenClaw executor.
+﻿//! The OpenClaw executor.
 //!
 //! One headless agent turn, run to a deadline and attributed to a mission and
 //! task. The run's generated OpenClaw configuration points at the metering
@@ -85,9 +85,16 @@ pub enum RunOutcome {
 /// Returns `EaiError::io` when the state directory or config cannot be written,
 /// and `EaiError::process` when the program cannot be spawned or waited on.
 pub fn run(config: &ExecutorConfig) -> EaiResult<RunOutcome> {
-    if config.program == Path::new("native")
-        || config.program == Path::new("susi")
-        || config.program == Path::new("internal")
+    let prog = config.program.to_string_lossy().to_ascii_lowercase();
+    let force_external = std::env::var("SUSI_EXTERNAL_OPENCLAW")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    if !force_external
+        && (prog == "native"
+            || prog == "susi"
+            || prog == "internal"
+            || prog == "openclaw"
+            || prog.is_empty())
     {
         return run_native(config);
     }

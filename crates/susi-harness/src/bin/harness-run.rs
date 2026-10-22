@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+﻿#![forbid(unsafe_code)]
 #![cfg_attr(
     test,
     allow(
@@ -112,7 +112,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
     }
 
     if program.as_os_str().is_empty() {
-        return Err("--program is required".into());
+        program = PathBuf::from("native");
     }
     if gateway.trim().is_empty() {
         return Err("--gateway is required".into());
@@ -159,6 +159,28 @@ mod tests {
 
     fn args<'a>(list: &'a [&'a str]) -> impl Iterator<Item = String> + 'a {
         list.iter().map(|value| (*value).to_string())
+    }
+
+    #[test]
+    fn defaults_to_native_program_when_unspecified() {
+        let config = parse(args(&[
+            "--gateway",
+            "http://127.0.0.1:9185",
+            "--model",
+            "deepseek-flash",
+            "--workspace",
+            "scratch",
+            "--state",
+            "state",
+            "--mission",
+            "pilot-2",
+            "--task",
+            "exec-1",
+            "create",
+            "hello.txt",
+        ]))
+        .unwrap();
+        assert_eq!(config.program, PathBuf::from("native"));
     }
 
     #[test]
