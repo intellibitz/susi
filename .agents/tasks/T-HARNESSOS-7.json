@@ -1,0 +1,18 @@
+{
+  "id": "T-HARNESSOS-7",
+  "title": "docs: harness.md describes the native chain",
+  "goal": "Refresh docs/harness.md: the provider registry and direct routing replace the LiteLLM hop, the native worker replaces OpenClaw, the gateway's direct mode and ingress accounts are documented, and the self-build commands no longer start a proxy. Keep the legacy litellm subcommand documented as optional.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792694139
+}
