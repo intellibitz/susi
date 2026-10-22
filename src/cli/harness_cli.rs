@@ -171,6 +171,10 @@ pub enum HarnessCommands {
         /// Price catalogue, so each worker's rate is shown
         #[arg(long)]
         catalogue: Option<PathBuf>,
+        /// Agent-graph bus file (overrides SUSI_HARNESS_GRAPH and the
+        /// graph.jsonl beside the ledger)
+        #[arg(long)]
+        graph: Option<PathBuf>,
         /// Mission cap in dollars
         #[arg(long)]
         budget_usd: Option<String>,
@@ -239,6 +243,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
                 plan_path: None,
                 controls_path: None,
                 catalogue_path: None,
+                graph_path: None,
                 budget: None,
                 mission: None,
             };
@@ -252,12 +257,14 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             plan,
             controls,
             catalogue,
+            graph,
             budget_usd,
             mission,
             host,
             port,
         } => serve_cockpit(
-            ledger, events, state, plan, controls, catalogue, budget_usd, mission, &host, port,
+            ledger, events, state, plan, controls, catalogue, graph, budget_usd, mission, &host,
+            port,
         ),
         HarnessCommands::Author {
             gateway,
@@ -423,6 +430,7 @@ fn serve_cockpit(
     plan: Option<PathBuf>,
     controls: Option<PathBuf>,
     catalogue: Option<PathBuf>,
+    graph: Option<PathBuf>,
     budget_usd: Option<String>,
     mission: Option<String>,
     host: &str,
@@ -444,6 +452,7 @@ fn serve_cockpit(
         plan_path: plan,
         controls_path: controls,
         catalogue_path: catalogue,
+        graph_path: graph,
         budget,
         mission,
     });
@@ -662,4 +671,35 @@ fn tail(text: &str, limit: usize) -> String {
         return text.to_string();
     }
     text.get(text.len() - limit..).unwrap_or(text).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HarnessCommands;
+    use crate::cli::defs::{Cli, Commands};
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    #[test]
+    fn cockpit_parses_the_graph_bus() {
+        let cli = Cli::try_parse_from([
+            "susi",
+            "harness",
+            "cockpit",
+            "--ledger",
+            "out/ledger.jsonl",
+            "--graph",
+            "out/bus.jsonl",
+        ])
+        .unwrap();
+        let Some(Commands::Harness { action }) = cli.command else {
+            panic!("expected the harness command");
+        };
+        match action {
+            HarnessCommands::Cockpit { graph, .. } => {
+                assert_eq!(graph, Some(PathBuf::from("out/bus.jsonl")));
+            }
+            _ => panic!("expected harness cockpit"),
+        }
+    }
 }

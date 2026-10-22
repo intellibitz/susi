@@ -25,6 +25,7 @@ struct Options {
     plan: Option<PathBuf>,
     controls: Option<PathBuf>,
     catalogue: Option<PathBuf>,
+    graph: Option<PathBuf>,
     budget: Option<Budget>,
     mission: Option<String>,
     port: u16,
@@ -65,6 +66,7 @@ async fn run(options: Options) -> Result<(), String> {
             plan_path: options.plan,
             controls_path: options.controls,
             catalogue_path: options.catalogue,
+            graph_path: options.graph,
             budget: options.budget,
             mission: options.mission,
         }),
@@ -80,6 +82,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut plan = None;
     let mut controls = None;
     let mut catalogue = None;
+    let mut graph = None;
     let mut budget = None;
     let mut mission = None;
     let mut port: u16 = 9181;
@@ -91,6 +94,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--plan" => plan = Some(PathBuf::from(take(&mut args, &argument)?)),
             "--controls" => controls = Some(PathBuf::from(take(&mut args, &argument)?)),
             "--catalogue" => catalogue = Some(PathBuf::from(take(&mut args, &argument)?)),
+            "--graph" => graph = Some(PathBuf::from(take(&mut args, &argument)?)),
             "--budget-usd" => {
                 let amount = take(&mut args, &argument)?;
                 let micros = MicroUsd::parse_usd(&amount)
@@ -119,6 +123,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
         plan,
         controls,
         catalogue,
+        graph,
         budget,
         mission,
         port,
@@ -172,6 +177,12 @@ mod tests {
             Some(250_000)
         );
         assert_eq!(options.port, 9182);
+    }
+
+    #[test]
+    fn parses_the_graph_bus() {
+        let options = parse(args(&["--ledger", "l.jsonl", "--graph", "bus.jsonl"])).unwrap();
+        assert_eq!(options.graph, Some(PathBuf::from("bus.jsonl")));
     }
 
     #[test]
