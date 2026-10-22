@@ -1,0 +1,18 @@
+{
+  "id": "T-FINISHLOCK-1",
+  "title": "fix(workflow): unblock the Windows finish relink from target\\debug and make the primary-watcher test deterministic",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi"
+    ]
+  },
+  "created_by": "FINISHLOCK",
+  "created_unix": 1792707792
+}

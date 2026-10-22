@@ -205,6 +205,12 @@ fn sync_primary(root: &Path) {
 }
 
 fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
+    // Windows cannot relink a running executable, and `finish` runs cargo for
+    // its gate. Hand the long-running machinery to a copy outside the cargo
+    // target dir, then let this process exit so the linker can replace it.
+    if hand_off_finish(cwd, args)? {
+        return Ok(());
+    }
     let root = crate::cli::tasks_cli::repo_root(cwd);
     let script = root.join("scripts/parallel-workflow.sh");
     let mut cmd = workflow_script_command(&script, args);
@@ -216,6 +222,96 @@ fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
         bail!("workflow operation failed; resolve the reported blocker and retry");
     }
     Ok(())
+}
+
+/// Set in the staged copy so it runs the finish in place instead of staging
+/// itself again (that would never end).
+const FINISH_STAGED_ENV: &str = "SUSI_WORKFLOW_STAGED";
+
+/// Whether an executable lives in a cargo target directory, which is exactly
+/// the tree the finish gate rebuilds.
+fn exe_in_cargo_target(exe: &Path) -> bool {
+    exe.components().any(|component| {
+        component
+            .as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("target")
+    })
+}
+
+/// Decide whether `finish` must be handed to a staged copy: only on Windows
+/// (the linker cannot replace a running image there), only when this process is
+/// the one inside the cargo target dir, and only once (the staged copy carries
+/// [`FINISH_STAGED_ENV`]).
+fn plan_finish_handoff(exe: &Path, already_staged: bool, windows: bool) -> bool {
+    windows && !already_staged && exe_in_cargo_target(exe)
+}
+
+/// Copy `src` into a fresh directory under the system temp dir and return the
+/// copy. The directory is unique per invocation, so two finishes cannot fight
+/// over one staged binary.
+fn stage_executable(src: &Path) -> Result<std::path::PathBuf> {
+    static STAGE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seq = STAGE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir =
+        std::env::temp_dir().join(format!("susi-finish-{}-{stamp}-{seq}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let name = src
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("susi.exe"));
+    let dest = dir.join(name);
+    std::fs::copy(src, &dest)?;
+    Ok(dest)
+}
+
+/// The Windows handoff: run `finish` from a staged copy and return `true` so
+/// the caller exits. The original process *must* exit — cargo can only remove
+/// and relink `target\debug\susi.exe` once nothing runs it, and waiting for the
+/// copy here would keep that lock.
+#[cfg(windows)]
+fn hand_off_finish(cwd: &Path, args: &[&str]) -> Result<bool> {
+    if args.first() != Some(&"finish") {
+        return Ok(false);
+    }
+    let exe = std::env::current_exe()?;
+    let staged = std::env::var_os(FINISH_STAGED_ENV).is_some();
+    if !plan_finish_handoff(&exe, staged, true) {
+        return Ok(false);
+    }
+    let staged_exe = stage_executable(&exe)?;
+    // Forward this exact command line: `susi workflow finish <id>`.
+    let mut child = std::process::Command::new(&staged_exe)
+        .args(std::env::args_os().skip(1))
+        .current_dir(cwd)
+        .env(FINISH_STAGED_ENV, "1")
+        .spawn()?;
+    // A short handshake catches an immediately failing copy (no shell, no
+    // repo) while adding nothing to the handoff itself.
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    if let Some(status) = child.try_wait()? {
+        bail!(
+            "the staged finish copy {} exited immediately ({status})",
+            staged_exe.display()
+        );
+    }
+    eprintln!(
+        "susi: running this finish from the staged copy {} so the gate can relink {}",
+        staged_exe.display(),
+        exe.display()
+    );
+    eprintln!("susi: this process exits now; the finish continues in the staged copy above");
+    Ok(true)
+}
+
+/// Other platforms can replace a running executable, so the finish runs in
+/// place and reports its own exit status.
+#[cfg(not(windows))]
+fn hand_off_finish(_cwd: &Path, _args: &[&str]) -> Result<bool> {
+    Ok(false)
 }
 
 #[cfg(not(windows))]
@@ -266,4 +362,61 @@ fn windows_posix_shell() -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod finish_exec_guard {
+    use super::*;
+
+    fn source_file(tag: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("susi-guard-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("susi.exe");
+        std::fs::write(&file, bytes).unwrap();
+        file
+    }
+
+    #[test]
+    fn target_dir_detection_matches_a_cargo_build_tree_only() {
+        assert!(exe_in_cargo_target(Path::new("repo/target/debug/susi.exe")));
+        assert!(exe_in_cargo_target(Path::new(
+            "repo/target/x86_64-pc-windows-msvc/debug/susi.exe"
+        )));
+        assert!(exe_in_cargo_target(Path::new(
+            "C:/work/TARGET/debug/susi.exe"
+        )));
+        assert!(!exe_in_cargo_target(Path::new(
+            "home/me/.susi/bin/susi.exe"
+        )));
+        assert!(!exe_in_cargo_target(Path::new("usr/local/bin/susi")));
+    }
+
+    #[test]
+    fn handoff_requires_windows_a_target_dir_and_no_marker() {
+        let in_target = Path::new("repo/target/debug/susi.exe");
+        let installed = Path::new("home/me/.susi/bin/susi.exe");
+        assert!(plan_finish_handoff(in_target, false, true));
+        assert!(!plan_finish_handoff(in_target, false, false)); // unix relinks fine
+        assert!(!plan_finish_handoff(in_target, true, true)); // already staged
+        assert!(!plan_finish_handoff(installed, false, true)); // not the tree cargo builds
+    }
+
+    #[test]
+    fn staged_copy_is_byte_identical_and_unique() {
+        let src = source_file("stage", b"staged executable payload");
+        let first = stage_executable(&src).unwrap();
+        let second = stage_executable(&src).unwrap();
+        assert_ne!(first, second, "each finish gets its own directory");
+        assert_eq!(std::fs::read(&first).unwrap(), std::fs::read(&src).unwrap());
+        assert!(first.starts_with(std::env::temp_dir()));
+        assert_eq!(first.file_name(), src.file_name());
+        assert!(
+            !exe_in_cargo_target(&first),
+            "the staged copy lives outside the cargo target dir"
+        );
+        for path in [first, second] {
+            let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        }
+        let _ = std::fs::remove_dir_all(src.parent().unwrap());
+    }
 }

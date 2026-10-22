@@ -321,6 +321,44 @@ fn sync_preserves_untracked_tools_while_advancing_main() {
     );
 }
 
+/// How long the watcher gets to observe a remote change. Generous on purpose:
+/// the gate runs hundreds of tests at once and Windows process startup plus a
+/// `git fetch` can take seconds under that load, while a quiet host needs one.
+/// It is still bounded, so a watcher that never runs fails instead of hangs.
+const WATCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Poll the primary's HEAD until it reaches `expected`. Returns the watcher's
+/// own log on timeout: without it, a failure says only "HEAD is not the sha",
+/// which is exactly the message that made this test look like a flake.
+fn wait_for_head(w: &World, expected: &str, log: &Path) -> Result<String, String> {
+    let deadline = std::time::Instant::now() + WATCH_TIMEOUT;
+    let mut head = git(&w.primary, &["rev-parse", "HEAD"]);
+    while head != expected {
+        if std::time::Instant::now() >= deadline {
+            let seen = std::fs::read_to_string(log).unwrap_or_default();
+            return Err(format!(
+                "primary HEAD never reached {expected} within {WATCH_TIMEOUT:?} \
+                 (last {head}); watcher log:\n{seen}"
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        head = git(&w.primary, &["rev-parse", "HEAD"]);
+    }
+    Ok(head)
+}
+
+/// Stop the watcher for good. On Windows `kill` terminates the shell image the
+/// test spawned but not the bash that runs the script, so every run of this
+/// test used to leak a watcher that kept looping until the machine rebooted.
+fn stop_watcher(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    let _ = Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &child.id().to_string()])
+        .output();
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 #[test]
 fn watcher_observes_remote_merges_without_local_git_hooks() {
     let w = World::new("watcher");
@@ -336,16 +374,32 @@ fn watcher_observes_remote_merges_without_local_git_hooks() {
         )
         .unwrap();
     }
+    // Keep the watcher's own words: a timeout is only diagnosable with them.
+    let log = w.root.join("watcher.log");
+    let log_file = std::fs::File::create(&log).unwrap();
+    // `sh -c exec` makes the spawned child the script's interpreter itself, so
+    // killing it stops the loop instead of orphaning a `bash` grandchild.
     let mut child = Command::new("sh")
+        .arg("-c")
+        .arg("exec \"$0\" \"$@\"")
         .arg(scripts.join("parallel-workflow.sh"))
         .arg("watch")
         .current_dir(&w.primary)
         .env("SUSI_SYNC_INTERVAL", "1")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(log_file.try_clone().unwrap()))
+        .stderr(std::process::Stdio::from(log_file))
         .spawn()
         .unwrap();
+    // The watcher has no local hooks to lean on: first it must fast-forward the
+    // primary to the origin/main that already exists (`other`'s "two").
     let other = w.root.join("other");
+    let two = git(&other, &["rev-parse", "HEAD"]);
+    let ready = wait_for_head(&w, &two, &log);
+    if let Err(why) = ready {
+        stop_watcher(&mut child);
+        panic!("{why}");
+    }
+    // Then a merge lands while it watches: the same loop must observe it.
     git(
         &other,
         &[
@@ -358,13 +412,10 @@ fn watcher_observes_remote_merges_without_local_git_hooks() {
     );
     git(&other, &["push", "--quiet", "origin", "HEAD:main"]);
     let expected = git(&other, &["rev-parse", "HEAD"]);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while git(&w.primary, &["rev-parse", "HEAD"]) != expected
-        && std::time::Instant::now() < deadline
-    {
-        std::thread::sleep(std::time::Duration::from_millis(100));
+    let converged = wait_for_head(&w, &expected, &log);
+    stop_watcher(&mut child);
+    if let Err(why) = converged {
+        panic!("{why}");
     }
-    child.kill().unwrap();
-    child.wait().unwrap();
     assert_eq!(git(&w.primary, &["rev-parse", "HEAD"]), expected);
 }
