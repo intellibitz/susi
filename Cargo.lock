@@ -5447,6 +5447,7 @@ dependencies = [
 name = "susi-harness"
 version = "0.21.20"
 dependencies = [
+ "susi-adapters-llm",
  "susi-error",
  "susi-http-transport",
  "susi-vendor-axum",

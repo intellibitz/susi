@@ -209,20 +209,61 @@ async fn buffered_upstream(
         price,
     } = attempt;
     let started_unix_ms = now_ms();
-    let url = state.upstream_chat_url.clone();
-    let api_key = state.api_key.clone();
     let timeout_secs = state.timeout_secs;
+    let route = match crate::router::resolve_route(
+        &model,
+        Some(&state.upstream_chat_url),
+        Some(&state.api_key),
+    ) {
+        Ok(r) => r,
+        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
+    };
+
+    let is_anthropic = route.is_anthropic;
+    let model_name = model.clone();
+
+    let outgoing_body = if is_anthropic {
+        let Ok(mut parsed) = serde_json::from_str::<Value>(&body) else {
+            return error_response(StatusCode::BAD_REQUEST, "invalid json request body");
+        };
+        if let Some(obj) = parsed.as_object_mut() {
+            obj.insert("model".to_string(), Value::String(route.model_id.clone()));
+        }
+        match susi_adapters_llm::inference_wire::openai_to_anthropic_messages(&parsed) {
+            Ok(v) => serde_json::to_vec(&v).unwrap_or_else(|_| body.into_bytes()),
+            Err(e) => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    &format!("anthropic translation: {e}"),
+                )
+            }
+        }
+    } else if route.model_id != model {
+        if let Ok(mut parsed) = serde_json::from_str::<Value>(&body) {
+            if let Some(obj) = parsed.as_object_mut() {
+                obj.insert("model".to_string(), Value::String(route.model_id.clone()));
+            }
+            serde_json::to_vec(&parsed).unwrap_or_else(|_| body.into_bytes())
+        } else {
+            body.into_bytes()
+        }
+    } else {
+        body.into_bytes()
+    };
+
+    let target_url = route.url.clone();
+    let route_headers = route.headers.clone();
+
     let upstream = tokio::task::spawn_blocking(move || {
-        let authorization = format!("Bearer {api_key}");
-        let forwarded = [
-            ("authorization", authorization.as_str()),
-            ("content-type", "application/json"),
-        ];
+        let headers_ref: Vec<(&str, &str)> = route_headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         susi_http_transport::http_call_with_body(
             "POST",
-            &url,
-            &forwarded,
-            Some(body.as_bytes()),
+            &target_url,
+            &headers_ref,
+            Some(&outgoing_body),
             timeout_secs,
             0,
         )
@@ -260,6 +301,22 @@ async fn buffered_upstream(
         }
     };
     let ended_unix_ms = now_ms();
+
+    let response_bytes = if (200..300).contains(&status) && is_anthropic {
+        if let Ok(anth_val) = serde_json::from_slice::<Value>(&response_bytes) {
+            match susi_adapters_llm::inference_wire::anthropic_to_openai_chat(
+                &anth_val,
+                &model_name,
+            ) {
+                Ok(openai_val) => serde_json::to_vec(&openai_val).unwrap_or(response_bytes),
+                Err(_) => response_bytes,
+            }
+        } else {
+            response_bytes
+        }
+    } else {
+        response_bytes
+    };
 
     if (200..300).contains(&status) {
         let Ok(value) = serde_json::from_slice::<Value>(&response_bytes) else {
@@ -498,7 +555,8 @@ mod tests {
     const CATALOGUE: &str = r#"{
         "schema": "susi/harness/prices/v1",
         "models": {
-            "deepseek-flash": {"input_miss": 150000, "input_hit": 3000, "output": 600000}
+            "deepseek-flash": {"input_miss": 150000, "input_hit": 3000, "output": 600000},
+            "claude-3-5-sonnet": {"input_miss": 3000000, "input_hit": 300000, "output": 15000000}
         }
     }"#;
 
@@ -802,5 +860,76 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert!(entries[1].cached);
         assert_eq!(entries[1].cost.micros(), 0);
+    }
+    #[tokio::test]
+    async fn an_anthropic_model_is_routed_and_translated_natively() {
+        let temp = tempfile::tempdir().unwrap();
+        let ledger = temp.path().join("ledger.jsonl");
+
+        // Mock Anthropic upstream server expecting Anthropic Messages format
+        let app = Router::new().route(
+            "/v1/messages",
+            post(|body: String| async move {
+                let req: Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(req["model"], "claude-3-5-sonnet-20241022");
+                assert!(req["messages"].is_array());
+                (
+                    StatusCode::OK,
+                    [("content-type", "application/json")],
+                    json!({
+                        "id": "msg_anthropic_123",
+                        "content": [{"type": "text", "text": "native anthropic reply"}],
+                        "usage": {"input_tokens": 20, "output_tokens": 10}
+                    })
+                    .to_string(),
+                )
+            }),
+        );
+        let upstream = spawn(app).await;
+
+        let state = Arc::new(GatewayState {
+            catalogue: catalogue(),
+            ledger_path: ledger.clone(),
+            // Pass explicit mock upstream with custom port
+            upstream_chat_url: format!("http://{upstream}/v1/messages"),
+            provider: "anthropic".into(),
+            api_key: "test-anthropic-key".into(),
+            timeout_secs: 10,
+            max_output_tokens: None,
+            cache: None,
+        });
+        let gateway = spawn(router(state)).await;
+
+        // Post standard OpenAI format to the gateway
+        let body = json!({
+            "model": "claude-3-5-sonnet",
+            "messages": [
+                {"role": "system", "content": "You are a test assistant."},
+                {"role": "user", "content": "hello"}
+            ]
+        })
+        .to_string();
+
+        let (status, resp) = post_json(
+            gateway,
+            &body,
+            &[("x-susi-mission", "m1"), ("x-susi-task", "t1")],
+        )
+        .await;
+        assert_eq!(status, 200);
+        let val: Value = serde_json::from_str(&resp).unwrap();
+        // Gateway answered in standard OpenAI format
+        assert_eq!(
+            val["choices"][0]["message"]["content"],
+            "native anthropic reply"
+        );
+        assert_eq!(val["usage"]["prompt_tokens"], 20);
+        assert_eq!(val["usage"]["completion_tokens"], 10);
+
+        // Verify ledger recorded the row
+        let entries = read_entries(&ledger).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].usage.input, 20);
+        assert_eq!(entries[0].usage.output, 10);
     }
 }

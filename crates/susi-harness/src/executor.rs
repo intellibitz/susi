@@ -742,6 +742,9 @@ mod tests {
     fn native_worker_implements_runner() {
         let runner = NativeWorker;
         let mut cfg = config();
+        let test_state =
+            std::env::temp_dir().join(format!("susi-worker-test-{}", std::process::id()));
+        cfg.state_dir = test_state.clone();
         cfg.program = PathBuf::from("native");
         // Non-existent gateway should fail cleanly with a message rather than crashing
         cfg.gateway_url = "http://127.0.0.1:1".into();
