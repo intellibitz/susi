@@ -189,6 +189,27 @@ pub struct Report {
     pub bus: Bus,
 }
 
+/// One step of a validated graph, before anything runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentStep {
+    /// Role that runs.
+    pub role: String,
+    /// Model alias or id the role uses.
+    pub model: String,
+    /// Where it runs.
+    pub isolation: Isolation,
+}
+
+impl AgentStep {
+    fn from_spec(spec: &AgentSpec) -> Self {
+        Self {
+            role: spec.role.clone(),
+            model: spec.model.clone(),
+            isolation: spec.isolation,
+        }
+    }
+}
+
 /// A fixed topology of agents.
 #[derive(Debug, Clone, Default)]
 pub struct Graph {
@@ -255,6 +276,30 @@ impl Graph {
             return Err("agent graph needs at least one `coder*` role".to_string());
         }
         Ok(())
+    }
+
+    /// The run order after validation: planner, every coder, then the reviewer.
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error.
+    pub fn steps(&self) -> Result<Vec<AgentStep>, String> {
+        self.validate()?;
+        let mut steps = Vec::new();
+        if let Some(planner) = self.agents.iter().find(|agent| agent.role == "planner") {
+            steps.push(AgentStep::from_spec(planner));
+        }
+        for coder in self
+            .agents
+            .iter()
+            .filter(|agent| agent.role.starts_with("coder"))
+        {
+            steps.push(AgentStep::from_spec(coder));
+        }
+        if let Some(reviewer) = self.agents.iter().find(|agent| agent.role == "reviewer") {
+            steps.push(AgentStep::from_spec(reviewer));
+        }
+        Ok(steps)
     }
 
     /// Plan, fan out the coders, review, and escalate once on rejection.
@@ -430,6 +475,16 @@ mod tests {
             AgentSpec::new("coder-b", "coder", &["view_file", "write_to_file"]),
             AgentSpec::new("reviewer", "planner", &["view_file"]).shared(),
         ])
+    }
+
+    #[test]
+    fn agent_steps_follow_the_topology() {
+        let steps = graph().steps().unwrap();
+        let roles: Vec<&str> = steps.iter().map(|step| step.role.as_str()).collect();
+        assert_eq!(roles, vec!["planner", "coder-a", "coder-b", "reviewer"]);
+        assert_eq!(steps[0].model, "planner");
+        assert_eq!(steps[1].model, "coder");
+        assert_eq!(steps[3].isolation, Isolation::Shared);
     }
 
     #[test]
