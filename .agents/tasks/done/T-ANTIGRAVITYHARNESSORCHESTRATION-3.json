@@ -1,0 +1,23 @@
+{
+  "id": "T-ANTIGRAVITYHARNESSORCHESTRATION-3",
+  "title": "[Harness Sovereign] Phase 1: Native direct multi-provider router replacing LiteLLM",
+  "goal": "Implement native Rust multi-provider HTTP routing in susi-adapters-llm and susi-harness to dispatch requests directly to upstream model providers (DeepSeek, SiliconFlow, DashScope, Gemini, Anthropic) without requiring LiteLLM or Python subprocesses. Connect to the native ResponseCache and ledger for cost attribution.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "ANTIGRAVITYHARNESSORCHESTRATION",
+  "created_unix": 1792678581,
+  "closed": {
+    "at_unix": 1792679739,
+    "commit": "3986425006a9fa51b8983e5a37b15d7640ae5c84",
+    "by": "ANTIGRAVITYHARNESSORCHESTRATION"
+  }
+}
