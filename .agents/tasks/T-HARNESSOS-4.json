@@ -1,0 +1,21 @@
+{
+  "id": "T-HARNESSOS-4",
+  "title": "harness: tool registry, MCP client/server and approval policy",
+  "goal": "Extract worker.rs's five tools into a registry (name, JSON schema, handler kind native|mcp, policy auto|ask|deny, sandbox profile). Add an MCP client over stdio and HTTP and a server exposing susi tools; keep path sanitizing. Approvals flow through the control log so the cockpit asks and the supervisor applies.",
+  "size": "l",
+  "deps": [
+    "T-HARNESSOS-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "tool_registry"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792690545
+}

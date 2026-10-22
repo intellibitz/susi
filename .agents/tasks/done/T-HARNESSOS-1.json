@@ -1,0 +1,23 @@
+{
+  "id": "T-HARNESSOS-1",
+  "title": "docs: harness OS architecture and phased task chain",
+  "goal": "Write docs/harness-os.md: the kernel/drivers/syscalls/processes/shell model for susi-harness, the current-versus-missing map, phases 1-5 with test-shaped gates, the capability-scoped agent rule, and the proof mission. Link it from docs/harness.md without claiming defaults that have not landed. The cargo test acceptance proves the crate is untouched by a docs-only change.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792690530,
+  "closed": {
+    "at_unix": 1792691420,
+    "commit": "00bc3f55d495eccb8b225faca529d700b038c102",
+    "by": "HARNESSOS"
+  }
+}

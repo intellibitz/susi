@@ -5,6 +5,10 @@ prices every call, bounds what the mission may spend, escalates a failed task to
 a stronger model instead of retrying it blindly, and shows the operator what is
 happening while it runs. SUSI uses it to build SUSI.
 
+The architecture beyond this chain — a provider registry, a public ingress, a
+tool and MCP layer, an agent graph and plugins — is in
+[harness-os.md](harness-os.md), together with the phases that get there.
+
 ```
                    ┌──────────────────────────────────────────┐
                    │ CEO cockpit (browser / harness desktop)   │
