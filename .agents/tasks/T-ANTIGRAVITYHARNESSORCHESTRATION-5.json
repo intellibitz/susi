@@ -1,0 +1,20 @@
+{
+  "id": "T-ANTIGRAVITYHARNESSORCHESTRATION-5",
+  "title": "[Harness Sovereign] Phase 3: CLI defaults to NativeWorker and direct provider routing",
+  "goal": "Update CLI harness runners and binaries to default to NativeWorker and direct provider routing, deprecating external LiteLLM daemon and OpenClaw npm requirements across the execution path while keeping backward compatibility.",
+  "size": "s",
+  "deps": [
+    "T-ANTIGRAVITYHARNESSORCHESTRATION-4"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "ANTIGRAVITYHARNESSORCHESTRATION",
+  "created_unix": 1792698500
+}
