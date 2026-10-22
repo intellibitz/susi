@@ -58,6 +58,23 @@ Four invariants hold the model together:
 - **A shell.** The cockpit serves a snapshot and an SSE feed, and operator
   commands are validated and logged, then applied at the next task boundary.
 
+## Native parity
+
+The LiteLLM/OpenClaw stack is no longer in the execution path. Each feature it
+provided has a native owner, and `susi harness models` prints that ownership as
+JSON (providers, models and aliases) without a network call:
+
+| Former dependency | Native owner |
+|---|---|
+| LiteLLM model list, provider keys and aliases | [`providers.rs`](../crates/susi-harness/src/providers.rs) — registry records, capability handshake, `coder`/`cheap`/`planner`/`reasoner` aliases |
+| LiteLLM provider routing and adapters | [`router.rs`](../crates/susi-harness/src/router.rs) — direct HTTPS per wire, explicit upstream override, `direct` mode |
+| LiteLLM proxy auth, per-key budgets, `/v1/models` | [`gateway.rs`](../crates/susi-harness/src/gateway.rs) + [`ingress.rs`](../crates/susi-harness/src/ingress.rs) — bearer accounts, admission, OpenAI-compatible list, `402`/`401` before dispatch |
+| Redis / LiteLLM response cache | [`cache.rs`](../crates/susi-harness/src/cache.rs) — in-memory and on-disk SHA-256 cache; a hit writes a zero-cost ledger row |
+| LiteLLM spend caps and routing policy | [`budget.rs`](../crates/susi-harness/src/budget.rs) + [`policy.rs`](../crates/susi-harness/src/policy.rs) — worst-case reservation, per-mission caps, escalation by expected cost per accepted task |
+| OpenClaw worker loop | [`worker.rs`](../crates/susi-harness/src/worker.rs) + [`agents.rs`](../crates/susi-harness/src/agents.rs) — in-process tool loop and agent graph, no Node runtime |
+| MCP tools | [`mcp.rs`](../crates/susi-harness/src/mcp.rs) + [`tools.rs`](../crates/susi-harness/src/tools.rs) — stdio/HTTP client, tool records, approval policy |
+| Plugin manifests | [`plugins.rs`](../crates/susi-harness/src/plugins.rs) — `harness.plugins.json`, capability-scoped records |
+
 ## The seams that were missing
 
 Phases 1–5 closed these: a provider registry, a public ingress, a tool and MCP
@@ -157,7 +174,7 @@ its own budget.
 | 3 | ✅ Tool registry, MCP client, approval policy | `cargo test -p susi-harness --lib tool_registry` | T-HARNESSOS-4 |
 | 4 | ✅ Agent graph: roles, handoffs, reviewer | `cargo test -p susi-harness --lib agent_graph` | T-HARNESSOS-5 |
 | 5 | ✅ Plugin manifest, JSON today (MCP first, WASM later) | `cargo test -p susi-harness --lib plugin_manifest` | T-HARNESSOS-6 |
-| 6 | ✅ Mission control: graph view in the snapshot (per-agent spend and replay pending) | `cargo test -p susi-harness --lib cockpit` | T-HARNESSOS-10 |
+| 6 | ✅ Mission control: graph view in the snapshot (per-agent spend delivered; replay pending) | `cargo test -p susi-harness --lib cockpit` | T-HARNESSOS-10 |
 | 7 | ✅ Live agent-graph missions: `harness-mission` runs planner, coders and reviewer as real turns (reviewer acceptance is "the run succeeded" until a verdict protocol exists) | proof mission below still needs provider keys and worktrees | T-HARNESSOS-12 |
 
 The manifest is `harness.plugins.json` rather than TOML: the tree carries no
