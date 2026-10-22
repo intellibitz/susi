@@ -1,0 +1,23 @@
+{
+  "id": "T-ANTIGRAVITYHARNESSORCHESTRATION-2",
+  "title": "feat(harness): native platform-independent harness orchestration",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "ANTIGRAVITYHARNESSORCHESTRATION",
+  "created_unix": 1792673577,
+  "closed": {
+    "at_unix": 1792675574,
+    "commit": "a7115b9f8c1c08c9e32614b39a1fa4905d6cb706",
+    "by": "ANTIGRAVITYHARNESSORCHESTRATION"
+  }
+}

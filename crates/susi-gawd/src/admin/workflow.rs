@@ -802,6 +802,299 @@ fn finished_worktrees(root: &Path, primary: &Path, me: &str) -> (u64, u64) {
     (mine, others)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorktreeResult {
+    pub dest: PathBuf,
+    pub branch: String,
+    pub agent: String,
+    pub reused: bool,
+}
+
+/// Native implementation of worktree creation:
+/// creates a linked worktree and branch off origin/main, configures unique
+/// worker identity, shares cargo target dir, and installs infrastructure.
+pub fn start_worktree(
+    root: &Path,
+    name: Option<&str>,
+    agent_override: Option<&str>,
+) -> Result<WorktreeResult, String> {
+    let common = git(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )
+    .map(PathBuf::from)
+    .ok_or_else(|| "cannot locate git-common-dir".to_string())?;
+    let primary = common.parent().unwrap_or(root).to_path_buf();
+
+    let agent = agent_override
+        .map(str::to_string)
+        .or_else(|| std::env::var("SUSI_AGENT").ok())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "agent".to_string());
+    let mut agent_clean: String = agent
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    if agent_clean.is_empty() {
+        agent_clean = "agent".to_string();
+    }
+
+    let name = match name {
+        Some(n) if !n.trim().is_empty() => n.trim().to_string(),
+        _ => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("{agent_clean}-{now}-{}", std::process::id())
+        }
+    };
+
+    if name == "main" || name == "HEAD" || name.is_empty() {
+        return Err(format!("refusing branch name '{name}'"));
+    }
+
+    let worker: String = name
+        .to_ascii_uppercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+
+    let _ = git(root, &["fetch", "-q", "origin"]);
+
+    let primary_dir_name = primary
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("susi");
+    let dest_name = format!("{primary_dir_name}-{name}");
+    let dest = primary.parent().unwrap_or(&primary).join(&dest_name);
+
+    let mut reused = false;
+    if dest.is_dir() {
+        let dest_common = git(
+            &dest,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        )
+        .map(PathBuf::from);
+        let dest_branch = git(&dest, &["symbolic-ref", "-q", "--short", "HEAD"]);
+        if dest_common.as_ref() != Some(&common) || dest_branch.as_deref() != Some(&name) {
+            return Err("refusing to reuse an unrelated checkout".to_string());
+        }
+        let owner = git(&dest, &["config", "--worktree", "--get", "susi.agent"]);
+        if let Some(ref o) = owner {
+            if !o.is_empty() && o != &worker {
+                return Err(format!(
+                    "{} already belongs to agent {}, not {}.\nOne worktree per worker: pick a different name, or reuse it as {}.",
+                    dest.display(), o, worker, o
+                ));
+            }
+        }
+        reused = true;
+    } else {
+        let out = Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                &name,
+                &dest.to_string_lossy(),
+                "origin/main",
+            ])
+            .current_dir(root)
+            .output()
+            .map_err(|e| format!("git worktree add failed: {e}"))?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            return Err(format!("git worktree add failed: {}", err.trim()));
+        }
+    }
+
+    if std::env::var_os("SUSI_PRIVATE_TARGET").is_none() {
+        let target_link = dest.join("target");
+        let primary_target = primary.join("target");
+        if !target_link.exists() && primary_target.exists() {
+            #[cfg(unix)]
+            {
+                let _ = std::os::unix::fs::symlink(&primary_target, &target_link);
+            }
+            #[cfg(windows)]
+            {
+                let _ = std::os::windows::fs::symlink_dir(&primary_target, &target_link);
+            }
+        }
+    }
+
+    let _ = git(root, &["config", "extensions.worktreeConfig", "true"]);
+    for key in ["susi.agent", "user.name", "user.email"] {
+        let _ = git(&dest, &["config", "--worktree", "--unset-all", key]);
+    }
+    let _ = git(&dest, &["config", "--worktree", "susi.agent", &worker]);
+    let _ = git(&dest, &["config", "--worktree", "user.name", &worker]);
+    let email = format!("{}@localhost", worker.to_ascii_lowercase());
+    let _ = git(&dest, &["config", "--worktree", "user.email", &email]);
+
+    ensure_infrastructure(&dest);
+
+    Ok(WorktreeResult {
+        dest,
+        branch: name,
+        agent: worker,
+        reused,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PrunedItem {
+    pub path: PathBuf,
+    pub status: &'static str,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PruneReport {
+    pub items: Vec<PrunedItem>,
+    pub kept: u64,
+    pub reclaimed: u64,
+    pub others: u64,
+    pub failed: u64,
+}
+
+/// Native implementation of worktree pruning:
+/// reclaims finished agent worktrees that have merged into origin/main.
+pub fn prune_worktrees(
+    root: &Path,
+    apply: bool,
+    all_agents: bool,
+    me: &str,
+) -> Result<PruneReport, String> {
+    if git(root, &["fetch", "--quiet", "origin"]).is_none() {
+        return Err(
+            "cannot reach origin: refusing to guess which worktrees are finished".to_string(),
+        );
+    }
+
+    let common = git(
+        root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )
+    .map(PathBuf::from)
+    .ok_or_else(|| "cannot locate git-common-dir".to_string())?;
+    let primary = canonical(common.parent().unwrap_or(root));
+    let here = canonical(root);
+
+    let listed = git(root, &["worktree", "list", "--porcelain"])
+        .ok_or_else(|| "git worktree list failed".to_string())?;
+
+    let mut report = PruneReport {
+        items: Vec::new(),
+        kept: 0,
+        reclaimed: 0,
+        others: 0,
+        failed: 0,
+    };
+
+    for wt_line in listed.lines().filter_map(|l| l.strip_prefix("worktree ")) {
+        let wt = PathBuf::from(wt_line);
+        let path = canonical(&wt);
+        if path == primary {
+            report.items.push(PrunedItem {
+                path: path.clone(),
+                status: "primary",
+                detail: path.display().to_string(),
+            });
+            continue;
+        }
+        if path == here {
+            report.items.push(PrunedItem {
+                path: path.clone(),
+                status: "current",
+                detail: path.display().to_string(),
+            });
+            continue;
+        }
+
+        let Some(head) = git(&wt, &["rev-parse", "HEAD"]) else {
+            report.items.push(PrunedItem {
+                path: path.clone(),
+                status: "unreadable",
+                detail: path.display().to_string(),
+            });
+            report.kept += 1;
+            continue;
+        };
+
+        if !git(&wt, &["status", "--porcelain"]).is_some_and(|s| s.trim().is_empty()) {
+            report.items.push(PrunedItem {
+                path: path.clone(),
+                status: "uncommitted",
+                detail: format!("uncommitted changes: {}", path.display()),
+            });
+            report.kept += 1;
+            continue;
+        }
+
+        if git(&wt, &["merge-base", "--is-ancestor", &head, "origin/main"]).is_none() {
+            report.items.push(PrunedItem {
+                path: path.clone(),
+                status: "unmerged",
+                detail: format!("unmerged commits: {}", path.display()),
+            });
+            report.kept += 1;
+            continue;
+        }
+
+        let owner = git(&wt, &["config", "--get", "susi.agent"]).unwrap_or_default();
+        let mine = !me.is_empty() && owner.eq_ignore_ascii_case(me);
+        if !mine && !all_agents {
+            report.items.push(PrunedItem {
+                path: path.clone(),
+                status: "other_agent",
+                detail: format!(
+                    "another agent ({}): {}",
+                    if owner.is_empty() { "no owner" } else { &owner },
+                    path.display()
+                ),
+            });
+            report.others += 1;
+            continue;
+        }
+
+        if apply {
+            let out = Command::new("git")
+                .args(["worktree", "remove", &wt.to_string_lossy()])
+                .current_dir(root)
+                .output();
+            match out {
+                Ok(o) if o.status.success() => {
+                    report.items.push(PrunedItem {
+                        path: path.clone(),
+                        status: "reclaimed",
+                        detail: format!("reclaimed: {}", path.display()),
+                    });
+                    report.reclaimed += 1;
+                }
+                _ => {
+                    report.items.push(PrunedItem {
+                        path: path.clone(),
+                        status: "failed",
+                        detail: format!("failed to remove: {}", path.display()),
+                    });
+                    report.failed += 1;
+                }
+            }
+        } else {
+            report.items.push(PrunedItem {
+                path: path.clone(),
+                status: "reclaimable",
+                detail: format!("reclaimable: {}", path.display()),
+            });
+        }
+    }
+
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

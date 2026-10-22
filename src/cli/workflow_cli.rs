@@ -30,6 +30,15 @@ pub enum WorkflowCommands {
     /// Give this worktree an identity of its own: <TOOL><WORKTREE-ID> as claim
     /// token and git author, never the shared git login or `PRIMARY`. `check`
     /// and `start` do this for you; run it to fix a borrowed identity by hand.
+    /// Reclaim finished agent worktrees that have merged into origin/main
+    Prune {
+        /// Actually remove the worktrees (default: report only)
+        #[arg(long)]
+        apply: bool,
+        /// Remove finished worktrees of all agents, not just yours
+        #[arg(long)]
+        all: bool,
+    },
     #[command(name = "own-identity")]
     OwnIdentity,
     /// Check that this checkout follows the susi workflow (Mandates 49-51)
@@ -50,6 +59,7 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
         WorkflowCommands::Watch => return run_loop(cwd, &["watch"]),
         WorkflowCommands::Check { json, agent } => (json, agent),
         WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
+        WorkflowCommands::Prune { apply, all } => return prune(cwd, apply, all),
         WorkflowCommands::OwnIdentity => return own_identity(cwd),
     };
     let root = crate::cli::tasks_cli::repo_root(cwd);
@@ -111,28 +121,39 @@ pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
 /// agent never has to assemble it from instructions.
 fn start(cwd: &Path, name: Option<String>, agent: Option<String>) -> Result<()> {
     let root = crate::cli::tasks_cli::repo_root(cwd);
-    let script = root.join("scripts").join("susi-worktree.sh");
-    if !script.is_file() {
-        bail!("{} not found — is this a susi checkout?", script.display());
+    let explicit = explicit_agent(agent.as_deref());
+    let res = workflow::start_worktree(&root, name.as_deref(), explicit.as_deref())
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    if res.reused {
+        eprintln!(
+            "susi-worktree: {} already exists — reusing it",
+            res.dest.display()
+        );
     }
-    let args = name.into_iter().collect::<Vec<_>>();
-    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let mut cmd = workflow_script_command(&script, &arg_refs);
-    cmd.current_dir(&root);
-    // Only a name the operator gave is passed on. `who()` would answer with this
-    // checkout's identity — `PRIMARY` from the primary checkout, or the shared
-    // git login — and every worker started from it would be named after that
-    // instead of after itself; the script names the tool it runs inside.
-    if let Some(explicit) = explicit_agent(agent.as_deref()) {
-        cmd.env("SUSI_AGENT", explicit);
-    } else {
-        cmd.env_remove("SUSI_AGENT");
+    eprintln!("worktree: {} (branch {})", res.dest.display(), res.branch);
+    eprintln!("ready: atomic loop — `susi workflow check`, then sync→claim one→work→commit→sync→push→sync");
+    println!("cd {}", res.dest.display());
+    Ok(())
+}
+
+fn prune(cwd: &Path, apply: bool, all: bool) -> Result<()> {
+    let root = crate::cli::tasks_cli::repo_root(cwd);
+    let me = crate::cli::tasks_cli::who(None, &root)
+        .to_ascii_uppercase()
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>();
+    let report =
+        workflow::prune_worktrees(&root, apply, all, &me).map_err(|e| anyhow::anyhow!("{e}"))?;
+    for item in &report.items {
+        println!("  {:<16} {}", item.status, item.detail);
     }
-    // The script narrates on stderr and prints `cd <path>` last on stdout.
-    let out = cmd.stderr(std::process::Stdio::inherit()).output()?;
-    print!("{}", String::from_utf8_lossy(&out.stdout));
-    if !out.status.success() {
-        bail!("worktree setup failed");
+    println!(
+        "summary: kept={}, reclaimed={}, other agents={}, failed={}",
+        report.kept, report.reclaimed, report.others, report.failed
+    );
+    if !apply {
+        println!("(dry-run: pass `--apply` to remove reclaimable worktrees)");
     }
     Ok(())
 }

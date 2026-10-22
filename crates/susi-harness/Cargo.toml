@@ -13,6 +13,8 @@ tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 futures = { package = "susi-vendor-futures", path = "../susi-vendor-futures" }
 serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 
 [lints]
 workspace = true

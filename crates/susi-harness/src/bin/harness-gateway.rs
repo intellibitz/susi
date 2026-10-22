@@ -62,6 +62,7 @@ async fn run(options: Options) -> Result<(), String> {
         .ok()
         .filter(|key| !key.trim().is_empty())
         .ok_or_else(|| format!("{} is unset or empty", options.api_key_env))?;
+    let cache_dir = options.ledger.parent().map(std::path::Path::to_path_buf);
     let state = Arc::new(GatewayState {
         catalogue,
         ledger_path: options.ledger,
@@ -70,6 +71,9 @@ async fn run(options: Options) -> Result<(), String> {
         api_key,
         timeout_secs: options.timeout,
         max_output_tokens: options.max_output_tokens,
+        cache: Some(std::sync::Arc::new(
+            susi_harness::cache::ResponseCache::new(cache_dir),
+        )),
     });
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", options.port))
         .await
