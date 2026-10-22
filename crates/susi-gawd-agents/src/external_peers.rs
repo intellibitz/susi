@@ -15,8 +15,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
-#[cfg(test)]
-use std::time::Instant;
 
 /// Resolve the live driver binary for a CLI peer spec.
 pub fn resolve_driver(spec: &ExternalPeerAgentSpec) -> Option<PathBuf> {
@@ -530,7 +528,7 @@ mod tests {
         let ws = std::env::temp_dir().join(format!(
             "susi_peer_echo_{}_{}",
             std::process::id(),
-            Instant::now().elapsed().as_nanos()
+            std::time::Instant::now().elapsed().as_nanos()
         ));
         let _ = std::fs::create_dir_all(&ws);
         let session =
@@ -550,7 +548,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "susi_peer_goal_{}_{}",
             std::process::id(),
-            Instant::now().elapsed().as_nanos()
+            std::time::Instant::now().elapsed().as_nanos()
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(".agents")).unwrap();
