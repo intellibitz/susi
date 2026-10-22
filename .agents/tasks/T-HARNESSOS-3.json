@@ -1,0 +1,21 @@
+{
+  "id": "T-HARNESSOS-3",
+  "title": "harness: public OpenAI-compatible ingress with per-key budgets",
+  "goal": "Turn the metering gateway into the general ingress: bearer keys map to budget accounts, /v1/models lists the registry, streaming and buffered completions keep the cache and ledger, per-key caps and rate limits, and a direct upstream mode that needs no LiteLLM. Prove a foreign client such as curl or OpenCode can use susi as its provider.",
+  "size": "m",
+  "deps": [
+    "T-HARNESSOS-2"
+  ],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "ingress"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792690544
+}
