@@ -17,5 +17,10 @@
     ]
   },
   "created_by": "HARNESSOS",
-  "created_unix": 1792690546
+  "created_unix": 1792690546,
+  "closed": {
+    "at_unix": 1792693849,
+    "commit": "1ffe0a1b6ef26bcc8c1c669ed8ae024847b84aca",
+    "by": "HARNESSOS"
+  }
 }
