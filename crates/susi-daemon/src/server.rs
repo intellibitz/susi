@@ -41,6 +41,17 @@ use susi_server::GemiServer;
 
 pub struct SusiDaemon;
 
+/// What `susi stop` actually accomplished — the CLI must exit non-zero when
+/// the host contract did not release, instead of printing success for a
+/// daemon that is still listening.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StopOutcome {
+    /// Processes signalled (lock holder, Linux orphans, contract-port holders).
+    pub signalled: usize,
+    /// The host-contract TCP ports were observed released before the deadline.
+    pub released: bool,
+}
+
 pub struct DaemonContext {
     pub shutdown_signal: Arc<AtomicBool>,
     _lock: DaemonLock,
@@ -210,9 +221,10 @@ impl SusiDaemon {
         Self::check_status_path(&global_lock)
     }
 
-    /// True when the public host-contract TCP surfaces (canonical 9090-9094
-    /// plus any `port_offset`) accept connections.
-    pub fn host_contract_tcp_ready() -> bool {
+    /// The four TCP ports that make up the host contract (canonical
+    /// 9090–9094 shifted by any `port_offset`). UDP discovery (9092) is
+    /// separate — it answers, it does not listen.
+    pub fn host_contract_tcp_ports() -> [u16; 4] {
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         [
             cfg.gmcp_port(),
@@ -220,8 +232,17 @@ impl SusiDaemon {
             cfg.gmcp_http_port(),
             cfg.a2a_http_port(),
         ]
-        .iter()
-        .all(|port| {
+    }
+
+    /// True when the public host-contract TCP surfaces (canonical 9090-9094
+    /// plus any `port_offset`) accept connections.
+    pub fn host_contract_tcp_ready() -> bool {
+        Self::tcp_ports_listening(&Self::host_contract_tcp_ports())
+    }
+
+    /// True when every port in `ports` accepts a loopback connection.
+    fn tcp_ports_listening(ports: &[u16]) -> bool {
+        ports.iter().all(|port| {
             TcpStream::connect_timeout(
                 &std::net::SocketAddr::from(([127, 0, 0, 1], *port)),
                 Duration::from_millis(200),
@@ -366,25 +387,152 @@ impl SusiDaemon {
 
     #[allow(unsafe_code)]
     fn is_process_alive(lock_file_path: &Path) -> bool {
-        if let Ok(content) = fs::read_to_string(lock_file_path)
-            && let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>()
+        let Ok(content) = fs::read_to_string(lock_file_path) else {
+            return false;
+        };
+        let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>() else {
+            return false;
+        };
+        Self::process_alive(pid)
+    }
+
+    /// Whether a bare pid names a live process. Windows previously answered
+    /// from `tasklist`'s exit status, which is 0 whether or not the pid
+    /// matched — every pid read as alive, so a stop could never observe its
+    /// child exit. The CSV output is parsed for the pid itself instead.
+    #[allow(unsafe_code)]
+    pub fn process_alive(pid: u32) -> bool {
+        if pid == 0 {
+            return false;
+        }
+        #[cfg(unix)]
         {
-            #[cfg(unix)]
+            // SAFETY: kill(pid, 0) sends no signal; it only probes whether the pid exists.
+            unsafe { libc::kill(pid as i32, 0) == 0 }
+        }
+        #[cfg(windows)]
+        {
+            Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .map(|out| Self::tasklist_image_name(&out.stdout, pid).is_some())
+                .unwrap_or(false)
+        }
+    }
+
+    /// Parse `tasklist /FO CSV /NH` for `pid`, returning its image name when
+    /// present. A no-match line is `INFO: No tasks are running …`, which has
+    /// no numeric pid field, so it cannot masquerade as a live process.
+    #[cfg(any(windows, test))]
+    fn tasklist_image_name(stdout: &[u8], pid: u32) -> Option<String> {
+        String::from_utf8_lossy(stdout).lines().find_map(|line| {
+            let mut fields = line.split(',');
+            let image = fields.next()?.trim().trim_matches('"').to_string();
+            let got = fields
+                .next()?
+                .trim()
+                .trim_matches('"')
+                .parse::<u32>()
+                .ok()?;
+            (got == pid && !image.is_empty()).then_some(image)
+        })
+    }
+
+    /// Parse `netstat -ano -p tcp` output for the pids LISTENING on `ports`.
+    /// The local address column ends `:port`; a matching foreign address or a
+    /// non-LISTENING row never counts.
+    #[cfg(any(windows, test))]
+    fn parse_netstat_listeners(stdout: &[u8], ports: &[u16]) -> Vec<u32> {
+        let text = String::from_utf8_lossy(stdout);
+        let mut pids = Vec::new();
+        for line in text.lines() {
+            let cols: Vec<&str> = line.split_whitespace().collect();
+            // Proto  Local Address  Foreign Address  State  PID
+            if cols.len() < 5
+                || !cols[0].eq_ignore_ascii_case("tcp")
+                || !cols[3].eq_ignore_ascii_case("LISTENING")
             {
-                // SAFETY: kill(pid, 0) sends no signal; it only probes whether the pid exists.
-                return unsafe { libc::kill(pid as i32, 0) == 0 };
+                continue;
             }
-            #[cfg(windows)]
-            {
-                use std::process::Command;
-                return Command::new("tasklist")
-                    .args(["/FI", &format!("PID eq {}", pid)])
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
+            let Some((_addr, port)) = cols[1].rsplit_once(':') else {
+                continue;
+            };
+            let Ok(port) = port.parse::<u16>() else {
+                continue;
+            };
+            let Ok(pid) = cols[4].parse::<u32>() else {
+                continue;
+            };
+            if pid != 0 && ports.contains(&port) && !pids.contains(&pid) {
+                pids.push(pid);
             }
         }
-        false
+        pids
+    }
+
+    /// Pids listening on `ports`, when the OS can name them.
+    fn port_holder_pids(ports: &[u16]) -> Vec<u32> {
+        #[cfg(windows)]
+        {
+            Command::new("netstat")
+                .args(["-ano", "-p", "tcp"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .map(|out| Self::parse_netstat_listeners(&out.stdout, ports))
+                .unwrap_or_default()
+        }
+        #[cfg(not(windows))]
+        {
+            ports
+                .iter()
+                .filter_map(|port| susi_core::service_table::pid_for_port(*port))
+                .collect()
+        }
+    }
+
+    /// True when `pid` is a SUSI binary (its image/exe name starts `susi`).
+    /// The port-holder sweep only ever force-kills such processes: a foreign
+    /// program squatting on a contract port must be reported, never killed.
+    fn is_susi_process(pid: u32) -> bool {
+        #[cfg(windows)]
+        {
+            Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()
+                .and_then(|out| Self::tasklist_image_name(&out.stdout, pid))
+                .is_some_and(|image| image.to_ascii_lowercase().starts_with("susi"))
+        }
+        #[cfg(all(unix, not(target_os = "linux")))]
+        {
+            let _ = pid;
+            false
+        }
+        #[cfg(target_os = "linux")]
+        {
+            fs::read_link(format!("/proc/{pid}/exe"))
+                .ok()
+                .and_then(|exe| {
+                    exe.file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                })
+                .is_some_and(|name| name.starts_with("susi"))
+        }
+    }
+
+    /// Contract-port listeners that are SUSI processes — the orphan a
+    /// previous daemon left behind after its lock was removed. Their tree is
+    /// force-killed so `susi stop` reclaims the ports on every platform.
+    fn susi_port_holders(ports: &[u16]) -> Vec<u32> {
+        Self::port_holder_pids(ports)
+            .into_iter()
+            .filter(|pid| Self::is_susi_process(*pid))
+            .collect()
     }
 
     pub fn get_hash_file(global_dir: &Path) -> PathBuf {
@@ -1644,42 +1792,51 @@ impl SusiDaemon {
             .filter(|p| p.is_absolute())
     }
 
+    /// Grace period `susi stop` gives a signalled daemon to exit before it
+    /// escalates to a forced process-tree kill.
+    const STOP_ESCALATE_AFTER: Duration = Duration::from_secs(10);
+    /// Overall bound on `susi stop`. Past it, whatever is still alive or
+    /// listening is a real failure (non-zero exit), never a "stopped" claim.
+    pub const STOP_DEADLINE: Duration = Duration::from_secs(30);
+    /// Poll interval for the stop wait. `process_alive` costs one OS probe.
+    const STOP_POLL: Duration = Duration::from_millis(250);
+
     #[allow(unsafe_code)]
     pub fn stop_daemon(_workspace: &Path, global_dir: &Path) -> bool {
         let global_lock = Self::get_lock_file(global_dir);
-        let target_lock = &global_lock;
-
-        if target_lock.exists() {
-            if let Ok(content) = fs::read_to_string(target_lock)
-                && let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<i32>()
-            {
-                #[cfg(unix)]
-                // SAFETY: kill with SIGTERM on the pid recorded in our own daemon lock file; no memory is shared.
-                unsafe {
-                    libc::kill(pid, libc::SIGTERM);
-                }
-                #[cfg(windows)]
-                // taskkill /T /F on the lock-recorded daemon pid — the
-                // Windows analogue of the SIGTERM above.
-                let _ = Command::new("taskkill")
-                    .args(["/PID", &pid.to_string(), "/T", "/F"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
+        let Ok(content) = fs::read_to_string(&global_lock) else {
+            return false;
+        };
+        let pid = content
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .parse::<u32>()
+            .ok();
+        let pids: Vec<u32> = pid
+            .filter(|pid| Self::process_alive(*pid))
+            .into_iter()
+            .collect();
+        let _ = Self::stop_and_wait(&pids);
+        // Keep the lock while its process survives: it still names the daemon
+        // holding the ports, and deleting it would hide a live instance.
+        if pid.is_none_or(|pid| !Self::process_alive(pid)) {
             let _ = fs::remove_file(&global_lock);
-            true
-        } else {
-            false
         }
+        true
     }
 
-    /// `susi stop` — kills only THIS instance's daemon: its systemd unit
-    /// (named after `SUSI_HOME`), its lock-file pid, and orphan
-    /// `daemon-start` processes whose environment matches this instance.
-    /// A sibling `SUSI_HOME` instance keeps running.
+    /// `susi stop` — stops only THIS instance's daemon: its systemd unit
+    /// (named after `SUSI_HOME`), its lock-file pid, orphan `daemon-start`
+    /// processes whose environment matches this instance, and any SUSI
+    /// process still listening on a host-contract port. A sibling
+    /// `SUSI_HOME` instance keeps running.
+    ///
+    /// Returns whether the host contract actually released, so the CLI can
+    /// exit non-zero on a stop that did not land.
     #[allow(unsafe_code)]
-    pub fn stop_instance_daemons(global_dir: &Path) -> usize {
+    pub fn stop_instance_daemons(global_dir: &Path) -> StopOutcome {
         Self::stop_daemons(global_dir, true)
     }
 
@@ -1690,15 +1847,14 @@ impl SusiDaemon {
     /// Returns how many daemon processes were signalled.
     #[allow(unsafe_code)]
     pub fn stop_all_daemons(global_dir: &Path) -> usize {
-        Self::stop_daemons(global_dir, false)
+        Self::stop_daemons(global_dir, false).signalled
     }
 
     #[allow(unsafe_code)]
-    fn stop_daemons(global_dir: &Path, scoped_to_instance: bool) -> usize {
+    fn stop_daemons(global_dir: &Path, scoped_to_instance: bool) -> StopOutcome {
         // Instance scoping only applies to the Linux systemd/proc sweeps below.
         #[cfg(not(target_os = "linux"))]
         let _ = scoped_to_instance;
-        let mut killed = 0usize;
 
         // 1. The systemd transient unit spawned by ensure_daemon_running's
         // systemd-run path (Linux only; no-op everywhere else). Scoped stop
@@ -1723,9 +1879,16 @@ impl SusiDaemon {
             }
         }
 
+        let own_pid = std::process::id();
+        let mut pids: Vec<u32> = Vec::new();
+
         // 2. Lock-file path — the common case.
-        if Self::stop_daemon(global_dir, global_dir) {
-            killed += 1;
+        let global_lock = Self::get_lock_file(global_dir);
+        let lock_pid = fs::read_to_string(&global_lock)
+            .ok()
+            .and_then(|content| content.lines().next()?.trim().parse::<u32>().ok());
+        if let Some(pid) = lock_pid.filter(|pid| *pid != own_pid && Self::process_alive(*pid)) {
+            pids.push(pid);
         }
 
         // 3. Orphan sweep: surviving `daemon-start` processes for this user,
@@ -1738,10 +1901,10 @@ impl SusiDaemon {
                 for entry in entries.flatten() {
                     let name = entry.file_name();
                     let Some(name) = name.to_str() else { continue };
-                    let Ok(pid) = name.parse::<i32>() else {
+                    let Ok(pid) = name.parse::<u32>() else {
                         continue;
                     };
-                    if pid == std::process::id() as i32 {
+                    if pid == own_pid {
                         continue;
                     }
                     let Ok(cmdline) = fs::read(entry.path().join("cmdline")) else {
@@ -1749,18 +1912,141 @@ impl SusiDaemon {
                     };
                     // cmdline is NUL-separated argv.
                     let is_daemon = cmdline.split(|b| *b == 0).any(|arg| arg == b"daemon-start");
-                    if is_daemon && (!scoped_to_instance || Self::daemon_in_this_instance(pid)) {
-                        // SAFETY: kill with SIGTERM on a pid whose cmdline was just verified to be a susi daemon; no memory is shared.
-                        unsafe {
-                            libc::kill(pid, libc::SIGTERM);
-                        }
-                        killed += 1;
+                    if is_daemon
+                        && (!scoped_to_instance || Self::daemon_in_this_instance(pid as i32))
+                        && !pids.contains(&pid)
+                    {
+                        pids.push(pid);
                     }
                 }
             }
         }
 
-        killed
+        // 4. Whoever still listens on a contract port and is a SUSI process.
+        // This is the orphan case on Windows, where there is no /proc sweep:
+        // the lock is gone (or names a dead pid) while a leaf/daemon child
+        // keeps 919x bound. A foreign process on the port is never killed.
+        for pid in Self::susi_port_holders(&Self::host_contract_tcp_ports()) {
+            if pid != own_pid && !pids.contains(&pid) {
+                pids.push(pid);
+            }
+        }
+
+        let signalled = pids.len();
+        let released = Self::stop_and_wait(&pids);
+
+        // The lock names a daemon only while that daemon lives; remove it
+        // once (and only once) the recorded pid is gone.
+        if lock_pid.is_none_or(|pid| !Self::process_alive(pid)) {
+            let _ = fs::remove_file(&global_lock);
+        }
+
+        StopOutcome {
+            signalled,
+            released,
+        }
+    }
+
+    /// Bounded stop loop for the current instance's processes and ports.
+    fn stop_and_wait(pids: &[u32]) -> bool {
+        Self::await_stop(
+            pids,
+            Self::STOP_DEADLINE,
+            Self::STOP_ESCALATE_AFTER,
+            Self::process_alive,
+            Self::signal_tree,
+            || !Self::host_contract_tcp_ready(),
+            || Self::susi_port_holders(&Self::host_contract_tcp_ports()),
+        )
+    }
+
+    /// Terminate `pids`, then wait until every one has exited **and** the
+    /// host-contract ports released. Survivors are force-killed once
+    /// `escalate_after` has elapsed (together with any SUSI process that
+    /// still holds a contract port), and the wait gives up at `deadline`,
+    /// returning the measured truth rather than assuming success.
+    ///
+    /// The probes are injected so tests prove the wait/escalate/deadline
+    /// behaviour with fake processes instead of a real daemon.
+    #[allow(clippy::too_many_arguments)] // one injected probe per OS surface, so a test fakes each independently
+    fn await_stop(
+        pids: &[u32],
+        deadline: Duration,
+        escalate_after: Duration,
+        alive: impl Fn(u32) -> bool,
+        signal_tree: impl Fn(u32, bool),
+        released: impl Fn() -> bool,
+        extra_targets: impl Fn() -> Vec<u32>,
+    ) -> bool {
+        let started = Instant::now();
+        for pid in pids {
+            signal_tree(*pid, false);
+        }
+        let mut escalated = false;
+        loop {
+            let survivors: Vec<u32> = pids.iter().copied().filter(|pid| alive(*pid)).collect();
+            if survivors.is_empty() && released() {
+                return true;
+            }
+            let elapsed = started.elapsed();
+            if !escalated && elapsed >= escalate_after {
+                for pid in &survivors {
+                    signal_tree(*pid, true);
+                }
+                for pid in extra_targets() {
+                    if !pids.contains(&pid) {
+                        signal_tree(pid, true);
+                    }
+                }
+                escalated = true;
+            }
+            if elapsed >= deadline {
+                for pid in &survivors {
+                    signal_tree(*pid, true);
+                }
+                for pid in extra_targets() {
+                    if !pids.contains(&pid) {
+                        signal_tree(pid, true);
+                    }
+                }
+                thread::sleep(Self::STOP_POLL);
+                return pids.iter().copied().all(|pid| !alive(pid)) && released();
+            }
+            thread::sleep(Self::STOP_POLL);
+        }
+    }
+
+    /// Signal a process tree. `force` picks SIGKILL over SIGTERM on unix;
+    /// Windows has only `taskkill /T /F`, re-issued on escalation.
+    #[allow(unsafe_code)]
+    fn signal_tree(pid: u32, force: bool) {
+        if pid == 0 || pid == std::process::id() {
+            return;
+        }
+        #[cfg(unix)]
+        {
+            let sig = if force { libc::SIGKILL } else { libc::SIGTERM };
+            // SAFETY: signal a pid this crate verified is a SUSI daemon or
+            // leaf child (or a test's own fake child); no memory is shared.
+            // The group form reaches leaf services the daemon spawned
+            // without their own session; fall back to the single pid when
+            // it is not a group leader (ESRCH).
+            let group = unsafe { libc::kill(-(pid as i32), sig) };
+            if group != 0 {
+                unsafe {
+                    libc::kill(pid as i32, sig);
+                }
+            }
+        }
+        #[cfg(windows)]
+        {
+            let _ = force;
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
     }
 
     /// Every loaded `susi-daemon*` user unit — instance siblings included.
@@ -1829,6 +2115,11 @@ impl SusiDaemon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// No extra port-holder targets — the fake-process tests need none.
+    fn no_targets() -> Vec<u32> {
+        Vec::new()
+    }
     use susi_paths::ports;
 
     #[test]
@@ -1965,6 +2256,158 @@ mod tests {
 
         let stopped = SusiDaemon::stop_daemon(&tmp_dir, &tmp_dir);
         assert!(!stopped);
+    }
+
+    #[test]
+    fn tasklist_no_match_is_not_a_live_pid() {
+        // `tasklist` exits 0 for "no tasks match" too; only a parsed pid
+        // field may answer "alive" (the old exit-status check reported every
+        // stale lock pid as a running daemon, so stop could never observe an
+        // exit on Windows).
+        let no_match = b"INFO: No tasks are running which match the specified criteria.\r\n";
+        assert_eq!(SusiDaemon::tasklist_image_name(no_match, 1234), None);
+
+        let hit = b"\"susi.exe\",\"1234\",\"Console\",\"1\",\"12,345 K\"\r\n";
+        assert_eq!(
+            SusiDaemon::tasklist_image_name(hit, 1234).as_deref(),
+            Some("susi.exe")
+        );
+        // A different pid whose decimal representation contains 1234 must not
+        // be confused with 1234 (the old substring-free filter was safe here,
+        // but the parser must stay exact).
+        assert_eq!(SusiDaemon::tasklist_image_name(hit, 123), None);
+    }
+
+    #[test]
+    fn netstat_parsing_finds_only_listeners_on_the_contract_ports() {
+        let sample = b"Active Connections\r\n\
+            \x20 TCP    127.0.0.1:9190         0.0.0.0:0              LISTENING       4321\r\n\
+            \x20 TCP    127.0.0.1:9191         0.0.0.0:0              LISTENING       4321\r\n\
+            \x20 TCP    127.0.0.1:9100         0.0.0.0:0              LISTENING       7777\r\n\
+            \x20 TCP    127.0.0.1:9193         127.0.0.1:52000        ESTABLISHED     9999\r\n\
+            \x20 UDP    127.0.0.1:9192         *:*                                    4321\r\n";
+        assert_eq!(
+            SusiDaemon::parse_netstat_listeners(sample, &[9190, 9191, 9193]),
+            vec![4321],
+            "only TCP LISTENING rows on a requested port identify a holder"
+        );
+    }
+
+    #[test]
+    fn process_alive_is_false_for_an_impossible_pid() {
+        assert!(!SusiDaemon::process_alive(0));
+        assert!(
+            !SusiDaemon::process_alive(4_000_000_000),
+            "an unused pid must not read as alive — stop's wait depends on it"
+        );
+    }
+
+    #[test]
+    fn await_stop_waits_for_exit_and_escalates_once() {
+        use std::cell::Cell;
+        let alive = Cell::new(true);
+        let released = Cell::new(false);
+        let signals = Cell::new(0u32);
+        let forced = Cell::new(0u32);
+        let outcome = SusiDaemon::await_stop(
+            &[4242],
+            Duration::from_millis(1500),
+            Duration::from_millis(100),
+            |_| alive.get(),
+            |_, force| {
+                signals.set(signals.get() + 1);
+                if force {
+                    forced.set(forced.get() + 1);
+                    alive.set(false);
+                    released.set(true);
+                }
+            },
+            || released.get(),
+            no_targets,
+        );
+        assert!(outcome, "a fake daemon that dies on escalation is a stop");
+        assert_eq!(
+            signals.get(),
+            2,
+            "exactly one initial termination and one escalation — the wait must \
+             not busy-signal a survivor"
+        );
+        assert_eq!(forced.get(), 1);
+    }
+
+    #[test]
+    fn await_stop_reports_failure_when_ports_never_release() {
+        let outcome = SusiDaemon::await_stop(
+            &[7],
+            Duration::from_millis(400),
+            Duration::from_millis(100),
+            |_| false,
+            |_, _| {},
+            || false,
+            no_targets,
+        );
+        assert!(
+            !outcome,
+            "a process that exited but left the contract ports listening is not a successful stop"
+        );
+    }
+
+    #[test]
+    fn await_stop_with_no_targets_is_immediate_when_ports_are_free() {
+        let started = Instant::now();
+        let outcome = SusiDaemon::await_stop(
+            &[],
+            Duration::from_secs(5),
+            Duration::from_secs(1),
+            |_| false,
+            |_, _| {},
+            || true,
+            no_targets,
+        );
+        assert!(outcome);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "the nothing-to-stop path must not wait out the deadline"
+        );
+    }
+
+    #[test]
+    fn a_real_fake_child_is_detected_then_tree_killed() {
+        // A short-lived command stands in for the daemon: no real daemon is
+        // required to prove liveness detection and bounded termination.
+        let mut cmd = if cfg!(windows) {
+            let mut cmd = Command::new("cmd");
+            cmd.args(["/C", "ping -n 60 127.0.0.1"]);
+            cmd
+        } else {
+            let mut cmd = Command::new("sleep");
+            cmd.arg("60");
+            cmd
+        };
+        let mut child = cmd
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        assert!(
+            SusiDaemon::process_alive(pid),
+            "a live fake child must be detected as alive"
+        );
+
+        SusiDaemon::signal_tree(pid, true);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while SusiDaemon::process_alive(pid) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(100));
+        }
+        let alive_after = SusiDaemon::process_alive(pid);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(
+            !alive_after,
+            "forced tree termination must end the fake child within the deadline"
+        );
     }
 
     #[test]

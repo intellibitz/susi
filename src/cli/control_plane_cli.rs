@@ -322,81 +322,94 @@ pub(crate) fn dispatch_mcp(
     }
 }
 
+/// How long `susi start` waits for a spawned daemon to expose the full host
+/// contract. A first boot after a binary change can take ~90 s to bind
+/// 9090/9091/9093/9094 (here 919x for the dev instance), so the wait is
+/// deliberately generous: it returns as soon as the contract answers, and
+/// only a deadline expiry is reported as a real failure.
+const START_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+/// Readiness poll interval; `host_contract_ready` already bounds its probes.
+const START_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
 pub(crate) fn control_plane_stop(global_dir: &Path) {
     // Instance-scoped stop: under SUSI_HOME only this instance's unit,
-    // lock, and orphan daemons are signalled — siblings keep running.
-    let killed = SusiDaemon::stop_instance_daemons(global_dir);
-    // Give listeners a moment to release the host-contract ports.
-    for _ in 0..20 {
-        if !SusiDaemon::host_contract_tcp_ready() {
-            break;
+    // lock, orphan daemons, and contract-port holders are signalled —
+    // siblings keep running. The daemon-side wait escalates to a forced
+    // process-tree kill when a survivor outlives the grace period, and
+    // reports whether the ports actually released.
+    let outcome = SusiDaemon::stop_instance_daemons(global_dir);
+    if outcome.released {
+        if outcome.signalled > 0 {
+            println!(
+                "[SUSI Daemon] Stopped {} process(es). Host-contract ports released.",
+                outcome.signalled
+            );
+        } else {
+            println!("[SUSI Daemon] Already stopped.");
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    if killed > 0 {
-        println!(
-            "[SUSI Daemon] Stopped {} process(es). Host-contract ports released.",
-            killed
-        );
-    } else if SusiDaemon::host_contract_tcp_ready() {
+    } else {
         eprintln!(
-            "[SUSI Daemon] No lock/unit found, but host-contract TCP ports are still listening."
+            "[SUSI Daemon] Stop failed: host-contract ports are still listening after {}s \
+             ({} process(es) signalled). A process that is not part of this instance may \
+             hold them; check `netstat -ano` for the port owner.",
+            SusiDaemon::STOP_DEADLINE.as_secs(),
+            outcome.signalled
         );
         std::process::exit(1);
-    } else {
-        println!("[SUSI Daemon] Already stopped.");
     }
 }
 
 pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
-    match SusiDaemon::check_status(cwd, global_dir) {
-        Some(pid) if SusiDaemon::host_contract_ready() => {
-            println!("[SUSI Daemon] Running (PID: {}).", pid);
-            println!("{}", SusiDaemon::host_contract_endpoints_report());
-            report_auth_token();
-        }
-        Some(pid) => report_running(pid),
-        None => {
-            // A just-spawned daemon takes seconds to write its lock and
-            // bind the host contract (observed ~15s under load) — poll
-            // for the pid before declaring failure, then give the ports
-            // the same window.
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-            loop {
-                match SusiDaemon::check_status(cwd, global_dir) {
-                    Some(pid) => {
-                        report_running(pid);
-                        break;
-                    }
-                    None if std::time::Instant::now() < deadline => {
-                        std::thread::sleep(std::time::Duration::from_millis(250));
-                    }
-                    None => {
-                        eprintln!(
-                            "[SUSI Daemon] Failed to start. Host-contract ports are not listening."
-                        );
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
-    }
-}
+    let deadline = std::time::Instant::now() + START_READY_TIMEOUT;
 
-/// Report a live daemon pid, waiting for the host-contract ports before
-/// printing endpoints — the pid can precede the bind by tens of seconds
-/// when boot work (e.g. index maintenance) runs before the listeners.
-fn report_running(pid: u32) {
-    if SusiDaemon::wait_for_host_contract(std::time::Duration::from_secs(60)) {
+    // Fast path: a live daemon whose full contract (TCP + UDP discovery)
+    // already answers. Nothing waits.
+    let fast_pid =
+        SusiDaemon::check_status(cwd, global_dir).filter(|_| SusiDaemon::host_contract_ready());
+    if let Some(pid) = fast_pid {
         println!("[SUSI Daemon] Running (PID: {}).", pid);
         println!("{}", SusiDaemon::host_contract_endpoints_report());
         report_auth_token();
-    } else {
-        eprintln!(
-            "[SUSI Daemon] Process {} is up but host-contract ports are not ready.",
-            pid
-        );
-        std::process::exit(1);
+        return;
+    }
+
+    // Slow path: the spawn from `ensure_daemon_running` may not have written
+    // its lock yet, and after a binary change the daemon can spend ~90 s on
+    // boot work before it binds the host contract. Poll both the pid and the
+    // ports until the deadline; the pid alone is not readiness, and an early
+    // poll is not failure.
+    let mut last_pid = SusiDaemon::check_status(cwd, global_dir);
+    loop {
+        if let Some(pid) = SusiDaemon::check_status(cwd, global_dir) {
+            last_pid = Some(pid);
+        }
+        if SusiDaemon::host_contract_ready() {
+            match last_pid {
+                Some(pid) => println!("[SUSI Daemon] Running (PID: {}).", pid),
+                None => println!(
+                    "[SUSI Daemon] Running (no lock file, but the host contract is listening)."
+                ),
+            }
+            println!("{}", SusiDaemon::host_contract_endpoints_report());
+            report_auth_token();
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            if SusiDaemon::host_contract_tcp_ready() {
+                eprintln!(
+                    "[SUSI Daemon] Failed to start. Host-contract TCP ports are listening but \
+                     UDP discovery did not answer within {}s.",
+                    START_READY_TIMEOUT.as_secs()
+                );
+            } else {
+                eprintln!(
+                    "[SUSI Daemon] Failed to start. Host-contract ports are not listening after {}s.",
+                    START_READY_TIMEOUT.as_secs()
+                );
+            }
+            std::process::exit(1);
+        }
+        std::thread::sleep(START_POLL_INTERVAL);
     }
 }
 
