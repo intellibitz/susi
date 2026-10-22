@@ -1,0 +1,24 @@
+{
+  "id": "T-HARNESSOS-15",
+  "title": "providers: point gemini-flash at gemini-3.8-flash",
+  "goal": "A live call proved gemini-2.5-flash is retired upstream (404: use gemini-3.8-flash). Update the registry backend and the tests so the native route works again.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "provider_registry"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792703682,
+  "closed": {
+    "at_unix": 1792704035,
+    "commit": "341d49cf96e16ce0e155f10a0b05db796c626745",
+    "by": "HARNESSOS"
+  }
+}

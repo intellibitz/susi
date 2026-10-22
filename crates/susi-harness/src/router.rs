@@ -210,7 +210,7 @@ mod tests {
             route.url,
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         );
-        assert_eq!(route.model_id, "gemini-2.5-flash");
+        assert_eq!(route.model_id, "gemini-3.8-flash");
         assert_eq!(
             route.headers[1],
             (
