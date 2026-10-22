@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+﻿#![forbid(unsafe_code)]
 #![cfg_attr(
     test,
     allow(
@@ -58,10 +58,14 @@ fn main() {
 async fn run(options: Options) -> Result<(), String> {
     let catalogue =
         PriceCatalogue::load(&options.catalogue).map_err(|error| format!("catalogue: {error}"))?;
-    let api_key = std::env::var(&options.api_key_env)
-        .ok()
-        .filter(|key| !key.trim().is_empty())
-        .ok_or_else(|| format!("{} is unset or empty", options.api_key_env))?;
+    let api_key = if options.upstream == "direct" {
+        std::env::var(&options.api_key_env).unwrap_or_default()
+    } else {
+        std::env::var(&options.api_key_env)
+            .ok()
+            .filter(|key| !key.trim().is_empty())
+            .ok_or_else(|| format!("{} is unset or empty", options.api_key_env))?
+    };
     let cache_dir = options.ledger.parent().map(std::path::Path::to_path_buf);
     let state = Arc::new(GatewayState {
         catalogue,
@@ -160,6 +164,22 @@ mod tests {
 
     fn args<'a>(list: &'a [&'a str]) -> impl Iterator<Item = String> + 'a {
         list.iter().map(|value| (*value).to_string())
+    }
+
+    #[test]
+    fn parses_direct_upstream_mode() {
+        let options = parse(args(&[
+            "--port",
+            "9188",
+            "--catalogue",
+            "prices.json",
+            "--ledger",
+            "ledger.jsonl",
+            "--upstream",
+            "direct",
+        ]))
+        .unwrap();
+        assert_eq!(options.upstream, "direct");
     }
 
     #[test]
