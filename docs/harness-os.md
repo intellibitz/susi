@@ -158,15 +158,19 @@ its own budget.
 | 4 | ✅ Agent graph: roles, handoffs, reviewer | `cargo test -p susi-harness --lib agent_graph` | T-HARNESSOS-5 |
 | 5 | ✅ Plugin manifest, JSON today (MCP first, WASM later) | `cargo test -p susi-harness --lib plugin_manifest` | T-HARNESSOS-6 |
 | 6 | ✅ Mission control: graph view in the snapshot (per-agent spend and replay pending) | `cargo test -p susi-harness --lib cockpit` | T-HARNESSOS-10 |
-| 7 | The proof mission below | e2e check in `susi_gawd::admin::E2E_CHECKS` | not queued |
+| 7 | ✅ Live agent-graph missions: `harness-mission` runs planner, coders and reviewer as real turns (reviewer acceptance is "the run succeeded" until a verdict protocol exists) | proof mission below still needs provider keys and worktrees | T-HARNESSOS-12 |
 
 The manifest is `harness.plugins.json` rather than TOML: the tree carries no
 TOML parser, and the data format here is JSON. See
 [plugins.rs](../crates/susi-harness/src/plugins.rs).
 
-Phase 7 is named but not queued: its shape depends on what the live graph run
-teaches. A dry run (`harness-mission` with an `agents` block and
-`"dry_run": true`) validates and prints the topology without spending.
+Phase 7 is wired: a mission with an `agents` block and no `dry_run` runs the
+graph for real — each role is one native worker turn in its own
+`<state_dir>/<role>` workspace, and the handoffs are persisted to
+`<state_dir>/graph.jsonl`. The reviewer's `accepted` currently means "its run
+succeeded": no verdict protocol exists on the wire yet, so a reviewer that
+finishes approves the work. The proof mission below still needs provider keys
+and per-agent worktrees.
 
 ## The proof mission
 

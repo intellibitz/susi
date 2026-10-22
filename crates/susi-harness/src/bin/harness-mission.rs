@@ -23,10 +23,10 @@ use serde::Deserialize;
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
-use susi_harness::agents::{AgentSpec, Graph, Isolation};
+use susi_harness::agents::{AgentOutcome, AgentRunner, AgentSpec, Graph, Isolation};
 use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
-use susi_harness::executor::OpenClaw;
+use susi_harness::executor::{self, ExecutorConfig, OpenClaw, RunOutcome};
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::{Policy, UsageProfile};
 use susi_harness::scheduler::{run_mission, AttemptOutcome, MissionConfig, TaskSpec};
@@ -62,6 +62,11 @@ struct MissionFile {
     /// Agent graph to validate and, with `dry_run`, print before spending.
     #[serde(default)]
     agents: Option<AgentsFile>,
+    /// Objective handed to every role of a live graph mission.
+    ///
+    /// Defaults to the first task's prompt, then to the mission id.
+    #[serde(default)]
+    goal: Option<String>,
     /// Validate the graph and print its steps; call no model.
     #[serde(default)]
     dry_run: bool,
@@ -118,6 +123,92 @@ fn graph_from(agents: &AgentsFile) -> Graph {
     Graph::new(specs)
 }
 
+/// The program a live graph role runs: the mission's own program unless it is
+/// the OpenClaw runtime this harness replaces, in which case the native worker.
+fn runner_program(program: &str) -> PathBuf {
+    let trimmed = program.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("openclaw") {
+        PathBuf::from("native")
+    } else {
+        PathBuf::from(trimmed)
+    }
+}
+
+/// Run each graph role as one real worker turn.
+///
+/// The reviewer's `accepted` means "its run succeeded": there is no verdict
+/// protocol on the wire yet, so a reviewer that finishes approves the work.
+/// That is the documented limitation of live graph missions.
+struct SusiRunner {
+    program: PathBuf,
+    gateway_url: String,
+    state_dir: PathBuf,
+    mission: String,
+    timeout: Duration,
+    ledger_path: Option<PathBuf>,
+}
+
+impl SusiRunner {
+    fn from_mission(file: &MissionFile) -> Self {
+        let ledger = file.ledger_path.trim();
+        Self {
+            program: runner_program(&file.program),
+            gateway_url: file.gateway_url.clone(),
+            state_dir: PathBuf::from(&file.state_dir),
+            mission: file.id.clone(),
+            timeout: Duration::from_secs(file.timeout_secs),
+            ledger_path: (!ledger.is_empty()).then(|| PathBuf::from(ledger)),
+        }
+    }
+}
+
+impl AgentRunner for SusiRunner {
+    fn run(&mut self, spec: &AgentSpec, goal: &str) -> Result<AgentOutcome, String> {
+        let workspace = self.state_dir.join(&spec.role);
+        std::fs::create_dir_all(&workspace)
+            .map_err(|error| format!("create workspace {}: {error}", workspace.display()))?;
+        let config = ExecutorConfig {
+            program: self.program.clone(),
+            gateway_url: self.gateway_url.clone(),
+            model: spec.model.clone(),
+            workspace,
+            state_dir: self.state_dir.clone(),
+            mission: self.mission.clone(),
+            task: spec.role.clone(),
+            attempt: 1,
+            timeout: self.timeout,
+            stall_after: None,
+            ledger_path: self.ledger_path.clone(),
+            prompt: goal.to_string(),
+        };
+        let outcome =
+            executor::run(&config).map_err(|error| format!("run `{}`: {error}", spec.role))?;
+        let zero = MicroUsd::ZERO;
+        Ok(match outcome {
+            RunOutcome::Succeeded { final_text, .. } => AgentOutcome {
+                summary: final_text,
+                accepted: true,
+                cost: zero,
+            },
+            RunOutcome::Failed { message } => AgentOutcome {
+                summary: message,
+                accepted: false,
+                cost: zero,
+            },
+            RunOutcome::TimedOut => AgentOutcome {
+                summary: format!("timed out after {}s", self.timeout.as_secs()),
+                accepted: false,
+                cost: zero,
+            },
+            RunOutcome::Stalled { message } => AgentOutcome {
+                summary: message,
+                accepted: false,
+                cost: zero,
+            },
+        })
+    }
+}
+
 fn main() {
     let path = match std::env::args().nth(1) {
         Some(path) => path,
@@ -151,7 +242,54 @@ fn main() {
             );
             return;
         }
-        fail("live agent-graph missions are not enabled yet; set \"dry_run\": true");
+        let goal = file
+            .goal
+            .clone()
+            .or_else(|| file.tasks.first().map(|task| task.prompt.clone()))
+            .unwrap_or_else(|| file.id.clone());
+        let mut runner = SusiRunner::from_mission(&file);
+        let report = match graph.run(&mut runner, &goal) {
+            Ok(report) => report,
+            Err(error) => fail(&error),
+        };
+        let bus_path = PathBuf::from(&file.state_dir).join("graph.jsonl");
+        if let Err(error) = report.bus.persist(&bus_path) {
+            fail(&format!("persist {}: {error}", bus_path.display()));
+        }
+        let ok = report.outcomes.iter().all(|(_, outcome)| outcome.accepted);
+        let steps = report
+            .outcomes
+            .iter()
+            .map(|(role, outcome)| {
+                let model = graph
+                    .agents()
+                    .iter()
+                    .find(|agent| &agent.role == role)
+                    .map(|agent| agent.model.as_str())
+                    .unwrap_or_default();
+                json!({
+                    "role": role,
+                    "model": model,
+                    "accepted": outcome.accepted,
+                    "summary": outcome.summary,
+                })
+            })
+            .collect::<Vec<_>>();
+        let summary = json!({
+            "mission": file.id,
+            "ok": ok,
+            "total_cost_micro_usd": report.total.micros(),
+            "steps": steps,
+            "bus": bus_path.display().to_string(),
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&summary).unwrap_or_default()
+        );
+        if !ok {
+            std::process::exit(1);
+        }
+        return;
     }
     let catalogue = file
         .catalogue
@@ -270,5 +408,38 @@ mod tests {
         let mut file = agents();
         file.tools = vec!["format_disk".into()];
         assert!(graph_from(&file).steps().is_err());
+    }
+
+    fn mission(agents: &str) -> MissionFile {
+        let text =
+            format!(r#"{{"id":"live-1","state_dir":"state","timeout_secs":30,"agents":{agents}}}"#);
+        serde_json::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn a_live_agents_mission_parses_and_validates_without_spawning() {
+        let file = mission(r#"{"planner":"planner","coders":["coder"],"reviewer":"reasoner"}"#);
+        assert!(!file.dry_run);
+        assert_eq!(runner_program(""), PathBuf::from("native"));
+        assert_eq!(runner_program("openclaw"), PathBuf::from("native"));
+        assert_eq!(
+            runner_program("C:/tools/worker.exe"),
+            PathBuf::from("C:/tools/worker.exe")
+        );
+        let steps = graph_from(file.agents.as_ref().unwrap()).steps().unwrap();
+        let roles: Vec<&str> = steps.iter().map(|step| step.role.as_str()).collect();
+        assert_eq!(roles, vec!["planner", "coder-1", "reviewer"]);
+        assert_eq!(steps[1].model, "coder");
+    }
+
+    #[test]
+    fn a_live_agents_mission_refuses_an_unknown_model_before_spawning() {
+        let file =
+            mission(r#"{"planner":"planner","coders":["mystery-model"],"reviewer":"planner"}"#);
+        let error = graph_from(file.agents.as_ref().unwrap())
+            .steps()
+            .unwrap_err();
+        assert!(error.contains("unknown model"), "{error}");
+        assert!(error.contains("mystery-model"), "{error}");
     }
 }

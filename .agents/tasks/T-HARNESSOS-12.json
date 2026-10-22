@@ -1,0 +1,19 @@
+{
+  "id": "T-HARNESSOS-12",
+  "title": "harness: live agent-graph missions",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "agent_steps"
+    ]
+  },
+  "created_by": "HARNESSOS",
+  "created_unix": 1792700093
+}
