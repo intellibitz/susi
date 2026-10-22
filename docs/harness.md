@@ -20,22 +20,29 @@ tool and MCP layer, an agent graph and plugins — is in
    │                       │                                   │
    │                       │ land (serial)                     │ worktree + claim
    ▼                       ▼                                   ▼
- LiteLLM  ◄── gateway (meter, attribute, price, ledger) ◄── OpenClaw worker
-   │
-   ├── deepseek-chat        (supervisor / worker)
-   ├── deepseek-reasoner    (escalation)
-   └── gemini-flash         (worker)
+ provider registry ◄── gateway (meter, attribute, price, ledger) ◄── native worker
+   │ direct HTTPS          ▲
+   │                       │ any OpenAI-compatible client
+   ├── deepseek-chat       │ (/v1/models, /v1/chat/completions;
+   ├── deepseek-reasoner   │  --accounts adds per-key budgets)
+   └── gemini-flash
 ```
 
 ## The chain
 
-1. **LiteLLM** is the provider layer: one OpenAI-compatible endpoint over
-   DeepSeek, Gemini, SiliconFlow and DashScope, with a response cache. Keys are
-   read from the environment; a model whose key is unset fails only when called.
-2. **The gateway** is the control point. It forwards a completion, prices the
-   provider's own usage at the rate in the catalogue, and appends a ledger row
-   before answering. An unpriced model is refused — unpriced spend cannot be
-   accounted.
+1. **The provider registry** is the model layer: a record per provider
+   (DeepSeek, SiliconFlow, DashScope, Gemini, Anthropic, OpenRouter) with its
+   endpoint, the environment variable holding its key, and each model's
+   capabilities. The router posts to the provider directly — there is no proxy
+   in the path. An override document can add a provider without a release, and
+   a model that cannot call tools is refused before it is dispatched.
+2. **The gateway** is the control point. It forwards a completion — directly
+   when the registry knows the route, or to `--upstream` for anything it does
+   not — prices the provider's own usage at the rate in the catalogue, and
+   appends a ledger row before answering. An unpriced model is refused —
+   unpriced spend cannot be accounted. `--accounts accounts.json` turns it into
+   the public ingress: bearer keys, per-key budgets and rate limits, and
+   `/v1/models` served from the registry.
 3. **The scheduler** runs the tasks of a mission concurrently. Before every
    turn the budget guard must admit its worst-case estimate; after every turn
    the ledger's actual charge is folded back in.
@@ -135,13 +142,12 @@ is editable in the panel and stored in the browser.
 ## SUSI building SUSI
 
 ```sh
-# 1. The proxy (keys from the environment)
-susi harness litellm --config deploy/litellm/config.yaml --port 4000
-
-# 2. The meter
+# 1. The gateway, routing directly (provider keys from the environment)
 harness-gateway --port 9188 --catalogue deploy/litellm/prices.json \
-  --ledger out/ledger.jsonl --upstream http://127.0.0.1:4000/v1/chat/completions \
-  --provider openai --api-key-env LITELLM_MASTER_KEY
+  --ledger out/ledger.jsonl --upstream direct
+
+# 2. Optional: the legacy proxy for a model the registry does not know
+susi harness litellm --config deploy/litellm/config.yaml --port 4000
 
 # 3. The plan: a DeepSeek supervisor authors work for a DeepSeek and a Gemini worker
 susi harness author --gateway http://127.0.0.1:9188 --model deepseek-chat \
@@ -207,5 +213,5 @@ human remembering a script.
 
 The ledger is the answer. One JSON line per priced call with the mission, task,
 attempt, model, tokens (including cache hits), the price in force, the cost, and
-whether the proxy served it from cache. A later catalogue change cannot rewrite
+whether the gateway served it from cache. A later catalogue change cannot rewrite
 history, and the cockpit's totals are an integer sum of that file.
