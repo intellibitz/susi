@@ -432,7 +432,7 @@ const BUILTIN: &str = r#"
       "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       "key_env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
       "models": [
-        {"id": "gemini-flash", "backend": "gemini-2.5-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true}
+        {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true}
       ]
     },
     {
@@ -512,7 +512,7 @@ mod tests {
         );
         assert_eq!(
             registry.resolve("gemini-flash").unwrap().model_id,
-            "gemini-2.5-flash"
+            "gemini-3.8-flash"
         );
         assert_eq!(
             registry.resolve("siliconflow-qwen-coder").unwrap().model_id,
@@ -530,7 +530,7 @@ mod tests {
         let coder = registry.resolve("coder").unwrap();
         assert_eq!(coder.model_id, "deepseek-chat");
         let cheap = registry.resolve("cheap").unwrap();
-        assert_eq!(cheap.model_id, "gemini-2.5-flash");
+        assert_eq!(cheap.model_id, "gemini-3.8-flash");
     }
 
     #[test]
