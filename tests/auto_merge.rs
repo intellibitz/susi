@@ -102,9 +102,7 @@ esac
         // everything else is real git: `hash-object -w` needs a real object
         // store.
         let git = dir.join("git");
-        std::fs::write(
-            &git,
-            r#"#!/usr/bin/env bash
+        let shim = r#"#!/usr/bin/env bash
 D="$(dirname "$0")"
 case "$1" in
 push) echo "$*" >> "$D/gitpushes"; [ -f "$D/pushfail" ] && exit 1; exit 0 ;;
@@ -119,10 +117,14 @@ merge-tree) echo "git $*" >> "$D/calls"; [ -f "$D/conflict" ] && exit 1; cat "$D
 commit-tree) echo "git $*" >> "$D/calls"; cat "$D/mcfile" 2>/dev/null || echo mc999; exit 0 ;;
 checkout) echo "git $*" >> "$D/calls"; [ -f "$D/checkoutfail" ] && exit 1; exit 0 ;;
 esac
-exec git.exe "$@"
-"#,
-        )
-        .unwrap();
+exec git "$@"
+"#;
+        // The shim must name the binary the host shell can execute: `git` on
+        // unix, `git.exe` on Windows (where a bare `git` is not a program the
+        // MSYS shell always resolves).
+        #[cfg(windows)]
+        let shim = shim.replace("exec git ", "exec git.exe ");
+        std::fs::write(&git, shim).unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

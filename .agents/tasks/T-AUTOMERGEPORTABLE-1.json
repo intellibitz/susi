@@ -1,0 +1,20 @@
+{
+  "id": "T-AUTOMERGEPORTABLE-1",
+  "title": "test: run the auto-merge git shim on unix and Windows",
+  "goal": "A 2026-10-19 portability change made the fake git shim exec git.exe unconditionally; on Linux CI that is 'not found', so main's Test (root-cli) and Coverage Ratchet fail. Exec git on unix, git.exe on Windows.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--test",
+      "auto_merge",
+      "a_merge_identical_to_the_tested_head"
+    ]
+  },
+  "created_by": "AUTOMERGEPORTABLE",
+  "created_unix": 1792727598
+}
