@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "WINDOWSCLEANUP",
-  "created_unix": 1792719615
+  "created_unix": 1792719615,
+  "closed": {
+    "at_unix": 1792721473,
+    "commit": "e85df9acd4596986cdaf32dbc11d4b5cc6b5107d",
+    "by": "WINDOWSCLEANUP"
+  }
 }
