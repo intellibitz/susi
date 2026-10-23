@@ -1,0 +1,23 @@
+{
+  "id": "T-MODELSVERIFY-1",
+  "title": "susi harness models --verify: check registry backends against upstream model lists",
+  "goal": "Model ids drift upstream; susi harness models --verify GETs each selected provider's models endpoint and reports configured backends absent upstream, exit 1 on drift, skipping providers with no verifiable endpoint.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "MODELSVERIFY",
+  "created_unix": 1792719349,
+  "closed": {
+    "at_unix": 1792721466,
+    "commit": "5193f8e9f731e8dd169ed558be0c8fcba3999e9d",
+    "by": "MODELSVERIFY"
+  }
+}
