@@ -16,5 +16,10 @@
     ]
   },
   "created_by": "AUTOMERGEPORTABLE",
-  "created_unix": 1792727598
+  "created_unix": 1792727598,
+  "closed": {
+    "at_unix": 1792728475,
+    "commit": "f25583d0ecde28765ea3802067cb9e4b1e07ac95",
+    "by": "AUTOMERGEPORTABLE"
+  }
 }
