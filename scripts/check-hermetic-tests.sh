@@ -27,6 +27,9 @@ testhome=$(mktemp -d)
 cleanup_hermetic_dirs() {
     local status=$? attempt=0
     trap - EXIT
+    # Reclaim the leaf children of any daemon a test started: they hold the
+    # test binary's stdout pipe and, on Windows, `target\debug\susi.exe`.
+    "$(dirname "${BASH_SOURCE[0]}")/kill-leftover-service-runs.sh" || true
     while [ "$attempt" -lt 6 ]; do
         if rm -rf "$home" "$testhome" 2>/dev/null; then
             return "$status"

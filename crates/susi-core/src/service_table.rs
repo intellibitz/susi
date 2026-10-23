@@ -353,7 +353,25 @@ pub fn pid_alive(pid: u32) -> bool {
             .map(|s| s.success())
             .unwrap_or(true)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // `tasklist` is the one process probe every Windows host has. It exits
+        // 0 whether or not it matched, so the CSV row itself is the answer; an
+        // unreadable answer keeps the conservative "alive" above so a healthy
+        // service is never respawned over a probe failure.
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output();
+        match out {
+            Ok(out) if out.status.success() => {
+                String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
+            }
+            _ => true,
+        }
+    }
+    #[cfg(all(not(unix), not(windows)))]
     {
         let _ = pid;
         true

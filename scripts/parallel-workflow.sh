@@ -268,6 +268,11 @@ case "$action" in
 sync) sync ;;
 finish)
     task=${2:?task id required}
+    # Teardown: the gate's tests auto-start the host daemon, whose leaf
+    # children (`service-run`) would otherwise outlive this run and keep
+    # `target\debug\susi.exe` locked on Windows. Runs on every exit path —
+    # including a failing gate — scoped to this checkout's target dir.
+    trap "\"$root/scripts/kill-leftover-service-runs.sh\" >/dev/null 2>&1 || true" EXIT
     nowait=0
     [ "${3:-}" = "--no-wait" ] && nowait=1
     export SUSI_SYNC_SKIP_BOARD=1

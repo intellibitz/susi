@@ -40,6 +40,178 @@ const TERM_GRACE: Duration = Duration::from_secs(2);
 /// must not kill a healthy service.
 const WEDGED_MISS_LIMIT: u32 = 3;
 
+/// A kill-on-close job object for every supervised leaf child on Windows.
+///
+/// Windows has neither a parent-death signal nor a process group to signal:
+/// a daemon that dies without reaching [`shutdown_all`] (a crash, a
+/// `taskkill /F`, its throwaway `SUSI_HOME` deleted under it) leaves
+/// `susi.exe service-run <name>` children alive. They then hold
+/// `target\debug\susi.exe` locked — the next `cargo build`/`cargo test`
+/// fails with "Access is denied" — and keep the test harness's stdout pipe
+/// open. The daemon assigns each child it spawns to this job; the OS closes
+/// the handle when the daemon process ends, however it ends, and
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` terminates the children with it.
+///
+/// The `kernel32` surface is declared here rather than taken from a crate:
+/// `susi-*` crates declare zero third-party dependencies, and the four calls
+/// needed are smaller than a `windows-sys` facade would be.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod child_job {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Child;
+    use std::sync::OnceLock;
+
+    /// An opaque `HANDLE`.
+    type Handle = *mut c_void;
+
+    /// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+    const KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
+    /// `JobObjectExtendedLimitInformation`.
+    const EXTENDED_LIMIT_INFORMATION_CLASS: i32 = 9;
+
+    /// `JOBOBJECT_BASIC_LIMIT_INFORMATION`. `#[repr(C)]` plus `Default` gives
+    /// the documented zeroed layout without an `unsafe` initializer.
+    #[repr(C)]
+    #[derive(Default)]
+    struct BasicLimitInformation {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+
+    /// `IO_COUNTERS`.
+    #[repr(C)]
+    #[derive(Default)]
+    struct IoCounters {
+        read_operation_count: u64,
+        write_operation_count: u64,
+        other_operation_count: u64,
+        read_transfer_count: u64,
+        write_transfer_count: u64,
+        other_transfer_count: u64,
+    }
+
+    /// `JOBOBJECT_EXTENDED_LIMIT_INFORMATION`.
+    #[repr(C)]
+    #[derive(Default)]
+    struct ExtendedLimitInformation {
+        basic_limit_information: BasicLimitInformation,
+        io_info: IoCounters,
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+
+    #[allow(non_snake_case)] // the Win32 spellings are the API contract
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateJobObjectW(attributes: *mut c_void, name: *const u16) -> Handle;
+        fn SetInformationJobObject(
+            job: Handle,
+            info_class: i32,
+            info: *const c_void,
+            info_len: u32,
+        ) -> i32;
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        #[cfg(test)]
+        fn TerminateJobObject(job: Handle, exit_code: u32) -> i32;
+        fn CloseHandle(object: Handle) -> i32;
+    }
+
+    /// Create an unnamed kill-on-close job; `None` when the OS refuses, which
+    /// degrades the lifecycle (a warning, never a failed boot).
+    fn create() -> Option<usize> {
+        // SAFETY: null attributes/name request an unnamed job with default
+        // security; the returned handle is checked for null before use.
+        let job = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+        if job.is_null() {
+            return None;
+        }
+        let mut info = ExtendedLimitInformation::default();
+        info.basic_limit_information.limit_flags = KILL_ON_JOB_CLOSE;
+        let Ok(len) = u32::try_from(std::mem::size_of::<ExtendedLimitInformation>()) else {
+            // SAFETY: closing a handle this function owns; nothing aliases it.
+            unsafe { CloseHandle(job) };
+            return None;
+        };
+        // SAFETY: `job` is live; `info` is a fully initialized struct of
+        // exactly `len` bytes, the layout the class expects.
+        let set = unsafe {
+            SetInformationJobObject(
+                job,
+                EXTENDED_LIMIT_INFORMATION_CLASS,
+                std::ptr::addr_of!(info).cast(),
+                len,
+            )
+        };
+        if set == 0 {
+            // SAFETY: closing a handle this function owns; nothing aliases it.
+            unsafe { CloseHandle(job) };
+            return None;
+        }
+        Some(job as usize)
+    }
+
+    /// The daemon's process-wide job, created once. The handle is deliberately
+    /// never closed: kernel32 closes it when the daemon process exits, and
+    /// that close is what terminates the children.
+    pub fn leaf_job() -> Option<usize> {
+        static JOB: OnceLock<Option<usize>> = OnceLock::new();
+        *JOB.get_or_init(create)
+    }
+
+    /// Assign a just-spawned child to `job`; false when the OS refuses (the
+    /// child is then merely unguarded, so a respawn still works).
+    pub fn adopt(job: usize, child: &Child) -> bool {
+        let process = child.as_raw_handle() as Handle;
+        // SAFETY: `job` came from `CreateJobObjectW` and stays open for this
+        // process's lifetime; `process` is `child`'s live handle, borrowed
+        // for the call and not closed here.
+        unsafe { AssignProcessToJobObject(job as Handle, process) != 0 }
+    }
+
+    /// A job scoped to a value: dropping it terminates every process already
+    /// assigned. Exists so a test can prove the lifecycle with a fake child
+    /// and no daemon.
+    #[cfg(test)]
+    pub struct ScopedJob(usize);
+
+    #[cfg(test)]
+    impl ScopedJob {
+        /// Create a scoped kill-on-close job.
+        pub fn new() -> Option<Self> {
+            create().map(ScopedJob)
+        }
+
+        /// Assign a process to this job.
+        pub fn adopt(&self, child: &Child) -> bool {
+            adopt(self.0, child)
+        }
+    }
+
+    #[cfg(test)]
+    impl Drop for ScopedJob {
+        fn drop(&mut self) {
+            // SAFETY: this value owns the handle exclusively; terminating the
+            // job and then closing the handle is the documented teardown
+            // order, and no alias remains afterwards.
+            unsafe {
+                TerminateJobObject(self.0 as Handle, 1);
+                CloseHandle(self.0 as Handle);
+            }
+        }
+    }
+}
+
 /// Locate a leaf service binary: next to the running daemon first
 /// (cargo target dir, staged installs), then `substrate_home/bin`, then
 /// `$PATH`.
@@ -156,6 +328,17 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
         .spawn()
         .ok()
         .map(|child| {
+            // Windows: tie the child to the daemon's kill-on-close job before
+            // any wait can fail, so no daemon exit path leaves it orphaned.
+            #[cfg(windows)]
+            if let Some(job) = child_job::leaf_job()
+                && !child_job::adopt(job, &child)
+            {
+                slog(&format!(
+                    "[supervisor] {} not placed in the kill-on-close job; it would survive the daemon",
+                    svc.name
+                ));
+            }
             let pid = child.id();
             // The daemon parents every service child, and a Child that is
             // dropped without wait() leaves a permanent zombie — observed
@@ -246,6 +429,33 @@ fn wait_for_port(port: u16, deadline: Duration) -> bool {
     false
 }
 
+/// Whether a supervised pid is still running.
+///
+/// `service_table::pid_alive` answers `true` unconditionally off unix (it has
+/// no cheap probe there), which makes a Windows shutdown wait a fixed grace
+/// and a dead record look alive. A `tasklist` row is the answer here; an
+/// unreadable probe falls back to the conservative table answer.
+fn child_alive(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        let out = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output();
+        match out {
+            Ok(out) if out.status.success() => {
+                String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
+            }
+            _ => service_table::pid_alive(pid),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        service_table::pid_alive(pid)
+    }
+}
+
 /// Send a unix signal to a pid the daemon supervises.
 // SAFETY: libc::kill sends a signal and touches no memory; the pid comes
 // from our own process table (a child the daemon spawned).
@@ -255,7 +465,21 @@ fn signal(pid: u32, sig: i32) -> bool {
     unsafe { libc::kill(pid as i32, sig) == 0 }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+/// Windows has no signals: terminate the process tree with `taskkill /T /F`.
+/// A console leaf has no top-level window, so the polite form (`taskkill`
+/// without `/F`) would post `WM_CLOSE` to nothing and leave it running.
+fn signal(pid: u32, _sig: i32) -> bool {
+    Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn signal(pid: u32, _sig: i32) -> bool {
     let _ = pid;
     false
@@ -368,12 +592,12 @@ fn kill_stale_orphan(svc: &LeafService, pid: u32) {
     ));
     let _ = signal(pid, SIGTERM);
     for _ in 0..20 {
-        if !service_table::pid_alive(pid) {
+        if !child_alive(pid) {
             break;
         }
         thread::sleep(Duration::from_millis(50));
     }
-    if service_table::pid_alive(pid) {
+    if child_alive(pid) {
         let _ = signal(pid, SIGKILL);
         thread::sleep(Duration::from_millis(100));
     }
@@ -560,7 +784,7 @@ fn respawn(
         }
         // Live pid with a dead or wedged HTTP surface is unhealthy —
         // terminate before respawn.
-        if service_table::pid_alive(rec.pid) && !service_table::http_probe(svc.port()) {
+        if child_alive(rec.pid) && !service_table::http_probe(svc.port()) {
             let _ = signal(rec.pid, SIGTERM);
             thread::sleep(Duration::from_millis(200));
             let _ = signal(rec.pid, SIGKILL);
@@ -574,7 +798,7 @@ fn respawn(
         let recorded_dead = table
             .iter()
             .find(|r| r.name == svc.name)
-            .is_some_and(|r| !service_table::pid_alive(r.pid));
+            .is_some_and(|r| !child_alive(r.pid));
         if recorded_dead && service_table::probe(svc.port()) {
             match service_table::pid_for_port(svc.port()) {
                 Some(holder) => match classify_holder(svc, holder) {
@@ -720,7 +944,7 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 // here lost a race (respawned in the same pass the flag
                 // landed, or the stop-time SIGTERM didn't take) —
                 // enforce the hold-down rather than let it run.
-                if !rec.external && service_table::pid_alive(rec.pid) {
+                if !rec.external && child_alive(rec.pid) {
                     let _ = signal(rec.pid, SIGTERM);
                 }
                 continue;
@@ -760,7 +984,7 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
             // pid respawns at once, but a live pid that fails the probe
             // gets a grace streak — a single probe timeout under load
             // must not kill a healthy service.
-            let alive = service_table::pid_alive(rec.pid);
+            let alive = child_alive(rec.pid);
             if alive && service_table::http_probe(rec.port) {
                 probe_misses.remove(svc.name);
                 continue;
@@ -857,16 +1081,13 @@ pub fn shutdown_all() {
     }
     let start = Instant::now();
     while start.elapsed() < TERM_GRACE {
-        if table
-            .iter()
-            .all(|r| r.external || !service_table::pid_alive(r.pid))
-        {
+        if table.iter().all(|r| r.external || !child_alive(r.pid)) {
             break;
         }
         thread::sleep(Duration::from_millis(100));
     }
     for rec in table.iter().filter(|r| !r.external) {
-        if service_table::pid_alive(rec.pid) {
+        if child_alive(rec.pid) {
             let _ = signal(rec.pid, SIGKILL);
         }
     }
@@ -880,6 +1101,44 @@ pub fn shutdown_all() {
 mod tests {
     use super::*;
 
+    /// A leaf child must not outlive the daemon that spawned it: the daemon
+    /// assigns every child to a kill-on-close job, so the OS terminates them
+    /// when the daemon process ends — even without `shutdown_all`. This proves
+    /// the mechanism with a fake child (a 60s `ping`) and no daemon: it runs
+    /// while the guard lives, and dropping the guard kills it, bounded.
+    #[cfg(windows)]
+    #[test]
+    fn service_children_die_when_their_job_guard_drops() {
+        let guard = child_job::ScopedJob::new().expect("create a kill-on-close job");
+        let ping = std::env::var_os("SystemRoot")
+            .map(|root| PathBuf::from(root).join("System32").join("ping.exe"))
+            .filter(|path| path.is_file())
+            .unwrap_or_else(|| PathBuf::from("ping"));
+        let mut child = Command::new(ping)
+            .args(["-n", "60", "127.0.0.1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn the fake service child");
+        assert!(guard.adopt(&child), "the fake child must join the job");
+        let pid = child.id();
+        assert!(
+            child_alive(pid),
+            "the fake service child must be running before the guard drops"
+        );
+        drop(guard);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline && child_alive(pid) {
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            !child_alive(pid),
+            "the fake service child outlived the job guard (pid {pid})"
+        );
+        let _ = child.wait();
+    }
+
     #[test]
     #[cfg(unix)]
     fn signal_terminates_spawned_child() {
@@ -891,10 +1150,10 @@ mod tests {
             .spawn()
             .expect("spawn sleep");
         let pid = child.id();
-        assert!(service_table::pid_alive(pid));
+        assert!(child_alive(pid));
         assert!(signal(pid, SIGTERM));
         let _ = child.wait();
-        assert!(!service_table::pid_alive(pid));
+        assert!(!child_alive(pid));
     }
 
     #[test]
@@ -1005,7 +1264,7 @@ mod tests {
                 let _ = signal(pid, SIGKILL);
             }
         }
-        let pids_dead = table.iter().all(|r| !service_table::pid_alive(r.pid));
+        let pids_dead = table.iter().all(|r| !child_alive(r.pid));
         let all_down = LEAF_SERVICES
             .iter()
             .all(|s| !service_table::probe(s.port()));
