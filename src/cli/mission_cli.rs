@@ -71,7 +71,6 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         | Commands::Gemini { .. }
         | Commands::Aider { .. }
         | Commands::SweAgent { .. }
-        | Commands::OpenClaw { .. }
         | Commands::BrowserUse { .. }
         | Commands::OpenViking { .. }
         | Commands::DeerFlow { .. }

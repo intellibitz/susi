@@ -6,41 +6,34 @@ The operator's path from an empty shell to a mission SUSI runs on itself.
 
 | What | Check |
 |---|---|
-| `litellm` on `PATH` | `litellm --version` |
-| `openclaw` on `PATH` (the npm shim, not the Store alias) | `openclaw --version` |
-| `DEEPSEEK_API_KEY` and `GEMINI_API_KEY` in the environment | the launcher warns about unset keys |
+| `DEEPSEEK_API_KEY` and `GEMINI_API_KEY` in the environment | the gateway reports a missing key on the first call that needs it |
 | a `susi` binary that can run `workflow` and `tasks` | `susi workflow check` |
+
+Nothing else is installed: the harness routes to the providers directly and the
+worker runs in process, so there is no proxy binary and no external agent runtime
+to put on `PATH`.
 
 A dev build must not be installed over the release binary (Mandate 48). Use
 `target/debug/susi.exe` for a dev mission, or cut a release.
 
-## 1. Start the proxy
-
-```sh
-susi harness litellm --config deploy/litellm/config.yaml --port 4000
-```
-
-The launcher waits for `/health/liveliness` and prints any key the config
-references but the environment does not set. A missing key fails only the model
-that uses it.
-
-## 2. Start the meter
+## 1. Start the meter
 
 From `crates/susi-harness`:
 
 ```sh
 cargo run -p susi-harness --bin harness-gateway -- \
   --port 9188 \
-  --catalogue deploy/litellm/prices.json \
+  --catalogue deploy/harness/prices.json \
   --ledger out/ledger.jsonl \
-  --upstream http://127.0.0.1:4000/v1/chat/completions \
-  --provider openai --api-key-env LITELLM_MASTER_KEY
+  --upstream direct
 ```
 
-The gateway refuses a model the catalogue cannot price. That refusal is the
-point: spend that cannot be priced cannot be bounded.
+`--upstream direct` means the gateway resolves each model through the built-in
+registry and posts to the provider's own HTTPS endpoint. The gateway refuses a
+model the catalogue cannot price. That refusal is the point: spend that cannot be
+priced cannot be bounded.
 
-## 3. Author the plan
+## 2. Author the plan
 
 ```sh
 susi harness author \
@@ -53,27 +46,27 @@ The author is the **supervisor** model. Each task names a worker model. Read the
 plan before running it: a task reserves scopes and declares an acceptance, and
 the run refuses a plan whose packages, scopes or acceptance do not resolve.
 
-## 4. Open the cockpit first
+## 3. Open the cockpit first
 
 ```sh
 susi harness cockpit \
   --ledger out/ledger.jsonl --events out/events.jsonl \
   --plan plan.json --state supervisor-state.json \
   --controls out/control.jsonl \
-  --catalogue deploy/litellm/prices.json --budget-usd 0.50 --port 9181
+  --catalogue deploy/harness/prices.json --budget-usd 0.50 --port 9181
 ```
 
 Open <http://127.0.0.1:9181/>. In the DeepSeek Harness desktop the **CEO
 cockpit** sidebar entry embeds the same page; install the plugin once with the
 plugin manager (`deploy/dsh-cockpit`).
 
-## 5. Run the mission
+## 4. Run the mission
 
 ```sh
 susi harness run plan.json --repo . \
   --gateway http://127.0.0.1:9188 \
   --model deepseek-chat --workers gemini-flash \
-  --catalogue deploy/litellm/prices.json --budget-usd 0.50 \
+  --catalogue deploy/harness/prices.json --budget-usd 0.50 \
   --ledger out/ledger.jsonl --controls out/control.jsonl \
   --parallel 2 --state supervisor-state.json
 ```
@@ -81,7 +74,7 @@ susi harness run plan.json --repo . \
 What happens:
 
 1. Each task gets its own worktree, task record and claim.
-2. The adapter commits the task record, then runs the worker.
+2. The adapter commits the task record, then runs the native worker in process.
 3. If the worker does not pass acceptance, the worktree is reset to that record
    and the next model on the ranked ladder runs.
 4. An accepted task lands through `workflow finish`: gate, close, push, PR,
@@ -91,7 +84,7 @@ What happens:
 6. When the next attempt's worst-case estimate would cross the cap, the task is
    left unstarted and the report says `budget_exhausted`. Nothing is retried.
 
-## 6. Read the result
+## 5. Read the result
 
 ```sh
 susi harness status --ledger out/ledger.jsonl --events out/events.jsonl
@@ -110,7 +103,7 @@ the last operator commands.
 | operator paused | press **resume** in the cockpit (or append a resume command), rerun the same command. |
 | operator aborted | the abort is sticky in that control log. Start a new mission or use a fresh control log. |
 | a claim is stale | `susi tasks audit`; the queue reports the holder and the lease. |
-| LiteLLM is up but a model 401s | the provider key for that model is unset in the proxy's environment. |
+| a model 401s or says the key is unset | the provider key for that model is unset in the environment the gateway runs in. |
 
 ## Cautions
 
@@ -124,4 +117,3 @@ the last operator commands.
 ## Budget refusals
 
 A refused attempt is not a failure of the model. The cockpit reports `budget_exhausted` and the task stays unstarted. Read the ledger for what the attempts cost, raise the cap with `--budget-usd`, and rerun the same command: the supervisor skips what landed and starts with the task that was refused.
-

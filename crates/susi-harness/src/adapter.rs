@@ -541,8 +541,6 @@ pub struct SusiRunPolicy<'a> {
     pub mission: &'a str,
     /// Escalation policy.
     pub policy: Policy,
-    /// Kill a turn whose worktree has not changed for this long.
-    pub stall_after: Duration,
 }
 
 impl SusiRunPolicy<'_> {
@@ -555,7 +553,6 @@ impl SusiRunPolicy<'_> {
             ledger_path: Path::new(""),
             mission: "",
             policy: Policy::default(),
-            stall_after: Duration::from_secs(300),
         }
     }
 }
@@ -572,8 +569,6 @@ pub struct SusiTaskSpec {
     pub scopes: Vec<String>,
     /// The instruction for the agent (the task id and trailer are appended).
     pub prompt: String,
-    /// OpenClaw executable.
-    pub program: PathBuf,
     /// Gateway base URL.
     pub gateway_url: String,
     /// Model id the task prefers.
@@ -709,7 +704,6 @@ nothing outside the task.",
             }
         }
         let agent = runner.run(&ExecutorConfig {
-            program: spec.program.clone(),
             gateway_url: spec.gateway_url.clone(),
             model: attempt.model.clone(),
             workspace: worktree.clone(),
@@ -721,9 +715,6 @@ nothing outside the task.",
             task: task.clone(),
             attempt: attempt.number,
             timeout: spec.timeout,
-            stall_after: Some(policy.stall_after),
-            ledger_path: (!policy.ledger_path.as_os_str().is_empty())
-                .then(|| policy.ledger_path.to_path_buf()),
             prompt: prompt.clone(),
         })?;
         let (attempt_committed, history_rewritten) =
@@ -824,7 +815,6 @@ fn failure_of(agent: &RunOutcome) -> (FailureKind, String) {
         RunOutcome::Succeeded { .. } => (FailureKind::Semantic, "accepted".to_string()),
         RunOutcome::Failed { message } => (FailureKind::classify(message), message.clone()),
         RunOutcome::TimedOut => (FailureKind::Timeout, "agent timed out".to_string()),
-        RunOutcome::Stalled { message } => (FailureKind::Semantic, message.clone()),
     }
 }
 
@@ -833,7 +823,6 @@ fn describe_outcome(agent: &RunOutcome) -> String {
         RunOutcome::Succeeded { .. } => "succeeded".to_string(),
         RunOutcome::Failed { message } => format!("failed: {message}"),
         RunOutcome::TimedOut => "timed out".to_string(),
-        RunOutcome::Stalled { message } => format!("stalled: {message}"),
     }
 }
 
@@ -1105,7 +1094,6 @@ mod tests {
             accept: "cargo test -p susi-harness".into(),
             scopes: vec!["docs/harness.md".into()],
             prompt: "write docs".into(),
-            program: PathBuf::from("openclaw"),
             gateway_url: "http://127.0.0.1:1".into(),
             model: "deepseek-flash".into(),
             alternates: Vec::new(),
@@ -1161,7 +1149,6 @@ mod tests {
             accept: "cargo test -p susi-harness".into(),
             scopes: vec!["docs/harness.md".into()],
             prompt: "do the queued task".into(),
-            program: PathBuf::from("openclaw"),
             gateway_url: "http://127.0.0.1:1".into(),
             model: "deepseek-chat".into(),
             alternates: Vec::new(),
@@ -1213,7 +1200,6 @@ mod tests {
             accept: "cargo test -p susi-harness".into(),
             scopes: vec!["docs/harness.md".into()],
             prompt: "write docs".into(),
-            program: PathBuf::from("openclaw"),
             gateway_url: "http://127.0.0.1:1".into(),
             model: "deepseek-flash".into(),
             alternates: Vec::new(),
@@ -1263,7 +1249,6 @@ mod tests {
             accept: "cargo test -p susi-harness".into(),
             scopes: vec!["docs/harness.md".into()],
             prompt: "write docs".into(),
-            program: PathBuf::from("openclaw"),
             gateway_url: "http://127.0.0.1:1".into(),
             model: "deepseek-flash".into(),
             alternates: Vec::new(),

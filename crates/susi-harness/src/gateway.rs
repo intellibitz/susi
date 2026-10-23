@@ -308,10 +308,9 @@ async fn buffered_upstream(
         }
     };
     let status = call.status;
-    // LiteLLM sets this header only when it served the answer from its cache;
-    // the provider was not called, so the row must not charge for it.
-    let cached =
-        call.header("x-litellm-cache-key").is_some() || call.header("x-susi-cache-key").is_some();
+    // The cache marks the response when it served the answer; the provider was
+    // not called, so the row must not charge for it.
+    let cached = call.header("x-susi-cache-key").is_some();
     let content_type = call
         .header("content-type")
         .unwrap_or("application/json")
@@ -513,9 +512,9 @@ fn error_response(status: StatusCode, message: &str) -> Response {
 
 /// A per-run key: `Bearer susi:<mission>:<task>:<attempt>`.
 ///
-/// OpenClaw cannot add custom headers, but its provider config carries an API
-/// key — so the executor writes the run's identity there and the gateway reads
-/// it back. The upstream never sees this key; the gateway substitutes its own.
+/// The worker sends this as its bearer token, so the gateway can attribute and
+/// meter every call of a run. The upstream never sees this key; the gateway
+/// substitutes its own provider key.
 fn run_tag(headers: &HeaderMap) -> Option<(String, String, u32)> {
     let authorization = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let key = authorization.strip_prefix("Bearer ")?.trim();

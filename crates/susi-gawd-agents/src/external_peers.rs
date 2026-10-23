@@ -600,7 +600,6 @@ mod tests {
             "GeminiCliAgent",
             "AiderAgent",
             "SweAgent",
-            "OpenClawAgent",
             "BrowserUseAgent",
             "OpenVikingAgent",
             "DeerFlowAgent",

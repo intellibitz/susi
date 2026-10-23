@@ -16,8 +16,7 @@ use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
 use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
 use susi_harness::cockpit::{serve, Cockpit};
-use susi_harness::executor::OpenClaw;
-use susi_harness::litellm::Launcher;
+use susi_harness::executor::NativeWorker;
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::Policy;
 use susi_harness::providers::{Registry, Wire};
@@ -35,7 +34,7 @@ pub enum HarnessCommands {
         /// Gateway base URL (the harness gateway)
         #[arg(long)]
         gateway: String,
-        /// Model id the gateway prices (a LiteLLM name such as `deepseek-chat`)
+        /// Model id the gateway prices (such as `deepseek-chat`)
         #[arg(long)]
         model: String,
         /// Roadmap file
@@ -94,9 +93,6 @@ pub enum HarnessCommands {
         /// Per-turn deadline, seconds
         #[arg(long, default_value_t = 900)]
         timeout: u64,
-        /// Kill a turn whose worktree has not changed for this many seconds
-        #[arg(long, default_value_t = 300)]
-        stall_secs: u64,
         /// Tasks prepared at once (landing is always serial)
         #[arg(long, default_value_t = 1)]
         parallel: usize,
@@ -128,9 +124,6 @@ pub enum HarnessCommands {
         /// Where the adapter keeps prompts and results
         #[arg(long, default_value = "harness-state")]
         adapter_state: PathBuf,
-        /// The agent executor (OpenClaw)
-        #[arg(long, default_value = "openclaw")]
-        program: PathBuf,
         /// The susi binary the adapter drives (default: this one)
         #[arg(long)]
         susi: Option<PathBuf>,
@@ -190,27 +183,6 @@ pub enum HarnessCommands {
         #[arg(long, default_value_t = 9181)]
         port: u16,
     },
-    /// Start the LiteLLM proxy the gateway points at (caching + providers)
-    Litellm {
-        /// LiteLLM config file
-        #[arg(long, default_value = "deploy/litellm/config.yaml")]
-        config: PathBuf,
-        /// Interface to bind
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-        /// Port to bind
-        #[arg(long, default_value_t = 4000)]
-        port: u16,
-        /// The litellm executable
-        #[arg(long, default_value = "litellm")]
-        litellm: PathBuf,
-        /// Where the proxy log is written
-        #[arg(long, default_value = "harness-litellm")]
-        state: PathBuf,
-        /// How long to wait for liveness, seconds
-        #[arg(long, default_value_t = 120)]
-        ready_timeout: u64,
-    },
     /// Print the cockpit snapshot for a ledger
     Status {
         /// Ledger the gateway wrote
@@ -238,14 +210,6 @@ pub enum HarnessCommands {
 /// Returns the first error from authoring, validation, execution or I/O.
 pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
     match action {
-        HarnessCommands::Litellm {
-            config,
-            host,
-            port,
-            litellm,
-            state,
-            ready_timeout,
-        } => start_proxy(config, host, port, litellm, state, ready_timeout),
         HarnessCommands::Models { verify, provider } => {
             if verify {
                 models_verify(provider.as_deref())
@@ -319,7 +283,6 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             gateway,
             model,
             timeout,
-            stall_secs,
             parallel,
             prefix,
             workers,
@@ -330,7 +293,6 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             rsi_log,
             attempts,
             adapter_state,
-            program,
             susi,
         } => run(
             &plan,
@@ -339,7 +301,6 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             &gateway,
             &model,
             timeout,
-            stall_secs,
             parallel,
             &prefix,
             &workers,
@@ -350,7 +311,6 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             &rsi_log,
             attempts,
             &adapter_state,
-            &program,
             susi,
             cwd,
         ),
@@ -490,35 +450,6 @@ fn serve_cockpit(
 }
 
 #[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
-fn start_proxy(
-    config: PathBuf,
-    host: String,
-    port: u16,
-    program: PathBuf,
-    state: PathBuf,
-    ready_timeout: u64,
-) -> Result<()> {
-    let launcher = Launcher {
-        config,
-        host: host.clone(),
-        port,
-        program,
-        state_dir: state,
-        ready_timeout: Duration::from_secs(ready_timeout),
-    };
-    for name in launcher.missing_keys()? {
-        eprintln!("susi harness litellm: {name} is unset; models that use it fail until it is set");
-    }
-    let mut child = launcher.launch()?;
-    println!("litellm listening on http://{host}:{port}");
-    let status = child.wait().context("wait for litellm")?;
-    if !status.success() {
-        bail!("litellm exited with {status}");
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
 fn author(
     gateway: &str,
     model: &str,
@@ -597,7 +528,6 @@ fn run(
     gateway: &str,
     model: &str,
     timeout: u64,
-    stall_secs: u64,
     parallel: usize,
     prefix: &str,
     workers: &str,
@@ -608,7 +538,6 @@ fn run(
     rsi_log: &Path,
     attempts: usize,
     adapter_state: &Path,
-    program: &Path,
     susi: Option<PathBuf>,
     cwd: &Path,
 ) -> Result<()> {
@@ -646,12 +575,11 @@ fn run(
     let susi_program =
         susi.unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi")));
     let target = SusiTarget::new(repo, susi_program);
-    let openclaw = OpenClaw;
+    let native = NativeWorker;
     let executor = SusiExecutor {
         target: &target,
-        runner: &openclaw,
+        runner: &native,
         worktree_prefix: prefix.to_string(),
-        program: program.to_path_buf(),
         gateway_url: gateway.to_string(),
         model: model.to_string(),
         alternates,
@@ -664,7 +592,6 @@ fn run(
             ..Policy::default()
         },
         timeout: Duration::from_secs(timeout),
-        stall_after: Duration::from_secs(stall_secs.max(30)),
         state_dir: adapter_state.to_path_buf(),
         lifecycle_path: Some(rsi_log.to_path_buf()),
         guard: std::sync::OnceLock::new(),

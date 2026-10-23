@@ -18,8 +18,8 @@
 //! The gateway prices every call (so the ledger is the spend record) and this
 //! module writes the mission's narrative to `events.jsonl` for the cockpit.
 //!
-//! The scheduler depends on [`Runner`], not on OpenClaw, so a mission can be
-//! tested without spawning an agent.
+//! The scheduler depends on [`Runner`], not on a concrete worker, so a mission
+//! can be tested without a gateway.
 
 use crate::budget::{Admission, Budget, BudgetGuard};
 use crate::catalog::PriceCatalogue;
@@ -70,8 +70,6 @@ pub struct MissionConfig {
     pub max_parallel: usize,
     /// Per-attempt deadline.
     pub timeout: Duration,
-    /// OpenClaw executable.
-    pub program: PathBuf,
     /// Gateway base URL.
     pub gateway_url: String,
     /// Per-mission state root; each task gets `<state>/<task>/attempt-<n>`.
@@ -381,7 +379,6 @@ fn run_task(
         );
         let started = Instant::now();
         let outcome = runner.run(&ExecutorConfig {
-            program: config.program.clone(),
             gateway_url: config.gateway_url.clone(),
             model: attempt.model.clone(),
             workspace: task.workspace.clone(),
@@ -393,8 +390,6 @@ fn run_task(
             task: task.id.clone(),
             attempt: attempt.number,
             timeout: config.timeout,
-            stall_after: None,
-            ledger_path: None,
             prompt: task.prompt.clone(),
         });
         let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -435,18 +430,6 @@ fn run_task(
                     estimate,
                 };
                 ladder.record(&attempt.model, kind, &message);
-                result
-            }
-            Ok(RunOutcome::Stalled { message }) => {
-                let result = AttemptResult {
-                    model: attempt.model.clone(),
-                    outcome: AttemptOutcome::Failed {
-                        message: message.clone(),
-                    },
-                    elapsed_ms,
-                    estimate,
-                };
-                ladder.record(&attempt.model, FailureKind::Semantic, &message);
                 result
             }
             Ok(RunOutcome::TimedOut) => {
@@ -656,7 +639,6 @@ mod tests {
             candidates: candidates.into_iter().map(str::to_string).collect(),
             max_parallel,
             timeout: Duration::from_secs(5),
-            program: PathBuf::from("openclaw"),
             gateway_url: "http://127.0.0.1:1".into(),
             state_dir: dir.to_path_buf(),
             ledger_path: dir.join("ledger.jsonl"),

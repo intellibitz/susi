@@ -74,15 +74,15 @@ Spend is bounded before an attempt, not discovered after the bill.
 - The cockpit warns at four fifths of the cap and the panel's bar turns amber,
   then red at nine tenths.
 
-A turn that makes calls but never writes is not progress either. The adapter
-watches the worktree while a worker runs; when it has not changed for
-`--stall-secs` (default 300), the process tree is killed and the attempt is
-recorded as `stalled`, which the ladder escalates like any other semantic
-failure. The wall-clock timeout remains the outer bound; the stall guard is the
-one that stops a reading loop before it can spend the mission.
+A turn that makes calls but never writes is not progress either. The native
+worker is bounded twice, in process: `executor::MAX_TURNS` caps how many tool
+turns one run may take, and the per-turn deadline (`--timeout`, default 900 s)
+stops a run that would outlive the mission. A run that hits either bound is
+recorded as `timed out` or `failed`, which the ladder escalates like any other
+failure — no subprocess and no guard thread is involved.
 
 A mission budget needs a price catalogue: `susi harness run --budget-usd 0.50
---catalogue deploy/litellm/prices.json ...`.
+--catalogue deploy/harness/prices.json ...`.
 
 ## Cost-ranked escalation
 
@@ -104,7 +104,7 @@ The ladder then decides how many attempts a failure deserves:
 | transient provider error (429, overload, connection) | one retry on the same model |
 | timeout | escalate immediately |
 | semantic failure (work produced but not accepted) | escalate immediately |
-| executor error (spawn, I/O) | stop; a different model hits the same wall |
+| executor error (I/O) | stop; a different model hits the same wall |
 | the same failure on a **different** model | stop; the task or the environment is the problem |
 
 The ladder is capped (`Policy::max_attempts`, default 4). A rejected attempt's
@@ -122,7 +122,7 @@ susi harness cockpit \
   --plan plan.json \
   --state supervisor-state.json \
   --controls out/control.jsonl \
-  --catalogue deploy/litellm/prices.json \
+  --catalogue deploy/harness/prices.json \
   --budget-usd 0.50 \
   --port 9181
 ```
@@ -152,24 +152,21 @@ is editable in the panel and stored in the browser.
 
 ```sh
 # 1. The gateway, routing directly (provider keys from the environment)
-harness-gateway --port 9188 --catalogue deploy/litellm/prices.json \
+harness-gateway --port 9188 --catalogue deploy/harness/prices.json \
   --ledger out/ledger.jsonl --upstream direct
 
-# 2. Optional: the legacy proxy for a model the registry does not know
-susi harness litellm --config deploy/litellm/config.yaml --port 4000
-
-# 3. The plan: a DeepSeek supervisor authors work for a DeepSeek and a Gemini worker
+# 2. The plan: a DeepSeek supervisor authors work for a DeepSeek and a Gemini worker
 susi harness author --gateway http://127.0.0.1:9188 --model deepseek-chat \
   --roadmap .agents/roadmap.json VC-203-001 --workers deepseek-chat,gemini-flash --out plan.json
 
-# 4. The mission: one worker model first, escalate on failure, stop at 50 cents
+# 3. The mission: one worker model first, escalate on failure, stop at 50 cents
 susi harness run plan.json --repo . --gateway http://127.0.0.1:9188 \
-  --model deepseek-chat --workers gemini-flash --catalogue deploy/litellm/prices.json \
+  --model deepseek-chat --workers gemini-flash --catalogue deploy/harness/prices.json \
   --budget-usd 0.50 --ledger out/ledger.jsonl --parallel 2
 
-# 5. Watch it
+# 4. Watch it
 susi harness cockpit --ledger out/ledger.jsonl --plan plan.json \
-  --controls out/control.jsonl --catalogue deploy/litellm/prices.json \
+  --controls out/control.jsonl --catalogue deploy/harness/prices.json \
   --budget-usd 0.50 --port 9181
 ```
 

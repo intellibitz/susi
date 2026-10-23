@@ -31,7 +31,6 @@ pub mod mcp_cli;
 pub mod mission_cli;
 pub mod model_cli;
 pub mod open_weight_cli;
-pub mod openclaw_cli;
 pub mod openhands_cli;
 pub mod openrouter_cli;
 pub mod openviking_cli;

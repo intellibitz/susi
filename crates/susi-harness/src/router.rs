@@ -1,9 +1,8 @@
 //! Native multi-provider model routing.
 //!
-//! Directs completion requests directly to upstream provider HTTPS endpoints
-//! (DeepSeek, SiliconFlow, DashScope, Gemini, Anthropic, OpenRouter) natively
-//! without requiring any external Python proxy (LiteLLM) or background
-//! processes.
+//! Directs completion requests straight to upstream provider HTTPS endpoints
+//! (DeepSeek, SiliconFlow, DashScope, Gemini, Anthropic, OpenRouter), with no
+//! intermediate proxy and no background process.
 //!
 //! Model ids, endpoints and capabilities live in [`crate::providers`]; this
 //! module turns a resolved model into the request shape a provider expects.

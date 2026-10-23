@@ -45,50 +45,50 @@ Four invariants hold the model together:
   expected cost per *accepted* task, learned from the ledger.
 - **A metering gateway.** Buffered and streamed completions are priced from the
   provider's own usage (cache hits included) before the answer is returned.
-- **Native routing.** [`router.rs`](../crates/susi-harness/src/router.rs) can
-  reach DeepSeek, SiliconFlow, DashScope, Gemini, Anthropic and OpenRouter
-  directly in direct mode — no Python proxy — and falls back to the configured
-  upstream for any model it does not know.
+- **Native routing.** [`router.rs`](../crates/susi-harness/src/router.rs) reaches
+  DeepSeek, SiliconFlow, DashScope, Gemini, Anthropic and OpenRouter directly —
+  no Python proxy — and falls back to the configured upstream for any model it
+  does not know.
 - **A native worker.** [`worker.rs`](../crates/susi-harness/src/worker.rs) is an
   in-process tool loop (`view_file`, `write_to_file`, `replace_file_content`,
-  `run_command`, `list_dir`), 25 turns, sanitized paths — no Node runtime. The
-  CLI still selects it only when told to; phase 0 flips that default.
+  `run_command`, `list_dir`), 25 turns, sanitized paths. It is the only
+  executor: there is no external agent runtime to start or select.
 - **Isolation.** Every task gets a worktree, a claimed task id and a scope; the
   adapter lands it through the repository's own `workflow finish`.
 - **A shell.** The cockpit serves a snapshot and an SSE feed, and operator
   commands are validated and logged, then applied at the next task boundary.
 
-## Native parity
+## Components
 
-The LiteLLM/OpenClaw stack is no longer in the execution path. Each feature it
-provided has a native owner, and `susi harness models` prints that ownership as
-JSON (providers, models and aliases) without a network call:
+The harness is one binary and one library; every capability below has exactly
+one owner, and `susi harness models` prints the provider half as JSON without a
+network call:
 
-| Former dependency | Native owner |
+| Capability | Owner |
 |---|---|
-| LiteLLM model list, provider keys and aliases | [`providers.rs`](../crates/susi-harness/src/providers.rs) — registry records, capability handshake, `coder`/`cheap`/`planner`/`reasoner` aliases |
-| LiteLLM provider routing and adapters | [`router.rs`](../crates/susi-harness/src/router.rs) — direct HTTPS per wire, explicit upstream override, `direct` mode |
-| LiteLLM proxy auth, per-key budgets, `/v1/models` | [`gateway.rs`](../crates/susi-harness/src/gateway.rs) + [`ingress.rs`](../crates/susi-harness/src/ingress.rs) — bearer accounts, admission, OpenAI-compatible list, `402`/`401` before dispatch |
-| Redis / LiteLLM response cache | [`cache.rs`](../crates/susi-harness/src/cache.rs) — in-memory and on-disk SHA-256 cache; a hit writes a zero-cost ledger row |
-| LiteLLM spend caps and routing policy | [`budget.rs`](../crates/susi-harness/src/budget.rs) + [`policy.rs`](../crates/susi-harness/src/policy.rs) — worst-case reservation, per-mission caps, escalation by expected cost per accepted task |
-| OpenClaw worker loop | [`worker.rs`](../crates/susi-harness/src/worker.rs) + [`agents.rs`](../crates/susi-harness/src/agents.rs) — in-process tool loop and agent graph, no Node runtime |
+| Model list, provider keys, aliases | [`providers.rs`](../crates/susi-harness/src/providers.rs) — registry records, capability handshake, `coder`/`cheap`/`planner`/`reasoner` aliases |
+| Provider routing | [`router.rs`](../crates/susi-harness/src/router.rs) — direct HTTPS per wire, explicit upstream override, `direct` mode |
+| Auth, per-key budgets, `/v1/models` | [`gateway.rs`](../crates/susi-harness/src/gateway.rs) + [`ingress.rs`](../crates/susi-harness/src/ingress.rs) — bearer accounts, admission, OpenAI-compatible list, `402`/`401` before dispatch |
+| Response cache | [`cache.rs`](../crates/susi-harness/src/cache.rs) — in-memory and on-disk SHA-256 cache; a hit writes a zero-cost ledger row |
+| Spend caps and routing policy | [`budget.rs`](../crates/susi-harness/src/budget.rs) + [`policy.rs`](../crates/susi-harness/src/policy.rs) — worst-case reservation, per-mission caps, escalation by expected cost per accepted task |
+| The worker loop | [`worker.rs`](../crates/susi-harness/src/worker.rs) + [`agents.rs`](../crates/susi-harness/src/agents.rs) — in-process tool loop and agent graph |
 | MCP tools | [`mcp.rs`](../crates/susi-harness/src/mcp.rs) + [`tools.rs`](../crates/susi-harness/src/tools.rs) — stdio/HTTP client, tool records, approval policy |
 | Plugin manifests | [`plugins.rs`](../crates/susi-harness/src/plugins.rs) — `harness.plugins.json`, capability-scoped records |
 
 ## The seams that were missing
 
-Phases 1–5 closed these: a provider registry, a public ingress, a tool and MCP
-layer, an agent graph, and a plugin manifest. Each section describes what the
-seam was and what replaced it.
+These closed the gap between "a gateway that meters" and "an orchestration layer
+that can be handed work": a provider registry, a public ingress, a tool and MCP
+layer, an agent graph, and a plugin manifest.
 
 ### 1. Provider registry
 
-`router.rs` resolves six families by match arm, and anything else goes to the
-`--upstream` URL the gateway was started with. Adding a provider means editing
-code, there is no capability handshake (a model that cannot call tools is
-discovered twenty turns in), and there are no aliases (`--model coder`).
+`router.rs` resolved six families by match arm, and anything else went to the
+`--upstream` URL the gateway was started with. Adding a provider meant editing
+code, there was no capability handshake (a model that could not call tools was
+discovered twenty turns in), and there were no aliases (`--model coder`).
 
-Target: a registry of records
+Now: a registry of records
 
 ```json
 {"id": "deepseek", "wire": "openai", "base_url": "https://api.deepseek.com",
@@ -104,11 +104,11 @@ anything.
 
 ### 2. Ingress
 
-The gateway meters calls from our own workers, but it is not a general ingress:
-it requires an upstream for unknown models, has no notion of a caller, and does
-not list models. That keeps LiteLLM in the critical path.
+The gateway meters calls from our own workers, but it was not a general ingress:
+it required an upstream for unknown models, had no notion of a caller, and did
+not list models.
 
-Target: the same gateway, publicly shaped — bearer key to budget account,
+Now: the same gateway, publicly shaped — bearer key to budget account,
 `/v1/models` from the registry, buffered and streamed completions, cache and
 ledger unchanged, per-key caps and rate limits, and a direct mode that needs no
 proxy at all. Then any client (curl, OpenCode, Cline, a teammate's script) can
@@ -116,20 +116,20 @@ point at the harness and be metered, cached and capped.
 
 ### 3. Tools
 
-Five tools are compiled into the worker. There is no registry, no MCP, no
-approval gate, and no per-tool sandbox profile.
+The worker had five tools compiled in with no registry, no MCP, no approval gate
+and no per-tool sandbox profile.
 
-Target: a tool record — name, JSON schema, handler (`native` or `mcp`), policy
+Now: a tool record — name, JSON schema, handler (`native` or `mcp`), policy
 (`auto`, `ask`, `deny`), sandbox — plus an MCP client over stdio and HTTP and an
 MCP server that exposes susi's own tools. Approvals travel through the control
 log, so the cockpit asks and the supervisor applies.
 
 ### 4. Agent graph
 
-One task is one agent. There is no agent definition, no message bus, no handoff,
-no reviewer.
+One task was one agent: no agent definition, no message bus, no handoff, no
+reviewer.
 
-Target: an agent spec (`role`, `model` alias, `tools`, `budget`, `isolation`,
+Now: an agent spec (`role`, `model` alias, `tools`, `budget`, `isolation`,
 `max_turns`) and a typed message bus persisted in the event log. The standard
 topology is plan → fan out coders into disjoint worktrees → review the diff
 against acceptance → integrate. Every node is budgeted; the reviewer is a
@@ -137,12 +137,12 @@ different agent with its own scope.
 
 ### 5. Plugins
 
-Everything is compiled in. Adding a provider, a tool or an agent means a crate
+Everything is compiled in: adding a provider, a tool or an agent means a crate
 change and a release.
 
-Target: a `harness.toml` manifest loaded at startup, out-of-process over MCP
-first and in-process as WASM components later. A plugin that asks for a
-capability the manifest did not declare is refused.
+Now: a manifest loaded at startup, out-of-process over MCP first and in-process
+as WASM components later. A plugin that asks for a capability the manifest did
+not declare is refused.
 
 ## Capability-scoped agents
 
@@ -168,7 +168,7 @@ its own budget.
 
 | Phase | Deliverable | Gate | Queued as |
 |---|---|---|---|
-| 0 | Finish native defaults (T-5), then retire the LiteLLM/OpenClaw wording in [harness.md](harness.md) | `cargo test -p susi-harness --lib` + doc review | T-ANTIGRAVITYHARNESSORCHESTRATION-5, T-HARNESSOS-1 |
+| 0 | ✅ Native defaults: one executor, no external proxy, no external agent runtime | `cargo test -p susi-harness --lib` | T-ANTIGRAVITYHARNESSORCHESTRATION-5, T-HARNESSOS-1 |
 | 1 | ✅ Provider registry, capability handshake, generic adapter, aliases | `cargo test -p susi-harness --lib provider_registry` | T-HARNESSOS-2 |
 | 2 | ✅ Public ingress, per-key budgets, `/v1/models`, direct mode | `cargo test -p susi-harness --lib ingress` | T-HARNESSOS-3 |
 | 3 | ✅ Tool registry, MCP client, approval policy | `cargo test -p susi-harness --lib tool_registry` | T-HARNESSOS-4 |

@@ -33,13 +33,11 @@
 //!   including DeepSeek's and Gemini's cache-hit counts.
 //! - [`ledger`] is the append-only record of every attempt, priced at the rate
 //!   in force when it ran, so spend can always be explained after the fact.
-//! - [`litellm`] is the model proxy behind the gateway: one OpenAI-compatible
-//!   surface over DeepSeek, SiliconFlow, DashScope and Gemini, with caching.
 //! - [`event`] is the live, human-readable feed: one row per action, no code.
 //! - [`gateway`] meters a completion: forward it, price the provider's own
 //!   usage, and append the ledger row before answering.
-//! - [`executor`] runs one OpenClaw turn to a deadline, with a per-run key so
-//!   the gateway attributes every call it makes.
+//! - [`executor`] runs one native worker turn to a deadline, with a per-run key
+//!   so the gateway attributes every call it makes.
 //! - [`scheduler`] runs a mission's tasks concurrently, trying the candidate
 //!   models in order and recording every attempt.
 //! - [`adapter`] makes a susi target's own rules mechanical: worktree, claim,
@@ -77,7 +75,6 @@ pub mod gateway;
 pub mod ingress;
 pub mod ledger;
 pub mod lifecycle;
-pub mod litellm;
 pub mod mcp;
 pub mod mission_control;
 pub mod money;
