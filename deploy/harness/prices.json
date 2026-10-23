@@ -26,17 +26,12 @@
       "input_miss": 400000,
       "output": 1200000
     },
-    "deepseek-chat": {
-      "input_hit": 28000,
-      "input_miss": 280000,
-      "output": 420000
-    },
     "deepseek-flash": {
       "input_hit": 3000,
       "input_miss": 150000,
       "output": 600000
     },
-    "deepseek-reasoner": {
+    "deepseek-pro": {
       "input_hit": 28000,
       "input_miss": 280000,
       "output": 420000
@@ -45,6 +40,11 @@
       "input_hit": 30000,
       "input_miss": 300000,
       "output": 2500000
+    },
+    "gemini-pro": {
+      "input_hit": 31250,
+      "input_miss": 1250000,
+      "output": 10000000
     },
     "siliconflow-deepseek": {
       "input_hit": 250000,

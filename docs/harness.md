@@ -23,9 +23,10 @@ tool and MCP layer, an agent graph and plugins — is in
  provider registry ◄── gateway (meter, attribute, price, ledger) ◄── native worker
    │ direct HTTPS          ▲
    │                       │ any OpenAI-compatible client
-   ├── deepseek-chat       │ (/v1/models, /v1/chat/completions;
-   ├── deepseek-reasoner   │  --accounts adds per-key budgets)
-   └── gemini-flash
+   ├── deepseek-flash      │ (/v1/models, /v1/chat/completions;
+   ├── deepseek-pro        │  --accounts adds per-key budgets)
+   ├── gemini-flash        │
+   └── gemini-pro          │
 ```
 
 ## The chain
@@ -56,6 +57,24 @@ tool and MCP layer, an agent graph and plugins — is in
 5. **The cockpit** reads the ledger, the event feed, the supervisor state, the
    plan and the control log, and renders one snapshot. It is read-mostly and
    never a second source of truth.
+
+## Model tiers
+
+DeepSeek drives and Gemini delegates. The registry carries exactly the ids the
+providers advertise — `deepseek-flash`, `deepseek-pro` (backend
+`deepseek-v4-pro`), `gemini-flash`, `gemini-pro` — and the policy above them is
+an alias, so rerouting the fleet never touches a plan:
+
+| Alias | Model | Role |
+|---|---|---|
+| `coder`, `worker`, `flash` | `deepseek-flash` | the default worker turn |
+| `planner`, `reasoner`, `pro` | `deepseek-pro` | planning and escalation when flash does not pass |
+| `cheap` | `gemini-flash` | the cheap delegate (large context, vision) |
+| `delegate`, `reviewer` | `gemini-pro` | second opinion and review |
+
+`susi harness models --verify` checks each registered backend id against the
+provider's own list, so an id retired upstream is reported before a call fails.
+Prices for all four live in [deploy/harness/prices.json](../deploy/harness/prices.json).
 
 ## Budget
 
@@ -156,12 +175,12 @@ harness-gateway --port 9188 --catalogue deploy/harness/prices.json \
   --ledger out/ledger.jsonl --upstream direct
 
 # 2. The plan: a DeepSeek supervisor authors work for a DeepSeek and a Gemini worker
-susi harness author --gateway http://127.0.0.1:9188 --model deepseek-chat \
-  --roadmap .agents/roadmap.json VC-203-001 --workers deepseek-chat,gemini-flash --out plan.json
+susi harness author --gateway http://127.0.0.1:9188 --model deepseek-flash \
+  --roadmap .agents/roadmap.json VC-203-001 --workers deepseek-flash,gemini-flash --out plan.json
 
 # 3. The mission: one worker model first, escalate on failure, stop at 50 cents
 susi harness run plan.json --repo . --gateway http://127.0.0.1:9188 \
-  --model deepseek-chat --workers gemini-flash --catalogue deploy/harness/prices.json \
+  --model deepseek-flash --workers gemini-flash --catalogue deploy/harness/prices.json \
   --budget-usd 0.50 --ledger out/ledger.jsonl --parallel 2
 
 # 4. Watch it

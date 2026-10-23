@@ -536,7 +536,7 @@ mod tests {
             dir.path(),
             "roadmap-batch",
             2,
-            &["deepseek-chat".to_string(), "gemini-flash".to_string()],
+            &["deepseek-flash".to_string(), "gemini-flash".to_string()],
             None,
         )
         .unwrap();
@@ -548,7 +548,7 @@ mod tests {
             .collect();
         assert_eq!(ids, vec!["T-D", "T-A"]);
         assert_eq!(plan.tasks[0].accept, "cargo test -p disjoint req_d");
-        assert_eq!(plan.tasks[0].model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(plan.tasks[0].model.as_deref(), Some("deepseek-flash"));
         assert_eq!(plan.tasks[1].model.as_deref(), Some("gemini-flash"));
         assert!(plan.tasks.iter().all(|task| task.task.is_some()));
     }

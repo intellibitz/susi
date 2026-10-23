@@ -31,7 +31,7 @@ const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 const CATALOGUE: &str = r#"{
     "schema": "susi/harness/prices/v1",
     "models": {
-        "deepseek-chat": {"input_miss": 150000, "input_hit": 3000, "output": 600000}
+        "deepseek-flash": {"input_miss": 150000, "input_hit": 3000, "output": 600000}
     }
 }"#;
 
@@ -132,7 +132,7 @@ async fn native_proxy_ingress_is_priced_cached_and_capped() {
         Account::new("sk-capped", "capped").with_budget(MicroUsd::from_micros(100)),
     ]));
     let proxy = spawn(ingress::router(gateway, ingress)).await;
-    let body = r#"{"model":"deepseek-chat","messages":[{"role":"user","content":"ping"}]}"#;
+    let body = r#"{"model":"deepseek-flash","messages":[{"role":"user","content":"ping"}]}"#;
 
     // (a) No bearer token: refused before anything is forwarded.
     let (status, _) = call(proxy, "POST", "/v1/chat/completions", None, Some(body)).await;
@@ -165,7 +165,7 @@ async fn native_proxy_ingress_is_priced_cached_and_capped() {
     let entries = read_entries(&ledger_path).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].mission, "alice");
-    assert_eq!(entries[0].model, "deepseek-chat");
+    assert_eq!(entries[0].model, "deepseek-flash");
     assert_eq!(entries[0].provider, "deepseek");
     assert_eq!(entries[0].outcome, Outcome::Completed);
     assert!(!entries[0].cached);
@@ -214,7 +214,7 @@ async fn native_proxy_ingress_is_priced_cached_and_capped() {
         .iter()
         .filter_map(|model| model["id"].as_str())
         .collect::<Vec<_>>();
-    assert!(ids.contains(&"deepseek-chat"), "{ids:?}");
+    assert!(ids.contains(&"deepseek-flash"), "{ids:?}");
     assert!(ids.contains(&"coder"), "{ids:?}");
 
     let (status, _) = call(proxy, "GET", "/v1/models", None, None).await;

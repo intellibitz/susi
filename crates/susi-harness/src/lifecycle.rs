@@ -254,7 +254,7 @@ mod tests {
                 mission: mission.into(),
                 task: task.into(),
                 attempt: 1,
-                model: "deepseek-chat".into(),
+                model: "deepseek-flash".into(),
                 provider: "deepseek".into(),
                 usage: TokenUsage::new(1_000_000, 0, 0),
                 price: ModelPrice {

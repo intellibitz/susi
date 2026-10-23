@@ -150,7 +150,7 @@ mod tests {
             vector: "VC-202-025 agent identity".into(),
             target: "durable worker identity".into(),
             packages: vec!["susi-harness".into(), "susi-gmcp".into()],
-            workers: vec!["deepseek-chat".into(), "gemini-flash".into()],
+            workers: vec!["deepseek-flash".into(), "gemini-flash".into()],
             narrative: "recent work".into(),
             max_tasks: 3,
         }
@@ -163,7 +163,7 @@ mod tests {
         assert!(text.contains("durable worker identity"));
         assert!(text.contains("susi-harness"));
         assert!(text.contains("susi-gmcp"));
-        assert!(text.contains("deepseek-chat"));
+        assert!(text.contains("deepseek-flash"));
         assert!(text.contains("gemini-flash"));
         assert!(text.contains("at most 3 tasks"));
         assert!(text.contains("under 15 minutes"));

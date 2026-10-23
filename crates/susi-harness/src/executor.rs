@@ -31,7 +31,7 @@ pub const MAX_TURNS: usize = 25;
 pub struct ExecutorConfig {
     /// Gateway base URL, e.g. `http://127.0.0.1:9185`.
     pub gateway_url: String,
-    /// Model id as the gateway's catalogue knows it, e.g. `deepseek-chat`.
+    /// Model id as the gateway's catalogue knows it, e.g. `deepseek-flash`.
     pub model: String,
     /// Working directory the agent reads and writes.
     pub workspace: PathBuf,
@@ -126,7 +126,7 @@ mod tests {
     fn config() -> ExecutorConfig {
         ExecutorConfig {
             gateway_url: "http://127.0.0.1:9185".into(),
-            model: "deepseek-chat".into(),
+            model: "deepseek-flash".into(),
             workspace: PathBuf::from("scratch"),
             state_dir: PathBuf::from("state"),
             mission: "pilot-2".into(),

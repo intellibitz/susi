@@ -93,8 +93,8 @@ Now: a registry of records
 ```json
 {"id": "deepseek", "wire": "openai", "base_url": "https://api.deepseek.com",
  "key_env": "DEEPSEEK_API_KEY",
- "models": [{"id": "deepseek-chat", "context": 128000, "tools": true,
-             "streaming": true, "price_ref": "deepseek-chat"}]}
+ "models": [{"id": "deepseek-flash", "context": 128000, "tools": true,
+             "streaming": true, "price_ref": "deepseek-flash"}]}
 ```
 
 embedded in the binary, overridable by a user file, with a generic

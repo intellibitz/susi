@@ -1150,7 +1150,7 @@ mod tests {
             scopes: vec!["docs/harness.md".into()],
             prompt: "do the queued task".into(),
             gateway_url: "http://127.0.0.1:1".into(),
-            model: "deepseek-chat".into(),
+            model: "deepseek-flash".into(),
             alternates: Vec::new(),
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
