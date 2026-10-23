@@ -157,6 +157,7 @@ jobs:
       affected: ${{ steps.scope.outputs.affected }}
       skip_shards: ${{ steps.scope.outputs.skip_shards }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
+      run_windows: ${{ steps.scope.outputs.run_windows }}
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -194,6 +195,10 @@ jobs:
           affected=ALL
           skip='[]'
           e2e=true
+          # The Windows leg proves the published binary starts and answers; it
+          # is worth a runner whenever the root package (the `susi` binary) is
+          # in the affected set, including as a dependent.
+          win=true
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             base=$BEFORE
             [ "$base" = "0000000000000000000000000000000000000000" ] && base=
@@ -209,10 +214,13 @@ jobs:
                   "")
                     affected=NONE
                     skip=$(scripts/ci-test-shards.sh | cut -f1 | jq -R . | jq -sc .)
-                    e2e=false ;;
+                    e2e=false
+                    win=false ;;
                   *)
                     affected=SCOPED
                     e2e=false
+                    win=false
+                    grep -qx 'susi' <<<"$pkgs" && win=true
                     while IFS=$'\t' read -r name shardpkgs; do
                       hit=false
                       for c in $(awk '{for(i=1;i<=NF;i++) if($i=="-p") print $(i+1)}' <<<"$shardpkgs"); do
@@ -234,6 +242,7 @@ jobs:
             echo "affected=$affected"
             echo "skip_shards=$skip"
             echo "run_e2e=$e2e"
+            echo "run_windows=$win"
           } >> "$GITHUB_OUTPUT"
 
   toolchain:
@@ -921,3 +930,35 @@ jobs:
       - name: cargo nextest (e2e only)
         if: steps.scope.outputs.run == 'true'
         run: cargo nextest run -p susi-daemon --test capability_gap_e2e --locked
+
+  # The release publishes a Windows binary, so the Windows binary is proven on
+  # the push that would merge it — not first on the tag. The contract here is
+  # narrow on purpose: the built `susi.exe` starts and answers the release
+  # gate's own offline checks (`susi_gawd::admin::E2E_CHECKS`, driven through
+  # tests/release_e2e_checks.rs). The workspace suite has Windows-host failures
+  # of its own, tracked separately; asserting them here would only redden every
+  # push for reasons this job does not own.
+  windows:
+    name: Windows binary (release e2e checks)
+    needs: codetree
+    if: needs.codetree.outputs.run_windows == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-binary
+          cache-targets: "true"
+
+      # This builds the debug `susi.exe` and runs all seven E2E checks against
+      # it in a scratch HOME: the same list the release cut runs on the tagged
+      # binary, executed on Windows for the first time on this push.
+      - name: Build the binary and run the release e2e checks
+        run: cargo test --locked --test release_e2e_checks

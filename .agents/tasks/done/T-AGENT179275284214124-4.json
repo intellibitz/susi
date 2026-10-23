@@ -1,0 +1,22 @@
+{
+  "id": "T-AGENT179275284214124-4",
+  "title": "Publish and prove the Windows release artifact, and run the binary's e2e checks on Windows",
+  "goal": "release.yml publishes linux/macOS only; the Windows leg was an explicit TODO, install.ps1 downloaded an asset name no workflow produced, and nothing ran the built susi.exe on Windows.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "release_e2e_checks"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792786277,
+  "closed": {
+    "at_unix": 1792772540,
+    "commit": "a6119b507819c39fba27ef5c037d01c4b561aafa",
+    "by": "AGENT179275284214124"
+  }
+}

@@ -103,10 +103,13 @@ jobs:
             name: macos-aarch64
             artifact: susi-macos-aarch64
             src: target/dist/susi
-    # Windows builds are not yet published here: the wasmtime backend is
-    # license-clean on windows-msvc, so the backend blocker is gone — the
-    # Windows release leg itself (runner, installer, validation) is still
-    # to be added.
+          # The Windows artifact is a first-class release leg: the same tag that
+          # publishes the Linux and macOS binaries publishes this one, and the
+          # built binary is exercised on the runner before it is uploaded.
+          - os: windows-latest
+            name: windows-x86_64
+            artifact: susi-windows-x86_64.exe
+            src: target/dist/susi.exe
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -138,7 +141,10 @@ jobs:
 
       - name: Build Engine
         id: build
-        continue-on-error: ${{ matrix.name != 'linux-x86_64' }}
+        # Linux x86_64 and Windows are required: they are the two platforms the
+        # release is contracted to work on. The arm64 and macOS legs stay soft
+        # until they have the same standing.
+        continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
         # [profile.dist]: fat LTO + CGU=1 for published binaries. The one-line
         # installer uses [profile.release] (thin LTO) for fast source builds.
         # x86_64 links with rustc's bundled lld (no linker is set in .cargo/config.toml); aarch64 links via .cargo/fast-linker (mold when installed above).
@@ -152,7 +158,43 @@ jobs:
       - name: Generate Checksum
         if: steps.build.outcome == 'success'
         shell: bash
-        run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
+        # shasum ships on macOS, sha256sum on Linux and Git Bash on Windows;
+        # both write the same `hash  name` line.
+        run: |
+          if command -v shasum >/dev/null; then
+            shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
+          else
+            sha256sum "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
+          fi
+
+      # The artifact, not just the source tree, must answer on Windows before
+      # it is uploaded: the published .exe is what users run.
+      - name: Verify the Windows artifact answers offline
+        if: runner.os == 'Windows' && steps.build.outcome == 'success'
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:GITHUB_WORKSPACE "${{ matrix.artifact }}"
+          $home_ = Join-Path $env:RUNNER_TEMP 'e2e-home'
+          New-Item -ItemType Directory -Force -Path $home_ | Out-Null
+          $env:HOME = $home_
+          $env:USERPROFILE = $home_
+          $env:XDG_CONFIG_HOME = Join-Path $home_ 'xdg-config'
+          $failed = @()
+          function Check {
+            param([string]$Name, [int]$Want, [string]$Needle, [string[]]$Argv)
+            $out = (& $bin @Argv 2>&1 | Out-String)
+            $code = $LASTEXITCODE
+            if ($code -ne $Want) { throw "$Name`: exit $code, expected $Want`n$out" }
+            if ($Needle -and ($out -notmatch [regex]::Escape($Needle))) { throw "$Name`: missing '$Needle'`n$out" }
+            Write-Host "ok: $Name"
+          }
+          Check 'brain classify' 0 '"task_class": "code"' @('brain','classify','fix','this','bug','in','my','parser')
+          Check 'brain status' 0 'cooled_providers' @('brain')
+          Check 'ecosystem scan' 0 '"engines"' @('ecosystem','scan')
+          Check 'tasks' 0 '"open": []' @('tasks')
+          Check 'workflow check' 1 'not ready' @('workflow','check')
+          Check 'release --help refused' 2 'looks like a command' @('release','--help')
+          Check 'nested command refused' 2 'susi ecosystem scan' @('scan')
 
       - name: Upload Artifacts
         # A dispatch is a dry run: it has no tag, so this would publish a
