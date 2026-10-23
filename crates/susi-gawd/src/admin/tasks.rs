@@ -1589,35 +1589,68 @@ impl VerifyOutcome {
 /// A plain `output()` has no deadline: an acceptance that waits on something
 /// the runner does not have holds the whole sweep, and the job that runs the
 /// sweep dies at its own timeout having written nothing.
+///
+/// Output goes to files rather than pipes on purpose. `cargo test` spawns
+/// `susi`, which spawns agents and daemons; anything that outlives the child
+/// while holding the pipe keeps it open, so `wait_with_output` blocks forever
+/// even though the command already exited. The workflow adapter redirects to
+/// files for exactly this reason.
 fn run_bounded(program: &str, args: &[String], cwd: &Path, timeout: Duration) -> Bounded {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let base = std::env::temp_dir().join(format!("susi-verify-{}-{stamp}", std::process::id()));
+    let out_path = base.with_extension("out");
+    let err_path = base.with_extension("err");
+    let discard = |e: std::io::Error| {
+        let _ = std::fs::remove_file(&out_path);
+        let _ = std::fs::remove_file(&err_path);
+        Bounded::Failed(e)
+    };
+    let Ok(stdout) = std::fs::File::create(&out_path) else {
+        let _ = std::fs::remove_file(&err_path);
+        return Bounded::Failed(std::io::Error::other("create stdout capture"));
+    };
+    let Ok(stderr) = std::fs::File::create(&err_path) else {
+        let _ = std::fs::remove_file(&out_path);
+        return Bounded::Failed(std::io::Error::other("create stderr capture"));
+    };
     let mut child = match Command::new(program)
         .args(args)
         .current_dir(cwd)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::from(stdout))
+        .stderr(std::process::Stdio::from(stderr))
         .spawn()
     {
         Ok(child) => child,
-        Err(e) => return Bounded::Failed(e),
+        Err(e) => return discard(e),
     };
     let deadline = Instant::now() + timeout;
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(status)) => break status,
             Ok(None) => {}
-            Err(e) => return Bounded::Failed(e),
+            Err(e) => return discard(e),
         }
         if Instant::now() >= deadline {
             kill_process_tree(&mut child);
+            let _ = std::fs::remove_file(&out_path);
+            let _ = std::fs::remove_file(&err_path);
             return Bounded::TimedOut;
         }
         std::thread::sleep(Duration::from_millis(100));
-    }
-    match child.wait_with_output() {
-        Ok(out) => Bounded::Exited(out),
-        Err(e) => Bounded::Failed(e),
-    }
+    };
+    let stdout = std::fs::read(&out_path).unwrap_or_default();
+    let stderr = std::fs::read(&err_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&out_path);
+    let _ = std::fs::remove_file(&err_path);
+    Bounded::Exited(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 /// Kill a child and anything it spawned.
@@ -1644,6 +1677,44 @@ fn kill_process_tree(child: &mut std::process::Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// The bounded runner must return once the child exits, even when something it
+/// spawned still holds the output stream: a leaked agent or daemon is the
+/// normal case for a `cargo test` acceptance, and waiting for EOF there is what
+/// held the sweep until the job was killed.
+#[cfg(unix)]
+#[test]
+fn a_leaked_grandchild_does_not_hold_the_acceptance_open() {
+    let dir = std::env::temp_dir().join(format!("susi-verify-leak-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // `sh` exits immediately after spawning a child that inherits the output
+    // stream and sleeps far longer than the test will wait.
+    let script = "sleep 60 & echo done";
+    let started = Instant::now();
+    let outcome = run_bounded(
+        "sh",
+        &["-c".to_string(), script.to_string()],
+        &dir,
+        Duration::from_secs(20),
+    );
+    let elapsed = started.elapsed();
+    match outcome {
+        Bounded::Exited(out) => {
+            assert_eq!(out.status.code(), Some(0));
+            assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "done");
+        }
+        Bounded::TimedOut => {
+            panic!("the parent exited; the sweep must not wait on the leaked child")
+        }
+        Bounded::Failed(e) => panic!("sh could not run: {e}"),
+    }
+    assert!(
+        elapsed < Duration::from_secs(15),
+        "took {elapsed:?}, so it waited on the leaked grandchild"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Claims currently on the remote, keyed by task id.
