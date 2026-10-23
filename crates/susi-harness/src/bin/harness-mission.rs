@@ -21,12 +21,14 @@
 
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use susi_harness::agents::{AgentOutcome, AgentRunner, AgentSpec, Graph, Isolation};
 use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
 use susi_harness::executor::{self, ExecutorConfig, OpenClaw, RunOutcome};
+use susi_harness::ledger::spent_for;
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::{Policy, UsageProfile};
 use susi_harness::scheduler::{run_mission, AttemptOutcome, MissionConfig, TaskSpec};
@@ -146,6 +148,9 @@ struct SusiRunner {
     mission: String,
     timeout: Duration,
     ledger_path: Option<PathBuf>,
+    /// Cost already read back for each role, so a role the graph retries is
+    /// charged only the rows its latest turn added.
+    costed: BTreeMap<String, MicroUsd>,
 }
 
 impl SusiRunner {
@@ -158,7 +163,29 @@ impl SusiRunner {
             mission: file.id.clone(),
             timeout: Duration::from_secs(file.timeout_secs),
             ledger_path: (!ledger.is_empty()).then(|| PathBuf::from(ledger)),
+            costed: BTreeMap::new(),
         }
+    }
+
+    /// The cost the ledger recorded for this role since the previous readback.
+    ///
+    /// The worker tags every gateway row `mission=<file id>, task=<role>`, so
+    /// the sum is exactly what this role spent in this mission. The cumulative
+    /// figure is remembered per role: a role the graph retries reports only the
+    /// retry's rows, which keeps [`Graph`]'s total equal to the sum of the same
+    /// mission/role rows the cockpit groups in `role_spend`. A blank ledger
+    /// path, an absent ledger or an unreadable row costs zero; readback is
+    /// strictly read-only and never appends.
+    fn readback(&mut self, role: &str) -> MicroUsd {
+        let Some(path) = &self.ledger_path else {
+            return MicroUsd::ZERO;
+        };
+        let cumulative = spent_for(path, &self.mission, role);
+        let previous = self
+            .costed
+            .insert(role.to_string(), cumulative)
+            .unwrap_or(MicroUsd::ZERO);
+        cumulative.checked_sub(previous).unwrap_or(MicroUsd::ZERO)
     }
 }
 
@@ -183,27 +210,29 @@ impl AgentRunner for SusiRunner {
         };
         let outcome =
             executor::run(&config).map_err(|error| format!("run `{}`: {error}", spec.role))?;
-        let zero = MicroUsd::ZERO;
+        // Even a failed or timed-out turn can have made priced calls before it
+        // ended, so the ledger is read back for every outcome, not only success.
+        let cost = self.readback(&spec.role);
         Ok(match outcome {
             RunOutcome::Succeeded { final_text, .. } => AgentOutcome {
                 summary: final_text,
                 accepted: true,
-                cost: zero,
+                cost,
             },
             RunOutcome::Failed { message } => AgentOutcome {
                 summary: message,
                 accepted: false,
-                cost: zero,
+                cost,
             },
             RunOutcome::TimedOut => AgentOutcome {
                 summary: format!("timed out after {}s", self.timeout.as_secs()),
                 accepted: false,
-                cost: zero,
+                cost,
             },
             RunOutcome::Stalled { message } => AgentOutcome {
                 summary: message,
                 accepted: false,
-                cost: zero,
+                cost,
             },
         })
     }
@@ -272,6 +301,7 @@ fn main() {
                     "model": model,
                     "accepted": outcome.accepted,
                     "summary": outcome.summary,
+                    "cost_micro_usd": outcome.cost.micros(),
                 })
             })
             .collect::<Vec<_>>();
@@ -384,6 +414,8 @@ fn fail(message: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use susi_harness::ledger::{append_entry, Dispatch, LedgerEntry, Outcome};
+    use susi_harness::pricing::{ModelPrice, TokenUsage};
 
     fn agents() -> AgentsFile {
         AgentsFile {
@@ -441,5 +473,62 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("unknown model"), "{error}");
         assert!(error.contains("mystery-model"), "{error}");
+    }
+
+    /// A row whose cost is exactly `micros`: one million input tokens at that
+    /// per-million miss rate and no output.
+    fn charged(mission: &str, task: &str, micros: u64) -> LedgerEntry {
+        LedgerEntry::settle(Dispatch {
+            mission: mission.into(),
+            task: task.into(),
+            attempt: 1,
+            model: "deepseek-flash".into(),
+            provider: "deepseek".into(),
+            usage: TokenUsage::new(1_000_000, 0, 0),
+            price: ModelPrice {
+                input_miss: MicroUsd::from_micros(micros),
+                input_hit: MicroUsd::ZERO,
+                output: MicroUsd::ZERO,
+            },
+            started_unix_ms: 0,
+            ended_unix_ms: 1,
+            outcome: Outcome::Completed,
+        })
+    }
+
+    #[test]
+    fn readback_charges_each_run_only_the_rows_it_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("ledger.jsonl");
+        let mut runner = SusiRunner {
+            program: PathBuf::from("native"),
+            gateway_url: String::new(),
+            state_dir: dir.path().to_path_buf(),
+            mission: "live-1".into(),
+            timeout: Duration::from_secs(1),
+            ledger_path: Some(ledger.clone()),
+            costed: BTreeMap::new(),
+        };
+
+        append_entry(&ledger, &charged("live-1", "planner", 100)).unwrap();
+        append_entry(&ledger, &charged("other-1", "planner", 900)).unwrap();
+        assert_eq!(runner.readback("planner"), MicroUsd::from_micros(100));
+        // The rows already charged are not charged to the next run again.
+        assert_eq!(runner.readback("planner"), MicroUsd::ZERO);
+        // Another role in this mission made no call yet.
+        assert_eq!(runner.readback("coder-1"), MicroUsd::ZERO);
+        append_entry(&ledger, &charged("live-1", "planner", 50)).unwrap();
+        append_entry(&ledger, &charged("live-1", "coder-1", 7)).unwrap();
+        assert_eq!(runner.readback("planner"), MicroUsd::from_micros(50));
+        assert_eq!(runner.readback("coder-1"), MicroUsd::from_micros(7));
+    }
+
+    #[test]
+    fn a_blank_ledger_path_costs_nothing() {
+        let mut runner = SusiRunner::from_mission(&mission(
+            r#"{"planner":"planner","coders":["coder"],"reviewer":"reasoner"}"#,
+        ));
+        assert!(runner.ledger_path.is_none());
+        assert_eq!(runner.readback("planner"), MicroUsd::ZERO);
     }
 }

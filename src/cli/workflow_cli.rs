@@ -226,10 +226,17 @@ fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
 
 /// Set in the staged copy so it runs the finish in place instead of staging
 /// itself again (that would never end).
+///
+/// The handoff below is Windows-only, so these helpers compile only for a
+/// Windows build or a test build (their unit tests run on every platform);
+/// leaving them in a Unix production build would be dead code under the
+/// workspace's `-D warnings` gate.
+#[cfg(any(windows, test))]
 const FINISH_STAGED_ENV: &str = "SUSI_WORKFLOW_STAGED";
 
 /// Whether an executable lives in a cargo target directory, which is exactly
 /// the tree the finish gate rebuilds.
+#[cfg(any(windows, test))]
 fn exe_in_cargo_target(exe: &Path) -> bool {
     exe.components().any(|component| {
         component
@@ -243,6 +250,7 @@ fn exe_in_cargo_target(exe: &Path) -> bool {
 /// (the linker cannot replace a running image there), only when this process is
 /// the one inside the cargo target dir, and only once (the staged copy carries
 /// [`FINISH_STAGED_ENV`]).
+#[cfg(any(windows, test))]
 fn plan_finish_handoff(exe: &Path, already_staged: bool, windows: bool) -> bool {
     windows && !already_staged && exe_in_cargo_target(exe)
 }
@@ -250,6 +258,7 @@ fn plan_finish_handoff(exe: &Path, already_staged: bool, windows: bool) -> bool 
 /// Copy `src` into a fresh directory under the system temp dir and return the
 /// copy. The directory is unique per invocation, so two finishes cannot fight
 /// over one staged binary.
+#[cfg(any(windows, test))]
 fn stage_executable(src: &Path) -> Result<std::path::PathBuf> {
     static STAGE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let stamp = std::time::SystemTime::now()
