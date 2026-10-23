@@ -1,0 +1,22 @@
+{
+  "id": "T-AGENT179275284214124-2",
+  "title": "Repair the two full-suite failures a workspace-wide input unmasked (Linux zombie pid, reflex argv)",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-wasmtime"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792767203,
+  "closed": {
+    "at_unix": 1792769076,
+    "commit": "4729b8c5ca1428b073a16c5a887198b4d61d08ec",
+    "by": "AGENT179275284214124"
+  }
+}
