@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "LINUXDEADCODE",
-  "created_unix": 1792722540
+  "created_unix": 1792722540,
+  "closed": {
+    "at_unix": 1792723327,
+    "commit": "f815194ad8bd7d81622985c39b8a2aab4a6a91f0",
+    "by": "LINUXDEADCODE"
+  }
 }
