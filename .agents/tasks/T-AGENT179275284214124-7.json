@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179275284214124-7",
+  "title": "Fit the verification sweep inside the job that hosts it (20 min budget, 12 min per acceptance)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::tasks::tests::a_spent_budget_defers_the_rest_of_the_sweep"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792795306
+}

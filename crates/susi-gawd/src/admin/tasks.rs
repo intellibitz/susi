@@ -1433,14 +1433,22 @@ pub fn verify_merged(ws: &Path, limit: usize) -> EaiResult<Vec<VerifyOutcome>> {
 
 /// Default wall-clock budget for one sweep.
 ///
-/// The job that runs this is bounded by its own `timeout-minutes`; the sweep
-/// must stop well inside it, because a job killed at the timeout records
-/// nothing and the queue never drains. Whatever does not fit is deferred, not
-/// failed: the next merge's run picks it up (`unverified` keeps saying so).
-pub const VERIFY_BUDGET_SECS: u64 = 40 * 60;
+/// The job that hosts this has `timeout-minutes: 90`, and a cold run pays for
+/// `cargo run` building `susi` plus one test target per acceptance — 30–50
+/// minutes on a shared runner. The budget is 20 minutes so that 5 (setup) + 50
+/// (cold builds) + 20 (sweep) stays inside 90: a job cancelled at its timeout
+/// records nothing, so the queue would never drain and main would never go
+/// green. What does not fit is deferred to the next merge's run, and
+/// `susi tasks audit` keeps reporting it.
+pub const VERIFY_BUDGET_SECS: u64 = 20 * 60;
 
 /// Ceiling on one acceptance, so a hang cannot consume the whole budget.
-pub const VERIFY_ONE_TIMEOUT_SECS: u64 = 25 * 60;
+///
+/// The heaviest acceptance here (`--test release_e2e_checks`, the whole root
+/// package) takes a couple of minutes once its build is warm, so 12 is
+/// generous for real work and short enough that one stuck test cannot eat the
+/// sweep.
+pub const VERIFY_ONE_TIMEOUT_SECS: u64 = 12 * 60;
 
 /// [`verify_merged`] with an explicit total budget.
 pub fn verify_merged_within(
