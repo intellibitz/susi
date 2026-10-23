@@ -36,6 +36,10 @@ tool and MCP layer, an agent graph and plugins — is in
    capabilities. The router posts to the provider directly — there is no proxy
    in the path. An override document can add a provider without a release, and
    a model that cannot call tools is refused before it is dispatched.
+   `susi harness models --verify` GETs each selected provider's models endpoint
+   (10 s bound) and reports any configured backend id the provider no longer
+   advertises, exiting 1 on drift; `--provider <id>` limits the check, and
+   Anthropic — which has no `/models` — is reported as not verifiable.
 2. **The gateway** is the control point. It forwards a completion — directly
    when the registry knows the route, or to `--upstream` for anything it does
    not — prices the provider's own usage at the rate in the catalogue, and

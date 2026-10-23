@@ -24,6 +24,7 @@ use susi_harness::providers::{Registry, Wire};
 use susi_harness::queue;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
+use susi_harness::verify::{fetch_http, verify_registry};
 
 #[allow(clippy::large_enum_variant)]
 // a CLI flag bag: every variant is argument storage, and boxing one would only relocate the flags clap derives in place
@@ -220,7 +221,14 @@ pub enum HarnessCommands {
         events: Option<PathBuf>,
     },
     /// Print the provider registry, models and aliases as JSON (no network)
-    Models,
+    Models {
+        /// Check each selected provider's live models endpoint for drift
+        #[arg(long)]
+        verify: bool,
+        /// Limit the check to one provider id (requires --verify)
+        #[arg(long, requires = "verify")]
+        provider: Option<String>,
+    },
 }
 
 /// Run one `susi harness` command.
@@ -238,9 +246,13 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             state,
             ready_timeout,
         } => start_proxy(config, host, port, litellm, state, ready_timeout),
-        HarnessCommands::Models => {
-            println!("{}", serde_json::to_string_pretty(&registry_json())?);
-            Ok(())
+        HarnessCommands::Models { verify, provider } => {
+            if verify {
+                models_verify(provider.as_deref())
+            } else {
+                println!("{}", serde_json::to_string_pretty(&registry_json())?);
+                Ok(())
+            }
         }
         HarnessCommands::Status { ledger, events } => {
             let cockpit = Cockpit {
@@ -680,6 +692,26 @@ fn tail(text: &str, limit: usize) -> String {
     text.get(text.len() - limit..).unwrap_or(text).to_string()
 }
 
+/// Verify the registry's backend ids against the providers' live model lists.
+///
+/// Prints the report even when it fails, then exits non-zero so a caller can
+/// gate on drift without parsing the prose.
+fn models_verify(provider: Option<&str>) -> Result<()> {
+    let report = verify_registry(Registry::builtin(), provider, &fetch_http)
+        .context("verify the provider registry")?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    if report.ok {
+        return Ok(());
+    }
+    let failed = report
+        .providers
+        .iter()
+        .filter(|entry| !entry.ok)
+        .map(|entry| entry.provider.as_str())
+        .collect::<Vec<_>>();
+    bail!("model verification failed for: {}", failed.join(", "));
+}
+
 /// The provider registry as JSON: each provider with its models, a flat model
 /// list a picker can filter, and the aliases that resolve to model ids.
 fn registry_json() -> serde_json::Value {
@@ -756,6 +788,42 @@ mod tests {
         let Some(Commands::Harness { action }) = cli.command else {
             panic!("expected the harness command");
         };
-        assert!(matches!(action, HarnessCommands::Models));
+        match action {
+            HarnessCommands::Models { verify, provider } => {
+                assert!(!verify);
+                assert!(provider.is_none());
+            }
+            _ => panic!("expected harness models"),
+        }
+    }
+
+    #[test]
+    fn models_verify_parses_with_a_provider() {
+        let cli = Cli::try_parse_from([
+            "susi",
+            "harness",
+            "models",
+            "--verify",
+            "--provider",
+            "gemini",
+        ])
+        .unwrap();
+        let Some(Commands::Harness { action }) = cli.command else {
+            panic!("expected the harness command");
+        };
+        match action {
+            HarnessCommands::Models { verify, provider } => {
+                assert!(verify);
+                assert_eq!(provider.as_deref(), Some("gemini"));
+            }
+            _ => panic!("expected harness models --verify"),
+        }
+    }
+
+    #[test]
+    fn models_provider_requires_verify() {
+        assert!(
+            Cli::try_parse_from(["susi", "harness", "models", "--provider", "gemini"]).is_err()
+        );
     }
 }
