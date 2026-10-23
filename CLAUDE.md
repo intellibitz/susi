@@ -7,8 +7,8 @@ Before you change anything in this repository, do these, in order:
    (no name needed; or `susi workflow start`), then continue inside the directory it
    prints (`cd <path>`). Never work in the primary checkout or on `main`.
 3. Sync with `origin/main`, then take one task: `susi tasks list`, then
-   `susi tasks claim <id>` (it refuses until you have merged `origin/main`).
-   One live claim at a time. End every commit message with the trailer `Task: <id>`.
+   `susi tasks claim <id>`. One live claim at a time. End every commit message
+   with the trailer `Task: <id>`.
 4. Sync again (`git fetch && git merge origin/main`), then push; sync again before
    the next claim. The gate and every other rule are in AGENTS.md (its START HERE
    block is the single source — read it now).

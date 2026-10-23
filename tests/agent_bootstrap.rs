@@ -218,13 +218,15 @@ fn susi_workflow_start_wraps_the_same_setup() {
 #[test]
 fn every_agent_tool_auto_loads_the_same_first_step() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for file in [
+    let files = [
         "CLAUDE.md",
         "GEMINI.md",
         ".github/copilot-instructions.md",
         ".cursor/rules/susi-workflow.mdc",
         ".devin/rules/susi-workflow.md",
-    ] {
+    ];
+    let mut blocks: Vec<(&str, String)> = Vec::new();
+    for file in files {
         let text =
             std::fs::read_to_string(root.join(file)).unwrap_or_else(|_| panic!("{file} missing"));
         for needle in [
@@ -235,6 +237,21 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
         ] {
             assert!(text.contains(needle), "{file} must mention `{needle}`");
         }
+        // One source, five copies: the instructions themselves are
+        // byte-identical. A wording drift in one tool's copy is a bug, not a
+        // style choice — CLAUDE.md once carried an extra clause in item 3
+        // while the other four agreed.
+        let (_, block) = text
+            .split_once("Before you change anything in this repository, do these, in order:")
+            .unwrap_or_else(|| panic!("{file} must carry the shared first-step block"));
+        blocks.push((file, block.to_string()));
+    }
+    let (first_file, first_block) = &blocks[0];
+    for (file, block) in &blocks[1..] {
+        assert_eq!(
+            block, first_block,
+            "the first-step block in {file} drifted from {first_file}"
+        );
     }
     let cursor = std::fs::read_to_string(root.join(".cursor/rules/susi-workflow.mdc")).unwrap();
     assert!(
