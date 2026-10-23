@@ -14,7 +14,7 @@
 //!
 //! ```text
 //! harness-run --gateway http://127.0.0.1:9185 \
-//!   --model deepseek-chat --workspace ./scratch --state ./state \
+//!   --model deepseek-flash --workspace ./scratch --state ./state \
 //!   --mission pilot-2 --task exec-1 "Create hello.txt containing OK"
 //! ```
 
@@ -149,7 +149,7 @@ mod tests {
             "--gateway",
             "http://127.0.0.1:9185",
             "--model",
-            "deepseek-chat",
+            "deepseek-flash",
             "--workspace",
             "scratch",
             "--state",

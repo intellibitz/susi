@@ -37,9 +37,9 @@ priced cannot be bounded.
 
 ```sh
 susi harness author \
-  --gateway http://127.0.0.1:9188 --model deepseek-chat \
+  --gateway http://127.0.0.1:9188 --model deepseek-flash \
   --roadmap .agents/roadmap.json VC-203-001 \
-  --workers deepseek-chat,gemini-flash --max-tasks 3 --out plan.json
+  --workers deepseek-flash,gemini-flash --max-tasks 3 --out plan.json
 ```
 
 The author is the **supervisor** model. Each task names a worker model. Read the
@@ -65,7 +65,7 @@ plugin manager (`deploy/dsh-cockpit`).
 ```sh
 susi harness run plan.json --repo . \
   --gateway http://127.0.0.1:9188 \
-  --model deepseek-chat --workers gemini-flash \
+  --model deepseek-flash --workers gemini-flash \
   --catalogue deploy/harness/prices.json --budget-usd 0.50 \
   --ledger out/ledger.jsonl --controls out/control.jsonl \
   --parallel 2 --state supervisor-state.json

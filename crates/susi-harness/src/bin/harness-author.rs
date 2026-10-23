@@ -108,7 +108,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut out = PathBuf::from("plan.json");
     let mut max_tasks: usize = 3;
     let mut timeout: u64 = 300;
-    let mut workers: Vec<String> = vec!["deepseek-chat".into(), "gemini-flash".into()];
+    let mut workers: Vec<String> = vec!["deepseek-flash".into(), "gemini-flash".into()];
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--gateway" => gateway = take(&mut args, &argument)?,

@@ -533,7 +533,7 @@ mod tests {
             .iter()
             .filter_map(|model| model["id"].as_str())
             .collect::<Vec<_>>();
-        assert!(ids.contains(&"deepseek-chat"));
+        assert!(ids.contains(&"deepseek-flash"));
         assert!(ids.contains(&"anthropic/claude-3-5-sonnet") || ids.contains(&"claude-3-5-sonnet"));
         assert!(ids.contains(&"coder"));
         assert_eq!(payload["object"], "list");

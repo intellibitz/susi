@@ -388,10 +388,15 @@ fn string_field(raw: &Value, field: &str) -> EaiResult<String> {
 const BUILTIN: &str = r#"
 {
   "aliases": {
-    "coder": "deepseek-chat",
+    "coder": "deepseek-flash",
+    "worker": "deepseek-flash",
+    "flash": "deepseek-flash",
+    "planner": "deepseek-pro",
+    "reasoner": "deepseek-pro",
+    "pro": "deepseek-pro",
     "cheap": "gemini-flash",
-    "planner": "claude-3-5-sonnet",
-    "reasoner": "deepseek-reasoner"
+    "delegate": "gemini-pro",
+    "reviewer": "gemini-pro"
   },
   "providers": [
     {
@@ -400,8 +405,8 @@ const BUILTIN: &str = r#"
       "endpoint": "https://api.deepseek.com/chat/completions",
       "key_env": ["DEEPSEEK_API_KEY"],
       "models": [
-        {"id": "deepseek-chat", "backend": "deepseek-chat", "context": 128000, "tools": true, "streaming": true},
-        {"id": "deepseek-reasoner", "backend": "deepseek-reasoner", "context": 128000, "tools": true, "streaming": true}
+        {"id": "deepseek-flash", "backend": "deepseek-flash", "context": 128000, "tools": true, "streaming": true},
+        {"id": "deepseek-pro", "backend": "deepseek-v4-pro", "context": 128000, "tools": true, "streaming": true}
       ]
     },
     {
@@ -432,7 +437,8 @@ const BUILTIN: &str = r#"
       "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       "key_env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
       "models": [
-        {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true}
+        {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true},
+        {"id": "gemini-pro", "backend": "gemini-pro-latest", "context": 1048576, "tools": true, "streaming": true, "vision": true}
       ]
     },
     {
@@ -484,23 +490,41 @@ mod tests {
         assert!(registry.providers().len() >= 6);
         assert_eq!(
             registry.aliases().get("coder").map(String::as_str),
-            Some("deepseek-chat")
+            Some("deepseek-flash")
         );
     }
 
     #[test]
     fn provider_registry_resolves_a_known_model() {
-        let resolved = Registry::builtin().resolve("deepseek-chat").unwrap();
+        let resolved = Registry::builtin().resolve("deepseek-flash").unwrap();
         assert_eq!(resolved.provider, "deepseek");
         assert_eq!(resolved.wire, Wire::OpenAi);
         assert_eq!(
             resolved.endpoint,
             "https://api.deepseek.com/chat/completions"
         );
-        assert_eq!(resolved.model_id, "deepseek-chat");
+        assert_eq!(resolved.model_id, "deepseek-flash");
         assert_eq!(resolved.key_envs, vec!["DEEPSEEK_API_KEY"]);
         assert!(resolved.capabilities.tools);
         assert!(resolved.known);
+    }
+
+    /// The tiers the fleet runs on: DeepSeek drives, Gemini delegates.
+    #[test]
+    fn provider_registry_carries_the_deepseek_and_gemini_tiers() {
+        let registry = Registry::builtin();
+        assert_eq!(
+            registry.resolve("deepseek-pro").unwrap().model_id,
+            "deepseek-v4-pro"
+        );
+        assert_eq!(
+            registry.resolve("gemini-pro").unwrap().model_id,
+            "gemini-pro-latest"
+        );
+        // The provider ids DeepSeek actually advertises; the previous
+        // chat/reasoner ids are retired upstream and would 404.
+        assert!(registry.resolve("deepseek-chat").is_none());
+        assert!(registry.resolve("deepseek-reasoner").is_none());
     }
 
     #[test]
@@ -528,9 +552,13 @@ mod tests {
     fn provider_registry_follows_aliases() {
         let registry = Registry::builtin();
         let coder = registry.resolve("coder").unwrap();
-        assert_eq!(coder.model_id, "deepseek-chat");
+        assert_eq!(coder.model_id, "deepseek-flash");
+        let planner = registry.resolve("planner").unwrap();
+        assert_eq!(planner.model_id, "deepseek-v4-pro");
         let cheap = registry.resolve("cheap").unwrap();
         assert_eq!(cheap.model_id, "gemini-3.8-flash");
+        let reviewer = registry.resolve("reviewer").unwrap();
+        assert_eq!(reviewer.model_id, "gemini-pro-latest");
     }
 
     #[test]
@@ -560,7 +588,7 @@ mod tests {
         );
         assert_eq!(resolved.model_id, "qwen2.5:3b");
         // The builtin providers survive the merge.
-        assert!(registry.resolve("deepseek-chat").is_some());
+        assert!(registry.resolve("deepseek-flash").is_some());
     }
 
     #[test]

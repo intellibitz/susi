@@ -173,9 +173,9 @@ mod tests {
 
     #[test]
     fn deepseek_routes_correctly() {
-        let route = resolve_route("deepseek-chat", None, Some("test-ds-key")).unwrap();
+        let route = resolve_route("deepseek-flash", None, Some("test-ds-key")).unwrap();
         assert_eq!(route.url, "https://api.deepseek.com/chat/completions");
-        assert_eq!(route.model_id, "deepseek-chat");
+        assert_eq!(route.model_id, "deepseek-flash");
         assert_eq!(
             route.headers[1],
             (
@@ -224,12 +224,12 @@ mod tests {
     fn an_alias_resolves_to_its_provider() {
         let route = resolve_route("coder", None, Some("test-key")).unwrap();
         assert_eq!(route.url, "https://api.deepseek.com/chat/completions");
-        assert_eq!(route.model_id, "deepseek-chat");
+        assert_eq!(route.model_id, "deepseek-flash");
     }
 
     #[test]
     fn direct_mode_ignores_the_upstream_url() {
-        let route = resolve_route("deepseek-chat", Some("direct"), Some("test-key")).unwrap();
+        let route = resolve_route("deepseek-flash", Some("direct"), Some("test-key")).unwrap();
         assert_eq!(route.url, "https://api.deepseek.com/chat/completions");
     }
 

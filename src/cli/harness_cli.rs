@@ -34,7 +34,7 @@ pub enum HarnessCommands {
         /// Gateway base URL (the harness gateway)
         #[arg(long)]
         gateway: String,
-        /// Model id the gateway prices (such as `deepseek-chat`)
+        /// Model id the gateway prices (such as `deepseek-flash`)
         #[arg(long)]
         model: String,
         /// Roadmap file
@@ -49,7 +49,7 @@ pub enum HarnessCommands {
         #[arg(long, default_value_t = 3)]
         max_tasks: usize,
         /// Worker models tasks are spread across (comma-separated)
-        #[arg(long, default_value = "deepseek-chat,gemini-flash")]
+        #[arg(long, default_value = "deepseek-flash,gemini-flash")]
         workers: String,
     },
     /// Plan a batch of dependency-ready queue tasks; each entry claims its id
@@ -68,7 +68,7 @@ pub enum HarnessCommands {
         #[arg(long, default_value_t = 1)]
         limit: usize,
         /// Worker models, assigned round-robin (comma-separated)
-        #[arg(long, default_value = "deepseek-chat,gemini-flash")]
+        #[arg(long, default_value = "deepseek-flash,gemini-flash")]
         workers: String,
         /// Only tasks whose roadmap vector is this id
         #[arg(long)]
