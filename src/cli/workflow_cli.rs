@@ -231,7 +231,7 @@ fn run_loop(cwd: &Path, args: &[&str]) -> Result<()> {
 /// Windows build or a test build (their unit tests run on every platform);
 /// leaving them in a Unix production build would be dead code under the
 /// workspace's `-D warnings` gate.
-#[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
 const FINISH_STAGED_ENV: &str = "SUSI_WORKFLOW_STAGED";
 
 /// Whether an executable lives in a cargo target directory, which is exactly
