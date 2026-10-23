@@ -15,10 +15,5 @@
     ]
   },
   "created_by": "COSTREADBACK",
-  "created_unix": 1792719283,
-  "closed": {
-    "at_unix": 1792719839,
-    "commit": "0ca096766d885cdc9f8bc39d4c6be4fe79ca1aaf",
-    "by": "COSTREADBACK"
-  }
+  "created_unix": 1792719283
 }
