@@ -1,0 +1,24 @@
+{
+  "id": "T-LINUXDEADCODE-1",
+  "title": "fix(cli): silence the unix dead-code lint on the staged-finish const",
+  "goal": "Main is red on Linux: FINISH_STAGED_ENV is compiled under cfg(any(windows, test)) but unused, so clippy -D warnings fails. Allow dead_code off Windows instead; the Windows handoff and tests are unchanged.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi",
+      "--bin",
+      "susi"
+    ]
+  },
+  "created_by": "LINUXDEADCODE",
+  "created_unix": 1792722540,
+  "closed": {
+    "at_unix": 1792723327,
+    "commit": "f815194ad8bd7d81622985c39b8a2aab4a6a91f0",
+    "by": "LINUXDEADCODE"
+  }
+}
