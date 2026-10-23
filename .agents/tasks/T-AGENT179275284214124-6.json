@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179275284214124-6",
+  "title": "Do not wait on a leaked grandchild's pipe in the verification sweep",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::tasks::tests::a_spent_budget_defers_the_rest_of_the_sweep"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792788988
+}
