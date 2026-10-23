@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179275284214124-5",
+  "title": "Bound and budget the post-merge verification sweep so main can go green",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::tasks::tests::verify_merged"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792780442
+}

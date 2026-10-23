@@ -790,7 +790,11 @@ jobs:
   # host-specific `scripts/…` checker failing on a bare runner would say nothing
   # about the merge — those are recorded as skipped, with the reason. A failure
   # writes nothing, so the next run retries it and main stays red until the
-  # merge is fixed forward.
+  # merge is fixed forward. The sweep is budgeted — 40 minutes in total, each
+  # acceptance capped at 25 — and whatever does not fit is *deferred*, not
+  # failed: a job cancelled at its own timeout records nothing, so an unbounded
+  # sweep keeps main red forever and the queue never drains (`tasks audit` keeps
+  # reporting deferred work, so deferral cannot launder it).
   verify:
     name: Post-merge acceptance
     if: github.ref == 'refs/heads/main'
