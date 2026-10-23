@@ -51,6 +51,8 @@
 //! - [`validate`] checks a plan against the repository: package names resolve,
 //!   scopes live under an existing directory, acceptance is test-shaped.
 //! - [`api`] is the command surface every cockpit speaks.
+//! - [`verify`] checks the registry's backend ids against each provider's live
+//!   model list, so an id retired upstream is reported before a call fails.
 //!
 //! The invariants the contracts keep:
 //!
@@ -89,6 +91,7 @@ pub mod supervisor;
 pub mod tools;
 pub mod usage;
 pub mod validate;
+pub mod verify;
 
 pub mod router;
 pub mod worker;
