@@ -23,7 +23,9 @@ $Installed = $false
 if ($null -eq $env:LOCAL_SOURCE) {
     Write-Host "🔐 Fetching latest susi engine..." -ForegroundColor Yellow
 
-    $EngineBinary = "susi-engine-windows-x86_64.exe"
+    # The release publishes `susi-windows-x86_64.exe` (+ .sha256), the same
+    # `<product>-<platform>-<arch>` naming install.sh resolves on Unix.
+    $EngineBinary = "susi-windows-x86_64.exe"
     $EngineTmpPath = Join-Path $GlobalBinDir "susi-engine-new.exe"
     $ChecksumTmpPath = "$EngineTmpPath.sha256"
 

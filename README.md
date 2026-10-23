@@ -388,6 +388,12 @@ the check.
 ```powershell
 irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex
 ```
+The installer fetches `susi-windows-x86_64.exe` and its published `.sha256`
+from the latest release — the same `<product>-<platform>-<arch>` naming the Unix
+installer resolves — verifies the checksum, and only falls back to a source
+build when the download or the checksum fails. A Windows release is gated on the
+built `susi.exe` answering the release gate's offline checks on the runner, and
+every push that can change the binary re-runs those checks on Windows.
 
 ---
 
