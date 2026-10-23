@@ -6764,3 +6764,56 @@ fn gmcp_req_203_013_02_production() {
         );
     }
 }
+
+#[test]
+fn gmcp_req_203_004_03_integration() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-VC-203-004-int-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut wire = StdioSession::spawn(root, &home);
+    let tools = wire.request("tools/list", serde_json::json!({}));
+    assert!(
+        tools["tools"]
+            .as_array()
+            .is_some_and(|tools| tools.iter().any(|t| t["name"] == "ledger_verify")),
+        "the served surface must advertise ledger_verify"
+    );
+    let call = wire.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    );
+    let report = call_tool_report(&call);
+    assert_eq!(report["verified"], true);
+    assert!(
+        report["rows"].as_u64().unwrap_or(0) >= 108,
+        "the served report must still hold the vector's rows"
+    );
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-004.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-004")
+        .collect();
+    assert_eq!(rows.len(), 108, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
