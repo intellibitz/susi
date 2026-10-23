@@ -439,7 +439,7 @@ impl SusiDaemon {
         {
             #[cfg(target_os = "linux")]
             {
-                if let Some(state) = linux_process_state(pid) {
+                if let Some(state) = Self::linux_process_state(pid) {
                     return state != 'Z' && state != 'X';
                 }
             }
