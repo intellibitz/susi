@@ -28,7 +28,6 @@ use super::intent_cli;
 use super::mcp_cli;
 use super::model_cli;
 use super::open_weight_cli;
-use super::openclaw_cli;
 use super::openhands_cli;
 use super::openrouter_cli;
 use super::openviking_cli;
@@ -252,11 +251,6 @@ pub(crate) fn dispatch(
     if let Some(Commands::SweAgent { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             swe_agent_cli::execute(action, cwd)
-        }));
-    }
-    if let Some(Commands::OpenClaw { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            openclaw_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::BrowserUse { action }) = command {

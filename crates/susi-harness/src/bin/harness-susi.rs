@@ -12,15 +12,15 @@
 
 //! Run one agent task against susi itself.
 //!
-//! The adapter prepares a worktree, adds and claims a task, runs OpenClaw in
-//! that worktree, verifies the commit and the acceptance, and lands the work
-//! through `workflow finish`.
+//! The adapter prepares a worktree, adds and claims a task, runs the native
+//! worker in that worktree, verifies the commit and the acceptance, and lands
+//! the work through `workflow finish`.
 
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
 use susi_harness::adapter::{land, run_task, SusiRunPolicy, SusiTarget, SusiTaskSpec};
-use susi_harness::executor::{OpenClaw, RunOutcome};
+use susi_harness::executor::{NativeWorker, RunOutcome};
 
 struct RunOptions {
     repo: PathBuf,
@@ -41,7 +41,7 @@ fn main() {
     let report = match run_task(
         &target,
         &options.spec,
-        &OpenClaw,
+        &NativeWorker,
         &SusiRunPolicy::unmetered(),
     ) {
         Ok(report) => report,
@@ -51,7 +51,6 @@ fn main() {
         RunOutcome::Succeeded { final_text, .. } => final_text.clone(),
         RunOutcome::Failed { message } => message.clone(),
         RunOutcome::TimedOut => "timed out".to_string(),
-        RunOutcome::Stalled { message } => message.clone(),
     };
     let summary = json!({
         "task": report.task,
@@ -90,7 +89,6 @@ fn describe(outcome: &RunOutcome) -> &'static str {
         RunOutcome::Succeeded { .. } => "succeeded",
         RunOutcome::Failed { .. } => "failed",
         RunOutcome::TimedOut => "timed_out",
-        RunOutcome::Stalled { .. } => "stalled",
     }
 }
 
@@ -104,7 +102,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
     let mut gateway = String::new();
     let mut model = String::new();
     let mut alternates = Vec::new();
-    let mut program = PathBuf::new();
     let mut timeout: u64 = 600;
     let mut state = PathBuf::new();
     let mut prompt_words: Vec<String> = Vec::new();
@@ -120,7 +117,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
             "--gateway" => gateway = take(&mut args, &argument)?,
             "--model" => model = take(&mut args, &argument)?,
             "--alternate" => alternates.push(take(&mut args, &argument)?),
-            "--program" => program = PathBuf::from(take(&mut args, &argument)?),
             "--timeout" => {
                 timeout = take(&mut args, &argument)?
                     .parse()
@@ -155,9 +151,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
     if gateway.trim().is_empty() || model.trim().is_empty() {
         return Err("--gateway and --model are required".into());
     }
-    if program.as_os_str().is_empty() {
-        return Err("--program is required".into());
-    }
     if state.as_os_str().is_empty() {
         return Err("--state is required".into());
     }
@@ -174,7 +167,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<RunOptions, String> {
             accept,
             scopes,
             prompt: prompt_words.join(" "),
-            program,
             gateway_url: gateway,
             model,
             alternates,
@@ -221,8 +213,6 @@ mod tests {
             "http://127.0.0.1:9188",
             "--model",
             "deepseek-flash",
-            "--program",
-            "openclaw.cmd",
             "--state",
             "state",
             "write",

@@ -1,7 +1,6 @@
 //! In-memory and persistent SHA-256 request/response cache for the metering gateway.
 //!
-//! Replaces external Redis / LiteLLM proxy caches with a zero-dependency,
-//! embedded Rust solution: exact-match hits cost $0.000000 micro-USD and
+//! A zero-dependency, embedded cache: exact-match hits cost $0.000000 and
 //! preserve the `LedgerEntry::as_cached()` contract.
 
 use serde_json::{json, Value};

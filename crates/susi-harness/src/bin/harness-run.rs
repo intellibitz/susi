@@ -1,4 +1,4 @@
-﻿#![forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 #![cfg_attr(
     test,
     allow(
@@ -10,11 +10,11 @@
     )
 )]
 
-//! Run one OpenClaw agent turn through the metering gateway.
+//! Run one native worker turn through the metering gateway.
 //!
 //! ```text
-//! harness-run --program …/openclaw.cmd --gateway http://127.0.0.1:9185 \
-//!   --model deepseek-flash --workspace ./scratch --state ./state \
+//! harness-run --gateway http://127.0.0.1:9185 \
+//!   --model deepseek-chat --workspace ./scratch --state ./state \
 //!   --mission pilot-2 --task exec-1 "Create hello.txt containing OK"
 //! ```
 
@@ -47,10 +47,6 @@ fn main() {
             print(json!({"ok": false, "error": "timed out"}));
             std::process::exit(1);
         }
-        Ok(RunOutcome::Stalled { message }) => {
-            print(json!({"ok": false, "error": message}));
-            std::process::exit(1);
-        }
         Err(error) => fail(&error.to_string()),
     }
 }
@@ -68,7 +64,6 @@ fn fail(message: &str) -> ! {
 }
 
 fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, String> {
-    let mut program = PathBuf::new();
     let mut gateway = String::new();
     let mut model = String::new();
     let mut workspace = PathBuf::new();
@@ -77,12 +72,10 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
     let mut task = String::new();
     let mut attempt: u32 = 1;
     let mut timeout: u64 = 600;
-    let mut stall_secs: u64 = 0;
     let mut prompt_words: Vec<String> = Vec::new();
 
     while let Some(argument) = args.next() {
         match argument.as_str() {
-            "--program" => program = PathBuf::from(take(&mut args, &argument)?),
             "--gateway" => gateway = take(&mut args, &argument)?,
             "--model" => model = take(&mut args, &argument)?,
             "--workspace" => workspace = PathBuf::from(take(&mut args, &argument)?),
@@ -99,11 +92,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
                     .parse()
                     .map_err(|_| "timeout must be a number of seconds".to_string())?;
             }
-            "--stall-secs" => {
-                stall_secs = take(&mut args, &argument)?
-                    .parse()
-                    .map_err(|_| "stall-secs must be a number of seconds".to_string())?;
-            }
             other if other.starts_with("--") => {
                 return Err(format!("unknown argument {other}"));
             }
@@ -111,9 +99,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
         }
     }
 
-    if program.as_os_str().is_empty() {
-        program = PathBuf::from("native");
-    }
     if gateway.trim().is_empty() {
         return Err("--gateway is required".into());
     }
@@ -134,7 +119,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
     }
 
     Ok(ExecutorConfig {
-        program,
         gateway_url: gateway,
         model,
         workspace,
@@ -143,8 +127,6 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<ExecutorConfig, Strin
         task,
         attempt,
         timeout: Duration::from_secs(timeout),
-        stall_after: (stall_secs > 0).then(|| Duration::from_secs(stall_secs)),
-        ledger_path: None,
         prompt: prompt_words.join(" "),
     })
 }
@@ -162,36 +144,12 @@ mod tests {
     }
 
     #[test]
-    fn defaults_to_native_program_when_unspecified() {
+    fn parses_the_required_flags_and_joins_the_prompt() {
         let config = parse(args(&[
             "--gateway",
             "http://127.0.0.1:9185",
             "--model",
-            "deepseek-flash",
-            "--workspace",
-            "scratch",
-            "--state",
-            "state",
-            "--mission",
-            "pilot-2",
-            "--task",
-            "exec-1",
-            "create",
-            "hello.txt",
-        ]))
-        .unwrap();
-        assert_eq!(config.program, PathBuf::from("native"));
-    }
-
-    #[test]
-    fn parses_flags_and_joins_the_prompt() {
-        let config = parse(args(&[
-            "--program",
-            "openclaw.cmd",
-            "--gateway",
-            "http://127.0.0.1:9185",
-            "--model",
-            "deepseek-flash",
+            "deepseek-chat",
             "--workspace",
             "scratch",
             "--state",
@@ -213,8 +171,8 @@ mod tests {
 
     #[test]
     fn refuses_missing_required_flags() {
-        assert!(parse(args(&["--program", "x"])).is_err());
-        assert!(parse(args(&["--program", "x", "--gateway", "g"])).is_err());
+        assert!(parse(args(&["--gateway", "g"])).is_err());
+        assert!(parse(args(&["--gateway", "g", "--model", "m"])).is_err());
         assert!(parse(args(&["--attempt", "nope"])).is_err());
         assert!(parse(args(&["--nope"])).is_err());
     }

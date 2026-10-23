@@ -1,7 +1,7 @@
 {
   "version": "eco-profile/v1",
   "id": "gateways",
-  "name": "OpenRouter and LiteLLM gateways",
+  "name": "OpenRouter gateway",
   "subject": "openrouter-gateway",
   "kind": "api",
   "endpoints": [
@@ -26,22 +26,6 @@
       "description": "Generation stats by id",
       "streaming": false,
       "response": "generation"
-    },
-    {
-      "method": "POST",
-      "path": "/v1/chat/completions",
-      "description": "LiteLLM proxy chat",
-      "streaming": false,
-      "request": "or-chat",
-      "response": "or-chat"
-    },
-    {
-      "method": "POST",
-      "path": "/v1/key/generate",
-      "description": "LiteLLM virtual-key minting",
-      "streaming": false,
-      "request": "key",
-      "response": "key"
     }
   ],
   "auth": [
@@ -50,8 +34,7 @@
       "header": "authorization",
       "prefix": "Bearer ",
       "env": [
-        "OPENROUTER_API_KEY",
-        "LITELLM_MASTER_KEY"
+        "OPENROUTER_API_KEY"
       ]
     }
   ],
@@ -72,16 +55,6 @@
         "route hint"
       ],
       "notes": "OpenAI shape plus routing fields"
-    },
-    {
-      "name": "key",
-      "format": "json",
-      "fields": [
-        "models[]",
-        "max_budget",
-        "duration"
-      ],
-      "notes": ""
     }
   ],
   "response_shapes": [
@@ -108,15 +81,6 @@
       "format": "json",
       "fields": [
         "data{tokens_cost,latency}"
-      ],
-      "notes": ""
-    },
-    {
-      "name": "key",
-      "format": "json",
-      "fields": [
-        "key",
-        "expires"
       ],
       "notes": ""
     }
@@ -157,11 +121,6 @@
       "host": "openrouter-gateway",
       "field": "routing",
       "behavior": "provider preferences + per-request fallbacks; provider name returned"
-    },
-    {
-      "host": "litellm-proxy",
-      "field": "control-plane",
-      "behavior": "virtual keys, budgets, spend tracking under /v1/key/* and /spend/*"
     }
   ],
   "streaming": null,

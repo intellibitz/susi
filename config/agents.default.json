@@ -455,24 +455,6 @@
     "is_core": false
   },
   {
-    "name": "OpenClawAgent",
-    "description": "OpenClaw managed executor; setup and task lifecycle via `susi openclaw` / `susi agents`.",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "openclaw"
-    ],
-    "semantic_anchors": [
-      "openclaw",
-      "coding-agent",
-      "peer",
-      "susi-openclaw"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
     "name": "BrowserUseAgent",
     "description": "Browser Use managed executor; setup and task lifecycle via `susi browser-use` / `susi agents`.",
     "categories": [

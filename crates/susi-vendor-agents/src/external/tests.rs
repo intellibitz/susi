@@ -33,7 +33,7 @@ impl Drop for Fixture {
 #[test]
 fn curated_execution_agents_with_native_adapters() {
     let catalog = catalog(CatalogKind::Execution).unwrap();
-    assert_eq!(catalog.len(), 21);
+    assert_eq!(catalog.len(), 20);
     let mut ids = std::collections::HashSet::new();
     for (index, agent) in catalog.iter().enumerate() {
         assert!(ids.insert(&agent.id));
@@ -83,12 +83,6 @@ fn curated_execution_agents_with_native_adapters() {
             .unwrap()
             .adapter,
         Adapter::Command { program, .. } if program == "sweagent"
-    ));
-    assert!(matches!(
-        definition(CatalogKind::Execution, "openclaw")
-            .unwrap()
-            .adapter,
-        Adapter::Command { program, .. } if program == "openclaw"
     ));
     assert!(matches!(
         definition(CatalogKind::Execution, "browser-use")

@@ -1,8 +1,8 @@
 //! The native in-process autonomous coding worker.
 //!
-//! Replaces external Node.js / OpenClaw runtime dependencies with a pure Rust
-//! multi-turn agentic loop. Executes surgical file edits, workspace inspection,
-//! and hermetic verification directly against the metered gateway.
+//! A pure Rust multi-turn agentic loop: it executes surgical file edits,
+//! workspace inspection, and hermetic verification directly against the metered
+//! gateway, in process.
 //!
 //! The tool surface is the registry in [`crate::tools`], not a match arm here:
 //! the worker declares what the registry holds and runs it through the same
@@ -182,7 +182,6 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn worker_declares_the_registry_tools() {
@@ -255,7 +254,6 @@ mod tests {
         let _ = fs::create_dir_all(&temp_state);
 
         let config = ExecutorConfig {
-            program: PathBuf::from("native"),
             gateway_url: format!("http://{addr}"),
             model: "test-model".into(),
             workspace: temp_ws.clone(),
@@ -264,8 +262,6 @@ mod tests {
             task: "t-test".into(),
             attempt: 1,
             timeout: std::time::Duration::from_secs(30),
-            stall_after: None,
-            ledger_path: None,
             prompt: "Create output.txt".into(),
         };
 

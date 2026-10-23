@@ -126,18 +126,6 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
     if matches!(&run.adapter, Adapter::Command { program, .. } if program == "gemini") {
         super::gemini_cli::apply_headless_env(&mut cmd, &run.workspace);
     }
-    // OpenClaw: optional one-shot model override from env.
-    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "openclaw") {
-        if let Ok(model) = std::env::var("OPENCLAW_MODEL") {
-            let trimmed = model.trim();
-            if !trimmed.is_empty() {
-                cmd.arg("--model").arg(trimmed);
-            }
-        }
-        if std::env::var_os("SUSI_PROCESS_BANNER").is_none() {
-            cmd.env("SUSI_PROCESS_BANNER", "susi-openclaw");
-        }
-    }
     // Browser Use: optional model override from env.
     if matches!(&run.adapter, Adapter::Command { program, .. } if program == "browser-use") {
         super::browser_use::apply_model_override(&mut cmd);

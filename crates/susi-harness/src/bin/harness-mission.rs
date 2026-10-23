@@ -27,7 +27,7 @@ use std::time::Duration;
 use susi_harness::agents::{AgentOutcome, AgentRunner, AgentSpec, Graph, Isolation};
 use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
-use susi_harness::executor::{self, ExecutorConfig, OpenClaw, RunOutcome};
+use susi_harness::executor::{self, ExecutorConfig, NativeWorker, RunOutcome};
 use susi_harness::ledger::spent_for;
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::{Policy, UsageProfile};
@@ -44,8 +44,6 @@ struct MissionFile {
     max_parallel: usize,
     #[serde(default = "default_timeout")]
     timeout_secs: u64,
-    #[serde(default)]
-    program: String,
     #[serde(default)]
     gateway_url: String,
     #[serde(default)]
@@ -125,24 +123,12 @@ fn graph_from(agents: &AgentsFile) -> Graph {
     Graph::new(specs)
 }
 
-/// The program a live graph role runs: the mission's own program unless it is
-/// the OpenClaw runtime this harness replaces, in which case the native worker.
-fn runner_program(program: &str) -> PathBuf {
-    let trimmed = program.trim();
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("openclaw") {
-        PathBuf::from("native")
-    } else {
-        PathBuf::from(trimmed)
-    }
-}
-
 /// Run each graph role as one real worker turn.
 ///
 /// The reviewer's `accepted` means "its run succeeded": there is no verdict
 /// protocol on the wire yet, so a reviewer that finishes approves the work.
 /// That is the documented limitation of live graph missions.
 struct SusiRunner {
-    program: PathBuf,
     gateway_url: String,
     state_dir: PathBuf,
     mission: String,
@@ -157,7 +143,6 @@ impl SusiRunner {
     fn from_mission(file: &MissionFile) -> Self {
         let ledger = file.ledger_path.trim();
         Self {
-            program: runner_program(&file.program),
             gateway_url: file.gateway_url.clone(),
             state_dir: PathBuf::from(&file.state_dir),
             mission: file.id.clone(),
@@ -195,7 +180,6 @@ impl AgentRunner for SusiRunner {
         std::fs::create_dir_all(&workspace)
             .map_err(|error| format!("create workspace {}: {error}", workspace.display()))?;
         let config = ExecutorConfig {
-            program: self.program.clone(),
             gateway_url: self.gateway_url.clone(),
             model: spec.model.clone(),
             workspace,
@@ -204,8 +188,6 @@ impl AgentRunner for SusiRunner {
             task: spec.role.clone(),
             attempt: 1,
             timeout: self.timeout,
-            stall_after: None,
-            ledger_path: self.ledger_path.clone(),
             prompt: goal.to_string(),
         };
         let outcome =
@@ -226,11 +208,6 @@ impl AgentRunner for SusiRunner {
             },
             RunOutcome::TimedOut => AgentOutcome {
                 summary: format!("timed out after {}s", self.timeout.as_secs()),
-                accepted: false,
-                cost,
-            },
-            RunOutcome::Stalled { message } => AgentOutcome {
-                summary: message,
                 accepted: false,
                 cost,
             },
@@ -345,7 +322,6 @@ fn main() {
         candidates: file.candidates,
         max_parallel: file.max_parallel,
         timeout: Duration::from_secs(file.timeout_secs),
-        program: PathBuf::from(file.program),
         gateway_url: file.gateway_url,
         state_dir: PathBuf::from(file.state_dir),
         ledger_path: PathBuf::from(file.ledger_path),
@@ -356,7 +332,7 @@ fn main() {
         usage: UsageProfile::agent(),
         catalogue,
     };
-    let report = match run_mission(&config, &OpenClaw) {
+    let report = match run_mission(&config, &NativeWorker) {
         Ok(report) => report,
         Err(error) => fail(&error.to_string()),
     };
@@ -452,12 +428,6 @@ mod tests {
     fn a_live_agents_mission_parses_and_validates_without_spawning() {
         let file = mission(r#"{"planner":"planner","coders":["coder"],"reviewer":"reasoner"}"#);
         assert!(!file.dry_run);
-        assert_eq!(runner_program(""), PathBuf::from("native"));
-        assert_eq!(runner_program("openclaw"), PathBuf::from("native"));
-        assert_eq!(
-            runner_program("C:/tools/worker.exe"),
-            PathBuf::from("C:/tools/worker.exe")
-        );
         let steps = graph_from(file.agents.as_ref().unwrap()).steps().unwrap();
         let roles: Vec<&str> = steps.iter().map(|step| step.role.as_str()).collect();
         assert_eq!(roles, vec!["planner", "coder-1", "reviewer"]);
@@ -501,7 +471,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ledger = dir.path().join("ledger.jsonl");
         let mut runner = SusiRunner {
-            program: PathBuf::from("native"),
             gateway_url: String::new(),
             state_dir: dir.path().to_path_buf(),
             mission: "live-1".into(),

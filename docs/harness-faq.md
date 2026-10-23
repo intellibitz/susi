@@ -1,19 +1,23 @@
 # Harness FAQ
 
-## Why a gateway in front of LiteLLM?
+## Why a metering gateway at all?
 
-LiteLLM already caches and routes. The gateway adds the thing a budget needs:
-attribution and price at the moment of the call. It writes one ledger row per
-call — mission, task, attempt, model, tokens, cache hits, the price in force —
-before it answers. That row is what the budget guard reads, what the cockpit
-sums, and what the model ranking learns from. LiteLLM alone cannot say which
-task spent the money.
+The gateway is what a budget needs: attribution and price at the moment of the
+call. It writes one ledger row per call — mission, task, attempt, model, tokens,
+cache hits, the price in force — before it answers. That row is what the budget
+guard reads, what the cockpit sums, and what the model ranking learns from. A
+provider's own dashboard cannot say which task spent the money.
+
+It also routes: the built-in registry knows each provider's endpoint, key
+variable and model capabilities, so the request goes straight to the provider
+over HTTPS. Nothing sits between the gateway and the model.
 
 ## Does a cache hit still cost money?
 
-No. LiteLLM answers from its cache and marks the response; the gateway records
-the row with `cached: true` and `cost: 0`. The token counts are kept because they
-describe the answer that was served, not because they were billed.
+No. The gateway's own cache answers the request and marks the response; the
+ledger records the row with `cached: true` and `cost: 0`. The token counts are
+kept because they describe the answer that was served, not because they were
+billed.
 
 ## How is the budget enforced?
 
@@ -32,8 +36,8 @@ both fit. The ledger's actual charge replaces the reservation after every turn.
 ## When does a failure get another model?
 
 A transient provider failure (429, overload, connection) gets one retry on the
-same model. A timeout or a semantic failure escalates immediately. An executor
-error stops. If two different models fail with the same signature, the task is
+same model. A timeout or a semantic failure escalates immediately. An I/O error
+stops. If two different models fail with the same signature, the task is
 stuck: that is evidence about the task or the environment, not about model
 capability, and more attempts would just buy the same failure.
 

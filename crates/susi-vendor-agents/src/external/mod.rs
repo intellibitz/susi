@@ -18,7 +18,6 @@ mod langgraph;
 mod llamaindex;
 mod n8n;
 mod openai_agents;
-mod openclaw;
 mod openhands;
 mod openhands_server;
 mod openviking;
@@ -57,10 +56,6 @@ pub use langgraph::PROFILE as LANGGRAPH_PROFILE;
 pub use llamaindex::PROFILE as LLAMAINDEX_PROFILE;
 pub use n8n::PROFILE as N8N_PROFILE;
 pub use openai_agents::PROFILE as OPENAI_AGENTS_PROFILE;
-pub use openclaw::{
-    doctor as openclaw_doctor, setup as openclaw_setup, status as openclaw_status,
-    AGENT_ID as OPENCLAW_AGENT_ID,
-};
 pub use openhands::{
     doctor as openhands_doctor, setup as openhands_setup, status as openhands_status,
 };

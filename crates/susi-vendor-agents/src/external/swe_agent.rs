@@ -70,7 +70,7 @@ pub fn doctor() -> Result<String> {
     if !llm_credentials_present() {
         bail!(
             "set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY (or another \
-             litellm-compatible provider key); optionally SWE_AGENT_MODEL=claude-sonnet-4-20250514; \
+             OpenAI-compatible provider key); optionally SWE_AGENT_MODEL=claude-sonnet-4-20250514; \
              see {TUTORIAL_DOCS}"
         );
     }

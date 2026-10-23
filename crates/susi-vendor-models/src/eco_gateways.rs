@@ -1,4 +1,4 @@
-//! OpenRouter and LiteLLM gateways: unified OpenAI-compatible routing with model discovery, key management and provider fallbacks.
+//! OpenRouter gateway: unified OpenAI-compatible routing with model discovery, key management and provider fallbacks.
 use crate::eco_profile::{self, Profile};
 use susi_error::EaiResult;
 
@@ -50,7 +50,6 @@ mod tests {
         let p = profile().unwrap();
         let kb = store();
         assert!(kb.entity("openrouter-gateway").is_some());
-        assert!(kb.entity("litellm-proxy").is_some());
         assert!(p
             .endpoints
             .iter()

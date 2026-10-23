@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT179275284214124-1",
+  "title": "Orchestration harness native implementations only: remove litellm and openclaw completely",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792753374
+}

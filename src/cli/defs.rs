@@ -29,7 +29,6 @@ use super::intent_cli;
 use super::mcp_cli;
 use super::model_cli;
 use super::open_weight_cli;
-use super::openclaw_cli;
 use super::openhands_cli;
 use super::openrouter_cli;
 use super::openviking_cli;
@@ -295,12 +294,6 @@ pub(crate) enum Commands {
     SweAgent {
         #[command(subcommand)]
         action: Option<swe_agent_cli::SweAgentCommands>,
-    },
-    /// Manage OpenClaw end to end (agent exec + auth + durable tasks)
-    #[command(name = "openclaw", visible_alias = "oc")]
-    OpenClaw {
-        #[command(subcommand)]
-        action: Option<openclaw_cli::OpenClawCommands>,
     },
     /// Manage Browser Use end to end (headless prompt mode + durable tasks)
     #[command(name = "browser-use", visible_alias = "bu")]
@@ -614,7 +607,6 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Gemini { .. }
         | Commands::Aider { .. }
         | Commands::SweAgent { .. }
-        | Commands::OpenClaw { .. }
         | Commands::BrowserUse { .. }
         | Commands::OpenViking { .. }
         | Commands::DeerFlow { .. }
