@@ -5,6 +5,7 @@ use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use susi_gawd::admin::tasks;
 
 #[derive(Debug, Subcommand)]
@@ -147,6 +148,10 @@ pub enum TaskCommands {
         /// How many unverified merges one run may check
         #[arg(long, default_value_t = 5)]
         limit: usize,
+        /// Wall-clock budget for the whole sweep, seconds; what does not fit is
+        /// deferred to the next run rather than holding the job
+        #[arg(long, default_value_t = susi_gawd::admin::tasks::VERIFY_BUDGET_SECS)]
+        budget_secs: u64,
     },
 }
 
@@ -617,14 +622,23 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
                 );
             }
         }
-        TaskCommands::VerifyMerged { limit } => {
-            let outcomes = tasks::verify_merged(&root, limit)?;
+        TaskCommands::VerifyMerged { limit, budget_secs } => {
+            let outcomes = tasks::verify_merged_within(
+                &root,
+                limit,
+                Duration::from_secs(budget_secs.max(60)),
+            )?;
             let mut failed = Vec::new();
+            let mut deferred = Vec::new();
             for outcome in &outcomes {
                 match outcome.result.as_str() {
                     "passed" => println!("✅ {} re-verified on main", outcome.task),
                     result if result.starts_with("skipped") => {
                         println!("⏭️  {} not re-run: {}", outcome.task, outcome.detail)
+                    }
+                    result if result.starts_with("deferred") => {
+                        println!("⏳ {} deferred: {}", outcome.task, outcome.detail);
+                        deferred.push(outcome.task.clone());
                     }
                     result => {
                         eprintln!("❌ {} {result}: {}", outcome.task, outcome.detail);
@@ -634,6 +648,16 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             }
             if outcomes.is_empty() {
                 println!("nothing to verify");
+            }
+            // Deferred work is not a verdict: the acceptance did not finish in
+            // this sweep's budget, so it stays unverified and the next merge's
+            // run retries it. `susi tasks audit` keeps reporting it.
+            if !deferred.is_empty() {
+                eprintln!(
+                    "⏳ {} acceptance(s) deferred to the next sweep: {}",
+                    deferred.len(),
+                    deferred.join(", ")
+                );
             }
             if !failed.is_empty() {
                 bail!(

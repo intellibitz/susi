@@ -1015,21 +1015,50 @@ fn release_and_dev_release_cuda_builds_wire_sccache_and_named_keys() {
     }
 }
 
+/// A release publishes the platforms it is contracted on and tolerates the
+/// rest. Linux x86_64 and Windows are required: a red Windows leg must fail the
+/// tag, because `install.ps1` fetches that artifact. arm64 and macOS stay soft
+/// until they hold the same standing. The rolling dev release keeps only
+/// linux-x86_64 required — it is opportunistic by design.
 #[test]
-fn release_non_tier1_artifacts_continue_on_error() {
+fn release_required_legs_carry_their_artifact() {
+    let release_text = read(".github/workflows/release.yml");
+    let release_jobs = jobs(&release_text);
+    let build = job(&release_jobs, "build");
+    assert!(
+        build.body.contains(
+            "continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}"
+        ),
+        "release.yml: `build` must require linux-x86_64 and windows-x86_64, and tolerate the rest"
+    );
+    for needle in [
+        "os: windows-latest",
+        "artifact: susi-windows-x86_64.exe",
+        "src: target/dist/susi.exe",
+        "Verify the Windows artifact answers offline",
+    ] {
+        assert!(
+            build.body.contains(needle),
+            "release.yml: the Windows leg must publish and verify its artifact ({needle})"
+        );
+    }
+
+    let dev_text = read(".github/workflows/dev-release.yml");
+    let dev_jobs = jobs(&dev_text);
+    let dev_build = job(&dev_jobs, "build");
+    assert!(
+        dev_build
+            .body
+            .contains("continue-on-error: ${{ matrix.name != 'linux-x86_64' }}"),
+        "dev-release.yml: only linux-x86_64 is required for a rolling dev release"
+    );
+
     for wf in [
         ".github/workflows/release.yml",
         ".github/workflows/dev-release.yml",
     ] {
         let text = read(wf);
         let jobs = jobs(&text);
-        let build = job(&jobs, "build");
-        assert!(
-            build
-                .body
-                .contains("continue-on-error: ${{ matrix.name != 'linux-x86_64' }}"),
-            "{wf}: matrix job `build` must set continue-on-error for non-linux-x86_64 targets"
-        );
         let cuda = job(&jobs, "build-cuda");
         assert!(
             cuda.body.contains("continue-on-error: true"),
@@ -1037,8 +1066,6 @@ fn release_non_tier1_artifacts_continue_on_error() {
         );
     }
 
-    let release_text = read(".github/workflows/release.yml");
-    let release_jobs = jobs(&release_text);
     let prune = job(&release_jobs, "prune-old-releases");
     assert!(
         prune.body.contains("needs.build.result == 'success'"),

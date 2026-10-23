@@ -15,6 +15,7 @@ use crate::susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 /// Remote that carries `refs/claims/*`; override with `SUSI_TASK_REMOTE`.
 pub const DEFAULT_REMOTE: &str = "origin";
@@ -1421,7 +1422,32 @@ pub struct VerifyOutcome {
 ///
 /// `limit` bounds one run so a broken job cannot turn into an unbounded sweep.
 /// A failure writes no verification record, so the next run retries it.
+///
+/// The sweep runs on every merge and shares the job with everything else, so
+/// it is bounded in *time* as well as count: see
+/// [`verify_merged_within`]. A single acceptance that never returns used to
+/// hold the job until CI killed it, losing every record it had already earned.
 pub fn verify_merged(ws: &Path, limit: usize) -> EaiResult<Vec<VerifyOutcome>> {
+    verify_merged_within(ws, limit, Duration::from_secs(VERIFY_BUDGET_SECS))
+}
+
+/// Default wall-clock budget for one sweep.
+///
+/// The job that runs this is bounded by its own `timeout-minutes`; the sweep
+/// must stop well inside it, because a job killed at the timeout records
+/// nothing and the queue never drains. Whatever does not fit is deferred, not
+/// failed: the next merge's run picks it up (`unverified` keeps saying so).
+pub const VERIFY_BUDGET_SECS: u64 = 40 * 60;
+
+/// Ceiling on one acceptance, so a hang cannot consume the whole budget.
+pub const VERIFY_ONE_TIMEOUT_SECS: u64 = 25 * 60;
+
+/// [`verify_merged`] with an explicit total budget.
+pub fn verify_merged_within(
+    ws: &Path,
+    limit: usize,
+    budget: Duration,
+) -> EaiResult<Vec<VerifyOutcome>> {
     let report = audit(ws)?;
     let done = done_dir(ws);
     let mut candidates: Vec<&MergedTask> = report
@@ -1431,12 +1457,28 @@ pub fn verify_merged(ws: &Path, limit: usize) -> EaiResult<Vec<VerifyOutcome>> {
         .collect();
     candidates.sort_by_key(|m| m.merged_unix);
     candidates.truncate(limit);
+    let deadline = Instant::now() + budget;
 
     let mut out = Vec::new();
     for record in candidates {
         let task: Task =
             serde_json::from_slice(&std::fs::read(done.join(format!("{}.json", record.task)))?)?;
-        let result = verify_one(ws, &task);
+        // One acceptance cannot outlive the sweep's remaining budget: the
+        // check that would cross it is deferred whole, not started late.
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            out.push(VerifyOutcome {
+                task: record.task.clone(),
+                result: "deferred:budget".to_string(),
+                detail: format!(
+                    "the sweep's {}s budget was spent before this acceptance ran",
+                    budget.as_secs()
+                ),
+            });
+            continue;
+        }
+        let per_check = remaining.min(Duration::from_secs(VERIFY_ONE_TIMEOUT_SECS));
+        let result = verify_one(ws, &task, per_check);
         // A failure is not recorded, so the next run retries it; a pass, and a
         // skip with its reason, are facts worth keeping.
         if result.result != "passed" && !result.result.starts_with("skipped") {
@@ -1474,8 +1516,8 @@ pub fn verify_merged(ws: &Path, limit: usize) -> EaiResult<Vec<VerifyOutcome>> {
     Ok(out)
 }
 
-/// Run one task's acceptance against this tree.
-fn verify_one(ws: &Path, task: &Task) -> VerifyOutcome {
+/// Run one task's acceptance against this tree, killing it at `timeout`.
+fn verify_one(ws: &Path, task: &Task, timeout: Duration) -> VerifyOutcome {
     let outcome = |result: &str, detail: String| VerifyOutcome {
         task: task.id.clone(),
         result: result.to_string(),
@@ -1496,13 +1538,12 @@ fn verify_one(ws: &Path, task: &Task) -> VerifyOutcome {
             ),
         );
     }
-    match Command::new(&program)
-        .args(&task.accept.cmd[1..])
-        .current_dir(ws)
-        .output()
-    {
-        Ok(out) if out.status.success() => outcome("passed", task.accept.cmd.join(" ")),
-        Ok(out) => outcome(
+    let started = Instant::now();
+    match run_bounded(&program, &task.accept.cmd[1..], ws, timeout) {
+        Bounded::Exited(out) if out.status.success() => {
+            outcome("passed", task.accept.cmd.join(" "))
+        }
+        Bounded::Exited(out) => outcome(
             &format!("failed:{}", out.status.code().unwrap_or(-1)),
             format!(
                 "{} :: {}",
@@ -1513,8 +1554,96 @@ fn verify_one(ws: &Path, task: &Task) -> VerifyOutcome {
                     .unwrap_or("")
             ),
         ),
-        Err(e) => outcome("failed:-1", format!("{} could not run: {e}", program)),
+        // Not a verdict on the merged tree: the acceptance did not finish, so
+        // it is deferred and retried, and no verification record is written.
+        Bounded::TimedOut => outcome(
+            "deferred:timeout",
+            format!(
+                "{} did not finish within {}s; deferred to a later sweep",
+                task.accept.cmd.join(" "),
+                timeout.as_secs()
+            ),
+        ),
+        Bounded::Failed(e) => outcome("failed:-1", format!("{program} could not run: {e}")),
     }
+    .tap_elapsed(started)
+}
+
+/// One bounded child outcome.
+enum Bounded {
+    Exited(std::process::Output),
+    TimedOut,
+    Failed(std::io::Error),
+}
+
+impl VerifyOutcome {
+    /// Append the wall time to the detail, so a sweep's log says where it went.
+    fn tap_elapsed(mut self, started: Instant) -> Self {
+        self.detail = format!("{} ({}s)", self.detail, started.elapsed().as_secs());
+        self
+    }
+}
+
+/// Run a command to completion or kill its process tree at `timeout`.
+///
+/// A plain `output()` has no deadline: an acceptance that waits on something
+/// the runner does not have holds the whole sweep, and the job that runs the
+/// sweep dies at its own timeout having written nothing.
+fn run_bounded(program: &str, args: &[String], cwd: &Path, timeout: Duration) -> Bounded {
+    let mut child = match Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => return Bounded::Failed(e),
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {}
+            Err(e) => return Bounded::Failed(e),
+        }
+        if Instant::now() >= deadline {
+            kill_process_tree(&mut child);
+            return Bounded::TimedOut;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    match child.wait_with_output() {
+        Ok(out) => Bounded::Exited(out),
+        Err(e) => Bounded::Failed(e),
+    }
+}
+
+/// Kill a child and anything it spawned.
+fn kill_process_tree(child: &mut std::process::Child) {
+    let pid = child.id();
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(unix)]
+    {
+        // A cargo test spawns `susi`, which spawns agents; the group form
+        // reaches them, the single-pid form is the fallback when the child is
+        // not a group leader.
+        let _ = Command::new("kill")
+            .args(["-s", "KILL", &format!("-{pid}")])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Claims currently on the remote, keyed by task id.
@@ -3783,6 +3912,47 @@ mod tests {
         assert_eq!(retried.len(), 1, "{retried:?}");
         assert_eq!(retried[0].task, *broken);
         assert!(retried[0].result.starts_with("failed"));
+        drop(r);
+    }
+
+    /// A sweep that runs out of budget defers the rest instead of holding the
+    /// job: a job killed at its own timeout records nothing, so the queue would
+    /// never drain and main would never go green.
+    #[test]
+    fn a_spent_budget_defers_the_rest_of_the_sweep() {
+        let (r, a, _b) = Repos::new("verify-budget");
+        let mut ids = Vec::new();
+        for agent in ["claude", "devin"] {
+            let task = addt!(&a, agent, "job", "", "s", &[], true_cmd()).unwrap();
+            claim(&a, &task.id, agent, 4, now_unix()).unwrap();
+            close(&a, &task.id, agent).unwrap();
+            ids.push(task.id);
+        }
+        publish(&a);
+        let head = git(&a, &["rev-parse", "HEAD"]).unwrap();
+        for id in &ids {
+            put_ref(
+                &a,
+                &format!("refs/merged/{id}"),
+                &serde_json::json!({
+                    "task": id, "head": head, "merge": head, "pr": 1, "merged_unix": 1
+                }),
+            );
+        }
+
+        let outcomes = verify_merged_within(&a, 5, Duration::ZERO).unwrap();
+        assert_eq!(outcomes.len(), 2, "{outcomes:?}");
+        for outcome in &outcomes {
+            assert_eq!(outcome.result, "deferred:budget", "{outcomes:?}");
+        }
+        assert!(
+            verified_tasks(&a).unwrap().is_empty(),
+            "a deferred acceptance is not a verdict and must not be recorded"
+        );
+        // The work is still outstanding, so the next sweep sees it again.
+        let next = verify_merged_within(&a, 5, Duration::from_secs(60)).unwrap();
+        assert_eq!(next.len(), 2, "{next:?}");
+        assert!(next.iter().all(|o| o.result == "passed"), "{next:?}");
         drop(r);
     }
 
