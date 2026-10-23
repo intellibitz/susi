@@ -49,11 +49,17 @@ impl WasmHost {
             ))
         })?;
 
-        // No preopened directories, no inherited argv/env/stdin: the only
-        // granted capability is a bounded-capacity stdout pipe.
+        // No preopened directories, no inherited env, no inherited stdin: the
+        // granted capabilities are a bounded-capacity stdout pipe and an argv
+        // the caller chose.
+        //
+        // WASI argv is `[program, args…]`. The generated reflex reads its
+        // input from `std::env::args().nth(1)`, so the argument must land in
+        // the *second* slot: putting it first made it argv[0] and every reflex
+        // reported an empty input.
         let stdout = MemoryOutputPipe::new(usize::MAX);
         let mut builder = WasiCtx::builder();
-        builder.stdout(stdout.clone()).arg(arg);
+        builder.stdout(stdout.clone()).arg("reflex").arg(arg);
         let mut store = Store::new(&engine, builder.build_p1());
         store
             .set_fuel(crate::cell::CELL_FUEL)
@@ -120,6 +126,44 @@ mod tests {
             )
         )
     "#;
+
+    /// Prints `argv[1]`, the slot a reflex reads its input from. The caller's
+    /// argument must land there and not in the program slot: putting it first
+    /// made every generated reflex report an empty input.
+    const ARGV_WAT: &str = r#"
+        (module
+            (import "wasi_snapshot_preview1" "args_sizes_get"
+                (func $args_sizes_get (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "args_get"
+                (func $args_get (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory 1)
+            (export "memory" (memory 0))
+            (func (export "_start")
+                (drop (call $args_sizes_get (i32.const 0) (i32.const 4)))
+                (drop (call $args_get (i32.const 64) (i32.const 4096)))
+                ;; iovec = { ptr = argv[1], len = 12 }
+                (i32.store (i32.const 300) (i32.load (i32.const 68)))
+                (i32.store (i32.const 304) (i32.const 12))
+                (drop (call $fd_write (i32.const 1) (i32.const 300)
+                        (i32.const 1) (i32.const 320)))
+            )
+        )
+    "#;
+
+    #[test]
+    fn a_reflex_argument_is_argv_one_not_the_program_name() {
+        let path = std::env::temp_dir().join(format!("susi_wasm_argv_{}.wat", std::process::id()));
+        std::fs::write(&path, ARGV_WAT).unwrap();
+        let result = WasmHost::execute_reflex(&path, "the-argument");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            result.unwrap(),
+            "the-argument",
+            "argv must be [program, argument]: argv[1] is what a reflex reads"
+        );
+    }
 
     /// Tries to open `etc/passwd` through the first would-be preopened
     /// directory (fd 3) and prints `DENIED` or `OPENED`. With no directory

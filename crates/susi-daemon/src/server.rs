@@ -425,6 +425,11 @@ impl SusiDaemon {
     /// from `tasklist`'s exit status, which is 0 whether or not the pid
     /// matched — every pid read as alive, so a stop could never observe its
     /// child exit. The CSV output is parsed for the pid itself instead.
+    ///
+    /// On Linux a killed-but-unreaped child is a zombie: `kill(pid, 0)`
+    /// succeeds for it, so the probe read a terminated process as alive and a
+    /// stop could never confirm its own work. The state field of
+    /// `/proc/<pid>/stat` is the authority there, and `Z`/`X` mean dead.
     #[allow(unsafe_code)]
     pub fn process_alive(pid: u32) -> bool {
         if pid == 0 {
@@ -432,6 +437,12 @@ impl SusiDaemon {
         }
         #[cfg(unix)]
         {
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(state) = linux_process_state(pid) {
+                    return state != 'Z' && state != 'X';
+                }
+            }
             // SAFETY: kill(pid, 0) sends no signal; it only probes whether the pid exists.
             unsafe { libc::kill(pid as i32, 0) == 0 }
         }
@@ -445,6 +456,18 @@ impl SusiDaemon {
                 .map(|out| Self::tasklist_image_name(&out.stdout, pid).is_some())
                 .unwrap_or(false)
         }
+    }
+
+    /// The one-letter state field of `/proc/<pid>/stat`, or `None` when the
+    /// pid cannot be read (it has been reaped, or this is not Linux).
+    ///
+    /// The line is `pid (comm) state …`, and `comm` may itself contain
+    /// parentheses, so the state is whatever follows the *last* `)`.
+    #[cfg(target_os = "linux")]
+    fn linux_process_state(pid: u32) -> Option<char> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let after = stat.get(stat.rfind(')')? + 1..)?;
+        after.split_whitespace().next()?.chars().next()
     }
 
     /// Parse `tasklist /FO CSV /NH` for `pid`, returning its image name when
@@ -2324,6 +2347,42 @@ mod tests {
             !SusiDaemon::process_alive(4_000_000_000),
             "an unused pid must not read as alive — stop's wait depends on it"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_zombie_child_is_not_alive() {
+        // A SIGKILLed, unreaped child stays in /proc as state `Z`, where
+        // `kill(pid, 0)` still succeeds. Reading that as alive is what made a
+        // stop unable to observe its own kill.
+        let mut child = std::process::Command::new("sleep")
+            .arg("60")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        assert!(
+            SusiDaemon::process_alive(pid),
+            "a live child must read alive"
+        );
+        SusiDaemon::signal_tree(pid, true);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while SusiDaemon::process_alive(pid) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(
+            SusiDaemon::linux_process_state(pid),
+            Some('Z'),
+            "the killed child is an unreaped zombie"
+        );
+        assert!(
+            !SusiDaemon::process_alive(pid),
+            "a zombie must not read as a live process"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
     #[test]
