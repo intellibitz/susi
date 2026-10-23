@@ -1,0 +1,19 @@
+{
+  "id": "T-COSTREADBACK-1",
+  "title": "harness: ledger-backed agent cost in missions",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "ledger"
+    ]
+  },
+  "created_by": "COSTREADBACK",
+  "created_unix": 1792719283
+}

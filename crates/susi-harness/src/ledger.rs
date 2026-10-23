@@ -200,10 +200,43 @@ pub fn read_entries(path: &Path) -> EaiResult<Vec<LedgerEntry>> {
 /// Sum the settled cost of every row, saturating rather than wrapping.
 #[must_use]
 pub fn total_cost(entries: &[LedgerEntry]) -> MicroUsd {
-    entries.iter().fold(MicroUsd::ZERO, |sum, entry| {
-        sum.checked_add(entry.cost)
-            .unwrap_or(MicroUsd::from_micros(u64::MAX))
-    })
+    entries
+        .iter()
+        .fold(MicroUsd::ZERO, |sum, entry| add(sum, entry.cost))
+}
+
+/// Sum the settled cost of the rows one mission charged to one task.
+///
+/// The gateway tags every row with the per-run key the executor set
+/// (`susi:<mission>:<task>:<attempt>`), so filtering on both attributes
+/// attributes a call to exactly one agent role. Rows for another mission or
+/// another role in the same ledger cannot leak in.
+#[must_use]
+pub fn cost_for(entries: &[LedgerEntry], mission: &str, task: &str) -> MicroUsd {
+    entries
+        .iter()
+        .filter(|entry| entry.mission == mission && entry.task == task)
+        .fold(MicroUsd::ZERO, |sum, entry| add(sum, entry.cost))
+}
+
+/// Read the ledger and sum one mission's rows for one task.
+///
+/// An absent, unreadable or malformed ledger has spent nothing that this
+/// caller can attribute, so it returns [`MicroUsd::ZERO`] instead of turning a
+/// cost readback into a mission failure; the ledger itself is never written
+/// here.
+#[must_use]
+pub fn spent_for(path: &Path, mission: &str, task: &str) -> MicroUsd {
+    read_entries(path)
+        .map(|entries| cost_for(&entries, mission, task))
+        .unwrap_or(MicroUsd::ZERO)
+}
+
+/// Add two amounts, saturating at the largest representable value.
+fn add(total: MicroUsd, cost: MicroUsd) -> MicroUsd {
+    total
+        .checked_add(cost)
+        .unwrap_or(MicroUsd::from_micros(u64::MAX))
 }
 
 #[cfg(test)]
@@ -231,6 +264,27 @@ mod tests {
             started_unix_ms: 1_000,
             ended_unix_ms: 2_500,
             outcome,
+        })
+    }
+
+    /// A row whose cost is exactly `micros`: one million input tokens at that
+    /// per-million miss rate and no output.
+    fn charged(mission: &str, task: &str, micros: u64) -> LedgerEntry {
+        LedgerEntry::settle(Dispatch {
+            mission: mission.into(),
+            task: task.into(),
+            attempt: 1,
+            model: "deepseek-flash".into(),
+            provider: "deepseek".into(),
+            usage: TokenUsage::new(1_000_000, 0, 0),
+            price: ModelPrice {
+                input_miss: MicroUsd::from_micros(micros),
+                input_hit: MicroUsd::ZERO,
+                output: MicroUsd::ZERO,
+            },
+            started_unix_ms: 0,
+            ended_unix_ms: 1,
+            outcome: Outcome::Completed,
         })
     }
 
@@ -278,6 +332,45 @@ mod tests {
         let read = read_entries(&path).unwrap();
         assert_eq!(read, vec![accepted, failed]);
         assert_eq!(total_cost(&read), MicroUsd::from_micros(217_200 + 217_200));
+    }
+
+    #[test]
+    fn cost_for_picks_only_this_missions_role() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.jsonl");
+        append_entry(&path, &charged("live-1", "planner", 120)).unwrap();
+        append_entry(&path, &charged("live-1", "planner", 80)).unwrap();
+        append_entry(&path, &charged("live-1", "coder-1", 900)).unwrap();
+        append_entry(&path, &charged("live-1", "reviewer", 40)).unwrap();
+        append_entry(&path, &charged("other-1", "planner", 700)).unwrap();
+
+        let entries = read_entries(&path).unwrap();
+        // Both planner rows and no other role: 120 + 80.
+        assert_eq!(
+            cost_for(&entries, "live-1", "planner"),
+            MicroUsd::from_micros(200)
+        );
+        // The same role in another mission is not ours.
+        assert_eq!(
+            cost_for(&entries, "other-1", "planner"),
+            MicroUsd::from_micros(700)
+        );
+        // A role that made no call spent nothing.
+        assert_eq!(cost_for(&entries, "live-1", "absent"), MicroUsd::ZERO);
+        assert_eq!(
+            spent_for(&path, "live-1", "reviewer"),
+            MicroUsd::from_micros(40)
+        );
+        assert_eq!(
+            spent_for(&path, "live-1", "absent"),
+            MicroUsd::ZERO,
+            "unknown role is zero"
+        );
+        assert_eq!(
+            spent_for(&dir.path().join("absent.jsonl"), "live-1", "planner"),
+            MicroUsd::ZERO,
+            "a missing ledger spends nothing"
+        );
     }
 
     #[test]
