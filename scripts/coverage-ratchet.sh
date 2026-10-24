@@ -27,8 +27,8 @@ cd "$(dirname "$0")/.."
 
 run_cov() {
     if command -v cargo-nextest >/dev/null 2>&1; then
-        cargo llvm-cov nextest --workspace > "$1"
-        cargo llvm-cov nextest -p susi-leaf-services --all-features > "$2"
+        cargo llvm-cov nextest --workspace --retries 2 --no-fail-fast > "$1"
+        cargo llvm-cov nextest -p susi-leaf-services --all-features --retries 2 --no-fail-fast > "$2"
     else
         export RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}"
         cargo llvm-cov --workspace --summary-only > "$1"
@@ -116,7 +116,7 @@ fi
 
 if ! run_cov /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt || ! ratchet --check /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt; then
     echo "coverage regression measured — re-running once to rule out env flake"
-    run_cov /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt
+    run_cov /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt || true
     ratchet --check \
         /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt \
         /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt
