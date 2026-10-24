@@ -26,11 +26,17 @@ pub const TIMEOUT_SECS: u64 = 10;
 /// builtin registry reaches and fits well inside this.
 pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
-/// The injected HTTP fetch: `(url, bearer key)` → `(status, body)`.
+/// The injected HTTP fetch: `(url, headers)` → `(status, body)`.
+///
+/// The full header set travels with the request, because the wires do not agree
+/// on how a key travels: OpenAI-compatible hosts take `authorization: Bearer`,
+/// while the Anthropic Messages API takes `x-api-key` plus `anthropic-version`
+/// — and a key that is not workspace-scoped also needs
+/// `anthropic-workspace-id`. One injection point covers both.
 ///
 /// An `Err` means the request never produced a response; an HTTP error status
 /// is a successful fetch of `(status, body)` so the caller can report it.
-pub type Fetch<'a> = dyn Fn(&str, Option<&str>) -> Result<(u16, String), String> + 'a;
+pub type Fetch<'a> = dyn Fn(&str, &[(&str, &str)]) -> Result<(u16, String), String> + 'a;
 
 /// One provider's answer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -61,15 +67,17 @@ pub struct VerifyReport {
 /// OpenAI-compatible endpoints put the model list beside the chat route, so
 /// `{base}/chat/completions` becomes `{base}/models` — which also yields the
 /// documented Gemini OpenAI-compat and OpenRouter lists from the registry's own
-/// endpoints. The Anthropic Messages API has no list at all.
+/// endpoints. The Anthropic Messages API publishes its list beside the messages
+/// route the same way: `{base}/messages` becomes `{base}/models`.
 #[must_use]
 pub fn models_endpoint(provider: &ProviderRecord) -> Option<String> {
-    if provider.wire != Wire::OpenAi {
-        return None;
-    }
+    let suffix = match provider.wire {
+        Wire::OpenAi => "/chat/completions",
+        Wire::Anthropic => "/messages",
+    };
     provider
         .endpoint
-        .strip_suffix("/chat/completions")
+        .strip_suffix(suffix)
         .filter(|base| !base.is_empty())
         .map(|base| format!("{base}/models"))
 }
@@ -139,7 +147,12 @@ pub fn check_provider(provider: &ProviderRecord, fetch: &Fetch<'_>) -> ProviderR
             };
         }
     };
-    let (status, body) = match fetch(&url, key.as_deref()) {
+    let headers = models_headers(provider, key.as_deref());
+    let pairs = headers
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect::<Vec<_>>();
+    let (status, body) = match fetch(&url, &pairs) {
         Ok(response) => response,
         Err(error) => {
             return ProviderReport {
@@ -243,6 +256,38 @@ pub fn verify_registry(
     Ok(VerifyReport { ok, providers })
 }
 
+/// The headers a models request needs for this provider's wire.
+///
+/// Anthropic needs three: the key, the API version, and — when the key is a
+/// console user key rather than a workspace-scoped one — the workspace it must
+/// act in. `ANTHROPIC_WORKSPACE_ID` supplies the last; unset sends nothing,
+/// which is what a workspace-scoped key expects.
+fn models_headers(provider: &ProviderRecord, key: Option<&str>) -> Vec<(String, String)> {
+    let mut headers = vec![("accept".to_string(), "application/json".to_string())];
+    let Some(key) = key else {
+        return headers;
+    };
+    match provider.wire {
+        Wire::Anthropic => {
+            headers.push(("x-api-key".to_string(), key.to_string()));
+            headers.push(("anthropic-version".to_string(), "2023-06-01".to_string()));
+            if let Some(workspace) = anthropic_workspace() {
+                headers.push(("anthropic-workspace-id".to_string(), workspace));
+            }
+        }
+        Wire::OpenAi => headers.push(("authorization".to_string(), format!("Bearer {key}"))),
+    }
+    headers
+}
+
+/// `ANTHROPIC_WORKSPACE_ID`, trimmed, when it names a workspace.
+fn anthropic_workspace() -> Option<String> {
+    std::env::var("ANTHROPIC_WORKSPACE_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 /// GET a models endpoint through the shared HTTP transport.
 ///
 /// Non-2xx statuses are returned, not raised: the caller reports the status it
@@ -252,13 +297,8 @@ pub fn verify_registry(
 ///
 /// Returns the transport error string when no response is produced, or when the
 /// body exceeds [`MAX_BYTES`].
-pub fn fetch_http(url: &str, key: Option<&str>) -> Result<(u16, String), String> {
-    let authorization = key.map(|key| format!("Bearer {key}"));
-    let mut headers: Vec<(&str, &str)> = vec![("accept", "application/json")];
-    if let Some(value) = authorization.as_deref() {
-        headers.push(("authorization", value));
-    }
-    let call = susi_http_transport::http_call("GET", url, &headers, TIMEOUT_SECS, 0)?;
+pub fn fetch_http(url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String> {
+    let call = susi_http_transport::http_call("GET", url, headers, TIMEOUT_SECS, 0)?;
     let status = call.status;
     let body = call.into_utf8(MAX_BYTES)?;
     Ok((status, body))
@@ -275,9 +315,10 @@ fn advertised(upstream: &BTreeSet<String>, backend: &str) -> bool {
 
 fn not_verifiable(provider: &ProviderRecord) -> String {
     match provider.wire {
-        Wire::Anthropic => {
-            "not verifiable: the Anthropic Messages API has no /models endpoint".to_string()
-        }
+        Wire::Anthropic => format!(
+            "not verifiable: no models URL is derivable from endpoint {} (expected .../messages)",
+            provider.endpoint
+        ),
         Wire::OpenAi => format!(
             "not verifiable: no models URL is derivable from endpoint {} (expected .../chat/completions)",
             provider.endpoint
@@ -366,7 +407,11 @@ mod tests {
             models_endpoint(provider("openrouter")).as_deref(),
             Some("https://openrouter.ai/api/v1/models")
         );
-        assert!(models_endpoint(provider("anthropic")).is_none());
+        assert_eq!(
+            models_endpoint(provider("anthropic")).as_deref(),
+            Some("https://api.anthropic.com/v1/models"),
+            "the Messages API publishes its list beside /messages"
+        );
     }
 
     #[test]
@@ -380,7 +425,7 @@ mod tests {
 
     #[test]
     fn a_configured_backend_absent_upstream_is_drift() {
-        let fetch = |_: &str, _: Option<&str>| {
+        let fetch = |_: &str, _: &[(&str, &str)]| {
             Ok((
                 200,
                 r#"{"data":[{"id":"alpha-1"},{"id":"alpha-3"}]}"#.to_string(),
@@ -397,7 +442,7 @@ mod tests {
 
     #[test]
     fn every_configured_backend_present_verifies() {
-        let fetch = |_: &str, _: Option<&str>| {
+        let fetch = |_: &str, _: &[(&str, &str)]| {
             Ok((
                 200,
                 r#"{"data":[{"id":"alpha-1"},{"id":"retired-2"}]}"#.to_string(),
@@ -428,7 +473,7 @@ mod tests {
             }]}"#,
         )
         .unwrap();
-        let fetch = |_: &str, _: Option<&str>| {
+        let fetch = |_: &str, _: &[(&str, &str)]| {
             Ok((
                 200,
                 r#"{"data":[{"id":"models/gemini-3.8-flash"}]}"#.to_string(),
@@ -441,7 +486,7 @@ mod tests {
 
     #[test]
     fn a_non_2xx_response_is_not_a_verification() {
-        let fetch = |_: &str, _: Option<&str>| Ok((404, "not found".to_string()));
+        let fetch = |_: &str, _: &[(&str, &str)]| Ok((404, "not found".to_string()));
         let report = verify_registry(&test_registry(), Some("alpha"), &fetch).unwrap();
         assert!(!report.ok);
         let alpha = &report.providers[0];
@@ -452,7 +497,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_list_is_not_a_verification() {
-        let fetch = |_: &str, _: Option<&str>| Ok((200, "<html>".to_string()));
+        let fetch = |_: &str, _: &[(&str, &str)]| Ok((200, "<html>".to_string()));
         let report = verify_registry(&test_registry(), Some("alpha"), &fetch).unwrap();
         let alpha = &report.providers[0];
         assert!(alpha.reachable);
@@ -460,26 +505,125 @@ mod tests {
         assert!(alpha.note.contains("unreadable"), "{}", alpha.note);
     }
 
+    /// The registry's own `closed` provider names no key, so the Anthropic tests
+    /// carry their own: a list request without a key is not an Anthropic
+    /// request at all.
+    const ANTHROPIC_TEST_KEY: &str = "SUSI_HARNESS_VERIFY_ANTHROPIC_KEY";
+
+    fn anthropic_registry(backend: &str) -> Registry {
+        Registry::parse(&format!(
+            r#"{{"providers":[{{"id":"closed","wire":"anthropic",
+                "endpoint":"https://closed.example/v1/messages",
+                "key_env":["{ANTHROPIC_TEST_KEY}"],
+                "models":[{{"id":"claude","backend":"{backend}"}}]}}]}}"#
+        ))
+        .unwrap()
+    }
+
+    fn with_anthropic_key<T>(body: impl FnOnce() -> T) -> T {
+        std::env::set_var(ANTHROPIC_TEST_KEY, "test-key");
+        let out = body();
+        std::env::remove_var(ANTHROPIC_TEST_KEY);
+        out
+    }
+
     #[test]
-    fn anthropic_is_skipped_as_not_verifiable_without_a_request() {
+    fn anthropic_is_verified_through_its_models_endpoint() {
+        let seen = RefCell::new(None::<(String, Vec<(String, String)>)>);
+        let fetch = |url: &str, headers: &[(&str, &str)]| {
+            seen.borrow_mut().replace((
+                url.to_string(),
+                headers
+                    .iter()
+                    .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
+                    .collect(),
+            ));
+            Ok((
+                200,
+                r#"{"data":[{"id":"claude-x"},{"id":"claude-new"}]}"#.to_string(),
+            ))
+        };
+        let report = with_anthropic_key(|| {
+            verify_registry(&anthropic_registry("claude-x"), Some("closed"), &fetch).unwrap()
+        });
+        assert!(report.ok, "{:?}", report.providers);
+        assert!(report.providers[0].reachable);
+        assert!(report.providers[0].missing.is_empty());
+
+        let (url, headers) = seen.borrow().clone().expect("the fetch must have run");
+        assert_eq!(
+            url, "https://closed.example/v1/models",
+            "the list sits beside /messages"
+        );
+        assert!(
+            headers.iter().any(|(name, _)| name == "x-api-key"),
+            "an Anthropic list needs the key in x-api-key: {headers:?}"
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| name == "anthropic-version" && value == "2023-06-01"),
+            "{headers:?}"
+        );
+    }
+
+    /// A console user key is refused unless the request names its workspace, so
+    /// the list request must carry the header when it is configured.
+    #[test]
+    fn an_anthropic_workspace_travels_with_the_list_request() {
+        let previous = std::env::var("ANTHROPIC_WORKSPACE_ID").ok();
+        std::env::set_var("ANTHROPIC_WORKSPACE_ID", " wrkspc_test ");
+        let workspace = RefCell::new(None::<String>);
+        let fetch = |_: &str, headers: &[(&str, &str)]| {
+            if let Some((_, value)) = headers
+                .iter()
+                .find(|(name, _)| *name == "anthropic-workspace-id")
+            {
+                workspace.borrow_mut().replace((*value).to_string());
+            }
+            Ok((200, r#"{"data":[{"id":"claude-x"}]}"#.to_string()))
+        };
+        with_anthropic_key(|| {
+            verify_registry(&anthropic_registry("claude-x"), Some("closed"), &fetch).unwrap()
+        });
+        assert_eq!(
+            workspace.borrow().as_deref(),
+            Some("wrkspc_test"),
+            "the configured workspace must be trimmed and sent"
+        );
+        std::env::remove_var("ANTHROPIC_WORKSPACE_ID");
+        if let Some(value) = previous {
+            std::env::set_var("ANTHROPIC_WORKSPACE_ID", value);
+        }
+    }
+
+    #[test]
+    fn anthropic_without_a_messages_suffix_stays_not_verifiable() {
+        let registry = Registry::parse(
+            r#"{"providers":[{"id":"odd","wire":"anthropic","endpoint":"https://odd.example/v1/chat",
+                "key_env":[],"models":[{"id":"m","backend":"m"}]}]}"#,
+        )
+        .unwrap();
         let calls = Cell::new(0);
-        let fetch = |_: &str, _: Option<&str>| {
+        let fetch = |_: &str, _: &[(&str, &str)]| {
             calls.set(calls.get() + 1);
             Ok((200, "{}".to_string()))
         };
-        let report = verify_registry(&test_registry(), Some("closed"), &fetch).unwrap();
+        let report = verify_registry(&registry, Some("odd"), &fetch).unwrap();
         assert_eq!(calls.get(), 0);
         assert!(report.ok);
-        let closed = &report.providers[0];
-        assert!(closed.ok);
-        assert!(!closed.reachable);
-        assert!(closed.note.contains("not verifiable"), "{}", closed.note);
+        assert!(!report.providers[0].reachable);
+        assert!(
+            report.providers[0].note.contains("not verifiable"),
+            "{}",
+            report.providers[0].note
+        );
     }
 
     #[test]
     fn a_provider_without_its_key_is_not_verified() {
         let calls = Cell::new(0);
-        let fetch = |_: &str, _: Option<&str>| {
+        let fetch = |_: &str, _: &[(&str, &str)]| {
             calls.set(calls.get() + 1);
             Ok((200, "{}".to_string()))
         };
@@ -499,7 +643,7 @@ mod tests {
     #[test]
     fn selecting_one_provider_fetches_only_its_endpoint() {
         let urls = RefCell::new(Vec::new());
-        let fetch = |url: &str, _: Option<&str>| {
+        let fetch = |url: &str, _: &[(&str, &str)]| {
             urls.borrow_mut().push(url.to_string());
             Ok((200, r#"{"data":[{"id":"beta-1"}]}"#.to_string()))
         };
@@ -515,7 +659,7 @@ mod tests {
 
     #[test]
     fn selecting_an_unknown_provider_is_refused() {
-        let fetch = |_: &str, _: Option<&str>| -> Result<(u16, String), String> {
+        let fetch = |_: &str, _: &[(&str, &str)]| -> Result<(u16, String), String> {
             Ok((200, "{}".to_string()))
         };
         let error = verify_registry(&test_registry(), Some("nope"), &fetch)

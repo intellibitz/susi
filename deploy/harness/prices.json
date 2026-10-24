@@ -1,15 +1,20 @@
 {
   "schema": "susi/harness/prices/v1",
   "models": {
-    "claude-3-5-haiku": {
-      "input_hit": 80000,
-      "input_miss": 800000,
-      "output": 4000000
+    "claude-haiku": {
+      "input_hit": 100000,
+      "input_miss": 1000000,
+      "output": 5000000
     },
-    "claude-3-5-sonnet": {
+    "claude-sonnet": {
       "input_hit": 300000,
       "input_miss": 3000000,
       "output": 15000000
+    },
+    "claude-opus": {
+      "input_hit": 1500000,
+      "input_miss": 15000000,
+      "output": 75000000
     },
     "dashscope-qwen-coder": {
       "input_hit": 400000,

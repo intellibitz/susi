@@ -45,8 +45,15 @@ pub struct GatewayState {
     pub upstream_chat_url: String,
     /// Provider id recorded on each row (`deepseek`, `gemini`, …).
     pub provider: String,
-    /// Upstream credential, sent as `Authorization: Bearer …`.
-    pub api_key: String,
+    /// Upstream credential override.
+    ///
+    /// `None` means "let the registry resolve each model's own key env", which
+    /// is what a direct-mode gateway serving several providers needs: pinning
+    /// one provider's key here made every other provider's calls carry it
+    /// (Anthropic answered `invalid x-api-key` for a route that should have used
+    /// its own). `Some` is the single-upstream case — one URL, one key — and an
+    /// operator's explicit `--api-key-env`.
+    pub api_key: Option<String>,
     /// Upstream call timeout, in seconds.
     pub timeout_secs: u64,
     /// Upper bound placed on `max_tokens` in every forwarded request.
@@ -235,7 +242,7 @@ async fn buffered_upstream(
     let route = match crate::router::resolve_route(
         &model,
         Some(&state.upstream_chat_url),
-        Some(&state.api_key),
+        state.api_key.as_deref(),
     ) {
         Ok(r) => r,
         Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
@@ -405,11 +412,14 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
     let ledger_path = state.ledger_path.clone();
 
     tokio::task::spawn_blocking(move || {
-        let authorization = format!("Bearer {api_key}");
-        let forwarded = [
-            ("authorization", authorization.as_str()),
-            ("content-type", "application/json"),
-        ];
+        // `None` means the operator pinned no single key: a direct-mode gateway
+        // resolves per model through the router, so there is nothing to send
+        // here (an explicit upstream always carries one).
+        let authorization = api_key.as_deref().map(|key| format!("Bearer {key}"));
+        let mut forwarded: Vec<(&str, &str)> = vec![("content-type", "application/json")];
+        if let Some(value) = authorization.as_deref() {
+            forwarded.push(("authorization", value));
+        }
         let call = match susi_http_transport::http_call_with_body(
             "POST",
             &url,
@@ -577,7 +587,7 @@ mod tests {
         "schema": "susi/harness/prices/v1",
         "models": {
             "deepseek-flash": {"input_miss": 150000, "input_hit": 3000, "output": 600000},
-            "claude-3-5-sonnet": {"input_miss": 3000000, "input_hit": 300000, "output": 15000000}
+            "claude-sonnet": {"input_miss": 3000000, "input_hit": 300000, "output": 15000000}
         }
     }"#;
 
@@ -600,7 +610,7 @@ mod tests {
             ledger_path,
             upstream_chat_url: format!("http://{upstream}/v1/chat/completions"),
             provider: "deepseek".into(),
-            api_key: "test-key".into(),
+            api_key: Some("test-key".into()),
             timeout_secs: 10,
             max_output_tokens: None,
             cache: None,
@@ -843,7 +853,7 @@ mod tests {
             ledger_path: ledger.clone(),
             upstream_chat_url: format!("http://{upstream}/v1/chat/completions"),
             provider: "deepseek".into(),
-            api_key: "test-key".into(),
+            api_key: Some("test-key".into()),
             timeout_secs: 10,
             max_output_tokens: None,
             cache: Some(cache),
@@ -892,7 +902,7 @@ mod tests {
             "/v1/messages",
             post(|body: String| async move {
                 let req: Value = serde_json::from_str(&body).unwrap();
-                assert_eq!(req["model"], "claude-3-5-sonnet-20241022");
+                assert_eq!(req["model"], "claude-sonnet-5-5");
                 assert!(req["messages"].is_array());
                 (
                     StatusCode::OK,
@@ -914,7 +924,7 @@ mod tests {
             // Pass explicit mock upstream with custom port
             upstream_chat_url: format!("http://{upstream}/v1/messages"),
             provider: "anthropic".into(),
-            api_key: "test-anthropic-key".into(),
+            api_key: Some("test-anthropic-key".into()),
             timeout_secs: 10,
             max_output_tokens: None,
             cache: None,
@@ -923,7 +933,7 @@ mod tests {
 
         // Post standard OpenAI format to the gateway
         let body = json!({
-            "model": "claude-3-5-sonnet",
+            "model": "claude-sonnet",
             "messages": [
                 {"role": "system", "content": "You are a test assistant."},
                 {"role": "user", "content": "hello"}

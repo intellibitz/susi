@@ -236,13 +236,18 @@ pub fn gemini_model_path(model: &str) -> &str {
 /// Convert an OpenAI-compatible `/chat/completions` payload to Anthropic `/v1/messages`.
 ///
 /// Extracts any `system` message into the top-level `system` property, preserves `user`
-/// and `assistant` turns, maps `max_tokens` (required by Anthropic, defaults to 4096),
-/// and passes through `temperature`.
+/// and `assistant` turns, and maps `max_tokens` (required by Anthropic, defaults to 4096).
+///
+/// **Sampling parameters are deliberately not forwarded.** The current Messages
+/// models deprecate `temperature`, `top_p` and `top_k` — the API answers
+/// `invalid_request_error: "`temperature` is deprecated for this model."` — so a
+/// payload that carried them would fail every call. Dropping them lets the model
+/// use its own defaults, which is the only sampling the API allows.
 pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
     let model = openai
         .get("model")
         .and_then(Value::as_str)
-        .unwrap_or("claude-3-5-sonnet-20241022");
+        .unwrap_or("claude-sonnet-5-5");
     let max_tokens = openai
         .get("max_tokens")
         .or_else(|| openai.get("max_completion_tokens"))
@@ -289,10 +294,6 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
 
     if !system_prompt.is_empty() {
         payload["system"] = json!(system_prompt);
-    }
-
-    if let Some(temp) = openai.get("temperature") {
-        payload["temperature"] = temp.clone();
     }
 
     Ok(payload)
@@ -459,6 +460,29 @@ mod tests {
         assert_eq!(triton_body("p", 8)["parameters"]["max_tokens"], 8);
     }
 
+    /// The 5.x Messages models reject `temperature`, `top_p` and `top_k`
+    /// outright, so a translator that forwarded them would break every call.
+    #[test]
+    fn sampling_parameters_are_not_forwarded_to_anthropic() {
+        let openai_req = json!({
+            "model": "claude-sonnet-5-5",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 16,
+            "temperature": 0.0,
+            "top_p": 0.9,
+            "top_k": 40
+        });
+        let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
+        for dropped in ["temperature", "top_p", "top_k"] {
+            assert!(
+                anthropic_req.get(dropped).is_none(),
+                "{dropped} must not reach the Messages API: {anthropic_req}"
+            );
+        }
+        assert_eq!(anthropic_req["model"], "claude-sonnet-5-5");
+        assert_eq!(anthropic_req["max_tokens"], 16);
+    }
+
     #[test]
     fn openai_to_anthropic_and_back_round_trips() {
         let openai_req = json!({
@@ -477,6 +501,10 @@ mod tests {
         assert_eq!(anthropic_req["max_tokens"], 1024);
         assert_eq!(anthropic_req["messages"][0]["role"], "user");
         assert_eq!(anthropic_req["messages"][0]["content"], "Hello Claude");
+        assert!(
+            anthropic_req.get("temperature").is_none(),
+            "the Messages API deprecates sampling parameters; forwarding them fails every call: {anthropic_req}"
+        );
 
         let anthropic_resp = json!({
             "id": "msg_123",

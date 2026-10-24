@@ -37,7 +37,10 @@ struct Options {
     ledger: PathBuf,
     upstream: String,
     provider: String,
-    api_key_env: String,
+    /// `--api-key-env`: an explicit override. `None` in direct mode means each
+    /// model resolves its provider's own key env, which is what a gateway
+    /// serving several providers needs.
+    api_key_env: Option<String>,
     timeout: u64,
     max_output_tokens: Option<u32>,
     accounts: Option<PathBuf>,
@@ -63,13 +66,27 @@ fn main() {
 async fn run(options: Options) -> Result<(), String> {
     let catalogue =
         PriceCatalogue::load(&options.catalogue).map_err(|error| format!("catalogue: {error}"))?;
-    let api_key = if options.upstream == "direct" {
-        std::env::var(&options.api_key_env).unwrap_or_default()
-    } else {
-        std::env::var(&options.api_key_env)
-            .ok()
-            .filter(|key| !key.trim().is_empty())
-            .ok_or_else(|| format!("{} is unset or empty", options.api_key_env))?
+    // A single explicit upstream needs one key: `--api-key-env` when given,
+    // otherwise the historical default. In direct mode the gateway routes each
+    // model through the registry, so the default is *no* override — pinning one
+    // provider's key there made every other provider authenticate with it.
+    let api_key = match (options.api_key_env.as_deref(), options.upstream == "direct") {
+        (Some(name), _) => Some(
+            std::env::var(name)
+                .ok()
+                .filter(|key| !key.trim().is_empty())
+                .ok_or_else(|| format!("{name} is unset or empty"))?,
+        ),
+        (None, true) => None,
+        (None, false) => Some(
+            std::env::var("DEEPSEEK_API_KEY")
+                .ok()
+                .filter(|key| !key.trim().is_empty())
+                .ok_or_else(|| {
+                    "DEEPSEEK_API_KEY is unset or empty (pass --api-key-env for another provider)"
+                        .to_string()
+                })?,
+        ),
     };
     let cache_dir = options.ledger.parent().map(std::path::Path::to_path_buf);
     let state = Arc::new(GatewayState {
@@ -114,7 +131,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut ledger = PathBuf::new();
     let mut upstream = String::new();
     let mut provider = String::from("upstream");
-    let mut api_key_env = String::from("DEEPSEEK_API_KEY");
+    let mut api_key_env: Option<String> = None;
     let mut timeout: u64 = 120;
     let mut max_output_tokens: Option<u32> = None;
     let mut accounts: Option<PathBuf> = None;
@@ -129,7 +146,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--ledger" => ledger = PathBuf::from(take(&mut args, &flag)?),
             "--upstream" => upstream = take(&mut args, &flag)?,
             "--provider" => provider = take(&mut args, &flag)?,
-            "--api-key-env" => api_key_env = take(&mut args, &flag)?,
+            "--api-key-env" => api_key_env = Some(take(&mut args, &flag)?),
             "--accounts" => accounts = Some(PathBuf::from(take(&mut args, &flag)?)),
             "--timeout" => {
                 timeout = take(&mut args, &flag)?
@@ -219,7 +236,10 @@ mod tests {
         assert_eq!(options.port, 9180);
         assert_eq!(options.catalogue, PathBuf::from("prices.json"));
         assert_eq!(options.provider, "deepseek");
-        assert_eq!(options.api_key_env, "DEEPSEEK_API_KEY");
+        assert_eq!(
+            options.api_key_env, None,
+            "direct mode pins no single key by default"
+        );
         assert_eq!(options.timeout, 120);
         assert!(options.max_output_tokens.is_none());
     }
