@@ -29,6 +29,14 @@ fn script() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-hermetic-tests.sh")
 }
 
+fn path_with_prefix(prefix: &Path) -> std::ffi::OsString {
+    let mut paths = vec![prefix.to_path_buf()];
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&path));
+    }
+    std::env::join_paths(paths).unwrap()
+}
+
 struct World {
     root: PathBuf,
     bins: PathBuf,
@@ -85,11 +93,7 @@ impl World {
     }
 
     fn run_with(&self, envs: &[(&str, &str)], args: &[&str]) -> (i32, String) {
-        let path = std::env::join_paths([
-            self.bins.as_os_str(),
-            std::env::var_os("PATH").as_deref().unwrap_or_default(),
-        ])
-        .unwrap();
+        let path = path_with_prefix(&self.bins);
         let out = script_command(&script())
             .args(args)
             .env("CARGO_HOME", self.bins.parent().unwrap())
