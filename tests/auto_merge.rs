@@ -39,6 +39,25 @@ fn path_with_prefix(prefix: &Path) -> std::ffi::OsString {
     std::env::join_paths(paths).unwrap()
 }
 
+fn host_git_binary() -> String {
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            #[cfg(windows)]
+            let candidate = dir.join("git.exe");
+            #[cfg(not(windows))]
+            let candidate = dir.join("git");
+            if candidate.is_file() {
+                return candidate.to_string_lossy().replace('\\', "/");
+            }
+        }
+    }
+    if cfg!(windows) {
+        "git.exe".to_string()
+    } else {
+        "/usr/bin/git".to_string()
+    }
+}
+
 struct Fake {
     dir: PathBuf,
 }
@@ -102,28 +121,27 @@ esac
         // everything else is real git: `hash-object -w` needs a real object
         // store.
         let git = dir.join("git");
-        let shim = r#"#!/usr/bin/env bash
+        let real_git = host_git_binary();
+        let shim = format!(
+            r#"#!/usr/bin/env bash
 D="$(dirname "$0")"
 case "$1" in
 push) echo "$*" >> "$D/gitpushes"; [ -f "$D/pushfail" ] && exit 1; exit 0 ;;
 fetch) echo "git $*" >> "$D/calls"; exit 0 ;;
 rev-parse)
   case "$*" in
-  *"^{tree}"*) cat "$D/srvtree" 2>/dev/null || echo srctree; exit 0 ;;
+  *"^{{tree}}"*) cat "$D/srvtree" 2>/dev/null || echo srctree; exit 0 ;;
   *"origin/main"*) cat "$D/basesha" 2>/dev/null || echo base001; exit 0 ;;
-  *) echo "${!#}"; exit 0 ;;
+  *) echo "${{!#}}"; exit 0 ;;
   esac ;;
 merge-tree) echo "git $*" >> "$D/calls"; [ -f "$D/conflict" ] && exit 1; cat "$D/treefile" 2>/dev/null || echo tree999; exit 0 ;;
 commit-tree) echo "git $*" >> "$D/calls"; cat "$D/mcfile" 2>/dev/null || echo mc999; exit 0 ;;
 checkout) echo "git $*" >> "$D/calls"; [ -f "$D/checkoutfail" ] && exit 1; exit 0 ;;
 esac
-exec git "$@"
-"#;
-        // The shim must name the binary the host shell can execute: `git` on
-        // unix, `git.exe` on Windows (where a bare `git` is not a program the
-        // MSYS shell always resolves).
-        #[cfg(windows)]
-        let shim = shim.replace("exec git ", "exec git.exe ");
+exec "{}" "$@"
+"#,
+            real_git
+        );
         std::fs::write(&git, shim).unwrap();
         #[cfg(unix)]
         {
