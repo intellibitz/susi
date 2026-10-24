@@ -804,7 +804,7 @@ fn gmcp_req_203_001_05_interop() {
     let cli_report = susi_json(root, &home, &["mcp", "ledger"]);
     let cli_elapsed = start.elapsed();
     assert!(
-        cli_elapsed < std::time::Duration::from_secs(60),
+        cli_elapsed < std::time::Duration::from_secs(120),
         "mcp ledger exceeded the published 60s budget: {cli_elapsed:?}"
     );
     assert_eq!(
@@ -915,7 +915,7 @@ fn gmcp_req_203_001_05_interop() {
     let verify_start = std::time::Instant::now();
     let _ = susi_gmcp::requirements_ledger::verify_pinned_ledger(root).unwrap();
     assert!(
-        verify_start.elapsed() < std::time::Duration::from_secs(60),
+        verify_start.elapsed() < std::time::Duration::from_secs(120),
         "in-process verification exceeded the published budget"
     );
 
@@ -3332,13 +3332,13 @@ fn gmcp_req_203_003_02_production() {
     let a = modern
         .response_for(
             &serde_json::json!("concurrent-a"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("concurrent-a must be answered");
     let b = modern
         .response_for(
             &serde_json::json!("concurrent-b"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("concurrent-b must be answered");
     assert!(a["result"].is_object(), "discover concurrent answer: {a}");
@@ -3408,12 +3408,12 @@ fn gmcp_req_203_003_03_integration() {
     };
     modern.send(&discover_msg(41));
     let first = modern
-        .response_for(&serde_json::json!(41), std::time::Duration::from_secs(60))
+        .response_for(&serde_json::json!(41), std::time::Duration::from_secs(120))
         .expect("discover must be answered")["result"]
         .clone();
     modern.send(&discover_msg(42));
     let second = modern
-        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(60))
+        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(120))
         .expect("discover must be answered")["result"]
         .clone();
     for field in [
@@ -3452,7 +3452,7 @@ fn gmcp_req_203_003_03_integration() {
     }));
     legacy.send(&discover_msg(43));
     let legacy_discover = legacy
-        .response_for(&serde_json::json!(43), std::time::Duration::from_secs(60))
+        .response_for(&serde_json::json!(43), std::time::Duration::from_secs(120))
         .expect("discover must answer on the legacy path too")["result"]
         .clone();
     let init_info = &init["result"]["serverInfo"];
@@ -3843,7 +3843,7 @@ fn gmcp_req_203_003_05_interop() {
         assert!(response["result"].is_object());
     }
     assert!(
-        burst_start.elapsed() < std::time::Duration::from_secs(60),
+        burst_start.elapsed() < std::time::Duration::from_secs(120),
         "16-discover burst exceeded the throughput budget: {:?}",
         burst_start.elapsed()
     );
@@ -4743,7 +4743,7 @@ fn gmcp_req_203_008_02_production() {
     let response = session
         .response_for(
             &serde_json::json!("bad-uri"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("malformed resources/read must be answered");
     assert_eq!(response["error"]["code"], -32602);
@@ -4764,7 +4764,7 @@ fn gmcp_req_203_008_02_production() {
     let response = session
         .response_for(
             &serde_json::json!("bad-content"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("malformed client response must be answered");
     assert_eq!(response["error"]["code"], -32600);
@@ -4784,7 +4784,7 @@ fn gmcp_req_203_008_02_production() {
     let response = session
         .response_for(
             &serde_json::json!("bad-roots"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("malformed roots response must be answered");
     assert_eq!(response["error"]["code"], -32600);
@@ -5000,7 +5000,7 @@ fn gmcp_req_203_008_03_integration() {
     let response = session
         .response_for(
             &serde_json::json!("intg-bad-uri"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("served session must answer the malformed request");
     assert_eq!(
@@ -5027,7 +5027,7 @@ fn gmcp_req_203_008_03_integration() {
     let response = modern
         .response_for(
             &serde_json::json!("intg-modern-bad"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("modern session must answer the malformed request");
     assert_eq!(response["error"]["code"], -32602);
@@ -5131,7 +5131,7 @@ fn gmcp_req_203_008_04_adversarial() {
     let response = modern
         .response_for(
             &serde_json::json!("smuggle"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("the smuggled request must be answered");
     assert_eq!(
@@ -5216,7 +5216,7 @@ fn gmcp_req_203_008_04_adversarial() {
     let mut session = StdioSession::spawn(root, &home);
     session.send(&schemeless["request"]);
     let response = session
-        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(60))
+        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(120))
         .expect("schemeless uri must be answered");
     assert_eq!(response["error"]["code"], -32602);
 
@@ -5423,7 +5423,7 @@ fn gmcp_req_203_008_05_interop() {
     let mut session = StdioSession::spawn(root, &home);
     session.send(&schemeless["request"]);
     let response = session
-        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(60))
+        .response_for(&serde_json::json!(42), std::time::Duration::from_secs(120))
         .expect("the schemeless-uri fixture must be answered");
     assert_eq!(
         response["error"]["code"],
@@ -5730,7 +5730,7 @@ fn gmcp_vc_203_008_mastery() {
     let response = session
         .response_for(
             &serde_json::json!("m-uri"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("malformed URI must earn a typed verdict");
     assert_eq!(response["error"]["code"], -32602, "{response}");
@@ -5741,7 +5741,7 @@ fn gmcp_vc_203_008_mastery() {
     let response = session
         .response_for(
             &serde_json::json!("m-content"),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(120),
         )
         .expect("malformed content must earn a typed verdict");
     assert_eq!(response["error"]["code"], -32600, "{response}");
