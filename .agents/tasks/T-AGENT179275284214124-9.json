@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT179275284214124-9",
+  "title": "Give the root-cli shard room to finish on a cold cache",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf",
+      "code_proven_stamp_gates_the_expensive_main_jobs"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792806581
+}
