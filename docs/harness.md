@@ -92,10 +92,13 @@ Two facts about the Anthropic wire shape, both learned from the live API:
   `temperature`, `top_p` and `top_k` alike, so the OpenAI→Anthropic translation
   drops all three and the model uses its own defaults. A worker turn — which
   always pins `temperature: 0.0` — otherwise fails before it starts.
-- **Tool calling is not translated yet.** Messages, system prompt and
-  `max_tokens` convert; OpenAI `tools` do not, so a Claude turn can answer but
-  cannot call the worker's file or shell tools. Treat Claude as a chat/review
-  model until that lands.
+- **Tool calling crosses the wire.** OpenAI `tools` become Messages `tools`
+  (`function.parameters` → `input_schema`), an assistant `tool_calls` array
+  becomes `tool_use` blocks, a `tool` result becomes a `tool_result` block in
+  the user turn that answers it (parallel results share one turn), and a
+  `tool_use` answer comes back as OpenAI `tool_calls` with
+  `finish_reason: tool_calls`. A Claude worker turn therefore runs the same
+  tool loop as DeepSeek or Gemini — verified end to end by writing a file.
 
 In `--upstream direct` mode the gateway routes each model through the registry,
 so **each provider resolves its own key env**; `--api-key-env` pins one key as

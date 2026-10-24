@@ -238,6 +238,12 @@ pub fn gemini_model_path(model: &str) -> &str {
 /// Extracts any `system` message into the top-level `system` property, preserves `user`
 /// and `assistant` turns, and maps `max_tokens` (required by Anthropic, defaults to 4096).
 ///
+/// **Tool calling is translated**, because a worker turn is a tool loop: OpenAI
+/// `tools` become Messages `tools` (`function.parameters` → `input_schema`), an
+/// assistant `tool_calls` array becomes `tool_use` blocks, and a `tool` result
+/// becomes a `tool_result` block in the user turn that answers it. Without this
+/// a Claude turn could answer but never act.
+///
 /// **Sampling parameters are deliberately not forwarded.** The current Messages
 /// models deprecate `temperature`, `top_p` and `top_k` — the API answers
 /// `invalid_request_error: "`temperature` is deprecated for this model."` — so a
@@ -255,29 +261,90 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
         .unwrap_or(4096);
 
     let mut system_prompt = String::new();
-    let mut messages = Vec::new();
+    let mut messages: Vec<Value> = Vec::new();
 
     if let Some(msg_array) = openai.get("messages").and_then(Value::as_array) {
         for msg in msg_array {
             let role = msg.get("role").and_then(Value::as_str).unwrap_or("user");
-            let content = msg
-                .get("content")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if role == "system" {
-                if !system_prompt.is_empty() {
-                    system_prompt.push_str(
-                        "
-
-",
-                    );
+            let text = content_text(msg);
+            match role {
+                "system" => {
+                    if !text.is_empty() {
+                        if !system_prompt.is_empty() {
+                            system_prompt.push_str("\n\n");
+                        }
+                        system_prompt.push_str(&text);
+                    }
                 }
-                system_prompt.push_str(content);
-            } else if role == "user" || role == "assistant" {
-                messages.push(json!({
-                    "role": role,
-                    "content": content
-                }));
+                "assistant" => {
+                    let mut blocks = Vec::new();
+                    if !text.is_empty() {
+                        blocks.push(json!({"type": "text", "text": text}));
+                    }
+                    for call in msg
+                        .get("tool_calls")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        let name = call
+                            .pointer("/function/name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if name.is_empty() {
+                            continue;
+                        }
+                        let id = call
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("call_unknown");
+                        // Arguments arrive as a JSON string; Anthropic wants the
+                        // parsed object. Unparseable arguments become `{}` rather
+                        // than failing the whole turn — the tool will refuse them.
+                        let input = call
+                            .pointer("/function/arguments")
+                            .and_then(Value::as_str)
+                            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+                            .unwrap_or_else(|| json!({}));
+                        blocks.push(json!({
+                            "type": "tool_use",
+                            "id": id,
+                            "name": name,
+                            "input": input
+                        }));
+                    }
+                    if blocks.is_empty() {
+                        continue;
+                    }
+                    messages.push(json!({"role": "assistant", "content": blocks}));
+                }
+                "tool" => {
+                    let id = msg
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let block = json!({
+                        "type": "tool_result",
+                        "tool_use_id": id,
+                        "content": text
+                    });
+                    // Parallel tool calls: results belong to one user turn.
+                    match messages.last_mut() {
+                        Some(previous) if is_tool_results(previous) => {
+                            if let Some(blocks) =
+                                previous.get_mut("content").and_then(Value::as_array_mut)
+                            {
+                                blocks.push(block);
+                            }
+                        }
+                        _ => messages.push(json!({"role": "user", "content": [block]})),
+                    }
+                }
+                _ => {
+                    if !text.is_empty() {
+                        messages.push(json!({"role": "user", "content": text}));
+                    }
+                }
             }
         }
     }
@@ -296,13 +363,116 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
         payload["system"] = json!(system_prompt);
     }
 
+    if let Some(tools) = anthropic_tools(openai) {
+        payload["tools"] = tools;
+    }
+
     Ok(payload)
 }
 
+/// A message's text, whether it is a plain string or OpenAI content parts.
+fn content_text(msg: &Value) -> String {
+    match msg.get("content") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| part.get("text").and_then(Value::as_str))
+            .collect(),
+        _ => String::new(),
+    }
+}
+
+/// True when the message is a user turn made only of `tool_result` blocks, so
+/// the next result can join it instead of opening a second user turn.
+fn is_tool_results(message: &Value) -> bool {
+    message.get("role").and_then(Value::as_str) == Some("user")
+        && message
+            .get("content")
+            .and_then(Value::as_array)
+            .is_some_and(|blocks| {
+                !blocks.is_empty()
+                    && blocks.iter().all(|block| {
+                        block.get("type").and_then(Value::as_str) == Some("tool_result")
+                    })
+            })
+}
+
+/// The OpenAI `tools` list in the Messages shape, when there is one.
+fn anthropic_tools(openai: &Value) -> Option<Value> {
+    let tools = openai.get("tools").and_then(Value::as_array)?;
+    let mapped = tools
+        .iter()
+        .filter_map(|tool| {
+            let function = tool.get("function")?;
+            let name = function.get("name").and_then(Value::as_str)?;
+            let mut entry = json!({
+                "name": name,
+                "input_schema": function
+                    .get("parameters")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"type": "object", "properties": {}}))
+            });
+            if let Some(description) = function.get("description").and_then(Value::as_str) {
+                entry["description"] = json!(description);
+            }
+            Some(entry)
+        })
+        .collect::<Vec<_>>();
+    (!mapped.is_empty()).then(|| json!(mapped))
+}
+
 /// Convert an Anthropic Messages API response into an OpenAI-compatible `/chat/completions` reply.
+///
+/// `tool_use` blocks become `tool_calls` (arguments as the JSON *string* OpenAI
+/// carries) and `stop_reason: tool_use` becomes `finish_reason: tool_calls`, so
+/// the worker's loop sees the same shape it gets from any OpenAI-compatible
+/// provider. A response that only calls tools has a null `content`, which is
+/// the OpenAI convention.
 pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value, String> {
     error_envelope(anthropic)?;
-    let text = anthropic_text(anthropic)?;
+
+    let mut text = String::new();
+    let mut tool_calls = Vec::new();
+    for block in anthropic
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        match block.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                if let Some(chunk) = block.get("text").and_then(Value::as_str) {
+                    text.push_str(chunk);
+                }
+            }
+            Some("tool_use") => {
+                let name = block
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if name.is_empty() {
+                    continue;
+                }
+                let id = block
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("call_unknown");
+                let arguments = block
+                    .get("input")
+                    .map_or_else(|| "{}".to_string(), Value::to_string);
+                tool_calls.push(json!({
+                    "id": id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments}
+                }));
+            }
+            // `thinking` and unknown blocks carry no answer of their own.
+            _ => {}
+        }
+    }
+    if text.is_empty() && tool_calls.is_empty() {
+        return Err("response carried no content[].text or content[].tool_use".to_string());
+    }
 
     let input_tokens = anthropic
         .pointer("/usage/input_tokens")
@@ -318,6 +488,21 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
         .and_then(Value::as_str)
         .unwrap_or("anthropic-cmpl");
 
+    let finish_reason = match anthropic.get("stop_reason").and_then(Value::as_str) {
+        Some("tool_use") => "tool_calls",
+        Some("max_tokens") => "length",
+        _ => "stop",
+    };
+    let content = if text.is_empty() {
+        Value::Null
+    } else {
+        json!(text)
+    };
+    let mut message = json!({"role": "assistant", "content": content});
+    if !tool_calls.is_empty() {
+        message["tool_calls"] = json!(tool_calls);
+    }
+
     Ok(json!({
         "id": id,
         "object": "chat.completion",
@@ -326,11 +511,8 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
         "choices": [
             {
                 "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": text
-                },
-                "finish_reason": "stop"
+                "message": message,
+                "finish_reason": finish_reason
             }
         ],
         "usage": {
@@ -481,6 +663,108 @@ mod tests {
         }
         assert_eq!(anthropic_req["model"], "claude-sonnet-5-5");
         assert_eq!(anthropic_req["max_tokens"], 16);
+    }
+
+    /// A worker turn is a tool loop: tools must survive into the Messages
+    /// shape, and a tool call must come back in the OpenAI shape the loop
+    /// consumes, or a Claude turn can talk but never act.
+    #[test]
+    fn tool_declarations_and_calls_cross_the_anthropic_wire() {
+        let openai_req = json!({
+            "model": "claude-haiku",
+            "messages": [
+                {"role": "system", "content": "worker"},
+                {"role": "user", "content": "write the file"},
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "call_1", "type": "function",
+                     "function": {"name": "write_to_file",
+                                  "arguments": "{\"path\":\"a.txt\",\"content\":\"OK\"}"}}
+                ]},
+                {"role": "tool", "tool_call_id": "call_1", "content": "wrote a.txt"}
+            ],
+            "tools": [
+                {"type": "function", "function": {
+                    "name": "write_to_file",
+                    "description": "write a file",
+                    "parameters": {"type": "object",
+                                   "properties": {"path": {"type": "string"}},
+                                   "required": ["path"]}
+                }}
+            ],
+            "max_tokens": 64,
+            "temperature": 0.0
+        });
+        let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
+
+        assert_eq!(anthropic_req["tools"][0]["name"], "write_to_file");
+        assert_eq!(anthropic_req["tools"][0]["input_schema"]["type"], "object");
+        assert!(
+            anthropic_req["tools"][0].get("function").is_none(),
+            "the Messages tools shape has no `function` wrapper"
+        );
+
+        let calls = &anthropic_req["messages"][1];
+        assert_eq!(calls["role"], "assistant");
+        assert_eq!(calls["content"][0]["type"], "tool_use");
+        assert_eq!(calls["content"][0]["id"], "call_1");
+        assert_eq!(calls["content"][0]["name"], "write_to_file");
+        assert_eq!(
+            calls["content"][0]["input"],
+            json!({"path": "a.txt", "content": "OK"}),
+            "arguments must arrive parsed, not as a JSON string"
+        );
+
+        let result = &anthropic_req["messages"][2];
+        assert_eq!(result["role"], "user");
+        assert_eq!(result["content"][0]["type"], "tool_result");
+        assert_eq!(result["content"][0]["tool_use_id"], "call_1");
+        assert_eq!(result["content"][0]["content"], "wrote a.txt");
+
+        // The answer: a tool_use block comes back as tool_calls, with a null
+        // content and the OpenAI finish reason.
+        let reply = json!({
+            "id": "msg_1",
+            "content": [
+                {"type": "thinking", "thinking": "hmm"},
+                {"type": "tool_use", "id": "call_2", "name": "run_command",
+                 "input": {"command": "ls"}}
+            ],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        });
+        let openai_resp = anthropic_to_openai_chat(&reply, "claude-haiku").unwrap();
+        let message = &openai_resp["choices"][0]["message"];
+        assert!(message["content"].is_null(), "{openai_resp}");
+        assert_eq!(message["tool_calls"][0]["id"], "call_2");
+        assert_eq!(message["tool_calls"][0]["function"]["name"], "run_command");
+        assert_eq!(
+            message["tool_calls"][0]["function"]["arguments"], "{\"command\":\"ls\"}",
+            "arguments travel as a JSON string, as OpenAI carries them"
+        );
+        assert_eq!(openai_resp["choices"][0]["finish_reason"], "tool_calls");
+        assert_eq!(openai_resp["usage"]["prompt_tokens"], 10);
+    }
+
+    /// Parallel tool calls: every result belongs to the one user turn that
+    /// answers the assistant's batch, so they are grouped, not split.
+    #[test]
+    fn parallel_tool_results_share_one_user_turn() {
+        let openai_req = json!({
+            "model": "claude-haiku",
+            "messages": [
+                {"role": "user", "content": "go"},
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "a", "type": "function", "function": {"name": "one", "arguments": "{}"}},
+                    {"id": "b", "type": "function", "function": {"name": "two", "arguments": "{}"}}
+                ]},
+                {"role": "tool", "tool_call_id": "a", "content": "r1"},
+                {"role": "tool", "tool_call_id": "b", "content": "r2"}
+            ]
+        });
+        let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
+        let messages = anthropic_req["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 3, "{anthropic_req}");
+        assert_eq!(messages[2]["content"].as_array().unwrap().len(), 2);
     }
 
     #[test]
