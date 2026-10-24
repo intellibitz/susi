@@ -34,6 +34,25 @@ fn path_with_prefix(prefix: &Path) -> std::ffi::OsString {
     std::env::join_paths(paths).unwrap()
 }
 
+fn host_git_binary() -> String {
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            #[cfg(windows)]
+            let candidate = dir.join("git.exe");
+            #[cfg(not(windows))]
+            let candidate = dir.join("git");
+            if candidate.is_file() {
+                return candidate.to_string_lossy().replace('\\', "/");
+            }
+        }
+    }
+    if cfg!(windows) {
+        "git.exe".to_string()
+    } else {
+        "/usr/bin/git".to_string()
+    }
+}
+
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(["-c", "commit.gpgsign=false"])
@@ -182,7 +201,10 @@ impl World {
         // With TEST_RACE_PRIMARY set, the first push instead lands the primary's
         // unpushed main commit on remote main — a merge that raced ours — so the
         // wait loop must integrate and repush (once) before ours can land.
-        executable(&bins.join("git"), "#!/bin/sh\nexec git.exe \"$@\"\n");
+        executable(
+            &bins.join("git"),
+            &format!("#!/bin/sh\nexec \"{}\" \"$@\"\n", host_git_binary()),
+        );
         let world = Self {
             root,
             primary,
@@ -366,7 +388,10 @@ impl World {
     fn finish_with_a_green_run(&self) -> std::process::Output {
         executable(
             &self.bins.join("gh"),
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(git.exe rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+            &format!(
+                "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(\"{}\" rev-parse HEAD 2>/dev/null)\n printf '[{{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\"}}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+                host_git_binary()
+            ),
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
             .env("PATH", path_with_prefix(&self.bins))
@@ -388,7 +413,10 @@ impl World {
     fn finish_with_a_failing_run(&self) -> std::process::Output {
         executable(
             &self.bins.join("gh"),
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(git.exe rev-parse HEAD 2>/dev/null)\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\"}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+            &format!(
+                "#!/bin/sh\ncase \"$1 $2\" in\n\"run list\")\n sha=$(\"{}\" rev-parse HEAD 2>/dev/null)\n printf '[{{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"failure\"}}]\\n' \"$sha\"\n ;;\n\"pr view\") echo OPEN ;;\n*) exit 1 ;;\nesac\n",
+                host_git_binary()
+            ),
         );
         self.susi(&["workflow", "finish", "T-WORKER-1"])
             .env("PATH", path_with_prefix(&self.bins))

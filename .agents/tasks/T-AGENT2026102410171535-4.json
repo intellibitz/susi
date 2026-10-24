@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT2026102410171535-4",
+  "title": "Fix git shim recursion and git.exe portability in integration tests",
+  "goal": "Prevent infinite recursion in fake git shim on Linux and avoid git.exe not found errors by resolving host git dynamically",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--test",
+      "auto_merge"
+    ]
+  },
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792829000
+}
