@@ -76,21 +76,31 @@ worktree nobody can account for.
 Yes. The panel is a single HTML page with no build step and no external assets.
 Any desktop that can host an iframe can embed it; the JSON API is the contract
 for a native surface. This repository ships a DeepSeek Harness plugin at
-`deploy/dsh-cockpit` as the reference integration: a sidebar icon plus a main
-panel, installed through the plugin manager. That panel now embeds the
-**standalone CEO cockpit** (the former litellm/openclaw cockpit, split out as
-its own app) at `http://localhost:8080/`; susi's own panel is still served by
-`susi harness cockpit` on 9181.
+`deploy/dsh-cockpit` as the reference integration, installed through the plugin
+manager. It registers **two** entries, because there are two cockpits:
+
+- **CEO cockpit (external)** embeds the standalone orchestration cockpit app
+  (`http://localhost:8080/` by default) — the former litellm/openclaw cockpit,
+  split out as its own application.
+- **CEO cockpit (susi native)** embeds susi's own panel, built entirely
+  in-house and served by `susi harness cockpit` on 9181.
+
+Each keeps its own URL in the browser.
 
 ## Why does the panel say "waiting for the cockpit"?
 
-The iframe has not loaded yet, or the cockpit app is not running. Start the
-standalone CEO cockpit (default `http://localhost:8080/`). The panel's URL is
-editable and the setting is stored in the browser, so a cockpit on another port
-works without reinstalling the plugin; a browser that still holds the old
-`…:9181/?embed=1` default follows the new one until you save a URL yourself.
+The iframe has not loaded yet, or that cockpit is not running: the external app
+defaults to `http://localhost:8080/`, the native panel to
+`http://127.0.0.1:9181/?embed=1`. Each panel's URL is editable and stored in the
+browser, so a cockpit on another port works without reinstalling the plugin.
+The native panel also adopts a URL saved under the old single-cockpit key, so a
+custom address survives the split into two.
 
 ## Embedding the cockpit in another desktop
 
-The CEO cockpit is a standalone app: embed its URL (`http://localhost:8080/` by default) in an iframe. The DeepSeek Harness plugin in `deploy/dsh-cockpit` is the reference: a sidebar entry and a main panel around that URL, which the panel itself can repoint and remembers. susi's native harness panel (JSON API at `/api/status`) is a separate surface served by `susi harness cockpit`.
+The external CEO cockpit is a standalone app: embed `http://localhost:8080/` by
+default, or wherever it runs. The DeepSeek Harness plugin in `deploy/dsh-cockpit`
+is the reference: two sidebar entries, one panel each, both repointable. susi's
+native cockpit (JSON API at `/api/status`) is embedded the same way from
+`susi harness cockpit`.
 

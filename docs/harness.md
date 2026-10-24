@@ -160,15 +160,21 @@ susi harness cockpit \
   the control log and answered. The supervisor reads the log before each batch
   and stops starting new work when the operator paused or aborted.
 
-susi's own panel has no build step and no external assets, so any harness
-desktop can embed it in an iframe. This repository ships a DeepSeek Harness
-plugin at `deploy/dsh-cockpit`: it registers a **CEO cockpit** entry in the
-sidebar and a main panel that embeds the **standalone CEO cockpit** app at
-`http://localhost:8080/` — the former litellm/openclaw cockpit, now its own
-application. (susi's native panel, served by `susi harness cockpit`, is a
-different surface and stays on its own port, 9181.) Install the plugin with the
-Harness plugin manager (`install_bundle`, target `deploy/dsh-cockpit`); the URL
-is editable in the panel and stored in the browser.
+The panel has no build step and no external assets, so any harness desktop can
+embed it in an iframe. This repository ships a DeepSeek Harness plugin at
+`deploy/dsh-cockpit` that registers **two** cockpit entries, because the two are
+different surfaces and both belong in the sidebar:
+
+| Sidebar entry | Embeds | URL default |
+|---|---|---|
+| CEO cockpit (external) | the standalone orchestration cockpit app — the former litellm/openclaw cockpit, split into its own application | `http://localhost:8080/` |
+| CEO cockpit (susi native) | susi's own panel, built entirely in-house and served by `susi harness cockpit` | `http://127.0.0.1:9181/?embed=1` |
+
+Each panel keeps its own URL in the browser, so repointing one never moves the
+other; the native panel also adopts a URL saved under the pre-split
+`susi.cockpit.url` key, so an operator's custom cockpit address survives the
+split. Install the plugin with the Harness plugin manager (`install_bundle`,
+target `deploy/dsh-cockpit`).
 
 ## SUSI building SUSI
 

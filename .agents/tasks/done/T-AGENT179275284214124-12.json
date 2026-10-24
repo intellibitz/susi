@@ -1,0 +1,22 @@
+{
+  "id": "T-AGENT179275284214124-12",
+  "title": "Add the internal susi CEO cockpit beside the external one in the Harness plugin",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "cockpit_plugin"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792846459,
+  "closed": {
+    "at_unix": 1792847279,
+    "commit": "0f57b51b28d377b2a2507353dacb54fc724ba87f",
+    "by": "AGENT179275284214124"
+  }
+}
