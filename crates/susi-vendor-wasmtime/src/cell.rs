@@ -388,4 +388,54 @@ mod tests {
             "WASM function '_start' returned 7"
         );
     }
+
+    #[test]
+    fn host_send_rejects_negative_arguments() {
+        let wat = r#"(module
+            (import "susi" "host_send" (func $send (param i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "_start") (result i32)
+                (call $send (i32.const -1) (i32.const 10))))"#;
+        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        assert!(cell.execute("_start").unwrap().ends_with("returned -1"));
+    }
+
+    #[test]
+    fn host_send_rejects_oversized_payload() {
+        let wat = r#"(module
+            (import "susi" "host_send" (func $send (param i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "_start") (result i32)
+                (call $send (i32.const 0) (i32.const 2000000))))"#;
+        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        assert!(cell.execute("_start").unwrap().ends_with("returned -1"));
+    }
+
+    #[test]
+    fn wasm_cell_load_file_lifecycle() {
+        let missing = PathBuf::from("nonexistent_wasm_file_for_test.wasm");
+        assert!(WasmCell::load(&missing).is_err());
+
+        let wat = r#"(module (func (export "_start") (result i32) (i32.const 42)))"#;
+        let tmp = std::env::temp_dir().join(format!("susi_cell_test_{}.wat", std::process::id()));
+        std::fs::write(&tmp, wat).unwrap();
+        let mut cell = WasmCell::load(&tmp).unwrap();
+        assert_eq!(
+            cell.execute("_start").unwrap(),
+            "WASM function '_start' returned 42"
+        );
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn host_send_rejects_when_outbox_full() {
+        let mut cell = WasmCell::from_bytes(SENDER.as_bytes()).unwrap();
+        for _ in 0..MAX_OUTBOX_MESSAGES {
+            assert_eq!(
+                cell.execute("_start").unwrap(),
+                "WASM function '_start' returned 0"
+            );
+        }
+        assert!(cell.execute("_start").unwrap().ends_with("returned -4"));
+    }
 }
