@@ -360,7 +360,16 @@ pub fn openai_to_anthropic_messages(openai: &Value) -> Result<Value, String> {
     });
 
     if !system_prompt.is_empty() {
-        payload["system"] = json!(system_prompt);
+        // The system prompt is the stable prefix of every turn in a worker run,
+        // so it is where prompt caching pays. The Messages API caches nothing
+        // without an explicit breakpoint (verified live: repeated identical
+        // prefixes report 0 cache_creation and 0 cache_read), and with one the
+        // second turn reads the whole prefix back at the hit rate.
+        payload["system"] = json!([{
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"}
+        }]);
     }
 
     if let Some(tools) = anthropic_tools(openai) {
@@ -398,9 +407,13 @@ fn is_tool_results(message: &Value) -> bool {
 }
 
 /// The OpenAI `tools` list in the Messages shape, when there is one.
+///
+/// The tool block is part of the stable prefix, so its last entry carries the
+/// cache breakpoint: the whole tool set is then cached alongside the system
+/// prompt and read back at the hit rate on every later turn of the run.
 fn anthropic_tools(openai: &Value) -> Option<Value> {
     let tools = openai.get("tools").and_then(Value::as_array)?;
-    let mapped = tools
+    let mut mapped = tools
         .iter()
         .filter_map(|tool| {
             let function = tool.get("function")?;
@@ -418,6 +431,9 @@ fn anthropic_tools(openai: &Value) -> Option<Value> {
             Some(entry)
         })
         .collect::<Vec<_>>();
+    if let Some(last) = mapped.last_mut() {
+        last["cache_control"] = json!({"type": "ephemeral"});
+    }
     (!mapped.is_empty()).then(|| json!(mapped))
 }
 
@@ -470,7 +486,8 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
             _ => {}
         }
     }
-    if text.is_empty() && tool_calls.is_empty() {
+    let truncated = anthropic.get("stop_reason").and_then(Value::as_str) == Some("max_tokens");
+    if text.is_empty() && tool_calls.is_empty() && !truncated {
         return Err("response carried no content[].text or content[].tool_use".to_string());
     }
 
@@ -478,6 +495,15 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
         .pointer("/usage/input_tokens")
         .and_then(Value::as_u64)
         .unwrap_or(0);
+    let cache_read_tokens = anthropic
+        .pointer("/usage/cache_read_input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let cache_written_tokens = anthropic
+        .pointer("/usage/cache_creation_input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let prompt_tokens = input_tokens + cache_read_tokens + cache_written_tokens;
     let output_tokens = anthropic
         .pointer("/usage/output_tokens")
         .and_then(Value::as_u64)
@@ -515,10 +541,17 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
                 "finish_reason": finish_reason
             }
         ],
+        // Prompt caching, in the OpenAI shape the meter reads. Anthropic
+        // reports `input_tokens` *excluding* everything served from or written
+        // to its cache, so the OpenAI `prompt_tokens` (which includes the whole
+        // prompt) is the sum, and `prompt_tokens_details.cached_tokens` carries
+        // the read half — that is what lets the ledger charge the hit rate
+        // instead of the miss rate.
         "usage": {
-            "prompt_tokens": input_tokens,
+            "prompt_tokens": prompt_tokens,
+            "prompt_tokens_details": {"cached_tokens": cache_read_tokens},
             "completion_tokens": output_tokens,
-            "total_tokens": input_tokens + output_tokens
+            "total_tokens": prompt_tokens + output_tokens
         }
     }))
 }
@@ -767,6 +800,60 @@ mod tests {
         assert_eq!(messages[2]["content"].as_array().unwrap().len(), 2);
     }
 
+    /// A truncated answer (`max_tokens`) with no text is still an answer: it
+    /// carries usage, and the worker reports the length stop rather than the
+    /// gateway failing the call as unmeterable.
+    #[test]
+    fn a_truncated_anthropic_answer_still_carries_its_usage() {
+        let reply = json!({
+            "id": "msg_3",
+            "content": [],
+            "stop_reason": "max_tokens",
+            "usage": {
+                "input_tokens": 5,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 7000,
+                "output_tokens": 8
+            }
+        });
+        let openai_resp = anthropic_to_openai_chat(&reply, "claude-haiku").unwrap();
+        assert_eq!(openai_resp["choices"][0]["finish_reason"], "length");
+        assert_eq!(openai_resp["usage"]["prompt_tokens"], 7005);
+        assert_eq!(
+            openai_resp["usage"]["prompt_tokens_details"]["cached_tokens"],
+            7000
+        );
+
+        // An empty complete answer is still an anomaly.
+        let empty = json!({"content": [], "stop_reason": "end_turn", "usage": {}});
+        assert!(anthropic_to_openai_chat(&empty, "claude-haiku").is_err());
+    }
+
+    /// The meter charges the hit rate from `prompt_tokens_details.cached_tokens`,
+    /// and Anthropic reports cache reads outside `input_tokens` — so both halves
+    /// have to be put back together or the cache would be invisible (and priced
+    /// as a miss).
+    #[test]
+    fn anthropic_cache_usage_maps_into_the_openai_shape() {
+        let reply = json!({
+            "id": "msg_2",
+            "content": [{"type": "text", "text": "ok"}],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 12,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 2763,
+                "output_tokens": 5
+            }
+        });
+        let openai_resp = anthropic_to_openai_chat(&reply, "claude-haiku").unwrap();
+        let usage = &openai_resp["usage"];
+        assert_eq!(usage["prompt_tokens"], 12 + 2763);
+        assert_eq!(usage["prompt_tokens_details"]["cached_tokens"], 2763);
+        assert_eq!(usage["completion_tokens"], 5);
+        assert_eq!(usage["total_tokens"], 12 + 2763 + 5);
+    }
+
     #[test]
     fn openai_to_anthropic_and_back_round_trips() {
         let openai_req = json!({
@@ -781,7 +868,14 @@ mod tests {
 
         let anthropic_req = openai_to_anthropic_messages(&openai_req).unwrap();
         assert_eq!(anthropic_req["model"], "claude-3-5-sonnet");
-        assert_eq!(anthropic_req["system"], "You are a test assistant.");
+        assert_eq!(
+            anthropic_req["system"][0]["text"],
+            "You are a test assistant."
+        );
+        assert_eq!(
+            anthropic_req["system"][0]["cache_control"]["type"], "ephemeral",
+            "the stable prefix carries the cache breakpoint"
+        );
         assert_eq!(anthropic_req["max_tokens"], 1024);
         assert_eq!(anthropic_req["messages"][0]["role"], "user");
         assert_eq!(anthropic_req["messages"][0]["content"], "Hello Claude");

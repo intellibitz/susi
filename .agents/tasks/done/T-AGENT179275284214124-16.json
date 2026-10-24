@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179275284214124-16",
+  "title": "Turn prompt caching on for all three providers and price cache hits as hits",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-adapters-llm",
+      "--lib",
+      "inference_wire"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792860672,
+  "closed": {
+    "at_unix": 1792861048,
+    "commit": "663d3aeb46aa27f673b8c9eefa8a8c3d8dc11802",
+    "by": "AGENT179275284214124"
+  }
+}
