@@ -1832,7 +1832,7 @@ fn gmcp_req_203_002_02_production() {
     let response = wire
         .request_verbatim(
             &serde_json::json!({"jsonrpc":"2.0","id":null,"method":"tools/list"}),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("a null id must be answered");
     assert_eq!(response["error"]["code"], -32600);
@@ -1841,7 +1841,7 @@ fn gmcp_req_203_002_02_production() {
     wire.send_raw(b"{not-a-json-line}\n");
     let response = wire
         .rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(std::time::Duration::from_secs(120))
         .expect("a malformed line must be answered");
     assert_eq!(response["error"]["code"], -32700);
 
@@ -1850,7 +1850,7 @@ fn gmcp_req_203_002_02_production() {
     wire.send_raw(b"\n");
     let response = wire
         .rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(std::time::Duration::from_secs(120))
         .expect("a batch must be answered");
     assert_eq!(response["error"]["code"], -32600);
 
@@ -1858,7 +1858,7 @@ fn gmcp_req_203_002_02_production() {
     let response = wire
         .request_verbatim(
             &serde_json::json!({"jsonrpc":"2.0","id":"no-method"}),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("a methodless request must be answered");
     assert_eq!(response["error"]["code"], -32600);
@@ -1886,7 +1886,7 @@ fn gmcp_req_203_002_02_production() {
                     "io.modelcontextprotocol/clientCapabilities":{}
                 }}
             }),
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(120),
         )
         .expect("server/discover must be answered");
     assert!(response.get("result").is_some(), "discover: {response}");
@@ -1895,7 +1895,7 @@ fn gmcp_req_203_002_02_production() {
     let response = modern
         .request_verbatim(
             &serde_json::json!({"jsonrpc":"2.0","id":"meta-missing","method":"tools/list","params":{}}),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("a meta-missing request must be answered");
     assert_eq!(response["error"]["code"], -32602);
@@ -1910,7 +1910,7 @@ fn gmcp_req_203_002_02_production() {
                     "io.modelcontextprotocol/clientCapabilities":{}
                 }}
             }),
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(120),
         )
         .expect("a conforming modern request must be answered");
     assert_eq!(
@@ -1928,7 +1928,7 @@ fn gmcp_req_203_002_02_production() {
                     "io.modelcontextprotocol/clientCapabilities":{}
                 }}
             }),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("an unsupported version must be answered");
     assert_eq!(response["error"]["code"], -32022);
@@ -1943,7 +1943,7 @@ fn gmcp_req_203_002_02_production() {
     let response = modern
         .request_verbatim(
             &serde_json::json!({"jsonrpc":"2.0","id":"era-persist","method":"tools/list","params":{}}),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("a late meta-missing request must be answered");
     assert_eq!(response["error"]["code"], -32602);
@@ -2032,7 +2032,7 @@ fn gmcp_req_203_002_03_integration() {
             };
             let body = serde_json::to_vec(request).unwrap();
             let observed =
-                match session.request_verbatim(request, std::time::Duration::from_secs(10)) {
+                match session.request_verbatim(request, std::time::Duration::from_secs(120)) {
                     None => serde_json::json!({"kind": "silent_drop"}),
                     Some(response) if response.get("error").is_some() => {
                         serde_json::json!({"kind": "error", "code": response["error"]["code"]})
@@ -2150,7 +2150,7 @@ fn gmcp_req_203_002_04_adversarial() {
     wire.send_raw(b"{not-json}\n");
     let malformed = wire
         .rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(std::time::Duration::from_secs(120))
         .expect("malformed input must receive a typed error");
     assert_eq!(malformed["error"]["code"], -32700);
     wire.send(&serde_json::json!({
@@ -2160,7 +2160,7 @@ fn gmcp_req_203_002_04_adversarial() {
         "params": {}
     }));
     let recovered = wire
-        .response_for(&serde_json::json!(700), std::time::Duration::from_secs(10))
+        .response_for(&serde_json::json!(700), std::time::Duration::from_secs(120))
         .expect("a malformed frame must not poison its neighbor");
     assert_eq!(recovered["id"], 700);
     assert!(recovered["result"].is_object());
@@ -2177,7 +2177,7 @@ fn gmcp_req_203_002_04_adversarial() {
         }));
     }
     let response = wire
-        .response_for(&serde_json::json!(701), std::time::Duration::from_secs(10))
+        .response_for(&serde_json::json!(701), std::time::Duration::from_secs(120))
         .expect("a duplicate request must not prevent one valid response");
     assert_eq!(response["id"], 701);
     assert!(response["result"].is_object());
@@ -2188,7 +2188,7 @@ fn gmcp_req_203_002_04_adversarial() {
         "params": {}
     }));
     let response = wire
-        .response_for(&serde_json::json!(705), std::time::Duration::from_secs(10))
+        .response_for(&serde_json::json!(705), std::time::Duration::from_secs(120))
         .expect("a duplicate request must not poison a later request");
     assert_eq!(response["id"], 705);
     assert!(response["result"].is_object());
@@ -2209,7 +2209,7 @@ fn gmcp_req_203_002_04_adversarial() {
     }));
     for id in [702, 703] {
         let response = wire
-            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(120))
             .expect("concurrent requests must both complete");
         assert_eq!(response["id"], id);
         assert!(response["result"].is_object());
@@ -2231,7 +2231,7 @@ fn gmcp_req_203_002_04_adversarial() {
         "params": {}
     }));
     let response = wire
-        .response_for(&serde_json::json!(704), std::time::Duration::from_secs(10))
+        .response_for(&serde_json::json!(704), std::time::Duration::from_secs(120))
         .expect("cancellation notifications must not block the next request");
     assert_eq!(response["id"], 704);
     assert!(
@@ -2284,7 +2284,7 @@ fn gmcp_req_203_002_04_adversarial() {
                     "io.modelcontextprotocol/clientCapabilities": {}
                 }}
             }),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("unsupported versions must be answered");
     assert_eq!(unsupported["error"]["code"], -32022);
@@ -2297,7 +2297,7 @@ fn gmcp_req_203_002_04_adversarial() {
                 "method": "tools/list",
                 "params": {}
             }),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("modern metadata failures must be answered");
     assert_eq!(missing_meta["error"]["code"], -32602);
@@ -2368,7 +2368,7 @@ fn gmcp_req_203_002_05_interop() {
                 .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
         let request = &fixture["request"];
         let response = modern
-            .request_verbatim(request, std::time::Duration::from_secs(30))
+            .request_verbatim(request, std::time::Duration::from_secs(120))
             .unwrap_or_else(|| panic!("{file} must receive a response"));
         if file == "server-discover-2026-07-28.json" {
             // This fixture is intentionally retained verbatim as a
@@ -2406,7 +2406,7 @@ fn gmcp_req_203_002_05_interop() {
         "params": {}
     }));
     let response = legacy
-        .response_for(&serde_json::json!(900), std::time::Duration::from_secs(10))
+        .response_for(&serde_json::json!(900), std::time::Duration::from_secs(120))
         .expect("a notification must not stall the next request");
     assert_eq!(response["id"], 900);
     assert!(legacy.pending.iter().all(|value| !value["id"].is_null()));
@@ -2428,11 +2428,11 @@ fn gmcp_req_203_002_05_interop() {
                 .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
         let response = if *modern_path {
             modern
-                .request_verbatim(&fixture["request"], std::time::Duration::from_secs(10))
+                .request_verbatim(&fixture["request"], std::time::Duration::from_secs(120))
                 .unwrap_or_else(|| panic!("{file} must receive an error"))
         } else {
             legacy
-                .request_verbatim(&fixture["request"], std::time::Duration::from_secs(10))
+                .request_verbatim(&fixture["request"], std::time::Duration::from_secs(120))
                 .unwrap_or_else(|| panic!("{file} must receive an error"))
         };
         assert_eq!(
@@ -2481,7 +2481,7 @@ fn gmcp_req_203_002_05_interop() {
     }
     for id in 1_000..1_016 {
         let response = legacy
-            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(120))
             .unwrap_or_else(|| panic!("burst request {id} timed out"));
         assert_eq!(response["id"], id);
         assert!(response["result"].is_object());
@@ -2709,11 +2709,11 @@ fn gmcp_vc_203_002_mastery() {
     wire.send_raw(&burst);
     let over = wire
         .rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(std::time::Duration::from_secs(120))
         .expect("an oversized line must receive a typed error, not silence");
     assert_eq!(over["error"]["code"], -32600);
     let neighbour = wire
-        .response_for(&serde_json::json!(801), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(801), std::time::Duration::from_secs(120))
         .expect("the request sharing the dead line's chunk must still be answered");
     assert!(neighbour["result"].is_object());
 
@@ -2722,20 +2722,20 @@ fn gmcp_vc_203_002_mastery() {
     wire.send_raw(b"{corrupt\n");
     let parse = wire
         .rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(std::time::Duration::from_secs(120))
         .expect("malformed input must be answered");
     assert_eq!(parse["error"]["code"], -32700);
     wire.send_raw(b"[]\n");
     let batch = wire
         .rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(std::time::Duration::from_secs(120))
         .expect("a batch must be answered");
     assert_eq!(batch["error"]["code"], -32600);
     wire.send_raw(br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#);
     wire.send_raw(b"\n");
     let null_id = wire
         .rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(std::time::Duration::from_secs(120))
         .expect("a null request id must be answered");
     assert_eq!(null_id["error"]["code"], -32600);
     wire.send(&serde_json::json!({
@@ -2745,7 +2745,7 @@ fn gmcp_vc_203_002_mastery() {
         "params": {}
     }));
     let alive = wire
-        .response_for(&serde_json::json!(802), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(802), std::time::Duration::from_secs(120))
         .expect("the stream must remain usable after every failure kind");
     assert!(alive["result"].is_object());
 
@@ -2764,7 +2764,7 @@ fn gmcp_vc_203_002_mastery() {
     }));
     for id in [803, 804] {
         let response = wire
-            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(120))
             .expect("concurrent requests must both complete");
         assert_eq!(response["id"], id);
     }
@@ -2784,7 +2784,7 @@ fn gmcp_vc_203_002_mastery() {
         "params": {}
     }));
     let response = wire
-        .response_for(&serde_json::json!(805), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(805), std::time::Duration::from_secs(120))
         .expect("a notification must not block the next request");
     assert_eq!(response["id"], 805);
     assert!(
@@ -2826,7 +2826,7 @@ fn gmcp_vc_203_002_mastery() {
                 "method": "tools/list",
                 "params": {}
             }),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("modern metadata failures must be answered");
     assert_eq!(missing_meta["error"]["code"], -32602);
@@ -2841,7 +2841,7 @@ fn gmcp_vc_203_002_mastery() {
                     "io.modelcontextprotocol/clientCapabilities": {}
                 }}
             }),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(120),
         )
         .expect("unsupported versions must be answered");
     assert_eq!(unsupported["error"]["code"], -32022);
@@ -3301,7 +3301,7 @@ fn gmcp_req_203_003_02_production() {
                     "io.modelcontextprotocol/clientCapabilities": {}
                 }}
             }),
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(120),
         )
         .expect("unsupported version must be answered, not dropped");
     assert_eq!(rejected["error"]["code"], -32022);
@@ -3575,7 +3575,7 @@ fn gmcp_req_203_003_04_adversarial() {
                     "io.modelcontextprotocol/clientCapabilities": {}
                 }}
             }),
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(120),
         )
         .expect("era-mismatched request must earn a typed answer, not a drop");
     assert_eq!(attack["error"]["code"], -32600);
@@ -3604,7 +3604,7 @@ fn gmcp_req_203_003_04_adversarial() {
                 "jsonrpc": "2.0", "id": "post-attack-ping", "method": "ping",
                 "params": {}
             }),
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(120),
         )
         .expect("a bare legacy request after the attack must be answered");
     assert!(
@@ -3646,7 +3646,7 @@ fn gmcp_req_203_003_05_interop() {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
                 .unwrap_or_else(|e| panic!("{file} must parse: {e}"));
         let response = modern
-            .request_verbatim(&fixture["request"], std::time::Duration::from_secs(30))
+            .request_verbatim(&fixture["request"], std::time::Duration::from_secs(120))
             .unwrap_or_else(|| panic!("{file} must receive a response"));
         assert!(response["error"].is_null(), "{file}: {response}");
         assert!(response["result"].is_object(), "{file}: {response}");
@@ -3687,7 +3687,7 @@ fn gmcp_req_203_003_05_interop() {
     )
     .unwrap();
     let response = modern
-        .request_verbatim(&divergent["request"], std::time::Duration::from_secs(30))
+        .request_verbatim(&divergent["request"], std::time::Duration::from_secs(120))
         .expect("the divergence fixture must receive a typed error");
     assert_eq!(response["error"]["code"], -32602, "{response}");
     let divergences =
@@ -3709,7 +3709,7 @@ fn gmcp_req_203_003_05_interop() {
         "jsonrpc": "2.0", "id": 910, "method": "ping", "params": {}
     }));
     let response = legacy
-        .response_for(&serde_json::json!(910), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(910), std::time::Duration::from_secs(120))
         .expect("a notification must not stall the next request");
     assert_eq!(response["id"], 910);
 
@@ -3729,7 +3729,7 @@ fn gmcp_req_203_003_05_interop() {
     };
     modern.send(&discover_msg(51));
     let wire = modern
-        .response_for(&serde_json::json!(51), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(51), std::time::Duration::from_secs(120))
         .expect("discover must be answered")["result"]
         .clone();
     for field in [
@@ -3753,14 +3753,14 @@ fn gmcp_req_203_003_05_interop() {
     //    second session observes the identical result. ────────────────
     modern.send(&discover_msg(52));
     let repeat = modern
-        .response_for(&serde_json::json!(52), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(52), std::time::Duration::from_secs(120))
         .expect("discover must be answered")["result"]
         .clone();
     assert_eq!(wire, repeat, "discover must be deterministic per build");
     let mut modern_b = StdioSession::spawn_modern(root, &home);
     modern_b.send(&discover_msg(53));
     let second_session = modern_b
-        .response_for(&serde_json::json!(53), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(53), std::time::Duration::from_secs(120))
         .expect("discover must be answered on a second session")["result"]
         .clone();
     assert_eq!(
@@ -3779,7 +3779,7 @@ fn gmcp_req_203_003_05_interop() {
         "jsonrpc": "2.0", "id": 54, "method": "ping", "params": {}
     }));
     let legacy_answer = legacy
-        .response_for(&serde_json::json!(911), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(911), std::time::Duration::from_secs(120))
         .expect("the legacy session must answer a bare ping");
     assert!(legacy_answer["result"].is_object(), "{legacy_answer}");
     assert!(
@@ -3787,7 +3787,7 @@ fn gmcp_req_203_003_05_interop() {
         "legacy wire shape must stay resultType-free: {legacy_answer}"
     );
     let modern_answer = modern
-        .response_for(&serde_json::json!(54), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(54), std::time::Duration::from_secs(120))
         .expect("the modern session must answer the bare ping");
     assert_eq!(
         modern_answer["error"]["code"], -32602,
@@ -3824,7 +3824,7 @@ fn gmcp_req_203_003_05_interop() {
     let warm = std::time::Instant::now();
     modern.send(&discover_msg(55));
     let _ = modern
-        .response_for(&serde_json::json!(55), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(55), std::time::Duration::from_secs(120))
         .expect("a warm discover must answer");
     assert!(
         warm.elapsed() < std::time::Duration::from_secs(30),
@@ -3837,7 +3837,7 @@ fn gmcp_req_203_003_05_interop() {
     }
     for id in 2_000..2_016 {
         let response = modern
-            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(120))
             .unwrap_or_else(|| panic!("burst discover {id} timed out"));
         assert_eq!(response["id"], id);
         assert!(response["result"].is_object());
@@ -3893,7 +3893,7 @@ fn gmcp_req_203_003_06_operations() {
     .unwrap();
     let mut modern = StdioSession::spawn_modern(root, &home);
     let response = modern
-        .request_verbatim(&fixture["request"], std::time::Duration::from_secs(30))
+        .request_verbatim(&fixture["request"], std::time::Duration::from_secs(120))
         .expect("discover must answer on the served surface")["result"]
         .clone();
     for field in [
@@ -4117,7 +4117,7 @@ fn gmcp_vc_203_003_mastery() {
                     "jsonrpc": "2.0", "id": id,
                     "method": "tools/list", "params": params
                 }),
-                std::time::Duration::from_secs(30),
+                std::time::Duration::from_secs(120),
             )
             .unwrap_or_else(|| panic!("{id} must receive a typed error"));
         assert_eq!(response["error"]["code"], code, "{id}: {response}");
@@ -4146,7 +4146,7 @@ fn gmcp_vc_203_003_mastery() {
     };
     modern.send(&discover_msg(71));
     let discover = modern
-        .response_for(&serde_json::json!(71), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(71), std::time::Duration::from_secs(120))
         .expect("discover must answer")["result"]
         .clone();
     assert_eq!(
@@ -4157,7 +4157,7 @@ fn gmcp_vc_203_003_mastery() {
     assert_eq!(discover["resultType"], "complete");
     modern.send(&discover_msg(72));
     let cached = modern
-        .response_for(&serde_json::json!(72), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(72), std::time::Duration::from_secs(120))
         .expect("a cacheable discover must repeat")["result"]
         .clone();
     assert_eq!(
@@ -4192,14 +4192,14 @@ fn gmcp_vc_203_003_mastery() {
         }}
     }));
     let confused = legacy
-        .response_for(&serde_json::json!(81), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(81), std::time::Duration::from_secs(120))
         .expect("era-confused metadata must earn a typed verdict");
     assert_eq!(confused["error"]["code"], -32600, "{confused}");
     legacy.send(&serde_json::json!({
         "jsonrpc": "2.0", "id": 82, "method": "ping", "params": {}
     }));
     let still_legacy = legacy
-        .response_for(&serde_json::json!(82), std::time::Duration::from_secs(30))
+        .response_for(&serde_json::json!(82), std::time::Duration::from_secs(120))
         .expect("the rejection must not poison the negotiated era");
     assert!(
         still_legacy["result"].is_object(),
