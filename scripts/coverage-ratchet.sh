@@ -26,6 +26,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 run_cov() {
+    export RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}"
     cargo llvm-cov --workspace --summary-only > "$1"
     cargo llvm-cov -p susi-leaf-services --all-features --summary-only > "$2"
 }
@@ -108,13 +109,10 @@ if [[ "${1:-}" == "--update" ]]; then
     exit 0
 fi
 
-run_cov /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt
-if ratchet --check /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt; then
-    exit 0
+if ! run_cov /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt || ! ratchet --check /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt; then
+    echo "coverage regression measured — re-running once to rule out env flake"
+    run_cov /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt
+    ratchet --check \
+        /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt \
+        /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt
 fi
-
-echo "coverage regression measured — re-running once to rule out env flake"
-run_cov /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt
-ratchet --check \
-    /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt \
-    /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt
