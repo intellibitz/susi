@@ -1,0 +1,12 @@
+{
+  "id": "T-AGENT2026102410171535-6",
+  "title": "Restore merge-emulating git shim in the Linux parallel_workflow fixture",
+  "goal": "The unix-only parallel_workflow finish tests hang on Linux CI because the fake git no longer emulates the remote merge on push; restore the emulation using the resolved host git",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": ["cargo", "nextest", "run", "--test", "parallel_workflow"]
+  },
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792837000
+}
