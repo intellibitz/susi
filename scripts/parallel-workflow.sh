@@ -274,7 +274,9 @@ finish)
     # including a failing gate — scoped to this checkout's target dir.
     trap "\"$root/scripts/kill-leftover-service-runs.sh\" >/dev/null 2>&1 || true" EXIT
     nowait=0
-    [ "${3:-}" = "--no-wait" ] && nowait=1
+    for arg in "$@"; do
+        [ "$arg" = "--no-wait" ] && nowait=1
+    done
     export SUSI_SYNC_SKIP_BOARD=1
     renew_or_readopt
     sync
