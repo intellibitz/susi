@@ -203,7 +203,10 @@ impl World {
         // wait loop must integrate and repush (once) before ours can land.
         executable(
             &bins.join("git"),
-            &format!("#!/bin/sh\nexec \"{}\" \"$@\"\n", host_git_binary()),
+            &format!(
+                "#!/bin/sh\n\"{g}\" \"$@\" || exit $?\nif [ \"$1\" = push ]; then\n for arg in \"$@\"; do\n  case \"$arg\" in HEAD:refs/heads/*)\n   if [ -n \"$TEST_RACE_PRIMARY\" ] && [ ! -f \"$TEST_RACE_USED\" ]; then\n    : > \"$TEST_RACE_USED\"\n    (cd \"$TEST_RACE_PRIMARY\" && \"{g}\" push -q origin main)\n   elif [ \"$TEST_NO_MERGE\" != 1 ]; then\n    sha=$(\"{g}\" rev-parse HEAD); \"{g}\" --git-dir=\"$TEST_REMOTE\" update-ref refs/heads/main \"$sha\"\n   fi ;;\n  esac\n done\nfi\n",
+                g = host_git_binary()
+            ),
         );
         let world = Self {
             root,
