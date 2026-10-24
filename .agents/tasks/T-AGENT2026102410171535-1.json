@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT2026102410171535-1",
+  "title": "workflow: expose --no-wait on susi workflow finish to enable pipelined agent work",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "workflow"
+    ]
+  },
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792817755
+}

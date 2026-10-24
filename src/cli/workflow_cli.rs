@@ -13,7 +13,12 @@ pub enum WorkflowCommands {
     /// Fetch and merge origin/main into a clean agent worktree.
     Sync,
     /// Verify, close, push, wait for remote merge, sync, then release ownership.
-    Finish { id: String },
+    Finish {
+        id: String,
+        /// Release ownership immediately after pushing and publishing close receipt (do not wait for remote CI/merge)
+        #[arg(long)]
+        no_wait: bool,
+    },
     /// Keep the clean primary checkout current with remote main (local process).
     Watch,
 
@@ -55,7 +60,13 @@ pub enum WorkflowCommands {
 pub fn execute(action: WorkflowCommands, cwd: &Path) -> Result<()> {
     let (json, agent) = match action {
         WorkflowCommands::Sync => return run_loop(cwd, &["sync"]),
-        WorkflowCommands::Finish { id } => return run_loop(cwd, &["finish", &id]),
+        WorkflowCommands::Finish { id, no_wait } => {
+            if no_wait {
+                return run_loop(cwd, &["finish", &id, "--no-wait"]);
+            } else {
+                return run_loop(cwd, &["finish", &id]);
+            }
+        }
         WorkflowCommands::Watch => return run_loop(cwd, &["watch"]),
         WorkflowCommands::Check { json, agent } => (json, agent),
         WorkflowCommands::Start { name, agent } => return start(cwd, name, agent),
