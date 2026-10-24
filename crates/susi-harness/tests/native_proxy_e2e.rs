@@ -122,7 +122,7 @@ async fn native_proxy_ingress_is_priced_cached_and_capped() {
         ledger_path: ledger_path.clone(),
         upstream_chat_url: format!("http://{upstream}/v1/chat/completions"),
         provider: "deepseek".into(),
-        api_key: "upstream-test-key".into(),
+        api_key: Some("upstream-test-key".into()),
         timeout_secs: 10,
         max_output_tokens: None,
         cache: Some(cache),

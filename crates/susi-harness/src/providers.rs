@@ -447,8 +447,9 @@ const BUILTIN: &str = r#"
       "endpoint": "https://api.anthropic.com/v1/messages",
       "key_env": ["ANTHROPIC_API_KEY"],
       "models": [
-        {"id": "claude-3-5-sonnet", "backend": "claude-3-5-sonnet-20241022", "context": 200000, "tools": true, "streaming": true, "vision": true},
-        {"id": "claude-3-5-haiku", "backend": "claude-3-5-haiku-20241022", "context": 200000, "tools": true, "streaming": true, "vision": true}
+        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true},
+        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true},
+        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true}
       ]
     },
     {
@@ -531,8 +532,8 @@ mod tests {
     fn provider_registry_maps_friendly_ids_to_backend_ids() {
         let registry = Registry::builtin();
         assert_eq!(
-            registry.resolve("claude-3-5-sonnet").unwrap().model_id,
-            "claude-3-5-sonnet-20241022"
+            registry.resolve("claude-sonnet").unwrap().model_id,
+            "claude-sonnet-5-5"
         );
         assert_eq!(
             registry.resolve("gemini-flash").unwrap().model_id,
@@ -543,7 +544,7 @@ mod tests {
             "Qwen/Qwen2.5-Coder-32B-Instruct"
         );
         assert_eq!(
-            registry.resolve("claude-3-5-sonnet").unwrap().wire,
+            registry.resolve("claude-sonnet").unwrap().wire,
             Wire::Anthropic
         );
     }

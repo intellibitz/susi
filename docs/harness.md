@@ -85,6 +85,25 @@ the request is unchanged. The key can be checked without spending tokens: a
 valid key answers a request missing that header with a structured
 `invalid_request_error`, an invalid one with `401 authentication_error`.
 
+Two facts about the Anthropic wire shape, both learned from the live API:
+
+- **Sampling parameters are not forwarded.** The current Messages models answer
+  `invalid_request_error: "temperature is deprecated for this model"` for
+  `temperature`, `top_p` and `top_k` alike, so the OpenAI→Anthropic translation
+  drops all three and the model uses its own defaults. A worker turn — which
+  always pins `temperature: 0.0` — otherwise fails before it starts.
+- **Tool calling is not translated yet.** Messages, system prompt and
+  `max_tokens` convert; OpenAI `tools` do not, so a Claude turn can answer but
+  cannot call the worker's file or shell tools. Treat Claude as a chat/review
+  model until that lands.
+
+In `--upstream direct` mode the gateway routes each model through the registry,
+so **each provider resolves its own key env**; `--api-key-env` pins one key as
+an explicit override (needed only for a single explicit upstream, where it
+defaults to `DEEPSEEK_API_KEY`). Before this, a direct-mode gateway without
+`--api-key-env` sent the DeepSeek key to every provider, which Anthropic
+answered with `invalid x-api-key`.
+
 ## Budget
 
 Spend is bounded before an attempt, not discovered after the bill.
