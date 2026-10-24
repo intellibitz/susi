@@ -94,7 +94,7 @@ The concrete loop is:
    does not re-run for them (`SUSI_FINISH_REGATE=1` restores it). A failed check/conflict stops
    for repair; rerun finish after committing the repair. One accepted-but-
    unmerged close may be in flight at a time — the pipeline: nobody idles on a
-   merge queue they cannot hurry. `close` pushes a **close receipt** to
+   merge queue they cannot hurry. Agents must never sleep or block waiting for cloud CI runs — finish publishes the close receipt and the next task is free to claim immediately. `close` pushes a **close receipt** to
    `refs/closed/<id>`: the accepted-but-unmerged state is a fact on the shared
    remote, not private to one working tree. The receipt survives releasing the
    claim, losing the worktree, or letting the lease lapse — an agent that

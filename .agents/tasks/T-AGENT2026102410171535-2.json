@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT2026102410171535-2",
+  "title": "Keep the Windows CI job from saving branch caches and crowding the 10GB quota",
+  "goal": "Restrict Windows job cargo cache saving to main only (save-if: github.ref == refs/heads/main), enforce it in tests/ci_workflow_perf.rs, and clarify zero-idle pipelining in AGENTS.md",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf",
+      "a_tag_run_of_the_suite_writes_no_cache_and_skips_the_main_only_gates"
+    ]
+  },
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792820241
+}

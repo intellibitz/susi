@@ -978,6 +978,7 @@ jobs:
         with:
           shared-key: windows-binary
           cache-targets: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # This builds the debug `susi.exe` and runs all seven E2E checks against
       # it in a scratch HOME: the same list the release cut runs on the tagged
