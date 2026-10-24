@@ -107,6 +107,35 @@ defaults to `DEEPSEEK_API_KEY`). Before this, a direct-mode gateway without
 `--api-key-env` sent the DeepSeek key to every provider, which Anthropic
 answered with `invalid x-api-key`.
 
+### Prompt caching
+
+Caching is on for all three providers, and the meter charges whatever the
+provider reports as a cache hit rather than assuming a miss.
+
+| Provider | How it caches | What the harness does |
+|---|---|---|
+| DeepSeek | automatic, no parameters | nothing — reads `prompt_cache_hit_tokens` |
+| Gemini | implicit, above the model's minimum prefix | nothing to request — reads `prompt_tokens_details.cached_tokens` |
+| Anthropic | only with explicit `cache_control` breakpoints | the translation marks the system prompt and the last tool with `{"type":"ephemeral"}`, and maps `cache_read_input_tokens` into `prompt_tokens_details.cached_tokens` |
+
+Measured through the gateway on the same ~7k-token prefix, three calls each
+(the first is the miss that writes the cache):
+
+| Model | prompt | cached | cost, hit | cost, miss |
+|---|---|---|---|---|
+| `deepseek-flash` | 7033 | 6784 | 63 µUSD | 759 µUSD |
+| `gemini-flash` | 7205 | 5160 | 769 µUSD | 2162 µUSD |
+| `claude-haiku` | 9215 | 9203 | 973 µUSD | ~2200 µUSD |
+
+Two honest caveats:
+
+- A prefix below the provider's minimum never caches (Gemini ~2k tokens,
+  Anthropic 1024 or 2048 depending on model), so short turns legitimately report
+  `hit=0`. That is the provider's floor, not missing wiring.
+- Cache *writes* are priced at the miss rate. Anthropic bills writes at 1.25×
+  the miss rate, so a turn that only writes a cache is slightly under-charged;
+  the read side is exact.
+
 ## Budget
 
 Spend is bounded before an attempt, not discovered after the bill.
