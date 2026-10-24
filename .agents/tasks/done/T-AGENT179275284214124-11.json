@@ -1,0 +1,22 @@
+{
+  "id": "T-AGENT179275284214124-11",
+  "title": "Point the Harness cockpit plugin at the standalone CEO cockpit on :8080",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "cockpit_plugin"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792842906,
+  "closed": {
+    "at_unix": 1792844338,
+    "commit": "cc08c76d87249a46ff6313e384331ec34624db0b",
+    "by": "AGENT179275284214124"
+  }
+}

@@ -160,10 +160,13 @@ susi harness cockpit \
   the control log and answered. The supervisor reads the log before each batch
   and stops starting new work when the operator paused or aborted.
 
-The panel has no build step and no external assets, so any harness desktop can
-embed it in an iframe. This repository ships a DeepSeek Harness plugin at
-`deploy/dsh-cockpit`: it registers a **CEO cockpit** entry in the sidebar and a
-main panel that embeds `http://127.0.0.1:9181/?embed=1`. Install it with the
+susi's own panel has no build step and no external assets, so any harness
+desktop can embed it in an iframe. This repository ships a DeepSeek Harness
+plugin at `deploy/dsh-cockpit`: it registers a **CEO cockpit** entry in the
+sidebar and a main panel that embeds the **standalone CEO cockpit** app at
+`http://localhost:8080/` — the former litellm/openclaw cockpit, now its own
+application. (susi's native panel, served by `susi harness cockpit`, is a
+different surface and stays on its own port, 9181.) Install the plugin with the
 Harness plugin manager (`install_bundle`, target `deploy/dsh-cockpit`); the URL
 is editable in the panel and stored in the browser.
 
