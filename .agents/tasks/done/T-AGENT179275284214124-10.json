@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT179275284214124-10",
+  "title": "Keep the Windows job from evicting the caches main's slow jobs depend on",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "ci_workflow_perf",
+      "release_required_legs_carry_their_artifact"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792813155,
+  "closed": {
+    "at_unix": 1792813434,
+    "commit": "7d9712a6a0b937a537090e8af0c5182f176313c4",
+    "by": "AGENT179275284214124"
+  }
+}

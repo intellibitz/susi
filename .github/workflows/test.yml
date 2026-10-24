@@ -968,11 +968,16 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Registry only, no target/: the repository's cache quota is 10 GB and
+      # every target cache costs 1-2 GB. This job is one more entry than the
+      # suite had before it existed, and the jobs it evicted are the two that
+      # then cannot finish inside 90 minutes (root-cli, coverage). Paying ~20
+      # minutes of rebuild here to keep them warm is the right trade.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: windows-binary
-          cache-targets: "true"
+          cache-targets: "false"
 
       # This builds the debug `susi.exe` and runs all seven E2E checks against
       # it in a scratch HOME: the same list the release cut runs on the tagged
