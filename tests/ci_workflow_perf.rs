@@ -496,7 +496,7 @@ fn a_tag_run_of_the_suite_writes_no_cache_and_skips_the_main_only_gates() {
              release does not need, and the coverage target cache is 1.5 GB"
         );
     }
-    for saver in ["test", "lint", "e2e"] {
+    for saver in ["test", "lint", "e2e", "windows"] {
         assert!(
             job(&jobs, saver)
                 .body
