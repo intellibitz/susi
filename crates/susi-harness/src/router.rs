@@ -76,8 +76,8 @@ fn explicit_route(
 ) -> EaiResult<UpstreamRoute> {
     let key = explicit_api_key.unwrap_or_default();
     let backend_model = match model {
-        "claude-3-5-haiku" => "claude-3-5-haiku-20241022",
-        "claude-3-5-sonnet" => "claude-3-5-sonnet-20241022",
+        "claude-haiku" => "claude-haiku-5-5",
+        "claude-sonnet" => "claude-sonnet-5-5",
         other => other.strip_prefix("anthropic/").unwrap_or(other),
     };
     let is_anthropic = model.starts_with("claude-")
@@ -210,9 +210,9 @@ mod tests {
 
     #[test]
     fn anthropic_routes_with_headers_and_flag() {
-        let route = resolve_route("claude-3-5-sonnet", None, Some("test-ant-key")).unwrap();
+        let route = resolve_route("claude-sonnet", None, Some("test-ant-key")).unwrap();
         assert_eq!(route.url, "https://api.anthropic.com/v1/messages");
-        assert_eq!(route.model_id, "claude-3-5-sonnet-20241022");
+        assert_eq!(route.model_id, "claude-sonnet-5-5");
         assert!(route.is_anthropic);
         assert_eq!(
             route.headers[1],
@@ -231,7 +231,7 @@ mod tests {
     fn an_anthropic_workspace_is_sent_when_configured() {
         let previous = std::env::var("ANTHROPIC_WORKSPACE_ID").ok();
         std::env::set_var("ANTHROPIC_WORKSPACE_ID", "  wrkspc_test  ");
-        let route = resolve_route("claude-3-5-sonnet", None, Some("test-ant-key")).unwrap();
+        let route = resolve_route("claude-sonnet", None, Some("test-ant-key")).unwrap();
         assert!(
             route
                 .headers
@@ -241,14 +241,14 @@ mod tests {
             route.headers
         );
         // An explicit upstream keeps the workspace too: it is the same wire.
-        let direct = resolve_route("claude-3-5-sonnet", Some("direct"), Some("k")).unwrap();
+        let direct = resolve_route("claude-sonnet", Some("direct"), Some("k")).unwrap();
         assert!(direct
             .headers
             .iter()
             .any(|(name, _)| name == "anthropic-workspace-id"));
 
         std::env::remove_var("ANTHROPIC_WORKSPACE_ID");
-        let bare = resolve_route("claude-3-5-sonnet", None, Some("test-ant-key")).unwrap();
+        let bare = resolve_route("claude-sonnet", None, Some("test-ant-key")).unwrap();
         assert!(
             !bare
                 .headers
