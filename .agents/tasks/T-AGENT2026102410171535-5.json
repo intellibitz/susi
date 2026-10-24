@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT2026102410171535-5",
+  "title": "Fix JoinPathsError in hermetic_scope test on Linux by splitting PATH before join",
+  "goal": "Use path_with_prefix with split_paths instead of passing unsplit PATH string into join_paths, which causes JoinPathsError on Unix due to colon separators",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--test",
+      "hermetic_scope"
+    ]
+  },
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792833000
+}
