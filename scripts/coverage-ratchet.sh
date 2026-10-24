@@ -26,9 +26,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 run_cov() {
-    export RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}"
-    cargo llvm-cov --workspace --summary-only > "$1"
-    cargo llvm-cov -p susi-leaf-services --all-features --summary-only > "$2"
+    if command -v cargo-nextest >/dev/null 2>&1; then
+        cargo llvm-cov nextest --workspace > "$1"
+        cargo llvm-cov nextest -p susi-leaf-services --all-features > "$2"
+    else
+        export RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}"
+        cargo llvm-cov --workspace --summary-only > "$1"
+        cargo llvm-cov -p susi-leaf-services --all-features --summary-only > "$2"
+    fi
 }
 
 # ratchet <mode> <ws1> <leaf1> [ws2 leaf2 ...] — each pair is one

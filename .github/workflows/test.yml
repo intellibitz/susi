@@ -660,10 +660,10 @@ jobs:
       - name: Install wasm32-wasip1 target
         run: rustup target add wasm32-wasip1
 
-      - name: Install cargo-llvm-cov
+      - name: Install cargo-llvm-cov and cargo-nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-llvm-cov
+          tool: cargo-llvm-cov,cargo-nextest
 
       # ONNX Runtime is fetched from pyke's CDN by ort-sys at build time, with no
       # retry of its own, so one hiccup reddens this job (it did: main's
