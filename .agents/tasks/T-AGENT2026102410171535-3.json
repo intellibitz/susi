@@ -1,0 +1,20 @@
+{
+  "id": "T-AGENT2026102410171535-3",
+  "title": "Fix broken pipe panic guard on Windows to handle OS error 232 and 109",
+  "goal": "Handle Windows pipe termination errors in install_broken_pipe_guard so CLI commands exit 0 instead of aborting on broken pipe, enabling clean test execution on Windows",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "susi-paths",
+      "--test",
+      "cli_output_contract"
+    ]
+  },
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792822545
+}
