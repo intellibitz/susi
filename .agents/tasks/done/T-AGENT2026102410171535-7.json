@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT2026102410171535-7",
+  "title": "Stabilize gmcp test timeouts and coverage ratchet concurrency to eliminate CI flakes",
+  "goal": "Integration tests under cargo llvm-cov suffer from timing and scheduling flakes when heavily instrumented; increase short timeouts to 120s and configure stable test concurrency in coverage-ratchet.sh",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--test",
+      "gmcp_requirements",
+      "gmcp_vc_203_002_mastery"
+    ]
+  },
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792848000,
+  "closed": {
+    "at_unix": 1792848508,
+    "commit": "f61dd2214aabcdef6afdfefc74715083582db1f9",
+    "by": "AGENT2026102410171535"
+  }
+}
