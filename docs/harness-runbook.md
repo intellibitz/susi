@@ -56,9 +56,12 @@ susi harness cockpit \
   --catalogue deploy/harness/prices.json --budget-usd 0.50 --port 9181
 ```
 
-Open <http://127.0.0.1:9181/>. In the DeepSeek Harness desktop the **CEO
-cockpit** sidebar entry embeds the same page; install the plugin once with the
-plugin manager (`deploy/dsh-cockpit`).
+Open <http://127.0.0.1:9181/> for susi's own mission panel. In the DeepSeek
+Harness desktop the **CEO cockpit** sidebar entry embeds the standalone cockpit
+app instead (`http://localhost:8080/` by default, the former litellm/openclaw
+cockpit); install the plugin once with the plugin manager
+(`deploy/dsh-cockpit`), and repoint the URL in the panel if the app runs
+elsewhere.
 
 ## 4. Run the mission
 

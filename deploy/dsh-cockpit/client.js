@@ -3,12 +3,22 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react');
     const h = React.createElement;
-    const DEFAULT_URL = 'http://127.0.0.1:9181/?embed=1';
+    // The CEO cockpit is its own standalone app now (the former
+    // litellm/openclaw cockpit was split out); susi's own panel lives at the
+    // harness cockpit's port and is a different surface. This panel embeds the
+    // standalone one.
+    const DEFAULT_URL = 'http://localhost:8080/';
+    // The old harness-cockpit default, kept only so a browser that saved it
+    // (before this change) starts following DEFAULT_URL instead of pinning the
+    // stale port forever.
+    const LEGACY_DEFAULT = 'http://127.0.0.1:9181/?embed=1';
     const STORAGE_KEY = 'susi.cockpit.url';
 
     function readUrl() {
       try {
-        return window.localStorage.getItem(STORAGE_KEY) || DEFAULT_URL;
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        if (stored && stored !== LEGACY_DEFAULT) return stored;
+        return DEFAULT_URL;
       } catch (error) {
         return DEFAULT_URL;
       }
@@ -168,9 +178,9 @@ window.__ModuleLoader__.load({
                   pointerEvents: 'none',
                 },
               },
-              'Start the cockpit server, then reload: ',
+              'Start the CEO cockpit, then reload: ',
               h('br'),
-              'susi harness cockpit --ledger out/ledger.jsonl --plan plan.json --controls out/control.jsonl --port 9181',
+              'http://localhost:8080/ (standalone app; susi\'s own panel is `susi harness cockpit --port 9181`)',
             ),
         ),
       );

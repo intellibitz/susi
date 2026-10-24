@@ -5,7 +5,7 @@
   },
   "panel": {
     "title": "CEO cockpit",
-    "offline": "The cockpit server is not answering. Start it with: susi harness cockpit --ledger out/ledger.jsonl --plan plan.json --controls out/control.jsonl --port 9181",
+    "offline": "The CEO cockpit is not answering at its URL. Start the standalone cockpit app (default http://localhost:8080/), or point the field at wherever it runs.",
     "url": "Cockpit URL",
     "save": "Save",
     "reload": "Reload",
