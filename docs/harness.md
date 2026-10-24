@@ -76,6 +76,15 @@ an alias, so rerouting the fleet never touches a plan:
 provider's own list, so an id retired upstream is reported before a call fails.
 Prices for all four live in [deploy/harness/prices.json](../deploy/harness/prices.json).
 
+Anthropic keys come in two kinds: a key scoped to a workspace needs nothing
+extra, while a console user key (`sk-ant-usr-…`) is accepted but every request
+is then refused until it names the workspace. Set
+`ANTHROPIC_WORKSPACE_ID=wrkspc_…` and the router sends the
+`anthropic-workspace-id` header; leave it unset for a workspace-scoped key and
+the request is unchanged. The key can be checked without spending tokens: a
+valid key answers a request missing that header with a structured
+`invalid_request_error`, an invalid one with `401 authentication_error`.
+
 ## Budget
 
 Spend is bounded before an attempt, not discovered after the bill.

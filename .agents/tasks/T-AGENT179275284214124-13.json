@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179275284214124-13",
+  "title": "Send anthropic-workspace-id when ANTHROPIC_WORKSPACE_ID is set, so a workspace-unscoped key works",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "router"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792853835
+}

@@ -87,6 +87,9 @@ fn explicit_route(
     if is_anthropic {
         headers.push(("x-api-key".to_string(), key.to_string()));
         headers.push(("anthropic-version".to_string(), "2023-06-01".to_string()));
+        if let Some(workspace) = anthropic_workspace() {
+            headers.push(("anthropic-workspace-id".to_string(), workspace));
+        }
     } else if !key.trim().is_empty() {
         headers.push(("authorization".to_string(), format!("Bearer {key}")));
     }
@@ -118,6 +121,9 @@ fn route_from_model(
     if is_anthropic {
         headers.push(("x-api-key".to_string(), key));
         headers.push(("anthropic-version".to_string(), "2023-06-01".to_string()));
+        if let Some(workspace) = anthropic_workspace() {
+            headers.push(("anthropic-workspace-id".to_string(), workspace));
+        }
     } else if !key.is_empty() {
         headers.push(("authorization".to_string(), format!("Bearer {key}")));
     }
@@ -127,6 +133,22 @@ fn route_from_model(
         headers,
         is_anthropic,
     })
+}
+
+/// The workspace an Anthropic request must name, when the key is not scoped to
+/// one.
+///
+/// A user-scoped console key (`sk-ant-usr-…`) is accepted but every request is
+/// then refused with `invalid_request_error` demanding an
+/// `anthropic-workspace-id` header; the harness had no way to send one, so such
+/// a key could not be used at all. `ANTHROPIC_WORKSPACE_ID` supplies it, and an
+/// absent or blank value keeps the previous behaviour (no header) for keys that
+/// are already workspace-scoped.
+fn anthropic_workspace() -> Option<String> {
+    std::env::var("ANTHROPIC_WORKSPACE_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn env_key_any(names: &[&str], explicit: Option<&str>) -> EaiResult<String> {
@@ -200,6 +222,43 @@ mod tests {
             route.headers[2],
             ("anthropic-version".to_string(), "2023-06-01".to_string())
         );
+    }
+
+    /// A console key that is not workspace-scoped is refused by the API unless
+    /// the request names the workspace; without this header such a key could
+    /// not be used at all.
+    #[test]
+    fn an_anthropic_workspace_is_sent_when_configured() {
+        let previous = std::env::var("ANTHROPIC_WORKSPACE_ID").ok();
+        std::env::set_var("ANTHROPIC_WORKSPACE_ID", "  wrkspc_test  ");
+        let route = resolve_route("claude-3-5-sonnet", None, Some("test-ant-key")).unwrap();
+        assert!(
+            route
+                .headers
+                .iter()
+                .any(|(name, value)| name == "anthropic-workspace-id" && value == "wrkspc_test"),
+            "a configured workspace must be trimmed and sent: {:?}",
+            route.headers
+        );
+        // An explicit upstream keeps the workspace too: it is the same wire.
+        let direct = resolve_route("claude-3-5-sonnet", Some("direct"), Some("k")).unwrap();
+        assert!(direct
+            .headers
+            .iter()
+            .any(|(name, _)| name == "anthropic-workspace-id"));
+
+        std::env::remove_var("ANTHROPIC_WORKSPACE_ID");
+        let bare = resolve_route("claude-3-5-sonnet", None, Some("test-ant-key")).unwrap();
+        assert!(
+            !bare
+                .headers
+                .iter()
+                .any(|(name, _)| name == "anthropic-workspace-id"),
+            "an unset workspace must not send an empty header"
+        );
+        if let Some(value) = previous {
+            std::env::set_var("ANTHROPIC_WORKSPACE_ID", value);
+        }
     }
 
     #[test]
