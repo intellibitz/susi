@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT2026102410171535-8",
+  "title": "Flush stdio responses in JSON-RPC gate and optimize coverage ratchet",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gmcp",
+      "jsonrpc_gate"
+    ]
+  },
+  "roadmap": "VC-203-002",
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792855782
+}
