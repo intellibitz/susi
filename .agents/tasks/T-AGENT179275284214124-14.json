@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179275284214124-14",
+  "title": "Make a Claude worker turn possible: drop deprecated sampling params and stop direct mode forcing one key on every provider",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-harness",
+      "--lib",
+      "gateway"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792855836
+}
