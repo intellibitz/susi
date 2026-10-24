@@ -5,8 +5,19 @@
   "size": "s",
   "deps": [],
   "accept": {
-    "cmd": ["cargo", "nextest", "run", "--test", "parallel_workflow"]
+    "cmd": [
+      "cargo",
+      "nextest",
+      "run",
+      "--test",
+      "parallel_workflow"
+    ]
   },
   "created_by": "AGENT2026102410171535",
-  "created_unix": 1792837000
+  "created_unix": 1792837000,
+  "closed": {
+    "at_unix": 1792840430,
+    "commit": "e54b27840a7bc818c7e236fc86c7c7f4ce42ca19",
+    "by": "AGENT2026102410171535"
+  }
 }
