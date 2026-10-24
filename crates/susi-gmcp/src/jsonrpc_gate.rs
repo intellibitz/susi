@@ -418,7 +418,8 @@ where
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         bytes.push(b'\n');
         let mut guard = write.lock().await;
-        guard.write_all(&bytes).await
+        guard.write_all(&bytes).await?;
+        guard.flush().await
     }
 
     /// Serialize a service answer with the era-correct `resultType`
@@ -468,7 +469,8 @@ where
         async move {
             let bytes = Self::encode_outbound(&item, modern)?;
             let mut guard = write.lock().await;
-            guard.write_all(&bytes).await
+            guard.write_all(&bytes).await?;
+            guard.flush().await
         }
     }
 
