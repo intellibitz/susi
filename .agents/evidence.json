@@ -4664,6 +4664,16 @@
       "milestone": "T-DEVIN2026100712462421182-12: CANDLE_NUM_THREADS default of 4 beats 28-thread default by ~3x on CPU decode",
       "proof": "Measured on this host (28 logical CPUs, RTX 2000 Ada) via the opt-in live generation test (SUSI_MOE_GGUF): candle-core 0.11's quantized matmul routes every op through utils::barrier_pool() sized at CANDLE_NUM_THREADS (default = all CPUs). For decode-step GEMVs the pool's wake/sync overhead scales negatively past ~4 workers. Greedy decode tok/s by thread count — Qwen3-30B-A3B Q4_K_M (qwen3moe, real GGUF, CPU): 28->0.82, 8->2.63, 4->3.09, 2->2.87, 1->2.24. Dense qwen2.5-1.5b Q4_K_M same shape: 28->4.19, 16->7.32, 4->9.59, 1->5.95. Peak is ~4 threads on both paths, so main() now defaults CANDLE_NUM_THREADS to min(4, available_parallelism) while still single-threaded; explicit env always wins. target-cpu=native was measured and did NOT matter (0.85 vs 0.82 tok/s) — SIMD gating is not the bottleneck; pool sync overhead is.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "coverage baseline floor for susi-vendor-wasmtime",
+        "ref": "file://.agents/coverage-baseline.json"
+      },
+      "id": "EV-COVERAGE-WASMTIME-001",
+      "milestone": "susi-vendor-wasmtime coverage floor reset to measured CI gate baseline (81.0%). When susi-vendor-wasmer was ported to susi-vendor-wasmtime in 075c93094, the 83% floor was retained unmeasured from wasmer. CI gate runs measure 81.4% on ubuntu-latest. Floor reset to floored CI measurement (81.0%), and unit test coverage expanded across host_send argument validation, outbox limits, and cell loading.",
+      "proof": "CI run 40124639948 (main, 2026-10-24): Coverage Ratchet job measured 81.4% vs floor 83.0% (all other 26 crates ok). Expanded tests in crates/susi-vendor-wasmtime/src/cell.rs verify error branches and outbox bounds.",
+      "type": "CORRECTION"
     }
   ],
   "epistemic_score": 1.0,

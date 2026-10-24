@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT2026102410171535-10",
+  "title": "Align susi-vendor-wasmtime coverage floor with CI gate measurement and expand test coverage",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-wasmtime"
+    ]
+  },
+  "roadmap": "VC-203-002",
+  "created_by": "AGENT2026102410171535",
+  "created_unix": 1792875111
+}
