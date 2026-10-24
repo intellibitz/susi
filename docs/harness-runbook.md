@@ -57,11 +57,11 @@ susi harness cockpit \
 ```
 
 Open <http://127.0.0.1:9181/> for susi's own mission panel. In the DeepSeek
-Harness desktop the **CEO cockpit** sidebar entry embeds the standalone cockpit
-app instead (`http://localhost:8080/` by default, the former litellm/openclaw
-cockpit); install the plugin once with the plugin manager
-(`deploy/dsh-cockpit`), and repoint the URL in the panel if the app runs
-elsewhere.
+Harness desktop the plugin (`deploy/dsh-cockpit`) adds **two** sidebar entries:
+**CEO cockpit (external)** embeds the standalone orchestration cockpit
+(`http://localhost:8080/` by default, the former litellm/openclaw cockpit) and
+**CEO cockpit (susi native)** embeds the panel started above. Repoint either
+URL in its panel if that cockpit runs elsewhere.
 
 ## 4. Run the mission
 

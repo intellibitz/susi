@@ -1,11 +1,11 @@
 {
   "meta": {
-    "title": "SUSI CEO Cockpit",
-    "description": "Live spend, landed tasks, the cost-ranked worker ladder and pause/abort controls for a SUSI orchestration mission, embedded in the Harness desktop."
+    "title": "SUSI CEO cockpits",
+    "description": "Two cockpits side by side: the external orchestration cockpit (the standalone app the external harness runs) and susi's own native cockpit, served by susi harness cockpit. Each panel keeps its own URL in the browser."
   },
   "panel": {
     "title": "CEO cockpit",
-    "offline": "The CEO cockpit is not answering at its URL. Start the standalone cockpit app (default http://localhost:8080/), or point the field at wherever it runs.",
+    "offline": "This cockpit is not answering at its URL. Start the external app (default http://localhost:8080/) or susi's own panel (susi harness cockpit … --port 9181), or point the field at wherever it runs.",
     "url": "Cockpit URL",
     "save": "Save",
     "reload": "Reload",
