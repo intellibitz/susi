@@ -791,16 +791,19 @@ jobs:
   # about the merge — those are recorded as skipped, with the reason. A failure
   # writes nothing, so the next run retries it and main stays red until the
   # merge is fixed forward. The sweep is budgeted — 20 minutes in total, each
-  # acceptance capped at 12 — so that a cold `cargo run` build (30–50 min here)
-  # plus the sweep fits inside this job's 90. Whatever does not fit is
+  # acceptance capped at 12 — and capped at two acceptances per run, so a cold
+  # `cargo run` build cannot leave the sweep no room. Whatever does not fit is
   # *deferred*, not failed: a job cancelled at its own timeout records nothing,
   # so an unbounded sweep keeps main red forever and the queue never drains
   # (`tasks audit` keeps reporting deferred work, so deferral cannot launder it).
+  # The timeout is 120 because that is what the cold build plus the sweep has to
+  # fit inside; a cancelled job also loses its log, which is how a 90-minute
+  # budget ran blind twice.
   verify:
     name: Post-merge acceptance
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: write # push the refs/verified/<id> records
     steps:
@@ -852,7 +855,9 @@ jobs:
 
       - name: Re-run the acceptance of freshly merged tasks
         if: steps.owed.outputs.pending == 'true'
-        run: cargo run --locked -q -- tasks verify-merged
+        # Two per run: the backlog drains over merges, and the job stays short
+        # enough that its budget is about the sweep rather than the build.
+        run: cargo run --locked -q -- tasks verify-merged --limit 2
 
   # The capability-gap e2e executes a synthesized WASI reflex through a live
   # susi-native leaf service. It runs in its own job in parallel with `test`

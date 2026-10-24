@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179275284214124-8",
+  "title": "Give the post-merge verification job headroom and a bound it can finish under",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "--lib",
+      "admin::tasks::tests::a_spent_budget_defers_the_rest_of_the_sweep"
+    ]
+  },
+  "created_by": "AGENT179275284214124",
+  "created_unix": 1792801741
+}
