@@ -561,6 +561,7 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
 pub struct TokenUsage {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
+    pub cached_tokens: u64,
     pub total_tokens: u64,
 }
 
@@ -571,6 +572,22 @@ impl TokenUsage {
         Self {
             prompt_tokens,
             completion_tokens,
+            cached_tokens: 0,
+            total_tokens: prompt_tokens.saturating_add(completion_tokens),
+        }
+    }
+
+    /// Construct a new TokenUsage with explicit cached prompt tokens.
+    #[must_use]
+    pub const fn with_cache(
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        cached_tokens: u64,
+    ) -> Self {
+        Self {
+            prompt_tokens,
+            completion_tokens,
+            cached_tokens,
             total_tokens: prompt_tokens.saturating_add(completion_tokens),
         }
     }
@@ -584,34 +601,41 @@ pub fn extract_token_usage(protocol: InferenceProtocol, json: &Value) -> TokenUs
             let usage = &json["usage"];
             let prompt = usage["prompt_tokens"].as_u64().unwrap_or(0);
             let completion = usage["completion_tokens"].as_u64().unwrap_or(0);
+            let cached = usage["prompt_cache_hit_tokens"]
+                .as_u64()
+                .or_else(|| usage["prompt_tokens_details"]["cached_tokens"].as_u64())
+                .unwrap_or(0);
             let total = usage["total_tokens"]
                 .as_u64()
                 .unwrap_or_else(|| prompt.saturating_add(completion));
             TokenUsage {
                 prompt_tokens: prompt,
                 completion_tokens: completion,
+                cached_tokens: cached,
                 total_tokens: total,
             }
         }
         InferenceProtocol::Anthropic => {
             let usage = &json["usage"];
-            let prompt = usage["input_tokens"]
-                .as_u64()
-                .unwrap_or(0)
-                .saturating_add(usage["cache_read_input_tokens"].as_u64().unwrap_or(0));
+            let cache_read = usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
+            let cache_write = usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+            let input = usage["input_tokens"].as_u64().unwrap_or(0);
+            let prompt = input.saturating_add(cache_read).saturating_add(cache_write);
             let completion = usage["output_tokens"].as_u64().unwrap_or(0);
-            TokenUsage::new(prompt, completion)
+            TokenUsage::with_cache(prompt, completion, cache_read)
         }
         InferenceProtocol::Gemini => {
             let usage = &json["usageMetadata"];
             let prompt = usage["promptTokenCount"].as_u64().unwrap_or(0);
             let completion = usage["candidatesTokenCount"].as_u64().unwrap_or(0);
+            let cached = usage["cachedContentTokenCount"].as_u64().unwrap_or(0);
             let total = usage["totalTokenCount"]
                 .as_u64()
                 .unwrap_or_else(|| prompt.saturating_add(completion));
             TokenUsage {
                 prompt_tokens: prompt,
                 completion_tokens: completion,
+                cached_tokens: cached,
                 total_tokens: total,
             }
         }
@@ -619,33 +643,142 @@ pub fn extract_token_usage(protocol: InferenceProtocol, json: &Value) -> TokenUs
     }
 }
 
-/// Calculate estimated cost in millionths of a USD currency unit (micros).
+/// Calculate estimated cost in millionths of a USD currency unit (micros), factoring in cache discounts.
 #[must_use]
 pub fn estimate_cost_micros(model: &str, usage: &TokenUsage) -> u64 {
     let model_lower = model.to_ascii_lowercase();
-    let (in_rate, out_rate): (f64, f64) = if model_lower.contains("haiku") {
-        (0.25, 1.25)
+    let (in_rate, out_rate, cache_mult): (f64, f64, f64) = if model_lower.contains("haiku") {
+        (0.25, 1.25, 0.10)
     } else if model_lower.contains("sonnet") {
-        (3.0, 15.0)
+        (3.0, 15.0, 0.10)
     } else if model_lower.contains("opus") {
-        (15.0, 75.0)
+        (15.0, 75.0, 0.10)
     } else if model_lower.contains("gpt-4o-mini") {
-        (0.15, 0.60)
+        (0.15, 0.60, 0.50)
     } else if model_lower.contains("gpt-4o") {
-        (2.50, 10.0)
+        (2.50, 10.0, 0.50)
     } else if model_lower.contains("flash") {
-        (0.075, 0.30)
+        (0.075, 0.30, 0.25)
     } else if model_lower.contains("pro") {
-        (1.25, 5.0)
+        (1.25, 5.0, 0.25)
     } else if model_lower.contains("deepseek") {
-        (0.14, 0.28)
+        (0.14, 0.28, 0.10)
     } else {
-        (1.0, 3.0)
+        (1.0, 3.0, 0.50)
     };
 
-    let prompt_micros = (usage.prompt_tokens as f64 * in_rate) as u64;
+    let uncached_prompt = usage.prompt_tokens.saturating_sub(usage.cached_tokens);
+    let uncached_micros = (uncached_prompt as f64 * in_rate) as u64;
+    let cached_micros = (usage.cached_tokens as f64 * in_rate * cache_mult) as u64;
     let completion_micros = (usage.completion_tokens as f64 * out_rate) as u64;
-    prompt_micros.saturating_add(completion_micros)
+    uncached_micros
+        .saturating_add(cached_micros)
+        .saturating_add(completion_micros)
+}
+
+/// Build an Anthropic Messages request payload with Full Cache Mode enabled.
+///
+/// Anchors ephemeral cache breakpoints on the stable system prompt and tools list.
+#[must_use]
+pub fn anthropic_cache_payload(
+    model: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    tools: Option<Value>,
+    max_tokens: u64,
+) -> Value {
+    let mut payload = json!({
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [
+            {
+                "role": "user",
+                "content": user_prompt
+            }
+        ]
+    });
+
+    if !system_prompt.is_empty() {
+        payload["system"] = json!([
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]);
+    }
+
+    if let Some(mut tool_array) = tools {
+        if let Some(arr) = tool_array.as_array_mut() {
+            if let Some(last) = arr.last_mut() {
+                last["cache_control"] = json!({"type": "ephemeral"});
+            }
+        }
+        payload["tools"] = tool_array;
+    }
+
+    payload
+}
+
+/// Build a Gemini generateContent request payload with Full Cache Mode enabled.
+///
+/// Formats structured systemInstruction and contents, and supports explicit cachedContent.
+#[must_use]
+pub fn gemini_cache_payload(
+    system_instruction: &str,
+    user_prompt: &str,
+    cached_content: Option<&str>,
+) -> Value {
+    let mut payload = json!({
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": user_prompt}]
+            }
+        ]
+    });
+
+    if !system_instruction.is_empty() {
+        payload["systemInstruction"] = json!({
+            "parts": [{"text": system_instruction}]
+        });
+    }
+
+    if let Some(cache_name) = cached_content {
+        payload["cachedContent"] = json!(cache_name);
+    }
+
+    payload
+}
+
+/// Build a DeepSeek OpenAI-compatible chat payload structured for prefix caching.
+///
+/// Ensures strict prefix stability (system message followed by user prompt)
+/// so repeated worker turns hit DeepSeek's server-side prompt cache.
+#[must_use]
+pub fn deepseek_cache_payload(
+    model: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    max_tokens: u64,
+) -> Value {
+    let mut messages = Vec::with_capacity(2);
+    if !system_prompt.is_empty() {
+        messages.push(json!({
+            "role": "system",
+            "content": system_prompt
+        }));
+    }
+    messages.push(json!({
+        "role": "user",
+        "content": user_prompt
+    }));
+
+    json!({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens
+    })
 }
 
 #[cfg(test)]
@@ -1039,5 +1172,119 @@ mod tests {
         assert_eq!(g_usage.prompt_tokens, 2000);
         assert_eq!(g_usage.completion_tokens, 300);
         assert_eq!(g_usage.total_tokens, 2300);
+    }
+
+    #[test]
+    fn full_cache_mode_wire_payloads_and_extractions() {
+        // 1. Claude (Anthropic) Full Cache Mode
+        let tools = json!([
+            {
+                "name": "lookup",
+                "description": "lookup symbol"
+            }
+        ]);
+        let anthropic_req = anthropic_cache_payload(
+            "claude-3-5-sonnet",
+            "System prompt for worker",
+            "User task instruction",
+            Some(tools),
+            1024,
+        );
+        assert_eq!(anthropic_req["model"], "claude-3-5-sonnet");
+        assert_eq!(
+            anthropic_req["system"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert_eq!(
+            anthropic_req["tools"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+
+        let anthropic_resp = json!({
+            "usage": {
+                "input_tokens": 100,
+                "cache_creation_input_tokens": 200,
+                "cache_read_input_tokens": 700,
+                "output_tokens": 50
+            }
+        });
+        let claude_usage = extract_token_usage(InferenceProtocol::Anthropic, &anthropic_resp);
+        assert_eq!(claude_usage.prompt_tokens, 1000);
+        assert_eq!(claude_usage.cached_tokens, 700);
+        assert_eq!(claude_usage.completion_tokens, 50);
+
+        let claude_full_cost =
+            estimate_cost_micros("claude-3-5-sonnet", &TokenUsage::new(1000, 50));
+        let claude_cache_cost = estimate_cost_micros("claude-3-5-sonnet", &claude_usage);
+        assert!(
+            claude_cache_cost < claude_full_cost,
+            "Cache hit must discount cost"
+        );
+
+        // 2. DeepSeek Full Cache Mode
+        let deepseek_req = deepseek_cache_payload(
+            "deepseek-chat",
+            "System instructions with stable prefix",
+            "Solve subtask",
+            2048,
+        );
+        assert_eq!(deepseek_req["messages"][0]["role"], "system");
+        assert_eq!(deepseek_req["messages"][1]["role"], "user");
+
+        let deepseek_resp = json!({
+            "usage": {
+                "prompt_tokens": 2000,
+                "completion_tokens": 100,
+                "prompt_cache_hit_tokens": 1800,
+                "prompt_cache_miss_tokens": 200,
+                "total_tokens": 2100
+            }
+        });
+        let ds_usage = extract_token_usage(InferenceProtocol::OpenAiChat, &deepseek_resp);
+        assert_eq!(ds_usage.prompt_tokens, 2000);
+        assert_eq!(ds_usage.cached_tokens, 1800);
+        assert_eq!(ds_usage.completion_tokens, 100);
+
+        let ds_full_cost = estimate_cost_micros("deepseek-chat", &TokenUsage::new(2000, 100));
+        let ds_cache_cost = estimate_cost_micros("deepseek-chat", &ds_usage);
+        assert!(
+            ds_cache_cost < ds_full_cost,
+            "DeepSeek cache hit must provide ~90% prompt savings"
+        );
+
+        // 3. Gemini Full Cache Mode
+        let gemini_req = gemini_cache_payload(
+            "System instruction for Gemini worker",
+            "Execute worker step",
+            Some("cachedContents/proj1-cache-123"),
+        );
+        assert_eq!(
+            gemini_req["systemInstruction"]["parts"][0]["text"],
+            "System instruction for Gemini worker"
+        );
+        assert_eq!(
+            gemini_req["cachedContent"],
+            "cachedContents/proj1-cache-123"
+        );
+
+        let gemini_resp = json!({
+            "usageMetadata": {
+                "promptTokenCount": 5000,
+                "candidatesTokenCount": 250,
+                "cachedContentTokenCount": 4000,
+                "totalTokenCount": 5250
+            }
+        });
+        let g_usage = extract_token_usage(InferenceProtocol::Gemini, &gemini_resp);
+        assert_eq!(g_usage.prompt_tokens, 5000);
+        assert_eq!(g_usage.cached_tokens, 4000);
+        assert_eq!(g_usage.completion_tokens, 250);
+
+        let g_full_cost = estimate_cost_micros("gemini-2.5-flash", &TokenUsage::new(5000, 250));
+        let g_cache_cost = estimate_cost_micros("gemini-2.5-flash", &g_usage);
+        assert!(
+            g_cache_cost < g_full_cost,
+            "Gemini cache hit must provide 75% prompt savings"
+        );
     }
 }
