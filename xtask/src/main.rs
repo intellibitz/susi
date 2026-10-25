@@ -10,6 +10,11 @@
     )
 )]
 
+// Extension-watch logic lands ahead of its CLI wiring; keep the pure API
+// compiled (and unit-tested) without emitting dead-code noise.
+#[allow(dead_code)]
+mod extension_watch;
+
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};

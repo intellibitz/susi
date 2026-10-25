@@ -1,0 +1,23 @@
+{
+  "id": "T-HARNESSXTASKEXTENSIONWATCH-1",
+  "title": "Add a pure extension-watch diff helper to xtask",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "xtask",
+      "extension_watch"
+    ]
+  },
+  "created_by": "HARNESSXTASKEXTENSIONWATCH",
+  "created_unix": 1792961276,
+  "closed": {
+    "at_unix": 1792961657,
+    "commit": "b412dab91fd356b3bce3acaea6ff066f162dbcb4",
+    "by": "HARNESSXTASKEXTENSIONWATCH"
+  }
+}
