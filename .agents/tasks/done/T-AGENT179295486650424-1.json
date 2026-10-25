@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179295486650424-1",
+  "title": "Adapter must format worker changes before committing",
+  "goal": "A mission's worker produced correct edits but the adapter commit failed on the repo pre-commit formatting hook, so the work was discarded. Run cargo fmt --all in the task worktree before staging, fail loudly when it fails, and test that the format call precedes git add.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179295486650424",
+  "created_unix": 1792954897,
+  "closed": {
+    "at_unix": 1792955308,
+    "commit": "a6b7d20d9c9f52a9a1f2232c20e026a661670c45",
+    "by": "AGENT179295486650424"
+  }
+}
