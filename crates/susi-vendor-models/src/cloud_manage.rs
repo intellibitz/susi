@@ -46,14 +46,35 @@ fn is_local(api_base: &str) -> bool {
 
 /// Auth headers for a vendor's model-list request.
 fn auth_headers(protocol: &str, key: &str) -> Vec<(String, String)> {
+    auth_headers_for(protocol, key, anthropic_workspace().as_deref())
+}
+
+/// Headers for one vendor, with the Anthropic workspace id supplied
+/// explicitly so the header set is testable without mutating process
+/// environment (a workspace-scoped Anthropic key answers 400 without it).
+fn auth_headers_for(protocol: &str, key: &str, workspace: Option<&str>) -> Vec<(String, String)> {
     match protocol {
-        "anthropic" => vec![
-            ("x-api-key".into(), key.into()),
-            ("anthropic-version".into(), "2023-06-01".into()),
-        ],
-        "gemini" => vec![("x-goog-api-key".into(), key.into())],
-        _ => vec![("Authorization".into(), format!("Bearer {key}"))],
+        "anthropic" => {
+            let mut headers = vec![
+                ("x-api-key".to_string(), key.to_string()),
+                ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            ];
+            if let Some(workspace) = workspace.map(str::trim).filter(|value| !value.is_empty()) {
+                headers.push(("anthropic-workspace-id".to_string(), workspace.to_string()));
+            }
+            headers
+        }
+        "gemini" => vec![("x-goog-api-key".to_string(), key.to_string())],
+        _ => vec![("Authorization".to_string(), format!("Bearer {key}"))],
     }
+}
+
+/// The workspace a workspace-scoped Anthropic key must name.
+fn anthropic_workspace() -> Option<String> {
+    std::env::var("ANTHROPIC_WORKSPACE_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 /// Model ids from an OpenAI/Anthropic (`data[].id`), Gemini (`models[].name`)
@@ -306,5 +327,29 @@ mod tests {
         let c = check_endpoint("V", &base, "chat", "m", "sk-x");
         assert_eq!(c.state, KeyState::Rejected);
         assert!(!serde_json::to_string(&c).unwrap().contains("sk-x"));
+    }
+}
+#[cfg(test)]
+mod workspace_header_tests {
+    use super::auth_headers_for;
+
+    #[test]
+    fn anthropic_workspace_header_is_sent_when_configured() {
+        let with = auth_headers_for("anthropic", "test-key", Some("wrkspc_test"));
+        assert!(with
+            .iter()
+            .any(|(name, value)| name == "anthropic-workspace-id" && value == "wrkspc_test"));
+        let without = auth_headers_for("anthropic", "test-key", None);
+        assert!(!without
+            .iter()
+            .any(|(name, _)| name == "anthropic-workspace-id"));
+        let blank = auth_headers_for("anthropic", "test-key", Some("   "));
+        assert!(!blank
+            .iter()
+            .any(|(name, _)| name == "anthropic-workspace-id"));
+        let gemini = auth_headers_for("gemini", "test-key", Some("wrkspc_test"));
+        assert!(!gemini
+            .iter()
+            .any(|(name, _)| name == "anthropic-workspace-id"));
     }
 }
