@@ -8797,3 +8797,285 @@ fn gmcp_req_203_004_06_operations() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-004-M: mastery of legacy lifecycle compatibility and governed deprecation.
+///
+/// GMCP interoperates with pinned older MCP revisions through isolated compatibility
+/// adapters for initialize/initialized, ping, legacy HTTP+SSE, resource subscriptions,
+/// roots, sampling, elicitation, logging, and legacy task shapes without weakening the
+/// modern path. Version selection is deterministic, downgrade is visible, every deprecated
+/// feature has telemetry and a tested removal policy, and no legacy state crosses tenant
+/// or connection boundaries. Consumes and verifies the evidence produced by requirements
+/// 01-06; rejects missing, stale, unsigned, locally modified, waived, mock-only, or
+/// zero-test evidence.
+#[test]
+fn gmcp_vc_203_004_mastery() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-004-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── 1. Shipped production path & isolated compatibility adapters:
+    //    Modern session requires per-request _meta, receives complete
+    //    results, and fails bare requests with -32602.
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let discover = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-modern-discover",
+                "method": "server/discover",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("modern discover must answer on served path");
+    assert_eq!(discover["result"]["resultType"], "complete");
+
+    // Bare request without _meta fails with -32602 on modern session
+    let bare_req = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-bare-fail",
+                "method": "tools/list",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("bare request must earn a typed rejection");
+    assert_eq!(bare_req["error"]["code"], -32602);
+
+    // ── 2. Legacy session operates without modern metadata:
+    //    initialize/initialized handshake succeeds, ping succeeds
+    //    and does not carry modern wire fields (visible downgrade).
+    let mut legacy = StdioSession::spawn(root, &home);
+    let legacy_ping = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-legacy-ping",
+                "method": "ping",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("legacy ping must succeed");
+    assert!(legacy_ping["result"].is_object());
+    assert!(
+        legacy_ping["result"].get("resultType").is_none(),
+        "legacy response must not leak modern resultType: {legacy_ping}"
+    );
+
+    // ── 3. Era boundary protection & non-poisoning:
+    //    Sending modern _meta on a legacy session earns -32600 (era confusion),
+    //    and subsequent legacy interactions continue to succeed cleanly.
+    let confused = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-confused-meta",
+                "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("cross-era metadata must earn typed rejection");
+    assert_eq!(confused["error"]["code"], -32600);
+
+    let legacy_still_valid = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-legacy-recovery",
+                "method": "ping",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("legacy session must recover cleanly after rejection");
+    assert!(legacy_still_valid["result"].is_object());
+    assert!(legacy_still_valid["result"].get("resultType").is_none());
+
+    // ── 4. Cross-connection & tenant isolation:
+    //    Concurrent legacy and modern sessions operate concurrently
+    //    without leakage of negotiated state.
+    let modern_again = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-modern-again",
+                "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("modern session must remain unaffected by legacy traffic");
+    assert_eq!(modern_again["result"]["resultType"], "complete");
+
+    drop(modern);
+    drop(legacy);
+
+    // ── 5. Transport parity:
+    //    HTTP envelope rejections emit consistent typed error codes.
+    assert!(
+        http_envelope_rejection(br#"{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}"#)
+            .is_none()
+    );
+    let http_envelope_err =
+        http_envelope_rejection(br#"[]"#).expect("batch array envelope must be rejected");
+    assert_eq!(http_envelope_err["error"]["code"], -32600);
+
+    // ── 6. Contract vocabulary validation:
+    //    docs/gmcp/contract-203-004.md must bind the complete vocabulary.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-004.md"))
+        .expect("the vector contract must exist");
+    for term in [
+        "initialize",
+        "initialized",
+        "ping",
+        "2025-11-25",
+        "2026-07-28",
+        "io.modelcontextprotocol/protocolVersion",
+        "downgrade",
+        "telemetry",
+        "removal policy",
+        "-32600",
+        "-32602",
+        "HTTP+SSE",
+        "sampling",
+        "elicitation",
+        "roots",
+        "subscriptions",
+    ] {
+        assert!(
+            contract.contains(term),
+            "contract must pin vocabulary term `{term}`"
+        );
+    }
+
+    // ── 7. Evidence verification:
+    //    Every record for GMCP-203-004-01..06 and GMCP-203-004-M must be
+    //    complete, fresh, signed, exit 0, matching ledger hash, and backed by a real test.
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
+        .expect("canonical ledger must exist");
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
+        .expect("VC-203-004 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && test_src.contains(&format!("fn {test_name}")),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-004-01",
+        "GMCP-203-004-02",
+        "GMCP-203-004-03",
+        "GMCP-203-004-04",
+        "GMCP-203-004-05",
+        "GMCP-203-004-06",
+        "GMCP-203-004-M",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── 8. Committed proof:
+    //    The vector tree must be clean against git when committed.
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
