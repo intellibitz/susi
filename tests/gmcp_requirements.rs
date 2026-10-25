@@ -8246,3 +8246,91 @@ fn gmcp_req_203_013_03_integration() {
         );
     }
 }
+
+/// GMCP-203-016-01: the extension framework contract is pinned.
+///
+/// The contract must resolve every normative mechanism the vector names
+/// (discovery, negotiation, versioning, isolation, disablement, collision,
+/// downgrade, watch), pin the three extension authorities, and bind a
+/// behavior table whose rows are unique, correctly leveled, and owned by a
+/// production path that actually exists. Fixtures live with this test.
+#[test]
+fn gmcp_req_203_016_01_contract() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-016.md"))
+        .expect("the extension framework contract must exist");
+    for section in [
+        "Normative clause",
+        "Pinned sources",
+        "Canonical data model",
+        "Behavior table",
+        "Compatibility and deprecation decisions",
+        "Threat model",
+        "SLOs and resource budgets",
+        "Fixtures",
+        "Evidence locations",
+        "Ambiguities resolved",
+    ] {
+        assert!(
+            contract.contains(&format!("## {section}")),
+            "contract must contain a {section} section"
+        );
+    }
+
+    for authority in ["ext-apps", "ext-auth", "ext-tasks"] {
+        assert!(
+            contract.contains(authority),
+            "the contract must pin the {authority} extension authority"
+        );
+    }
+
+    let rows: Vec<&str> = contract
+        .lines()
+        .filter(|line| line.starts_with("| EXT-"))
+        .collect();
+    assert!(
+        rows.len() >= 10,
+        "the behavior table must bind at least ten rows, got {}",
+        rows.len()
+    );
+    let mut ids = std::collections::BTreeSet::new();
+    for row in rows {
+        let cells: Vec<&str> = row.trim_matches('|').split('|').map(str::trim).collect();
+        assert!(
+            cells.len() >= 4,
+            "a behavior row must carry id/level/clause/production path: {row}"
+        );
+        let (id, level, clause, path) = (cells[0], cells[1], cells[2], cells[3]);
+        assert!(ids.insert(id.to_string()), "duplicate behavior row id {id}");
+        assert!(
+            ["must", "must_not", "should", "should_not", "may"].contains(&level),
+            "{id}: unsupported level {level}"
+        );
+        assert!(!clause.is_empty(), "{id}: clause must not be empty");
+        assert!(
+            root.join(path).exists(),
+            "{id}: the declared production path must exist: {path}"
+        );
+    }
+
+    let lower = contract.to_lowercase();
+    for mechanism in [
+        "discover",
+        "negotiat",
+        "version",
+        "isolat",
+        "disabl",
+        "collision",
+        "downgrade",
+        "watch",
+    ] {
+        assert!(
+            lower.contains(mechanism),
+            "the contract must resolve the `{mechanism}` mechanism"
+        );
+    }
+    assert!(
+        contract.contains("gmcp_req_203_016_01_contract"),
+        "fixtures must live with the acceptance test that proves them"
+    );
+}
