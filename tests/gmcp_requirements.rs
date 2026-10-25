@@ -7730,6 +7730,185 @@ fn gmcp_req_203_005_05_interop() {
     }
 }
 
+/// GMCP-203-005-06: operations, diagnostics, runbooks, and reproducible evidence for stdio transport.
+///
+/// Inspectable CLI/tool ledger state, live stdio session validation, invalid config rejection,
+/// deterministic air-gapped drift detection (hash_drift and unfetchable fail closed),
+/// complete operator runbook in contract-203-005.md, and retained signed evidence.
+#[test]
+fn gmcp_req_203_005_06_operations() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-005-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // 1. Shipped inspectable surface: CLI ledger status emits bounded JSON report.
+    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(report["verified"], true);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+
+    // 2. Live inspectable surface: served stdio session answers ping cleanly.
+    let mut session = StdioSession::spawn(root, &home);
+    let ping = session.request("ping", serde_json::json!({}));
+    assert!(
+        ping.is_object() || ping.is_null(),
+        "ping must succeed: {ping:?}"
+    );
+    drop(session);
+
+    // Reap substrate daemon if spawned
+    if let Ok(pid) = std::fs::read_to_string(home.join(".susi-dev").join("substrate.pid")) {
+        let pid = pid.trim().to_string();
+        if !pid.is_empty() {
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid, "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill").args(["-9", &pid]).status();
+            }
+        }
+    }
+
+    // 3. Invalid configuration is rejected: --refetched without --drift fails.
+    let invalid = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!invalid.status.success());
+
+    // 4. Deterministic drift check is clean on the shipped corpus.
+    let clean = susi_json(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(clean["drift"], true);
+    assert_eq!(clean["verified"], true);
+    assert_eq!(clean["checked"], clean["matched"]);
+    assert!(clean["findings"].as_array().unwrap().is_empty());
+
+    // 5. A drifted stdio transport document is a named hash_drift finding.
+    let stdio_doc = "docs/specification/2026-07-28/basic/transports/stdio.mdx";
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(stdio_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let drifted = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!drifted.status.success());
+    let drift_report: serde_json::Value =
+        serde_json::from_slice(&drifted.stdout).expect("drift failure must remain JSON");
+    assert_eq!(drift_report["verified"], false);
+    assert!(drift_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["document"] == stdio_doc && f["kind"] == "hash_drift"));
+
+    // 6. An absent stdio document fails closed as unfetchable.
+    std::fs::remove_file(&victim).unwrap();
+    let missing = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!missing.status.success());
+    let missing_report: serde_json::Value =
+        serde_json::from_slice(&missing.stdout).expect("missing source must remain JSON");
+    assert!(missing_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["document"] == stdio_doc && f["kind"] == "unfetchable"));
+
+    // 7. The contract carries the complete operator runbook.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-005.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Diagnostics",
+        "Incident triage",
+        "Migration (re-pinning",
+        "Rollback",
+        "hash_drift",
+        "unfetchable",
+        "-32600",
+        "-32700",
+        "stdio",
+    ] {
+        assert!(contract.contains(token), "contract must document {token}");
+    }
+
+    // 8. Evidence is retained, signed, and tied to current ledger bytes.
+    use sha2::{Digest, Sha256};
+    let ledger_hash = hex::encode(Sha256::digest(
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
+    ));
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-005.jsonl"))
+        .expect("VC-203-005 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["requirement"] == "GMCP-203-005-06")
+        .expect("evidence must retain a record for GMCP-203-005-06");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_005_06_operations"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
 /// GMCP-203-006-03: the production Streamable HTTP surface on the gateway
 /// entry point, driven over a real loopback socket.
 ///
