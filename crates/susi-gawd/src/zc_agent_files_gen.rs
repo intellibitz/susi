@@ -21,12 +21,10 @@ pub fn generate_from_agents_md(agents_md: &str) -> Vec<GeneratedAgentFile> {
     [
         ("CLAUDE.md", "Claude Code instructions"),
         ("GEMINI.md", "Gemini CLI instructions"),
-        (".cursor/rules/susi.mdc", "Cursor agent rules"),
         (
             ".github/copilot-instructions.md",
             "GitHub Copilot instructions",
         ),
-        (".devin/rules/susi.md", "Devin CLI rules"),
     ]
     .into_iter()
     .map(|(path, label)| GeneratedAgentFile {
@@ -43,7 +41,7 @@ mod zc_agent_files_gen_tests {
     #[test]
     fn zc_agent_files_gen_from_agents_md() {
         let files = generate_from_agents_md("# Agent Engineering Mandates\n");
-        assert!(files.len() >= 4);
+        assert!(files.len() >= 3);
         assert!(files.iter().any(|f| f.path == "CLAUDE.md"));
         assert!(files.iter().all(|f| f.body.contains("AGENTS.md")));
     }

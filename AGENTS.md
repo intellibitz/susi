@@ -43,10 +43,9 @@ The agent loop is **atomic per task** (own worktree, always synced with
    pushed branches open and merge their own PR.
 
 This block is loaded for you: `CLAUDE.md`, `GEMINI.md`,
-`.github/copilot-instructions.md`, `.cursor/rules/susi-workflow.mdc` and
-`.devin/rules/susi-workflow.md` each point every agent tool here, and
+and `.github/copilot-instructions.md` each point every agent tool here, and
 SessionStart hooks (Claude Code: `.claude/settings.json`; Codex:
-`.codex/hooks.json`; Devin: `.devin/hooks.v1.json`, all →
+`.codex/hooks.json`, all →
 `scripts/workflow-session-start.sh`) run the check for you. Keep those pointers identical; this file is the single source.
 
 ## Parallel task lifecycle
