@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "HARNESSDOCSHARNESSCACHEFAQ",
-  "created_unix": 1792966344
+  "created_unix": 1792966344,
+  "closed": {
+    "at_unix": 1792966733,
+    "commit": "5b7da79b220365f4d4bb8a020bd31cffa463f52a",
+    "by": "HARNESSDOCSHARNESSCACHEFAQ"
+  }
 }
