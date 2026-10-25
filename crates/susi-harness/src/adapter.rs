@@ -342,6 +342,21 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// Returns an error when staging or committing fails.
     pub fn commit_work(&self, worktree: &Path, id: &str) -> EaiResult<bool> {
+        // The worker edits text without running rustfmt, and the repo's
+        // pre-commit hook rejects unformatted code. Format before staging so
+        // the commit carries the formatter's own output instead of discarding
+        // correct work on a hook.
+        let fmt = self.runner.run(
+            Path::new("cargo"),
+            &["fmt".to_string(), "--all".to_string()],
+            worktree,
+        )?;
+        if !fmt.success() {
+            return Err(EaiError::process(format!(
+                "cargo fmt --all failed before commit: {}",
+                fmt.tail()
+            )));
+        }
         let add = self.git(worktree, &["add", "-A"])?;
         if !add.success() {
             return Err(EaiError::process(format!(
@@ -1075,6 +1090,7 @@ mod tests {
             ok("base123\n"),
             ok(""),
             ok(""),
+            ok(""),
             ok("M docs/harness.md\n"),
             ok(""),
             ok(""),
@@ -1128,6 +1144,7 @@ mod tests {
             ok(""),
             ok(""),
             ok("base123\n"),
+            ok(""),
             ok(""),
             ok(""),
             ok("M docs/harness.md\n"),
@@ -1265,5 +1282,28 @@ mod tests {
     fn a_missing_acceptance_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         assert!(target(vec![]).acceptance_argv(dir.path(), "T-404").is_err());
+    }
+    #[test]
+    fn commit_formats_before_it_stages() {
+        // cargo fmt, git add, git status (non-empty), git commit
+        let target = target(vec![ok(""), ok(""), ok("M  src/lib.rs\n"), ok("")]);
+        assert!(target.commit_work(Path::new("wt"), "T-AGENT-9").unwrap());
+        let calls = target.runner.calls.lock().unwrap();
+        let fmt_at = calls
+            .iter()
+            .position(|(program, args, _)| {
+                program == Path::new("cargo")
+                    && args.len() == 2
+                    && args[0] == "fmt"
+                    && args[1] == "--all"
+            })
+            .expect("cargo fmt --all must run before committing");
+        let add_at = calls
+            .iter()
+            .position(|(program, args, _)| {
+                program == Path::new("git") && args.first().map(String::as_str) == Some("add")
+            })
+            .expect("git add must run");
+        assert!(fmt_at < add_at, "formatting must precede staging");
     }
 }
