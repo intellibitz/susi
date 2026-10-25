@@ -19,6 +19,20 @@ ledger records the row with `cached: true` and `cost: 0`. The token counts are
 kept because they describe the answer that was served, not because they were
 billed.
 
+### How does the metered gateway cache responses?
+
+The gateway computes a SHA-256 key over the chat-completion request body (the
+model, messages, temperature and token limit, with `max_tokens` and
+`max_completion_tokens` treated as one field) and looks that key up before the
+request goes anywhere. An identical request is served straight from the cache:
+no provider call, no spend, and the ledger still gets its row, recorded with
+`cached: true` and `cost: 0`.
+
+The cache lives beside the gateway ledger, in a `cache/` directory under the same
+state directory, one JSON file per key. It is in-memory plus on disk: a hit in
+the running process never touches the filesystem, a restart reloads from the
+files, and a freshly fetched response is written back to both.
+
 ## How is the budget enforced?
 
 Before a turn, the guard computes a pessimistic estimate: the prompt at the
