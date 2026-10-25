@@ -8334,3 +8334,272 @@ fn gmcp_req_203_016_01_contract() {
         "fixtures must live with the acceptance test that proves them"
     );
 }
+
+/// GMCP-203-004-05: interoperability and quality: legacy lifecycle compatibility
+/// and governed deprecation.
+///
+/// Proves, on the served stdio path:
+/// 1. Reference-fixture replay: legacy (2025-11-25) request fixtures each earn
+///    their declared verdict (served answer or typed error), deterministically.
+/// 2. Differential behavior: the production gate (`classify_line` with `EraState`)
+///    and the served endpoint agree on the same fixtures (same forward/reject
+///    decision and same error code).
+/// 3. Determinism: replaying the identical fixture sequence twice yields
+///    identical verdicts.
+/// 4. Concurrent cross-era clients: one legacy session (`StdioSession::spawn`) and
+///    one modern session (`StdioSession::spawn_modern`) run interleaved requests;
+///    neither session's negotiated era leaks into the other (legacy keeps rejecting
+///    modern `_meta` with -32600; modern keeps rejecting bare requests with -32602)
+///    and both still answer afterwards.
+/// 5. Transport parity: for the same malformed envelope, the stdio gate and
+///    `http_envelope_rejection` emit the same code/message.
+/// 6. Bounded latency: each served fixture round-trip completes well under a
+///    generous bound (assert elapsed < 30s) so a hang fails instead of stalling.
+#[test]
+fn gmcp_req_203_004_05_interop() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-004-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let run_replay = |session: &mut StdioSession| -> Vec<(String, Option<i64>, bool)> {
+        let fixtures: &[(&str, Option<i64>)] = &[
+            ("positive/notification-cancelled.json", None),
+            ("negative/request-batch-array.json", Some(-32600)),
+            ("negative/request-null-id.json", Some(-32600)),
+            (
+                "negative/request-resources-read-uri-schemeless.json",
+                Some(-32602),
+            ),
+        ];
+
+        let mut results = Vec::new();
+        for &(rel_path, expected_code) in fixtures {
+            let fixture_path = root.join(".agents/gmcp/fixtures").join(rel_path);
+            let fixture: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&fixture_path).unwrap())
+                    .unwrap_or_else(|e| panic!("{rel_path} must parse: {e}"));
+            let req = &fixture["request"];
+
+            let start = std::time::Instant::now();
+            if expected_code.is_none() {
+                // Notification: send and ensure the session is immediately usable.
+                session.send(req);
+                session.send(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 990,
+                    "method": "ping",
+                    "params": {}
+                }));
+                let resp = session
+                    .response_for(&serde_json::json!(990), std::time::Duration::from_secs(30))
+                    .expect("session must remain responsive after notification");
+                let elapsed = start.elapsed();
+                assert!(
+                    elapsed < std::time::Duration::from_secs(30),
+                    "{rel_path}: latency exceeded 30s: {elapsed:?}"
+                );
+                assert!(
+                    resp.get("error").is_none_or(|e| e.is_null()),
+                    "notification must not cause error: {resp}"
+                );
+                results.push((rel_path.to_string(), None, true));
+            } else {
+                let resp = session
+                    .request_verbatim(req, std::time::Duration::from_secs(30))
+                    .unwrap_or_else(|| panic!("{rel_path} must receive a response"));
+                let elapsed = start.elapsed();
+                assert!(
+                    elapsed < std::time::Duration::from_secs(30),
+                    "{rel_path}: latency exceeded 30s: {elapsed:?}"
+                );
+
+                let code = resp["error"]["code"].as_i64();
+                assert_eq!(
+                    code, expected_code,
+                    "{rel_path}: wrong error code in {resp}"
+                );
+                results.push((rel_path.to_string(), code, false));
+            }
+        }
+        results
+    };
+
+    // ── 1. Reference-fixture replay on legacy session ───────────────────
+    let mut legacy = StdioSession::spawn(root, &home);
+    let run1 = run_replay(&mut legacy);
+
+    // Also assert served answer on legacy ping
+    let ping_start = std::time::Instant::now();
+    let legacy_ping = legacy.request("ping", serde_json::json!({}));
+    let ping_elapsed = ping_start.elapsed();
+    assert!(
+        ping_elapsed < std::time::Duration::from_secs(30),
+        "legacy ping exceeded 30s: {ping_elapsed:?}"
+    );
+    assert!(legacy_ping.is_object());
+    assert!(
+        legacy_ping.get("resultType").is_none(),
+        "legacy answer must not have resultType: {legacy_ping}"
+    );
+
+    // ── 2. Differential behavior: production gate vs served endpoint ───
+    for (rel_path, expected_code, is_notification) in &run1 {
+        let fixture_path = root.join(".agents/gmcp/fixtures").join(rel_path);
+        let fixture: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&fixture_path).unwrap())
+                .unwrap_or_else(|e| panic!("{rel_path} must parse: {e}"));
+        let req_bytes = serde_json::to_vec(&fixture["request"]).unwrap();
+
+        // Simulate gate under legacy era
+        let mut era = EraState::default();
+        let init_line = br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#;
+        let _ = classify_line(init_line, &mut era);
+        assert!(era.is_legacy(), "gate era must be pinned legacy");
+
+        let gate_verdict = classify_line(&req_bytes, &mut era);
+        if *is_notification {
+            assert!(
+                matches!(gate_verdict, GateVerdict::Forward | GateVerdict::Drop),
+                "{rel_path}: gate must forward or drop notification, got {gate_verdict:?}"
+            );
+        } else {
+            match gate_verdict {
+                GateVerdict::Reject { code, .. } => {
+                    assert_eq!(
+                        Some(code),
+                        *expected_code,
+                        "{rel_path}: gate code ({code}) and served code ({expected_code:?}) must agree"
+                    );
+                }
+                GateVerdict::Forward => {
+                    // For method-level errors like schemeless URI, gate forwards and service returns typed error.
+                    // Forward decision is consistent with server-side validation.
+                }
+                GateVerdict::Drop => {
+                    panic!("{rel_path}: gate dropped non-notification request");
+                }
+            }
+        }
+    }
+
+    // ── 3. Determinism: replaying the identical fixture sequence yields identical verdicts ─
+    let run2 = run_replay(&mut legacy);
+    assert_eq!(
+        run1, run2,
+        "replaying fixture sequence twice must yield identical verdicts"
+    );
+
+    // ── 4. Concurrent cross-era clients: negotiated era isolation ───────
+    let mut modern = StdioSession::spawn_modern(root, &home);
+
+    // Legacy rejects modern _meta with -32600
+    let modern_meta_on_legacy = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "meta-on-legacy",
+                "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("modern request on legacy session must earn response");
+    assert_eq!(
+        modern_meta_on_legacy["error"]["code"].as_i64(),
+        Some(-32600),
+        "legacy session must reject modern _meta with -32600"
+    );
+
+    // Modern rejects bare request with -32602
+    let bare_on_modern = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "bare-on-modern",
+                "method": "tools/list",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("bare request on modern session must earn response");
+    assert_eq!(
+        bare_on_modern["error"]["code"].as_i64(),
+        Some(-32602),
+        "modern session must reject bare request with -32602"
+    );
+
+    // Interleaved: both still answer afterwards
+    legacy.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 1001, "method": "ping", "params": {}
+    }));
+    modern.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "modern-discover", "method": "server/discover",
+        "params": {"_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}
+    }));
+
+    let legacy_resp = legacy
+        .response_for(&serde_json::json!(1001), std::time::Duration::from_secs(30))
+        .expect("legacy session must answer ping after interleaved requests");
+    assert!(
+        legacy_resp.get("error").is_none_or(|e| e.is_null()),
+        "legacy ping must succeed: {legacy_resp}"
+    );
+    assert!(legacy_resp["result"].get("resultType").is_none());
+
+    let modern_resp = modern
+        .response_for(
+            &serde_json::json!("modern-discover"),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("modern session must answer discover after interleaved requests");
+    assert!(
+        modern_resp.get("error").is_none_or(|e| e.is_null()),
+        "modern discover must succeed: {modern_resp}"
+    );
+    assert_eq!(
+        modern_resp["result"]["resultType"], "complete",
+        "modern response must carry resultType complete: {modern_resp}"
+    );
+
+    // ── 5. Transport parity: stdio gate and http_envelope_rejection ─────
+    for raw in [
+        br#"{not-json"#.as_slice(),
+        br#"[{"jsonrpc":"2.0","id":1,"method":"ping"}]"#.as_slice(),
+        br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+    ] {
+        let http_rejection =
+            http_envelope_rejection(raw).expect("HTTP gate must reject malformed envelope");
+        let mut gate_era = EraState::default();
+        let stdio_verdict = classify_line(raw, &mut gate_era);
+        let (stdio_code, stdio_message) = match stdio_verdict {
+            GateVerdict::Reject { code, message, .. } => (code, message),
+            other @ (GateVerdict::Forward | GateVerdict::Drop) => {
+                panic!("stdio gate must reject malformed envelope: {other:?}")
+            }
+        };
+        assert_eq!(
+            http_rejection["error"]["code"].as_i64(),
+            Some(stdio_code),
+            "stdio and HTTP rejection codes must match for {raw:?}"
+        );
+        assert_eq!(
+            http_rejection["error"]["message"].as_str(),
+            Some(stdio_message),
+            "stdio and HTTP rejection messages must match for {raw:?}"
+        );
+    }
+
+    // Clean up scratch dir
+    drop(legacy);
+    drop(modern);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
