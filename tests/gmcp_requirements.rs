@@ -320,6 +320,8 @@ impl Drop for StdioSession {
             let pid = self.child.id().to_string();
             let _ = Command::new("taskkill")
                 .args(["/PID", &pid, "/T", "/F"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status();
         }
         #[cfg(not(windows))]
@@ -7167,6 +7169,217 @@ fn gmcp_req_203_004_04_adversarial() {
         .filter(|r| r["trace"]["vector"] == "VC-203-004")
         .collect();
     assert_eq!(rows.len(), 108, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
+
+/// GMCP-203-005-03: the production stdio transport on the served path.
+///
+/// Byte-accurate newline framing (`MCP-2026-0728-...-0013/0036`), stdout
+/// protocol purity (`-0018/0055`), several framed messages written in one
+/// chunk, prompt exit when stdin closes (`-0102`), and the single policy
+/// boundary the direct, daemon and gateway entries share — the HTTP
+/// gateway's `http_envelope_rejection` and the stdio gate must emit the
+/// same document for the same malformed envelope. Every stdout line is
+/// parsed, so a stray log line fails the purity assertion instead of
+/// being silently dropped.
+#[test]
+fn gmcp_req_203_005_03_integration() {
+    use std::io::{BufRead, BufReader, Write};
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+
+    /// Kills the spawned server's whole tree on drop — including on a
+    /// panic — so the daemon `mcp serve` ensures can never outlive the
+    /// test and hold its pipes open.
+    struct Serve(std::process::Child);
+    impl Drop for Serve {
+        fn drop(&mut self) {
+            #[cfg(windows)]
+            {
+                let pid = self.0.id().to_string();
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid, "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(not(windows))]
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-005-int-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let child = susi_command(root, &home, &["mcp", "serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the susi binary must spawn `mcp serve`");
+    let mut serve = Serve(child);
+    let mut stdin = serve
+        .0
+        .stdin
+        .take()
+        .expect("stdio server must accept stdin");
+    let stdout = serve
+        .0
+        .stdout
+        .take()
+        .expect("stdio server must yield stdout");
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    // One write, three framed messages: initialize, ping, and the
+    // initialized notification. The transport must split on newlines and
+    // answer both requests.
+    let initialize = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"transport-it","version":"1"}}}"#;
+    let ping = r#"{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}"#;
+    let initialized = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+    stdin
+        .write_all(format!("{initialize}\n{ping}\n{initialized}\n").as_bytes())
+        .expect("the handshake frames must write");
+    stdin.flush().expect("frames must flush");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+    let mut ids = Vec::new();
+    let mut lines = 0usize;
+    while ids.len() < 2 {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "the served transport must answer both framed requests, saw ids {ids:?}"
+        );
+        let Ok(line) = rx.recv_timeout(remaining) else {
+            break;
+        };
+        lines += 1;
+        assert!(
+            !line.contains('\n') && !line.contains('\r'),
+            "a framed message must not contain an embedded newline: {line:?}"
+        );
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap_or_else(|e| {
+            panic!("stdout purity: every line must be a valid MCP message, got {line:?}: {e}")
+        });
+        assert_eq!(
+            value["jsonrpc"], "2.0",
+            "every stdout line must be a JSON-RPC 2.0 message: {value}"
+        );
+        assert!(
+            value.get("method").is_none(),
+            "the server must never write JSON-RPC requests to stdout: {value}"
+        );
+        if let Some(id) = value.get("id").and_then(serde_json::Value::as_i64) {
+            ids.push(id);
+        }
+    }
+    assert!(
+        ids.contains(&1),
+        "initialize must be answered over the framed transport: {ids:?}"
+    );
+    assert!(
+        ids.contains(&2),
+        "a message written in the same chunk must be framed and answered: {ids:?}"
+    );
+    assert!(lines >= 2, "two answers must arrive, got {lines} lines");
+
+    // Closing stdin is the client half of shutdown; the server must exit
+    // promptly instead of stranding the descriptor.
+    drop(stdin);
+    let stop = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    let exited = loop {
+        match serve
+            .0
+            .try_wait()
+            .expect("the server child must be waitable")
+        {
+            Some(_) => break true,
+            None if std::time::Instant::now() >= stop => break false,
+            None => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    };
+    assert!(
+        exited,
+        "the stdio server must exit promptly once its stdin closes"
+    );
+    drop(serve);
+
+    // `mcp serve` ensures the host daemon; it is detached by design, so
+    // reap it through its own pid file before the scratch home goes away.
+    if let Ok(pid) = std::fs::read_to_string(home.join(".susi-dev").join("substrate.pid")) {
+        let pid = pid.trim().to_string();
+        if !pid.is_empty() {
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid, "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill").args(["-9", &pid]).status();
+            }
+        }
+    }
+
+    // ── One policy boundary: the HTTP gateway and the stdio gate emit the
+    //    same document for the same malformed envelope ────────────────
+    let malformed = r#"{"jsonrpc":"1.0","method":"ping"}"#;
+    let http = http_envelope_rejection(malformed.as_bytes())
+        .expect("the HTTP gate must reject a non-2.0 envelope");
+    let mut policy = StdioSession::spawn(root, &home);
+    let stdio = policy
+        .request_verbatim(
+            &serde_json::json!({"jsonrpc":"1.0","method":"ping"}),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("the stdio gate must reject a non-2.0 envelope");
+    assert_eq!(
+        stdio["error"]["code"], http["error"]["code"],
+        "stdio and HTTP must share the rejection code: {stdio} vs {http}"
+    );
+    assert_eq!(
+        stdio["error"]["message"], http["error"]["message"],
+        "stdio and HTTP must share the rejection message: {stdio} vs {http}"
+    );
+
+    drop(policy);
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-005.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-005")
+        .collect();
+    assert_eq!(rows.len(), 20, "the vector's pinned row count");
     for row in &rows {
         let id = row["id"].as_str().unwrap();
         assert!(contract.contains(id), "contract must bind row {id}");
