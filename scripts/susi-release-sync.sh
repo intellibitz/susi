@@ -36,6 +36,7 @@
 # the timer retries, and the cached build makes the retry cheap).
 
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 SUSI_HOME="${HOME}/.susi"
 BIN_DIR="${SUSI_HOME}/bin"
@@ -225,6 +226,10 @@ swap_in() {
     fi
     # rename(2): a running daemon keeps its old inode; new execs get the new one.
     mv -f "${BIN}.new" "$BIN"
+    # Keep Windows engine mirror binary synchronized if present
+    if [ -f "${BIN_DIR}/susi-engine.exe" ]; then
+        cp -pf "$BIN" "${BIN_DIR}/susi-engine.exe" 2>/dev/null || true
+    fi
 }
 
 rollback() {
