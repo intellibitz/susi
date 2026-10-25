@@ -51,7 +51,7 @@ A malicious peer can replay a handle, answer another principal's request, or sta
 
 ## SLOs and resource budgets
 
-Every interaction completes within its declared deadline or is cancelled with a typed error. Bounded queues and per-principal handle budgets prevent unbounded growth.
+Every interaction completes within its declared deadline or is cancelled with a typed error. Bounded queues, backpressure handling, timeout handling, and per-principal handle budgets prevent unbounded growth.
 
 ## Fixtures
 
