@@ -25,6 +25,7 @@ use std::sync::{Mutex, OnceLock};
 pub struct TokenUsage {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
+    pub cached_tokens: u64,
     pub total_tokens: u64,
 }
 
@@ -35,8 +36,40 @@ impl TokenUsage {
         Self {
             prompt_tokens,
             completion_tokens,
+            cached_tokens: 0,
             total_tokens: prompt_tokens.saturating_add(completion_tokens),
         }
+    }
+
+    /// Construct a new TokenUsage with explicit cached prompt tokens.
+    #[must_use]
+    pub const fn with_cache(
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        cached_tokens: u64,
+    ) -> Self {
+        Self {
+            prompt_tokens,
+            completion_tokens,
+            cached_tokens,
+            total_tokens: prompt_tokens.saturating_add(completion_tokens),
+        }
+    }
+}
+
+impl From<&TokenUsage> for susi_core::inference_wire::TokenUsage {
+    fn from(t: &TokenUsage) -> Self {
+        susi_core::inference_wire::TokenUsage::with_cache(
+            t.prompt_tokens,
+            t.completion_tokens,
+            t.cached_tokens,
+        )
+    }
+}
+
+impl From<TokenUsage> for susi_core::inference_wire::TokenUsage {
+    fn from(t: TokenUsage) -> Self {
+        (&t).into()
     }
 }
 
@@ -46,6 +79,7 @@ pub struct ModelTelemetryStats {
     pub requests: u64,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
+    pub cached_tokens: u64,
     pub total_cost_micros: u64,
     pub errors: u64,
 }
@@ -56,6 +90,7 @@ pub struct InferenceTelemetry {
     total_requests: AtomicU64,
     total_prompt_tokens: AtomicU64,
     total_completion_tokens: AtomicU64,
+    total_cached_tokens: AtomicU64,
     total_cost_micros: AtomicU64,
     total_errors: AtomicU64,
     models: Mutex<BTreeMap<String, ModelTelemetryStats>>,
@@ -81,6 +116,8 @@ impl InferenceTelemetry {
             .fetch_add(usage.prompt_tokens, Ordering::Relaxed);
         self.total_completion_tokens
             .fetch_add(usage.completion_tokens, Ordering::Relaxed);
+        self.total_cached_tokens
+            .fetch_add(usage.cached_tokens, Ordering::Relaxed);
         self.total_cost_micros
             .fetch_add(cost_micros, Ordering::Relaxed);
         if is_error {
@@ -94,6 +131,7 @@ impl InferenceTelemetry {
         entry.completion_tokens = entry
             .completion_tokens
             .saturating_add(usage.completion_tokens);
+        entry.cached_tokens = entry.cached_tokens.saturating_add(usage.cached_tokens);
         entry.total_cost_micros = entry.total_cost_micros.saturating_add(cost_micros);
         if is_error {
             entry.errors = entry.errors.saturating_add(1);
@@ -116,6 +154,12 @@ impl InferenceTelemetry {
     #[must_use]
     pub fn total_completion_tokens(&self) -> u64 {
         self.total_completion_tokens.load(Ordering::Relaxed)
+    }
+
+    /// Snapshot of total cached prompt tokens read.
+    #[must_use]
+    pub fn total_cached_tokens(&self) -> u64 {
+        self.total_cached_tokens.load(Ordering::Relaxed)
     }
 
     /// Snapshot of cumulative cost across all models in micro-dollars (micros).
@@ -149,6 +193,10 @@ impl InferenceTelemetry {
         out.push_str(&format!(
             "susi_inference_tokens_total{{kind=\"prompt\"}} {}\n",
             self.total_prompt_tokens()
+        ));
+        out.push_str(&format!(
+            "susi_inference_tokens_total{{kind=\"cached\"}} {}\n",
+            self.total_cached_tokens()
         ));
         out.push_str(&format!(
             "susi_inference_tokens_total{{kind=\"completion\"}} {}\n\n",
@@ -204,13 +252,14 @@ mod tests {
         assert_eq!(registry.total_requests(), 0);
         assert_eq!(registry.total_cost_micros(), 0);
 
-        let usage = TokenUsage::new(100, 50);
+        let usage = TokenUsage::with_cache(100, 50, 40);
         registry.record_call("anthropic/claude-3-5-sonnet", &usage, 1050, false);
         registry.record_call("anthropic/claude-3-5-sonnet", &usage, 1050, false);
         registry.record_call("openai/gpt-4o", &usage, 750, true);
 
         assert_eq!(registry.total_requests(), 3);
         assert_eq!(registry.total_prompt_tokens(), 300);
+        assert_eq!(registry.total_cached_tokens(), 120);
         assert_eq!(registry.total_completion_tokens(), 150);
         assert_eq!(registry.total_cost_micros(), 2850);
         assert_eq!(registry.total_errors(), 1);
@@ -218,6 +267,7 @@ mod tests {
         let prom = registry.render_prometheus();
         assert!(prom.contains("susi_inference_requests_total 3"));
         assert!(prom.contains("susi_inference_tokens_total{kind=\"prompt\"} 300"));
+        assert!(prom.contains("susi_inference_tokens_total{kind=\"cached\"} 120"));
         assert!(prom.contains("susi_inference_tokens_total{kind=\"completion\"} 150"));
         assert!(prom.contains("susi_inference_cost_micros_total 2850"));
         assert!(prom.contains("susi_inference_errors_total 1"));
