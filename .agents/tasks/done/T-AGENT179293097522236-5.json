@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT179293097522236-5",
+  "title": "Full cache mode for DeepSeek, Gemini, and Claude with tiered orchestrator routing",
+  "goal": "Implement full cache mode across DeepSeek, Gemini, and Claude, and build tiered orchestrator routing worker subtasks to Flash and tough problems to Pro models.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "orchestrator_tier"
+    ]
+  },
+  "created_by": "AGENT179293097522236",
+  "created_unix": 1792947800,
+  "closed": {
+    "at_unix": 1792950439,
+    "commit": "b1b37dd470cc0388d646616d3e5e37339b3fef15",
+    "by": "AGENT179293097522236"
+  }
+}

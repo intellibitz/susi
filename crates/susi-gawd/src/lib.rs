@@ -108,6 +108,7 @@ pub mod kernel_loader;
 pub mod lane_overlap_warning;
 pub mod model_rate_arbitration;
 pub mod ops_slo;
+pub mod orchestrator_tier;
 pub mod paired_regression;
 pub mod patch_cycle;
 pub mod patch_fence;
