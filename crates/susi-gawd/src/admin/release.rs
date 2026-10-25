@@ -692,21 +692,7 @@ impl SusiAdmin {
     /// the unit builds the tag in its own checkout and swaps the binary only
     /// once this `susi release` process (a busy client) has exited.
     fn promote_release_locally() -> String {
-        const UNIT: &str = "susi-release-sync.service";
-        let started = Command::new("systemctl")
-            .args(["--user", "start", "--no-block", UNIT])
-            .output()
-            .is_ok_and(|out| out.status.success());
-        if started {
-            format!(
-                "Local promotion queued ({UNIT}): the release is built for this host and \
-                 installed once this command exits. Follow: journalctl --user -fu {UNIT}"
-            )
-        } else {
-            "Local susi not updated: the release-sync timer is not installed. Run \
-             scripts/susi-release-sync.sh (once) or --install-timer (always)."
-                .to_string()
-        }
+        crate::cross_platform_service::promote_release_cross_platform().message
     }
 }
 

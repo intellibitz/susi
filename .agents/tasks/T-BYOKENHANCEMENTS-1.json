@@ -1,0 +1,17 @@
+{
+  "id": "T-BYOKENHANCEMENTS-1",
+  "title": "[BYOK] Complete Bring Your Own Key (BYOK) enhancements",
+  "goal": "Deliver BYOK enhancements: dynamic request-level headers, encrypted at-rest storage, unified susi keys CLI, and per-key budget caps",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "byok_enhancements"
+    ]
+  },
+  "created_by": "BYOKENHANCEMENTS",
+  "created_unix": 1792944658
+}
