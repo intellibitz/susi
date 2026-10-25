@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179295050946876-1",
+  "title": "Orchestrator policy defaults: 5 USD per run, 25 USD per day, 3 attempts, tier escalation ladder",
+  "goal": "Give susi harness run safe autonomous defaults: --budget-usd 5 with the deploy/harness/prices.json catalogue, --attempts 3, an escalation ladder deepseek-flash,deepseek-pro,claude-sonnet, and a new --daily-usd 25 ceiling that refuses a run when the ledger already shows that much spend today.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--bin",
+      "susi",
+      "daily_cap"
+    ]
+  },
+  "created_by": "AGENT179295050946876",
+  "created_unix": 1792950551,
+  "closed": {
+    "at_unix": 1792951958,
+    "commit": "2aa8b1ba6c1d128d882ee08ea8c93eb5be8e59f2",
+    "by": "AGENT179295050946876"
+  }
+}
