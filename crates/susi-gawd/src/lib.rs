@@ -129,6 +129,7 @@ pub mod self_validation;
 pub mod task_edit_guard;
 pub mod tasks_from_brain;
 pub mod tasks_from_ci;
+pub mod telemetry;
 pub mod tenant_isolation;
 pub mod unsafe_ratchet;
 pub mod update_health;
