@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179296718950452-1",
+  "title": "Author retries once with the validation error fed back",
+  "goal": "Plans authored by deepseek-pro and gemini-pro failed validate_plan with only the context validate the authored plan shown, so the failure was unexplainable and lost the paid call. Feed the validation error into a second authoring request and keep only a plan that validates, so a capable model can correct its own plan within the same run.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "author"
+    ]
+  },
+  "created_by": "AGENT179296718950452",
+  "created_unix": 1792967222
+}
