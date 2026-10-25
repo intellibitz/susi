@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179295919943120-1",
+  "title": "Worker must fail fast on repeated empty replies and keep a transcript",
+  "goal": "A native worker run hit the 25-turn cap twice because empty model replies kept being nudged without ever failing fast. Cap consecutive empty replies at three and fail the attempt with a clear message, and append every assistant message to state_dir/transcript.jsonl so a stuck loop is diagnosable from artifacts.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "worker"
+    ]
+  },
+  "created_by": "AGENT179295919943120",
+  "created_unix": 1792959238,
+  "closed": {
+    "at_unix": 1792959779,
+    "commit": "ef04091ec5bc341f106d4c15edd9f6cd51122b1b",
+    "by": "AGENT179295919943120"
+  }
+}
