@@ -1,3 +1,7 @@
+param(
+    [switch]$Service = $false
+)
+
 # SUSI Micro-Substrate Installer for Windows
 # Tier 0 Onboarding Protocol: Zero-Config Deployment
 
@@ -116,6 +120,20 @@ if ($UserPath -notlike "*$GlobalBinDir*") {
     [Environment]::SetEnvironmentVariable("Path", "$GlobalBinDir;$UserPath", "User")
     $env:Path = "$GlobalBinDir;$env:Path"
     Write-Host "  ✅ User PATH updated!" -ForegroundColor Green
+}
+
+# 4. Optional Service Registration
+if ($Service) {
+    Write-Host "[susi] Registering Windows Scheduled Task for background daemon service..." -ForegroundColor Cyan
+    try {
+        $TaskName = "susi-daemon"
+        $Action = New-ScheduledTaskAction -Execute $LauncherExePath -Argument "daemon"
+        $Trigger = New-ScheduledTaskTrigger -AtLogOn
+        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Force | Out-Null
+        Write-Host "  ✅ Registered scheduled task '$TaskName' to run at logon." -ForegroundColor Green
+    } catch {
+        Write-Host "  ⚠️ Could not register scheduled task: $_" -ForegroundColor Yellow
+    }
 }
 
 Write-Host "`n🎉 Global susi is ready! Type 'susi status' or 'susi mcp' to verify." -ForegroundColor Green

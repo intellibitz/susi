@@ -89,6 +89,7 @@ pub mod cloud_rsi_delivery;
 pub mod cloud_rsi_e2e;
 pub mod cloud_rsi_lifecycle;
 pub mod cloud_rsi_outcomes;
+pub mod cross_platform_service;
 pub mod dev_canary;
 pub mod disaster_recovery;
 pub mod eval_contamination;

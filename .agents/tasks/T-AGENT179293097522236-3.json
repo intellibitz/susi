@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT179293097522236-3",
+  "title": "Cross-platform release promotion and daemon service parity",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gawd",
+      "cross_platform_service"
+    ]
+  },
+  "created_by": "AGENT179293097522236",
+  "created_unix": 1792940781
+}
