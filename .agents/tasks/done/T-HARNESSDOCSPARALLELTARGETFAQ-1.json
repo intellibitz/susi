@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "HARNESSDOCSPARALLELTARGETFAQ",
-  "created_unix": 1792966372
+  "created_unix": 1792966372,
+  "closed": {
+    "at_unix": 1792968268,
+    "commit": "8f8fd380e9f5bbb6ee57746fcb32549e6218d027",
+    "by": "HARNESSDOCSPARALLELTARGETFAQ"
+  }
 }
