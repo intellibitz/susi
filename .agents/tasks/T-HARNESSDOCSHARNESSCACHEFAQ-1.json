@@ -1,0 +1,19 @@
+{
+  "id": "T-HARNESSDOCSHARNESSCACHEFAQ-1",
+  "title": "Document the metered gateway cache in the harness FAQ",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "cache"
+    ]
+  },
+  "created_by": "HARNESSDOCSHARNESSCACHEFAQ",
+  "created_unix": 1792966344
+}
