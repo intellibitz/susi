@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-004",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs — gmcp_req_203_004_01_contract through _06_operations plus gmcp_vc_203_004_mastery (7 tests): contract-203-004.md binds 108 normative ledger rows for legacy lifecycle compatibility, ping, tasks, and deprecated specs; the shipped production path verifies the ledger end-to-end; direct, daemon, and stdio surfaces advertise and execute ledger_verify; adversarial matrices prove typed error handling on malformed frames, pinned era unalterable by hostile peer, visible downgrade, and connection state isolation; interop replays reference fixtures with deterministic parity; operations evidence and drift-checked runbooks are retained; mastery consumes and verifies all 01-06 and mastery evidence with exit 0, non-mock, non-waived, matching current ledger hash, and backed by committed tests.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-30",
+    "T-CODEXGMCPROADMAP-31",
+    "T-CODEXGMCPROADMAP-32",
+    "T-CODEXGMCPROADMAP-33",
+    "T-CODEXGMCPROADMAP-34",
+    "T-CODEXGMCPROADMAP-35",
+    "T-CODEXGMCPROADMAP-36"
+  ],
+  "recorded_by": "AGENT179293097522236",
+  "recorded_unix": 1792957043
+}
