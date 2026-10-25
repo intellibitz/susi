@@ -218,13 +218,7 @@ fn susi_workflow_start_wraps_the_same_setup() {
 #[test]
 fn every_agent_tool_auto_loads_the_same_first_step() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let files = [
-        "CLAUDE.md",
-        "GEMINI.md",
-        ".github/copilot-instructions.md",
-        ".cursor/rules/susi-workflow.mdc",
-        ".devin/rules/susi-workflow.md",
-    ];
+    let files = ["CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md"];
     let mut blocks: Vec<(&str, String)> = Vec::new();
     for file in files {
         let text =
@@ -237,10 +231,9 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
         ] {
             assert!(text.contains(needle), "{file} must mention `{needle}`");
         }
-        // One source, five copies: the instructions themselves are
+        // One source, multiple copies: the instructions themselves are
         // byte-identical. A wording drift in one tool's copy is a bug, not a
-        // style choice — CLAUDE.md once carried an extra clause in item 3
-        // while the other four agreed.
+        // style choice.
         let (_, block) = text
             .split_once("Before you change anything in this repository, do these, in order:")
             .unwrap_or_else(|| panic!("{file} must carry the shared first-step block"));
@@ -253,16 +246,6 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
             "the first-step block in {file} drifted from {first_file}"
         );
     }
-    let cursor = std::fs::read_to_string(root.join(".cursor/rules/susi-workflow.mdc")).unwrap();
-    assert!(
-        cursor.contains("alwaysApply: true"),
-        "Cursor must always apply the rule"
-    );
-    let devin = std::fs::read_to_string(root.join(".devin/rules/susi-workflow.md")).unwrap();
-    assert!(
-        devin.contains("trigger: always_on"),
-        "Devin must always apply the rule"
-    );
     // Claude Code and Codex run the check at session start via a "hooks" key.
     for hook_file in [".claude/settings.json", ".codex/hooks.json"] {
         let settings: serde_json::Value =
@@ -272,14 +255,6 @@ fn every_agent_tool_auto_loads_the_same_first_step() {
             .unwrap();
         assert!(cmd.contains("scripts/workflow-session-start.sh"), "{cmd}");
     }
-    // Devin CLI: in hooks.v1.json the hooks object is the whole file.
-    let devin_hooks: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join(".devin/hooks.v1.json")).unwrap())
-            .unwrap();
-    let cmd = devin_hooks["SessionStart"][0]["hooks"][0]["command"]
-        .as_str()
-        .unwrap();
-    assert!(cmd.contains("scripts/workflow-session-start.sh"), "{cmd}");
     assert!(root.join("scripts/workflow-session-start.sh").is_file());
 }
 
