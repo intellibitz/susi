@@ -6817,3 +6817,363 @@ fn gmcp_req_203_004_03_integration() {
         );
     }
 }
+
+/// GMCP-203-004-04: adversarial and failure behavior for legacy lifecycle
+/// compatibility and governed deprecation.
+///
+/// The vector threat model names replay, principal spoofing and deadline
+/// abuse as the peer's weapons; this test pins the negative, attack, race,
+/// corruption and fault-injection cases against the production policy:
+/// a malformed frame earns its typed error instead of a silent drop, a
+/// pinned era can never be renegotiated or downgraded by a hostile peer,
+/// the negotiated downgrade is visible in the wire shape, and two
+/// connections never share negotiated state.
+#[test]
+fn gmcp_req_203_004_04_adversarial() {
+    use susi_gmcp::jsonrpc_gate::{
+        classify_envelope, classify_line, http_envelope_rejection, EraState, GateVerdict,
+    };
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-004-adv-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let classify = |line: &[u8], era: &mut EraState| -> serde_json::Value {
+        match classify_line(line, era) {
+            GateVerdict::Forward => serde_json::json!({"kind": "forward"}),
+            GateVerdict::Drop => serde_json::json!({"kind": "drop"}),
+            GateVerdict::Reject { code, data, .. } => {
+                serde_json::json!({"kind": "reject", "code": code, "data": data})
+            }
+        }
+    };
+
+    // ── Corruption: every malformed envelope earns its typed error and
+    //    none of them pins a session era ──────────────────────────────
+    for (name, line, code) in [
+        ("garbage", br#"{"jsonrpc":"2.0","#.as_slice(), -32700),
+        ("batch", br#"[]"#.as_slice(), -32600),
+        (
+            "non-2.0",
+            br#"{"jsonrpc":"1.0","id":4,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+        ("scalar", br#""hello""#.as_slice(), -32600),
+        (
+            "id-null",
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+        (
+            "no-method",
+            br#"{"jsonrpc":"2.0","id":7}"#.as_slice(),
+            -32600,
+        ),
+    ] {
+        let mut era = EraState::default();
+        let verdict = classify(line, &mut era);
+        assert_eq!(
+            verdict["code"].as_i64(),
+            Some(code),
+            "{name} must earn {code}: {verdict}"
+        );
+        assert!(
+            !era.is_modern() && !era.is_legacy(),
+            "{name} must never pin a session era"
+        );
+    }
+
+    // Compatibility drops stay drops: an unknown notification is ignored,
+    // while a standard notification reaches the service.
+    let mut era = EraState::default();
+    assert_eq!(
+        classify(
+            br#"{"jsonrpc":"2.0","method":"notifications/whatever"}"#,
+            &mut era
+        )["kind"],
+        "drop"
+    );
+    assert_eq!(
+        classify(
+            br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            &mut era
+        )["kind"],
+        "forward"
+    );
+    assert!(!era.is_modern() && !era.is_legacy());
+
+    // ── Attack: a negotiated-legacy session is permanently legacy ─────
+    let mut era = EraState::default();
+    let initialize = br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"adv","version":"1"}}}"#;
+    assert_eq!(classify(initialize, &mut era)["kind"], "forward");
+    assert!(
+        era.is_legacy(),
+        "initialize must pin the negotiated-legacy era"
+    );
+    let modern_meta = br#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    assert_eq!(
+        classify(modern_meta, &mut era)["code"].as_i64(),
+        Some(-32600),
+        "per-request modern metadata on a legacy session must reject deterministically"
+    );
+    assert!(
+        era.is_legacy(),
+        "the rejected request must never flip the negotiated era"
+    );
+    // Replay the handshake with the modern revision: a hostile peer cannot
+    // renegotiate a session it already pinned.
+    let reinitialize = br#"{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"adv","version":"2"}}}"#;
+    assert_eq!(classify(reinitialize, &mut era)["kind"], "forward");
+    assert!(
+        era.is_legacy(),
+        "a second initialize must not renegotiate the pinned era"
+    );
+    assert_eq!(
+        classify(modern_meta, &mut era)["code"].as_i64(),
+        Some(-32600),
+        "the replayed handshake must not admit modern metadata"
+    );
+    assert_eq!(
+        classify(
+            br#"{"jsonrpc":"2.0","id":5,"method":"ping","params":{}}"#,
+            &mut era
+        )["kind"],
+        "forward",
+        "an attack must never poison the legacy session"
+    );
+
+    // ── Modern mirror: missing per-request metadata is malformed, and a
+    //    legacy initialize cannot downgrade a modern session ───────────
+    let mut modern_era = EraState::default();
+    let discover = br#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    assert_eq!(classify(discover, &mut modern_era)["kind"], "forward");
+    assert!(modern_era.is_modern(), "discover must pin the modern era");
+    assert_eq!(
+        classify(
+            br#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+            &mut modern_era
+        )["code"]
+            .as_i64(),
+        Some(-32602),
+        "a bare request on the modern path is malformed"
+    );
+    assert_eq!(classify(initialize, &mut modern_era)["kind"], "forward");
+    assert!(
+        modern_era.is_modern(),
+        "a legacy initialize must not downgrade a modern session"
+    );
+
+    // ── Version selection: an unknown revision is a typed -32022 that
+    //    names the supported set, never a silent downgrade ────────────
+    let mut version_era = EraState::default();
+    let future = br#"{"jsonrpc":"2.0","id":9,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2099-12-31","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    let verdict = classify(future, &mut version_era);
+    assert_eq!(
+        verdict["code"].as_i64(),
+        Some(-32022),
+        "an unsupported revision must earn -32022: {verdict}"
+    );
+    assert_eq!(verdict["data"]["requested"], "2099-12-31");
+    assert!(
+        verdict["data"]["supported"]
+            .as_array()
+            .is_some_and(|set| set.iter().any(|v| v == "2026-07-28")),
+        "the rejection must name the supported revisions: {verdict}"
+    );
+
+    // The streamable-HTTP body gate shares the same policy boundary.
+    assert!(
+        matches!(
+            classify_envelope(br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#),
+            GateVerdict::Reject { code: -32600, .. }
+        ),
+        "the envelope classifier must reject a null id with -32600"
+    );
+    assert!(
+        http_envelope_rejection(br#"{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}"#)
+            .is_none(),
+        "a valid body must pass the HTTP gate"
+    );
+    assert!(
+        http_envelope_rejection(br#"[]"#).is_some(),
+        "a batch body must be rejected at the HTTP gate"
+    );
+
+    // ── Wire: corruption and faults never poison the served session ───
+    let mut legacy = StdioSession::spawn(root, &home);
+    let tools = legacy.request("tools/list", serde_json::json!({}));
+    assert!(
+        tools["tools"].as_array().is_some(),
+        "the legacy surface must still serve tools/list: {tools}"
+    );
+    assert!(
+        tools.get("resultType").is_none(),
+        "a negotiated-legacy result must keep the pre-2026-07-28 shape: {tools}"
+    );
+
+    legacy.send_raw(b"{not json\n");
+    let parse = legacy
+        .response_for(&serde_json::Value::Null, std::time::Duration::from_secs(10))
+        .expect("a malformed line must earn a typed answer, never a silent drop");
+    assert_eq!(
+        parse["error"]["code"].as_i64(),
+        Some(-32700),
+        "corruption must earn -32700: {parse}"
+    );
+
+    legacy.send_raw(b"[]\n");
+    let batch = legacy
+        .response_for(&serde_json::Value::Null, std::time::Duration::from_secs(10))
+        .expect("a batch frame must earn a typed answer");
+    assert_eq!(
+        batch["error"]["code"].as_i64(),
+        Some(-32600),
+        "a JSON-RPC batch must be rejected: {batch}"
+    );
+
+    // The session survives both faults and still correlates concurrent ids.
+    legacy.send(&serde_json::json!({"jsonrpc":"2.0","id":900,"method":"ping","params":{}}));
+    legacy.send(&serde_json::json!({"jsonrpc":"2.0","id":901,"method":"ping","params":{}}));
+    for id in [900, 901] {
+        let answer = legacy
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(30))
+            .expect("concurrent pings must both answer");
+        assert!(
+            answer.get("error").is_none_or(|e| e.is_null()),
+            "a fault must not stall concurrent correlation: {answer}"
+        );
+    }
+
+    // ── Wire: the modern mirror of the era attack, and a spoofed
+    //    clientInfo that must not rewrite the canonical identity ──────
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let bare = modern
+        .request_verbatim(
+            &serde_json::json!({"jsonrpc":"2.0","id":"bare","method":"tools/list","params":{}}),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("a bare modern request must earn a typed answer");
+    assert_eq!(
+        bare["error"]["code"].as_i64(),
+        Some(-32602),
+        "the served modern path must enforce the per-request metadata: {bare}"
+    );
+
+    let served = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "meta", "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("a well-formed modern request must be served");
+    assert!(
+        served.get("error").is_none_or(|e| e.is_null()),
+        "a well-formed modern request must not error: {served}"
+    );
+    assert_eq!(
+        served["result"]["resultType"], "complete",
+        "the modern wire shape must carry resultType: {served}"
+    );
+
+    let unsupported = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "bad-version", "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2099-12-31",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("an unsupported revision must earn a typed answer");
+    assert_eq!(
+        unsupported["error"]["code"].as_i64(),
+        Some(-32022),
+        "the served modern path must reject an unknown revision: {unsupported}"
+    );
+
+    // The legacy connection is still isolated and still legacy: its attack
+    // did not cross into this connection, and this connection's modern
+    // traffic did not cross back.
+    let legacy_attack = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "legacy-attack", "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("the era-mismatched request must earn a typed answer");
+    assert_eq!(
+        legacy_attack["error"]["code"].as_i64(),
+        Some(-32600),
+        "the served legacy session must reject modern metadata: {legacy_attack}"
+    );
+    assert!(
+        legacy.request("tools/list", serde_json::json!({}))["tools"]
+            .as_array()
+            .is_some(),
+        "the legacy connection must survive the attack it mounted"
+    );
+
+    let identity_response = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "identity", "method": "server/discover",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": {"name": "evil", "version": "0"},
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("discover must answer on the modern connection");
+    let identity = &identity_response["result"];
+    assert_eq!(
+        identity["_meta"]["io.modelcontextprotocol/serverInfo"]["name"], "susi-gmcp",
+        "a spoofed clientInfo must not rewrite the canonical identity: {identity}"
+    );
+    assert_ne!(
+        identity["_meta"]["io.modelcontextprotocol/serverInfo"]["version"], "0",
+        "the canonical server version must not echo client input"
+    );
+
+    drop(legacy);
+    drop(modern);
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-004.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-004")
+        .collect();
+    assert_eq!(rows.len(), 108, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
