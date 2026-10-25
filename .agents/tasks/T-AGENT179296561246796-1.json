@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179296561246796-1",
+  "title": "Adapter gate must clear stale artifacts for touched packages",
+  "goal": "Worktrees share the primary cargo target dir, so a gate run can resolve a package rlib built from another checkout and fail on a phantom compile error. Before the clippy gate, run cargo clean -p for each package the task scopes touch so the gate compiles the sources it reads, with a test that the clean precedes clippy.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179296561246796",
+  "created_unix": 1792965652
+}
