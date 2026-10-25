@@ -556,6 +556,98 @@ pub fn anthropic_to_openai_chat(anthropic: &Value, model: &str) -> Result<Value,
     }))
 }
 
+/// Token count usage reported by an inference provider call.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+}
+
+impl TokenUsage {
+    /// Construct a new TokenUsage with automatic sum.
+    #[must_use]
+    pub const fn new(prompt_tokens: u64, completion_tokens: u64) -> Self {
+        Self {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens.saturating_add(completion_tokens),
+        }
+    }
+}
+
+/// Extract reported token usage from an API response body according to protocol.
+#[must_use]
+pub fn extract_token_usage(protocol: InferenceProtocol, json: &Value) -> TokenUsage {
+    match protocol {
+        InferenceProtocol::OpenAiChat | InferenceProtocol::OpenAiCompletions => {
+            let usage = &json["usage"];
+            let prompt = usage["prompt_tokens"].as_u64().unwrap_or(0);
+            let completion = usage["completion_tokens"].as_u64().unwrap_or(0);
+            let total = usage["total_tokens"]
+                .as_u64()
+                .unwrap_or_else(|| prompt.saturating_add(completion));
+            TokenUsage {
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                total_tokens: total,
+            }
+        }
+        InferenceProtocol::Anthropic => {
+            let usage = &json["usage"];
+            let prompt = usage["input_tokens"]
+                .as_u64()
+                .unwrap_or(0)
+                .saturating_add(usage["cache_read_input_tokens"].as_u64().unwrap_or(0));
+            let completion = usage["output_tokens"].as_u64().unwrap_or(0);
+            TokenUsage::new(prompt, completion)
+        }
+        InferenceProtocol::Gemini => {
+            let usage = &json["usageMetadata"];
+            let prompt = usage["promptTokenCount"].as_u64().unwrap_or(0);
+            let completion = usage["candidatesTokenCount"].as_u64().unwrap_or(0);
+            let total = usage["totalTokenCount"]
+                .as_u64()
+                .unwrap_or_else(|| prompt.saturating_add(completion));
+            TokenUsage {
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                total_tokens: total,
+            }
+        }
+        InferenceProtocol::Triton => TokenUsage::default(),
+    }
+}
+
+/// Calculate estimated cost in millionths of a USD currency unit (micros).
+#[must_use]
+pub fn estimate_cost_micros(model: &str, usage: &TokenUsage) -> u64 {
+    let model_lower = model.to_ascii_lowercase();
+    let (in_rate, out_rate): (f64, f64) = if model_lower.contains("haiku") {
+        (0.25, 1.25)
+    } else if model_lower.contains("sonnet") {
+        (3.0, 15.0)
+    } else if model_lower.contains("opus") {
+        (15.0, 75.0)
+    } else if model_lower.contains("gpt-4o-mini") {
+        (0.15, 0.60)
+    } else if model_lower.contains("gpt-4o") {
+        (2.50, 10.0)
+    } else if model_lower.contains("flash") {
+        (0.075, 0.30)
+    } else if model_lower.contains("pro") {
+        (1.25, 5.0)
+    } else if model_lower.contains("deepseek") {
+        (0.14, 0.28)
+    } else {
+        (1.0, 3.0)
+    };
+
+    let prompt_micros = (usage.prompt_tokens as f64 * in_rate) as u64;
+    let completion_micros = (usage.completion_tokens as f64 * out_rate) as u64;
+    prompt_micros.saturating_add(completion_micros)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -903,5 +995,49 @@ mod tests {
         assert_eq!(openai_resp["usage"]["prompt_tokens"], 15);
         assert_eq!(openai_resp["usage"]["completion_tokens"], 8);
         assert_eq!(openai_resp["usage"]["total_tokens"], 23);
+    }
+
+    #[test]
+    fn token_usage_extracts_and_estimates_cost() {
+        let openai = json!({
+            "usage": {
+                "prompt_tokens": 1000,
+                "completion_tokens": 500,
+                "total_tokens": 1500
+            }
+        });
+        let usage = extract_token_usage(InferenceProtocol::OpenAiChat, &openai);
+        assert_eq!(usage.prompt_tokens, 1000);
+        assert_eq!(usage.completion_tokens, 500);
+        assert_eq!(usage.total_tokens, 1500);
+
+        let cost = estimate_cost_micros("gpt-4o", &usage);
+        assert!(cost > 0);
+
+        let anthropic = json!({
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 200,
+                "cache_read_input_tokens": 500
+            }
+        });
+        let a_usage = extract_token_usage(InferenceProtocol::Anthropic, &anthropic);
+        assert_eq!(a_usage.prompt_tokens, 1500);
+        assert_eq!(a_usage.completion_tokens, 200);
+
+        let a_cost = estimate_cost_micros("claude-3-5-sonnet", &a_usage);
+        assert!(a_cost > 0);
+
+        let gemini = json!({
+            "usageMetadata": {
+                "promptTokenCount": 2000,
+                "candidatesTokenCount": 300,
+                "totalTokenCount": 2300
+            }
+        });
+        let g_usage = extract_token_usage(InferenceProtocol::Gemini, &gemini);
+        assert_eq!(g_usage.prompt_tokens, 2000);
+        assert_eq!(g_usage.completion_tokens, 300);
+        assert_eq!(g_usage.total_tokens, 2300);
     }
 }
