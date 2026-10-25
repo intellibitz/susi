@@ -333,7 +333,7 @@ The release instance's `models/` and `cloud.env` are symlinked in (shared,
 not copied); config, audit chain, locks, and ports are separate. An explicit
 `SUSI_HOME` overrides this.
 
-### Building susi: the workflow (Mandates 49–56)
+### Building susi: the workflow (Mandates 49–58)
 
 Humans and agents (Claude, Codex, Cursor, Devin, Gemini, susi itself) follow one
 workflow, and it is enforced by git and CI, not by goodwill. The short version

@@ -1595,7 +1595,7 @@
       "id": "VC-203-004",
       "mastery_target": "GMCP interoperates with pinned older MCP revisions through isolated compatibility adapters for initialize/initialized, ping, legacy HTTP+SSE, resource subscriptions, roots, sampling, elicitation, logging, and legacy task shapes without weakening the modern path. Version selection is deterministic, downgrade is visible, every deprecated feature has telemetry and a tested removal policy, and no legacy state crosses tenant or connection boundaries.",
       "priority": "P1",
-      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-004-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_004_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "progress": "DELIVERED (2026-10-26): every GMCP-203-004-* requirement shipped on the production path and proven by gmcp_vc_203_004_mastery; verdict and evidence in .agents/roadmap-verdicts/VC-203-004.json and .agents/gmcp/evidence/VC-203-004.jsonl",
       "type": "MEMORY_AND_ECOSYSTEM",
       "vector": "Legacy lifecycle compatibility and governed deprecation"
     },

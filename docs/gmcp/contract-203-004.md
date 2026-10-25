@@ -134,7 +134,11 @@ Each row names a canonical behavior; its ledger id is the canonical name and its
 
 ## Compatibility and deprecation decisions
 
-Every clause carries an explicit disposition: adapter=93, optional=15. A clause disposed as adapter is honored only through the explicit version adapter with downgrade telemetry and a removal policy.
+Every clause carries an explicit disposition: adapter=93, optional=15. A clause disposed as adapter is honored only through the explicit version adapter with downgrade telemetry and a tested removal policy.
+
+- **Isolated compatibility adapters**: Dedicated adapters isolate legacy interactions (`initialize`/`initialized`, `ping`, legacy `HTTP+SSE`, resource `subscriptions`, `roots`, `sampling`, `elicitation`, `logging`, and legacy task shapes) without weakening the modern path.
+- **Deterministic version selection & visible downgrade**: Modern requests carry `_meta` specifying `io.modelcontextprotocol/protocolVersion: 2026-07-28` and receive complete results with `resultType: complete`. Legacy sessions (`2025-11-25`) operate without modern envelopes.
+- **Governed deprecation & error taxonomy**: Cross-era boundary violations earn deterministic typed errors: modern `_meta` on a legacy session returns `-32600`, while missing `_meta` on a modern session returns `-32602`. Telemetry tracks deprecated feature usage against removal policies.
 
 ## Threat model
 
