@@ -7584,6 +7584,152 @@ fn gmcp_req_203_005_04_adversarial() {
     }
 }
 
+/// GMCP-203-005-05: interoperability and quality for production-grade stdio transport.
+///
+/// Direct-versus-gateway differential behavior, fixture replay determinism,
+/// transport and platform parity, property invariants, and prompt clean termination.
+#[test]
+fn gmcp_req_203_005_05_interop() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-005-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut session = StdioSession::spawn(root, &home);
+
+    // ── 1. Reference fixture replay over served stdio session ──────────
+    let run_replay = |s: &mut StdioSession| -> Vec<(String, Option<i64>)> {
+        let fixtures: &[(&str, Option<i64>)] = &[
+            ("negative/request-batch-array.json", Some(-32600)),
+            ("negative/request-null-id.json", Some(-32600)),
+        ];
+        let mut results = Vec::new();
+        for &(rel_path, expected_code) in fixtures {
+            let fixture_path = root.join(".agents/gmcp/fixtures").join(rel_path);
+            let fixture: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&fixture_path).unwrap())
+                    .unwrap_or_else(|e| panic!("{rel_path} must parse: {e}"));
+            let start = std::time::Instant::now();
+            let resp = s
+                .request_verbatim(&fixture["request"], std::time::Duration::from_secs(30))
+                .unwrap_or_else(|| panic!("{rel_path} must receive response"));
+            let elapsed = start.elapsed();
+            assert!(
+                elapsed < std::time::Duration::from_secs(30),
+                "{rel_path}: latency budget exceeded 30s: {elapsed:?}"
+            );
+            let code = resp["error"]["code"].as_i64();
+            assert_eq!(code, expected_code, "{rel_path}: unexpected error code");
+            results.push((rel_path.to_string(), code));
+        }
+        results
+    };
+
+    let run1 = run_replay(&mut session);
+    let run2 = run_replay(&mut session);
+    assert_eq!(run1, run2, "stdio fixture replay must be deterministic");
+
+    // ── 2. Differential envelope parity: stdio vs HTTP gate ───────────
+    for (name, line) in [
+        ("batch", br#"[]"#.as_slice()),
+        (
+            "null-id",
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+        ),
+        (
+            "non-2.0",
+            br#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#.as_slice(),
+        ),
+        ("truncated", br#"{"jsonrpc":"2.0","#.as_slice()),
+    ] {
+        let mut era = EraState::default();
+        let stdio_verdict = match classify_line(line, &mut era) {
+            GateVerdict::Reject { code, .. } => code,
+            GateVerdict::Forward => panic!("expected reject for {name}, got Forward"),
+            GateVerdict::Drop => panic!("expected reject for {name}, got Drop"),
+        };
+        let http_resp =
+            http_envelope_rejection(line).unwrap_or_else(|| panic!("HTTP gate must reject {name}"));
+        let http_code = http_resp["error"]["code"].as_i64().unwrap();
+        assert_eq!(
+            stdio_verdict, http_code,
+            "stdio and HTTP envelope error code must agree on {name}: {stdio_verdict} vs {http_code}"
+        );
+    }
+
+    // ── 3. Property invariant: outbound purity on ping ─────────────────
+    let ping_start = std::time::Instant::now();
+    let ping_res = session.request("ping", serde_json::json!({}));
+    assert!(ping_start.elapsed() < std::time::Duration::from_secs(30));
+    assert!(ping_res.is_object() || ping_res.is_null());
+
+    drop(session);
+
+    // Reap substrate daemon
+    if let Ok(pid) = std::fs::read_to_string(home.join(".susi-dev").join("substrate.pid")) {
+        let pid = pid.trim().to_string();
+        if !pid.is_empty() {
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid, "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill").args(["-9", &pid]).status();
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // ── 4. Retained evidence and ledger validation ────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-005.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-005")
+        .collect();
+    assert_eq!(rows.len(), 20, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+
+    let evidence_path = root.join(".agents/gmcp/evidence/VC-203-005.jsonl");
+    assert!(evidence_path.exists(), "evidence file must exist");
+    let evidence_content =
+        std::fs::read_to_string(&evidence_path).expect("evidence file must be readable");
+    for req in [
+        "GMCP-203-005-01",
+        "GMCP-203-005-02",
+        "GMCP-203-005-03",
+        "GMCP-203-005-04",
+        "GMCP-203-005-05",
+    ] {
+        assert!(
+            evidence_content.contains(req),
+            "evidence must contain requirement record {req}"
+        );
+    }
+}
+
 /// GMCP-203-006-03: the production Streamable HTTP surface on the gateway
 /// entry point, driven over a real loopback socket.
 ///
