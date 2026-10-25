@@ -624,6 +624,16 @@
           "id": 56,
           "imperative": "SUSI's brain is chosen **per task class from recorded outcomes**, not a hand-typed vendor order: every provider call records whether it answered and how fast, mission outcomes are folded back once per mission (`brain:*` receipts, non-citable), and providers are tried best-first for the prompt's class (`reflex`, `chat`, `code`, `reasoning`) with **local as the floor and cloud as the ceiling**. Privacy policy, budget ceilings and cooldowns are hard filters applied before ranking. **A failed or unfunded model can never be the brain**: no-credit and rejected-key failures quarantine the vendor's credential scope on a 10 min / 1 h / 6 h ladder, a provider with poor evidence and a recent failure sorts behind every healthy one even if it is the sticky preferred cloud, and the preference moves to a healthy cloud and returns when the original works. Keys are never removed or disabled by a failure — an operator can top up at any time. Cost is a tiered factor (`config/cost-tiers.json`, `SUSI_BUDGET=low|balanced|max`) that evidence outweighs. `susi brain` shows why.",
           "title": "Evidence-Ranked Brain"
+        },
+        {
+          "id": 57,
+          "imperative": "All Bring Your Own Key (BYOK) provider credentials stored in local memory or passed via multi-tenant ingress headers must enforce masked key previews and optional dollar-denominated spend ceilings (`max_budget_usd`). Spend accumulation is recorded atomically before inference dispatch, and credentials exceeding budget ceilings are automatically quarantined until cleared or topped up by the operator.",
+          "title": "BYOK Key Governance & Spend Cap Isolation"
+        },
+        {
+          "id": 58,
+          "imperative": "The substrate enforces the Generalized Model Context Protocol (GMCP 2026 specification) across all tool, prompt, completion, resource, task, and server lifecycle interfaces. Tool poisoning, prompt injection, rug-pull, and data exfiltration defenses are evaluated before tool execution or session registration.",
+          "title": "GMCP 2026 Protocol Conformance"
         }
       ],
       "name": "THE DNA",
