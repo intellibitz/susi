@@ -13,6 +13,7 @@
 # Usage:
 #   scripts/check-release-sync.sh     # 0 when the installed release is current
 set -euo pipefail
+[ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 
 # The promotion path installs to ${HOME}/.susi/bin regardless of an inherited
 # SUSI_HOME (scripts/susi-release-sync.sh), so this reads the same root.
@@ -25,8 +26,10 @@ if [ ! -f "$marker" ]; then
     exit 1
 fi
 
-commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit",""))' "$marker")
-version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","?"))' "$marker")
+PY=python3
+command -v "$PY" >/dev/null 2>&1 || PY=python
+commit=$($PY -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit",""))' "$marker")
+version=$($PY -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version","?"))' "$marker")
 if [ -z "$commit" ]; then
     echo "❌ $marker names no commit — cannot tell which revision agents run"
     exit 1

@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT179293097522236-1",
+  "title": "Ensure scripts/susi-release-sync.sh sources posix-compat for Windows release promotion",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "vc_201_018_mastery"
+    ]
+  },
+  "roadmap": "VC-201-018",
+  "created_by": "AGENT179293097522236",
+  "created_unix": 1792931375,
+  "closed": {
+    "at_unix": 1792931643,
+    "commit": "402a8329f19c7755869e92bd154857a470177b0c",
+    "by": "AGENT179293097522236"
+  }
+}
