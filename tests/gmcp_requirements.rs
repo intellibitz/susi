@@ -7390,3 +7390,158 @@ fn gmcp_req_203_005_03_integration() {
         );
     }
 }
+
+/// GMCP-203-006-03: the production Streamable HTTP surface on the gateway
+/// entry point, driven over a real loopback socket.
+///
+/// The same `start_http_server` the daemon runs is started on an ephemeral
+/// port, so the test proves the served policy rather than a seamed copy:
+/// an invalid `Origin` is refused before the body is read (403), a
+/// malformed body is answered by the shared envelope gate with its typed
+/// parse error (400 / -32700), the removed GET stream is not reopened, and
+/// a well-formed modern POST earns an MCP content type (200).
+#[test]
+fn gmcp_req_203_006_03_integration() {
+    use std::io::{Read, Write};
+    use std::time::Duration;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-006-int-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+    let port = listener.local_addr().expect("bound addr").port();
+    std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(
+            root.to_path_buf(),
+            vec![listener],
+            None,
+            false,
+        );
+    });
+
+    let exchange = |method: &str,
+                    path: &str,
+                    headers: &[(&str, &str)],
+                    body: &str|
+     -> (u16, String) {
+        let mut stream =
+            std::net::TcpStream::connect(("127.0.0.1", port)).expect("the gateway must accept");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .expect("read timeout");
+        let mut request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        for (name, value) in headers {
+            request.push_str(&format!("{name}: {value}\r\n"));
+        }
+        request.push_str("\r\n");
+        request.push_str(body);
+        stream
+            .write_all(request.as_bytes())
+            .expect("the request must write");
+        let _ = stream.flush();
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response);
+        let status = response
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse().ok())
+            .unwrap_or(0);
+        (status, response)
+    };
+
+    const ACCEPT: &str = "application/json, text/event-stream";
+    let initialize = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"http-it","version":"1"}}}"#;
+
+    // Origin validation: a browser origin is refused before dispatch.
+    let (status, response) = exchange(
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", ACCEPT),
+            ("Origin", "https://evil.example"),
+        ],
+        initialize,
+    );
+    assert_eq!(
+        status, 403,
+        "an invalid Origin must be refused with 403: {response}"
+    );
+
+    // The shared envelope gate answers a corrupted body.
+    let (status, response) = exchange(
+        "POST",
+        "/mcp",
+        &[("Content-Type", "application/json"), ("Accept", ACCEPT)],
+        r#"{"jsonrpc":"2.0","#,
+    );
+    assert_eq!(
+        status, 400,
+        "a malformed body must be refused by the shared gate: {response}"
+    );
+    assert!(
+        response.contains("-32700"),
+        "the shared gate's parse error must be the answer: {response}"
+    );
+
+    // The removed legacy verb: GET on the modern endpoint opens no stream.
+    let (status, response) = exchange("GET", "/mcp", &[("Accept", "text/event-stream")], "");
+    assert!(
+        status == 405 || status == 400,
+        "GET /mcp must not open a stream on the modern path: {status} {response}"
+    );
+
+    // A well-formed modern request is served as MCP, not as a generic JSON
+    // echo.
+    let (status, response) = exchange(
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", ACCEPT),
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", "server/discover"),
+        ],
+        r#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#,
+    );
+    assert_eq!(
+        status, 200,
+        "a valid modern POST must be accepted: {response}"
+    );
+    let lower = response.to_lowercase();
+    assert!(
+        lower.contains("text/event-stream") || lower.contains("application/json"),
+        "the gateway must answer with an MCP content type: {response}"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-006.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-006")
+        .collect();
+    assert_eq!(rows.len(), 80, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
