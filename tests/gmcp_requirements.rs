@@ -7545,3 +7545,154 @@ fn gmcp_req_203_006_03_integration() {
         );
     }
 }
+
+/// GMCP-203-009-03: the complete tool server surface on the served path.
+///
+/// Discovery declares the `tools` capability and returns a deterministic,
+/// unique catalog whose every entry carries a real JSON Schema object
+/// (`MCP-2025-1125-server-tools-mdx-0038/0201`); invocation of a known
+/// tool returns its structured result; an unknown tool and a
+/// schema-violating argument both fail closed with a typed answer, and
+/// concurrent calls stay correlated.
+#[test]
+fn gmcp_req_203_009_03_integration() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-009-int-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "tools-it", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered");
+    assert!(
+        initialize["result"]["capabilities"]["tools"].is_object(),
+        "a server that supports tools must declare the tools capability: {initialize}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // Discovery: a non-empty, unique catalog with real schema objects.
+    let listed = wire.request("tools/list", serde_json::json!({}));
+    let tools = listed["tools"]
+        .as_array()
+        .expect("tools/list must return a tools array");
+    assert!(!tools.is_empty(), "the served catalog must not be empty");
+    let mut names = std::collections::BTreeSet::new();
+    for tool in tools {
+        let name = tool["name"].as_str().expect("every tool must be named");
+        assert!(
+            names.insert(name.to_string()),
+            "tool names must be unique: {name}"
+        );
+        assert!(
+            tool["inputSchema"].is_object(),
+            "every tool must declare a JSON Schema object, not null: {name}"
+        );
+        assert!(
+            tool["description"].is_string(),
+            "every tool must declare a description: {name}"
+        );
+    }
+    assert!(
+        names.contains("ledger_verify"),
+        "the canonical ledger tool must be discoverable: {names:?}"
+    );
+
+    // Invocation: the known tool returns its structured result.
+    let call = wire.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    );
+    let report = call_tool_report(&call);
+    assert_eq!(report["verified"], true, "the tool must return its report");
+
+    // Unknown tools fail closed with a typed answer.
+    let unknown = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "unknown-tool", "method": "tools/call",
+                "params": {"name": "definitely_not_a_tool", "arguments": {}}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("an unknown tool must earn a typed answer, never a hang");
+    assert!(
+        unknown.get("error").is_some_and(|error| !error.is_null()),
+        "an unknown tool must be refused, not dispatched: {unknown}"
+    );
+
+    // A schema violation fails closed too: the required `path` is absent.
+    let invalid = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "invalid-args", "method": "tools/call",
+                "params": {"name": "read_file", "arguments": {}}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("a schema violation must earn a typed answer");
+    assert!(
+        invalid.get("error").is_some_and(|error| !error.is_null())
+            || invalid["result"]["isError"].as_bool() == Some(true),
+        "a schema-violating call must fail closed: {invalid}"
+    );
+
+    // Concurrent calls stay correlated (the service may answer out of order).
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 700, "method": "tools/list", "params": {}
+    }));
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 701, "method": "tools/list", "params": {}
+    }));
+    for id in [700, 701] {
+        let answer = wire
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(60))
+            .expect("concurrent tool discovery must answer");
+        assert!(
+            answer.get("error").is_none_or(|error| error.is_null()),
+            "concurrent discovery must succeed: {answer}"
+        );
+        assert_eq!(
+            answer["result"]["tools"].as_array().map(Vec::len),
+            Some(tools.len()),
+            "discovery must be deterministic across concurrent calls"
+        );
+    }
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-009.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-009")
+        .collect();
+    assert_eq!(rows.len(), 67, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
