@@ -1,0 +1,24 @@
+{
+  "id": "T-HARNESSDOCSPARALLELTARGETFAQ-1",
+  "title": "Document shared target-dir isolation in the parallel FAQ",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "HARNESSDOCSPARALLELTARGETFAQ",
+  "created_unix": 1792966372,
+  "closed": {
+    "at_unix": 1792968268,
+    "commit": "8f8fd380e9f5bbb6ee57746fcb32549e6218d027",
+    "by": "HARNESSDOCSPARALLELTARGETFAQ"
+  }
+}
