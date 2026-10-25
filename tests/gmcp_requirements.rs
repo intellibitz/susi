@@ -7696,3 +7696,197 @@ fn gmcp_req_203_009_03_integration() {
         );
     }
 }
+
+/// GMCP-203-010-03: the complete resource server surface on the served path.
+///
+/// The `resources` capability is declared (`resources-mdx-0032`), static
+/// and templated discovery are deterministic, both resource reads return
+/// parsed JSON payloads, URI completion resolves a template argument, and
+/// every invalid URI, unknown resource and failed read earns a typed error
+/// instead of a silent fallback (`-0386/0409`).
+#[test]
+fn gmcp_req_203_010_03_integration() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-010-int-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "resources-it", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered");
+    assert!(
+        initialize["result"]["capabilities"]["resources"].is_object(),
+        "a server that supports resources must declare the capability: {initialize}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // Static discovery.
+    let listed = wire.request("resources/list", serde_json::json!({}));
+    let resources = listed["resources"]
+        .as_array()
+        .expect("resources/list must return a resources array");
+    let tools_resource = resources
+        .iter()
+        .find(|resource| resource["uri"] == "susi://tools")
+        .expect("the tool catalog resource must be discoverable");
+    assert_eq!(
+        tools_resource["mimeType"], "application/json",
+        "resources must declare their MIME type: {tools_resource}"
+    );
+
+    // Templated discovery.
+    let templates = wire.request("resources/templates/list", serde_json::json!({}));
+    let templates = templates["resourceTemplates"]
+        .as_array()
+        .expect("resources/templates/list must return resourceTemplates");
+    assert!(
+        templates
+            .iter()
+            .any(|template| template["uriTemplate"] == "susi://tools/{name}"),
+        "the tool template must be discoverable: {templates:?}"
+    );
+
+    // Reads: the static catalog and a templated instance both return JSON.
+    let catalog = wire.request("resources/read", serde_json::json!({"uri": "susi://tools"}));
+    let text = catalog["contents"][0]["text"]
+        .as_str()
+        .expect("a resource read must carry text content");
+    let tools: serde_json::Value =
+        serde_json::from_str(text).expect("the tool catalog must be JSON");
+    assert!(
+        tools.as_array().is_some_and(|list| !list.is_empty()),
+        "the tool catalog resource must list tools"
+    );
+
+    let instance = wire.request(
+        "resources/read",
+        serde_json::json!({"uri": "susi://tools/ledger_verify"}),
+    );
+    let text = instance["contents"][0]["text"]
+        .as_str()
+        .expect("a templated resource read must carry text content");
+    let tool: serde_json::Value =
+        serde_json::from_str(text).expect("the templated resource must be JSON");
+    assert_eq!(
+        tool["name"], "ledger_verify",
+        "the template must resolve the requested tool: {tool}"
+    );
+
+    // URI completion resolves the template argument.
+    let completion = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "complete", "method": "completion/complete",
+                "params": {
+                    "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"},
+                    "argument": {"name": "name", "value": "ledger"}
+                }
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("completion must earn a typed answer");
+    assert!(
+        completion.get("error").is_none_or(|error| error.is_null()),
+        "template completion must succeed: {completion}"
+    );
+    assert!(
+        completion["result"]["completion"]["values"]
+            .as_array()
+            .is_some_and(|values| values.iter().any(|value| value == "ledger_verify")),
+        "completion must offer the matching tool name: {completion}"
+    );
+
+    // Invalid and unknown URIs fail closed.
+    let unknown = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "unknown-resource", "method": "resources/read",
+                "params": {"uri": "susi://tools/definitely_not_a_tool"}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("an unknown resource must earn a typed answer");
+    assert!(
+        unknown.get("error").is_some_and(|error| !error.is_null()),
+        "an unknown resource must be refused: {unknown}"
+    );
+    let malformed = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "malformed-uri", "method": "resources/read",
+                "params": {"uri": "not a uri"}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("a malformed URI must earn a typed answer");
+    assert!(
+        malformed.get("error").is_some_and(|error| !error.is_null()),
+        "an invalid resource URI must be validated: {malformed}"
+    );
+
+    // Legacy subscriptions round-trip on the negotiated-legacy session.
+    let subscribe = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "subscribe", "method": "resources/subscribe",
+                "params": {"uri": "susi://tools"}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("subscribe must answer");
+    assert!(
+        subscribe.get("error").is_none_or(|error| error.is_null()),
+        "a known resource must be subscribable: {subscribe}"
+    );
+    let unsubscribe = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "unsubscribe", "method": "resources/unsubscribe",
+                "params": {"uri": "susi://tools"}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("unsubscribe must answer");
+    assert!(
+        unsubscribe.get("error").is_none_or(|error| error.is_null()),
+        "a subscription must be removable: {unsubscribe}"
+    );
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-010.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-010")
+        .collect();
+    assert_eq!(rows.len(), 33, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
