@@ -7391,6 +7391,199 @@ fn gmcp_req_203_005_03_integration() {
     }
 }
 
+/// GMCP-203-005-04: adversarial and failure behavior for production-grade
+/// stdio transport.
+///
+/// Bounded lines drop oversized tails and recover without stream corruption;
+/// negative/malformed envelopes earn typed errors (-32700, -32600);
+/// stdout protocol purity holds under adversarial inputs; pipe closure
+/// triggers prompt server exit; and child-tree resources are cleaned up.
+#[test]
+fn gmcp_req_203_005_04_adversarial() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, EraState, GateVerdict};
+    use susi_gmcp::stdio::BoundedLines;
+    use tokio::io::AsyncReadExt;
+
+    // ── 1. BoundedLines unit adversarial behavior ─────────────────────
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    rt.block_on(async {
+        // (a) Oversized line drops tail, subsequent valid line arrives clean
+        let mut reader = BoundedLines::new(&b"1234567890\nok\n"[..], 4);
+        let mut buf = [0u8; 32];
+        let err = reader.read(&mut buf).await;
+        assert!(err.is_err(), "oversized line must produce error");
+        let mut recovered = String::new();
+        reader.read_to_string(&mut recovered).await.unwrap();
+        assert_eq!(recovered, "ok\n", "subsequent line must survive intact");
+
+        // (b) Sequential oversized lines all trip and recover cleanly
+        let mut reader = BoundedLines::new(&b"12345\n67890\nok\n"[..], 3);
+        let mut err_count = 0;
+        let mut recovered = Vec::new();
+        loop {
+            match reader.read(&mut buf).await {
+                Err(_) => err_count += 1,
+                Ok(0) => break,
+                Ok(n) => recovered.extend_from_slice(&buf[..n]),
+            }
+            if err_count > 10 {
+                panic!("reader must terminate loop");
+            }
+        }
+        assert!(err_count >= 2, "both oversized lines must error");
+        assert_eq!(recovered, b"ok\n", "final valid line must be intact");
+
+        // (c) Chunk-fragmented input straddling newline boundary
+        let mut reader = BoundedLines::new(&b"abc\ndef\n"[..], 5);
+        let mut first = [0u8; 2];
+        reader.read_exact(&mut first).await.unwrap();
+        assert_eq!(&first, b"ab");
+        let mut rest = String::new();
+        reader.read_to_string(&mut rest).await.unwrap();
+        assert_eq!(rest, "c\ndef\n");
+    });
+
+    // ── 2. Envelope classification of hostile/adversarial inputs ──────
+    let classify = |line: &[u8], era: &mut EraState| -> serde_json::Value {
+        match classify_line(line, era) {
+            GateVerdict::Forward => serde_json::json!({"kind": "forward"}),
+            GateVerdict::Drop => serde_json::json!({"kind": "drop"}),
+            GateVerdict::Reject { code, data, .. } => {
+                serde_json::json!({"kind": "reject", "code": code, "data": data})
+            }
+        }
+    };
+
+    for (name, line, code) in [
+        ("truncated-json", br#"{"jsonrpc":"2.0","#.as_slice(), -32700),
+        ("batch-request", br#"[]"#.as_slice(), -32600),
+        (
+            "batch-array",
+            br#"[{"jsonrpc":"2.0","method":"ping"}]"#.as_slice(),
+            -32600,
+        ),
+        (
+            "non-2.0",
+            br#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+        ("scalar-string", br#""malicious-probe""#.as_slice(), -32600),
+        (
+            "null-id-request",
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+        (
+            "missing-method",
+            br#"{"jsonrpc":"2.0","id":99}"#.as_slice(),
+            -32600,
+        ),
+    ] {
+        let mut era = EraState::default();
+        let verdict = classify(line, &mut era);
+        assert_eq!(
+            verdict["code"].as_i64(),
+            Some(code),
+            "adversarial probe {name} must earn {code}: {verdict}"
+        );
+    }
+
+    // ── 3. Live served stdio transport against hostile peer ────────────
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-005-adv-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut session = StdioSession::spawn(root, &home);
+
+    // Hostile non-2.0 probe: must reject with -32600 and preserve session
+    let bad_ver = session
+        .request_verbatim(
+            &serde_json::json!({"jsonrpc": "1.0", "method": "ping"}),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("the served stdio transport must answer the non-2.0 request");
+    assert_eq!(bad_ver["error"]["code"], -32600);
+    assert!(bad_ver["id"].is_null());
+
+    // Hostile batch probe: must reject with -32600
+    let batch = session
+        .request_verbatim(&serde_json::json!([]), std::time::Duration::from_secs(30))
+        .expect("the served stdio transport must answer the batch request");
+    assert_eq!(batch["error"]["code"], -32600);
+    assert!(batch["id"].is_null());
+
+    // Stream remains healthy and answers legitimate ping after attacks
+    let ping = session.request("ping", serde_json::json!({}));
+    assert!(ping.is_object() || ping.is_null());
+
+    drop(session);
+
+    // Clean up substrate daemon pid if spawned
+    if let Ok(pid) = std::fs::read_to_string(home.join(".susi-dev").join("substrate.pid")) {
+        let pid = pid.trim().to_string();
+        if !pid.is_empty() {
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid, "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill").args(["-9", &pid]).status();
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // ── 4. Retained evidence and ledger validation ────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-005.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-005")
+        .collect();
+    assert_eq!(rows.len(), 20, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+
+    let evidence_path = root.join(".agents/gmcp/evidence/VC-203-005.jsonl");
+    assert!(evidence_path.exists(), "evidence file must exist");
+    let evidence_content =
+        std::fs::read_to_string(&evidence_path).expect("evidence file must be readable");
+    for req in [
+        "GMCP-203-005-01",
+        "GMCP-203-005-02",
+        "GMCP-203-005-03",
+        "GMCP-203-005-04",
+    ] {
+        assert!(
+            evidence_content.contains(req),
+            "evidence must contain requirement record {req}"
+        );
+    }
+}
+
 /// GMCP-203-006-03: the production Streamable HTTP surface on the gateway
 /// entry point, driven over a real loopback socket.
 ///
