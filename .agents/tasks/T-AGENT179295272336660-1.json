@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179295272336660-1",
+  "title": "Native worker must nudge an empty model reply instead of concluding",
+  "goal": "The orchestrator native worker treated an assistant message with no tool calls and empty content as a successful conclusion, so a mission reported success with a clean tree and nothing committed. Treat an empty reply as a non-conclusion: nudge with a user turn and continue, bounded by max_turns, with a unit test proving a nudged worker still performs the write.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "worker"
+    ]
+  },
+  "created_by": "AGENT179295272336660",
+  "created_unix": 1792952756
+}
