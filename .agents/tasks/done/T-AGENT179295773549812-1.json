@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179295773549812-1",
+  "title": "Adapter must run the clippy gate and feed failures back",
+  "goal": "A worker commit that compiles and passes acceptance was rejected later by workflow finish on clippy lints, after the mission had already spent its attempt. Run cargo clippy for the packages the task scopes touch before accepting an attempt, reject the attempt on lint errors, and append the gate output to the next attempt's prompt so the retry fixes it instead of repeating it.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179295773549812",
+  "created_unix": 1792957770,
+  "closed": {
+    "at_unix": 1792958133,
+    "commit": "a318632aed74310981d01d4fb422c3f76ed3f5a5",
+    "by": "AGENT179295773549812"
+  }
+}
