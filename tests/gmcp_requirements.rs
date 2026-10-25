@@ -8085,3 +8085,164 @@ fn gmcp_req_203_011_03_integration() {
         );
     }
 }
+
+/// GMCP-203-013-03: the MRTR / elicitation / sampling / roots interaction
+/// model on the served path.
+///
+/// A client that declares sampling, elicitation and roots capabilities
+/// completes the handshake; its well-formed result messages for those
+/// server→client requests are accepted without a gate error, its
+/// `notifications/roots/list_changed` is forwarded, and every malformed
+/// sampling / elicitation / roots result is answered with a typed
+/// `-32602` instead of being dispatched — after which the session still
+/// serves. The MRTR `input_required` / `inputResponses` fields the
+/// contract defines pass the same content boundary untouched.
+#[test]
+fn gmcp_req_203_013_03_integration() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-013-int-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {
+                        "sampling": {},
+                        "elicitation": {"form": {}},
+                        "roots": {"listChanged": true}
+                    },
+                    "clientInfo": {"name": "mrtr-it", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered");
+    assert!(
+        initialize.get("error").is_none_or(|error| error.is_null()),
+        "a client declaring sampling/elicitation/roots must be accepted: {initialize}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // The roots-change notification is forwarded (no answer expected) and
+    // the session continues to serve afterwards.
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0", "method": "notifications/roots/list_changed"
+    }));
+
+    // Well-formed results for server→client requests are accepted.
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "roots-ok",
+        "result": {"roots": [{"uri": "file:///tmp", "name": "tmp"}]}
+    }));
+    wire.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": "sampling-ok",
+        "result": {
+            "role": "assistant",
+            "content": {"type": "text", "text": "hello"},
+            "model": "test-model"
+        }
+    }));
+
+    // Malformed results for the same three interaction families fail typed.
+    for (id, result) in [
+        (
+            "roots-bad",
+            serde_json::json!({"roots": [{"uri": "relative/path"}]}),
+        ),
+        (
+            "sampling-bad",
+            serde_json::json!({"role": "assistant", "content": {"type": "text"}}),
+        ),
+    ] {
+        let message = serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result});
+        let answer = wire
+            .request_verbatim(&message, std::time::Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("{id}: a malformed client result must earn a typed answer"));
+        let code = answer["error"]["code"].as_i64();
+        assert!(
+            matches!(code, Some(-32600) | Some(-32602)),
+            "{id}: the content boundary must reject the result with a typed envelope or params error: {answer}"
+        );
+        assert!(
+            answer["error"]["data"]["reason"]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()),
+            "{id}: the rejection must name the invalid field: {answer}"
+        );
+    }
+
+    // An untagged elicitation form result is data, not a content block: the
+    // gate forwards it rather than rejecting it (no answer is expected for
+    // a response id the service never issued).
+    let forwarded = wire.request_verbatim(
+        &serde_json::json!({
+            "jsonrpc": "2.0", "id": "elicitation-form",
+            "result": {"action": "accept", "content": {"name": "Ada"}}
+        }),
+        std::time::Duration::from_secs(3),
+    );
+    assert!(
+        forwarded.is_none(),
+        "a forwarded elicitation result must not earn a gate error: {forwarded:?}"
+    );
+
+    // The interaction attacks never poison the session.
+    let ping = wire.request("ping", serde_json::json!({}));
+    assert!(
+        ping.is_object(),
+        "the session must still serve after malformed client results: {ping}"
+    );
+
+    // The MRTR fields travel through the same boundary untouched: an
+    // `inputResponses` payload on a request is not rejected as malformed
+    // content (the service answers, whatever the tool's own verdict).
+    let mrtr = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "mrtr", "method": "tools/call",
+                "params": {
+                    "name": "definitely_not_a_tool",
+                    "arguments": {},
+                    "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}
+                }
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("an MRTR-shaped request must earn a typed answer");
+    assert!(
+        mrtr["error"]["data"]["reason"].is_null(),
+        "MRTR input responses must reach the service, not the content boundary: {mrtr}"
+    );
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-013.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-013")
+        .collect();
+    assert_eq!(rows.len(), 198, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
