@@ -1,0 +1,22 @@
+{
+  "id": "T-BYOKENHANCEMENTS-2",
+  "title": "[MANDATES] Add Mandates 57 and 58 to constitutional identity ledger",
+  "goal": "Add Mandates 57 and 58 to constitutional identity ledger",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-vendor-models"
+    ]
+  },
+  "created_by": "BYOKENHANCEMENTS",
+  "created_unix": 1792952579,
+  "closed": {
+    "at_unix": 1792952765,
+    "commit": "e5b2385a2f7cc166b6c4d4c363d5f56cc8756d8c",
+    "by": "BYOKENHANCEMENTS"
+  }
+}

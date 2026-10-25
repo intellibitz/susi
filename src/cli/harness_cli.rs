@@ -101,14 +101,17 @@ pub enum HarnessCommands {
         prefix: String,
         /// Models a task may escalate to when its own model does not pass
         /// (comma-separated)
-        #[arg(long, default_value = "")]
+        #[arg(long, default_value = "deepseek-flash,deepseek-pro,claude-sonnet")]
         workers: String,
-        /// Mission cap in dollars; requires --catalogue
-        #[arg(long)]
-        budget_usd: Option<String>,
+        /// Mission cap in dollars
+        #[arg(long, default_value = "5")]
+        budget_usd: String,
         /// Price catalogue used to rank workers and bound spend
-        #[arg(long)]
-        catalogue: Option<PathBuf>,
+        #[arg(long, default_value = "deploy/harness/prices.json")]
+        catalogue: PathBuf,
+        /// Daily spend ceiling in dollars, checked against the ledger before a run
+        #[arg(long, default_value = "25")]
+        daily_usd: String,
         /// Ledger the gateway writes (spend authority)
         #[arg(long, default_value = "out/ledger.jsonl")]
         ledger: PathBuf,
@@ -119,7 +122,7 @@ pub enum HarnessCommands {
         #[arg(long, default_value = ".agents/rsi-loop.jsonl")]
         rsi_log: PathBuf,
         /// Hard cap on attempts per task
-        #[arg(long, default_value_t = 4)]
+        #[arg(long, default_value_t = 3)]
         attempts: usize,
         /// Where the adapter keeps prompts and results
         #[arg(long, default_value = "harness-state")]
@@ -288,6 +291,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             workers,
             budget_usd,
             catalogue,
+            daily_usd,
             ledger,
             controls,
             rsi_log,
@@ -304,8 +308,9 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             parallel,
             &prefix,
             &workers,
-            budget_usd.as_deref(),
+            &budget_usd,
             catalogue,
+            &daily_usd,
             &ledger,
             &controls,
             &rsi_log,
@@ -531,8 +536,9 @@ fn run(
     parallel: usize,
     prefix: &str,
     workers: &str,
-    budget_usd: Option<&str>,
-    catalogue: Option<PathBuf>,
+    budget_usd: &str,
+    catalogue: PathBuf,
+    daily_usd: &str,
     ledger: &Path,
     controls: &Path,
     rsi_log: &Path,
@@ -549,19 +555,19 @@ fn run(
     };
     let facts = RepoFacts::load(&repo).context("read the workspace's packages")?;
     validate_plan(&plan, &facts).context("validate the plan")?;
-    let catalogue = catalogue
-        .map(|path| PriceCatalogue::load(&path))
-        .transpose()
-        .context("load the price catalogue")?;
-    let budget = budget_usd
-        .map(|amount| {
-            MicroUsd::parse_usd(amount)
-                .map(Budget::new)
-                .with_context(|| format!("--budget-usd {amount} is not a dollar amount"))
-        })
-        .transpose()?;
-    if budget.is_some() && catalogue.is_none() {
-        bail!("--budget-usd needs --catalogue: an unpriced attempt cannot be bounded");
+    let catalogue = PriceCatalogue::load(&catalogue).context("load the price catalogue")?;
+    let budget = MicroUsd::parse_usd(budget_usd)
+        .map(Budget::new)
+        .with_context(|| format!("--budget-usd {budget_usd} is not a dollar amount"))?;
+    let daily_cap = MicroUsd::parse_usd(daily_usd)
+        .with_context(|| format!("--daily-usd {daily_usd} is not a dollar amount"))?;
+    let spent_today = spent_today(ledger, now_unix_ms());
+    if spent_today.micros() >= daily_cap.micros() {
+        bail!(
+            "--daily-usd {} already spent today ({}): refusing to start another run",
+            daily_cap,
+            spent_today
+        );
     }
     // Every named worker stays on the ladder. The task's own model is moved to
     // the front by the adapter, so a task assigned a non-default worker still
@@ -583,8 +589,8 @@ fn run(
         gateway_url: gateway.to_string(),
         model: model.to_string(),
         alternates,
-        catalogue,
-        budget,
+        catalogue: Some(catalogue),
+        budget: Some(budget),
         ledger_path: ledger.to_path_buf(),
         mission: plan.mission.clone(),
         policy: Policy {
@@ -610,6 +616,34 @@ fn run(
         );
     }
     Ok(())
+}
+
+/// Sum the ledger's priced spend for the UTC day containing `now_unix_ms`.
+fn spent_today(ledger: &Path, now_unix_ms: u64) -> MicroUsd {
+    let Ok(text) = std::fs::read_to_string(ledger) else {
+        return MicroUsd::ZERO;
+    };
+    let day = now_unix_ms / 86_400_000;
+    let total = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|entry| {
+            entry
+                .get("started_unix_ms")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|started| started / 86_400_000 == day)
+        })
+        .filter_map(|entry| entry.get("cost").and_then(serde_json::Value::as_u64))
+        .fold(0u64, u64::saturating_add);
+    MicroUsd::from_micros(total)
+}
+
+/// Wall clock in milliseconds since the Unix epoch.
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }
 
 fn tail(text: &str, limit: usize) -> String {
@@ -752,5 +786,23 @@ mod tests {
         assert!(
             Cli::try_parse_from(["susi", "harness", "models", "--provider", "gemini"]).is_err()
         );
+    }
+    #[test]
+    fn daily_cap_sums_only_todays_priced_entries() {
+        let dir = std::env::temp_dir().join(format!("susi-daily-cap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let ledger = dir.join("ledger.jsonl");
+        let now = 1_792_950_000_000u64;
+        let yesterday = now - 86_400_000;
+        let body = format!(
+            "{{\"started_unix_ms\":{now},\"cost\":3000000}}\n{{\"started_unix_ms\":{yesterday},\"cost\":10000000}}\n{{\"started_unix_ms\":{now},\"cost\":0,\"cached\":true}}\n"
+        );
+        std::fs::write(&ledger, body).expect("ledger");
+        assert_eq!(super::spent_today(&ledger, now).micros(), 3_000_000);
+        assert_eq!(
+            super::spent_today(&dir.join("missing.jsonl"), now).micros(),
+            0
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
