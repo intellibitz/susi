@@ -46,7 +46,7 @@ pub mod protocol;
 pub mod reflexes;
 pub mod requirements_ledger;
 pub mod server;
-mod stdio;
+pub mod stdio;
 pub mod tool_registry;
 pub mod tool_types;
 pub mod tools;
