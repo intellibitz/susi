@@ -406,6 +406,17 @@ impl<R: CommandRunner> SusiTarget<R> {
                 packages.push(package);
             }
         }
+        // Worktrees share the primary's target directory, so an artifact built
+        // from another checkout can shadow this worktree's sources and make the
+        // gate fail on code it never read. Drop the touched packages' artifacts
+        // first so the gate compiles what is actually here.
+        for package in &packages {
+            let _ = self.runner.run(
+                Path::new("cargo"),
+                &["clean".to_string(), "-p".to_string(), package.clone()],
+                worktree,
+            );
+        }
         let mut args: Vec<String> = vec!["clippy".to_string()];
         for package in &packages {
             args.push("-p".to_string());
@@ -1383,9 +1394,18 @@ mod tests {
             )
             .unwrap();
         let calls = target.runner.calls.lock().unwrap();
-        assert_eq!(calls[0].0, Path::new("cargo"));
-        let args = &calls[0].1;
-        assert_eq!(args[0], "clippy");
+        let first = |name: &str| {
+            calls.iter().position(|(program, args, _)| {
+                program == Path::new("cargo") && args.first().map(String::as_str) == Some(name)
+            })
+        };
+        let clean_at = first("clean").expect("cargo clean must run first");
+        let clippy_at = first("clippy").expect("cargo clippy must run");
+        assert!(
+            clean_at < clippy_at,
+            "touched packages must be cleaned before the gate reads them"
+        );
+        let args = &calls[clippy_at].1;
         assert!(args.contains(&"susi-gmcp".to_string()));
         assert!(args.contains(&"xtask".to_string()));
         assert!(args.contains(&"susi".to_string()));
