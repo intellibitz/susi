@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179303638038652-1",
+  "title": "Extension tests must isolate the Windows profile and use a platform-absolute path",
+  "goal": "Two susi-config extension tests are host-dependent: with_temp_home sets HOME and XDG but not APPDATA, so on Windows the tests share one config directory and race on state.json (truncated JSON failures), and the absolute-path rejection test uses /etc/passwd, which Windows does not resolve, so the absolute path is not rejected. Set APPDATA and LOCALAPPDATA in the temp home and choose a platform-absolute fixture.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-config",
+      "extensions_tests"
+    ]
+  },
+  "created_by": "AGENT179303638038652",
+  "created_unix": 1793036477
+}
