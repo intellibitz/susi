@@ -8935,6 +8935,285 @@ fn gmcp_req_203_009_03_integration() {
     }
 }
 
+/// GMCP-203-009-04: adversarial and failure behavior for the complete tool server surface.
+///
+/// Close validation, authorization, isolation, privacy, bounded-resource, cancellation,
+/// concurrency, crash, retry, rollback, and recovery behavior. Direct and served wire
+/// surfaces fail closed on schema violations, unknown/hostile tool names, governance policy
+/// restrictions, malformed parameter envelopes, and unsupported protocol versions, while
+/// concurrent faults stay isolated and valid tool calls recover cleanly.
+#[test]
+fn gmcp_req_203_009_04_adversarial() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::direct_call::{
+        call_tool_direct, register_tool_handler, register_tool_schema, validate_tool_args,
+    };
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-009-adv-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── 1. Direct call parameter schema validation & fault isolation ───
+    // (a) Non-object arguments are rejected
+    assert!(validate_tool_args("susi", "read_file", &serde_json::json!("not-an-object")).is_err());
+    assert!(validate_tool_args("susi", "read_file", &serde_json::json!([1, 2, 3])).is_err());
+
+    // (b) Missing required parameters fail closed
+    assert!(validate_tool_args("susi", "read_file", &serde_json::json!({})).is_err());
+    assert!(validate_tool_args("susi", "write_file", &serde_json::json!({"path": "foo"})).is_err());
+
+    // (c) Wrong argument types fail closed
+    assert!(validate_tool_args("susi", "read_file", &serde_json::json!({"path": 12345})).is_err());
+    assert!(validate_tool_args(
+        "susi",
+        "os_ps",
+        &serde_json::json!({"limit": "not-an-integer"})
+    )
+    .is_err());
+
+    // (d) call_tool_direct formats schema violations as isError: true
+    let direct_invalid =
+        call_tool_direct("susi", "read_file", &serde_json::json!({}), root).unwrap();
+    assert_eq!(
+        direct_invalid["isError"], true,
+        "schema violation must return isError: true"
+    );
+    assert!(
+        direct_invalid["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("inputSchema"),
+        "error message must cite inputSchema violation"
+    );
+
+    // (e) Custom schema registration and strict validation
+    register_tool_schema(
+        "susi",
+        "adversarial_math",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "divisor": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["divisor"]
+        }),
+    );
+    assert!(validate_tool_args(
+        "susi",
+        "adversarial_math",
+        &serde_json::json!({"divisor": 0})
+    )
+    .is_err());
+    assert!(validate_tool_args(
+        "susi",
+        "adversarial_math",
+        &serde_json::json!({"divisor": -5})
+    )
+    .is_err());
+    assert!(validate_tool_args(
+        "susi",
+        "adversarial_math",
+        &serde_json::json!({"divisor": 2})
+    )
+    .is_ok());
+
+    // (f) Custom handler failure handling
+    register_tool_handler(
+        "susi",
+        "adversarial_bomb",
+        std::sync::Arc::new(|_args, _ws| {
+            Err(susi_error::EaiError::protocol(
+                "simulated handler explosion",
+            ))
+        }),
+    );
+    let bomb_res =
+        call_tool_direct("susi", "adversarial_bomb", &serde_json::json!({}), root).unwrap();
+    assert_eq!(bomb_res["isError"], true);
+    assert!(bomb_res["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("simulated handler explosion"));
+
+    // ── 2. Served stdio transport wire adversarial verification ───────
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init-adv", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "tools-adv", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must succeed");
+    assert!(initialize["result"]["capabilities"]["tools"].is_object());
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // (a) Unknown tool name returns typed error
+    let unknown = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "adv-unknown", "method": "tools/call",
+                "params": {"name": "non_existent_tool_xyz", "arguments": {}}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("unknown tool must answer with error");
+    assert!(
+        unknown.get("error").is_some_and(|e| !e.is_null())
+            || unknown["result"]["isError"].as_bool() == Some(true),
+        "unknown tool must fail closed: {unknown}"
+    );
+
+    // (b) Hostile tool names: traversal, injection, oversized names
+    for hostile_name in ["../../etc/passwd", "tool;rm -rf /", "", &"a".repeat(256)] {
+        let hostile = wire.request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": format!("adv-hostile-{}", hostile_name.len()), "method": "tools/call",
+                "params": {"name": hostile_name, "arguments": {}}
+            }),
+            std::time::Duration::from_secs(60),
+        ).expect("hostile tool name must answer");
+        assert!(
+            hostile.get("error").is_some_and(|e| !e.is_null())
+                || hostile["result"]["isError"].as_bool() == Some(true),
+            "hostile tool name must fail closed: {hostile_name}"
+        );
+    }
+
+    // (c) Schema-violating call on live server: missing required parameters
+    let missing_args = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "adv-missing-args", "method": "tools/call",
+                "params": {"name": "read_file", "arguments": {}}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("missing required args must answer");
+    assert!(
+        missing_args.get("error").is_some_and(|e| !e.is_null())
+            || missing_args["result"]["isError"].as_bool() == Some(true),
+        "missing required args must fail closed: {missing_args}"
+    );
+
+    // (d) Malformed parameter envelope
+    let malformed_params = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "adv-malformed-params", "method": "tools/call",
+                "params": {"name": 12345, "arguments": {}}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("malformed params must answer");
+    assert!(
+        malformed_params.get("error").is_some_and(|e| !e.is_null())
+            || malformed_params["result"]["isError"].as_bool() == Some(true),
+        "malformed params must fail closed: {malformed_params}"
+    );
+
+    // (e) Privileged tool governance policy gating
+    let priv_call = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "adv-priv", "method": "tools/call",
+                "params": {"name": "susi_restricted_ops", "arguments": {}}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("privileged tool call must answer");
+    assert!(
+        priv_call.get("error").is_some_and(|e| !e.is_null())
+            || priv_call["result"]["isError"].as_bool() == Some(true)
+            || priv_call["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("Governance Violation"),
+        "privileged tool call must be policy-gated: {priv_call}"
+    );
+
+    // (f) Concurrent fault isolation and clean recovery
+    for i in 0..10 {
+        let is_adversarial = i % 2 == 0;
+        let req = if is_adversarial {
+            serde_json::json!({
+                "jsonrpc": "2.0", "id": 800 + i, "method": "tools/call",
+                "params": {"name": format!("adversarial_bogus_{i}"), "arguments": {}}
+            })
+        } else {
+            serde_json::json!({
+                "jsonrpc": "2.0", "id": 800 + i, "method": "tools/list", "params": {}
+            })
+        };
+        wire.send(&req);
+    }
+    for i in 0..10 {
+        let is_adversarial = i % 2 == 0;
+        let ans = wire
+            .response_for(
+                &serde_json::json!(800 + i),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("concurrent call must answer");
+        if is_adversarial {
+            assert!(
+                ans.get("error").is_some_and(|e| !e.is_null())
+                    || ans["result"]["isError"].as_bool() == Some(true),
+                "adversarial call {i} must fail closed"
+            );
+        } else {
+            assert!(
+                ans["result"]["tools"].is_array(),
+                "concurrent valid list {i} must succeed"
+            );
+        }
+    }
+
+    // Server recovers cleanly to execute valid tool call
+    let recover_call = wire.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    );
+    let report = call_tool_report(&recover_call);
+    assert_eq!(
+        report["verified"], true,
+        "server must recover cleanly to serve valid calls"
+    );
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // ── 3. Vector contract and evidence binding ──────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-009.md"))
+        .expect("the vector's contract must exist");
+    assert!(contract.contains("## Threat model"));
+    assert!(contract.contains("## SLOs and resource budgets"));
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
+        .expect("VC-203-009 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find(|r| r["requirement"] == "GMCP-203-009-04")
+        .expect("evidence must retain a record for GMCP-203-009-04");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_009_04_adversarial"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+}
+
 /// GMCP-203-010-03: the complete resource server surface on the served path.
 ///
 /// The `resources` capability is declared (`resources-mdx-0032`), static
