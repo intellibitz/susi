@@ -1,0 +1,19 @@
+{
+  "id": "T-SUSI-1",
+  "title": "Restore intent easy.greet.marker (easy)",
+  "goal": "Restoring the easy intent `easy.greet.marker` from ladder revision 1.\nExpected: output containing `LADDER-OK`.\nObserved: the marker is not in the output — verdict fail, stopped completed, worker F:\\src\\github.com\\intellibitz\\susi-harness-codexgmcproadmap-86\\target\\debug\\susi.exe@45120, 132s and 0µs.\nClose requires the intent itself to pass: `susi admin intent-ladder --verify easy.greet.marker`.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "susi",
+      "admin",
+      "intent-ladder",
+      "--verify",
+      "easy.greet.marker"
+    ]
+  },
+  "created_by": "SUSI",
+  "created_unix": 1793040500,
+  "authored": true
+}
