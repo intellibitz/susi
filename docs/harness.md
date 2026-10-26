@@ -309,3 +309,37 @@ The ledger is the answer. One JSON line per priced call with the mission, task,
 attempt, model, tokens (including cache hits), the price in force, the cost, and
 whether the gateway served it from cache. A later catalogue change cannot rewrite
 history, and the cockpit's totals are an integer sum of that file.
+
+## Reliability behaviours
+
+A mission is a metered agent in a git worktree. These behaviours decide what it will do when
+something goes wrong; each is covered by tests in `crates/susi-harness`.
+
+- **Prescriptive prompt.** A roadmap task whose acceptance names a `gmcp_req_`/`gmcp_vc_` test is
+  told to find the sibling test one requirement earlier, append its own test inside the first five
+  turns, and only then iterate on the acceptance output. Every other task is told to make its first
+  write before reading more than ten files. A 9,000-line test file is otherwise read until the turn
+  cap and nothing is written.
+- **Acceptance precheck.** After the claim, the task's acceptance runs on the untouched base. If it
+  passes on a clean tree the task is already delivered, so the mission closes and publishes it
+  instead of spending a ladder on work that can only produce an empty commit.
+- **Zero-test refusal.** A `cargo test` acceptance whose output reports zero passed tests is
+  refused: a filter that matches nothing exits zero and proves nothing, neither passing a ladder
+  nor closing a task.
+- **Bounded commands.** Each worker command has a deadline (600 s, `SUSI_TOOL_TIMEOUT_SECS`). On
+  expiry the whole process tree is killed and the model is told it timed out, so a test the worker
+  wrote cannot wedge the mission.
+- **Harness subcommands are refused.** A worker command whose text names `workflow finish|sync|start`
+  or `tasks claim|close|release`, or that invokes a `susi`/`susi<N>` binary at command position, is
+  refused: claim, close and publish belong to the harness.
+- **A failed mission releases its claim.** The worktree stays for diagnosis, but the claim does not
+  outlive the attempt, so the next mission can retry without a manual forced release.
+- **Stale worktree cleanup.** When `workflow start` refuses because a killed mission left its
+  directory or branch behind, the harness removes it and retries once.
+- **Shared target.** A new mission worktree links the primary checkout's cargo target, so only the
+  workspace crates rebuild instead of the whole registry graph.
+- **Merge waits.** A finish publishes its close receipt to the remote and then waits for the merge;
+  one accepted-but-unmerged close pipelines, so the next task may be claimed. The waiting process
+  holds the clone's workflow lock, so another mission in the same clone cannot prepare until it
+  returns or the wait budget (`SUSI_FINISH_WAIT_MAX`, default 30 minutes) expires — plan one mission
+  at a time per clone.

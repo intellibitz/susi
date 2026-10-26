@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT179301942714720-1",
+  "title": "Document the harness reliability behaviours",
+  "goal": "The harness gained several reliability behaviours in one session: acceptance precheck (close a task whose acceptance already passes), zero-test refusal, command deadline with tree kill, refusal of harness subcommands from worker commands, release of the claim when a mission fails, stale worktree cleanup before start, shared target linking, and prescriptive write-first prompts. Document them in docs/harness.md with a short section each so an operator can predict what a mission will do.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "architecture_tests"
+    ]
+  },
+  "created_by": "AGENT179301942714720",
+  "created_unix": 1793019470,
+  "closed": {
+    "at_unix": 1793019773,
+    "commit": "8918c88056737bcb272384773c39c278433d48ff",
+    "by": "AGENT179301942714720"
+  }
+}
