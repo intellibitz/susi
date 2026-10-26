@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT17930179882572-1",
+  "title": "Harness subcommands must be refused anywhere in a worker command",
+  "goal": "The worker wrapped its rogue finish in a shell, so matching only the command-position binary missed a powershell -Command wrapper around the harness binary and the turn blocked again. Refuse any worker command whose text names a harness-owned subcommand (workflow finish, workflow sync, workflow start, tasks claim, tasks close, tasks release) regardless of wrapper, with tests for the wrapped forms.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "tools"
+    ]
+  },
+  "created_by": "AGENT17930179882572",
+  "created_unix": 1793018038
+}
