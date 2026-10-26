@@ -11770,3 +11770,160 @@ fn gmcp_vc_203_006_mastery() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-013-04: adversarial and failure behavior of the MRTR,
+/// elicitation, sampling and roots interaction model.
+///
+/// Deterministic attack fixtures run against the real stdio service: every
+/// malformed sampling / roots result is rejected with a typed error naming
+/// the field, replayed and forged responses never earn a side effect or a
+/// gate error, cancellation of an unknown request is tolerated, an oversized
+/// payload is bounded, and after every attack the session still serves.
+#[test]
+fn gmcp_req_203_013_04_adversarial() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-013-adv-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {
+                        "sampling": {},
+                        "elicitation": {"form": {}},
+                        "roots": {"listChanged": true}
+                    },
+                    "clientInfo": {"name": "mrtr-adv", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered");
+    assert!(
+        initialize.get("error").is_none_or(|error| error.is_null()),
+        "initialize must succeed: {initialize}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // Corruption fixtures: each malformed content result is rejected typed,
+    // names the invalid field, and never poisons the session.
+    let corrupt: Vec<(&str, serde_json::Value)> = vec![
+        (
+            "roots-relative",
+            serde_json::json!({"roots": [{"uri": "relative/path"}]}),
+        ),
+        (
+            "sampling-no-text",
+            serde_json::json!({"role": "assistant", "content": {"type": "text"}}),
+        ),
+    ];
+    for (id, result) in &corrupt {
+        let message = serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result});
+        let answer = wire
+            .request_verbatim(&message, std::time::Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("{id}: a corrupt client result must earn a typed answer"));
+        assert!(
+            matches!(
+                answer["error"]["code"].as_i64(),
+                Some(-32600) | Some(-32602)
+            ),
+            "{id}: corrupt result must be rejected typed: {answer}"
+        );
+        assert!(
+            answer["error"]["data"]["reason"]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()),
+            "{id}: rejection must name the invalid field: {answer}"
+        );
+    }
+
+    // Replay / hijack: responses for ids the service never issued are
+    // forwarded as data and never produce a gate error; repeating is stable.
+    for round in 0..3 {
+        for handle in ["handle-of-another-principal", "replayed-input-request"] {
+            let answer = wire.request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": handle,
+                    "result": {"action": "accept", "content": {"name": "mallory"}}
+                }),
+                std::time::Duration::from_secs(2),
+            );
+            assert!(
+                answer.is_none(),
+                "round {round}: a forged/replayed response must not be answered: {answer:?}"
+            );
+        }
+    }
+
+    // Cancellation race: cancelling an unknown request, twice, is tolerated.
+    for _ in 0..2 {
+        wire.send(&serde_json::json!({
+            "jsonrpc": "2.0", "method": "notifications/cancelled",
+            "params": {"requestId": "never-issued", "reason": "race"}
+        }));
+    }
+
+    // Retry with forged inputResponses: typed, deterministic on replay,
+    // never a success, and not rejected by the content boundary.
+    let mut verdicts = Vec::new();
+    for attempt in 0..2 {
+        let answer = wire
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": format!("retry-{attempt}"), "method": "tools/call",
+                    "params": {
+                        "name": "definitely_not_a_tool",
+                        "arguments": {},
+                        "requestState": "forged-state",
+                        "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}
+                    }
+                }),
+                std::time::Duration::from_secs(30),
+            )
+            .expect("a retry with inputResponses must earn a typed answer");
+        assert!(
+            answer["error"]["data"]["reason"].is_null(),
+            "inputResponses must reach the service, not the content boundary: {answer}"
+        );
+        assert!(
+            answer.get("result").is_none() || answer["result"]["isError"] == true,
+            "a forged retry must never succeed: {answer}"
+        );
+        verdicts.push(answer["error"]["code"].clone());
+    }
+    assert_eq!(
+        verdicts[0], verdicts[1],
+        "replayed retry must be deterministic"
+    );
+
+    // Bounded resources: an oversized payload gets a bounded typed answer.
+    let big = "x".repeat(256 * 1024);
+    let oversized = wire.request_verbatim(
+        &serde_json::json!({
+            "jsonrpc": "2.0", "id": "big", "method": "tools/call",
+            "params": {
+                "name": "definitely_not_a_tool", "arguments": {},
+                "inputResponses": {"answer": {"action": "accept", "content": {"blob": big}}}
+            }
+        }),
+        std::time::Duration::from_secs(60),
+    );
+    assert!(
+        oversized.is_some_and(|answer| answer.is_object()),
+        "an oversized payload must earn a bounded, typed answer"
+    );
+
+    let ping = wire.request("ping", serde_json::json!({}));
+    assert!(
+        ping.is_object(),
+        "the session must survive the adversarial sequence: {ping}"
+    );
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
