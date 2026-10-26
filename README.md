@@ -263,7 +263,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
 | Plugin protocol models | **~10** coding + **5** frontier + **5** open-weight + OpenRouter routes + **~50** catalog + live `/models`; local GGUF / Ollama |
 | Plugin protocol MCP | **~22** leading servers (top: Filesystem, GitHub, Context7, Playwright, Sentry) + **~100** scout packages |
-| Bloat audit | `susi bloat-audit` runs the AST auditor directly (no model narration) and scans every non-test Rust source in the workspace; last measured: 407 files, ~107k lines, 9 `unwrap`, 22 `expect`, 18 `unsafe` blocks — each panic-path `#[allow]` carries a written justification (architecture test) |
+| Bloat audit | `susi bloat-audit` runs the AST auditor directly (no model narration) and scans every non-test Rust source in the workspace; last measured: 967 files, ~275k lines, 28 `unwrap`, 63 `expect`, 32 `unsafe` blocks — each panic-path `#[allow]` carries a written justification (architecture test) |
 | Sovereign dashboard | `susi sovereign-dashboard` counts audited activity by its real event type (no invented self-heal/distillation counters) |
 | Version sync | `susi admin sync` replaces Cargo.toml, the README badge, the governance ledgers, and the binary trust anchor atomically |
 | Audit commands | `susi audit` / `susi admin audit` run the static compliance audit; `admin verify` checks version alignment; `admin lint` / `admin audit-deps` run `cargo clippy` / `cargo audit` directly — no model narration |
@@ -286,6 +286,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Native service boundary | Wasmtime is linked only by `susi-vendor-wasmtime` (WASI reflexes for the `susi-native` service + the metered in-process cell runtime the daemon uses; the daemon no longer carries its own wasmtime/wasm-encoder dependencies); feature planes share one compiled, typed `susi-native-client` instead of source-mounting a misleading `vendor_template` copy |
 | Repository hygiene | the root carries no scratch artifacts (a stray 4.5 MB `test_verify` binary and five unreferenced experiment files were removed); duplicate root `serde_json` and GMCP `tokio` dev-dependency declarations were removed; leftover mount-era crypto and HTTP deps were dropped from twelve crates after the contract remounts; GPU features exist only where Candle reads them (`susi-vendor-candle`, forwarded by `susi-gemi` / `susi-gemi-models`) |
 | Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
+| Harness orchestration | `susi harness` — durable self-build orchestration: supervisor, scheduler, pricing catalogue accounting, budget admission, direct provider routing, and operator cockpit ([`docs/harness.md`](docs/harness.md), [`docs/harness-os.md`](docs/harness-os.md)) |
 
 ## Install
 
