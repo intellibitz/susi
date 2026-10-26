@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179298082649908-1",
+  "title": "Roadmap planning must skip tasks a live claim already reserves",
+  "goal": "The queue planner ordered tasks by priority without consulting live claims, so a plan named the GMCP task another worker held and the mission died at claim time before a token was spent. Read the live claim ids from origin and skip any candidate whose scopes overlap a claimed task's scopes, with a unit test that a claimed task and its overlapping neighbour are left out while a disjoint task remains.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "queue"
+    ]
+  },
+  "created_by": "AGENT179298082649908",
+  "created_unix": 1792980851,
+  "closed": {
+    "at_unix": 1792983635,
+    "commit": "e5dd03dece6f2ae889e70f9a2f37f06cd6ca8119",
+    "by": "AGENT179298082649908"
+  }
+}
