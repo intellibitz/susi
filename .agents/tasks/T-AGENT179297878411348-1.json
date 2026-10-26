@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179297878411348-1",
+  "title": "Ladder must keep attempt work and record per-attempt diagnostics",
+  "goal": "Three ladder attempts on a roadmap task each restarted from the task record, discarding a near-complete attempt that had written the module and run the acceptance, and when a later attempt claimed the acceptance passed the adapter only reported committed false with no evidence. Keep the worktree when an attempt fails acceptance or the gate (reset only when the worker rewrote the branch history) and write each attempt's git status and acceptance output into its adapter state so a failure is diagnosable.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179297878411348",
+  "created_unix": 1792978817
+}
