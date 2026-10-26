@@ -125,3 +125,31 @@ Positive and negative fixtures for every row live in .agents/gmcp/evidence/VC-20
 ## Ambiguities resolved
 
 All clauses are resolved by this table: the ledger id is the canonical name, the production path is the only allowed implementation site, and the disposition decides whether the clause is honored on the modern path or only through the version adapter.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` emits the bounded JSON status report for all bound specifications and ledger rows.
+- The Streamable HTTP server binds to `/mcp` (alias `/messages`), enforcing strict POST semantics, media negotiation, origin validation, bounded lines, and prompt reclamation.
+- `susi mcp ledger --drift --refetched <dir>` is the deterministic, air-gapped check. The directory is keyed by `sources.json` document paths and is bounded by the same source and artifact limits as the live check.
+
+### Diagnostics and incident triage
+
+Every drift finding has a stable `kind`: `hash_drift` means bytes differ from the pinned source, while `unfetchable` means a required document is absent or could not be retrieved. A non-zero command and `verified: false` are required for either condition; callers must not continue with a partially checked corpus. For a local failure, restore the named vendored file from git. For an upstream `hash_drift`, preserve the report and begin the migration below. For an `unfetchable` source, retry within the published bounds, then recover the last known pin from git history rather than silently skipping it.
+Protocol errors on Streamable HTTP envelopes are strictly typed: malformed JSON earns `-32700`, while non-2.0, batch arrays, or protocol violations earn `-32600`. Diagnostic traces write strictly to server error logs while responses remain clean JSON or SSE event streams.
+
+### Incident triage
+
+Treat a non-zero report as an incident until the named source or pin is restored and the deterministic check is green again. Preserve the JSON report and the corresponding evidence record with the incident for independent reproduction.
+
+### Migration (re-pinning the streamable-http transport specification)
+
+1. Claim a task and record the upstream revision and reason for the re-pin.
+2. Refresh `.agents/gmcp/spec/` and `sources.json` from that exact revision.
+3. Run `scripts/check-gmcp-ledger.py --write`, review every changed streamable-http transport clause, and update fixtures, compatibility decisions, and the retained evidence record.
+4. Run `susi mcp ledger`, the deterministic `--refetched` check, and the full GMCP acceptance gate before publishing the change.
+
+### Rollback
+
+The vendored specification, manifest, ledger, fixtures, and evidence are committed artifacts. Roll back a bad re-pin with `git revert` of its commit, then rerun the CLI and deterministic drift checks. This restores the prior streamable-http transport semantics without a data migration; do not delete evidence rows or rewrite a prior proof event.
