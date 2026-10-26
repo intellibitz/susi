@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179297583439452-1",
+  "title": "Plan scopes must reserve the evidence a task must retain",
+  "goal": "A GMCP roadmap task wrote its code and evidence but the commit was refused because the inferred plan scopes omitted .agents/gmcp/evidence, which the task goal explicitly requires. Infer the vector evidence file and roadmap verdict alongside the code scopes so a compliant worker commit is not rejected as out of scope.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "queue"
+    ]
+  },
+  "created_by": "AGENT179297583439452",
+  "created_unix": 1792975862
+}
