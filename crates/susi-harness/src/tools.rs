@@ -13,7 +13,8 @@
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// How much authority a tool carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -407,8 +408,9 @@ fn tool_run_command(workspace: &Path, args: &Value) -> String {
         c
     };
     command.current_dir(workspace);
+    command.stdin(Stdio::null());
 
-    match command.output() {
+    match run_with_deadline(command) {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -433,7 +435,70 @@ fn tool_run_command(workspace: &Path, args: &Value) -> String {
                 format!("exit code: {code}\n{combined}")
             }
         }
-        Err(e) => format!("failed to spawn command '{cmd_str}': {e}"),
+        Err(e) => format!("failed to run command '{cmd_str}': {e}"),
+    }
+}
+
+/// Deadline for one worker command. A test the worker wrote can hang; the
+/// mission must not hang with it. Overridable for tests and for a slow gate.
+fn command_limit() -> Duration {
+    std::env::var("SUSI_TOOL_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map_or_else(|| Duration::from_secs(600), Duration::from_secs)
+}
+
+/// Run a command with a deadline, killing its whole process tree on expiry so a
+/// hung child cannot strand the worker.
+fn run_with_deadline(command: Command) -> Result<std::process::Output, String> {
+    run_with_limit(command, command_limit())
+}
+
+/// The deadline itself, so a test can prove a hung command returns instead of
+/// blocking the worker.
+fn run_with_limit(mut command: Command, limit: Duration) -> Result<std::process::Output, String> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                return child.wait_with_output().map_err(|e| e.to_string());
+            }
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Ok(None) => {
+                kill_tree(child.id());
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "timed out after {}s; the process tree was killed — narrow the command or raise SUSI_TOOL_TIMEOUT_SECS",
+                    limit.as_secs()
+                ));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+/// Kill the command and every descendant it spawned.
+fn kill_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &format!("-{pid}")])
+            .output();
     }
 }
 
@@ -582,5 +647,30 @@ mod tests {
     fn tool_registry_refuses_an_unknown_tool() {
         let output = Registry::builtin().execute(Path::new("."), "format_disk", "{}", &[]);
         assert!(output.contains("unknown tool"), "{output}");
+    }
+    #[test]
+    fn a_hung_command_returns_a_timeout_instead_of_blocking() {
+        let mut command = if cfg!(windows) {
+            let mut c = Command::new("powershell");
+            c.args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"]);
+            c
+        } else {
+            let mut c = Command::new("sh");
+            c.args(["-c", "sleep 30"]);
+            c
+        };
+        command.stdin(Stdio::null());
+        let started = Instant::now();
+        let result = run_with_limit(command, Duration::from_millis(700));
+        let elapsed = started.elapsed();
+        assert!(result.is_err(), "a hung command must not return Ok");
+        assert!(
+            result.unwrap_err().contains("timed out"),
+            "the worker must be told it timed out"
+        );
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "the deadline must end the wait, not the sleep: {elapsed:?}"
+        );
     }
 }
