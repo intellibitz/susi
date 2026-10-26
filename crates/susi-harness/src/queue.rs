@@ -369,6 +369,10 @@ fn infer_scopes(repo: &Path, task: &TaskRecord, crates: &[String]) -> Vec<String
     }
     if let Some(roadmap) = &task.roadmap {
         scopes.insert(format!(".agents/roadmap-verdicts/{roadmap}.json"));
+        // A GMCP requirement task must leave its evidence on record, and the
+        // closure updates the verdict. Reserve both so a compliant worker
+        // commit is not refused as out of scope.
+        scopes.insert(format!(".agents/gmcp/evidence/{roadmap}.jsonl"));
     }
     scopes.insert(format!(".agents/tasks/{}.json", task.id));
     reduce_scopes(scopes)
@@ -619,5 +623,23 @@ mod tests {
     fn no_ready_task_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         assert!(plan_batch(dir.path(), "m", 2, &[], None).is_err());
+    }
+    #[test]
+    fn a_roadmap_task_reserves_its_evidence_and_verdict() {
+        let dir = std::env::temp_dir();
+        let task = TaskRecord {
+            id: "T-X-1".into(),
+            title: "gmcp operations".into(),
+            goal: "gmcp operations evidence".into(),
+            deps: Vec::new(),
+            scopes: Vec::new(),
+            accept: None,
+            roadmap: Some("VC-203-005".into()),
+            size: Some("l".into()),
+            created_unix: 0,
+        };
+        let scopes = infer_scopes(&dir, &task, &[]);
+        assert!(scopes.contains(&".agents/gmcp/evidence/VC-203-005.jsonl".to_string()));
+        assert!(scopes.contains(&".agents/roadmap-verdicts/VC-203-005.json".to_string()));
     }
 }
