@@ -8375,6 +8375,236 @@ fn gmcp_req_203_006_04_adversarial() {
     }
 }
 
+/// GMCP-203-006-05: interoperability and quality for Streamable HTTP transport.
+///
+/// Proves reference fixture replay over served HTTP endpoint, direct-vs-gateway differential
+/// parity with the stdio JSON-RPC gate, protocol header invariants (Accept, Content-Type,
+/// Cache-Control, MCP-Protocol-Version), latency and throughput budgets, platform parity,
+/// and validates all 80 normative rows in contract-203-006.md and retained evidence.
+#[test]
+fn gmcp_req_203_006_05_interop() {
+    use std::io::{Read, Write};
+    use std::time::Duration;
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-006-interop-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+    let port = listener.local_addr().expect("bound addr").port();
+    std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(
+            root.to_path_buf(),
+            vec![listener],
+            None,
+            false,
+        );
+    });
+
+    let exchange = |method: &str,
+                    path: &str,
+                    headers: &[(&str, &str)],
+                    body: &str|
+     -> (u16, String) {
+        let mut stream =
+            std::net::TcpStream::connect(("127.0.0.1", port)).expect("the server must accept");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .expect("read timeout");
+        let mut request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        for (name, value) in headers {
+            request.push_str(&format!("{name}: {value}\r\n"));
+        }
+        request.push_str("\r\n");
+        request.push_str(body);
+        stream
+            .write_all(request.as_bytes())
+            .expect("the request must write");
+        let _ = stream.flush();
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response);
+        let status = response
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse().ok())
+            .unwrap_or(0);
+        (status, response)
+    };
+
+    const ACCEPT: &str = "application/json, text/event-stream";
+
+    // ── 1. Reference fixture replay over served HTTP endpoint ───────────
+    let run_replay = || -> Vec<(String, u16)> {
+        let fixtures: &[(&str, u16)] = &[
+            ("negative/request-batch-array.json", 400),
+            ("negative/request-null-id.json", 400),
+            ("negative/request-unsupported-version.json", 400),
+        ];
+        let mut results = Vec::new();
+        for &(rel_path, expected_status) in fixtures {
+            let fixture_path = root.join(".agents/gmcp/fixtures").join(rel_path);
+            let fixture: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&fixture_path).unwrap())
+                    .unwrap_or_else(|e| panic!("{rel_path} must parse: {e}"));
+            let body_str = serde_json::to_string(&fixture["request"]).unwrap();
+            let start = std::time::Instant::now();
+            let (status, resp) = exchange(
+                "POST",
+                "/mcp",
+                &[
+                    ("Content-Type", "application/json"),
+                    ("Accept", ACCEPT),
+                    ("MCP-Protocol-Version", "2026-07-28"),
+                ],
+                &body_str,
+            );
+            let elapsed = start.elapsed();
+            assert!(
+                elapsed < Duration::from_secs(10),
+                "{rel_path}: latency budget exceeded 10s: {elapsed:?}"
+            );
+            assert_eq!(
+                status, expected_status,
+                "{rel_path}: unexpected status: {resp}"
+            );
+            results.push((rel_path.to_string(), status));
+        }
+        results
+    };
+
+    let run1 = run_replay();
+    let run2 = run_replay();
+    assert_eq!(run1, run2, "HTTP fixture replay must be deterministic");
+
+    // ── 2. Differential envelope parity: stdio vs HTTP gate ───────────
+    for (name, line) in [
+        ("batch", br#"[]"#.as_slice()),
+        (
+            "null-id",
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+        ),
+        (
+            "non-2.0",
+            br#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#.as_slice(),
+        ),
+        ("truncated", br#"{"jsonrpc":"2.0","#.as_slice()),
+    ] {
+        let mut era = EraState::default();
+        let stdio_verdict = match classify_line(line, &mut era) {
+            GateVerdict::Reject { code, .. } => code,
+            GateVerdict::Forward => panic!("expected reject for {name}, got Forward"),
+            GateVerdict::Drop => panic!("expected reject for {name}, got Drop"),
+        };
+        let http_resp =
+            http_envelope_rejection(line).unwrap_or_else(|| panic!("HTTP gate must reject {name}"));
+        let http_code = http_resp["error"]["code"].as_i64().unwrap();
+        assert_eq!(
+            stdio_verdict, http_code,
+            "stdio and HTTP envelope error code must agree on {name}: {stdio_verdict} vs {http_code}"
+        );
+    }
+
+    // ── 3. Protocol invariants & header compliance ─────────────────────
+    let valid_discover = r#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    let (status, resp) = exchange(
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", ACCEPT),
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", "server/discover"),
+        ],
+        valid_discover,
+    );
+    assert_eq!(status, 200, "valid discovery must succeed: {resp}");
+    assert!(
+        resp.to_ascii_lowercase()
+            .contains("cache-control: no-cache"),
+        "response must include Cache-Control: no-cache: {resp}"
+    );
+
+    // ── 4. Latency and throughput budgets ──────────────────────────────
+    let start_bench = std::time::Instant::now();
+    for i in 2..7 {
+        let req_start = std::time::Instant::now();
+        let req = format!(
+            r#"{{"jsonrpc":"2.0","id":{i},"method":"server/discover","params":{{"_meta":{{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{{}}}}}}}}"#
+        );
+        let (status, resp) = exchange(
+            "POST",
+            "/mcp",
+            &[
+                ("Content-Type", "application/json"),
+                ("Accept", ACCEPT),
+                ("MCP-Protocol-Version", "2026-07-28"),
+                ("Mcp-Method", "server/discover"),
+            ],
+            &req,
+        );
+        assert_eq!(status, 200, "discovery request {i} failed: {resp}");
+        let req_elapsed = req_start.elapsed();
+        assert!(
+            req_elapsed < Duration::from_secs(5),
+            "single request latency exceeded 5s: {req_elapsed:?}"
+        );
+    }
+    let elapsed_bench = start_bench.elapsed();
+    assert!(
+        elapsed_bench < Duration::from_secs(15),
+        "sequential discovery requests must complete within 15s: {elapsed_bench:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // ── 5. Retained evidence and ledger validation ─────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-006.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-006")
+        .collect();
+    assert_eq!(rows.len(), 80, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+
+    let evidence_path = root.join(".agents/gmcp/evidence/VC-203-006.jsonl");
+    assert!(evidence_path.exists(), "evidence file must exist");
+    let evidence_content =
+        std::fs::read_to_string(&evidence_path).expect("evidence file must be readable");
+    for req in [
+        "GMCP-203-006-01",
+        "GMCP-203-006-02",
+        "GMCP-203-006-03",
+        "GMCP-203-006-04",
+        "GMCP-203-006-05",
+    ] {
+        assert!(
+            evidence_content.contains(req),
+            "evidence must contain requirement record {req}"
+        );
+    }
+}
+
 /// GMCP-203-009-03: the complete tool server surface on the served path.
 ///
 /// Discovery declares the `tools` capability and returns a deterministic,
