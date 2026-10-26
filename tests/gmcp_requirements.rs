@@ -11927,3 +11927,128 @@ fn gmcp_req_203_013_04_adversarial() {
     drop(wire);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-013-05: interoperability and quality for the MRTR, elicitation,
+/// sampling and roots interaction model.
+///
+/// Two independent real stdio sessions (differential) must agree on every
+/// typed verdict for the same wire fixtures (corrupt results, retries with
+/// inputResponses), replays are deterministic (property invariant), and the
+/// observed latency stays inside a published budget.
+#[test]
+fn gmcp_req_203_013_05_interop() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-013-interop-{}", std::process::id()));
+    let mut transcripts: Vec<Vec<serde_json::Value>> = Vec::new();
+    let mut worst = std::time::Duration::ZERO;
+
+    for role in 0..2 {
+        let home = scratch.join(format!("home-{role}"));
+        std::fs::create_dir_all(&home).unwrap();
+        let mut wire = StdioSession::spawn_raw(root, &home);
+        let initialize = wire
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-11-25",
+                        "capabilities": {
+                            "sampling": {},
+                            "elicitation": {"form": {}},
+                            "roots": {"listChanged": true}
+                        },
+                        "clientInfo": {"name": format!("mrtr-interop-{role}"), "version": "1"}
+                    }
+                }),
+                std::time::Duration::from_secs(120),
+            )
+            .expect("initialize must be answered");
+        assert!(
+            initialize.get("error").is_none_or(|error| error.is_null()),
+            "initialize must succeed: {initialize}"
+        );
+        wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+        let mut transcript = Vec::new();
+        let fixtures: Vec<(&str, serde_json::Value)> = vec![
+            (
+                "roots-relative",
+                serde_json::json!({"roots": [{"uri": "relative/path"}]}),
+            ),
+            (
+                "sampling-no-text",
+                serde_json::json!({"role": "assistant", "content": {"type": "text"}}),
+            ),
+        ];
+        for (id, result) in &fixtures {
+            let started = std::time::Instant::now();
+            let answer = wire
+                .request_verbatim(
+                    &serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                    std::time::Duration::from_secs(30),
+                )
+                .unwrap_or_else(|| panic!("{id}: corrupt result must earn a typed answer"));
+            worst = worst.max(started.elapsed());
+            assert!(
+                matches!(
+                    answer["error"]["code"].as_i64(),
+                    Some(-32600) | Some(-32602)
+                ),
+                "{id}: corrupt result must be rejected typed: {answer}"
+            );
+            transcript.push(serde_json::json!({
+                "id": id,
+                "code": answer["error"]["code"],
+                "reason": answer["error"]["data"]["reason"],
+            }));
+        }
+
+        // Retry with inputResponses (property: deterministic, never success,
+        // same verdict on every replay).
+        let mut first = None;
+        for attempt in 0..3 {
+            let started = std::time::Instant::now();
+            let answer = wire
+                .request_verbatim(
+                    &serde_json::json!({
+                        "jsonrpc": "2.0", "id": format!("retry-{attempt}"), "method": "tools/call",
+                        "params": {
+                            "name": "definitely_not_a_tool",
+                            "arguments": {},
+                            "requestState": "forged-state",
+                            "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}
+                        }
+                    }),
+                    std::time::Duration::from_secs(30),
+                )
+                .expect("a retry with inputResponses must earn a typed answer");
+            worst = worst.max(started.elapsed());
+            assert!(
+                answer.get("result").is_none() || answer["result"]["isError"] == true,
+                "a forged retry must never succeed: {answer}"
+            );
+            let code = answer["error"]["code"].clone();
+            match &first {
+                None => first = Some(code),
+                Some(expected) => {
+                    assert_eq!(&code, expected, "replayed retry must be deterministic")
+                }
+            }
+        }
+        transcript.push(serde_json::json!({"retry": first}));
+
+        let ping = wire.request("ping", serde_json::json!({}));
+        assert!(ping.is_object(), "session must still serve: {ping}");
+        transcripts.push(transcript);
+    }
+
+    assert_eq!(
+        transcripts[0], transcripts[1],
+        "independent sessions must agree on every typed verdict"
+    );
+    assert!(
+        worst < std::time::Duration::from_secs(10),
+        "per-request latency budget exceeded: {worst:?}"
+    );
+    let _ = std::fs::remove_dir_all(&scratch);
+}
