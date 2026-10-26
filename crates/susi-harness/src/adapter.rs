@@ -329,6 +329,17 @@ impl<R: CommandRunner> SusiTarget<R> {
         Ok(probe.success())
     }
 
+    /// The worktree's uncommitted changes, as `git status --porcelain`, so an
+    /// attempt that leaves nothing behind is a recorded fact.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot be run.
+    pub fn git_status(&self, worktree: &Path) -> EaiResult<String> {
+        let status = self.git(worktree, &["status", "--porcelain"])?;
+        Ok(status.stdout.clone())
+    }
+
     /// Stage and commit whatever the worker left in the working tree.
     ///
     /// The adapter owns git, not the worker: a worker that runs `git reset` or
@@ -809,10 +820,33 @@ nothing outside the task.",
         } else {
             false
         };
-        let attempt_accepted = attempt_committed
-            && gate_ok
-            && !history_rewritten
-            && target.accept(&worktree, &task).is_ok();
+        // Record what the attempt left behind and what the acceptance said, so a
+        // failure is diagnosable from the adapter state instead of a transcript.
+        let attempt_state = spec
+            .state_dir
+            .join(&task)
+            .join(format!("attempt-{}", attempt.number));
+        let _ = std::fs::create_dir_all(&attempt_state);
+        if let Ok(status) = target.git_status(&worktree) {
+            let _ = std::fs::write(attempt_state.join("git-status.txt"), status);
+        }
+        let acceptance = target.accept(&worktree, &task);
+        match &acceptance {
+            Ok(output) => {
+                let _ = std::fs::write(
+                    attempt_state.join("acceptance.txt"),
+                    format!("status: {}\n{}", output.status, output.tail()),
+                );
+            }
+            Err(error) => {
+                let _ = std::fs::write(
+                    attempt_state.join("acceptance.txt"),
+                    format!("error: {error}"),
+                );
+            }
+        }
+        let attempt_accepted =
+            attempt_committed && gate_ok && !history_rewritten && acceptance.is_ok();
         if let (Some(guard), Some(estimate)) = (policy.guard, estimate) {
             let spent = Budget::spent(policy.ledger_path, policy.mission);
             guard.settle(spent, estimate);
@@ -844,9 +878,12 @@ nothing outside the task.",
             failure_of(&agent)
         };
         ladder.record(&attempt.model, kind, &message);
-        // A rejected attempt is discarded: the next model starts from the
-        // task record, not from work that already failed acceptance.
-        target.reset_to(&worktree, &base)?;
+        // Keep a rejected attempt's work for the next model to finish; only a
+        // rewritten history makes the base unusable. The next prompt names the
+        // acceptance or gate failure to fix.
+        if history_rewritten {
+            target.reset_to(&worktree, &base)?;
+        }
         prompt = format!(
             "{base_prompt}\n\nThe previous attempt was rejected by the repository's quality gate. \
 Fix this in the worktree before you finish:\n{message}"
@@ -1410,5 +1447,11 @@ mod tests {
         assert!(args.contains(&"xtask".to_string()));
         assert!(args.contains(&"susi".to_string()));
         assert!(args.contains(&"-D".to_string()));
+    }
+    #[test]
+    fn git_status_returns_the_porcelain_output() {
+        let target = target(vec![ok(" M src/lib.rs\n")]);
+        let status = target.git_status(Path::new("wt")).unwrap();
+        assert_eq!(status, " M src/lib.rs\n");
     }
 }
