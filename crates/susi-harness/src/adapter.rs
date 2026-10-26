@@ -152,14 +152,24 @@ impl<R: CommandRunner> SusiTarget<R> {
         let _guard = WORKTREE_START
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let output = self.susi(
-            vec![
-                "workflow".to_string(),
-                "start".to_string(),
-                name.to_string(),
-            ],
-            &self.repo,
-        )?;
+        let start = |target: &Self| {
+            target.susi(
+                vec![
+                    "workflow".to_string(),
+                    "start".to_string(),
+                    name.to_string(),
+                ],
+                &target.repo,
+            )
+        };
+        let mut output = start(self)?;
+        if !output.success() && Self::looks_like_leftover(&output.tail()) {
+            // A killed mission can leave its directory or branch behind, and
+            // both make `workflow start` refuse the next attempt. Clear the
+            // leftover once, then retry.
+            self.clear_leftover(name);
+            output = start(self)?;
+        }
         if !output.success() {
             return Err(EaiError::process(format!(
                 "workflow start failed: {}",
@@ -189,6 +199,38 @@ impl<R: CommandRunner> SusiTarget<R> {
             );
         }
         Ok(worktree)
+    }
+
+    /// True when `workflow start` refused because a killed mission left its
+    /// directory or branch behind.
+    fn looks_like_leftover(tail: &str) -> bool {
+        tail.contains("refusing to reuse") || tail.contains("already exists")
+    }
+
+    /// Remove what a killed mission left behind: its worktree directory, the
+    /// stale registration and the harness branch with the same name. Only called
+    /// after `workflow start` refused, so a healthy worktree is never touched.
+    fn clear_leftover(&self, name: &str) {
+        let Some(parent) = self.repo.parent() else {
+            return;
+        };
+        let Some(dir) = self.repo.file_name() else {
+            return;
+        };
+        let dir = dir.to_string_lossy();
+        for candidate in [format!("{dir}-{name}"), format!("{dir}-harness-{name}")] {
+            let path = parent.join(candidate);
+            let _ = self.git(
+                &self.repo,
+                &["worktree", "remove", "--force", &path.to_string_lossy()],
+            );
+            if path.exists() {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+        }
+        let _ = self.git(&self.repo, &["worktree", "prune"]);
+        let _ = self.git(&self.repo, &["branch", "-D", name]);
+        let _ = self.git(&self.repo, &["branch", "-D", &format!("harness-{name}")]);
     }
 
     /// Sync a reused worktree with `origin/main`.
@@ -1515,5 +1557,34 @@ mod tests {
         let target = target(vec![ok(" M src/lib.rs\n")]);
         let status = target.git_status(Path::new("wt")).unwrap();
         assert_eq!(status, " M src/lib.rs\n");
+    }
+    #[test]
+    fn a_leftover_worktree_is_cleared_and_start_retried_once() {
+        let target = target(vec![
+            RunOutput {
+                status: 1,
+                stdout: String::new(),
+                stderr: "refusing to reuse an unrelated checkout".to_string(),
+            },
+            ok(""),
+            ok(""),
+            ok(""),
+            ok(""),
+            ok(""),
+            ok("cd E:/src/wt\n"),
+            ok(""),
+        ]);
+        let path = target.start_worktree("harness-demo").unwrap();
+        assert_eq!(path, PathBuf::from("E:/src/wt"));
+        let calls = target.runner.calls.lock().unwrap();
+        let args: Vec<String> = calls.iter().map(|(_, a, _)| a.join(" ")).collect();
+        assert!(
+            args.iter().any(|a| a.contains("worktree remove --force")),
+            "the stale worktree must be removed: {args:?}"
+        );
+        assert!(
+            args.iter().any(|a| a.contains("branch -D harness-demo")),
+            "the stale branch must be deleted: {args:?}"
+        );
     }
 }
