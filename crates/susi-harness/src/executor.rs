@@ -24,7 +24,11 @@ use susi_error::EaiResult;
 /// The worker is a tool loop, so this bounds how many model calls one turn can
 /// make. It is deliberately generous: a coding turn that needs more than this
 /// is looping, not working.
-pub const MAX_TURNS: usize = 25;
+/// Turns one worker attempt may take. Large roadmap tasks read a contract
+/// and a 300 KB test file before writing; 25 turns reached the write turn and
+/// stopped, so the cap leaves room to read, write and iterate while the budget
+/// and the attempt ladder still bound the cost.
+pub const MAX_TURNS: usize = 60;
 
 /// One headless agent turn.
 #[derive(Debug, Clone)]
@@ -162,7 +166,7 @@ mod tests {
 
     #[test]
     fn the_turn_cap_bounds_a_worker_that_never_concludes() {
-        assert_eq!(MAX_TURNS, 25);
+        assert_eq!(MAX_TURNS, 60);
     }
 
     #[test]

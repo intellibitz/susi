@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179297375926604-1",
+  "title": "Worker turn cap must fit large roadmap tasks",
+  "goal": "A roadmap operations task burned all 25 worker turns reading a large test file and contract, writing only in turns 23-25, so both ladder attempts hit the cap without a commit. Raise the native worker turn cap for harness runs to sixty so a large task can read, write and iterate within one attempt, capped as before by the budget and the three-attempt ladder.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "executor"
+    ]
+  },
+  "created_by": "AGENT179297375926604",
+  "created_unix": 1792973789,
+  "closed": {
+    "at_unix": 1792974127,
+    "commit": "db313e4b13e429b20a5d007726a75390e7811a69",
+    "by": "AGENT179297375926604"
+  }
+}
