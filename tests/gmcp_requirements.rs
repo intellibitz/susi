@@ -12242,3 +12242,181 @@ fn gmcp_req_203_007_01_contract() {
         );
     }
 }
+
+/// GMCP-203-010-04: adversarial and failure behavior of the resource
+/// server surface on the served path.
+///
+/// Traversal, malformed, oversized, wrongly typed and unknown requests all
+/// earn typed errors, repeated reads stay deterministic, and the session
+/// recovers after every refused request (no state is poisoned).
+#[test]
+fn gmcp_req_203_010_04_adversarial() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-010-adv-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "resources-adv", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered");
+    assert!(initialize["result"]["capabilities"]["resources"].is_object());
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    let huge = format!("susi://tools/{}", "a".repeat(100_000));
+    let hostile_reads: Vec<(&str, serde_json::Value)> = vec![
+        (
+            "traversal",
+            serde_json::json!("susi://tools/../../etc/passwd"),
+        ),
+        (
+            "encoded-traversal",
+            serde_json::json!("susi://tools/..%2f..%2fsecret"),
+        ),
+        ("file-scheme", serde_json::json!("file:///etc/passwd")),
+        (
+            "windows-path",
+            serde_json::json!("susi://tools/..\\..\\windows\\win.ini"),
+        ),
+        (
+            "nul-byte",
+            serde_json::json!("susi://tools/ledger_verify\u{0}"),
+        ),
+        ("empty", serde_json::json!("")),
+        ("oversized", serde_json::json!(huge)),
+        ("unknown-host", serde_json::json!("susi://nope")),
+        ("number-uri", serde_json::json!(42)),
+        ("null-uri", serde_json::Value::Null),
+        ("object-uri", serde_json::json!({"uri": "susi://tools"})),
+    ];
+    let mut read_baseline: Option<String> = None;
+    for (index, (label, uri)) in hostile_reads.iter().enumerate() {
+        let answer = wire
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": format!("hostile-{index}"), "method": "resources/read",
+                    "params": {"uri": uri}
+                }),
+                std::time::Duration::from_secs(60),
+            )
+            .unwrap_or_else(|| panic!("hostile read {label} must earn a typed answer"));
+        assert!(
+            answer.get("error").is_some_and(|error| !error.is_null()),
+            "hostile read {label} must be refused: {answer}"
+        );
+        assert!(
+            answer.get("result").is_none_or(|result| result.is_null()),
+            "hostile read {label} must not leak content: {answer}"
+        );
+        let rendered = answer.to_string();
+        assert!(
+            !rendered.contains("root:x:") && !rendered.contains("[fonts]"),
+            "hostile read {label} must not disclose host files"
+        );
+
+        // Recovery: the session still serves a valid read, identically.
+        let good = wire.request("resources/read", serde_json::json!({"uri": "susi://tools"}));
+        let text = good["contents"][0]["text"]
+            .as_str()
+            .expect("the session must recover after a refused read")
+            .to_string();
+        match &read_baseline {
+            None => read_baseline = Some(text),
+            Some(first) => assert_eq!(first, &text, "reads must stay deterministic after {label}"),
+        }
+    }
+
+    // Subscribe to unknown / malformed resources fails closed.
+    for (index, uri) in [
+        "susi://tools/definitely_not_a_tool",
+        "not a uri",
+        "susi://tools/../x",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let answer = wire
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": format!("sub-{index}"), "method": "resources/subscribe",
+                    "params": {"uri": uri}
+                }),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("hostile subscribe must answer");
+        assert!(
+            answer.get("error").is_some_and(|error| !error.is_null()),
+            "subscribing to {uri} must be refused: {answer}"
+        );
+    }
+
+    // Completion with a wrong reference or argument never fabricates values.
+    let completion = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "complete-miss", "method": "completion/complete",
+                "params": {
+                    "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"},
+                    "argument": {"name": "name", "value": "zzz-no-such-tool-zzz"}
+                }
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("a missing completion must answer");
+    if completion.get("error").is_none_or(|error| error.is_null()) {
+        assert!(
+            completion["result"]["completion"]["values"]
+                .as_array()
+                .is_some_and(|values| values.is_empty()),
+            "no tool matches, so none may be offered: {completion}"
+        );
+    }
+    let bad_ref = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "complete-bad-ref", "method": "completion/complete",
+                "params": {
+                    "ref": {"type": "ref/resource", "uri": "susi://nope/{x}"},
+                    "argument": {"name": "x", "value": ""}
+                }
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("an unknown template completion must answer");
+    assert!(
+        bad_ref.get("error").is_some_and(|e| !e.is_null())
+            || bad_ref["result"]["completion"]["values"]
+                .as_array()
+                .is_some_and(|values| values.is_empty()),
+        "an unknown template must not complete: {bad_ref}"
+    );
+
+    // Missing params earn a typed error and the templated read still works.
+    let no_params = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "no-params", "method": "resources/read"
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("missing params must answer");
+    assert!(no_params.get("error").is_some_and(|error| !error.is_null()));
+    let instance = wire.request(
+        "resources/read",
+        serde_json::json!({"uri": "susi://tools/ledger_verify"}),
+    );
+    assert!(instance["contents"][0]["text"].is_string());
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
