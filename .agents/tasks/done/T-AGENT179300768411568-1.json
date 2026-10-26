@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179300768411568-1",
+  "title": "A failed mission must release the task claim",
+  "goal": "When the ladder exhausts its attempts the adapter returns a failed report but leaves the task claimed by the dead attempt, so the next mission is refused with 'already holds T-...' and needs a manual forced release. Release the claim when a mission ends without acceptance, keeping the worktree for diagnosis, and assert the release on a failure path.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179300768411568",
+  "created_unix": 1793007716,
+  "closed": {
+    "at_unix": 1793007957,
+    "commit": "cd05137889e0b714e656ebaa92426bbe7d7a2b56",
+    "by": "AGENT179300768411568"
+  }
+}
