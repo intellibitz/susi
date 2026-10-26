@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179298434348232-1",
+  "title": "Scope inference must map BYOK work to its real crates",
+  "goal": "The BYOK roadmap task inferred its only code scope as crates/susi-harness because its goal says per-key budget caps, so a worker editing the keys CLI or the BYOK test would have its commit refused as out of scope and the claim collided with unrelated harness work. Treat BYOK tasks as the model-provider, CLI and byok test surfaces, and do not let a generic budget word select the harness crate.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "queue"
+    ]
+  },
+  "created_by": "AGENT179298434348232",
+  "created_unix": 1792984369,
+  "closed": {
+    "at_unix": 1792984770,
+    "commit": "ed2136732a5013b92cdc7e43db02141662086ff8",
+    "by": "AGENT179298434348232"
+  }
+}
