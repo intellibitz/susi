@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179300629717532-1",
+  "title": "Queued GMCP work must get a prescriptive, write-first prompt",
+  "goal": "A planned GMCP requirement task got a terse prompt, so the worker read a 9000-line test file until the turn cap and never wrote; only a hand-edited prompt naming the sibling test and requiring an early append made it write. Generate that order in the planner for gmcp_req_/gmcp_vc_ acceptances (sibling prefix, append within five turns, bounded reads) and the general write-before-ten-files order for every other task.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "queue"
+    ]
+  },
+  "created_by": "AGENT179300629717532",
+  "created_unix": 1793006322
+}
