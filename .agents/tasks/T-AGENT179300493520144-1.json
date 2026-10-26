@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179300493520144-1",
+  "title": "A mission must clear a stale worktree and branch before starting",
+  "goal": "A killed mission leaves its worktree directory or its harness branch behind, and workflow start then refuses the next attempt with 'refusing to reuse an unrelated checkout' or 'a branch named ... already exists' — this cost five reruns in one session. When workflow start fails, remove the leftover directory, prune worktrees and delete the harness branch, then retry once.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179300493520144",
+  "created_unix": 1793004977
+}
