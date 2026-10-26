@@ -13,5 +13,10 @@
     ]
   },
   "created_by": "BYOKENHANCEMENTS",
-  "created_unix": 1792944658
+  "created_unix": 1792944658,
+  "closed": {
+    "at_unix": 1792989155,
+    "commit": "d4bb706a09ea1ff8e2e62ab978694817c7fdec25",
+    "by": "AGENT179298873329372"
+  }
 }
