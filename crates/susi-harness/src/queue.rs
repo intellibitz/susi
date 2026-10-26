@@ -353,10 +353,17 @@ fn infer_scopes(repo: &Path, task: &TaskRecord, crates: &[String]) -> Vec<String
         ),
     ];
     let gmcp = text.contains("gmcp") || text.contains("mcp");
+    // A BYOK goal says "per-key budget caps", which would otherwise select the
+    // harness crate; its real homes are the model provider, the keys CLI and
+    // its own acceptance test.
+    let byok = text.contains("byok") || text.contains("bring your own key");
     for (needles, paths) in keywords {
         // An MCP task talks about "model requests" without owning the model
         // provider crate; the GMCP mapping already names its real homes.
         if gmcp && needles.contains(&"model") {
+            continue;
+        }
+        if byok && needles.contains(&"budget") {
             continue;
         }
         if needles.iter().any(|needle| text.contains(needle)) {
@@ -366,6 +373,12 @@ fn infer_scopes(repo: &Path, task: &TaskRecord, crates: &[String]) -> Vec<String
                 }
             }
         }
+    }
+    if byok {
+        for path in ["crates/susi-vendor-models", "src/cli"] {
+            scopes.insert((*path).to_string());
+        }
+        scopes.insert("tests/byok_enhancements.rs".to_string());
     }
     if let Some(roadmap) = &task.roadmap {
         scopes.insert(format!(".agents/roadmap-verdicts/{roadmap}.json"));
@@ -641,5 +654,24 @@ mod tests {
         let scopes = infer_scopes(&dir, &task, &[]);
         assert!(scopes.contains(&".agents/gmcp/evidence/VC-203-005.jsonl".to_string()));
         assert!(scopes.contains(&".agents/roadmap-verdicts/VC-203-005.json".to_string()));
+    }
+    #[test]
+    fn byok_work_infers_its_own_crates_not_the_harness() {
+        let task = TaskRecord {
+            id: "T-BYOK-1".into(),
+            title: "[BYOK] Complete Bring Your Own Key enhancements".into(),
+            goal: "dynamic request-level headers, encrypted at-rest storage, unified susi keys CLI, and per-key budget caps".into(),
+            deps: Vec::new(),
+            scopes: Vec::new(),
+            accept: None,
+            roadmap: None,
+            size: Some("m".into()),
+            created_unix: 0,
+        };
+        let scopes = infer_scopes(&std::env::temp_dir(), &task, &[]);
+        assert!(scopes.contains(&"crates/susi-vendor-models".to_string()));
+        assert!(scopes.contains(&"src/cli".to_string()));
+        assert!(scopes.contains(&"tests/byok_enhancements.rs".to_string()));
+        assert!(!scopes.contains(&"crates/susi-harness".to_string()));
     }
 }
