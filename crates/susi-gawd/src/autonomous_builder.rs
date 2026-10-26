@@ -1,4 +1,4 @@
-//! The end-to-end autonomous build cycle (Mandates 48–56 in one pass):
+//! The end-to-end autonomous build cycle (Mandates 48–60 in one pass):
 //! pick an open task, claim it through the shared queue, delegate the
 //! self-build-briefed goal to the chosen agent in a fresh git worktree,
 //! verify with the task's own acceptance command via [`admin::tasks`]'s

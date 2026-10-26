@@ -1434,7 +1434,7 @@ fn ci_has_no_bot_pr_triggered_noise_runs() {
 
 /// The development workflow is a constitutional mandate, not a convention:
 /// identity.json (compiled into susi and read by every agent) must carry
-/// Mandates 49–56, and each must name an enforcement artifact that exists.
+/// Mandates 49–60, and each must name an enforcement artifact that exists.
 #[test]
 fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1491,6 +1491,18 @@ fn workflow_mandates_are_in_identity_and_their_enforcement_exists() {
             "failed or unfunded model can never be the brain",
             "config/cost-tiers.json",
         ),
+        (
+            57,
+            "max_budget_usd",
+            "crates/susi-vendor-models/src/cloud_credentials.rs",
+        ),
+        (58, "GMCP 2026", "crates/susi-gmcp/src/lib.rs"),
+        (
+            59,
+            "forbid(unsafe_code)",
+            ".github/workflows/unsafe-exposure-ratchet.sh",
+        ),
+        (60, "susi-vendor-", "tests/architecture_tests.rs"),
     ] {
         assert!(
             text_of(id).contains(phrase),
