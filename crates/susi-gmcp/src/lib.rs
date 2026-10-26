@@ -30,6 +30,7 @@ pub mod content;
 pub mod direct_call;
 #[cfg(feature = "tools-rich")]
 pub mod embed_provider;
+pub mod extensions;
 #[cfg(not(feature = "tools-rich"))]
 pub mod embed_provider {
     /// No fastembed in this build — the embed surface refuses rather
