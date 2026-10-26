@@ -372,7 +372,41 @@ impl<R: CommandRunner> SusiTarget<R> {
                 output.tail()
             )));
         }
+        // A test filter that matches nothing exits zero, which proves nothing:
+        // it let the precheck treat unimplemented GMCP work as already delivered.
+        if Self::is_test_command(&argv) && Self::ran_zero_tests(&output.stdout) {
+            return Err(EaiError::process(format!(
+                "acceptance for {id} ran zero tests — a filter that matches nothing proves nothing: {}",
+                output.tail()
+            )));
+        }
         Ok(output)
+    }
+
+    /// True when the acceptance argv runs a test command whose passed count
+    /// decides whether anything was proven.
+    fn is_test_command(argv: &[String]) -> bool {
+        let Some(program) = argv.first() else {
+            return false;
+        };
+        let name = Path::new(program)
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_default();
+        name == "cargo" && matches!(argv.get(1).map(String::as_str), Some("test" | "nextest"))
+    }
+
+    /// True only when the output carries libtest summaries and every one reports
+    /// zero passed tests. An output with no summary at all is a non-libtest
+    /// checker, which this guard does not judge.
+    fn ran_zero_tests(text: &str) -> bool {
+        let counts: Vec<u64> = text
+            .lines()
+            .filter_map(|line| line.split("test result: ok.").nth(1))
+            .filter_map(|rest| rest.split(" passed").next())
+            .filter_map(|count| count.trim().parse::<u64>().ok())
+            .collect();
+        !counts.is_empty() && counts.iter().all(|passed| *passed == 0)
     }
 
     /// Close the task when its acceptance already passes on the untouched base.
@@ -1617,5 +1651,24 @@ mod tests {
             args.iter().any(|a| a.contains("branch -D harness-demo")),
             "the stale branch must be deleted: {args:?}"
         );
+    }
+    #[test]
+    fn a_zero_test_acceptance_is_refused() {
+        assert!(SusiTarget::<FakeRunner>::is_test_command(&[
+            "cargo".to_string(),
+            "test".to_string(),
+            "--test".to_string(),
+            "x".to_string()
+        ]));
+        assert!(!SusiTarget::<FakeRunner>::is_test_command(&[
+            "scripts/check.sh".to_string()
+        ]));
+        assert!(!SusiTarget::<FakeRunner>::ran_zero_tests(
+            "test result: ok. 3 passed; 0 failed"
+        ));
+        assert!(SusiTarget::<FakeRunner>::ran_zero_tests(
+            "test result: ok. 0 passed; 0 failed"
+        ));
+        assert!(!SusiTarget::<FakeRunner>::ran_zero_tests("tests pass"));
     }
 }

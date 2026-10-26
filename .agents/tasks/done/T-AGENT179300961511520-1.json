@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179300961511520-1",
+  "title": "An acceptance that runs zero tests must not pass",
+  "goal": "A GMCP task acceptance named a test filter that matched nothing; cargo exited zero and the precheck treated the task as already delivered, so the orchestrator nearly closed unimplemented work. When the acceptance is a cargo/nextest test command, parse the passed count and refuse an acceptance that ran zero tests, so a typo or a missing test can neither pass a ladder nor close a task.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179300961511520",
+  "created_unix": 1793009641,
+  "closed": {
+    "at_unix": 1793009926,
+    "commit": "57b8b58851e2e85341bc54715c90364e6a48363f",
+    "by": "AGENT179300961511520"
+  }
+}
