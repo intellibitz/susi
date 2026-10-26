@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179295189431856-1",
+  "title": "Anthropic live key check must send anthropic-workspace-id",
+  "goal": "susi keys check / keys models report Anthropic as Unreachable because auth_headers omits the anthropic-workspace-id header that a workspace-scoped key requires (the API answers 400, which classifies as Unreachable). Send the header when ANTHROPIC_WORKSPACE_ID is configured, with a pure unit test for the header set.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-vendor-models",
+      "anthropic_workspace"
+    ]
+  },
+  "created_by": "AGENT179295189431856",
+  "created_unix": 1792951942,
+  "closed": {
+    "at_unix": 1792955549,
+    "commit": "0be79f93244930a16e4676f12d2cae04d2d25882",
+    "by": "AGENT179295189431856"
+  }
+}
