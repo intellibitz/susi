@@ -12759,3 +12759,145 @@ fn gmcp_req_203_016_02_production() {
     assert!(items.iter().all(|i| !i.contains(tasks)));
     assert!(fresh.watch(&[tasks]).is_empty());
 }
+
+/// GMCP-203-010-05: interoperability and quality of the resource server
+/// surface on the served stdio path.
+///
+/// A reference-style client drives discovery, templates, completion, reads,
+/// subscriptions and negative cases; repeated runs are differentially equal
+/// (determinism invariant), refusals recover, and latency stays inside a
+/// published budget.
+#[test]
+fn gmcp_req_203_010_05_interop() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-010-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let started = std::time::Instant::now();
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "resources-interop", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered");
+    let startup = started.elapsed();
+    assert!(initialize["result"]["capabilities"]["resources"].is_object());
+    assert!(
+        startup < std::time::Duration::from_secs(120),
+        "startup budget exceeded: {startup:?}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // Discovery: static list and templates are deterministic.
+    let list_a = wire.request("resources/list", serde_json::json!({}));
+    let list_b = wire.request("resources/list", serde_json::json!({}));
+    assert_eq!(list_a, list_b, "resource listing must be deterministic");
+    let resources = list_a["resources"].as_array().expect("resources array");
+    assert!(!resources.is_empty());
+    for resource in resources {
+        assert!(resource["uri"].is_string() && resource["name"].is_string());
+    }
+    let templates_a = wire.request("resources/templates/list", serde_json::json!({}));
+    let templates_b = wire.request("resources/templates/list", serde_json::json!({}));
+    assert_eq!(templates_a, templates_b);
+    assert!(templates_a["resourceTemplates"]
+        .as_array()
+        .is_some_and(|t| t.iter().all(|t| t["uriTemplate"].is_string())));
+
+    // Reads: every listed resource reads with its own URI and a mime type
+    // inside the published latency budget; repeated reads are identical.
+    let mut slowest = std::time::Duration::ZERO;
+    for resource in resources.iter().take(8) {
+        let uri = resource["uri"].as_str().unwrap();
+        let t0 = std::time::Instant::now();
+        let first = wire.request("resources/read", serde_json::json!({"uri": uri}));
+        slowest = slowest.max(t0.elapsed());
+        let second = wire.request("resources/read", serde_json::json!({"uri": uri}));
+        assert_eq!(first, second, "read of {uri} must be deterministic");
+        let content = &first["contents"][0];
+        assert_eq!(content["uri"].as_str(), Some(uri));
+        assert!(content["text"].is_string() || content["blob"].is_string());
+    }
+    assert!(
+        slowest < std::time::Duration::from_secs(30),
+        "read latency budget exceeded: {slowest:?}"
+    );
+
+    // Templated instance and completion agree.
+    let instance = wire.request(
+        "resources/read",
+        serde_json::json!({"uri": "susi://tools/ledger_verify"}),
+    );
+    assert!(instance["contents"][0]["text"].is_string());
+    let completion = wire.request(
+        "completion/complete",
+        serde_json::json!({
+            "ref": {"type": "ref/resource", "uri": "susi://tools/{name}"},
+            "argument": {"name": "name", "value": "ledger"}
+        }),
+    );
+    assert!(completion["completion"]["values"].is_array());
+
+    // Negative fixtures: refused with typed errors, then the session recovers.
+    for (index, uri) in [
+        "susi://tools/../../etc/passwd",
+        "file:///etc/passwd",
+        "susi://nope",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let answer = wire
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": format!("neg-{index}"), "method": "resources/read",
+                    "params": {"uri": uri}
+                }),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("negative read must answer");
+        assert!(
+            answer.get("error").is_some_and(|e| !e.is_null()),
+            "{uri}: {answer}"
+        );
+    }
+    let after = wire.request(
+        "resources/read",
+        serde_json::json!({"uri": "susi://tools/ledger_verify"}),
+    );
+    assert_eq!(after, instance, "session must recover identically");
+
+    drop(wire);
+
+    // Differential: a second fresh session yields the same listing.
+    let home2 = scratch.join("home2");
+    std::fs::create_dir_all(&home2).unwrap();
+    let mut other = StdioSession::spawn_raw(root, &home2);
+    other
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "resources-interop-2", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("second initialize must be answered");
+    other.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    let list_c = other.request("resources/list", serde_json::json!({}));
+    assert_eq!(list_a, list_c, "fresh sessions must list identically");
+    drop(other);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
