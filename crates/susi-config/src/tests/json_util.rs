@@ -20,7 +20,12 @@ fn missing_parent_dirs_are_preserved() {
 #[test]
 fn rejects_absolute_parent_and_empty_paths() {
     let ws = workspace("reject");
-    assert!(confined_workspace_join(&ws, "/etc/passwd").is_err());
+    let absolute = if cfg!(windows) {
+        "C:\\Windows\\win.ini"
+    } else {
+        "/etc/passwd"
+    };
+    assert!(confined_workspace_join(&ws, absolute).is_err());
     assert!(confined_workspace_join(&ws, "a/../../etc").is_err());
     assert!(confined_workspace_join(&ws, "").is_err());
     let _ = std::fs::remove_dir_all(&ws);
