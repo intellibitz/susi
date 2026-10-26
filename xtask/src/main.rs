@@ -102,7 +102,10 @@ fn ensure_dev_setup_in(dir: &Path) {
     if configured || !dir.join("scripts/setup-dev.sh").is_file() {
         return;
     }
-    match Command::new("bash")
+    // On Windows ash may resolve to the WSL launcher (whose /bin/bash is absent);
+    // the repository's scripts are POSIX and run with Git's sh everywhere else.
+    let shell = if cfg!(windows) { "sh" } else { "bash" };
+    match Command::new(shell)
         .current_dir(dir)
         .arg("scripts/setup-dev.sh")
         .status()

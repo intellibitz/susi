@@ -164,6 +164,13 @@ fn vc_201_076_mastery_unknown_permission_rejected_holds() {
 /// Holds: absolute-path file mappings are refused.
 #[test]
 fn vc_201_076_mastery_absolute_file_mapping_rejected_holds() {
-    let m = pack("p", &[("data.json", "/etc/passwd")]);
+    // A Unix path is not absolute to Windows path resolution, so the fixture
+    // must be platform-appropriate for the rejection to be the thing tested.
+    let absolute = if cfg!(windows) {
+        "C:\\Windows\\win.ini"
+    } else {
+        "/etc/passwd"
+    };
+    let m = pack("p", &[("data.json", absolute)]);
     assert!(validate_manifest(&m).is_err());
 }

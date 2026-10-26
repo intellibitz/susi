@@ -1,0 +1,7 @@
+# Local and CI runs of the full suite must not starve the heavy requirement
+# tests: they spawn real stdio sessions with 120 s deadlines, and a machine
+# with 28 logical cores running 4 000 tests in parallel makes those deadlines
+# expire on scheduling alone. Eight test threads keep the suite fast while
+# leaving each spawned session enough CPU to answer.
+[profile.default]
+test-threads = 8
