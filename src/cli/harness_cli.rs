@@ -501,6 +501,7 @@ fn author(
             .collect(),
         narrative: tail(narrative, 4000),
         max_tasks,
+        retry_hint: None,
     };
     let config = AuthorConfig {
         gateway_url: gateway.to_string(),
@@ -508,7 +509,20 @@ fn author(
         timeout_secs: 300,
     };
     let plan = author_plan(&config, &request).context("author the plan")?;
-    validate_plan(&plan, &facts).context("validate the authored plan")?;
+    let plan = match validate_plan(&plan, &facts) {
+        Ok(()) => plan,
+        Err(error) => {
+            // One corrective retry: the model that authored the plan is the
+            // cheapest fix for its own validation error, and the error text is
+            // the only useful instruction it can get.
+            eprintln!("the authored plan failed validation ({error}); retrying once");
+            let mut retry = request;
+            retry.retry_hint = Some(error.to_string());
+            let retried = author_plan(&config, &retry).context("author the plan (retry)")?;
+            validate_plan(&retried, &facts).context("validate the authored plan (retry)")?;
+            retried
+        }
+    };
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
         .with_context(|| format!("write {}", out.display()))?;
     println!(

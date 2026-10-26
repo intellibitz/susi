@@ -64,6 +64,7 @@ fn main() {
         workers: options.workers,
         narrative: tail(narrative, 4000),
         max_tasks: options.max_tasks,
+        retry_hint: None,
     };
     let config = AuthorConfig {
         gateway_url: options.gateway,

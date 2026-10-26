@@ -36,12 +36,14 @@ pub struct AuthorRequest {
     pub narrative: String,
     /// Upper bound on tasks.
     pub max_tasks: usize,
+    /// The previous answer's validation error, when this call is a retry.
+    pub retry_hint: Option<String>,
 }
 
 /// The user prompt for one authoring call.
 #[must_use]
 pub fn prompt(request: &AuthorRequest) -> String {
-    format!(
+    let mut text = format!(
         "Roadmap vector: {vector}\nMastery target: {target}\nWorkspace packages (use these exact names in `-p`): {packages}\nWorker models (assign each task exactly one as `model`): {workers}\nMost recent narrative (may be truncated):\n{narrative}\n\nReturn a plan of at most {max_tasks} tasks. Prefer one small, self-contained increment that one agent can finish in under 15 minutes; if the vector is large, plan only its first concrete step. Each task must be executable by one coding agent in one worktree, and its scopes must not overlap another task's. Spread the tasks across the workers when more than one is listed.",
         vector = request.vector,
         target = request.target,
@@ -49,7 +51,13 @@ pub fn prompt(request: &AuthorRequest) -> String {
         workers = request.workers.join(", "),
         narrative = request.narrative,
         max_tasks = request.max_tasks
-    )
+    );
+    if let Some(hint) = &request.retry_hint {
+        text.push_str(&format!(
+            "\n\nThe previous answer was rejected: {hint}\nReturn a corrected JSON object that fixes exactly this."
+        ));
+    }
+    text
 }
 
 /// Ask the gateway's model for a plan and validate it.
@@ -153,6 +161,7 @@ mod tests {
             workers: vec!["deepseek-flash".into(), "gemini-flash".into()],
             narrative: "recent work".into(),
             max_tasks: 3,
+            retry_hint: None,
         }
     }
 
@@ -209,5 +218,13 @@ mod tests {
     fn an_invalid_plan_is_refused() {
         assert!(parse_plan(r#"{"mission":"m","tasks":[]}"#).is_err());
         assert!(parse_plan("not json").is_err());
+    }
+    #[test]
+    fn a_retry_prompt_carries_the_validation_error() {
+        let mut request = request();
+        request.retry_hint = Some("scopes must exist under the repository".into());
+        let text = prompt(&request);
+        assert!(text.contains("previous answer was rejected"));
+        assert!(text.contains("scopes must exist under the repository"));
     }
 }
