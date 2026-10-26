@@ -79,12 +79,14 @@ struct Vector {
 ///
 /// Returns `EaiError::io` when the queue cannot be read, `EaiError::config`
 /// when a task record is malformed or no candidate is ready.
+#[allow(clippy::too_many_arguments)] // the queue's selection inputs, one per filter
 pub fn plan_batch(
     repo: &Path,
     mission: &str,
     limit: usize,
     workers: &[String],
     only_roadmap: Option<&str>,
+    claimed: &[String],
 ) -> EaiResult<Plan> {
     let limit = limit.max(1);
     let tasks_dir = repo.join(".agents").join("tasks");
@@ -128,6 +130,20 @@ pub fn plan_batch(
     }
     let mut records = ready;
 
+    // Scopes a live claim already reserves, resolved from the claimed task's
+    // own record, so the plan never names a task whose claim must fail.
+    let claimed_scopes: Vec<Vec<String>> = claimed
+        .iter()
+        .filter_map(|id| records.iter().find(|task| &task.id == id))
+        .map(|task| {
+            if task.scopes.is_empty() {
+                infer_scopes(repo, task, &crates)
+            } else {
+                task.scopes.clone()
+            }
+        })
+        .collect();
+
     records.sort_by(|left, right| {
         priority_rank(left, &priorities)
             .cmp(&priority_rank(right, &priorities))
@@ -138,6 +154,13 @@ pub fn plan_batch(
 
     let mut selected: Vec<&TaskRecord> = Vec::new();
     for task in &records {
+        if claimed_scopes
+            .iter()
+            .any(|scopes| scopes_overlap(&task.scopes, scopes))
+        {
+            blocked += 1;
+            continue;
+        }
         if selected
             .iter()
             .any(|other| scopes_overlap(&task.scopes, &other.scopes))
@@ -542,6 +565,7 @@ mod tests {
             2,
             &["deepseek-flash".to_string(), "gemini-flash".to_string()],
             None,
+            &[],
         )
         .unwrap();
         assert_eq!(plan.mission, "roadmap-batch");
@@ -560,7 +584,7 @@ mod tests {
     #[test]
     fn overlapping_or_blocked_tasks_are_skipped() {
         let dir = repo();
-        let plan = plan_batch(dir.path(), "m", 10, &[], None).unwrap();
+        let plan = plan_batch(dir.path(), "m", 10, &[], None, &[]).unwrap();
         let ids: Vec<&str> = plan
             .tasks
             .iter()
@@ -573,7 +597,7 @@ mod tests {
     #[test]
     fn a_roadmap_filter_narrows_the_batch() {
         let dir = repo();
-        let plan = plan_batch(dir.path(), "m", 10, &[], Some("VC-B")).unwrap();
+        let plan = plan_batch(dir.path(), "m", 10, &[], Some("VC-B"), &[]).unwrap();
         assert_eq!(plan.tasks.len(), 1);
         assert_eq!(plan.tasks[0].task.as_deref(), Some("T-B"));
     }
@@ -595,7 +619,7 @@ mod tests {
                 "accept":{"cmd":["cargo","test","--test","gmcp_requirements","req"]}
             }"#,
         );
-        let plan = plan_batch(dir.path(), "m", 1, &[], Some("VC-X")).unwrap();
+        let plan = plan_batch(dir.path(), "m", 1, &[], Some("VC-X"), &[]).unwrap();
         let task = &plan.tasks[0];
         assert_eq!(task.task.as_deref(), Some("T-GMCP"));
         assert!(
@@ -622,7 +646,7 @@ mod tests {
     #[test]
     fn no_ready_task_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(plan_batch(dir.path(), "m", 2, &[], None).is_err());
+        assert!(plan_batch(dir.path(), "m", 2, &[], None, &[]).is_err());
     }
     #[test]
     fn a_roadmap_task_reserves_its_evidence_and_verdict() {
@@ -641,5 +665,21 @@ mod tests {
         let scopes = infer_scopes(&dir, &task, &[]);
         assert!(scopes.contains(&".agents/gmcp/evidence/VC-203-005.jsonl".to_string()));
         assert!(scopes.contains(&".agents/roadmap-verdicts/VC-203-005.json".to_string()));
+    }
+    #[test]
+    fn a_claimed_task_and_its_overlapping_neighbour_are_not_planned() {
+        let dir = repo();
+        let plan = plan_batch(dir.path(), "m", 10, &[], None, &["T-A".to_string()]).unwrap();
+        let ids: Vec<&str> = plan
+            .tasks
+            .iter()
+            .filter_map(|task| task.task.as_deref())
+            .collect();
+        assert!(!ids.contains(&"T-A"), "the claimed task is not free");
+        assert!(
+            !ids.contains(&"T-B"),
+            "T-B overlaps the claimed task's scopes"
+        );
+        assert!(ids.contains(&"T-D"), "disjoint work stays available");
     }
 }
