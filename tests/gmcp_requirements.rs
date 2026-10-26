@@ -8064,6 +8064,317 @@ fn gmcp_req_203_006_03_integration() {
     }
 }
 
+/// GMCP-203-006-04: Adversarial and failure behavior: Production-grade Streamable HTTP transport.
+///
+/// Validates the comprehensive negative, attack, race, corruption, and fault-injection fixtures
+/// derived from the vector threat model:
+/// - Browser origin validation: browser origins refused with 403 Forbidden.
+/// - Shared envelope gate: malformed JSON bodies refused with 400 Bad Request and -32700 Parse error.
+/// - Batch request rejection: JSON-RPC batch arrays refused with 400 Bad Request and -32600.
+/// - Invalid envelopes: missing/unsupported jsonrpc version or missing method refused with 400 (-32600).
+/// - Removed legacy verbs: GET /mcp and non-POST methods (PUT, DELETE) refused with 405 or 400.
+/// - Unknown endpoint paths return 404 Not Found.
+/// - Tampered authenticated/encrypted requests fail closed with 401 Unauthorized.
+/// - Interleaved concurrent fault injection isolates failures without cross-request corruption.
+/// - The transport recovers cleanly to serve valid modern POST requests with 200 OK.
+/// - Verifies all 80 normative ledger rows and contract-203-006.md production paths.
+#[test]
+fn gmcp_req_203_006_04_adversarial() {
+    use std::io::{Read, Write};
+    use std::time::Duration;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-006-adv-{}", std::process::id()));
+    std::fs::create_dir_all(&scratch).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+    let port = listener.local_addr().expect("bound addr").port();
+    std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(
+            root.to_path_buf(),
+            vec![listener],
+            None,
+            false,
+        );
+    });
+
+    let exchange = |method: &str,
+                    path: &str,
+                    headers: &[(&str, &str)],
+                    body: &str|
+     -> (u16, String) {
+        let mut stream =
+            std::net::TcpStream::connect(("127.0.0.1", port)).expect("the gateway must accept");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .expect("read timeout");
+        let mut request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {}\r\n",
+            body.len()
+        );
+        for (name, value) in headers {
+            request.push_str(&format!("{name}: {value}\r\n"));
+        }
+        request.push_str("\r\n");
+        request.push_str(body);
+        stream
+            .write_all(request.as_bytes())
+            .expect("the request must write");
+        let _ = stream.flush();
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response);
+        let status = response
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse().ok())
+            .unwrap_or(0);
+        (status, response)
+    };
+
+    const ACCEPT: &str = "application/json, text/event-stream";
+    let valid_discover = r#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+
+    // ── 1. Origin header validation: untrusted browser origins rejected ──
+    for bad_origin in [
+        "https://evil.attacker.example",
+        "http://phishing.site",
+        "null",
+    ] {
+        let (status, response) = exchange(
+            "POST",
+            "/mcp",
+            &[
+                ("Content-Type", "application/json"),
+                ("Accept", ACCEPT),
+                ("Origin", bad_origin),
+                ("MCP-Protocol-Version", "2026-07-28"),
+                ("Mcp-Method", "server/discover"),
+            ],
+            valid_discover,
+        );
+        assert_eq!(
+            status, 403,
+            "browser origin {bad_origin} must be refused with 403: {response}"
+        );
+    }
+
+    // ── 2. Malformed JSON body rejected with -32700 ────────────────────
+    let (status, response) = exchange(
+        "POST",
+        "/mcp",
+        &[("Content-Type", "application/json"), ("Accept", ACCEPT)],
+        r#"{"jsonrpc":"2.0","method":"ping","#,
+    );
+    assert_eq!(
+        status, 400,
+        "malformed body must be rejected with 400: {response}"
+    );
+    assert!(
+        response.contains("-32700"),
+        "rejection must contain -32700 parse error: {response}"
+    );
+
+    // ── 3. JSON-RPC batch arrays rejected with -32600 ──────────────────
+    for (name, batch_payload) in [
+        ("batch-call", r#"[{"jsonrpc":"2.0","method":"ping"}]"#),
+        ("batch-empty", "[]"),
+    ] {
+        let (status, response) = exchange(
+            "POST",
+            "/mcp",
+            &[("Content-Type", "application/json"), ("Accept", ACCEPT)],
+            batch_payload,
+        );
+        assert_eq!(
+            status, 400,
+            "batch probe {name} must be rejected with 400: {response}"
+        );
+        assert!(
+            response.contains("-32600"),
+            "batch rejection must contain -32600 invalid request: {response}"
+        );
+    }
+
+    // ── 4. Invalid envelopes (non-2.0, missing method) rejected ────────
+    for (name, bad_env) in [
+        ("missing-version", r#"{"id":1,"method":"ping"}"#),
+        ("non-2.0", r#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#),
+        ("null-id", r#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#),
+        ("missing-method", r#"{"jsonrpc":"2.0","id":99}"#),
+    ] {
+        let (status, response) = exchange(
+            "POST",
+            "/mcp",
+            &[("Content-Type", "application/json"), ("Accept", ACCEPT)],
+            bad_env,
+        );
+        assert_eq!(
+            status, 400,
+            "invalid envelope {name} must be rejected with 400: {response}"
+        );
+        assert!(
+            response.contains("-32600"),
+            "envelope rejection must contain -32600: {response}"
+        );
+    }
+
+    // ── 5. Removed legacy verbs on modern endpoint rejected ───────────
+    let (status, response) = exchange("GET", "/mcp", &[("Accept", "text/event-stream")], "");
+    assert!(
+        status == 405 || status == 400,
+        "GET /mcp must be rejected on modern path: {status} {response}"
+    );
+
+    for bad_method in ["DELETE", "PUT", "PATCH"] {
+        let (status, response) = exchange(
+            bad_method,
+            "/mcp",
+            &[("Content-Type", "application/json")],
+            "",
+        );
+        assert!(
+            status == 405 || status == 400,
+            "{bad_method} /mcp must be rejected: {status} {response}"
+        );
+    }
+
+    // ── 6. Unknown endpoint paths return 404 Not Found ─────────────────
+    let (status, response) = exchange(
+        "POST",
+        "/unsupported-mcp-path",
+        &[("Content-Type", "application/json")],
+        valid_discover,
+    );
+    assert_eq!(
+        status, 404,
+        "unknown endpoint route must return 404: {response}"
+    );
+
+    // ── 7. Tampered encrypted requests fail closed with 401 ────────────
+    let (status, response) = exchange(
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/octet-stream"),
+            ("x-susi-enc", "v1"),
+            ("x-susi-enc-nonce", "invalid-nonce-hex"),
+            ("x-susi-node-pub", "invalid-pubkey"),
+        ],
+        "corrupted-ciphertext-payload",
+    );
+    assert_eq!(
+        status, 401,
+        "tampered encrypted request must fail closed with 401 Unauthorized: {response}"
+    );
+
+    // ── 8. Concurrency, fault isolation, and clean server recovery ─────
+    let thread_handles: Vec<_> = (0..8)
+        .map(|idx| {
+            std::thread::spawn(move || {
+                let mut stream = std::net::TcpStream::connect(("127.0.0.1", port))
+                    .expect("concurrent connect must succeed");
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(30)))
+                    .expect("read timeout");
+                let (method, path, body, exp_status) = match idx % 4 {
+                    0 => (
+                        "POST",
+                        "/mcp",
+                        r#"{"jsonrpc":"2.0","method":"ping","#,
+                        400,
+                    ),
+                    1 => (
+                        "POST",
+                        "/mcp",
+                        r#"[{"jsonrpc":"2.0","method":"ping"}]"#,
+                        400,
+                    ),
+                    2 => (
+                        "POST",
+                        "/unknown-probe",
+                        r#"{"jsonrpc":"2.0","method":"ping"}"#,
+                        404,
+                    ),
+                    _ => (
+                        "DELETE",
+                        "/mcp",
+                        "",
+                        405, // or 400
+                    ),
+                };
+                let req = format!(
+                    "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(req.as_bytes()).unwrap();
+                let _ = stream.flush();
+                let mut res = String::new();
+                let _ = stream.read_to_string(&mut res);
+                let st = res
+                    .lines()
+                    .next()
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .and_then(|c| c.parse::<u16>().ok())
+                    .unwrap_or(0);
+                if exp_status == 405 {
+                    assert!(st == 405 || st == 400, "expected 405/400, got {st}: {res}");
+                } else {
+                    assert_eq!(st, exp_status, "expected {exp_status}, got {st}: {res}");
+                }
+            })
+        })
+        .collect();
+
+    for handle in thread_handles {
+        handle.join().expect("concurrent worker thread panicked");
+    }
+
+    // Transport recovers cleanly after adversarial load to serve valid modern POST
+    let (status, response) = exchange(
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", ACCEPT),
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", "server/discover"),
+        ],
+        valid_discover,
+    );
+    assert_eq!(
+        status, 200,
+        "valid modern POST must be accepted cleanly after adversarial stress: {response}"
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // ── 9. Retained evidence and ledger validation ─────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-006.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-006")
+        .collect();
+    assert_eq!(rows.len(), 80, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+}
+
 /// GMCP-203-009-03: the complete tool server surface on the served path.
 ///
 /// Discovery declares the `tools` capability and returns a deterministic,
