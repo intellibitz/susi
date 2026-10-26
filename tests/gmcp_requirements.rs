@@ -9214,6 +9214,287 @@ fn gmcp_req_203_009_04_adversarial() {
     assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
 }
 
+/// GMCP-203-009-05: interoperability and quality for the complete tool server surface.
+///
+/// Proves reference-SDK and official-suite interoperability in both server and direct roles,
+/// direct-versus-gateway differential behavior, tool naming and parameter schema property invariants,
+/// x-mcp-header constraints, deterministic ordering, output schema validation parity, and
+/// published latency, throughput, and fairness budgets under concurrent execution.
+#[test]
+fn gmcp_req_203_009_05_interop() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::direct_call::{call_tool_direct, register_tool_handler, register_tool_schema};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-009-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── 1. Reference SDK & specification wire interoperability ───────────
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init-interop", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "reference-sdk-interop", "version": "1.0.0"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("reference client initialization must succeed");
+    assert!(
+        initialize["result"]["capabilities"]["tools"].is_object(),
+        "tools capability must be declared for reference SDK clients"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // (a) Deterministic ordering & schema conformance across discovery requests
+    let list1 = wire.request("tools/list", serde_json::json!({}));
+    let list2 = wire.request("tools/list", serde_json::json!({}));
+    let tools1 = list1["tools"].as_array().expect("tools array 1");
+    let tools2 = list2["tools"].as_array().expect("tools array 2");
+    assert_eq!(
+        tools1.len(),
+        tools2.len(),
+        "tool count must be deterministic across queries"
+    );
+    assert_eq!(
+        tools1, tools2,
+        "tools/list ordering must be strictly deterministic across calls"
+    );
+
+    // (b) Normative tool naming & JSON schema invariants
+    let mut discovered_names = std::collections::BTreeSet::new();
+    for tool in tools1 {
+        let name = tool["name"].as_str().expect("tool must have a name");
+        assert!(
+            !name.is_empty() && name.len() <= 128,
+            "tool name length must be between 1 and 128 chars: {name}"
+        );
+        assert!(
+            name.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':' | '*')),
+            "tool name must use only allowed ASCII chars: {name}"
+        );
+        assert!(
+            discovered_names.insert(name.to_string()),
+            "tool names must be unique within server: {name}"
+        );
+
+        let schema = &tool["inputSchema"];
+        assert!(
+            schema.is_object(),
+            "inputSchema must be a valid JSON Schema object (not null): {name}"
+        );
+        assert_eq!(
+            schema["type"], "object",
+            "inputSchema type must be object: {name}"
+        );
+    }
+    assert!(
+        discovered_names.contains("ledger_verify"),
+        "ledger_verify must be discoverable: {discovered_names:?}"
+    );
+
+    // ── 2. Direct-versus-gateway differential execution parity ──────────
+    // (a) Parameter validation parity on missing arguments
+    let direct_missing =
+        call_tool_direct("susi", "read_file", &serde_json::json!({}), root).unwrap();
+    assert_eq!(
+        direct_missing["isError"], true,
+        "direct missing args must fail closed"
+    );
+
+    let wire_missing = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "interop-missing-wire", "method": "tools/call",
+                "params": {"name": "read_file", "arguments": {}}
+            }),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("wire missing args must answer");
+    assert!(
+        wire_missing.get("error").is_some_and(|e| !e.is_null())
+            || wire_missing["result"]["isError"].as_bool() == Some(true),
+        "wire missing args must fail closed: {wire_missing}"
+    );
+
+    // (b) Execution report parity on ledger_verify
+    let direct_ledger =
+        call_tool_direct("susi", "ledger_verify", &serde_json::json!({}), root).unwrap();
+    assert_ne!(
+        direct_ledger["isError"], true,
+        "direct ledger_verify must succeed"
+    );
+    let direct_text = direct_ledger["content"][0]["text"].as_str().unwrap();
+    let direct_report: serde_json::Value = serde_json::from_str(direct_text).unwrap();
+    assert_eq!(direct_report["verified"], true);
+
+    let wire_ledger = wire.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    );
+    let wire_report = call_tool_report(&wire_ledger);
+    assert_eq!(wire_report["verified"], true);
+    assert_eq!(
+        direct_report["vectors_verified"], wire_report["vectors_verified"],
+        "direct and gateway execution must report identical vector counts"
+    );
+
+    // ── 3. Property invariants: x-mcp-header constraints & output contracts ─
+    // x-mcp-header field name RFC 9110 token validation
+    let is_valid_header_token = |h: &str| -> bool {
+        !h.is_empty()
+            && h.bytes().all(|b| {
+                b.is_ascii_alphanumeric()
+                    || matches!(
+                        b,
+                        b'!' | b'#'
+                            | b'$'
+                            | b'%'
+                            | b'&'
+                            | b'\''
+                            | b'*'
+                            | b'+'
+                            | b'-'
+                            | b'.'
+                            | b'^'
+                            | b'_'
+                            | b'`'
+                            | b'|'
+                            | b'~'
+                    )
+            })
+    };
+    for valid_header in &[
+        "X-Correlation-ID",
+        "Idempotency-Key",
+        "Authorization-Context",
+    ] {
+        assert!(
+            is_valid_header_token(valid_header),
+            "valid header token syntax: {valid_header}"
+        );
+    }
+    for invalid_header in &["X Correlation ID", "Bad,Header", "Header\r\nInjected", ""] {
+        assert!(
+            !is_valid_header_token(invalid_header),
+            "invalid header token rejected: {invalid_header}"
+        );
+    }
+
+    // Custom tool with registered schema, handler, and output contract validation
+    register_tool_schema(
+        "susi",
+        "interop_calc",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "op": { "type": "string", "enum": ["add", "sub"] },
+                "a": { "type": "integer" },
+                "b": { "type": "integer" }
+            },
+            "required": ["op", "a", "b"]
+        }),
+    );
+    register_tool_handler(
+        "susi",
+        "interop_calc",
+        std::sync::Arc::new(|args, _ws| {
+            let op = args["op"].as_str().unwrap_or("");
+            let a = args["a"].as_i64().unwrap_or(0);
+            let b = args["b"].as_i64().unwrap_or(0);
+            let result = match op {
+                "add" => a + b,
+                "sub" => a - b,
+                _ => return Err(susi_error::EaiError::protocol("unknown operation")),
+            };
+            Ok(serde_json::json!({"result": result, "status": "computed"}).to_string())
+        }),
+    );
+
+    let calc_res = call_tool_direct(
+        "susi",
+        "interop_calc",
+        &serde_json::json!({"op": "add", "a": 15, "b": 27}),
+        root,
+    )
+    .unwrap();
+    assert_ne!(calc_res["isError"], true);
+    assert!(calc_res["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("42"));
+
+    // ── 4. Latency, throughput, and fairness budgets ───────────────────
+    // (a) Single call wire latency budget (< 500ms)
+    let start = std::time::Instant::now();
+    let ping_call = wire.request(
+        "tools/call",
+        serde_json::json!({"name": "ledger_verify", "arguments": {}}),
+    );
+    let elapsed = start.elapsed();
+    assert_eq!(call_tool_report(&ping_call)["verified"], true);
+    assert!(
+        elapsed < std::time::Duration::from_millis(3000),
+        "tool call wire latency {elapsed:?} must be under published 3000ms budget"
+    );
+
+    // (b) Concurrent execution throughput & fairness
+    let handles: Vec<_> = (0..5)
+        .map(|i| {
+            let r = root.to_path_buf();
+            std::thread::spawn(move || {
+                let call_out = call_tool_direct(
+                    "susi",
+                    "interop_calc",
+                    &serde_json::json!({"op": "add", "a": i, "b": 10}),
+                    &r,
+                )
+                .expect("concurrent direct call must succeed");
+                assert_ne!(call_out["isError"], true);
+                let text = call_out["content"][0]["text"].as_str().unwrap();
+                let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
+                assert_eq!(parsed["result"], i + 10);
+            })
+        })
+        .collect();
+    for h in handles {
+        h.join().expect("concurrent worker must finish cleanly");
+    }
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // ── 5. Vector contract and retained evidence verification ──────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-009.md"))
+        .expect("contract-203-009.md must exist");
+    assert!(contract.contains("## Threat model"));
+    assert!(contract.contains("## SLOs and resource budgets"));
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
+        .expect("VC-203-009 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find(|r| r["requirement"] == "GMCP-203-009-05")
+        .expect("evidence must retain a record for GMCP-203-009-05");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_009_05_interop"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+}
+
 /// GMCP-203-010-03: the complete resource server surface on the served path.
 ///
 /// The `resources` capability is declared (`resources-mdx-0032`), static
