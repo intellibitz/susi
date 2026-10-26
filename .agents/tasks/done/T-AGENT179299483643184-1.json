@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "AGENT179299483643184",
-  "created_unix": 1792994868
+  "created_unix": 1792994868,
+  "closed": {
+    "at_unix": 1792995281,
+    "commit": "5942fd6e983ec38853184f62ec5f3a77e402f99d",
+    "by": "AGENT179299483643184"
+  }
 }
