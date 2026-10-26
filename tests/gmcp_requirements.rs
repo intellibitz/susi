@@ -12641,3 +12641,121 @@ fn gmcp_req_203_011_04_adversarial() {
     drop(wire);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-016-02: the extension framework is one typed production path.
+///
+/// `susi_gmcp::extensions::ExtensionRegistry` drives the capabilities the
+/// shipped `GmcpService` advertises on `server/discover`: disablement is
+/// reflected on the wire, collisions and non-namespaced ids are refused,
+/// required unsupported extensions fail explicitly, downgrades are refused,
+/// unknown peer extensions round-trip verbatim, status is visible, and the
+/// watch opens work for each newly published official extension.
+#[test]
+fn gmcp_req_203_016_02_production() {
+    use susi_gmcp::extensions::{
+        ExtensionError, ExtensionMap, ExtensionRegistry, ExtensionStatus, OFFICIAL_EXTENSIONS,
+    };
+    use susi_gmcp::protocol::GmcpService;
+
+    let scratch = std::env::temp_dir().join(format!("gmcp-016-prod-{}", std::process::id()));
+    let service = GmcpService::new(scratch.clone());
+    let tasks = "io.modelcontextprotocol/tasks";
+
+    // Discovery through the shipped service: tasks is advertised from the registry.
+    let wire = serde_json::to_value(service.discover_result()).unwrap();
+    assert!(
+        wire["capabilities"]["extensions"][tasks].is_object(),
+        "{wire}"
+    );
+
+    // Registration: experimental, namespaced, versioned; collisions refused.
+    let registry = service.extensions();
+    let exp = "example.dev/widgets";
+    {
+        let mut reg = registry.write();
+        let mut settings = serde_json::Map::new();
+        settings.insert("mode".into(), serde_json::json!("fast"));
+        reg.register(exp, ExtensionStatus::Experimental, 2, settings)
+            .unwrap();
+        assert_eq!(
+            reg.register(exp, ExtensionStatus::Experimental, 1, Default::default()),
+            Err(ExtensionError::Collision(exp.into()))
+        );
+        assert_eq!(
+            reg.register(tasks, ExtensionStatus::Experimental, 1, Default::default()),
+            Err(ExtensionError::Collision(tasks.into()))
+        );
+        assert!(matches!(
+            reg.register("bare", ExtensionStatus::Official, 1, Default::default()),
+            Err(ExtensionError::NotNamespaced(_))
+        ));
+        assert_eq!(reg.status(tasks), Some(ExtensionStatus::Official));
+        assert_eq!(reg.status(exp), Some(ExtensionStatus::Experimental));
+        let report = reg.status_report();
+        assert!(report
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["id"] == exp && e["status"] == "experimental" && e["version"] == 2));
+    }
+    let wire = serde_json::to_value(service.discover_result()).unwrap();
+    assert_eq!(wire["capabilities"]["extensions"][exp]["mode"], "fast");
+    assert_eq!(wire["capabilities"]["extensions"][exp]["version"], 2);
+
+    // Negotiation: unknown peer extension is retained verbatim, never an error.
+    let mut peer = ExtensionMap::new();
+    peer.insert(
+        "vendor.example/unknown".into(),
+        serde_json::from_value(serde_json::json!({"k": [1, 2, {"z": null}]})).unwrap(),
+    );
+    peer.insert(tasks.into(), Default::default());
+    let negotiated = registry.read().negotiate(&peer, &[]).unwrap();
+    assert_eq!(
+        serde_json::to_value(&negotiated.unknown["vendor.example/unknown"]).unwrap(),
+        serde_json::json!({"k": [1, 2, {"z": null}]})
+    );
+    assert!(negotiated.active.contains_key(tasks));
+
+    // Required unsupported fails explicitly; downgrade refused.
+    let err = registry
+        .read()
+        .negotiate(&peer, &["vendor.example/unknown".to_string()])
+        .unwrap_err();
+    assert_eq!(
+        err,
+        ExtensionError::RequiredUnsupported(vec!["vendor.example/unknown".into()])
+    );
+    assert!(err.message().contains("vendor.example/unknown"));
+    let mut old = ExtensionMap::new();
+    old.insert(
+        exp.into(),
+        serde_json::from_value(serde_json::json!({"version": 1})).unwrap(),
+    );
+    assert!(matches!(
+        registry.read().negotiate(&old, &[exp.to_string()]),
+        Err(ExtensionError::Downgrade {
+            required: 1,
+            served: 2,
+            ..
+        })
+    ));
+
+    // Disablement is reflected on the wire and makes it unsupported.
+    assert!(registry.write().set_enabled(exp, false));
+    let wire = serde_json::to_value(service.discover_result()).unwrap();
+    assert!(wire["capabilities"]["extensions"].get(exp).is_none());
+    assert!(wire["capabilities"]["extensions"][tasks].is_object());
+    assert!(registry.read().negotiate(&old, &[exp.to_string()]).is_err());
+    assert!(!registry.write().set_enabled("nope/missing", false));
+
+    // Isolation: a fresh service has its own registry.
+    let other = GmcpService::new(scratch.clone());
+    assert!(other.extensions().read().status(exp).is_none());
+
+    // Watch: every unseen official extension opens a roadmap item.
+    let fresh = ExtensionRegistry::shipped();
+    let items = fresh.watch(OFFICIAL_EXTENSIONS);
+    assert_eq!(items.len(), OFFICIAL_EXTENSIONS.len() - 1);
+    assert!(items.iter().all(|i| !i.contains(tasks)));
+    assert!(fresh.watch(&[tasks]).is_empty());
+}

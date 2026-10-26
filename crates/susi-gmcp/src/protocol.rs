@@ -118,9 +118,14 @@ pub struct GmcpService {
     pub tasks: rmcp::task_manager::TaskManager,
     legacy_subscriptions: Arc<RwLock<BTreeSet<String>>>,
     log_level: Arc<RwLock<Option<LoggingLevel>>>,
+    extensions: Arc<RwLock<crate::extensions::ExtensionRegistry>>,
 }
 
 impl GmcpService {
+    /// The extension registry that drives advertised capabilities.
+    pub fn extensions(&self) -> Arc<RwLock<crate::extensions::ExtensionRegistry>> {
+        self.extensions.clone()
+    }
     pub fn new(workspace: PathBuf) -> Self {
         let (changes, _) = broadcast::channel(256);
         Self {
@@ -130,6 +135,7 @@ impl GmcpService {
             tasks: Default::default(),
             legacy_subscriptions: Default::default(),
             log_level: Default::default(),
+            extensions: Arc::new(RwLock::new(crate::extensions::ExtensionRegistry::shipped())),
         }
     }
     /// Isolate legacy session preferences while sharing the application catalog.
@@ -377,8 +383,10 @@ impl ServerHandler for GmcpService {
             .enable_prompts_list_changed()
             .enable_completions()
             .enable_logging()
-            .enable_tasks()
             .build();
+        // Extensions come from the one typed registry, never ad-hoc.
+        let map = self.extensions.read().capability_map();
+        info.capabilities.extensions = if map.is_empty() { None } else { Some(map) };
         info
     }
     async fn set_level(
