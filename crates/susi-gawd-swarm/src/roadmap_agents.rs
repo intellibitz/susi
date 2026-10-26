@@ -107,7 +107,7 @@ pub trait AgentExecutor: Send + Sync {
 #[must_use]
 pub fn worker_mandates() -> String {
     [
-        "You are bound by AGENTS.md identity mandates 48-56:",
+        "You are bound by AGENTS.md identity mandates 48-60:",
         "- work ONLY in the worktree you were given; never primary, never main",
         "- every commit ends with `Task: <id>` naming your task",
         "- verify acceptance before reporting done",
