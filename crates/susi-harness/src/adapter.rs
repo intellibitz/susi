@@ -233,6 +233,25 @@ impl<R: CommandRunner> SusiTarget<R> {
         let _ = self.git(&self.repo, &["branch", "-D", &format!("harness-{name}")]);
     }
 
+    /// Free the claim when a mission could not finish. A failed ladder must not
+    /// leave the task owned by a dead attempt: the next model, mission or worker
+    /// has to be able to claim it without a manual forced release.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the release itself fails.
+    pub fn release(&self, worktree: &Path, id: &str) -> EaiResult<RunOutput> {
+        self.susi(
+            vec![
+                "tasks".to_string(),
+                "release".to_string(),
+                id.to_string(),
+                "--force".to_string(),
+            ],
+            worktree,
+        )
+    }
+
     /// Sync a reused worktree with `origin/main`.
     ///
     /// A worktree that is reused across mission attempts can be many commits
@@ -990,6 +1009,11 @@ Fix this in the worktree before you finish:\n{message}"
         );
         last_outcome = Some(agent);
     }
+    if !accepted {
+        // The worktree stays for diagnosis, but the claim must not outlive the
+        // attempt that could not publish it.
+        let _ = target.release(&worktree, &task);
+    }
     Ok(SusiRunReport {
         worktree,
         task,
@@ -1491,6 +1515,13 @@ mod tests {
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert!(!report.committed);
         assert!(!report.accepted);
+        let calls = target.runner.calls.lock().unwrap();
+        assert!(
+            calls
+                .iter()
+                .any(|(_, args, _)| args.iter().any(|a| a == "release")),
+            "a failed mission must release the claim: {calls:?}"
+        );
     }
 
     #[test]
