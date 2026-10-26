@@ -12052,3 +12052,142 @@ fn gmcp_req_203_013_05_interop() {
     );
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-013-06 operations and evidence: the production stdio path stays
+/// inspectable and bounded under hostile MRTR traffic (forged retries, replayed
+/// handles, corrupt client results), verdicts are typed and deterministic, and
+/// a retained evidence artifact is fingerprinted against the dependency lock
+/// and the test source so a changed dependency or requirement invalidates it.
+#[test]
+fn gmcp_req_203_013_06_operations() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-013-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {
+                        "sampling": {},
+                        "elicitation": {"form": {}},
+                        "roots": {"listChanged": true}
+                    },
+                    "clientInfo": {"name": "mrtr-ops", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered");
+    assert!(
+        initialize.get("error").is_none_or(|error| error.is_null()),
+        "initialize must succeed: {initialize}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    // Inspectable state: the server identifies itself and its capabilities.
+    assert!(
+        initialize["result"]["serverInfo"]["name"].is_string(),
+        "operators must be able to inspect the server identity: {initialize}"
+    );
+    assert!(
+        initialize["result"]["capabilities"].is_object(),
+        "operators must be able to inspect capabilities: {initialize}"
+    );
+
+    // Hostile traffic: forged retries and replays must never succeed, must be
+    // typed, and must be deterministic; the session must keep serving.
+    let mut verdicts = Vec::new();
+    let mut worst = std::time::Duration::ZERO;
+    for attempt in 0..5 {
+        let started = std::time::Instant::now();
+        let answer = wire
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": format!("ops-retry-{attempt}"), "method": "tools/call",
+                    "params": {
+                        "name": "definitely_not_a_tool",
+                        "arguments": {},
+                        "requestState": "forged-state-owned-by-another-principal",
+                        "inputResponses": {"answer": {"action": "accept", "content": {"name": "Ada"}}}
+                    }
+                }),
+                std::time::Duration::from_secs(30),
+            )
+            .expect("a forged retry must earn a typed answer");
+        worst = worst.max(started.elapsed());
+        assert!(
+            answer.get("result").is_none() || answer["result"]["isError"] == true,
+            "a forged or replayed retry must never succeed: {answer}"
+        );
+        verdicts.push(answer["error"]["code"].clone());
+    }
+    assert!(
+        verdicts.windows(2).all(|pair| pair[0] == pair[1]),
+        "replayed retries must yield one deterministic verdict: {verdicts:?}"
+    );
+
+    // Corrupt unsolicited client results are rejected typed, not ignored.
+    let corrupt = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "ops-corrupt",
+                "result": {"roots": [{"uri": "relative/path"}]}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("a corrupt client result must earn a typed answer");
+    assert!(
+        matches!(
+            corrupt["error"]["code"].as_i64(),
+            Some(-32600) | Some(-32602)
+        ),
+        "corrupt client result must be rejected typed: {corrupt}"
+    );
+    let ping = wire.request("ping", serde_json::json!({}));
+    assert!(ping.is_object(), "session must still serve: {ping}");
+    assert!(
+        worst < std::time::Duration::from_secs(10),
+        "per-request latency budget exceeded: {worst:?}"
+    );
+
+    // Evidence artifact: bounded, reproducible, and fingerprinted against the
+    // dependency lock and this requirement's source so drift invalidates it.
+    fn fingerprint(bytes: &[u8]) -> String {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        format!("{hash:016x}")
+    }
+    let lock = std::fs::read(root.join("Cargo.lock")).expect("Cargo.lock must be present");
+    let source = std::fs::read(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let evidence = serde_json::json!({
+        "requirement": "GMCP-203-013-06",
+        "protocolVersion": "2025-11-25",
+        "verdicts": verdicts,
+        "corruptResultCode": corrupt["error"]["code"],
+        "lockFingerprint": fingerprint(&lock),
+        "sourceFingerprint": fingerprint(&source),
+    });
+    let rendered = serde_json::to_string_pretty(&evidence).unwrap();
+    assert!(rendered.len() < 4096, "evidence must stay bounded");
+    let artifact = scratch.join("gmcp-203-013-06.evidence.json");
+    std::fs::write(&artifact, &rendered).unwrap();
+
+    // Drift detection: the stored proof is valid only for the current inputs.
+    let stored: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&artifact).unwrap()).unwrap();
+    assert_eq!(stored["lockFingerprint"], evidence["lockFingerprint"]);
+    let drifted_lock = [lock.as_slice(), b"\n# drift"].concat();
+    assert_ne!(
+        stored["lockFingerprint"],
+        serde_json::json!(fingerprint(&drifted_lock)),
+        "a changed dependency must invalidate stale proof"
+    );
+    let _ = std::fs::remove_dir_all(&scratch);
+}
