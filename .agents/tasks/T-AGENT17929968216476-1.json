@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT17929968216476-1",
+  "title": "Release must clear the agent claim ref it published",
+  "goal": "A forced release deleted refs/claims/<task> but left refs/claim-agents/<agent> pointing at it, so the same agent could not claim the task again: 'already holds T-...' with no live claim. Remove the agent ref when it still names the claim being released, with a test that a released agent can claim the same task again.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "release"
+    ]
+  },
+  "created_by": "AGENT17929968216476",
+  "created_unix": 1792996852
+}
