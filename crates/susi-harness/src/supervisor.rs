@@ -457,6 +457,7 @@ impl<R: CommandRunner> TaskExecutor for SusiExecutor<'_, R> {
             timeout: self.timeout,
             state_dir: self.state_dir.join(&task.key),
             task: task.task.clone(),
+            precheck: true,
         };
         let guard = self
             .budget
