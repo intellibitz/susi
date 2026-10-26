@@ -2263,6 +2263,30 @@ fn release_claim(
         }
     }
     let Some((sha, c)) = read_claim(ws, id) else {
+        // The claim ref is gone but the agent ref can still name it — a release
+        // that raced, or a ref deleted by hand. Left in place it says this agent
+        // already holds the task, so it can never claim it again.
+        let stale_agent = format!("refs/claim-agents/{}", agent_token(agent)?);
+        let listed = git(ws, &["ls-remote", &remote(), &stale_agent])?;
+        let stale_sha = listed.split_whitespace().next().unwrap_or("");
+        if !stale_sha.is_empty() {
+            let body = git(ws, &["cat-file", "-p", stale_sha])?;
+            if let Ok(parsed) = serde_json::from_str::<Claim>(&body) {
+                if parsed.task == id {
+                    let lease = format!("--force-with-lease={stale_agent}:{stale_sha}");
+                    let _ = git(
+                        ws,
+                        &[
+                            "push",
+                            "--quiet",
+                            &lease,
+                            &remote(),
+                            &format!(":{stale_agent}"),
+                        ],
+                    );
+                }
+            }
+        }
         return Ok(());
     };
     if !force && c.agent != by {
