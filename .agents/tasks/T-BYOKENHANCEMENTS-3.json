@@ -8,8 +8,6 @@
     "cmd": [
       "cargo",
       "test",
-      "-p",
-      "susi-gawd",
       "--test",
       "cross_platform_service"
     ]

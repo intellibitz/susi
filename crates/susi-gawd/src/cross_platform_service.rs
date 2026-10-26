@@ -129,6 +129,63 @@ impl ServiceManagerKind {
     }
 }
 
+/// Diagnostic report for cross-platform background persistence and OS readiness.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformDiagnostics {
+    pub platform: PlatformKind,
+    pub service_manager: ServiceManagerKind,
+    pub is_wsl: bool,
+    pub wsl_systemd_enabled: bool,
+    pub linux_session_linger: bool,
+    pub gpu_script_available: bool,
+}
+
+impl PlatformDiagnostics {
+    /// Inspect the host OS and environment to report persistence and GPU capabilities.
+    #[must_use]
+    pub fn inspect() -> Self {
+        let platform = PlatformKind::current();
+        let service_manager = ServiceManagerKind::detect(platform);
+
+        let is_wsl = if platform == PlatformKind::Linux {
+            std::fs::read_to_string("/proc/version").is_ok_and(|v| {
+                let lower = v.to_ascii_lowercase();
+                lower.contains("microsoft") || lower.contains("wsl")
+            })
+        } else {
+            false
+        };
+
+        let wsl_systemd_enabled = if is_wsl {
+            service_manager == ServiceManagerKind::Systemd
+        } else {
+            true
+        };
+
+        let linux_session_linger = if platform == PlatformKind::Linux {
+            let user = std::env::var("USER").unwrap_or_default();
+            Command::new("loginctl")
+                .args(["show-user", &user])
+                .output()
+                .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("Linger=yes"))
+        } else {
+            true
+        };
+
+        let gpu_script_available = find_script_path("build-gpu.sh").is_some()
+            || find_script_path("build-gpu.ps1").is_some();
+
+        Self {
+            platform,
+            service_manager,
+            is_wsl,
+            wsl_systemd_enabled,
+            linux_session_linger,
+            gpu_script_available,
+        }
+    }
+}
+
 /// Result of attempting to trigger a local release promotion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromotionOutcome {
@@ -412,5 +469,12 @@ mod tests {
     fn promote_release_cross_platform_returns_outcome() {
         let outcome = promote_release_cross_platform();
         assert!(!outcome.message.is_empty());
+    }
+
+    #[test]
+    fn platform_diagnostics_inspects_host_capabilities() {
+        let diag = PlatformDiagnostics::inspect();
+        assert_eq!(diag.platform, PlatformKind::current());
+        assert!(diag.gpu_script_available);
     }
 }
