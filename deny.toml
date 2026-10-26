@@ -35,6 +35,9 @@ ignore = [
     "RUSTSEC-2026-0367", # zip 8.6.0 permissions during extraction; transitive via candle-core (no extraction performed)
     "RUSTSEC-2026-0368", # zip 8.6.0 symlink traversal during extraction; transitive via candle-core
     "RUSTSEC-2026-0369", # zip 8.6.0 permissions through symlinks; transitive via candle-core
+    "RUSTSEC-2026-0391", # zstd 0.13.3 reused-context stream leak; transitive via tantivy and wasmtime, which pin zstd ^0.13 (the fix needs 0.14.3), and this repo compresses only index/cache data it produced
+    "RUSTSEC-2026-0398", # zstd-safe 7.3.0 Seekable::decompress capacity; transitive, no seekable decompression of untrusted frames is performed
+    "RUSTSEC-2026-0403", # zstd-safe 7.3.0 legacy-frame uninitialized memory; transitive, legacy frames are not accepted from users
 ]
 
 [licenses]
