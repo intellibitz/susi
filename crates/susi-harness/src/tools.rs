@@ -511,6 +511,23 @@ fn kill_tree(pid: u32) {
 /// worker that runs `susi workflow finish` holds its own turn while the
 /// harness's close machinery runs, and the adapter then fails behind it.
 fn runs_susi(command: &str) -> bool {
+    // A wrapper (`powershell -Command`, `cmd /c`) hides the binary from a
+    // command-position check, so the harness-owned subcommands are refused by
+    // name wherever they appear.
+    let lowered = command.to_ascii_lowercase();
+    if [
+        "workflow finish",
+        "workflow sync",
+        "workflow start",
+        "tasks claim",
+        "tasks close",
+        "tasks release",
+    ]
+    .iter()
+    .any(|phrase| lowered.contains(phrase))
+    {
+        return true;
+    }
     command
         .split([';', '|', '&', '\n', '\r'])
         .map(str::trim)
@@ -714,6 +731,10 @@ mod tests {
         assert!(runs_susi(
             "cargo test -p x && \"C:\\bin\\susi.exe\" workflow sync"
         ));
+        assert!(runs_susi(
+            "powershell -NoProfile -Command \"out/roadmap/susi13.exe workflow finish T-X\""
+        ));
+        assert!(runs_susi("cmd /c \"susi tasks close T-X\""));
         assert!(runs_susi("/out/roadmap/susi12.exe workflow finish T-X"));
         assert!(runs_susi("susi-lab tasks close T-X"));
         assert!(!runs_susi("cargo test -p susi-harness"));
