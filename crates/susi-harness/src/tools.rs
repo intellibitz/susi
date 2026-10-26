@@ -414,6 +414,10 @@ them — leave the finished changes in the working tree and summarize."
     };
     command.current_dir(workspace);
     command.stdin(Stdio::null());
+    // Every command a worker runs carries the guard variable: the CLI refuses
+    // harness-owned subcommands under it, so a wrapper or an argv split (which
+    // the text refusal cannot see) cannot run the harness's own close path.
+    command.env("SUSI_WORKER_GUARD", "1");
 
     match run_with_deadline(command) {
         Ok(out) => {

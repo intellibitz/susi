@@ -144,7 +144,35 @@ fn default_candle_threads() -> usize {
 /// committed memory, so it costs nothing on a platform that never needs it.
 const CLI_STACK_BYTES: usize = 16 * 1024 * 1024;
 
+/// Refuse harness-owned subcommands when a worker shell invokes the CLI: the
+/// tool spawns it with `SUSI_WORKER_GUARD=1`. The args are matched as words, so
+/// passing `workflow` and `finish` separately is caught too.
+fn guarded_worker_invocation(args: &[String]) -> bool {
+    if std::env::var_os("SUSI_WORKER_GUARD").is_none() {
+        return false;
+    }
+    let words: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter(|arg| !arg.starts_with('-'))
+        .map(|arg| arg.to_ascii_lowercase())
+        .collect();
+    words.windows(2).any(|pair| {
+        matches!(pair[0].as_str(), "workflow" | "tasks")
+            && matches!(
+                pair[1].as_str(),
+                "finish" | "sync" | "start" | "claim" | "close" | "release" | "renew" | "abandon"
+            )
+    })
+}
+
 fn main() -> std::process::ExitCode {
+    if guarded_worker_invocation(&std::env::args().collect::<Vec<_>>()) {
+        eprintln!(
+            "refused: the harness owns susi workflow/tasks commands; leave the changes in the tree"
+        );
+        return std::process::ExitCode::from(2);
+    }
     match std::thread::Builder::new()
         .name("susi-cli".to_string())
         .stack_size(CLI_STACK_BYTES)
