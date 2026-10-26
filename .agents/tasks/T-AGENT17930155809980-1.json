@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT17930155809980-1",
+  "title": "The susi-command refusal must match renamed binaries",
+  "goal": "The worker ran /out/roadmap/susi12.exe workflow finish and the refusal only matched a binary literally named susi or susi.exe, so a renamed harness binary got through and blocked the turn while it pushed. Match any command-position binary whose file stem is susi or susi followed by a version/lab suffix, with tests for susi12.exe and for cargo commands that mention susi.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "tools"
+    ]
+  },
+  "created_by": "AGENT17930155809980",
+  "created_unix": 1793015624
+}

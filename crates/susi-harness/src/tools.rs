@@ -522,10 +522,17 @@ fn runs_susi(command: &str) -> bool {
                 .unwrap_or_default()
                 .trim_matches('"')
                 .to_ascii_lowercase();
-            first == "susi"
-                || first == "susi.exe"
-                || first.ends_with("\\susi.exe")
-                || first.ends_with("/susi.exe")
+            let name = first.rsplit(['\\', '/']).next().unwrap_or(first.as_str());
+            let stem = name.strip_suffix(".exe").unwrap_or(name);
+            // The harness binary may be renamed (`susi12.exe`, `susi-lab.exe`):
+            // any stem of `susi` plus a version or lab suffix is the same CLI.
+            stem == "susi"
+                || stem.strip_prefix("susi").is_some_and(|rest| {
+                    !rest.is_empty()
+                        && rest
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                })
         })
 }
 
@@ -707,6 +714,8 @@ mod tests {
         assert!(runs_susi(
             "cargo test -p x && \"C:\\bin\\susi.exe\" workflow sync"
         ));
+        assert!(runs_susi("/out/roadmap/susi12.exe workflow finish T-X"));
+        assert!(runs_susi("susi-lab tasks close T-X"));
         assert!(!runs_susi("cargo test -p susi-harness"));
         assert!(!runs_susi("git grep -n 'susi workflow'"));
         assert!(!runs_susi("cargo test --test gmcp_requirements gmcp_req_1"));
