@@ -342,6 +342,21 @@ impl<R: CommandRunner> SusiTarget<R> {
     ///
     /// Returns an error when staging or committing fails.
     pub fn commit_work(&self, worktree: &Path, id: &str) -> EaiResult<bool> {
+        // The worker edits text without running rustfmt, and the repo's
+        // pre-commit hook rejects unformatted code. Format before staging so
+        // the commit carries the formatter's own output instead of discarding
+        // correct work on a hook.
+        let fmt = self.runner.run(
+            Path::new("cargo"),
+            &["fmt".to_string(), "--all".to_string()],
+            worktree,
+        )?;
+        if !fmt.success() {
+            return Err(EaiError::process(format!(
+                "cargo fmt --all failed before commit: {}",
+                fmt.tail()
+            )));
+        }
         let add = self.git(worktree, &["add", "-A"])?;
         if !add.success() {
             return Err(EaiError::process(format!(
@@ -368,6 +383,51 @@ impl<R: CommandRunner> SusiTarget<R> {
             )));
         }
         Ok(true)
+    }
+
+    /// Run the repository's compile-and-lint gate for the packages the
+    /// task's scopes touch, so a change that would fail `workflow finish`
+    /// is rejected while the attempt can still be retried cheaply.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when cargo cannot be run.
+    pub fn gate(&self, worktree: &Path, scopes: &[String]) -> EaiResult<RunOutput> {
+        let mut packages: Vec<String> = Vec::new();
+        for scope in scopes {
+            let package = if let Some(rest) = scope.strip_prefix("crates/") {
+                rest.split('/').next().unwrap_or_default().to_string()
+            } else if scope.starts_with("xtask/") {
+                "xtask".to_string()
+            } else {
+                "susi".to_string()
+            };
+            if !package.is_empty() && !packages.contains(&package) {
+                packages.push(package);
+            }
+        }
+        // Worktrees share the primary's target directory, so an artifact built
+        // from another checkout can shadow this worktree's sources and make the
+        // gate fail on code it never read. Drop the touched packages' artifacts
+        // first so the gate compiles what is actually here.
+        for package in &packages {
+            let _ = self.runner.run(
+                Path::new("cargo"),
+                &["clean".to_string(), "-p".to_string(), package.clone()],
+                worktree,
+            );
+        }
+        let mut args: Vec<String> = vec!["clippy".to_string()];
+        for package in &packages {
+            args.push("-p".to_string());
+            args.push(package.clone());
+        }
+        args.extend(
+            ["--all-targets", "--locked", "--", "-D", "warnings"]
+                .iter()
+                .map(|arg| (*arg).to_string()),
+        );
+        self.runner.run(Path::new("cargo"), &args, worktree)
     }
 
     /// True when HEAD carries a commit after `base` and the tree is clean.
@@ -655,7 +715,7 @@ pub fn run_task<R: CommandRunner>(
         }
     };
     let ranked = rank_alternates(spec, policy)?;
-    let prompt = format!(
+    let base_prompt = format!(
         "Work in this order: read only what you need to identify the exact API you are changing, \
 then make the edit. Your first write must happen before you have read more than ten files; do \
 not survey the repository. After the first write, run the task's acceptance command and iterate \
@@ -665,6 +725,7 @@ reset, rebase, amend or move a commit, do not run any `susi` command, do not pus
 nothing outside the task.",
         spec.prompt
     );
+    let mut prompt = base_prompt.clone();
     let mut ladder = Ladder::new(ranked, policy.policy);
     let mut attempts = Vec::new();
     let mut last_outcome = None;
@@ -731,8 +792,27 @@ nothing outside the task.",
             } else {
                 (false, false)
             };
-        let attempt_accepted =
-            attempt_committed && !history_rewritten && target.accept(&worktree, &task).is_ok();
+        // The acceptance command proves the behaviour; the repository's
+        // compile-and-lint gate proves the change is publishable. Run it
+        // now, while another attempt is still cheap, and hand its output to
+        // the next attempt instead of letting `workflow finish` reject the
+        // work after the ladder has already stopped.
+        let mut gate_failure: Option<String> = None;
+        let gate_ok = if attempt_committed && !history_rewritten {
+            let gate = target.gate(&worktree, &spec.scopes)?;
+            if gate.success() {
+                true
+            } else {
+                gate_failure = Some(gate.tail());
+                false
+            }
+        } else {
+            false
+        };
+        let attempt_accepted = attempt_committed
+            && gate_ok
+            && !history_rewritten
+            && target.accept(&worktree, &task).is_ok();
         if let (Some(guard), Some(estimate)) = (policy.guard, estimate) {
             let spent = Budget::spent(policy.ledger_path, policy.mission);
             guard.settle(spent, estimate);
@@ -755,6 +835,11 @@ nothing outside the task.",
                 FailureKind::Semantic,
                 "worker rewrote the branch history it was given".to_string(),
             )
+        } else if let Some(tail) = gate_failure.take() {
+            (
+                FailureKind::Semantic,
+                format!("quality gate failed: {tail}"),
+            )
         } else {
             failure_of(&agent)
         };
@@ -762,6 +847,10 @@ nothing outside the task.",
         // A rejected attempt is discarded: the next model starts from the
         // task record, not from work that already failed acceptance.
         target.reset_to(&worktree, &base)?;
+        prompt = format!(
+            "{base_prompt}\n\nThe previous attempt was rejected by the repository's quality gate. \
+Fix this in the worktree before you finish:\n{message}"
+        );
         last_outcome = Some(agent);
     }
     Ok(SusiRunReport {
@@ -1075,6 +1164,7 @@ mod tests {
             ok("base123\n"),
             ok(""),
             ok(""),
+            ok(""),
             ok("M docs/harness.md\n"),
             ok(""),
             ok(""),
@@ -1128,6 +1218,7 @@ mod tests {
             ok(""),
             ok(""),
             ok("base123\n"),
+            ok(""),
             ok(""),
             ok(""),
             ok("M docs/harness.md\n"),
@@ -1265,5 +1356,59 @@ mod tests {
     fn a_missing_acceptance_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         assert!(target(vec![]).acceptance_argv(dir.path(), "T-404").is_err());
+    }
+    #[test]
+    fn commit_formats_before_it_stages() {
+        // cargo fmt, git add, git status (non-empty), git commit
+        let target = target(vec![ok(""), ok(""), ok("M  src/lib.rs\n"), ok("")]);
+        assert!(target.commit_work(Path::new("wt"), "T-AGENT-9").unwrap());
+        let calls = target.runner.calls.lock().unwrap();
+        let fmt_at = calls
+            .iter()
+            .position(|(program, args, _)| {
+                program == Path::new("cargo")
+                    && args.len() == 2
+                    && args[0] == "fmt"
+                    && args[1] == "--all"
+            })
+            .expect("cargo fmt --all must run before committing");
+        let add_at = calls
+            .iter()
+            .position(|(program, args, _)| {
+                program == Path::new("git") && args.first().map(String::as_str) == Some("add")
+            })
+            .expect("git add must run");
+        assert!(fmt_at < add_at, "formatting must precede staging");
+    }
+    #[test]
+    fn gate_lints_the_packages_the_scopes_touch() {
+        let target = target(vec![ok("")]);
+        target
+            .gate(
+                Path::new("wt"),
+                &[
+                    "crates/susi-gmcp/src/lib.rs".to_string(),
+                    "xtask/src/main.rs".to_string(),
+                    "Cargo.lock".to_string(),
+                ],
+            )
+            .unwrap();
+        let calls = target.runner.calls.lock().unwrap();
+        let first = |name: &str| {
+            calls.iter().position(|(program, args, _)| {
+                program == Path::new("cargo") && args.first().map(String::as_str) == Some(name)
+            })
+        };
+        let clean_at = first("clean").expect("cargo clean must run first");
+        let clippy_at = first("clippy").expect("cargo clippy must run");
+        assert!(
+            clean_at < clippy_at,
+            "touched packages must be cleaned before the gate reads them"
+        );
+        let args = &calls[clippy_at].1;
+        assert!(args.contains(&"susi-gmcp".to_string()));
+        assert!(args.contains(&"xtask".to_string()));
+        assert!(args.contains(&"susi".to_string()));
+        assert!(args.contains(&"-D".to_string()));
     }
 }

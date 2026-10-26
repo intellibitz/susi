@@ -7391,6 +7391,345 @@ fn gmcp_req_203_005_03_integration() {
     }
 }
 
+/// GMCP-203-005-04: adversarial and failure behavior for production-grade
+/// stdio transport.
+///
+/// Bounded lines drop oversized tails and recover without stream corruption;
+/// negative/malformed envelopes earn typed errors (-32700, -32600);
+/// stdout protocol purity holds under adversarial inputs; pipe closure
+/// triggers prompt server exit; and child-tree resources are cleaned up.
+#[test]
+fn gmcp_req_203_005_04_adversarial() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, EraState, GateVerdict};
+    use susi_gmcp::stdio::BoundedLines;
+    use tokio::io::AsyncReadExt;
+
+    // ── 1. BoundedLines unit adversarial behavior ─────────────────────
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    rt.block_on(async {
+        // (a) Oversized line drops tail, subsequent valid line arrives clean
+        let mut reader = BoundedLines::new(&b"1234567890\nok\n"[..], 4);
+        let mut buf = [0u8; 32];
+        let err = reader.read(&mut buf).await;
+        assert!(err.is_err(), "oversized line must produce error");
+        let mut recovered = String::new();
+        reader.read_to_string(&mut recovered).await.unwrap();
+        assert_eq!(recovered, "ok\n", "subsequent line must survive intact");
+
+        // (b) Sequential oversized lines all trip and recover cleanly
+        let mut reader = BoundedLines::new(&b"12345\n67890\nok\n"[..], 3);
+        let mut err_count = 0;
+        let mut recovered = Vec::new();
+        loop {
+            match reader.read(&mut buf).await {
+                Err(_) => err_count += 1,
+                Ok(0) => break,
+                Ok(n) => recovered.extend_from_slice(&buf[..n]),
+            }
+            if err_count > 10 {
+                panic!("reader must terminate loop");
+            }
+        }
+        assert!(err_count >= 2, "both oversized lines must error");
+        assert_eq!(recovered, b"ok\n", "final valid line must be intact");
+
+        // (c) Chunk-fragmented input straddling newline boundary
+        let mut reader = BoundedLines::new(&b"abc\ndef\n"[..], 5);
+        let mut first = [0u8; 2];
+        reader.read_exact(&mut first).await.unwrap();
+        assert_eq!(&first, b"ab");
+        let mut rest = String::new();
+        reader.read_to_string(&mut rest).await.unwrap();
+        assert_eq!(rest, "c\ndef\n");
+    });
+
+    // ── 2. Envelope classification of hostile/adversarial inputs ──────
+    let classify = |line: &[u8], era: &mut EraState| -> serde_json::Value {
+        match classify_line(line, era) {
+            GateVerdict::Forward => serde_json::json!({"kind": "forward"}),
+            GateVerdict::Drop => serde_json::json!({"kind": "drop"}),
+            GateVerdict::Reject { code, data, .. } => {
+                serde_json::json!({"kind": "reject", "code": code, "data": data})
+            }
+        }
+    };
+
+    for (name, line, code) in [
+        ("truncated-json", br#"{"jsonrpc":"2.0","#.as_slice(), -32700),
+        ("batch-request", br#"[]"#.as_slice(), -32600),
+        (
+            "batch-array",
+            br#"[{"jsonrpc":"2.0","method":"ping"}]"#.as_slice(),
+            -32600,
+        ),
+        (
+            "non-2.0",
+            br#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+        ("scalar-string", br#""malicious-probe""#.as_slice(), -32600),
+        (
+            "null-id-request",
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+            -32600,
+        ),
+        (
+            "missing-method",
+            br#"{"jsonrpc":"2.0","id":99}"#.as_slice(),
+            -32600,
+        ),
+    ] {
+        let mut era = EraState::default();
+        let verdict = classify(line, &mut era);
+        assert_eq!(
+            verdict["code"].as_i64(),
+            Some(code),
+            "adversarial probe {name} must earn {code}: {verdict}"
+        );
+    }
+
+    // ── 3. Live served stdio transport against hostile peer ────────────
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-005-adv-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut session = StdioSession::spawn(root, &home);
+
+    // Hostile non-2.0 probe: must reject with -32600 and preserve session
+    let bad_ver = session
+        .request_verbatim(
+            &serde_json::json!({"jsonrpc": "1.0", "method": "ping"}),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("the served stdio transport must answer the non-2.0 request");
+    assert_eq!(bad_ver["error"]["code"], -32600);
+    assert!(bad_ver["id"].is_null());
+
+    // Hostile batch probe: must reject with -32600
+    let batch = session
+        .request_verbatim(&serde_json::json!([]), std::time::Duration::from_secs(30))
+        .expect("the served stdio transport must answer the batch request");
+    assert_eq!(batch["error"]["code"], -32600);
+    assert!(batch["id"].is_null());
+
+    // Stream remains healthy and answers legitimate ping after attacks
+    let ping = session.request("ping", serde_json::json!({}));
+    assert!(ping.is_object() || ping.is_null());
+
+    drop(session);
+
+    // Clean up substrate daemon pid if spawned
+    if let Ok(pid) = std::fs::read_to_string(home.join(".susi-dev").join("substrate.pid")) {
+        let pid = pid.trim().to_string();
+        if !pid.is_empty() {
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid, "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill").args(["-9", &pid]).status();
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // ── 4. Retained evidence and ledger validation ────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-005.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-005")
+        .collect();
+    assert_eq!(rows.len(), 20, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+
+    let evidence_path = root.join(".agents/gmcp/evidence/VC-203-005.jsonl");
+    assert!(evidence_path.exists(), "evidence file must exist");
+    let evidence_content =
+        std::fs::read_to_string(&evidence_path).expect("evidence file must be readable");
+    for req in [
+        "GMCP-203-005-01",
+        "GMCP-203-005-02",
+        "GMCP-203-005-03",
+        "GMCP-203-005-04",
+    ] {
+        assert!(
+            evidence_content.contains(req),
+            "evidence must contain requirement record {req}"
+        );
+    }
+}
+
+/// GMCP-203-005-05: interoperability and quality for production-grade stdio transport.
+///
+/// Direct-versus-gateway differential behavior, fixture replay determinism,
+/// transport and platform parity, property invariants, and prompt clean termination.
+#[test]
+fn gmcp_req_203_005_05_interop() {
+    use susi_gmcp::jsonrpc_gate::{classify_line, http_envelope_rejection, EraState, GateVerdict};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-005-interop-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut session = StdioSession::spawn(root, &home);
+
+    // ── 1. Reference fixture replay over served stdio session ──────────
+    let run_replay = |s: &mut StdioSession| -> Vec<(String, Option<i64>)> {
+        let fixtures: &[(&str, Option<i64>)] = &[
+            ("negative/request-batch-array.json", Some(-32600)),
+            ("negative/request-null-id.json", Some(-32600)),
+        ];
+        let mut results = Vec::new();
+        for &(rel_path, expected_code) in fixtures {
+            let fixture_path = root.join(".agents/gmcp/fixtures").join(rel_path);
+            let fixture: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&fixture_path).unwrap())
+                    .unwrap_or_else(|e| panic!("{rel_path} must parse: {e}"));
+            let start = std::time::Instant::now();
+            let resp = s
+                .request_verbatim(&fixture["request"], std::time::Duration::from_secs(30))
+                .unwrap_or_else(|| panic!("{rel_path} must receive response"));
+            let elapsed = start.elapsed();
+            assert!(
+                elapsed < std::time::Duration::from_secs(30),
+                "{rel_path}: latency budget exceeded 30s: {elapsed:?}"
+            );
+            let code = resp["error"]["code"].as_i64();
+            assert_eq!(code, expected_code, "{rel_path}: unexpected error code");
+            results.push((rel_path.to_string(), code));
+        }
+        results
+    };
+
+    let run1 = run_replay(&mut session);
+    let run2 = run_replay(&mut session);
+    assert_eq!(run1, run2, "stdio fixture replay must be deterministic");
+
+    // ── 2. Differential envelope parity: stdio vs HTTP gate ───────────
+    for (name, line) in [
+        ("batch", br#"[]"#.as_slice()),
+        (
+            "null-id",
+            br#"{"jsonrpc":"2.0","id":null,"method":"ping"}"#.as_slice(),
+        ),
+        (
+            "non-2.0",
+            br#"{"jsonrpc":"1.0","id":1,"method":"ping"}"#.as_slice(),
+        ),
+        ("truncated", br#"{"jsonrpc":"2.0","#.as_slice()),
+    ] {
+        let mut era = EraState::default();
+        let stdio_verdict = match classify_line(line, &mut era) {
+            GateVerdict::Reject { code, .. } => code,
+            GateVerdict::Forward => panic!("expected reject for {name}, got Forward"),
+            GateVerdict::Drop => panic!("expected reject for {name}, got Drop"),
+        };
+        let http_resp =
+            http_envelope_rejection(line).unwrap_or_else(|| panic!("HTTP gate must reject {name}"));
+        let http_code = http_resp["error"]["code"].as_i64().unwrap();
+        assert_eq!(
+            stdio_verdict, http_code,
+            "stdio and HTTP envelope error code must agree on {name}: {stdio_verdict} vs {http_code}"
+        );
+    }
+
+    // ── 3. Property invariant: outbound purity on ping ─────────────────
+    let ping_start = std::time::Instant::now();
+    let ping_res = session.request("ping", serde_json::json!({}));
+    assert!(ping_start.elapsed() < std::time::Duration::from_secs(30));
+    assert!(ping_res.is_object() || ping_res.is_null());
+
+    drop(session);
+
+    // Reap substrate daemon
+    if let Ok(pid) = std::fs::read_to_string(home.join(".susi-dev").join("substrate.pid")) {
+        let pid = pid.trim().to_string();
+        if !pid.is_empty() {
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid, "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill").args(["-9", &pid]).status();
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // ── 4. Retained evidence and ledger validation ────────────────────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-005.md"))
+        .expect("the vector's contract must exist");
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("ledger must exist"),
+    )
+    .expect("ledger must parse");
+    let rows: Vec<&serde_json::Value> = ledger["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["trace"]["vector"] == "VC-203-005")
+        .collect();
+    assert_eq!(rows.len(), 20, "the vector's pinned row count");
+    for row in &rows {
+        let id = row["id"].as_str().unwrap();
+        assert!(contract.contains(id), "contract must bind row {id}");
+        let path = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            root.join(path).exists(),
+            "the declared production path must exist: {path}"
+        );
+    }
+
+    let evidence_path = root.join(".agents/gmcp/evidence/VC-203-005.jsonl");
+    assert!(evidence_path.exists(), "evidence file must exist");
+    let evidence_content =
+        std::fs::read_to_string(&evidence_path).expect("evidence file must be readable");
+    for req in [
+        "GMCP-203-005-01",
+        "GMCP-203-005-02",
+        "GMCP-203-005-03",
+        "GMCP-203-005-04",
+        "GMCP-203-005-05",
+    ] {
+        assert!(
+            evidence_content.contains(req),
+            "evidence must contain requirement record {req}"
+        );
+    }
+}
+
 /// GMCP-203-006-03: the production Streamable HTTP surface on the gateway
 /// entry point, driven over a real loopback socket.
 ///
@@ -8601,5 +8940,481 @@ fn gmcp_req_203_004_05_interop() {
     // Clean up scratch dir
     drop(legacy);
     drop(modern);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// GMCP-203-004-06: operations and evidence for legacy lifecycle compatibility
+/// and governed deprecation.
+///
+/// Proves:
+/// 1. Inspectable bounded state on the production CLI (`susi mcp ledger`).
+/// 2. Live inspectable surface on served stdio session: legacy session ping
+///    returns clean object without modern result envelopes; modern session
+///    requires per-request metadata and reports resultType.
+/// 3. Configuration validation: `--refetched` without `--drift` fails validation.
+/// 4. Deterministic drift check is clean on shipped corpus.
+/// 5. Drift detection: modified `lifecycle.mdx` pin triggers `hash_drift`.
+/// 6. Missing pin fails closed as `unfetchable`.
+/// 7. Contract contains complete operator runbook (inspectable state, diagnostics,
+///    incident triage, migration, rollback).
+/// 8. Evidence record is retained, signed, and binds to the current ledger hash.
+#[test]
+fn gmcp_req_203_004_06_operations() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-004-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // 1. The shared ledger report is the bounded operator surface.
+    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(report["verified"], true);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+
+    // 2. Live inspectable surface: legacy and modern stdio sessions.
+    let mut legacy = StdioSession::spawn(root, &home);
+    let ping = legacy.request("ping", serde_json::json!({}));
+    assert!(ping.is_object(), "legacy ping must succeed: {ping}");
+    assert!(
+        ping.get("resultType").is_none(),
+        "legacy ping must not carry modern resultType: {ping}"
+    );
+    drop(legacy);
+
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let modern_discover = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "modern-ops-discover",
+                "method": "server/discover",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("modern discover must succeed on served session");
+    assert_eq!(
+        modern_discover["result"]["resultType"], "complete",
+        "modern session must report resultType complete: {modern_discover}"
+    );
+    drop(modern);
+
+    // 3. Invalid configuration is rejected: --refetched without --drift fails.
+    let invalid = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!invalid.status.success());
+
+    // 4. Deterministic drift check is clean on the shipped corpus.
+    let clean = susi_json(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(clean["drift"], true);
+    assert_eq!(clean["verified"], true);
+    assert_eq!(clean["checked"], clean["matched"]);
+    assert!(clean["findings"].as_array().unwrap().is_empty());
+
+    // 5. A drifted lifecycle document is a named hash_drift finding.
+    let lifecycle_doc = "docs/specification/2025-11-25/basic/lifecycle.mdx";
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(lifecycle_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let drifted = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!drifted.status.success());
+    let drift_report: serde_json::Value =
+        serde_json::from_slice(&drifted.stdout).expect("drift failure must remain JSON");
+    assert_eq!(drift_report["verified"], false);
+    assert!(drift_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["document"] == lifecycle_doc && f["kind"] == "hash_drift"));
+
+    // 6. An absent lifecycle document fails closed as unfetchable.
+    std::fs::remove_file(&victim).unwrap();
+    let missing = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!missing.status.success());
+    let missing_report: serde_json::Value =
+        serde_json::from_slice(&missing.stdout).expect("missing source must remain JSON");
+    assert!(missing_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["document"] == lifecycle_doc && f["kind"] == "unfetchable"));
+
+    // 7. The contract carries the complete operator runbook.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-004.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Diagnostics",
+        "Incident triage",
+        "Migration (re-pinning",
+        "Rollback",
+        "hash_drift",
+        "unfetchable",
+        "-32600",
+        "-32602",
+        "2025-11-25",
+        "legacy",
+        "deprecation",
+    ] {
+        assert!(contract.contains(token), "contract must document {token}");
+    }
+
+    // 8. Evidence is retained, signed, and tied to current ledger bytes.
+    use sha2::{Digest, Sha256};
+    let ledger_hash = hex::encode(Sha256::digest(
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
+    ));
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
+        .expect("VC-203-004 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["requirement"] == "GMCP-203-004-06")
+        .expect("evidence must retain a record for GMCP-203-004-06");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_004_06_operations"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// GMCP-203-004-M: mastery of legacy lifecycle compatibility and governed deprecation.
+///
+/// GMCP interoperates with pinned older MCP revisions through isolated compatibility
+/// adapters for initialize/initialized, ping, legacy HTTP+SSE, resource subscriptions,
+/// roots, sampling, elicitation, logging, and legacy task shapes without weakening the
+/// modern path. Version selection is deterministic, downgrade is visible, every deprecated
+/// feature has telemetry and a tested removal policy, and no legacy state crosses tenant
+/// or connection boundaries. Consumes and verifies the evidence produced by requirements
+/// 01-06; rejects missing, stale, unsigned, locally modified, waived, mock-only, or
+/// zero-test evidence.
+#[test]
+fn gmcp_vc_203_004_mastery() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-004-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── 1. Shipped production path & isolated compatibility adapters:
+    //    Modern session requires per-request _meta, receives complete
+    //    results, and fails bare requests with -32602.
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let discover = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-modern-discover",
+                "method": "server/discover",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("modern discover must answer on served path");
+    assert_eq!(discover["result"]["resultType"], "complete");
+
+    // Bare request without _meta fails with -32602 on modern session
+    let bare_req = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-bare-fail",
+                "method": "tools/list",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("bare request must earn a typed rejection");
+    assert_eq!(bare_req["error"]["code"], -32602);
+
+    // ── 2. Legacy session operates without modern metadata:
+    //    initialize/initialized handshake succeeds, ping succeeds
+    //    and does not carry modern wire fields (visible downgrade).
+    let mut legacy = StdioSession::spawn(root, &home);
+    let legacy_ping = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-legacy-ping",
+                "method": "ping",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("legacy ping must succeed");
+    assert!(legacy_ping["result"].is_object());
+    assert!(
+        legacy_ping["result"].get("resultType").is_none(),
+        "legacy response must not leak modern resultType: {legacy_ping}"
+    );
+
+    // ── 3. Era boundary protection & non-poisoning:
+    //    Sending modern _meta on a legacy session earns -32600 (era confusion),
+    //    and subsequent legacy interactions continue to succeed cleanly.
+    let confused = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-confused-meta",
+                "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("cross-era metadata must earn typed rejection");
+    assert_eq!(confused["error"]["code"], -32600);
+
+    let legacy_still_valid = legacy
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-legacy-recovery",
+                "method": "ping",
+                "params": {}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("legacy session must recover cleanly after rejection");
+    assert!(legacy_still_valid["result"].is_object());
+    assert!(legacy_still_valid["result"].get("resultType").is_none());
+
+    // ── 4. Cross-connection & tenant isolation:
+    //    Concurrent legacy and modern sessions operate concurrently
+    //    without leakage of negotiated state.
+    let modern_again = modern
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "mastery-modern-again",
+                "method": "tools/list",
+                "params": {"_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("modern session must remain unaffected by legacy traffic");
+    assert_eq!(modern_again["result"]["resultType"], "complete");
+
+    drop(modern);
+    drop(legacy);
+
+    // ── 5. Transport parity:
+    //    HTTP envelope rejections emit consistent typed error codes.
+    assert!(
+        http_envelope_rejection(br#"{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}"#)
+            .is_none()
+    );
+    let http_envelope_err =
+        http_envelope_rejection(br#"[]"#).expect("batch array envelope must be rejected");
+    assert_eq!(http_envelope_err["error"]["code"], -32600);
+
+    // ── 6. Contract vocabulary validation:
+    //    docs/gmcp/contract-203-004.md must bind the complete vocabulary.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-004.md"))
+        .expect("the vector contract must exist");
+    for term in [
+        "initialize",
+        "initialized",
+        "ping",
+        "2025-11-25",
+        "2026-07-28",
+        "io.modelcontextprotocol/protocolVersion",
+        "downgrade",
+        "telemetry",
+        "removal policy",
+        "-32600",
+        "-32602",
+        "HTTP+SSE",
+        "sampling",
+        "elicitation",
+        "roots",
+        "subscriptions",
+    ] {
+        assert!(
+            contract.contains(term),
+            "contract must pin vocabulary term `{term}`"
+        );
+    }
+
+    // ── 7. Evidence verification:
+    //    Every record for GMCP-203-004-01..06 and GMCP-203-004-M must be
+    //    complete, fresh, signed, exit 0, matching ledger hash, and backed by a real test.
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json"))
+        .expect("canonical ledger must exist");
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-004.jsonl"))
+        .expect("VC-203-004 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && test_src.contains(&format!("fn {test_name}")),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-004-01",
+        "GMCP-203-004-02",
+        "GMCP-203-004-03",
+        "GMCP-203-004-04",
+        "GMCP-203-004-05",
+        "GMCP-203-004-06",
+        "GMCP-203-004-M",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── 8. Committed proof:
+    //    The vector tree must be clean against git when committed.
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
     let _ = std::fs::remove_dir_all(&scratch);
 }

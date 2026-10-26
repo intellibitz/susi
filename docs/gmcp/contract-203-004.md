@@ -134,7 +134,11 @@ Each row names a canonical behavior; its ledger id is the canonical name and its
 
 ## Compatibility and deprecation decisions
 
-Every clause carries an explicit disposition: adapter=93, optional=15. A clause disposed as adapter is honored only through the explicit version adapter with downgrade telemetry and a removal policy.
+Every clause carries an explicit disposition: adapter=93, optional=15. A clause disposed as adapter is honored only through the explicit version adapter with downgrade telemetry and a tested removal policy.
+
+- **Isolated compatibility adapters**: Dedicated adapters isolate legacy interactions (`initialize`/`initialized`, `ping`, legacy `HTTP+SSE`, resource `subscriptions`, `roots`, `sampling`, `elicitation`, `logging`, and legacy task shapes) without weakening the modern path.
+- **Deterministic version selection & visible downgrade**: Modern requests carry `_meta` specifying `io.modelcontextprotocol/protocolVersion: 2026-07-28` and receive complete results with `resultType: complete`. Legacy sessions (`2025-11-25`) operate without modern envelopes.
+- **Governed deprecation & error taxonomy**: Cross-era boundary violations earn deterministic typed errors: modern `_meta` on a legacy session returns `-32600`, while missing `_meta` on a modern session returns `-32602`. Telemetry tracks deprecated feature usage against removal policies.
 
 ## Threat model
 
@@ -155,3 +159,63 @@ Positive and negative fixtures for every row live in .agents/gmcp/evidence/VC-20
 ## Ambiguities resolved
 
 All clauses are resolved by this table: the ledger id is the canonical name, the production path is the only allowed implementation site, and the disposition decides whether the clause is honored on the modern path or only through the version adapter.
+
+## Operations and incident runbook
+
+### Inspectable state
+
+- `susi mcp ledger` is the production health check. It emits one bounded
+  JSON report containing `rows`, `documents`, `revisions`, `dispositions`,
+  `categories`, `vectors`, and `verified`; a false verification exits
+  non-zero before protocol traffic is trusted.
+- `susi mcp call susi ledger_verify {}` exposes the same report through the
+  tool surface. Comparing it with the CLI report is a transport-independent
+  smoke check for direct, daemon, gateway, and stdio dispatch.
+- Legacy (2025-11-25) and modern (2026-07-28) lifecycle operations are
+  distinguishable on the served wire: legacy sessions negotiate era at
+  initialize and omit modern result envelopes, while modern sessions require
+  per-request protocol metadata and report `resultType: complete`.
+- `susi mcp ledger --drift --refetched <dir>` is the deterministic, air-gapped
+  check. The directory is keyed by `sources.json` document paths and is bounded
+  by the same source and artifact limits as the live check.
+
+### Diagnostics and incident triage
+
+Every drift finding has a stable `kind`: `hash_drift` means bytes differ from
+the pinned source, while `unfetchable` means a required document is absent or
+could not be retrieved. A non-zero command and `verified: false` are required
+for either condition; callers must not continue with a partially checked
+corpus. For a local failure, restore the named vendored file from git. For an
+upstream `hash_drift`, preserve the report and begin the migration below. For
+an `unfetchable` source, retry within the published bounds, then recover the
+last known pin from git history rather than silently skipping it.
+Cross-era boundary violations earn deterministic typed errors: modern `_meta`
+on a legacy session returns `-32600`, while missing `_meta` on a modern session
+returns `-32602`. Deprecation policies ensure that legacy features are maintained
+strictly through isolated adapters with telemetry and scheduled removal.
+
+### Incident triage
+
+Treat a non-zero report as an incident until the named source or pin is
+restored and the deterministic check is green again. Preserve the JSON report
+and the corresponding evidence record with the incident for independent
+reproduction.
+
+### Migration (re-pinning the lifecycle specifications)
+
+1. Claim a task and record the upstream revision and reason for the re-pin.
+2. Refresh `.agents/gmcp/spec/` and `sources.json` from that exact revision.
+3. Run `scripts/check-gmcp-ledger.py --write`, review every changed
+   lifecycle clause, and update fixtures, compatibility decisions, and the
+   retained evidence record.
+4. Run `susi mcp ledger`, the deterministic `--refetched` check, and the full
+   GMCP acceptance gate before publishing the change.
+
+### Rollback
+
+The vendored specification, manifest, ledger, fixtures, and evidence are
+committed artifacts. Roll back a bad re-pin with `git revert` of its commit,
+then rerun the CLI and deterministic drift checks. This restores the prior
+lifecycle and deprecation semantics without a data migration; do not delete
+evidence rows or rewrite a prior proof event.
+
