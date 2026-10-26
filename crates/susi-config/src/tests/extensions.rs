@@ -20,6 +20,11 @@ fn with_temp_home<F: FnOnce()>(f: F) {
     let mut env = susi_paths::test_env::EnvGuard::isolated();
     env.set("HOME", &tmp);
     env.set("XDG_CONFIG_HOME", tmp.join("config"));
+    // Windows resolves the config root through APPDATA, not HOME: without this
+    // the tests share the real profile, race on state.json and read each
+    // other's truncated writes.
+    env.set("APPDATA", tmp.join("appdata"));
+    env.set("LOCALAPPDATA", tmp.join("localappdata"));
     env.set("SUSI_XDG", "0");
     env.remove("SUSI_EXTENSION_PACK");
     invalidate_extension_caches();
@@ -196,7 +201,14 @@ fn validate_manifest_allows_escaping_files_with_filesystem_read() {
 #[test]
 fn validate_manifest_rejects_absolute_file_paths_even_with_permission() {
     let mut m = bundled_manifest();
-    m.files.insert("abs.json".into(), "/etc/passwd".into());
+    // A Unix path is not absolute to Windows path resolution, so the fixture
+    // must be platform-appropriate for the rejection to be the thing tested.
+    let absolute = if cfg!(windows) {
+        "C:\\Windows\\win.ini"
+    } else {
+        "/etc/passwd"
+    };
+    m.files.insert("abs.json".into(), absolute.into());
     let err = validate_manifest(&m).expect_err("absolute path must fail");
     assert!(err.contains("absolute"), "{err}");
 }
