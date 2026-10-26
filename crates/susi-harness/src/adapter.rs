@@ -314,6 +314,18 @@ impl<R: CommandRunner> SusiTarget<R> {
         Ok(output)
     }
 
+    /// Close the task when its acceptance already passes on the untouched base.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the close is refused (for example, no live claim).
+    pub fn close(&self, worktree: &Path, id: &str) -> EaiResult<RunOutput> {
+        self.susi(
+            vec!["tasks".to_string(), "close".to_string(), id.to_string()],
+            worktree,
+        )
+    }
+
     /// Publish the work through `workflow finish` (gate, close, push, merge).
     ///
     /// # Errors
@@ -669,6 +681,9 @@ pub struct SusiTaskSpec {
     pub state_dir: PathBuf,
     /// An existing queue task to claim instead of adding one.
     pub task: Option<String>,
+    /// Close a task whose acceptance already passes on the untouched base
+    /// instead of spending a worker ladder on work that cannot be committed.
+    pub precheck: bool,
 }
 
 /// One model attempt inside a prepared task.
@@ -742,6 +757,32 @@ pub fn run_task<R: CommandRunner>(
             (task, base)
         }
     };
+    // The task's definition of done may already hold on the untouched base: a
+    // worker ladder on it can only end in an empty commit. Check before spending
+    // a model call, and publish the close when it does.
+    if spec.precheck
+        && !spec.accept.trim().is_empty()
+        && target.accept(&worktree, &task).is_ok()
+        && target.git_status(&worktree)?.trim().is_empty()
+    {
+        target.close(&worktree, &task)?;
+        let closed_committed = target.commit_work(&worktree, &task).unwrap_or(false);
+        let finished = target.finish(&worktree, &task);
+        return Ok(SusiRunReport {
+            worktree,
+            task,
+            model: "precheck".to_string(),
+            agent: RunOutcome::Succeeded {
+                final_text: "the task's acceptance already passes on the base; closed as delivered"
+                    .to_string(),
+                reported_cost_usd: None,
+            },
+            committed: closed_committed,
+            accepted: finished.is_ok(),
+            attempts: Vec::new(),
+            budget_exhausted: false,
+        });
+    }
     let ranked = rank_alternates(spec, policy)?;
     let base_prompt = format!(
         "Work in this order: read only what you need to identify the exact API you are changing, \
@@ -1244,6 +1285,7 @@ mod tests {
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
             task: None,
+            precheck: false,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-AGENT-1");
@@ -1300,6 +1342,7 @@ mod tests {
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
             task: Some("T-EXIST-1".into()),
+            precheck: false,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-EXIST-1");
@@ -1351,6 +1394,7 @@ mod tests {
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
             task: None,
+            precheck: false,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert_eq!(report.task, "T-AGENT-2");
@@ -1400,6 +1444,7 @@ mod tests {
             timeout: Duration::from_secs(5),
             state_dir: dir.path().join("state"),
             task: None,
+            precheck: false,
         };
         let report = run_task(&target, &spec, &exec, &SusiRunPolicy::unmetered()).unwrap();
         assert!(!report.committed);
