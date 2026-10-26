@@ -8605,6 +8605,185 @@ fn gmcp_req_203_006_05_interop() {
     }
 }
 
+/// GMCP-203-006-06: operations, diagnostics, runbooks, and reproducible evidence for Streamable HTTP transport.
+///
+/// Inspectable CLI ledger state, live HTTP session validation, invalid config rejection,
+/// deterministic air-gapped drift detection (hash_drift and unfetchable fail closed),
+/// complete operator runbook in contract-203-006.md, and retained signed evidence.
+#[test]
+fn gmcp_req_203_006_06_operations() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-006-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // 1. Shipped inspectable surface: CLI ledger status emits bounded JSON report.
+    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(report["verified"], true);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+
+    // 2. Live inspectable surface: served HTTP endpoint responds cleanly.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+    let port = listener.local_addr().expect("bound addr").port();
+    std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(
+            root.to_path_buf(),
+            vec![listener],
+            None,
+            false,
+        );
+    });
+
+    let mut stream =
+        std::net::TcpStream::connect(("127.0.0.1", port)).expect("the server must accept");
+    let body = r#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+    let request = format!(
+        "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: server/discover\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    std::io::Write::write_all(&mut stream, request.as_bytes()).expect("write request");
+    let mut resp = String::new();
+    std::io::Read::read_to_string(&mut stream, &mut resp).expect("read response");
+    assert!(
+        resp.starts_with("HTTP/1.1 200 OK"),
+        "discovery must succeed: {resp}"
+    );
+
+    // 3. Invalid configuration is rejected: --refetched without --drift fails.
+    let invalid = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!invalid.status.success());
+
+    // 4. Deterministic drift check is clean on the shipped corpus.
+    let clean = susi_json(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(clean["drift"], true);
+    assert_eq!(clean["verified"], true);
+    assert_eq!(clean["checked"], clean["matched"]);
+    assert!(clean["findings"].as_array().unwrap().is_empty());
+
+    // 5. A drifted Streamable HTTP transport document is a named hash_drift finding.
+    let http_doc = "docs/specification/2026-07-28/basic/transports/streamable-http.mdx";
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(http_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let drifted = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!drifted.status.success());
+    let drift_report: serde_json::Value =
+        serde_json::from_slice(&drifted.stdout).expect("drift failure must remain JSON");
+    assert_eq!(drift_report["verified"], false);
+    assert!(drift_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["document"] == http_doc && f["kind"] == "hash_drift"));
+
+    // 6. An absent Streamable HTTP document fails closed as unfetchable.
+    std::fs::remove_file(&victim).unwrap();
+    let missing = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!missing.status.success());
+    let missing_report: serde_json::Value =
+        serde_json::from_slice(&missing.stdout).expect("missing source must remain JSON");
+    assert!(missing_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["document"] == http_doc && f["kind"] == "unfetchable"));
+
+    // 7. The contract carries the complete operator runbook.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-006.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Diagnostics",
+        "Incident triage",
+        "Migration (re-pinning",
+        "Rollback",
+        "hash_drift",
+        "unfetchable",
+        "-32600",
+        "-32700",
+        "streamable-http",
+    ] {
+        assert!(contract.contains(token), "contract must document {token}");
+    }
+
+    // 8. Evidence is retained, signed, and tied to current ledger bytes.
+    use sha2::{Digest, Sha256};
+    let ledger_hash = hex::encode(Sha256::digest(
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
+    ));
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-006.jsonl"))
+        .expect("VC-203-006 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["requirement"] == "GMCP-203-006-06")
+        .expect("evidence must retain a record for GMCP-203-006-06");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_006_06_operations"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
 /// GMCP-203-009-03: the complete tool server surface on the served path.
 ///
 /// Discovery declares the `tools` capability and returns a deterministic,
