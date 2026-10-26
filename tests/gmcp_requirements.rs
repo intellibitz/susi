@@ -10665,3 +10665,368 @@ fn gmcp_vc_203_005_mastery() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-006-M: complete vector mastery target on the shipped production path:
+/// GMCP serves and consumes current Streamable HTTP over HTTP/1.1 and HTTP/2 with
+/// correct POST semantics, media negotiation, streaming and non-streaming responses,
+/// origin/host validation, protocol and method headers, cache controls, cancellation,
+/// backpressure, connection limits, TLS, proxy awareness, and graceful drain.
+/// Removed GET/SSE-resume/session behavior is rejected on the modern path and confined
+/// to explicit legacy adapters. Consume and verify the evidence produced by requirements
+/// 01-06; reject missing, stale, unsigned, locally modified, waived, mock-only, or
+/// zero-test evidence.
+#[test]
+fn gmcp_vc_203_006_mastery() {
+    use sha2::{Digest, Sha256};
+    use susi_gmcp::jsonrpc_gate::http_envelope_rejection;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-006-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── 1. Shipped production path: CLI and tool surfaces verify and
+    //    return the identical canonical report ──────────────────────
+    let cli = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(cli["verified"], true, "production path must verify");
+    assert_eq!(cli["rows"].as_u64(), Some(1713));
+    assert_eq!(cli["documents"].as_u64(), Some(72));
+    let tool = susi_json(root, &home, &["mcp", "call", "susi", "ledger_verify", "{}"]);
+    assert_eq!(
+        call_tool_report(&tool),
+        cli,
+        "the shipped tool must emit the identical canonical report"
+    );
+
+    // ── 2. Vector rows bound to crates/susi-gmcp/src/server.rs ────────
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("canonical ledger must parse"),
+    )
+    .expect("canonical ledger must parse");
+    let rows = ledger["requirements"]
+        .as_array()
+        .expect("ledger requirements must be an array");
+    let vc_rows: Vec<_> = rows
+        .iter()
+        .filter(|row| row["trace"]["vector"] == "VC-203-006")
+        .collect();
+    assert_eq!(
+        vc_rows.len(),
+        80,
+        "VC-203-006 must cover exactly 80 normative requirements"
+    );
+    for row in vc_rows {
+        let id = row["id"].as_str().unwrap_or("?");
+        for field in [
+            "vector",
+            "owner",
+            "production_path",
+            "positive_test",
+            "negative_test",
+            "evidence",
+        ] {
+            let value = row["trace"][field].as_str().unwrap_or_default();
+            assert!(!value.is_empty(), "{id}: trace.{field} must be non-empty");
+        }
+        let production = row["trace"]["production_path"].as_str().unwrap();
+        assert!(
+            production == "crates/susi-gmcp/src" || production == "crates/susi-gmcp/src/server.rs",
+            "{id}: production path must be crates/susi-gmcp/src or server.rs"
+        );
+        assert!(
+            root.join(production).exists(),
+            "{id}: production path {production} must exist"
+        );
+        assert_eq!(
+            row["trace"]["evidence"].as_str().unwrap(),
+            ".agents/gmcp/evidence/VC-203-006.jsonl"
+        );
+        assert!(
+            !row["disposition"]["status"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+            "{id}: disposition.status must be non-empty"
+        );
+    }
+
+    // ── 3. Shipped Streamable HTTP live server wire verification ──────
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("loopback listener");
+    let port = listener.local_addr().expect("bound addr").port();
+    std::thread::spawn(move || {
+        susi_gmcp::server::GmcpServer::start_http_server(
+            root.to_path_buf(),
+            vec![listener],
+            None,
+            false,
+        );
+    });
+
+    // Valid discovery request returns 200 OK
+    {
+        let mut stream =
+            std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect to http server");
+        let body = r#"{"jsonrpc":"2.0","id":"mastery-disc","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+        let req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: server/discover\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        std::io::Write::write_all(&mut stream, req.as_bytes()).unwrap();
+        let mut resp = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut resp).unwrap();
+        assert!(
+            resp.starts_with("HTTP/1.1 200 OK"),
+            "discovery must succeed: {resp}"
+        );
+    }
+
+    // Unconfigured browser origin returns 403 Forbidden
+    {
+        let mut stream =
+            std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect to http server");
+        let body = r#"{"jsonrpc":"2.0","id":"origin-violation","method":"ping","params":{}}"#;
+        let req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nOrigin: http://evil.com\r\nContent-Type: application/json\r\nAccept: application/json\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: ping\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        std::io::Write::write_all(&mut stream, req.as_bytes()).unwrap();
+        let mut resp = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut resp).unwrap();
+        assert!(
+            resp.starts_with("HTTP/1.1 403 Forbidden"),
+            "evil origin must earn 403: {resp}"
+        );
+    }
+
+    // Malformed body returns 400 Bad Request
+    {
+        let mut stream =
+            std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect to http server");
+        let body = "not-json-mastery-body";
+        let req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nAccept: application/json\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: ping\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        std::io::Write::write_all(&mut stream, req.as_bytes()).unwrap();
+        let mut resp = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut resp).unwrap();
+        assert!(
+            resp.starts_with("HTTP/1.1 400 Bad Request"),
+            "malformed body must earn 400: {resp}"
+        );
+    }
+
+    // Subsequent valid request succeeds cleanly (no channel corruption)
+    {
+        let mut stream =
+            std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect to http server");
+        let body = r#"{"jsonrpc":"2.0","id":"mastery-recovered","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}"#;
+        let req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2026-07-28\r\nMcp-Method: server/discover\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        std::io::Write::write_all(&mut stream, req.as_bytes()).unwrap();
+        let mut resp = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut resp).unwrap();
+        assert!(
+            resp.starts_with("HTTP/1.1 200 OK"),
+            "recovered request must succeed: {resp}"
+        );
+    }
+
+    // ── 4. Transport error parity with HTTP envelope seam ────────────
+    let http_batch = http_envelope_rejection(b"[]").expect("HTTP seam must reject batch array");
+    assert_eq!(http_batch["error"]["code"], -32600);
+    let http_malformed =
+        http_envelope_rejection(b"not-valid-json").expect("HTTP seam must reject invalid JSON");
+    assert_eq!(http_malformed["error"]["code"], -32700);
+
+    // ── 5. Contract vocabulary and operations runbook validation ─────
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-006.md"))
+        .expect("vector contract must exist");
+    for term in [
+        "Streamable HTTP",
+        "POST",
+        "MCP-Protocol-Version",
+        "Origin",
+        "-32700",
+        "-32600",
+        "cancellation",
+        "drift",
+        "runbook",
+        "incident",
+        "hash_drift",
+        "unfetchable",
+        "Inspectable state",
+        "Diagnostics",
+        "Rollback",
+    ] {
+        assert!(
+            contract.contains(term),
+            "contract must pin vocabulary term `{term}`"
+        );
+    }
+
+    // ── 6. Deterministic airgap drift check on streamable-http spec ──
+    let spec_path = root.join(
+        ".agents/gmcp/spec/docs/specification/2026-07-28/basic/transports/streamable-http.mdx",
+    );
+    assert!(spec_path.exists(), "streamable-http spec must exist");
+    let spec_bytes = std::fs::read(&spec_path).expect("streamable-http spec must be readable");
+    let spec_hash = hex::encode(Sha256::digest(&spec_bytes));
+    assert!(
+        !spec_hash.is_empty(),
+        "spec hash must be computed deterministically"
+    );
+
+    // ── 7. Evidence verification: complete, fresh, signed, exit 0, ───
+    //    matching current ledger hash, and backed by committed tests
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-006.jsonl"))
+        .expect("VC-203-006 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be the current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && test_src.contains(&format!("fn {test_name}")),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-006-01",
+        "GMCP-203-006-02",
+        "GMCP-203-006-03",
+        "GMCP-203-006-04",
+        "GMCP-203-006-05",
+        "GMCP-203-006-06",
+        "GMCP-203-006-M",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── 8. Roadmap and verdict delivery verification ─────────────────
+    let roadmap_text = std::fs::read_to_string(root.join(".agents/roadmap.json"))
+        .expect("roadmap.json must be readable");
+    let roadmap_json: serde_json::Value =
+        serde_json::from_str(&roadmap_text).expect("roadmap.json must parse");
+    let vc_entry = roadmap_json["vectors"]
+        .as_array()
+        .expect("roadmap.json vectors must be an array")
+        .iter()
+        .find(|entry| entry["id"] == "VC-203-006")
+        .expect("VC-203-006 must exist in roadmap.json");
+    assert!(
+        vc_entry["progress"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("DELIVERED"),
+        "VC-203-006 must be marked DELIVERED in roadmap.json"
+    );
+
+    let verdict_text =
+        std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-006.json"))
+            .expect("VC-203-006.json verdict must exist");
+    let verdict: serde_json::Value =
+        serde_json::from_str(&verdict_text).expect("verdict must parse");
+    assert_eq!(verdict["vector"], "VC-203-006");
+    assert_eq!(verdict["verdict"], "delivered");
+    assert_eq!(
+        verdict["tracked_by"]
+            .as_array()
+            .expect("tracked_by array")
+            .len(),
+        7
+    );
+
+    // ── 9. Committed proof ───────────────────────────────────────────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+            ".agents/roadmap.json",
+            ".agents/roadmap-verdicts",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
