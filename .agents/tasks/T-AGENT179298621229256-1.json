@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179298621229256-1",
+  "title": "Task-record scopes must not serialize the swarm",
+  "goal": "A worker's claim on the .agents/tasks directory overlaps every other task's own record file, so one GMCP worker holding that scope refused every claim in the swarm while it walked the lane. Treat task-record paths as per-id and non-conflicting in the claim overlap check, with tests that a directory record scope no longer blocks another task's record while real code overlap is still refused.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "scopes"
+    ]
+  },
+  "created_by": "AGENT179298621229256",
+  "created_unix": 1792986258
+}

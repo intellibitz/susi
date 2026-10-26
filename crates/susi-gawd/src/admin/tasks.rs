@@ -1808,6 +1808,24 @@ pub fn ensure_synced_for(ws: &Path, claiming: Option<&str>) -> EaiResult<()> {
 
 /// Claim `id` for `agent`. Fails if another live claim exists or a dependency
 /// is still open. An expired claim is taken over by compare-and-swap.
+/// True when two scope sets reserve the same surface. A task record is one
+/// file per id under `.agents/tasks`, so a claim on that directory (or on one
+/// record) never conflicts with another task's own record — otherwise one
+/// worker's directory-wide record scope would serialize the whole swarm.
+fn scopes_conflict(left: &[String], right: &[String]) -> bool {
+    left.iter().any(|a| {
+        right.iter().any(|b| {
+            (a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/")))
+                && !(is_task_record(a) && is_task_record(b))
+        })
+    })
+}
+
+/// True for a task-record path: the directory itself or one record under it.
+fn is_task_record(scope: &str) -> bool {
+    scope == ".agents/tasks" || scope.starts_with(".agents/tasks/")
+}
+
 pub fn claim(ws: &Path, id: &str, agent: &str, hours: u64, now: u64) -> EaiResult<Claim> {
     claim_scoped(
         ws,
@@ -1951,11 +1969,7 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
         .iter()
         .filter(|c| !c.expired(now) && !owned.is_some_and(|own| own.task == c.task))
     {
-        if requested_scopes.iter().any(|a| {
-            other.scopes.iter().any(|b| {
-                a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/"))
-            })
-        }) {
+        if scopes_conflict(&requested_scopes, &other.scopes) {
             return Err(EaiError::config(format!(
                 "scope overlaps {} held by {}",
                 other.task, other.agent
@@ -2946,6 +2960,21 @@ mod tests {
         release(&a, &task.id, "claude", false).unwrap();
     }
 
+    #[test]
+    fn task_record_scopes_do_not_serialize_the_swarm() {
+        let wide = [".agents/tasks".to_string()];
+        let one = [".agents/tasks/T-X-1.json".to_string()];
+        assert!(!scopes_conflict(&wide, &one));
+        assert!(!scopes_conflict(&one, &wide));
+        let other = [".agents/tasks/T-Y-2.json".to_string()];
+        assert!(!scopes_conflict(&one, &other));
+        let code = ["crates/a".to_string()];
+        let code_file = ["crates/a/src/lib.rs".to_string()];
+        assert!(scopes_conflict(&code, &code_file));
+        let cli = ["src/cli".to_string()];
+        let cli_file = ["src/cli/keys.rs".to_string()];
+        assert!(scopes_conflict(&cli, &cli_file));
+    }
     #[test]
     fn scopes_reject_nested_overlap_and_allow_disjoint_work() {
         let (_r, a, b) = Repos::new("scopes");
