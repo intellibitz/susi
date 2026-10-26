@@ -19,5 +19,10 @@
   },
   "roadmap": "VC-203-007",
   "created_by": "CODEXGMCPROADMAP",
-  "created_unix": 1792256245
+  "created_unix": 1792256245,
+  "closed": {
+    "at_unix": 1793044334,
+    "commit": "c96e4eab14d94175e78102bb56978be68a4385fe",
+    "by": "HARNESSCODEXGMCPROADMAP86"
+  }
 }
