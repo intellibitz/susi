@@ -9495,6 +9495,186 @@ fn gmcp_req_203_009_05_interop() {
     assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
 }
 
+/// GMCP-203-009-06: operations, diagnostics, runbooks, and reproducible evidence for tool server surface.
+///
+/// Inspectable CLI ledger and tool server discovery state, invalid config rejection,
+/// deterministic air-gapped drift detection (hash_drift and unfetchable fail closed on server tools specification),
+/// complete operator runbook in contract-203-009.md, and retained signed evidence.
+#[test]
+fn gmcp_req_203_009_06_operations() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-009-ops-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // 1. Shipped inspectable surface: CLI ledger status emits bounded JSON report.
+    let report = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(report["verified"], true);
+    for key in [
+        "rows",
+        "documents",
+        "revisions",
+        "dispositions",
+        "categories",
+        "vectors",
+    ] {
+        assert!(!report[key].is_null(), "ledger report must expose {key}");
+    }
+
+    // 2. Live inspectable surface: served stdio tool discovery returns inspectable state.
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init-ops", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "ops-client", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must succeed");
+    assert!(initialize["result"]["capabilities"]["tools"].is_object());
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    let list = wire.request("tools/list", serde_json::json!({}));
+    let tools = list["tools"].as_array().expect("tools array");
+    assert!(!tools.is_empty(), "inspectable tool list must not be empty");
+    assert!(
+        tools.iter().any(|t| t["name"] == "ledger_verify"),
+        "ledger_verify must be inspectable"
+    );
+    drop(wire);
+
+    // 3. Invalid configuration is rejected: --refetched without --drift fails.
+    let invalid = susi_command(
+        root,
+        &home,
+        &["mcp", "ledger", "--refetched", ".agents/gmcp/spec"],
+    )
+    .output()
+    .expect("susi must run");
+    assert!(!invalid.status.success());
+
+    // 4. Deterministic drift check is clean on the shipped corpus.
+    let clean = susi_json(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            ".agents/gmcp/spec",
+        ],
+    );
+    assert_eq!(clean["drift"], true);
+    assert_eq!(clean["verified"], true);
+    assert_eq!(clean["checked"], clean["matched"]);
+    assert!(clean["findings"].as_array().unwrap().is_empty());
+
+    // 5. A drifted server tools document is a named hash_drift finding.
+    let tools_doc = "docs/specification/2026-07-28/server/tools.mdx";
+    let refetched = scratch.join("refetched");
+    copy_tree(&root.join(".agents/gmcp/spec"), &refetched);
+    let victim = refetched.join(tools_doc);
+    let mut bytes = std::fs::read(&victim).unwrap();
+    bytes.push(b'!');
+    std::fs::write(&victim, &bytes).unwrap();
+    let drifted = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!drifted.status.success());
+    let drift_report: serde_json::Value =
+        serde_json::from_slice(&drifted.stdout).expect("drift failure must remain JSON");
+    assert_eq!(drift_report["verified"], false);
+    assert!(drift_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["document"] == tools_doc && f["kind"] == "hash_drift"));
+
+    // 6. An absent server tools document fails closed as unfetchable.
+    std::fs::remove_file(&victim).unwrap();
+    let missing = susi_command(
+        root,
+        &home,
+        &[
+            "mcp",
+            "ledger",
+            "--drift",
+            "--refetched",
+            refetched.to_str().unwrap(),
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(!missing.status.success());
+    let missing_report: serde_json::Value =
+        serde_json::from_slice(&missing.stdout).expect("missing source must remain JSON");
+    assert!(missing_report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["document"] == tools_doc && f["kind"] == "unfetchable"));
+
+    let _ = std::fs::remove_dir_all(&scratch);
+
+    // 7. The contract carries the complete operator runbook.
+    let contract = std::fs::read_to_string(root.join("docs/gmcp/contract-203-009.md"))
+        .expect("contract must exist");
+    for token in [
+        "Operations and incident runbook",
+        "Inspectable state",
+        "Diagnostics and incident triage",
+        "Incident triage",
+        "Migration (re-pinning server-tools specification)",
+        "Rollback",
+        "hash_drift",
+        "unfetchable",
+        "-32600",
+        "-32601",
+        "-32602",
+        "-32022",
+        "call_tool_direct",
+    ] {
+        assert!(contract.contains(token), "contract must document {token}");
+    }
+
+    // 8. Evidence is retained, signed, and tied to current ledger bytes.
+    use sha2::{Digest, Sha256};
+    let ledger_hash = hex::encode(Sha256::digest(
+        std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap(),
+    ));
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-009.jsonl"))
+        .expect("VC-203-009 must retain evidence");
+    let record = evidence
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["requirement"] == "GMCP-203-009-06")
+        .expect("evidence must retain a record for GMCP-203-009-06");
+    assert_eq!(
+        record["check"],
+        "cargo test --locked --test gmcp_requirements gmcp_req_203_009_06_operations"
+    );
+    assert_eq!(record["exit"], 0);
+    assert_eq!(record["artifact_sha256"], ledger_hash);
+    assert!(!record["detail"].as_str().unwrap_or_default().is_empty());
+    assert!(!record["identity"].as_str().unwrap_or_default().is_empty());
+}
+
 /// GMCP-203-010-03: the complete resource server surface on the served path.
 ///
 /// The `resources` capability is declared (`resources-mdx-0032`), static
