@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179299196329364-1",
+  "title": "Mission worktrees must share the primary target cache",
+  "goal": "A harness worktree keeps a private target directory, so every mission compiles the whole dependency graph cold (candle, wasmtime, onnx) and a single acceptance command can block a worker for over half an hour. Link the shared target after workflow start, running scripts/link-shared-target.sh in the new worktree, so a mission reuses the primary build cache and only rebuilds its own crate.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT179299196329364",
+  "created_unix": 1792991992,
+  "closed": {
+    "at_unix": 1792992331,
+    "commit": "c665c3a436e22ae930f9568961b92c026520bec3",
+    "by": "AGENT179299196329364"
+  }
+}

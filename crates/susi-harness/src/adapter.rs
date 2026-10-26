@@ -166,12 +166,29 @@ impl<R: CommandRunner> SusiTarget<R> {
                 output.tail()
             )));
         }
-        parse_worktree_path(&output.stdout).ok_or_else(|| {
+        let worktree = parse_worktree_path(&output.stdout).ok_or_else(|| {
             EaiError::process(format!(
                 "workflow start printed no `cd <path>`: {}",
                 output.tail()
             ))
-        })
+        })?;
+        // A worktree keeps a private `target/` unless it is linked to the
+        // primary's, so every mission would compile the whole dependency graph
+        // cold and one acceptance command can block a worker for half an hour.
+        // The linker is idempotent, never fails a caller, and leaves alone a
+        // target that already holds a build.
+        let linker = self.repo.join("scripts").join("link-shared-target.sh");
+        if linker.is_file() {
+            let _ = self.runner.run(
+                Path::new("sh"),
+                &[
+                    linker.to_string_lossy().to_string(),
+                    worktree.to_string_lossy().to_string(),
+                ],
+                &self.repo,
+            );
+        }
+        Ok(worktree)
     }
 
     /// Sync a reused worktree with `origin/main`.
