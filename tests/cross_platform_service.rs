@@ -1,7 +1,7 @@
 //! Cross-platform service and lifecycle orchestration tests.
 //!
 //! Validates that service manager detection, release promotion dispatch,
-//! and platform-native service definitions adhere to the cross-platform contract.
+//! platform-native service definitions, and OS diagnostics adhere to the cross-platform contract.
 
 #![cfg_attr(
     test,
@@ -17,7 +17,7 @@
 use std::path::PathBuf;
 use susi_gawd::cross_platform_service::{
     promote_release_cross_platform, render_launchd_plist, render_systemd_unit,
-    render_windows_schtasks_cmd, PlatformKind, ServiceManagerKind,
+    render_windows_schtasks_cmd, PlatformDiagnostics, PlatformKind, ServiceManagerKind,
 };
 
 #[test]
@@ -46,4 +46,11 @@ fn cross_platform_service_definitions_are_non_empty() {
 
     let win_task = render_windows_schtasks_cmd(&test_bin);
     assert!(win_task.contains("Register-ScheduledTask"));
+}
+
+#[test]
+fn cross_platform_diagnostics_reports_host_state() {
+    let diag = PlatformDiagnostics::inspect();
+    assert_eq!(diag.platform, PlatformKind::current());
+    assert!(diag.gpu_script_available);
 }
