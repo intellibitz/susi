@@ -331,6 +331,25 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
 
 /// Write a plan over dependency-ready queue tasks.
 #[allow(clippy::too_many_arguments)] // a command's flags, not a reusable API
+/// The task ids a live claim already reserves, read from the shared remote.
+/// A planner that ignores them spends a mission discovering the overlap.
+fn claimed_ids(repo: &Path) -> Vec<String> {
+    let Ok(output) = std::process::Command::new("git")
+        .args(["ls-remote", "--refs", "origin", "refs/claims/*"])
+        .current_dir(repo)
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().nth(1))
+        .filter_map(|name| name.strip_prefix("refs/claims/"))
+        .map(str::to_string)
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)] // a command's flags, one per option
 fn plan_queue(
     repo: &Path,
     out: &Path,
@@ -351,7 +370,8 @@ fn plan_queue(
         .filter(|worker| !worker.is_empty())
         .map(str::to_string)
         .collect();
-    let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap)?;
+    let claimed = claimed_ids(&repo);
+    let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
         .with_context(|| format!("write {}", out.display()))?;
     println!(
