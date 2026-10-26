@@ -1,0 +1,17 @@
+{
+  "id": "T-BYOKENHANCEMENTS-3",
+  "title": "[CROSS-PLATFORM] Resolve Windows CUDA, WSL persistence, and cross-platform OS gaps",
+  "goal": "Resolve cross-platform OS gaps: build-gpu.ps1 for Windows CUDA, WSL systemd/linger health diagnostics, and cross-platform service enhancements",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "cross_platform_service"
+    ]
+  },
+  "created_by": "BYOKENHANCEMENTS",
+  "created_unix": 1792973218
+}
