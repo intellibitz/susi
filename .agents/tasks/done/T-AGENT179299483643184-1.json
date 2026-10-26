@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179299483643184-1",
+  "title": "Worker tool commands must have a timeout",
+  "goal": "A worker can run a command that never returns, and the native loop has no deadline: a hung test the worker wrote blocked a mission indefinitely in three separate runs. Bound command execution with a deadline, kill the process tree on expiry, and return a timeout message the model can act on.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "tools"
+    ]
+  },
+  "created_by": "AGENT179299483643184",
+  "created_unix": 1792994868,
+  "closed": {
+    "at_unix": 1792995281,
+    "commit": "5942fd6e983ec38853184f62ec5f3a77e402f99d",
+    "by": "AGENT179299483643184"
+  }
+}
