@@ -215,14 +215,59 @@ fn prompt_for(task: &TaskRecord) -> String {
     } else {
         task.goal.clone()
     };
+    let order = match task.accept.as_ref().and_then(Acceptance::command) {
+        Some(accept) => requirement_order(&accept).map_or_else(default_order, |name| {
+            format!(
+                "Order (do not survey the repository): `git grep -n \"fn {prefix}\"` finds the sibling \
+test one requirement earlier; read only that function. In your FIRST five turns, append a new \
+`#[test] fn {name}` to the END of tests/gmcp_requirements.rs, copying the sibling's shape and the \
+real GMCP APIs it uses. Then run the acceptance command from the task file and iterate on the real \
+output. Read no more than three windows over 200 lines.",
+                prefix = requirement_prefix(&name),
+                name = name
+            )
+        }),
+        None => default_order(),
+    };
     format!(
-        "Implement the queued task .agents/tasks/{id}.json. Read that file first. \
-Goal: {goal} \
-Work only inside the scopes it declares and make its acceptance command pass. \
-If the goal names work outside those scopes, stop and report the gap instead of widening the change.",
+        "Implement the queued task .agents/tasks/{id}.json. Read that file first.\nGoal: {goal}\n{order}\n\
+Work only inside the scopes it declares and make its acceptance command pass. If the goal names work \
+outside those scopes, stop and report the gap instead of widening the change.",
         id = task.id,
         goal = goal.trim()
     )
+}
+
+/// The order that made a stalled worker write: identify the exact API, edit,
+/// then iterate on real acceptance output — never survey the repository.
+fn default_order() -> String {
+    "Work in this order: read only what you need to identify the exact API you are changing, then make \
+the edit. Your first write must happen before you have read more than ten files; do not survey the \
+repository. After the first write, run the acceptance command and iterate on real output."
+        .to_string()
+}
+
+/// The test filter a GMCP requirement acceptance names, if it names one.
+fn requirement_order(accept: &str) -> Option<String> {
+    accept
+        .split_whitespace()
+        .find(|word| word.starts_with("gmcp_req_") || word.starts_with("gmcp_vc_"))
+        .map(|word| {
+            word.trim_end_matches(|c: char| !c.is_ascii_alphanumeric())
+                .to_string()
+        })
+}
+
+/// The sibling prefix one requirement earlier: `gmcp_req_203_009_04_x` →
+/// `gmcp_req_203_009_`.
+fn requirement_prefix(name: &str) -> String {
+    let parts: Vec<&str> = name.split('_').collect();
+    if parts.len() < 4 {
+        return name.to_string();
+    }
+    // `gmcp_<req|vc>_<vector>_<item>_<requirement>_<slug>`: the sibling is one
+    // requirement earlier in the same item, so keep the first four segments.
+    format!("{}_", parts[..4].join("_"))
 }
 
 fn todo_goal(title: &str) -> String {
@@ -714,5 +759,53 @@ mod tests {
             "T-B overlaps the claimed task's scopes"
         );
         assert!(ids.contains(&"T-D"), "disjoint work stays available");
+    }
+    #[test]
+    fn a_requirement_task_gets_a_write_first_sibling_prompt() {
+        let name =
+            requirement_order("cargo test --locked --test gmcp_requirements gmcp_req_203_009_04_x")
+                .expect("the filter is named");
+        assert_eq!(name, "gmcp_req_203_009_04_x");
+        assert_eq!(requirement_prefix(&name), "gmcp_req_203_009_");
+        let task = TaskRecord {
+            id: "T-X".into(),
+            title: "requirement".into(),
+            goal: "deliver the requirement".into(),
+            deps: Vec::new(),
+            scopes: vec!["tests/gmcp_requirements.rs".into()],
+            accept: Some(Acceptance::Text(
+                "cargo test --test gmcp_requirements gmcp_req_203_009_04_x".into(),
+            )),
+            roadmap: None,
+            size: None,
+            created_unix: 0,
+        };
+        let prompt = prompt_for(&task);
+        assert!(
+            prompt.contains("FIRST five turns"),
+            "a requirement task must write early: {prompt}"
+        );
+        assert!(
+            prompt.contains("gmcp_req_203_009_"),
+            "the sibling prefix must be named: {prompt}"
+        );
+    }
+
+    #[test]
+    fn a_plain_task_gets_the_general_write_first_order() {
+        let dir = repo();
+        let plan = plan_batch(dir.path(), "m", 10, &[], None, &[]).unwrap();
+        let plain = plan
+            .tasks
+            .iter()
+            .find(|task| task.task.as_deref() == Some("T-D"))
+            .expect("T-D is planned");
+        assert!(
+            plain
+                .prompt
+                .contains("before you have read more than ten files"),
+            "the general order applies: {}",
+            plain.prompt
+        );
     }
 }
