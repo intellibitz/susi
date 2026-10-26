@@ -1,0 +1,23 @@
+{
+  "id": "T-ANTIGRAVITY179303700235136-1",
+  "title": "Align ARCHITECTURE.md, AGENTS.md, and README.md with source code",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--test",
+      "architecture_tests",
+      "readme_covers_the_workflow_ecosystem_and_brain"
+    ]
+  },
+  "created_by": "ANTIGRAVITY179303700235136",
+  "created_unix": 1793037125,
+  "closed": {
+    "at_unix": 1793038259,
+    "commit": "ba7b932fb86eb3bef826f703c09331d6b0f7df6d",
+    "by": "ANTIGRAVITY179303700235136"
+  }
+}

@@ -154,7 +154,7 @@ resync-and-retest path. Other agents see changes once they merge remotely,
 then synchronize at their next task boundary; never merge into another
 agent's dirty worktree.
 
-The full rules follow (identity.json Mandates 48–56 are the constitution).
+The full rules follow (identity.json Mandates 48–58 are the constitution).
 
 ---
 
@@ -267,7 +267,7 @@ this for the panic-path lints.
   idempotently by `scripts/github-setup.sh`. Finished workflow runs are
   pruned daily by `.github/workflows/cleanup-runs.yml`.
 
-## Workflow mandates (identity.json 49–56 — the constitution, binding on every agent)
+## Workflow mandates (identity.json 49–58 — the constitution, binding on every agent)
 
 The authoritative text is in `.agents/identity.json` (compiled into susi and
 read by every agent; delegated agents also receive it in their task via
@@ -294,6 +294,14 @@ read by every agent; delegated agents also receive it in their task via
   run as a mission.
 - **56 Evidence-Ranked Brain** — providers ranked per task class by recorded
   outcomes; a failed or unfunded model never leads; keys are never removed.
+- **57 BYOK Key Governance & Spend Cap Isolation** — Bring Your Own Key
+  provider credentials enforce masked previews and dollar-denominated spend
+  ceilings (`max_budget_usd`); spend is recorded atomically before dispatch,
+  and over-budget credentials are automatically quarantined.
+- **58 GMCP 2026 Protocol Conformance** — substrate enforces the Generalized
+  Model Context Protocol (GMCP 2026 specification) across all tool, prompt,
+  completion, resource, task, and server lifecycle interfaces; tool poisoning,
+  prompt injection, and exfiltration defenses are evaluated pre-execution.
 
 **How git enforces it** (hooks alone are skippable with `--no-verify`, so there
 are three layers):
