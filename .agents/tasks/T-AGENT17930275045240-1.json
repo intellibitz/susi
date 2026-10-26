@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT17930275045240-1",
+  "title": "The acceptance precheck must release its claim when closing fails",
+  "goal": "When the precheck decides a task is already delivered but the close or finish fails, run_task returns early without releasing the claim, so the dead attempt keeps the task owned exactly like a failed ladder. Release the claim when the precheck path cannot publish, keeping the worktree for diagnosis.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "adapter"
+    ]
+  },
+  "created_by": "AGENT17930275045240",
+  "created_unix": 1793027543
+}
