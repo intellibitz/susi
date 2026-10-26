@@ -397,6 +397,11 @@ fn tool_run_command(workspace: &Path, args: &Value) -> String {
         Some(c) => c,
         None => return "missing 'command' argument".to_string(),
     };
+    if runs_susi(cmd_str) {
+        return "refused: the harness owns `susi` commands (claim, close, finish, sync). Do not run \
+them — leave the finished changes in the working tree and summarize."
+            .to_string();
+    }
 
     let mut command = if cfg!(windows) {
         let mut c = Command::new("powershell");
@@ -500,6 +505,28 @@ fn kill_tree(pid: u32) {
             .args(["-TERM", &format!("-{pid}")])
             .output();
     }
+}
+
+/// True when any command-position word in `command` invokes the susi CLI. A
+/// worker that runs `susi workflow finish` holds its own turn while the
+/// harness's close machinery runs, and the adapter then fails behind it.
+fn runs_susi(command: &str) -> bool {
+    command
+        .split([';', '|', '&', '\n', '\r'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .any(|part| {
+            let first = part
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .trim_matches('"')
+                .to_ascii_lowercase();
+            first == "susi"
+                || first == "susi.exe"
+                || first.ends_with("\\susi.exe")
+                || first.ends_with("/susi.exe")
+        })
 }
 
 fn tool_list_dir(workspace: &Path, args: &Value) -> String {
@@ -672,5 +699,16 @@ mod tests {
             elapsed < Duration::from_secs(20),
             "the deadline must end the wait, not the sleep: {elapsed:?}"
         );
+    }
+    #[test]
+    fn a_susi_invocation_at_command_position_is_refused() {
+        assert!(runs_susi("susi workflow finish T-X"));
+        assert!(runs_susi("cd wt; susi tasks close T-X"));
+        assert!(runs_susi(
+            "cargo test -p x && \"C:\\bin\\susi.exe\" workflow sync"
+        ));
+        assert!(!runs_susi("cargo test -p susi-harness"));
+        assert!(!runs_susi("git grep -n 'susi workflow'"));
+        assert!(!runs_susi("cargo test --test gmcp_requirements gmcp_req_1"));
     }
 }

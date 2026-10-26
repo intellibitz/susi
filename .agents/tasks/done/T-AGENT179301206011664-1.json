@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT179301206011664-1",
+  "title": "A worker must not run susi workflow commands",
+  "goal": "A worker ignored its instructions and ran susi workflow finish itself, which gated, pushed and blocked the mission while holding the turn; the adapter then failed. Refuse a run_command that invokes the susi CLI, returning a message that the harness owns claim/close/finish, with tests for the command-position match.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "tools"
+    ]
+  },
+  "created_by": "AGENT179301206011664",
+  "created_unix": 1793012103,
+  "closed": {
+    "at_unix": 1793012368,
+    "commit": "ad0facc5e9c9b95defe96c143afd27b5407c2d81",
+    "by": "AGENT179301206011664"
+  }
+}
