@@ -154,7 +154,7 @@ resync-and-retest path. Other agents see changes once they merge remotely,
 then synchronize at their next task boundary; never merge into another
 agent's dirty worktree.
 
-The full rules follow (identity.json Mandates 48–58 are the constitution).
+The full rules follow (identity.json Mandates 48–60 are the constitution).
 
 ---
 
@@ -267,7 +267,7 @@ this for the panic-path lints.
   idempotently by `scripts/github-setup.sh`. Finished workflow runs are
   pruned daily by `.github/workflows/cleanup-runs.yml`.
 
-## Workflow mandates (identity.json 49–58 — the constitution, binding on every agent)
+## Workflow mandates (identity.json 49–60 — the constitution, binding on every agent)
 
 The authoritative text is in `.agents/identity.json` (compiled into susi and
 read by every agent; delegated agents also receive it in their task via
@@ -302,6 +302,15 @@ read by every agent; delegated agents also receive it in their task via
   Model Context Protocol (GMCP 2026 specification) across all tool, prompt,
   completion, resource, task, and server lifecycle interfaces; tool poisoning,
   prompt injection, and exfiltration defenses are evaluated pre-execution.
+- **59 Unsafe Code Ban & Auditable Safety Justifications** — `unsafe` is
+  forbidden or denied across every crate in the workspace (`forbid(unsafe_code)`
+  on 26 crates, `deny(unsafe_code)` with documented `// SAFETY:` justifications
+  on FFI boundaries); panicking macros are denied in production code; and the
+  CI Unsafe Exposure Ratchet mechanically blocks regressions on every commit.
+- **60 Vendor Facade Isolation & Zero Direct Third-Party Dependencies** —
+  `susi-*` crates declare zero direct third-party dependencies; every external
+  crate is owned and re-exported by exactly one `susi-vendor-*` crate, preventing
+  dependency leakage and enforcing modular architectural isolation.
 
 **How git enforces it** (hooks alone are skippable with `--no-verify`, so there
 are three layers):
