@@ -34,8 +34,8 @@ pub enum HarnessCommands {
         /// Gateway base URL (the harness gateway)
         #[arg(long)]
         gateway: String,
-        /// Model id the gateway prices (such as `deepseek-flash`)
-        #[arg(long, default_value = "deepseek-flash")]
+        /// Model id the gateway prices (such as `deepseek-pro`)
+        #[arg(long, default_value = "deepseek-pro")]
         model: String,
         /// Roadmap file
         #[arg(long, default_value = ".agents/roadmap.json")]
@@ -51,7 +51,7 @@ pub enum HarnessCommands {
         /// Worker models tasks are spread across (comma-separated)
         #[arg(
             long,
-            default_value = "gemini-flash,kimi-flash,deepseek-pro,gemini-pro"
+            default_value = "gemini-flash,deepseek-flash,kimi-flash,deepseek-pro,gemini-pro,kimi-pro"
         )]
         workers: String,
     },
@@ -73,7 +73,7 @@ pub enum HarnessCommands {
         /// Worker models, assigned round-robin (comma-separated)
         #[arg(
             long,
-            default_value = "gemini-flash,kimi-flash,deepseek-pro,gemini-pro"
+            default_value = "gemini-flash,deepseek-flash,kimi-flash,deepseek-pro,gemini-pro,kimi-pro"
         )]
         workers: String,
         /// Only tasks whose roadmap vector is this id
@@ -94,7 +94,7 @@ pub enum HarnessCommands {
         #[arg(long)]
         gateway: String,
         /// Model id the gateway prices
-        #[arg(long, default_value = "deepseek-flash")]
+        #[arg(long, default_value = "deepseek-pro")]
         model: String,
         /// Per-turn deadline, seconds
         #[arg(long, default_value_t = 900)]
@@ -109,7 +109,7 @@ pub enum HarnessCommands {
         /// (comma-separated)
         #[arg(
             long,
-            default_value = "gemini-flash,kimi-flash,deepseek-pro,gemini-pro"
+            default_value = "gemini-flash,deepseek-flash,kimi-flash,deepseek-pro,gemini-pro,kimi-pro"
         )]
         workers: String,
         /// Mission cap in dollars

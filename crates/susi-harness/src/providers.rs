@@ -365,17 +365,25 @@ impl Registry {
         }
     }
 
-    /// The default primary orchestrator model (DeepSeek Flash).
+    /// The default primary orchestrator model (DeepSeek Pro).
     #[must_use]
     pub const fn primary_orchestrator() -> &'static str {
-        "deepseek-flash"
+        "deepseek-pro"
     }
 
-    /// The default worker ladder: primary worker (Gemini Flash),
-    /// backup worker (Kimi Flash), and escalation workers (DeepSeek Pro, Gemini Pro).
+    /// The default worker ladder: workers first (Gemini Flash, DeepSeek Flash,
+    /// Kimi Flash), then the backup workers the harness escalates to when a job
+    /// fails (DeepSeek Pro, Gemini Pro, Kimi Pro).
     #[must_use]
-    pub fn default_worker_ladder() -> [&'static str; 4] {
-        ["gemini-flash", "kimi-flash", "deepseek-pro", "gemini-pro"]
+    pub fn default_worker_ladder() -> [&'static str; 6] {
+        [
+            "gemini-flash",
+            "deepseek-flash",
+            "kimi-flash",
+            "deepseek-pro",
+            "gemini-pro",
+            "kimi-pro",
+        ]
     }
 }
 
@@ -473,8 +481,8 @@ const BUILTIN: &str = r#"
 {
   "aliases": {
     "coder": "deepseek-flash",
-    "primary": "deepseek-flash",
-    "orchestrator": "deepseek-flash",
+    "primary": "deepseek-pro",
+    "orchestrator": "deepseek-pro",
     "worker": "gemini-flash",
     "flash": "deepseek-flash",
     "planner": "deepseek-pro",
@@ -484,10 +492,12 @@ const BUILTIN: &str = r#"
     "delegate": "gemini-pro",
     "reviewer": "gemini-pro",
     "kimi": "kimi-flash",
-    "backup": "kimi-flash",
-    "backup-worker": "kimi-flash",
+    "kimi-pro": "kimi-k3-pro",
+    "backup": "deepseek-pro",
+    "backup-worker": "deepseek-pro",
     "pro-worker-1": "deepseek-pro",
     "pro-worker-2": "gemini-pro",
+    "pro-worker-3": "kimi-k3-pro",
     "pro-worker": "deepseek-pro"
   },
   "providers": [
@@ -632,7 +642,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_registry_routes_kimi_as_the_backup_worker() {
+    fn provider_registry_routes_kimi_as_a_worker() {
         let registry = Registry::builtin();
         let kimi = registry.resolve("kimi-flash").expect("kimi-flash resolves");
         assert_eq!(kimi.provider, "moonshot");
@@ -645,10 +655,10 @@ mod tests {
             "both the Moonshot name and the Kimi alias are accepted"
         );
         assert!(kimi.capabilities.tools);
-        // The alias names the same model, so `--workers backup` works.
+        // Kimi Pro is the backup-worker tier, resolved through its alias.
         assert_eq!(
-            registry.resolve("backup").map(|resolved| resolved.model_id),
-            Some("kimi-k2.7-code-highspeed".to_string())
+            registry.resolve("kimi-pro").unwrap().model_id,
+            "kimi-k3.1-pro-highspeed"
         );
         assert_eq!(
             registry.resolve("kimi-k3-pro").unwrap().model_id,
@@ -753,11 +763,11 @@ mod tests {
         let registry = Registry::builtin();
         assert_eq!(
             registry.resolve("orchestrator").unwrap().model_id,
-            "deepseek-flash"
+            "deepseek-v4-pro"
         );
         assert_eq!(
             registry.resolve("primary").unwrap().model_id,
-            "deepseek-flash"
+            "deepseek-v4-pro"
         );
         assert_eq!(
             registry.resolve("worker").unwrap().model_id,
@@ -765,7 +775,7 @@ mod tests {
         );
         assert_eq!(
             registry.resolve("backup").unwrap().model_id,
-            "kimi-k2.7-code-highspeed"
+            "deepseek-v4-pro"
         );
         assert_eq!(
             registry.resolve("pro-worker-1").unwrap().model_id,
@@ -775,10 +785,21 @@ mod tests {
             registry.resolve("pro-worker-2").unwrap().model_id,
             "gemini-pro-latest"
         );
-        assert_eq!(Registry::primary_orchestrator(), "deepseek-flash");
+        assert_eq!(
+            registry.resolve("pro-worker-3").unwrap().model_id,
+            "kimi-k3.1-pro-highspeed"
+        );
+        assert_eq!(Registry::primary_orchestrator(), "deepseek-pro");
         assert_eq!(
             Registry::default_worker_ladder(),
-            ["gemini-flash", "kimi-flash", "deepseek-pro", "gemini-pro"]
+            [
+                "gemini-flash",
+                "deepseek-flash",
+                "kimi-flash",
+                "deepseek-pro",
+                "gemini-pro",
+                "kimi-pro"
+            ]
         );
     }
 

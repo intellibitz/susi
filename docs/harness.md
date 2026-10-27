@@ -61,19 +61,22 @@ tool and MCP layer, an agent graph and plugins — is in
 
 ## Model tiers
 
-DeepSeek orchestrates; Gemini and Kimi work. The registry carries exactly the
-ids the providers advertise — `deepseek-flash` (orchestrator), `deepseek-pro`
-(backend `deepseek-v4-pro`), `gemini-flash`, `gemini-pro`, `kimi-flash` (backend
-`kimi-k2.7-code-highspeed`) — and the policy above them is an alias, so rerouting
-the fleet never touches a plan:
+DeepSeek Pro orchestrates; the flash tier works and the pro tier backs it up.
+The registry carries exactly the ids the providers advertise — `deepseek-pro`
+(backend `deepseek-v4-pro`, the orchestrator), `deepseek-flash`, `gemini-flash`,
+`gemini-pro`, `kimi-flash` (backend `kimi-k2.7-code-highspeed`), `kimi-k3-pro`
+(backend `kimi-k3.1-pro-highspeed`) — and the policy above them is an alias, so
+rerouting the fleet never touches a plan:
 
 | Alias | Model | Role |
 |---|---|---|
-| `orchestrator`, `primary`, `coder`, `flash` | `deepseek-flash` | the orchestrator and default turn |
-| `planner`, `reasoner`, `pro` | `deepseek-pro` | planning and escalation when flash does not pass |
+| `orchestrator`, `primary` | `deepseek-pro` | the orchestrator |
+| `coder`, `flash` | `deepseek-flash` | a worker |
 | `worker`, `cheap` | `gemini-flash` | the primary worker (large context, vision) |
-| `delegate`, `reviewer` | `gemini-pro` | second opinion and review |
-| `backup`, `backup-worker`, `kimi` | `kimi-flash` | the backup worker when Gemini is unavailable |
+| `kimi` | `kimi-flash` | a worker |
+| `backup`, `backup-worker`, `planner`, `pro` | `deepseek-pro` | backup worker (escalation) |
+| `delegate`, `reviewer` | `gemini-pro` | second opinion and backup worker |
+| `kimi-pro` | `kimi-k3-pro` | backup worker |
 
 `susi harness models --verify` checks each registered backend id against the
 provider's own list, so an id retired upstream is reported before a call fails.
