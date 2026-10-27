@@ -63,13 +63,22 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
             return Ok(RunOutcome::TimedOut);
         }
 
-        let request_body = json!({
+        let mut request_body = json!({
             "model": config.model,
             "messages": messages,
             "tools": declarations,
-            "temperature": 0.0,
-            "max_tokens": 4096
+            "max_tokens": 8000
         });
+        // No `temperature`: Kimi rejects anything but 1 with HTTP 400, and the
+        // provider default is the only value every routed model accepts.
+        //
+        // Gemini 3.x spends its output budget on thinking first: at 4096 it
+        // burned the whole allowance and answered with an empty message, which
+        // read as a silent turn rather than a failure. Ask for low effort so the
+        // answer fits; other providers are untouched.
+        if config.model.starts_with("gemini") {
+            request_body["reasoning_effort"] = Value::from("low");
+        }
 
         let payload_bytes = serde_json::to_vec(&request_body)
             .map_err(|e| EaiError::internal(format!("serialize request: {e}")))?;
