@@ -1706,7 +1706,7 @@
       "id": "VC-203-013",
       "mastery_target": "The model-request/tool-response flow fully implements input_required, typed inputRequests, retry with inputResponses, nested elicitation, sampling and roots compatibility, cancellation, deadlines, progress, partial failure, and explicit handle ownership. Every human or model decision is attributable, policy-checked and resumable, and replays cannot duplicate side effects or hijack another principal's handle.",
       "priority": "P0",
-      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-013-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_013_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "progress": "DELIVERED (2026-10-27): every GMCP-203-013-* requirement shipped on the production protocol path (crates/susi-gmcp/src/protocol.rs) with contract, integration, adversarial, interop, and operations evidence retained, proven by gmcp_vc_203_013_mastery; see .agents/roadmap-verdicts/VC-203-013.json and .agents/gmcp/evidence/VC-203-013.jsonl",
       "type": "CORE",
       "vector": "MRTR, elicitation, sampling, and roots interaction model"
     },

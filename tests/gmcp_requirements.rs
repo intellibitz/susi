@@ -13210,3 +13210,273 @@ fn gmcp_vc_203_009_mastery() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+#[test]
+fn gmcp_vc_203_013_mastery() {
+    use sha2::{Digest, Sha256};
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-013-mastery-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // ── 1. Shipped production path: CLI and tool surfaces verify and
+    //    return the identical canonical report ──────────────────────
+    let cli = susi_json(root, &home, &["mcp", "ledger"]);
+    assert_eq!(cli["verified"], true, "production path must verify");
+    assert!(
+        cli["rows"].as_u64().unwrap_or(0) >= 198,
+        "the shipped ledger must still hold the vector's rows"
+    );
+    let tool = susi_json(root, &home, &["mcp", "call", "susi", "ledger_verify", "{}"]);
+    assert_eq!(
+        call_tool_report(&tool),
+        cli,
+        "the shipped tool must emit the identical canonical report"
+    );
+
+    // ── 2. Vector rows bound to crates/susi-gmcp/src/protocol.rs ──────
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".agents/gmcp/requirements-ledger.json"))
+            .expect("canonical ledger must parse"),
+    )
+    .expect("canonical ledger must parse");
+    let rows = ledger["requirements"]
+        .as_array()
+        .expect("ledger requirements must be an array");
+    let vc_rows: Vec<_> = rows
+        .iter()
+        .filter(|row| row["trace"]["vector"] == "VC-203-013")
+        .collect();
+    assert_eq!(
+        vc_rows.len(),
+        198,
+        "VC-203-013 must cover exactly 198 normative requirements"
+    );
+    for row in vc_rows {
+        let id = row["id"].as_str().unwrap_or("?");
+        for field in [
+            "vector",
+            "owner",
+            "production_path",
+            "positive_test",
+            "negative_test",
+            "evidence",
+        ] {
+            let value = row["trace"][field].as_str().unwrap_or_default();
+            assert!(!value.is_empty(), "{id}: trace.{field} must be non-empty");
+        }
+        let production = row["trace"]["production_path"].as_str().unwrap();
+        assert_eq!(
+            production, "crates/susi-gmcp/src/protocol.rs",
+            "{id}: production path must be the shipped protocol module"
+        );
+        assert!(
+            root.join(production).exists(),
+            "{id}: production path {production} must exist"
+        );
+        assert_eq!(
+            row["trace"]["evidence"].as_str().unwrap(),
+            ".agents/gmcp/evidence/VC-203-013.jsonl"
+        );
+        assert!(
+            !row["disposition"]["status"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty(),
+            "{id}: disposition.status must be non-empty"
+        );
+    }
+
+    // ── 3. Live check: initialize over stdio with sampling/elicitation capabilities,
+    //    then a forged/unsolicited client result earns a typed error and a following ping still answers.
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {
+                        "sampling": {},
+                        "elicitation": {"form": {}},
+                        "roots": {"listChanged": true}
+                    },
+                    "clientInfo": {"name": "mrtr-ops-mastery", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered");
+    assert!(
+        initialize.get("error").is_none_or(|error| error.is_null()),
+        "initialize must succeed: {initialize}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    let corrupt = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "ops-corrupt",
+                "result": {"roots": [{"uri": "relative/path"}]}
+            }),
+            std::time::Duration::from_secs(30),
+        )
+        .expect("a corrupt client result must earn a typed answer");
+    assert!(
+        matches!(
+            corrupt["error"]["code"].as_i64(),
+            Some(-32600) | Some(-32602)
+        ),
+        "corrupt client result must be rejected typed: {corrupt}"
+    );
+    let ping = wire.request("ping", serde_json::json!({}));
+    assert!(ping.is_object(), "session must still serve: {ping}");
+    drop(wire);
+
+    // ── 7. Evidence verification: complete, fresh, signed, exit 0, ───
+    //    matching current ledger hash, and backed by committed tests
+    let ledger_bytes = std::fs::read(root.join(".agents/gmcp/requirements-ledger.json")).unwrap();
+    let ledger_hash = hex::encode(Sha256::digest(&ledger_bytes));
+    let test_src = std::fs::read_to_string(root.join("tests/gmcp_requirements.rs")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let evidence = std::fs::read_to_string(root.join(".agents/gmcp/evidence/VC-203-013.jsonl"))
+        .expect("VC-203-013 must retain an evidence artifact");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in evidence.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record: serde_json::Value =
+            serde_json::from_str(line).expect("evidence records must be single-line JSON");
+        for field in [
+            "requirement",
+            "check",
+            "exit",
+            "detail",
+            "recorded_unix",
+            "artifact_sha256",
+            "identity",
+        ] {
+            assert!(
+                !record[field].is_null(),
+                "unsigned or incomplete evidence: record lacks {field}"
+            );
+        }
+        assert!(
+            record.get("waived").is_none() && record.get("mock").is_none(),
+            "waived or mock-only evidence does not count: {record}"
+        );
+        assert_eq!(record["exit"], 0, "evidence must record a green check");
+        assert!(
+            !record["identity"].as_str().unwrap().is_empty(),
+            "evidence must be signed by an identity"
+        );
+        assert!(
+            !record["detail"].as_str().unwrap().is_empty(),
+            "evidence must describe what the check proved"
+        );
+        assert_eq!(
+            record["artifact_sha256"].as_str().unwrap(),
+            ledger_hash,
+            "stale evidence: recorded hash must be the current ledger hash"
+        );
+        let recorded = record["recorded_unix"].as_u64().unwrap();
+        assert!(
+            recorded > 1_792_256_000 && recorded <= now + 60,
+            "recorded_unix {recorded} must be a plausible recent timestamp"
+        );
+        let check = record["check"].as_str().unwrap();
+        if let Some(test_name) = check.strip_prefix("cargo test --locked --test gmcp_requirements ")
+        {
+            assert!(
+                test_name.starts_with("gmcp_")
+                    && !test_name.contains(char::is_whitespace)
+                    && test_src.contains(&format!("fn {test_name}")),
+                "evidence names a test that does not exist: {test_name}"
+            );
+        } else {
+            assert!(
+                check
+                    .split_whitespace()
+                    .filter(|token| !token.starts_with('-'))
+                    .any(|token| root.join(token).exists()),
+                "evidence check must reference a committed artifact: {check}"
+            );
+        }
+        covered.insert(record["requirement"].as_str().unwrap().to_string());
+    }
+    for req in [
+        "GMCP-203-013-01",
+        "GMCP-203-013-02",
+        "GMCP-203-013-03",
+        "GMCP-203-013-04",
+        "GMCP-203-013-05",
+        "GMCP-203-013-06",
+        "GMCP-203-013-M",
+    ] {
+        assert!(covered.contains(req), "missing evidence record for {req}");
+    }
+
+    // ── 8. Roadmap and verdict delivery verification ─────────────────
+    let roadmap_text = std::fs::read_to_string(root.join(".agents/roadmap.json"))
+        .expect("roadmap.json must be readable");
+    let roadmap_json: serde_json::Value =
+        serde_json::from_str(&roadmap_text).expect("roadmap.json must parse");
+    let vc_entry = roadmap_json["vectors"]
+        .as_array()
+        .expect("roadmap.json vectors must be an array")
+        .iter()
+        .find(|entry| entry["id"] == "VC-203-013")
+        .expect("VC-203-013 must exist in roadmap.json");
+    assert!(
+        vc_entry["progress"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("DELIVERED"),
+        "VC-203-013 must be marked DELIVERED in roadmap.json"
+    );
+
+    let verdict_text =
+        std::fs::read_to_string(root.join(".agents/roadmap-verdicts/VC-203-013.json"))
+            .expect("VC-203-013.json verdict must exist");
+    let verdict: serde_json::Value =
+        serde_json::from_str(&verdict_text).expect("verdict must parse");
+    assert_eq!(verdict["vector"], "VC-203-013");
+    assert_eq!(verdict["verdict"], "delivered");
+    assert_eq!(
+        verdict["tracked_by"]
+            .as_array()
+            .expect("tracked_by array")
+            .len(),
+        7
+    );
+
+    // ── 9. Committed proof ───────────────────────────────────────────
+    let status = Command::new("git")
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".agents/gmcp",
+            "docs/gmcp",
+            "tests/gmcp_requirements.rs",
+            "crates/susi-gmcp",
+            ".agents/roadmap.json",
+            ".agents/roadmap-verdicts",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("git status must run — committed proof is required");
+    assert!(
+        status.status.success() && String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "locally modified artifacts are not proof:\n{}",
+        String::from_utf8_lossy(&status.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&scratch);
+}
