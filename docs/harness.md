@@ -26,7 +26,8 @@ tool and MCP layer, an agent graph and plugins — is in
    ├── deepseek-flash      │ (/v1/models, /v1/chat/completions;
    ├── deepseek-pro        │  --accounts adds per-key budgets)
    ├── gemini-flash        │
-   └── gemini-pro          │
+   ├── gemini-pro          │
+   └── kimi-flash          │
 ```
 
 ## The chain
@@ -60,21 +61,23 @@ tool and MCP layer, an agent graph and plugins — is in
 
 ## Model tiers
 
-DeepSeek drives and Gemini delegates. The registry carries exactly the ids the
-providers advertise — `deepseek-flash`, `deepseek-pro` (backend
-`deepseek-v4-pro`), `gemini-flash`, `gemini-pro` — and the policy above them is
-an alias, so rerouting the fleet never touches a plan:
+DeepSeek orchestrates; Gemini and Kimi work. The registry carries exactly the
+ids the providers advertise — `deepseek-flash` (orchestrator), `deepseek-pro`
+(backend `deepseek-v4-pro`), `gemini-flash`, `gemini-pro`, `kimi-flash` (backend
+`kimi-k2.7-code-highspeed`) — and the policy above them is an alias, so rerouting
+the fleet never touches a plan:
 
 | Alias | Model | Role |
 |---|---|---|
-| `coder`, `worker`, `flash` | `deepseek-flash` | the default worker turn |
+| `orchestrator`, `primary`, `coder`, `flash` | `deepseek-flash` | the orchestrator and default turn |
 | `planner`, `reasoner`, `pro` | `deepseek-pro` | planning and escalation when flash does not pass |
-| `cheap` | `gemini-flash` | the cheap delegate (large context, vision) |
+| `worker`, `cheap` | `gemini-flash` | the primary worker (large context, vision) |
 | `delegate`, `reviewer` | `gemini-pro` | second opinion and review |
+| `backup`, `backup-worker`, `kimi` | `kimi-flash` | the backup worker when Gemini is unavailable |
 
 `susi harness models --verify` checks each registered backend id against the
 provider's own list, so an id retired upstream is reported before a call fails.
-Prices for all four live in [deploy/harness/prices.json](../deploy/harness/prices.json).
+Prices live in [deploy/harness/prices.json](../deploy/harness/prices.json).
 
 Anthropic keys come in two kinds: a key scoped to a workspace needs nothing
 extra, while a console user key (`sk-ant-usr-…`) is accepted but every request
