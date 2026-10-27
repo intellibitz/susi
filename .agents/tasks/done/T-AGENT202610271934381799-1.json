@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT202610271934381799-1",
+  "title": "Document the default orchestration harness: DeepSeek orchestrator, Gemini worker, Kimi backup",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "provider_registry"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793110280,
+  "closed": {
+    "at_unix": 1793110588,
+    "commit": "1c0c4bb1c6a4dc77809410d4ccd630a8e484bc73",
+    "by": "AGENT202610271934381799"
+  }
+}
