@@ -1655,7 +1655,7 @@
       "id": "VC-203-009",
       "mastery_target": "Tool discovery, deterministic pagination/filtering, list-change signaling, invocation, structured and unstructured results, output-schema validation, annotations, icons, errors, cancellation, progress, caching, idempotency declarations, and concurrent execution all work through the production registry. Tool identity and schema changes are versioned, calls are policy-gated, and success is impossible when declared output contracts are violated.",
       "priority": "P0",
-      "progress": "NOT DELIVERED (GMCP completion baseline 2026-10-17): this vector remains open until every linked GMCP-203-009-* requirement is implemented on the production path, its positive, negative, interoperability, and operational evidence is retained, and gmcp_vc_203_009_mastery passes. Roadmap prose and task closure alone are not delivery evidence.",
+      "progress": "DELIVERED (2026-10-27): every GMCP-203-009-* requirement shipped on the production tool registry path (crates/susi-gmcp/src/tool_registry.rs) with contract, integration, adversarial, interop, and operations evidence retained, proven by gmcp_vc_203_009_mastery; see .agents/roadmap-verdicts/VC-203-009.json and .agents/gmcp/evidence/VC-203-009.jsonl",
       "type": "CORE",
       "vector": "Complete tool server surface"
     },

@@ -1,0 +1,16 @@
+{
+  "vector": "VC-203-009",
+  "verdict": "delivered",
+  "evidence": "tests/gmcp_requirements.rs - gmcp_req_203_009_01_contract through _06_operations plus gmcp_vc_203_009_mastery (7 tests): contract-203-009.md binds 67 normative ledger rows for the tool server surface; the shipped production path verifies the ledger end-to-end with 67 VC-203-009 rows bound to crates/susi-gmcp/src/tool_registry.rs; the served stdio transport advertises a non-empty tools array and answers an unknown tool with a typed error; adversarial matrices prove policy gating, input/output schema validation, typed errors on hostile tool names, protocol-version rejection, and concurrent fault isolation; interop replays reference fixtures with deterministic parity and published latency/throughput budgets; operations evidence and drift-checked runbooks are retained; mastery consumes and verifies all 01-06 and mastery evidence with exit 0, non-mock, non-waived, matching current ledger hash, and backed by committed tests.",
+  "tracked_by": [
+    "T-CODEXGMCPROADMAP-51",
+    "T-CODEXGMCPROADMAP-52",
+    "T-CODEXGMCPROADMAP-53",
+    "T-CODEXGMCPROADMAP-54",
+    "T-CODEXGMCPROADMAP-55",
+    "T-CODEXGMCPROADMAP-56",
+    "T-CODEXGMCPROADMAP-57"
+  ],
+  "recorded_by": "HARNESSCODEXGMCPROADMAP57",
+  "recorded_unix": 1793076115
+}
