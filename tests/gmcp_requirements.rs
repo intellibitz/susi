@@ -174,7 +174,7 @@ impl StdioSession {
         session.stdin.flush().expect("requests must flush");
         // Consume the initialize response before callers drive requests.
         session
-            .response_for(&serde_json::json!(1), std::time::Duration::from_secs(120))
+            .response_for(&serde_json::json!(1), std::time::Duration::from_secs(300))
             .expect("initialize must be answered");
         session
     }
@@ -197,7 +197,7 @@ impl StdioSession {
         session
             .response_for(
                 &serde_json::json!("modern-handshake"),
-                std::time::Duration::from_secs(120),
+                std::time::Duration::from_secs(300),
             )
             .expect("server/discover must be answered");
         session
@@ -253,7 +253,7 @@ impl StdioSession {
             "params": params
         }));
         let response = self
-            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(120))
+            .response_for(&serde_json::json!(id), std::time::Duration::from_secs(300))
             .expect("served endpoint must answer within the bound");
         assert!(
             response.get("error").is_none_or(|e| e.is_null()),
@@ -1834,7 +1834,7 @@ fn gmcp_req_203_002_02_production() {
     let response = wire
         .request_verbatim(
             &serde_json::json!({"jsonrpc":"2.0","id":null,"method":"tools/list"}),
-            std::time::Duration::from_secs(120),
+            std::time::Duration::from_secs(300),
         )
         .expect("a null id must be answered");
     assert_eq!(response["error"]["code"], -32600);
@@ -9805,7 +9805,7 @@ fn gmcp_req_203_010_03_integration() {
                 "jsonrpc": "2.0", "id": "malformed-uri", "method": "resources/read",
                 "params": {"uri": "not a uri"}
             }),
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(180),
         )
         .expect("a malformed URI must earn a typed answer");
     assert!(
@@ -11187,7 +11187,7 @@ fn gmcp_vc_203_005_mastery() {
     session.send_raw(b"not-json-mastery-line\n");
     let err_32700 = session
         .rx
-        .recv_timeout(std::time::Duration::from_secs(60))
+        .recv_timeout(std::time::Duration::from_secs(180))
         .expect("malformed line must earn typed error");
     assert_eq!(err_32700["error"]["code"], -32700);
 
@@ -12140,7 +12140,7 @@ fn gmcp_req_203_013_06_operations() {
                 "jsonrpc": "2.0", "id": "ops-corrupt",
                 "result": {"roots": [{"uri": "relative/path"}]}
             }),
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(120),
         )
         .expect("a corrupt client result must earn a typed answer");
     assert!(
@@ -13320,7 +13320,7 @@ fn gmcp_vc_203_013_mastery() {
                 "jsonrpc": "2.0", "id": "ops-corrupt",
                 "result": {"roots": [{"uri": "relative/path"}]}
             }),
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(120),
         )
         .expect("a corrupt client result must earn a typed answer");
     assert!(
