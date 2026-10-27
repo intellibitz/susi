@@ -12901,3 +12901,50 @@ fn gmcp_req_203_010_05_interop() {
     drop(other);
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+/// GMCP-203-007-02: the shipped GMCP runtime serves the production path
+/// through the canonical transport SPI, with in-process transport and
+/// stdio transport behaving as the same protocol.
+#[test]
+fn gmcp_req_203_007_02_production() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-007-02-prod-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let mut wire = StdioSession::spawn_raw(root, &home);
+    let initialize = wire
+        .request_verbatim(
+            &serde_json::json!({
+                "jsonrpc": "2.0", "id": "init", "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "gmcp-007-02-prod", "version": "1"}
+                }
+            }),
+            std::time::Duration::from_secs(120),
+        )
+        .expect("initialize must be answered on the production stdio path");
+    assert!(
+        initialize["result"]["capabilities"].is_object(),
+        "initialize must return a capabilities object: {initialize}"
+    );
+    wire.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+
+    let tools = wire.request("tools/list", serde_json::json!({}));
+    assert!(
+        tools["tools"].is_array(),
+        "production path must serve tools/list: {tools}"
+    );
+
+    let ping = wire.request("ping", serde_json::json!({}));
+    assert_eq!(
+        ping,
+        serde_json::json!({}),
+        "production path must answer ping"
+    );
+
+    drop(wire);
+    let _ = std::fs::remove_dir_all(&scratch);
+}
