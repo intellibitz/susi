@@ -50,6 +50,10 @@ permissions:
 # reason.
 env:
   CARGO_PROFILE_DEV_DEBUG: 0
+  # The runner mounts /tmp as a 7.9 GB tmpfs; the test scratch dirs AND the C
+  # compiler's temp files (zstd-sys etc.) fill it and fail with EDQUOT. Point
+  # temp at the runner's real disk (~104 GB free) for every job.
+  TMPDIR: ${{ runner.temp }}
 
 # Compile-heavy jobs use `runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}`:
 # point the `CI_RUNNER` repository variable at a larger runner (e.g.
