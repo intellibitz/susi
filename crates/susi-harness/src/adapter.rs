@@ -863,6 +863,11 @@ pub fn run_task<R: CommandRunner>(
         target.close(&worktree, &task)?;
         let closed_committed = target.commit_work(&worktree, &task).unwrap_or(false);
         let finished = target.finish(&worktree, &task);
+        if finished.is_err() {
+            // The precheck could not publish: the claim must not outlive this
+            // attempt, exactly as when a ladder exhausts its attempts.
+            let _ = target.release(&worktree, &task);
+        }
         return Ok(SusiRunReport {
             worktree,
             task,
