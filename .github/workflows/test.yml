@@ -614,6 +614,15 @@ jobs:
       # preceded it. A test is retried alone, and one that passes on retry is
       # reported FLAKY in the summary rather than failing the shard - visible, not
       # silent - while one that fails all three attempts still reddens main.
+      # The ubuntu runner ships ~30 GB of pre-installed toolchains the Rust build
+      # never touches; the root-cli dependency closure plus the restored cache
+      # fills the ~14 GB disk, and the tasks_cli git tests then fail with EDQUOT
+      # ("Disk quota exceeded"). Free them first so a shard never runs full.
+      - name: Free runner disk space
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/local/share/renv 2>/dev/null || true
+          df -h
       - name: cargo nextest
         if: steps.scope.outputs.run == 'true'
         run: cargo nextest run --locked --retries 2 ${{ matrix.shard.pkgs }} -E 'not binary(capability_gap_e2e)'

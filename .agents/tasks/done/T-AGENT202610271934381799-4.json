@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT202610271934381799-4",
+  "title": "Relieve CI runner disk pressure so the root-cli shard stops failing with EDQUOT",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793123536,
+  "closed": {
+    "at_unix": 1793123707,
+    "commit": "f5c7c38a75e115b26f8daa3961e9143b4aec24bc",
+    "by": "AGENT202610271934381799"
+  }
+}
