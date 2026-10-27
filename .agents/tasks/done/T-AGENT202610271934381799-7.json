@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT202610271934381799-7",
+  "title": "Diagnose the daemon trust-test failure on Linux CI",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "server::tests"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793131222,
+  "closed": {
+    "at_unix": 1793131397,
+    "commit": "c674ff153a6b03c9cb94f2747d8bdb175c5157c0",
+    "by": "AGENT202610271934381799"
+  }
+}
