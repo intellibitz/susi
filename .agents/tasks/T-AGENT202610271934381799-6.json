@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT202610271934381799-6",
+  "title": "Point CI test temp at the big disk, not the 7.9GB /tmp tmpfs",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793128516
+}
