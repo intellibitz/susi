@@ -1,0 +1,24 @@
+{
+  "id": "T-AGENT202610271934381799-8",
+  "title": "Fix the daemon trust test: block the fake child on stdin instead of sleep",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "server::tests"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793137705,
+  "closed": {
+    "at_unix": 1793137946,
+    "commit": "8cc137a271c8d9fe645720bb4985b25a1675ee57",
+    "by": "AGENT202610271934381799"
+  }
+}
