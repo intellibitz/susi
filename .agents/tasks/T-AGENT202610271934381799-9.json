@@ -1,0 +1,18 @@
+{
+  "id": "T-AGENT202610271934381799-9",
+  "title": "Point CI temp off the tmpfs for every job (coverage/lint/e2e too)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793141531
+}
