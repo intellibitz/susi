@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179308852334436-1",
+  "title": "The worker request must suit every provider it can route",
+  "goal": "Kimi rejects any temperature except 1 (HTTP 400 on turn 1) and the worker hard-codes temperature 0.0; Gemini 3.x spends the whole 4096-token budget on thinking for a complex prompt and returns an empty message. Drop the fixed temperature, raise max_tokens to the gateway cap, and have the gateway ask the gemini provider for low reasoning effort when the caller did not choose one.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "worker"
+    ]
+  },
+  "created_by": "AGENT179308852334436",
+  "created_unix": 1793088563
+}
