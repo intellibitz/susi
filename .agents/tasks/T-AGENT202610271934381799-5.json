@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT202610271934381799-5",
+  "title": "Keep the daemon trust-test child alive long enough under CI load",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-daemon",
+      "test_is_trusted_susi_process"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793126131
+}

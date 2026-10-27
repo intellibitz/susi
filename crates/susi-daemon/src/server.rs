@@ -2603,7 +2603,11 @@ mod tests {
         let mut child = {
             let mut attempt = 0;
             loop {
-                match Command::new(&fake_bin).arg("5").spawn() {
+                // Sleep a full minute: the assertions below must observe a live
+                // child, and a 5 s sleep can expire under a loaded CI runner
+                // (the child reaps to a zombie, /proc/{pid}/exe vanishes, and
+                // the trust check fails closed even though the hash matches).
+                match Command::new(&fake_bin).arg("60").spawn() {
                     Ok(c) => break c,
                     Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && attempt < 20 => {
                         attempt += 1;
