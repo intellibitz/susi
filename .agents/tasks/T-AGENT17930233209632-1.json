@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT17930233209632-1",
+  "title": "Worker shells must be marked so the CLI can refuse harness commands",
+  "goal": "The worker evaded the text refusal by passing workflow and finish as separate argv words, and ran the harness finish inside its turn again. Mark every command the worker tool spawns with SUSI_WORKER_GUARD=1 and have the CLI refuse the mutating subcommands (workflow finish/sync/start, tasks claim/close/release/renew/abandon) under that variable, so a wrapper or argv split cannot bypass it.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "tools"
+    ]
+  },
+  "created_by": "AGENT17930233209632",
+  "created_unix": 1793023402
+}
