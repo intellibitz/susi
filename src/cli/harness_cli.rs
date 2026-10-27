@@ -35,7 +35,7 @@ pub enum HarnessCommands {
         #[arg(long)]
         gateway: String,
         /// Model id the gateway prices (such as `deepseek-flash`)
-        #[arg(long)]
+        #[arg(long, default_value = "deepseek-flash")]
         model: String,
         /// Roadmap file
         #[arg(long, default_value = ".agents/roadmap.json")]
@@ -49,7 +49,10 @@ pub enum HarnessCommands {
         #[arg(long, default_value_t = 3)]
         max_tasks: usize,
         /// Worker models tasks are spread across (comma-separated)
-        #[arg(long, default_value = "deepseek-flash,gemini-flash")]
+        #[arg(
+            long,
+            default_value = "gemini-flash,kimi-flash,deepseek-pro,gemini-pro"
+        )]
         workers: String,
     },
     /// Plan a batch of dependency-ready queue tasks; each entry claims its id
@@ -68,7 +71,10 @@ pub enum HarnessCommands {
         #[arg(long, default_value_t = 1)]
         limit: usize,
         /// Worker models, assigned round-robin (comma-separated)
-        #[arg(long, default_value = "deepseek-flash,gemini-flash")]
+        #[arg(
+            long,
+            default_value = "gemini-flash,kimi-flash,deepseek-pro,gemini-pro"
+        )]
         workers: String,
         /// Only tasks whose roadmap vector is this id
         #[arg(long)]
@@ -88,7 +94,7 @@ pub enum HarnessCommands {
         #[arg(long)]
         gateway: String,
         /// Model id the gateway prices
-        #[arg(long)]
+        #[arg(long, default_value = "deepseek-flash")]
         model: String,
         /// Per-turn deadline, seconds
         #[arg(long, default_value_t = 900)]
@@ -101,7 +107,10 @@ pub enum HarnessCommands {
         prefix: String,
         /// Models a task may escalate to when its own model does not pass
         /// (comma-separated)
-        #[arg(long, default_value = "deepseek-flash,deepseek-pro,claude-sonnet")]
+        #[arg(
+            long,
+            default_value = "gemini-flash,kimi-flash,deepseek-pro,gemini-pro"
+        )]
         workers: String,
         /// Mission cap in dollars
         #[arg(long, default_value = "5")]
@@ -203,6 +212,33 @@ pub enum HarnessCommands {
         /// Limit the check to one provider id (requires --verify)
         #[arg(long, requires = "verify")]
         provider: Option<String>,
+        /// Filter for models with valid API keys present and sort by budget cost
+        #[arg(long)]
+        available: bool,
+    },
+    /// Serve the metered multi-provider gateway directly from susi
+    Gateway {
+        /// Port to bind (default: 9180)
+        #[arg(long, default_value_t = 9180)]
+        port: u16,
+        /// Interface to bind (default: 127.0.0.1)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Price catalogue
+        #[arg(long, default_value = "deploy/harness/prices.json")]
+        catalogue: PathBuf,
+        /// Ledger path
+        #[arg(long, default_value = "out/ledger.jsonl")]
+        ledger: PathBuf,
+        /// Upstream URL or "direct" for multi-provider routing
+        #[arg(long, default_value = "direct")]
+        upstream: String,
+        /// Upstream call timeout in seconds
+        #[arg(long, default_value_t = 120)]
+        timeout: u64,
+        /// Accounts file for authenticated ingress (optional)
+        #[arg(long)]
+        accounts: Option<PathBuf>,
     },
 }
 
@@ -213,14 +249,31 @@ pub enum HarnessCommands {
 /// Returns the first error from authoring, validation, execution or I/O.
 pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
     match action {
-        HarnessCommands::Models { verify, provider } => {
+        HarnessCommands::Models {
+            verify,
+            provider,
+            available,
+        } => {
             if verify {
                 models_verify(provider.as_deref())
+            } else if available {
+                models_available(cwd)
             } else {
                 println!("{}", serde_json::to_string_pretty(&registry_json())?);
                 Ok(())
             }
         }
+        HarnessCommands::Gateway {
+            port,
+            host,
+            catalogue,
+            ledger,
+            upstream,
+            timeout,
+            accounts,
+        } => serve_gateway(
+            port, &host, catalogue, ledger, upstream, timeout, accounts, cwd,
+        ),
         HarnessCommands::Status { ledger, events } => {
             let cockpit = Cockpit {
                 ledger_path: ledger,
@@ -707,6 +760,96 @@ fn models_verify(provider: Option<&str>) -> Result<()> {
     bail!("model verification failed for: {}", failed.join(", "));
 }
 
+fn models_available(cwd: &Path) -> Result<()> {
+    let registry = Registry::builtin();
+    let cat_path = cwd.join("deploy/harness/prices.json");
+    let catalogue = PriceCatalogue::load(&cat_path).ok();
+    let capable = registry.available_capable_models(
+        &[susi_harness::providers::Capability::Tools],
+        catalogue.as_ref(),
+        susi_harness::policy::UsageProfile::agent(),
+    );
+    let output = serde_json::json!({
+        "orchestrator": Registry::primary_orchestrator(),
+        "worker_ladder": Registry::default_worker_ladder(),
+        "available_capable_models_sorted_by_cost": capable,
+    });
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn serve_gateway(
+    port: u16,
+    host: &str,
+    catalogue_path: PathBuf,
+    ledger_path: PathBuf,
+    upstream: String,
+    timeout: u64,
+    accounts_path: Option<PathBuf>,
+    cwd: &Path,
+) -> Result<()> {
+    let resolved_cat = if catalogue_path.is_absolute() {
+        catalogue_path
+    } else {
+        cwd.join(catalogue_path)
+    };
+    let resolved_ledger = if ledger_path.is_absolute() {
+        ledger_path
+    } else {
+        cwd.join(ledger_path)
+    };
+    if let Some(parent) = resolved_ledger.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let catalogue = PriceCatalogue::load(&resolved_cat)
+        .with_context(|| format!("load price catalogue {}", resolved_cat.display()))?;
+
+    let cache_dir = resolved_ledger.parent().map(Path::to_path_buf);
+    let state = Arc::new(susi_harness::gateway::GatewayState {
+        catalogue,
+        ledger_path: resolved_ledger,
+        upstream_chat_url: upstream,
+        provider: "susi".into(),
+        api_key: None,
+        timeout_secs: timeout,
+        max_output_tokens: None,
+        cache: Some(Arc::new(susi_harness::cache::ResponseCache::new(cache_dir))),
+    });
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime for harness gateway")?;
+
+    runtime.block_on(async {
+        let listener = tokio::net::TcpListener::bind((host, port))
+            .await
+            .with_context(|| format!("bind harness gateway to {host}:{port}"))?;
+        let addr = listener.local_addr()?;
+        eprintln!("susi harness gateway listening on http://{addr}/v1 (full cache on)");
+
+        if let Some(accounts_file) = accounts_path {
+            let acc_resolved = if accounts_file.is_absolute() {
+                accounts_file
+            } else {
+                cwd.join(accounts_file)
+            };
+            let text = std::fs::read_to_string(&acc_resolved)
+                .with_context(|| format!("read accounts file {}", acc_resolved.display()))?;
+            let ingress =
+                susi_harness::ingress::Ingress::parse(&text).map_err(|e| anyhow::anyhow!("{e}"))?;
+            susi_harness::ingress::serve(listener, state, Arc::new(ingress))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))
+        } else {
+            susi_harness::gateway::serve(listener, state)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))
+        }
+    })
+}
+
 /// The provider registry as JSON: each provider with its models, a flat model
 /// list a picker can filter, and the aliases that resolve to model ids.
 fn registry_json() -> serde_json::Value {
@@ -784,11 +927,51 @@ mod tests {
             panic!("expected the harness command");
         };
         match action {
-            HarnessCommands::Models { verify, provider } => {
+            HarnessCommands::Models {
+                verify,
+                provider,
+                available,
+            } => {
                 assert!(!verify);
+                assert!(!available);
                 assert!(provider.is_none());
             }
             _ => panic!("expected harness models"),
+        }
+    }
+
+    #[test]
+    fn models_available_parses() {
+        let cli = Cli::try_parse_from(["susi", "harness", "models", "--available"]).unwrap();
+        let Some(Commands::Harness { action }) = cli.command else {
+            panic!("expected the harness command");
+        };
+        match action {
+            HarnessCommands::Models { available, .. } => {
+                assert!(available);
+            }
+            _ => panic!("expected harness models --available"),
+        }
+    }
+
+    #[test]
+    fn gateway_parses_with_defaults() {
+        let cli = Cli::try_parse_from(["susi", "harness", "gateway"]).unwrap();
+        let Some(Commands::Harness { action }) = cli.command else {
+            panic!("expected the harness command");
+        };
+        match action {
+            HarnessCommands::Gateway {
+                port,
+                host,
+                upstream,
+                ..
+            } => {
+                assert_eq!(port, 9180);
+                assert_eq!(host, "127.0.0.1");
+                assert_eq!(upstream, "direct");
+            }
+            _ => panic!("expected harness gateway"),
         }
     }
 
@@ -807,7 +990,9 @@ mod tests {
             panic!("expected the harness command");
         };
         match action {
-            HarnessCommands::Models { verify, provider } => {
+            HarnessCommands::Models {
+                verify, provider, ..
+            } => {
                 assert!(verify);
                 assert_eq!(provider.as_deref(), Some("gemini"));
             }

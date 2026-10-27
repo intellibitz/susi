@@ -10,6 +10,8 @@
 //! `provider/model` prefix; an unknown model is left to the caller's fallback
 //! provider rather than guessed at.
 
+use crate::catalog::PriceCatalogue;
+use crate::policy::UsageProfile;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -230,6 +232,22 @@ impl Registry {
         &self.aliases
     }
 
+    /// Resolve aliases and provider prefixes to the canonical model identifier.
+    #[must_use]
+    pub fn canonical_id<'a>(&'a self, model: &'a str) -> &'a str {
+        let mut name = model.trim();
+        if let Some(stripped) = name.strip_prefix("susi/") {
+            name = stripped.trim();
+        }
+        for _ in 0..4 {
+            match self.aliases.get(name) {
+                Some(target) if target != name => name = target.as_str(),
+                _ => break,
+            }
+        }
+        name
+    }
+
     /// Resolve a caller-facing model name.
     ///
     /// Aliases are followed (bounded), then an exact model id is matched
@@ -238,6 +256,9 @@ impl Registry {
     #[must_use]
     pub fn resolve(&self, model: &str) -> Option<ResolvedModel> {
         let mut name = model.trim();
+        if let Some(stripped) = name.strip_prefix("susi/") {
+            name = stripped.trim();
+        }
         if name.is_empty() {
             return None;
         }
@@ -292,6 +313,69 @@ impl Registry {
             "model `{model}` cannot run this turn: missing {}",
             missing.join(", ")
         )))
+    }
+
+    /// Models with live API keys in the environment that meet `required` capabilities,
+    /// optionally sorted by per-task budget cost from cheapest to most expensive under `catalogue`.
+    #[must_use]
+    pub fn available_capable_models(
+        &self,
+        required: &[Capability],
+        catalogue: Option<&PriceCatalogue>,
+        profile: UsageProfile,
+    ) -> Vec<String> {
+        let mut candidates = Vec::new();
+        for provider in &self.providers {
+            let key_ok = if provider.key_envs.is_empty() {
+                true
+            } else {
+                provider.key_envs.iter().any(|k| {
+                    std::env::var(k)
+                        .map(|v| !v.trim().is_empty())
+                        .unwrap_or(false)
+                })
+            };
+            if !key_ok {
+                continue;
+            }
+            for model in &provider.models {
+                if model.capabilities.missing(required).is_empty() {
+                    candidates.push(model.id.clone());
+                }
+            }
+        }
+        if let Some(cat) = catalogue {
+            let mut priced: Vec<(String, crate::money::MicroUsd)> = candidates
+                .into_iter()
+                .filter_map(|m| {
+                    cat.price(&m).map(|p| {
+                        let cost = p.cost(crate::pricing::TokenUsage::new(
+                            profile.input,
+                            0,
+                            profile.output,
+                        ));
+                        (m, cost)
+                    })
+                })
+                .collect();
+            priced.sort_by_key(|(_, cost)| *cost);
+            priced.into_iter().map(|(m, _)| m).collect()
+        } else {
+            candidates
+        }
+    }
+
+    /// The default primary orchestrator model (DeepSeek Flash).
+    #[must_use]
+    pub const fn primary_orchestrator() -> &'static str {
+        "deepseek-flash"
+    }
+
+    /// The default worker ladder: primary worker (Gemini Flash),
+    /// backup worker (Kimi Flash), and escalation workers (DeepSeek Pro, Gemini Pro).
+    #[must_use]
+    pub fn default_worker_ladder() -> [&'static str; 4] {
+        ["gemini-flash", "kimi-flash", "deepseek-pro", "gemini-pro"]
     }
 }
 
@@ -389,7 +473,9 @@ const BUILTIN: &str = r#"
 {
   "aliases": {
     "coder": "deepseek-flash",
-    "worker": "deepseek-flash",
+    "primary": "deepseek-flash",
+    "orchestrator": "deepseek-flash",
+    "worker": "gemini-flash",
     "flash": "deepseek-flash",
     "planner": "deepseek-pro",
     "reasoner": "deepseek-pro",
@@ -398,7 +484,11 @@ const BUILTIN: &str = r#"
     "delegate": "gemini-pro",
     "reviewer": "gemini-pro",
     "kimi": "kimi-flash",
-    "backup": "kimi-flash"
+    "backup": "kimi-flash",
+    "backup-worker": "kimi-flash",
+    "pro-worker-1": "deepseek-pro",
+    "pro-worker-2": "gemini-pro",
+    "pro-worker": "deepseek-pro"
   },
   "providers": [
     {
@@ -656,6 +746,40 @@ mod tests {
     fn provider_registry_rejects_a_non_url_endpoint() {
         let broken = r#"{"providers":[{"id":"x","wire":"openai","endpoint":"nope"}]}"#;
         assert!(Registry::parse(broken).is_err());
+    }
+
+    #[test]
+    fn provider_registry_orchestrator_and_worker_ladder() {
+        let registry = Registry::builtin();
+        assert_eq!(
+            registry.resolve("orchestrator").unwrap().model_id,
+            "deepseek-flash"
+        );
+        assert_eq!(
+            registry.resolve("primary").unwrap().model_id,
+            "deepseek-flash"
+        );
+        assert_eq!(
+            registry.resolve("worker").unwrap().model_id,
+            "gemini-3.8-flash"
+        );
+        assert_eq!(
+            registry.resolve("backup").unwrap().model_id,
+            "kimi-k2.7-code-highspeed"
+        );
+        assert_eq!(
+            registry.resolve("pro-worker-1").unwrap().model_id,
+            "deepseek-v4-pro"
+        );
+        assert_eq!(
+            registry.resolve("pro-worker-2").unwrap().model_id,
+            "gemini-pro-latest"
+        );
+        assert_eq!(Registry::primary_orchestrator(), "deepseek-flash");
+        assert_eq!(
+            Registry::default_worker_ladder(),
+            ["gemini-flash", "kimi-flash", "deepseek-pro", "gemini-pro"]
+        );
     }
 
     #[test]
