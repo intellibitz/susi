@@ -3164,6 +3164,10 @@ mod os_tools_wired_tests {
         // ~/.susi exists — without this the tests would write the real
         // host's term.json/commit_log.jsonl.
         env.set("SUSI_XDG", "1");
+        // Windows resolves the config root through APPDATA, not XDG: without
+        // these the test reads the real host's commit_log.jsonl.
+        env.set("APPDATA", dir.join("appdata"));
+        env.set("LOCALAPPDATA", dir.join("localappdata"));
         (guard, env, dir)
     }
 
