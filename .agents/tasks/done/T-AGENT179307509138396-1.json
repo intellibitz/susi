@@ -1,0 +1,25 @@
+{
+  "id": "T-AGENT179307509138396-1",
+  "title": "The commit-log tests must isolate the Windows profile",
+  "goal": "isolate_config in susi-gmcp core tests redirects XDG_CONFIG_HOME but on Windows the config root resolves through APPDATA, so commit_record_accepts_signed_record_and_appends_to_ledger reads the real host commit_log.jsonl (34 entries instead of 1) and the full local gate is red. Set APPDATA and LOCALAPPDATA to the temp root too.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gmcp",
+      "--lib",
+      "commit_record"
+    ]
+  },
+  "created_by": "AGENT179307509138396",
+  "created_unix": 1793075131,
+  "closed": {
+    "at_unix": 1793075660,
+    "commit": "1c2bd90890164b50126fe9ebcabcc10061e9735b",
+    "by": "AGENT179307509138396"
+  }
+}
