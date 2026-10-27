@@ -66,7 +66,11 @@ impl PriceCatalogue {
     /// The price for `model`, when the catalogue knows it.
     #[must_use]
     pub fn price(&self, model: &str) -> Option<ModelPrice> {
-        self.models.get(model).copied()
+        if let Some(price) = self.models.get(model).copied() {
+            return Some(price);
+        }
+        let canonical = crate::providers::Registry::builtin().canonical_id(model);
+        self.models.get(canonical).copied()
     }
 
     /// Number of priced models.

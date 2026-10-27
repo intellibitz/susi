@@ -66,6 +66,22 @@ pub struct GatewayState {
     pub cache: Option<Arc<ResponseCache>>,
 }
 
+static FALLBACK_CACHE: std::sync::OnceLock<Arc<ResponseCache>> = std::sync::OnceLock::new();
+
+impl GatewayState {
+    /// Active response cache, ensuring full cache mode is always active.
+    #[must_use]
+    pub fn active_cache(&self) -> Arc<ResponseCache> {
+        if let Some(ref c) = self.cache {
+            return Arc::clone(c);
+        }
+        Arc::clone(FALLBACK_CACHE.get_or_init(|| {
+            let cache_dir = self.ledger_path.parent().map(std::path::Path::to_path_buf);
+            Arc::new(ResponseCache::new(cache_dir))
+        }))
+    }
+}
+
 /// One dispatch the gateway is about to price.
 struct Attempt {
     mission: String,
@@ -174,38 +190,40 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
     };
 
     let cache_key = ResponseCache::compute_key(&request);
-    if !streaming {
-        if let Some(ref cache) = state.cache {
-            if let Some(cached_response) = cache.get(&cache_key) {
-                let usage = token_usage_from_json(&cached_response).unwrap_or_default();
-                let entry = LedgerEntry::settle(Dispatch {
-                    mission: attempt.mission.clone(),
-                    task: attempt.task.clone(),
-                    attempt: attempt.attempt,
-                    model: attempt.model.clone(),
-                    provider: state.provider.clone(),
-                    usage,
-                    price: attempt.price,
-                    started_unix_ms: now_ms(),
-                    ended_unix_ms: now_ms(),
-                    outcome: Outcome::Completed,
-                })
-                .as_cached();
-                let _ = append_entry(&state.ledger_path, &entry);
+    if let Some(ref cache) = state.cache {
+        if let Some(cached_response) = cache.get(&cache_key) {
+            let usage = token_usage_from_json(&cached_response).unwrap_or_default();
+            let entry = LedgerEntry::settle(Dispatch {
+                mission: attempt.mission.clone(),
+                task: attempt.task.clone(),
+                attempt: attempt.attempt,
+                model: attempt.model.clone(),
+                provider: state.provider.clone(),
+                usage,
+                price: attempt.price,
+                started_unix_ms: now_ms(),
+                ended_unix_ms: now_ms(),
+                outcome: Outcome::Completed,
+            })
+            .as_cached();
+            let _ = append_entry(&state.ledger_path, &entry);
 
-                let body_bytes = serde_json::to_vec(&cached_response).unwrap_or_default();
-                let mut res = Response::new(axum::body::Body::from(body_bytes));
-                *res.status_mut() = StatusCode::OK;
-                res.headers_mut().insert(
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_static("application/json"),
-                );
-                res.headers_mut().insert(
-                    header::HeaderName::from_static("x-susi-cache-key"),
-                    HeaderValue::from_str(&cache_key).unwrap_or(HeaderValue::from_static("hit")),
-                );
-                return res;
+            if streaming {
+                return cached_streaming_response(&cache_key, &cached_response, &attempt.model);
             }
+
+            let body_bytes = serde_json::to_vec(&cached_response).unwrap_or_default();
+            let mut res = Response::new(axum::body::Body::from(body_bytes));
+            *res.status_mut() = StatusCode::OK;
+            res.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+            res.headers_mut().insert(
+                header::HeaderName::from_static("x-susi-cache-key"),
+                HeaderValue::from_str(&cache_key).unwrap_or(HeaderValue::from_static("hit")),
+            );
+            return res;
         }
     }
 
@@ -214,6 +232,55 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
     } else {
         buffered_upstream(state, attempt, forwarded, cache_key).await
     }
+}
+
+fn cached_streaming_response(cache_key: &str, cached_response: &Value, model: &str) -> Response {
+    let content = cached_response
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c0| c0.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let chunk1 = json!({
+        "id": format!("chatcmpl-cache-{cache_key}"),
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "role": "assistant",
+                "content": content
+            },
+            "finish_reason": Value::Null
+        }]
+    });
+    let chunk2 = json!({
+        "id": format!("chatcmpl-cache-{cache_key}"),
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+        }]
+    });
+    let sse_body = format!(
+        "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+        serde_json::to_string(&chunk1).unwrap_or_default(),
+        serde_json::to_string(&chunk2).unwrap_or_default()
+    );
+    let mut res = Response::new(axum::body::Body::from(sse_body));
+    *res.status_mut() = StatusCode::OK;
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    res.headers_mut().insert(
+        header::HeaderName::from_static("x-susi-cache-key"),
+        HeaderValue::from_str(cache_key).unwrap_or(HeaderValue::from_static("hit")),
+    );
+    res
 }
 
 fn with_usage_in_stream(request: &Value, original: &str) -> String {
@@ -403,28 +470,46 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         price,
     } = attempt;
     let started_unix_ms = now_ms();
+    let route = match crate::router::resolve_route(
+        &model,
+        Some(&state.upstream_chat_url),
+        state.api_key.as_deref(),
+    ) {
+        Ok(r) => r,
+        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
+    };
+
     let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
     let (meta_tx, meta_rx) = tokio::sync::oneshot::channel::<Result<(u16, String), String>>();
-    let url = state.upstream_chat_url.clone();
-    let api_key = state.api_key.clone();
+    let target_url = route.url.clone();
+    let route_headers = route.headers.clone();
     let timeout_secs = state.timeout_secs;
     let provider = state.provider.clone();
     let ledger_path = state.ledger_path.clone();
 
-    tokio::task::spawn_blocking(move || {
-        // `None` means the operator pinned no single key: a direct-mode gateway
-        // resolves per model through the router, so there is nothing to send
-        // here (an explicit upstream always carries one).
-        let authorization = api_key.as_deref().map(|key| format!("Bearer {key}"));
-        let mut forwarded: Vec<(&str, &str)> = vec![("content-type", "application/json")];
-        if let Some(value) = authorization.as_deref() {
-            forwarded.push(("authorization", value));
+    let outgoing_body = if route.model_id != model {
+        if let Ok(mut parsed) = serde_json::from_str::<Value>(&body) {
+            if let Some(obj) = parsed.as_object_mut() {
+                obj.insert("model".to_string(), Value::String(route.model_id.clone()));
+            }
+            serde_json::to_string(&parsed).unwrap_or(body)
+        } else {
+            body
         }
+    } else {
+        body
+    };
+
+    tokio::task::spawn_blocking(move || {
+        let headers_ref: Vec<(&str, &str)> = route_headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         let call = match susi_http_transport::http_call_with_body(
             "POST",
-            &url,
-            &forwarded,
-            Some(body.as_bytes()),
+            &target_url,
+            &headers_ref,
+            Some(outgoing_body.as_bytes()),
             timeout_secs,
             0,
         ) {
