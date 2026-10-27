@@ -2629,7 +2629,17 @@ mod tests {
             crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&fake_bin)
                 .unwrap();
         std::fs::write(SusiDaemon::get_hash_file(&global_dir), &real_hash).unwrap();
-        assert!(SusiDaemon::is_trusted_susi_process(pid, &global_dir));
+        // Diagnose which check fails when the assertion trips: the /proc exe
+        // target (name gate), its hash (hash gate), and the instance env.
+        let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok();
+        let exe_hash = exe.as_ref().and_then(|p| {
+            crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(p).ok()
+        });
+        assert!(
+            SusiDaemon::is_trusted_susi_process(pid, &global_dir),
+            "trusted hash must match: exe={exe:?} exe_hash={exe_hash:?} trusted={real_hash} susi_home={:?}",
+            std::env::var_os("SUSI_HOME")
+        );
 
         // Trust anchor stale/mismatched: no longer trusted.
         std::fs::write(SusiDaemon::get_hash_file(&global_dir), "not-the-real-hash").unwrap();
