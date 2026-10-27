@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179310075030612-1",
+  "title": "Orchestration harness: DeepSeek orchestrator with Gemini and Kimi ladder",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "router"
+    ]
+  },
+  "created_by": "AGENT179310075030612",
+  "created_unix": 1793101307
+}
