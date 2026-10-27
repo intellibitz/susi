@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT179308584231752-1",
+  "title": "The harness must route Kimi so orchestration can run without Claude",
+  "goal": "Claude is no longer recharged. Add a moonshot/Kimi provider to the harness registry (OpenAI wire, https://api.moonshot.ai/v1/chat/completions, MOONSHOT_API_KEY) with kimi-flash (kimi-k2.7-code-highspeed), kimi-k3 and kimi-k3-pro (kimi-k3.1-pro-highspeed), aliases that name Kimi as the backup worker, and catalogue prices (K3 3/15 USD per MTok, K2 0.60/2.50, cache hit 0.30/0.15).",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "providers"
+    ]
+  },
+  "created_by": "AGENT179308584231752",
+  "created_unix": 1793085879
+}

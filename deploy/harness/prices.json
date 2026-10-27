@@ -6,7 +6,21 @@
       "input_miss": 1000000,
       "output": 5000000
     },
-    "claude-sonnet": {
+        "kimi-flash": {
+      "input_hit": 150000,
+      "input_miss": 600000,
+      "output": 2500000
+    },
+    "kimi-k3": {
+      "input_hit": 300000,
+      "input_miss": 3000000,
+      "output": 15000000
+    },
+    "kimi-k3-pro": {
+      "input_hit": 300000,
+      "input_miss": 3000000,
+      "output": 15000000
+    },"claude-sonnet": {
       "input_hit": 300000,
       "input_miss": 3000000,
       "output": 15000000
