@@ -396,7 +396,9 @@ const BUILTIN: &str = r#"
     "pro": "deepseek-pro",
     "cheap": "gemini-flash",
     "delegate": "gemini-pro",
-    "reviewer": "gemini-pro"
+    "reviewer": "gemini-pro",
+    "kimi": "kimi-flash",
+    "backup": "kimi-flash"
   },
   "providers": [
     {
@@ -439,6 +441,17 @@ const BUILTIN: &str = r#"
       "models": [
         {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true},
         {"id": "gemini-pro", "backend": "gemini-pro-latest", "context": 1048576, "tools": true, "streaming": true, "vision": true}
+      ]
+    },
+    {
+      "id": "moonshot",
+      "wire": "openai",
+      "endpoint": "https://api.moonshot.ai/v1/chat/completions",
+      "key_env": ["MOONSHOT_API_KEY", "KIMI_API_KEY"],
+      "models": [
+        {"id": "kimi-flash", "backend": "kimi-k2.7-code-highspeed", "context": 262144, "tools": true, "streaming": true},
+        {"id": "kimi-k3", "backend": "kimi-k3", "context": 1048576, "tools": true, "streaming": true, "vision": true},
+        {"id": "kimi-k3-pro", "backend": "kimi-k3.1-pro-highspeed", "context": 1048576, "tools": true, "streaming": true, "vision": true}
       ]
     },
     {
@@ -526,6 +539,31 @@ mod tests {
         // chat/reasoner ids are retired upstream and would 404.
         assert!(registry.resolve("deepseek-chat").is_none());
         assert!(registry.resolve("deepseek-reasoner").is_none());
+    }
+
+    #[test]
+    fn provider_registry_routes_kimi_as_the_backup_worker() {
+        let registry = Registry::builtin();
+        let kimi = registry.resolve("kimi-flash").expect("kimi-flash resolves");
+        assert_eq!(kimi.provider, "moonshot");
+        assert_eq!(kimi.wire, Wire::OpenAi);
+        assert_eq!(kimi.endpoint, "https://api.moonshot.ai/v1/chat/completions");
+        assert_eq!(kimi.model_id, "kimi-k2.7-code-highspeed");
+        assert_eq!(
+            kimi.key_envs,
+            vec!["MOONSHOT_API_KEY", "KIMI_API_KEY"],
+            "both the Moonshot name and the Kimi alias are accepted"
+        );
+        assert!(kimi.capabilities.tools);
+        // The alias names the same model, so `--workers backup` works.
+        assert_eq!(
+            registry.resolve("backup").map(|resolved| resolved.model_id),
+            Some("kimi-k2.7-code-highspeed".to_string())
+        );
+        assert_eq!(
+            registry.resolve("kimi-k3-pro").unwrap().model_id,
+            "kimi-k3.1-pro-highspeed"
+        );
     }
 
     #[test]
