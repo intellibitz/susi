@@ -2587,8 +2587,11 @@ mod tests {
 
         // A real file literally named "susi" standing in for the trusted
         // binary, so /proc/{pid}/exe's basename check has something to match.
+        // Copy OUR OWN test binary, not /bin/sleep: on some runner images
+        // sleep is a dispatch-style binary that exits as soon as argv[0] is
+        // not a recognised command, leaving /proc/{pid}/exe gone.
         let fake_bin = base.join("susi");
-        std::fs::copy("/bin/sleep", &fake_bin).unwrap();
+        std::fs::copy(std::env::current_exe().unwrap(), &fake_bin).unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -2597,17 +2600,20 @@ mod tests {
             std::fs::set_permissions(&fake_bin, perms).unwrap();
         }
 
-        // ETXTBSY is transient: a parallel thread's fork can hold the
-        // destination fd open-for-write between fork and exec while the
-        // copy above is finishing. Retry past the window.
+        // Run the helper test, which blocks on stdin: the child stays alive
+        // until we close the pipe, so the assertions always see a live process.
         let mut child = {
             let mut attempt = 0;
             loop {
-                // Sleep a full minute: the assertions below must observe a live
-                // child, and a 5 s sleep can expire under a loaded CI runner
-                // (the child reaps to a zombie, /proc/{pid}/exe vanishes, and
-                // the trust check fails closed even though the hash matches).
-                match Command::new(&fake_bin).arg("60").spawn() {
+                match Command::new(&fake_bin)
+                    .args([
+                        "--ignored",
+                        "--exact",
+                        "server::tests::block_until_stdin_closes",
+                    ])
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+                {
                     Ok(c) => break c,
                     Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && attempt < 20 => {
                         attempt += 1;
@@ -2648,5 +2654,15 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Helper for [`test_is_trusted_susi_process_matches_only_the_trusted_hash`]:
+    /// a fake "susi" child runs this test so it blocks on stdin and stays alive
+    /// until the parent closes the pipe. Ignored so it never runs in the suite.
+    #[test]
+    #[ignore = "helper: keeps the trust test's fake child alive until its stdin closes"]
+    fn block_until_stdin_closes() {
+        let mut line = String::new();
+        let _ = std::io::stdin().read_line(&mut line);
     }
 }
