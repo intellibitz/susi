@@ -331,11 +331,8 @@ fn key_for(provider: &ProviderRecord) -> Result<Option<String>, String> {
         return Ok(None);
     }
     for name in &provider.key_envs {
-        if let Ok(value) = std::env::var(name) {
-            let value = value.trim();
-            if !value.is_empty() {
-                return Ok(Some(value.to_string()));
-            }
+        if let Some(key) = crate::secrets::lookup(name) {
+            return Ok(Some(key.expose().to_string()));
         }
     }
     Err(format!(

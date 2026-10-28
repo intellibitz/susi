@@ -10,10 +10,12 @@
 //! can stand in for any provider.
 
 use crate::providers::{ResolvedModel, Wire};
+use crate::secrets;
+use std::fmt;
 use susi_error::{EaiError, EaiResult};
 
 /// Resolved upstream route for a model request.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct UpstreamRoute {
     /// Target HTTPS URL to post to.
     pub url: String,
@@ -23,6 +25,30 @@ pub struct UpstreamRoute {
     pub headers: Vec<(String, String)>,
     /// Whether the endpoint expects the Anthropic Messages API format.
     pub is_anthropic: bool,
+}
+
+impl fmt::Debug for UpstreamRoute {
+    /// The route as a log line: the credential headers are redacted, so a
+    /// `{:?}` of a route can never print an API key.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let headers: Vec<(&str, &str)> = self
+            .headers
+            .iter()
+            .map(|(name, value)| {
+                let secret = matches!(name.as_str(), "authorization" | "x-api-key");
+                (
+                    name.as_str(),
+                    if secret { "<redacted>" } else { value.as_str() },
+                )
+            })
+            .collect();
+        f.debug_struct("UpstreamRoute")
+            .field("url", &self.url)
+            .field("model_id", &self.model_id)
+            .field("headers", &headers)
+            .field("is_anthropic", &self.is_anthropic)
+            .finish()
+    }
 }
 
 /// Resolve the native route for a model request.
@@ -159,15 +185,12 @@ fn env_key_any(names: &[&str], explicit: Option<&str>) -> EaiResult<String> {
         }
     }
     for name in names {
-        if let Ok(v) = std::env::var(name) {
-            let t = v.trim();
-            if !t.is_empty() {
-                return Ok(t.to_string());
-            }
+        if let Some(key) = secrets::lookup(name) {
+            return Ok(key.expose().to_string());
         }
     }
     Err(EaiError::config(format!(
-        "none of {} are set in environment",
+        "none of {} are set in the environment or the user and machine scopes",
         names.join(" / ")
     )))
 }

@@ -754,9 +754,10 @@ fn default_catalogue(cwd: &Path) -> Result<PriceCatalogue> {
     PriceCatalogue::load(&path).with_context(|| format!("load {}", path.display()))
 }
 
-/// Whether an API key variable holds a non-empty value.
+/// Whether an API key is set in the environment or the user or machine scope.
+/// The key is never printed.
 fn key_present(name: &str) -> bool {
-    std::env::var(name).is_ok_and(|value| !value.trim().is_empty())
+    susi_harness::secrets::is_set(name)
 }
 
 /// Verify the registry's backend ids against the providers' live model lists.
