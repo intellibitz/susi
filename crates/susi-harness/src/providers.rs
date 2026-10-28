@@ -155,8 +155,9 @@ pub struct AutoConfig {
     pub workers: Vec<String>,
     /// Rescue models, cheapest first. Tried after the workers.
     pub rescue: Vec<String>,
-    /// Ladder models the catalogue cannot price. They are left out, because
-    /// an unpriced model cannot be budgeted.
+    /// Ladder models the catalogue cannot price. They stay on the ladder, last
+    /// within their tier, so a working model is never dropped for lack of a
+    /// price; this list says which ones are running on no costing data.
     pub unpriced: Vec<String>,
 }
 
@@ -222,12 +223,49 @@ pub struct Registry {
     aliases: BTreeMap<String, String>,
 }
 
+/// The environment variable naming an overlay registry file: JSON in the
+/// built-in registry's shape, whose providers, models and aliases are added.
+pub const OVERLAY_ENV: &str = "SUSI_HARNESS_PROVIDERS";
+
 impl Registry {
-    /// The registry compiled into the binary.
+    /// The registry in force: the one compiled into the binary, with the
+    /// overlay file named by [`OVERLAY_ENV`] merged over it when that variable
+    /// is set. A new provider or model is added there, with no rebuild.
+    ///
+    /// A missing or malformed overlay is never used and never ignored
+    /// silently: [`Registry::overlay_error`] names it, and the harness CLI
+    /// refuses to start on it.
     #[must_use]
     pub fn builtin() -> &'static Self {
         static REGISTRY: OnceLock<Registry> = OnceLock::new();
-        REGISTRY.get_or_init(|| Self::parse(BUILTIN).unwrap_or_default())
+        REGISTRY.get_or_init(|| {
+            let base = Self::parse(BUILTIN).unwrap_or_default();
+            let overlay = std::env::var_os(OVERLAY_ENV).map(std::path::PathBuf::from);
+            Self::with_overlay(&base, overlay.as_deref()).unwrap_or(base)
+        })
+    }
+
+    /// Why the overlay named by [`OVERLAY_ENV`] cannot be used, or `None` when
+    /// the variable is unset or the overlay is sound.
+    #[must_use]
+    pub fn overlay_error() -> Option<String> {
+        let overlay = std::env::var_os(OVERLAY_ENV).map(std::path::PathBuf::from)?;
+        let base = Self::parse(BUILTIN).unwrap_or_default();
+        Self::with_overlay(&base, Some(&overlay))
+            .err()
+            .map(|error| error.to_string())
+    }
+
+    /// `base` with the registry document at `path` merged over it.
+    fn with_overlay(base: &Self, path: Option<&std::path::Path>) -> EaiResult<Self> {
+        let Some(path) = path else {
+            return Ok(base.clone());
+        };
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            EaiError::config(format!("{OVERLAY_ENV}: read {}: {error}", path.display()))
+        })?;
+        base.merged(&text)
+            .map_err(|error| EaiError::config(format!("{OVERLAY_ENV} {}: {error}", path.display())))
     }
 
     /// Parse a registry document.
@@ -432,9 +470,9 @@ impl Registry {
     /// Build the ladder from the keys `key_present` reports, budget first and
     /// capability second.
     ///
-    /// A model is eligible when its provider's key is set, it can call tools
-    /// (a worker without tools cannot finish a task), and the catalogue prices
-    /// it. Cheaper comes first within a tier. Equal prices go to the model with
+    /// A model is eligible when its provider's key is set and it can call tools
+    /// (a worker without tools cannot finish a task). Cached models come first,
+    /// then cheaper ones; a model the catalogue does not price comes last. Equal prices go to the model with
     /// more capabilities, then the larger context, then the id, so the order is
     /// the same on every machine.
     #[must_use]
@@ -480,18 +518,24 @@ impl Registry {
                 if !seen.insert(model.id.clone()) {
                     continue;
                 }
+                // A working model with no price still runs. It is ranked after
+                // every priced model of the same tier, so a missing price
+                // never makes it the cheapest choice, and it is reported.
                 let price_key = model.price_ref.as_deref().unwrap_or(&model.id);
-                let Some(price) = catalogue.price(price_key) else {
-                    unpriced.push(model.id.clone());
-                    continue;
-                };
-                let ranked = Ranked {
-                    id: model.id.clone(),
-                    cost: price.cost(crate::pricing::TokenUsage::new(
+                let cost = match catalogue.price(price_key) {
+                    Some(price) => price.cost(crate::pricing::TokenUsage::new(
                         profile.input,
                         0,
                         profile.output,
                     )),
+                    None => {
+                        unpriced.push(model.id.clone());
+                        crate::money::MicroUsd::from_micros(u64::MAX)
+                    }
+                };
+                let ranked = Ranked {
+                    id: model.id.clone(),
+                    cost,
                     cache: model.capabilities.cache,
                     score: u8::from(model.capabilities.streaming)
                         + u8::from(model.capabilities.vision),
@@ -529,10 +573,14 @@ impl Registry {
         };
         let workers = order(&mut workers, false);
         let rescue = order(&mut rescue, true);
-        let orchestrator = if rescue.iter().any(|id| id == Self::primary_orchestrator()) {
-            Some(Self::primary_orchestrator().to_string())
+        // The orchestrator is the primary when it is eligible, else the
+        // cheapest rescue model, else the cheapest worker. A fleet of workers
+        // alone, or one model of any tier, still has an orchestrator.
+        let primary = Self::primary_orchestrator();
+        let orchestrator = if workers.iter().chain(rescue.iter()).any(|id| id == primary) {
+            Some(primary.to_string())
         } else {
-            rescue.first().cloned()
+            rescue.first().or_else(|| workers.first()).cloned()
         };
         AutoConfig {
             orchestrator,
@@ -987,6 +1035,76 @@ mod tests {
         );
     }
 
+    /// One provider, one model, one key: the smallest fleet the harness runs.
+    fn one_model_registry(model: &str, tier: &str) -> Registry {
+        let json = format!(
+            r#"{{"providers":[{{"id":"solo","wire":"openai","endpoint":"https://solo.example/v1/chat/completions","key_env":["SOLO_API_KEY"],"models":[{{"id":"{model}","tools":true,"tier":"{tier}"}}]}}]}}"#
+        );
+        Registry::parse(&json).unwrap()
+    }
+
+    #[test]
+    fn one_worker_model_is_a_whole_fleet() {
+        let registry = one_model_registry("gemini-flash", "worker");
+        let auto = registry.auto_config(
+            &keys(&["SOLO_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert_eq!(auto.orchestrator.as_deref(), Some("gemini-flash"));
+        assert_eq!(auto.ladder(), vec!["gemini-flash"]);
+    }
+
+    #[test]
+    fn one_rescue_model_is_a_whole_fleet() {
+        let registry = one_model_registry("gemini-pro", "rescue");
+        let auto = registry.auto_config(
+            &keys(&["SOLO_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert!(auto.workers.is_empty());
+        assert_eq!(auto.orchestrator.as_deref(), Some("gemini-pro"));
+        assert_eq!(auto.ladder(), vec!["gemini-pro"]);
+    }
+
+    #[test]
+    fn a_model_without_a_price_stays_on_the_ladder_last() {
+        let json = r#"{"providers":[{"id":"solo","wire":"openai","endpoint":"https://solo.example/v1/chat/completions","key_env":["SOLO_API_KEY"],"models":[{"id":"no-such-price","tools":true,"tier":"worker"},{"id":"gemini-flash","tools":true,"tier":"worker"}]}]}"#;
+        let registry = Registry::parse(json).unwrap();
+        let auto = registry.auto_config(
+            &keys(&["SOLO_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert_eq!(auto.unpriced, vec!["no-such-price"]);
+        assert_eq!(
+            auto.workers.last().map(String::as_str),
+            Some("no-such-price")
+        );
+        assert!(auto.orchestrator.is_some());
+    }
+
+    #[test]
+    fn an_overlay_file_adds_a_provider_and_a_bad_one_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("good.json");
+        std::fs::write(
+            &good,
+            r#"{"providers":[{"id":"local","wire":"openai","endpoint":"http://127.0.0.1:8080/v1/chat/completions","models":[{"id":"local-tiny","tools":true,"tier":"worker"}]}]}"#,
+        )
+        .unwrap();
+        let base = Registry::parse(BUILTIN).unwrap();
+        let merged = Registry::with_overlay(&base, Some(&good)).unwrap();
+        assert!(merged.resolve("local-tiny").is_some());
+        assert!(merged.resolve("deepseek-pro").is_some());
+        let bad = dir.path().join("bad.json");
+        std::fs::write(&bad, "{not json").unwrap();
+        assert!(Registry::with_overlay(&base, Some(&bad)).is_err());
+        let missing = dir.path().join("missing.json");
+        assert!(Registry::with_overlay(&base, Some(&missing)).is_err());
+    }
+
     fn builtin_catalogue() -> PriceCatalogue {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1097,7 +1215,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_registry_auto_config_leaves_unpriced_models_off_the_ladder() {
+    fn provider_registry_auto_config_keeps_unpriced_models_last_on_the_ladder() {
         let catalogue = PriceCatalogue::from_json(
             r#"{"schema":"susi/harness/prices/v1","models":{"deepseek-flash":{"input_hit":3000,"input_miss":150000,"output":600000}}}"#,
         )
@@ -1107,11 +1225,16 @@ mod tests {
             &catalogue,
             UsageProfile::agent(),
         );
-        assert_eq!(auto.workers, vec!["deepseek-flash"]);
+        // Priced first, unpriced after: a working model is never dropped.
+        assert_eq!(auto.workers, vec!["deepseek-flash", "gemini-flash"]);
+        // Unpriced rescue models tie on cost, so capability decides: Gemini Pro
+        // has the larger context and vision, and goes first.
+        assert_eq!(auto.rescue, vec!["gemini-pro", "deepseek-pro"]);
         assert_eq!(
             auto.unpriced,
             vec!["deepseek-pro", "gemini-flash", "gemini-pro"]
         );
+        assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
     }
 
     #[test]

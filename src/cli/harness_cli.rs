@@ -37,7 +37,7 @@ pub enum HarnessCommands {
         #[arg(long)]
         gateway: String,
         /// Model id the gateway prices (such as `deepseek-pro`)
-        #[arg(long, default_value = "deepseek-pro")]
+        #[arg(long, default_value = "auto")]
         model: String,
         /// Roadmap file
         #[arg(long, default_value = ".agents/roadmap.json")]
@@ -90,7 +90,7 @@ pub enum HarnessCommands {
         #[arg(long)]
         gateway: String,
         /// Model id the gateway prices
-        #[arg(long, default_value = "deepseek-pro")]
+        #[arg(long, default_value = "auto")]
         model: String,
         /// Per-turn deadline, seconds
         #[arg(long, default_value_t = 900)]
@@ -247,6 +247,11 @@ pub enum HarnessCommands {
 ///
 /// Returns the first error from authoring, validation, execution or I/O.
 pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
+    // Fail closed: an overlay the operator named but the harness cannot use
+    // would otherwise run every command on a registry they did not ask for.
+    if let Some(error) = Registry::overlay_error() {
+        bail!("{error}");
+    }
     match action {
         HarnessCommands::Budget { ledger } => budget_report(&ledger, cwd),
         HarnessCommands::Models {
@@ -419,7 +424,7 @@ fn plan_queue(
     };
     let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
     alert_topups(&budgets);
-    let workers = resolve_ladder(workers, || default_catalogue(cwd), &budgets)?;
+    let workers = resolve_fleet(workers, || default_catalogue(cwd), &budgets)?.ladder;
     let claimed = claimed_ids(&repo);
     let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
@@ -566,7 +571,7 @@ fn author(
         vector: format!("{vector} {title}"),
         target: target.to_string(),
         packages: facts.packages.iter().cloned().collect(),
-        workers: resolve_ladder(workers, || default_catalogue(cwd), &budgets)?,
+        workers: resolve_fleet(workers, || default_catalogue(cwd), &budgets)?.ladder,
         narrative: tail(narrative, 4000),
         max_tasks,
         retry_hint: None,
@@ -743,7 +748,13 @@ fn run_mission(
     // Every named worker stays on the ladder. The task's own model is moved to
     // the front by the adapter, so a task assigned a non-default worker still
     // has a stronger model to escalate to when it does not pass.
-    let alternates = resolve_ladder(workers, || Ok(catalogue.clone()), budgets)?;
+    let fleet = resolve_fleet(workers, || Ok(catalogue.clone()), budgets)?;
+    let model = resolve_model(model, &fleet)?;
+    eprintln!(
+        "fleet: orchestrator {model}; ladder {}",
+        fleet.ladder.join(", ")
+    );
+    let alternates = fleet.ladder;
     let susi_program =
         susi.unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi")));
     let target = SusiTarget::new(repo, susi_program);
@@ -819,17 +830,27 @@ fn tail(text: &str, limit: usize) -> String {
     text.get(text.len() - limit..).unwrap_or(text).to_string()
 }
 
-/// The worker ladder a command runs on.
+/// The orchestrator and the worker ladder a command runs on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Fleet {
+    /// The model that plans and drives. `None` only when there is no model.
+    orchestrator: Option<String>,
+    /// Every model the run may use, in escalation order.
+    ladder: Vec<String>,
+}
+
+/// The orchestrator and worker ladder a command runs on.
 ///
-/// `auto` builds it from the API keys in the environment, ordered by the price
-/// catalogue (budget first, then capability): every worker, then every rescue
-/// model. Any other value is an explicit comma-separated list of model ids.
+/// `auto` builds both from the API keys in the environment, ordered by the
+/// price catalogue (cache first, then budget, then capability): the
+/// orchestrator, every worker, then every rescue model. Any other value is an
+/// explicit comma-separated list of model ids, and its first model drives.
 /// The catalogue is loaded only for `auto`.
-fn resolve_ladder(
+fn resolve_fleet(
     spec: &str,
     catalogue: impl FnOnce() -> Result<PriceCatalogue>,
     budgets: &Budgets,
-) -> Result<Vec<String>> {
+) -> Result<Fleet> {
     let registry = Registry::builtin();
     if spec.trim() != "auto" {
         // An explicit list is honoured, except that a model whose provider is
@@ -852,7 +873,10 @@ fn resolve_ladder(
                 topup_text(budgets)
             );
         }
-        return Ok(models);
+        return Ok(Fleet {
+            orchestrator: models.first().cloned(),
+            ladder: models,
+        });
     }
     let catalogue = catalogue()?;
     let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
@@ -860,12 +884,35 @@ fn resolve_ladder(
         registry.auto_config_budgeted(&key_present, &catalogue, UsageProfile::agent(), &active);
     let ladder = auto.ladder();
     if ladder.is_empty() {
+        // The key names come from the registry, so a provider added there is
+        // named here without a second list to keep in step.
+        let keys = registry
+            .providers()
+            .iter()
+            .flat_map(|provider| provider.key_envs.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(", ");
         bail!(
-            "--workers auto found no tool-capable, priced, active model for the API keys set in              the environment (DEEPSEEK_API_KEY, GEMINI_API_KEY, MOONSHOT_API_KEY, ANTHROPIC_API_KEY): {};              add budget or pass --workers <models>",
+            "--workers auto found no tool-capable model with an active budget for the API keys set in the environment ({keys}): {}; set a key or add budget, or pass --workers <models>",
             topup_text(budgets)
         );
     }
-    Ok(ladder)
+    Ok(Fleet {
+        orchestrator: auto.orchestrator,
+        ladder,
+    })
+}
+
+/// The model the run's orchestrator is: the `--model` named, or the fleet's
+/// orchestrator when `--model auto`.
+fn resolve_model(model: &str, fleet: &Fleet) -> Result<String> {
+    if model.trim() != "auto" {
+        return Ok(model.to_string());
+    }
+    fleet
+        .orchestrator
+        .clone()
+        .context("--model auto found no orchestrator in the fleet")
 }
 
 /// The top-up alert as text, or a plain statement when nothing needs one.

@@ -105,13 +105,13 @@ pub struct Candidate {
 
 /// Rank candidate models by expected cost per accepted task, cheapest first.
 ///
-/// A model the catalogue cannot price is refused here rather than at the
-/// gateway, because an unpriced model cannot be ranked or budgeted.
+/// A candidate the catalogue cannot price still ranks: it goes last, because
+/// a model that works must not be dropped for lack of a price, and a missing
+/// price must never make it the cheapest choice.
 ///
 /// # Errors
 ///
-/// Returns `EaiError::config` when a candidate has no price, or when there is
-/// no candidate at all.
+/// Returns `EaiError::config` when there is no candidate at all.
 pub fn rank_models(
     catalogue: &PriceCatalogue,
     candidates: &[String],
@@ -127,15 +127,17 @@ pub fn rank_models(
         if !seen.insert(model.as_str()) {
             continue;
         }
-        let price = catalogue.price(model).ok_or_else(|| {
-            EaiError::config(format!("model {model} has no price in the catalogue"))
-        })?;
-        let base = price.cost(crate::pricing::TokenUsage::new(
-            profile.input,
-            0,
-            profile.output,
-        ));
-        let expected = expected_cost(base, history.get(model).copied().unwrap_or_default());
+        let expected = match catalogue.price(model) {
+            Some(price) => {
+                let base = price.cost(crate::pricing::TokenUsage::new(
+                    profile.input,
+                    0,
+                    profile.output,
+                ));
+                expected_cost(base, history.get(model).copied().unwrap_or_default())
+            }
+            None => MicroUsd::from_micros(u64::MAX),
+        };
         ranked.push(Candidate {
             model: model.clone(),
             expected_cost: expected,
@@ -521,15 +523,16 @@ mod tests {
     }
 
     #[test]
-    fn an_unpriced_candidate_is_refused() {
-        let error = rank_models(
+    fn an_unpriced_candidate_ranks_last_instead_of_failing_the_run() {
+        let ranked = rank_models(
             &catalogue(),
-            &["cheap".into(), "mystery".into()],
+            &["mystery".into(), "cheap".into()],
             UsageProfile::agent(),
             &BTreeMap::new(),
         )
-        .unwrap_err();
-        assert!(error.to_string().contains("mystery"));
+        .unwrap();
+        assert_eq!(ranked[0].model, "cheap");
+        assert_eq!(ranked[1].model, "mystery");
     }
 
     #[test]
