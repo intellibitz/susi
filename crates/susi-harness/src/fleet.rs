@@ -21,12 +21,33 @@ use susi_error::{EaiError, EaiResult};
 /// The orchestrator and the worker ladder a run uses.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Fleet {
-    /// The model that plans and drives. `None` only when there is no model.
+    /// The strong model that plans and drives. `None` only when there is no
+    /// model.
     pub orchestrator: Option<String>,
-    /// Every model the run may use, in escalation order.
+    /// The light models that do the work: every task starts on one, and
+    /// tasks are spread across them.
+    pub workers: Vec<String>,
+    /// The strong models that fix what a worker could not: a task whose
+    /// worker failed, or produced work that did not pass, goes to them next.
+    pub fixers: Vec<String>,
+    /// Every model the run may use: the workers, then the fixers.
     pub ladder: Vec<String>,
     /// Models named in an explicit list but left off, each with the reason.
     pub left_off: Vec<String>,
+}
+
+impl Fleet {
+    /// The models tasks are assigned to: the light workers, or the whole
+    /// ladder when the fleet has no light model (one strong model alone still
+    /// does the work).
+    #[must_use]
+    pub fn task_workers(&self) -> Vec<String> {
+        if self.workers.is_empty() {
+            self.ladder.clone()
+        } else {
+            self.workers.clone()
+        }
+    }
 }
 
 /// The fleet for `spec`.
@@ -75,8 +96,16 @@ pub fn resolve_fleet(
                 topup_text(budgets)
             )));
         }
+        // Roles come from the registry: a rescue model is strong (a fixer,
+        // and the orchestrator), anything else is a light worker.
+        let strong =
+            |model: &String| registry.tier_of(model) == Some(crate::providers::Tier::Rescue);
+        let (fixers, workers): (Vec<String>, Vec<String>) =
+            models.iter().cloned().partition(|model| strong(model));
         return Ok(Fleet {
-            orchestrator: models.first().cloned(),
+            orchestrator: fixers.first().or_else(|| models.first()).cloned(),
+            workers,
+            fixers,
             ladder: models,
             left_off,
         });
@@ -104,6 +133,8 @@ pub fn resolve_fleet(
     }
     Ok(Fleet {
         orchestrator: auto.orchestrator,
+        workers: auto.workers,
+        fixers: auto.rescue,
         ladder,
         left_off: Vec::new(),
     })
@@ -582,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn an_explicit_list_drives_with_its_first_model_and_drops_inactive_ones() {
+    fn an_explicit_list_drives_with_its_strong_model_and_drops_inactive_ones() {
         let gate = budgets(&[("deepseek", Some(5_000_000)), ("gemini", Some(10))]);
         let fleet = resolve_fleet(
             "gemini-flash, deepseek-flash,deepseek-pro",
@@ -591,7 +622,7 @@ mod tests {
             &Evidence::default(),
         )
         .unwrap();
-        assert_eq!(fleet.orchestrator.as_deref(), Some("deepseek-flash"));
+        assert_eq!(fleet.orchestrator.as_deref(), Some("deepseek-pro"));
         assert_eq!(fleet.ladder, vec!["deepseek-flash", "deepseek-pro"]);
         assert_eq!(fleet.left_off.len(), 1);
         assert!(fleet.left_off[0].contains("gemini-flash"));
@@ -642,11 +673,27 @@ mod tests {
     }
 
     #[test]
+    fn an_explicit_list_takes_its_roles_from_the_registry() {
+        let gate = budgets(&[("deepseek", Some(50_000_000)), ("gemini", Some(50_000_000))]);
+        let fleet = resolve_fleet(
+            "gemini-flash,deepseek-flash,deepseek-pro",
+            || unreachable!("an explicit list needs no catalogue"),
+            &gate,
+            &Evidence::default(),
+        )
+        .unwrap();
+        assert_eq!(fleet.orchestrator.as_deref(), Some("deepseek-pro"));
+        assert_eq!(fleet.workers, vec!["gemini-flash", "deepseek-flash"]);
+        assert_eq!(fleet.fixers, vec!["deepseek-pro"]);
+        assert_eq!(fleet.task_workers(), vec!["gemini-flash", "deepseek-flash"]);
+    }
+
+    #[test]
     fn auto_model_takes_the_fleets_orchestrator() {
         let fleet = Fleet {
             orchestrator: Some("deepseek-pro".to_string()),
             ladder: vec!["deepseek-pro".to_string()],
-            left_off: Vec::new(),
+            ..Fleet::default()
         };
         assert_eq!(resolve_model("auto", &fleet).unwrap(), "deepseek-pro");
         assert_eq!(resolve_model("claude-opus", &fleet).unwrap(), "claude-opus");

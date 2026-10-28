@@ -229,9 +229,10 @@ fn up_command(options: &Options) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     println!(
-        "fleet:  {} drives; ladder {}",
+        "fleet:  {} orchestrates; workers {}; fixers {}",
         resolved.orchestrator.as_deref().unwrap_or("none"),
-        resolved.ladder.join(", ")
+        resolved.workers.join(", "),
+        resolved.fixers.join(", ")
     );
     println!(
         "{}",
@@ -258,9 +259,43 @@ fn fleet_command(options: &Options) -> Result<(), String> {
     for note in &resolved.left_off {
         eprintln!("⚠ {note}");
     }
+    // For each light worker, the order a task that starts on it follows: its
+    // own model, then the strong fixers, then the other light models, as the
+    // adapter computes it from the same ledger.
+    let entries = susi_harness::ledger::read_entries(&options.ledger()).unwrap_or_default();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+    let registry = Registry::builtin();
+    let strong =
+        |model: &str| registry.tier_of(model) == Some(susi_harness::providers::Tier::Rescue);
+    let ladder = susi_harness::policy::escalation_order(&resolved.ladder, &strong);
+    let history = susi_harness::policy::history(&entries);
+    let cooling = susi_harness::policy::cooling_providers(&entries, now_ms);
+    let failed = susi_harness::policy::failed_models(&entries);
+    let standing = susi_harness::policy::Standing {
+        history: &history,
+        cooling: &cooling,
+        failed: &failed,
+    };
+    let provider_of = |model: &str| registry.resolve(model).map(|resolved| resolved.provider);
+    let escalation = resolved
+        .workers
+        .iter()
+        .map(|worker| {
+            (
+                worker.clone(),
+                susi_harness::policy::arrange(worker, &ladder, &standing, &provider_of),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     print_json(&serde_json::json!({
         "orchestrator": resolved.orchestrator,
+        "workers": resolved.workers,
+        "fixers": resolved.fixers,
         "ladder": resolved.ladder,
+        "escalation": escalation,
     }))
 }
 

@@ -112,10 +112,23 @@ The ladder is rebuilt from the live environment on every run:
    key, priced at each model's cache rate. When prices are within about 10% of
    each other, the rescue tier prefers the more capable model and every tier
    prefers the faster one, measured from the ledger.
-4. **Workers, then rescue**: cheap worker models try first. When they fail,
-   stronger rescue models take over. DeepSeek Pro orchestrates when it is
-   available. Otherwise the cheapest rescue model does, or failing that the
-   cheapest worker.
+4. **Roles**: the fleet has three.
+   - **Orchestrator**: a strong model that plans and drives. It is the
+     strongest strong model on expiring credit, else DeepSeek Pro, else the
+     cheapest strong model.
+   - **Workers**: light models (`deepseek-flash`, `gemini-flash`,
+     `kimi-flash`, `claude-haiku`, …) that do the work. Every task starts
+     on one, and tasks are spread across them.
+   - **Fixers**: strong models (`deepseek-pro`, `gemini-pro`, `kimi-k3`,
+     `kimi-k3-pro`, `claude-sonnet`, `claude-opus`, …) that fix what a worker
+     could not.
+
+   When a worker fails, or its work does not pass (which is where a
+   hallucination shows up), the task goes straight to the fixers, not to
+   another light model. The other light models come last. Expiring credit
+   leads within its role, never across: a strong model on expiring credit is
+   a fixer, not a first-line worker. `susi-harness fleet` prints the roles
+   and, for each worker, the order its tasks escalate in.
 
 While a task runs, the ladder keeps this order and only moves models back:
 

@@ -1095,11 +1095,12 @@ Fix this in the worktree before you finish:\n{message}"
     })
 }
 
-/// The model order for a task: its own choice first, then the fleet's ladder
-/// in the fleet's order, with unreliable models and cooling providers moved
-/// back ([`crate::policy::arrange`]). The ladder already ranks expiring
-/// credit, cache, price and capability; re-sorting it by price here would
-/// undo all of that.
+/// The model order for a task: its own (light) model first, then the strong
+/// fixers, then the other light models ([`crate::policy::escalation_order`]),
+/// each group in the fleet's order, with models whose last real call failed
+/// left out and unreliable models and cooling providers moved back
+/// ([`crate::policy::arrange`]). The ladder already ranks expiring credit,
+/// cache, price and capability; re-sorting it by price here would undo that.
 fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> Vec<String> {
     let entries = crate::ledger::read_entries(policy.ledger_path).unwrap_or_default();
     let now_ms = SystemTime::now()
@@ -1108,9 +1109,11 @@ fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> Vec<Strin
         .unwrap_or(0);
     let registry = crate::providers::Registry::builtin();
     let provider_of = |model: &str| registry.resolve(model).map(|resolved| resolved.provider);
+    let strong = |model: &str| registry.tier_of(model) == Some(crate::providers::Tier::Rescue);
+    let ladder = crate::policy::escalation_order(&spec.alternates, &strong);
     crate::policy::arrange(
         &spec.model,
-        &spec.alternates,
+        &ladder,
         &crate::policy::Standing {
             history: &crate::policy::history(&entries),
             cooling: &crate::policy::cooling_providers(&entries, now_ms),

@@ -425,7 +425,10 @@ fn plan_queue(
     let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
     alert_topups(&budgets);
     let evidence = live_evidence(&cwd.join("out/ledger.jsonl"), cwd);
-    let workers = resolve_fleet(workers, || default_catalogue(cwd), &budgets, &evidence)?.ladder;
+    // Tasks go to the light workers, spread across them; the fixers and the
+    // orchestrator are not assigned first-line work.
+    let workers =
+        resolve_fleet(workers, || default_catalogue(cwd), &budgets, &evidence)?.task_workers();
     let claimed = claimed_ids(&repo);
     let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
@@ -568,24 +571,25 @@ fn author(
     let facts = RepoFacts::load(cwd).context("read the workspace's packages")?;
     let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
     alert_topups(&budgets);
+    let fleet = resolve_fleet(
+        workers,
+        || default_catalogue(cwd),
+        &budgets,
+        &live_evidence(&cwd.join("out/ledger.jsonl"), cwd),
+    )?;
     let request = AuthorRequest {
         vector: format!("{vector} {title}"),
         target: target.to_string(),
         packages: facts.packages.iter().cloned().collect(),
-        workers: resolve_fleet(
-            workers,
-            || default_catalogue(cwd),
-            &budgets,
-            &live_evidence(&cwd.join("out/ledger.jsonl"), cwd),
-        )?
-        .ladder,
+        workers: fleet.task_workers(),
         narrative: tail(narrative, 4000),
         max_tasks,
         retry_hint: None,
     };
+    // The orchestrator plans: `--model auto` is the fleet's strong model.
     let config = AuthorConfig {
         gateway_url: gateway.to_string(),
-        model: model.to_string(),
+        model: fleet::resolve_model(model, &fleet).map_err(|error| anyhow::anyhow!("{error}"))?,
         timeout_secs: 300,
     };
     let plan = author_plan(&config, &request).context("author the plan")?;
@@ -754,10 +758,22 @@ fn run_mission(
         budgets,
         &live_evidence(ledger, cwd),
     )?;
-    let model = fleet::resolve_model(model, &fleet).map_err(|error| anyhow::anyhow!("{error}"))?;
+    let orchestrator = fleet::resolve_model("auto", &fleet).unwrap_or_else(|_| "none".to_string());
+    // A task starts on a light worker: `--model auto` gives the fleet's first,
+    // and a named model is used as named. A failure escalates to the fixers.
+    let model = if model.trim() == "auto" {
+        fleet
+            .task_workers()
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("the fleet has no model to start tasks on"))?
+    } else {
+        model.to_string()
+    };
     eprintln!(
-        "fleet: orchestrator {model}; ladder {}",
-        fleet.ladder.join(", ")
+        "fleet: orchestrator {orchestrator}; workers {}; fixers {}",
+        fleet.workers.join(", "),
+        fleet.fixers.join(", ")
     );
     let alternates = fleet.ladder;
     let susi_program =
