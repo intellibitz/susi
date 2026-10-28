@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDEADORINGEINSTEINMAUPHG-1",
+  "title": "CLI startup: probe Python frameworks in one process",
+  "goal": "Every susi command primes the agent catalogs, and the Framework catalog probed each Python framework with its own python3 -c 'import X' (16 probes, ~0.87 s of a ~1.8 s launch). The gmcp_requirements tests launch susi hundreds of times, which made the root-cli shard and the coverage ratchet the 25-45 min poles of main's post-merge suite. Probe every Python import of a catalog in one interpreter per program, same import semantics, falling back to single probes if the batch fails.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-vendor-agents",
+      "python_imports"
+    ]
+  },
+  "created_by": "CLAUDEADORINGEINSTEINMAUPHG",
+  "created_unix": 1793211166
+}

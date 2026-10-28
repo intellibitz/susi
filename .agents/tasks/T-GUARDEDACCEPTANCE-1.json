@@ -1,0 +1,19 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-1",
+  "title": "Acceptance checks build this worktree's code, not a sibling's from the shared target",
+  "goal": "",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "admin::tasks"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793212524
+}
