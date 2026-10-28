@@ -16,6 +16,11 @@ sync() {
     [ -z "$(git status --porcelain)" ] || { echo 'Commit or stash your work before syncing.' >&2; return 1; }
     git fetch --quiet origin
     git merge --no-edit origin/main
+    # The merge changed this worktree's crates; the shared target may hold a
+    # sibling worktree's build of them. Make the next cargo build this code.
+    if [ -x "$root/scripts/target-guard.sh" ]; then
+        "$root/scripts/target-guard.sh" || true
+    fi
     "$root/scripts/park-primary.sh" --sync-only || true
     # Inside the lock: the watcher heal is cheap, and the board block is cached,
     # so one sync pays for the checks and the rest read the verdict.
