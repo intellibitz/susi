@@ -367,6 +367,49 @@ fn a_job_sharing_a_test_cache_shares_its_profile() {
 }
 
 #[test]
+fn the_root_cli_shard_runs_in_partitions() {
+    // root-cli was the longest shard of main's post-merge suite (17-45 min,
+    // nearly all nextest). Its legs must cover every partition of one count
+    // exactly once, by hash (counted partitioning goes binary by binary and
+    // piles the first test of each of ~100 small binaries onto partition 1),
+    // keep the shard's name (scoping and the shard map key on it), and the
+    // nextest step must pass the partition on.
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let test = job(&jobs, "test");
+    let parts: Vec<&str> = test
+        .body
+        .split("- name: root-cli\n            pkgs: -p susi -p xtask\n")
+        .skip(1)
+        .map(|leg| {
+            leg.lines()
+                .next()
+                .and_then(|l| l.trim().strip_prefix("partition: hash:"))
+                .expect("every root-cli leg declares `partition: hash:<k>/<n>`")
+        })
+        .collect();
+    assert!(parts.len() >= 2, "root-cli runs in partitions: {parts:?}");
+    let n = parts.len().to_string();
+    for (k, part) in parts.iter().enumerate() {
+        assert_eq!(
+            *part,
+            format!("{}/{n}", k + 1),
+            "root-cli legs must be hash:1/{n} .. hash:{n}/{n}, in order: {parts:?}"
+        );
+    }
+    assert!(
+        test.body
+            .contains("format('--partition {0}', matrix.shard.partition)"),
+        "the nextest step must pass each leg's partition"
+    );
+    assert!(
+        test.body
+            .contains("shared-key: test-${{ matrix.shard.name }}"),
+        "the legs share the shard's cache entry, not one each"
+    );
+}
+
+#[test]
 fn every_test_workflow_job_is_bounded() {
     let text = read(".github/workflows/test.yml");
     for j in jobs(&text) {
