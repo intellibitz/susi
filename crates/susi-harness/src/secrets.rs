@@ -146,26 +146,67 @@ fn process_value(name: &str) -> Option<String> {
 
 /// The value in one Windows scope (`User` or `Machine`).
 ///
-/// PowerShell reads the scope through the same API the OS uses for its own
-/// environment, so the value is expanded the way a new process would see it.
-/// The variable name is validated by [`valid_name`] before it reaches the
-/// script, and the script is passed as one argument with no shell.
+/// Both scopes are read once per process, with one PowerShell call through
+/// the same API the OS uses for its own environment, so the values are what
+/// a new process would see. Reading a scope per variable cost a process
+/// spawn per lookup, seconds for a command that checks every provider. The
+/// values stay in memory; nothing prints or stores them. Windows variable
+/// names are case-insensitive, so they are matched upper-cased.
 #[cfg(windows)]
 fn registry_value(name: &str, scope: &str) -> Option<String> {
+    windows_scopes()
+        .get(scope)?
+        .get(&name.to_ascii_uppercase())
+        .cloned()
+}
+
+#[cfg(windows)]
+fn windows_scopes() -> &'static BTreeMap<String, BTreeMap<String, String>> {
     use std::process::{Command, Stdio};
-    let script = format!("[Environment]::GetEnvironmentVariable('{name}','{scope}')");
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let value = String::from_utf8(output.stdout).ok()?;
-    let value = value.trim();
-    (!value.is_empty()).then(|| value.to_string())
+    static SCOPES: OnceLock<BTreeMap<String, BTreeMap<String, String>>> = OnceLock::new();
+    SCOPES.get_or_init(|| {
+        const SCRIPT: &str = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $all = @{}; foreach ($scope in 'User', 'Machine') { $vars = @{}; $found = [Environment]::GetEnvironmentVariables($scope); foreach ($name in $found.Keys) { $vars[[string]$name] = [string]$found[$name] }; $all[$scope] = $vars }; $all | ConvertTo-Json -Compress -Depth 3";
+        let Ok(output) = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+        else {
+            return BTreeMap::new();
+        };
+        if !output.status.success() {
+            return BTreeMap::new();
+        }
+        parse_scopes(&String::from_utf8_lossy(&output.stdout))
+    })
+}
+
+/// The `{"User": {...}, "Machine": {...}}` document, names upper-cased, with
+/// blank values and names that are not variable names left out.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_scopes(text: &str) -> BTreeMap<String, BTreeMap<String, String>> {
+    let Ok(serde_json::Value::Object(document)) = serde_json::from_str(text.trim()) else {
+        return BTreeMap::new();
+    };
+    document
+        .into_iter()
+        .map(|(scope, variables)| {
+            let variables = variables
+                .as_object()
+                .map(|map| {
+                    map.iter()
+                        .filter_map(|(name, value)| {
+                            let name = name.to_ascii_uppercase();
+                            let value = value.as_str()?.trim();
+                            (valid_name(&name) && !value.is_empty())
+                                .then(|| (name, value.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (scope, variables)
+        })
+        .collect()
 }
 
 #[cfg(not(windows))]
@@ -228,6 +269,24 @@ mod tests {
             Some("sk-ex-123")
         );
         std::env::remove_var(name);
+    }
+
+    #[test]
+    fn scope_documents_are_read_upper_cased_without_blanks() {
+        let scopes = parse_scopes(
+            r#"{"User":{"Deepseek_Api_Key":" sk-1 ","EMPTY":"","bad name":"x"},"Machine":{"PATH":"C:/x"}}"#,
+        );
+        assert_eq!(
+            scopes["User"].get("DEEPSEEK_API_KEY").map(String::as_str),
+            Some("sk-1")
+        );
+        assert!(!scopes["User"].contains_key("EMPTY"));
+        assert!(!scopes["User"].contains_key("BAD NAME"));
+        assert_eq!(
+            scopes["Machine"].get("PATH").map(String::as_str),
+            Some("C:/x")
+        );
+        assert!(parse_scopes("not json").is_empty());
     }
 
     #[test]

@@ -72,6 +72,7 @@ pub mod cockpit;
 pub mod control;
 pub mod event;
 pub mod executor;
+pub mod fleet;
 pub mod gateway;
 pub mod ingress;
 pub mod ledger;

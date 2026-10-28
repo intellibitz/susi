@@ -113,7 +113,34 @@ pub async fn serve(
     listener: tokio::net::TcpListener,
     state: Arc<GatewayState>,
 ) -> std::io::Result<()> {
-    axum::serve(listener, router(state)).await
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+}
+
+/// Resolves when the process is asked to stop (Ctrl-C, or `SIGTERM` on
+/// Unix). The servers stop accepting then, and finish the calls in flight,
+/// so every call that reached a provider still gets its ledger row.
+pub async fn shutdown_signal() {
+    let interrupt = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = interrupt => {}
+        () = terminate => {}
+    }
+    eprintln!("harness gateway: stopping; finishing the calls in flight");
 }
 
 async fn health() -> &'static str {
