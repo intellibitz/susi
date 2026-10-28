@@ -2969,6 +2969,12 @@ echo guarded > guard-ran
                 // the developer's ~/.gitconfig).
                 run(&dir, &["config", "user.name", "test"]);
                 run(&dir, &["config", "user.email", "test@example.test"]);
+                // Nor the developer's signing setup: with `commit.gpgsign`
+                // set globally, every fixture commit went through gpg, and
+                // under the suite's parallel load gpg refused ("failed to
+                // sign the data") and failed 18 tests on one machine.
+                run(&dir, &["config", "commit.gpgsign", "false"]);
+                run(&dir, &["config", "tag.gpgsign", "false"]);
                 run(&dir, &["remote", "add", "origin", bare.to_str().unwrap()]);
                 run(&dir, &["commit", "--allow-empty", "-m", "init", "--quiet"]);
                 clones.push(dir);
