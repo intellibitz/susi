@@ -530,6 +530,9 @@ fn python_import_batch_survives_hostile_imports() {
             ("susi_hangs", "import time\ntime.sleep(60)\n"),
             ("susi_ends_process", "import os\nos._exit(0)\n"),
             ("susi_raises", "raise ImportError('missing dependency')\n"),
+            // On the path ahead of the standard library, as a file in the
+            // working directory would be: the batch must not need it.
+            ("importlib", "raise ImportError('shadowed importlib')\n"),
         ],
     );
     let modules: Vec<String> = [
@@ -615,5 +618,153 @@ fn python_imports_decide_preflight_only_inside_their_scan() {
         catalog::scan_import_verdict(&program, "susi_scoped_module"),
         None,
         "a verdict outlived its scan"
+    );
+}
+
+/// The change that matters is the scan's: sixteen interpreters per scan down
+/// to one. Every Python framework the catalog ships, pointed at a counting
+/// interpreter, is probed by a single start.
+#[test]
+#[cfg(unix)]
+fn python_imports_the_catalog_scan_starts_one_interpreter() {
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let (python, log) = counting_python(&fixture.root);
+    let mut python_ids = Vec::new();
+    for def in catalog(CatalogKind::Framework).unwrap() {
+        if let Adapter::Python { import_name, .. } = &def.adapter {
+            fixture
+                .manager
+                .configure(
+                    &def.id,
+                    &Adapter::Python {
+                        python: python.to_string_lossy().into_owned(),
+                        import_name: import_name.clone(),
+                        // Unset: the import check passes or fails, and the
+                        // config check keeps every entry from being registered.
+                        config_env: "SUSI_PYIMPORT_SCAN_UNSET_CONFIG".into(),
+                    },
+                )
+                .unwrap();
+            python_ids.push(def.id.clone());
+        }
+    }
+    assert!(python_ids.len() > 2, "the catalog ships Python frameworks");
+    let ready = fixture.manager.scan_ready().unwrap();
+    assert_eq!(
+        starts(&log),
+        1,
+        "one interpreter for the {} Python frameworks of the scan",
+        python_ids.len()
+    );
+    assert!(
+        ready
+            .iter()
+            .all(|r| !python_ids.iter().any(|id| r["id"] == id.as_str())),
+        "{ready:?}"
+    );
+}
+
+/// Whether process `pid` has exited (gone, or a zombie nobody reaped yet)
+/// within `wait`.
+#[cfg(unix)]
+fn gone_within(pid: &str, wait: std::time::Duration) -> bool {
+    let until = std::time::Instant::now() + wait;
+    loop {
+        let stat = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", pid])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        if stat.is_empty() || stat.starts_with('Z') {
+            return true;
+        }
+        if std::time::Instant::now() > until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// The interpreter itself can stop answering (stopped by an import) or die
+/// (killed by one). Either way the import it was waiting on must not keep
+/// running unwatched, and the modules after it still get a batch; a batch
+/// that dies before deciding anything is not restarted module by module.
+#[test]
+#[cfg(unix)]
+fn python_import_batch_survives_a_stopped_or_killed_interpreter() {
+    use catalog::ImportVerdict::{Importable, TimedOut};
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let pidfile = fixture.root.join("stopper.pid");
+    let python = python_with_modules(
+        &fixture.root,
+        &[
+            (
+                "susi_stops_parent",
+                &format!(
+                    "import os, signal, time\nopen('{}', 'w').write(str(os.getpid()))\n\
+                     os.kill(os.getppid(), signal.SIGSTOP)\ntime.sleep(60)\n",
+                    pidfile.display()
+                ),
+            ),
+            ("susi_kills_parent", "import os\nos.kill(os.getppid(), 9)\n"),
+        ],
+    );
+    let names = |ms: &[&str]| ms.iter().map(|m| (*m).to_string()).collect::<Vec<_>>();
+    let bound = std::time::Duration::from_secs(1);
+
+    let verdicts = catalog::probe_imports(
+        &python,
+        &names(&["json", "susi_stops_parent", "os.path"]),
+        bound,
+    );
+    assert_eq!(verdicts.get("json"), Some(&Importable));
+    assert_eq!(verdicts.get("susi_stops_parent"), Some(&TimedOut));
+    assert_eq!(verdicts.get("os.path"), Some(&Importable), "answered after");
+    let stuck = fs::read_to_string(&pidfile).unwrap().trim().to_string();
+    assert!(
+        gone_within(&stuck, std::time::Duration::from_secs(3)),
+        "the import the stopped interpreter was waiting on still runs"
+    );
+
+    let verdicts = catalog::probe_imports(
+        &python,
+        &names(&["json", "susi_kills_parent", "os.path"]),
+        bound,
+    );
+    assert_eq!(verdicts.get("json"), Some(&Importable));
+    assert_eq!(
+        verdicts.get("susi_kills_parent"),
+        None,
+        "left to the single probe"
+    );
+    assert_eq!(verdicts.get("os.path"), Some(&Importable), "answered after");
+
+    let verdicts = catalog::probe_imports(&python, &names(&["susi_kills_parent", "json"]), bound);
+    assert!(
+        verdicts.is_empty(),
+        "a batch that decided nothing is not retried: {verdicts:?}"
+    );
+}
+
+/// Whatever the interpreter prints before answering (a sitecustomize, a
+/// startup hook), unterminated and not UTF-8, cannot hide or garble an answer.
+#[test]
+#[cfg(unix)]
+fn python_import_batch_reads_through_interpreter_noise() {
+    use catalog::ImportVerdict::{Importable, NotImportable};
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let python = python_with_modules(
+        &fixture.root,
+        &[(
+            "sitecustomize",
+            "import os\nos.write(1, b'\\xff\\xfe startup noise without a newline')\n",
+        )],
+    );
+    let modules = vec!["json".to_string(), "susi_no_such_module_xyz".to_string()];
+    let verdicts = catalog::probe_imports(&python, &modules, std::time::Duration::from_secs(5));
+    assert_eq!(verdicts.get("json"), Some(&Importable));
+    assert_eq!(
+        verdicts.get("susi_no_such_module_xyz"),
+        Some(&NotImportable)
     );
 }

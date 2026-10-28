@@ -216,7 +216,11 @@ fn no_workflow_targets_a_retired_runner_image() {
 }
 
 #[test]
-fn main_runs_cancel_stale_tail_work() {
+fn main_runs_queue_and_branch_runs_supersede() {
+    // Latest-wins on main cancelled every main run once merges (every 5-12
+    // min) came faster than the suite (30-45 min): nothing proved the merged
+    // tree for hours. A main run now always finishes and later merges collapse
+    // into one pending run; a branch run is still superseded by its next push.
     let text = read(".github/workflows/test.yml");
     let line = code(&text)
         .lines()
@@ -225,8 +229,8 @@ fn main_runs_cancel_stale_tail_work() {
         .trim()
         .to_string();
     assert_eq!(
-        line, "cancel-in-progress: true",
-        "main must use latest-wins concurrency: `{line}`"
+        line, "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}",
+        "main runs must queue and branch runs supersede: `{line}`"
     );
 }
 
