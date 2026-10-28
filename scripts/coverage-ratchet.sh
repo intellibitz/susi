@@ -25,6 +25,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The coverage report is large and the runner's /tmp is a small tmpfs; honor
+# TMPDIR (the workflow points it at the big disk) so report generation never
+# hits EDQUOT.
+TMP="${TMPDIR:-/tmp}"
+
 run_cov() {
     if command -v cargo-nextest >/dev/null 2>&1; then
         cargo llvm-cov nextest --workspace --retries 2 --no-fail-fast > "$1"
@@ -109,15 +114,15 @@ PYEOF
 }
 
 if [[ "${1:-}" == "--update" ]]; then
-    run_cov /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt
-    ratchet --update /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt
+    run_cov "$TMP/susi-cov.txt" "$TMP/susi-cov-leaf.txt"
+    ratchet --update "$TMP/susi-cov.txt" "$TMP/susi-cov-leaf.txt"
     exit 0
 fi
 
-if ! run_cov /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt || ! ratchet --check /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt; then
+if ! run_cov "$TMP/susi-cov.txt" "$TMP/susi-cov-leaf.txt" || ! ratchet --check "$TMP/susi-cov.txt" "$TMP/susi-cov-leaf.txt"; then
     echo "coverage regression measured — re-running once to rule out env flake"
-    run_cov /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt || true
+    run_cov "$TMP/susi-cov-r2.txt" "$TMP/susi-cov-leaf-r2.txt" || true
     ratchet --check \
-        /tmp/susi-cov.txt /tmp/susi-cov-leaf.txt \
-        /tmp/susi-cov-r2.txt /tmp/susi-cov-leaf-r2.txt
+        "$TMP/susi-cov.txt" "$TMP/susi-cov-leaf.txt" \
+        "$TMP/susi-cov-r2.txt" "$TMP/susi-cov-leaf-r2.txt"
 fi
