@@ -211,10 +211,21 @@ jobs:
       # HEAD^1 skipped their shards and still went green. From the last green
       # head, each green run covers everything since the one before it, and a
       # red run leaves the base where it was, so the next run retests what
-      # failed. Two escapes, both toward proving more: the suite's own
-      # machinery (.github/, scripts/) cannot scope itself out, and anything the
-      # diff cannot resolve — no green ancestor among the last 20, or no answer
-      # from the API — is ALL.
+      # failed. Two kinds of green are no base:
+      # - the run's own head: a second dispatch on a green head re-proves the
+      #   merges before it rather than nothing;
+      # - a push run: the `stamp` above can prove one by tree identity without
+      #   running it, and ci-code-proven.sh ignores all of .agents/ while
+      #   ci-changed-crates.sh counts .agents/ outside tasks/ as ALL, so a push
+      #   that moved only .agents/roadmap.json would go green untested and
+      #   every later run would scope from past it. The auto-merger's
+      #   dispatched runs are never stamped.
+      # Rename detection is off for every diff below, so a file moved out of
+      # scripts/ or out of a crate still names the path it left. Two escapes,
+      # both toward proving more: the suite's own machinery (.github/,
+      # scripts/) cannot scope itself out, and anything the diff cannot resolve
+      # — no green base among the last 20 runs, or no answer from the API — is
+      # ALL.
       # `affected` is the scalar verdict; `skip_shards` is what each matrix leg
       # checks before spending a runner; `run_e2e` does the same for the e2e.
       - name: Resolve which shards this merge can affect
@@ -230,9 +241,13 @@ jobs:
           # in the affected set, including as a dependent.
           win=true
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=false
+            head=$(git rev-parse HEAD)
             base=
             for sha in $(gh run list --workflow test.yml --branch main --status success \
-              --limit 20 --json headSha --jq '.[].headSha' || true); do
+              --limit 20 --json headSha,event \
+              --jq '.[] | select(.event != "push") | .headSha' || true); do
+              [ "$sha" != "$head" ] || continue
               if git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
                 base=$sha
                 break
@@ -278,9 +293,10 @@ jobs:
             # never builds Windows. It was 94% of the merge gate (a cold ~23 min
             # build against ~1.5 min for every Linux check), and each agent may
             # hold only one unmerged task, so it capped every agent's rate.
-            # main's post-merge run builds it and attributes a red result to the
-            # PR (main-failure.yml); a release tag builds it before anything
-            # publishes. A release tag keeps run_windows=true.
+            # main's post-merge run builds it (main-failure.yml names the PR
+            # of a red push run; the auto-merger's dispatched runs never start
+            # it); a release tag builds it before anything publishes. A
+            # release tag keeps run_windows=true.
             win=false
           fi
           {

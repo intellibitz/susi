@@ -481,36 +481,49 @@ pub(super) fn with_scan_verdicts_for_test<T>(
 }
 
 /// The batch probe. One interpreter starts, then forks a fresh child per
-/// module. The child empties `__main__` of the batch's names and runs there
-/// exactly what the single probe ran: `import X` (as source, so the import
-/// statement's own rules apply), with `sys.argv` as `-c` sets it and no
-/// descriptor beyond 0-2. An import that succeeds ends the script, so it exits
-/// the way `python -c "import X"` would (atexit, threads left running,
-/// PYTHONINSPECT); a SystemExit keeps its code. Any other error exits 1 at
-/// once, skipping the interpreter shutdown that cost about 30 ms for each
-/// framework not installed: an import that fails is not importable here even
-/// where `python -c` would then hang in its shutdown (a non-daemon thread) or
-/// exit 0 from it (an atexit hook). What is left different is accepted: the
-/// child's output goes to the null device rather than a pipe, and
-/// `sys.orig_argv` is the batch's.
+/// module. The child takes the batch's own names back out of `__main__` and
+/// runs there exactly what the single probe ran: `import X` (as source, so the
+/// import statement's own rules apply), with `sys.argv` as `-c` sets it and no
+/// descriptor the single probe would not have. An import that succeeds ends the
+/// script, so it exits the way `python -c "import X"` would (atexit, threads
+/// left running, PYTHONINSPECT); a SystemExit keeps its code. Any other error
+/// exits 1 at once, skipping the interpreter shutdown that cost about 30 ms for
+/// each framework not installed: an import that fails is not importable here
+/// even where `python -c` would then hang in its shutdown (a non-daemon thread)
+/// or exit 0 from it (an atexit hook). What is left different is accepted: the
+/// child's output goes to the null device rather than a pipe, the batch's own
+/// frames sit above the importing frame, and `sys.orig_argv` is the batch's.
 ///
 /// The parent imports nothing a file in the working directory could stand in
-/// for (`os` and `sys` are loaded at startup, `time` is built in). No import
-/// can forge or hide an answer: the parent reports each one on a line of its
-/// own, tagged with a token the modules cannot know, and kills a child that
-/// runs past the per-import bound. It announces each module before forking
-/// it, so no import runs before the caller knows it is in flight; a fork that
-/// fails is reported as `nofork`, and that module and the rest get the single
-/// probe. The batch sits in a process group of its own, which a terminal's
-/// Ctrl-C does not reach, so it watches its parent instead: once the caller is
-/// gone, it kills the import in flight and exits.
-pub(super) const BATCH_SCRIPT: &str = "import os, sys, time
-token, bound, caller = sys.argv[1], float(sys.argv[2]), os.getppid()
+/// for (`os` and `sys` are loaded at startup, `time` is built in). No import's
+/// output can pass for an answer: the import writes only to the null device,
+/// and the parent reports each module on a line of its own, tagged with a
+/// per-run token. It kills a child that runs past the per-import bound. It
+/// announces each module before forking it, so no import runs before the
+/// caller knows it is in flight; a fork that fails is reported as `nofork`,
+/// and that module and the rest get the single probe.
+///
+/// The batch sits in a process group of its own (`own-group`), which a
+/// terminal's Ctrl-C does not reach, so it watches its caller instead: the
+/// caller holds the write end of the batch's stdin and never writes, and end
+/// of file there means the caller is gone, whatever runs between them (a
+/// wrapper script that does not exec). The batch then kills its whole group,
+/// the import in flight and anything it started included, as the Ctrl-C
+/// would have killed the single probe's.
+pub(super) const BATCH_SCRIPT: &str = "keep = set(globals())
+import os, sys, time
+token, bound, own_group = sys.argv[1], float(sys.argv[2]), sys.argv[3] == 'own-group'
+os.set_blocking(0, False)
 def say(kind, m):
     sys.stdout.write('\\n%s %s %s\\n' % (token, kind, m))
     sys.stdout.flush()
+def caller_gone():
+    try:
+        return os.read(0, 1) == b''
+    except BlockingIOError:
+        return False
 def batch():
-    for m in sys.argv[3:]:
+    for m in sys.argv[4:]:
         say('begin', m)
         try:
             pid = os.fork()
@@ -532,17 +545,20 @@ def batch():
                 ok = os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
                 say('ok' if ok else 'fail', m)
                 break
-            if time.monotonic() > deadline or os.getppid() != caller:
+            if caller_gone():
+                if own_group:
+                    os.killpg(0, 9)
+                os.kill(pid, 9)
+                os._exit(1)
+            if time.monotonic() > deadline:
                 os.kill(pid, 9)
                 os.waitpid(pid, 0)
-                if os.getppid() != caller:
-                    os._exit(1)
                 say('timeout', m)
                 break
             time.sleep(0.002)
     say('done', '-')
-def run(m, main=globals(), _exit=os._exit):
-    for name in [n for n in main if not n.startswith('__')]:
+def run(m, main=globals(), keep=keep, _exit=os._exit):
+    for name in [n for n in main if n not in keep]:
         del main[name]
     try:
         exec('import ' + m, main)
@@ -633,13 +649,15 @@ fn run_import_batch(
         .arg(BATCH_SCRIPT)
         .arg(&token)
         .arg(per_import.as_secs_f64().to_string())
+        .arg("own-group")
         .args(modules)
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     // Its own process group, so an interpreter that stopped answering is
     // killed with the import it was waiting on. A Ctrl-C no longer reaches
-    // it; the script stops when this process is gone instead.
+    // it; its stdin is the lifeline instead, held open below and never
+    // written, so it reads end of file once this process is gone.
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -648,6 +666,7 @@ fn run_import_batch(
     let Ok(mut child) = cmd.spawn() else {
         return BatchEnd::Died(None);
     };
+    let _lifeline = child.stdin.take();
     let Some(stdout) = child.stdout.take() else {
         kill_batch(&mut child);
         return BatchEnd::Died(None);

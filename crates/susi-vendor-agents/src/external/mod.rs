@@ -381,7 +381,9 @@ impl AgentManager {
     /// The readiness scan itself, every catalog entry in rank order with its
     /// Python imports probed in one interpreter: the ready entries, each also
     /// handed to `register` as a capability. The caller owns the registry, so
-    /// a scan in a test reaches no process-wide state.
+    /// a scan in a test registers nothing process-wide (it still seeds the
+    /// extension pack and reports each preflight failure to the error sink,
+    /// as every scan does).
     fn scan_ready(
         &self,
         register: &mut dyn FnMut(crate::susi_core::registry::AgentCapability),

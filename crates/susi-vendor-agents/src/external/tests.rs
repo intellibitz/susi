@@ -540,17 +540,25 @@ fn python_import_batch_survives_hostile_imports() {
             // On the path ahead of the standard library, as a file in the
             // working directory would be: the batch must not need it.
             ("importlib", "raise ImportError('shadowed importlib')\n"),
-            // Importable under `python -c` only if the importing frame, the
-            // `__main__` namespace and the descriptors look as they do there.
+            // Importable only if the importing frame, the `__main__`
+            // namespace and `sys.argv` look as they do under `python -c`.
             (
                 "susi_inspects_importer",
-                "import os, sys, __main__\n\
+                "import sys, __main__\n\
                  f = sys._getframe(1)\n\
                  while f.f_code.co_filename.startswith('<frozen'):\n    f = f.f_back\n\
                  assert f.f_globals['__name__'] == '__main__', 'importer namespace'\n\
                  assert not [n for n in vars(__main__) if not n.startswith('__')], 'batch names'\n\
+                 assert sys.argv == ['-c'], sys.argv\n",
+            ),
+            // Fails when descriptor 3 is open: the batch must leave the same
+            // descriptors open as the single probe has, whatever this process
+            // inherited.
+            (
+                "susi_counts_descriptors",
+                "import os\n\
                  try:\n    os.fstat(3)\nexcept OSError:\n    pass\n\
-                 else:\n    raise ImportError('a descriptor beyond 0-2 is open')\n",
+                 else:\n    raise ImportError('descriptor 3 is open')\n",
             ),
         ],
     );
@@ -567,6 +575,7 @@ fn python_import_batch_survives_hostile_imports() {
         "susi_raises",
         "susi_no_such_module_xyz",
         "susi_inspects_importer",
+        "susi_counts_descriptors",
     ]
     .iter()
     .map(|m| (*m).to_string())
@@ -601,7 +610,19 @@ fn python_import_batch_survives_hostile_imports() {
     assert_eq!(
         get("susi_inspects_importer"),
         Some(Importable),
-        "imported from a namespace and descriptors other than `python -c`'s"
+        "imported from a frame, namespace or argv other than `python -c`'s"
+    );
+    let single = std::process::Command::new(&python)
+        .args(["-c", "import susi_counts_descriptors"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap()
+        .status
+        .success();
+    assert_eq!(
+        get("susi_counts_descriptors"),
+        Some(if single { Importable } else { NotImportable }),
+        "the batch's import sees descriptors the single probe does not"
     );
     assert!(
         elapsed < std::time::Duration::from_secs(8),
@@ -654,19 +675,29 @@ fn python_imports_decide_preflight_only_inside_their_scan() {
 fn python_imports_the_catalog_scan_starts_one_interpreter() {
     let fixture = Fixture::for_kind(CatalogKind::Framework);
     let (python, log) = counting_python(&fixture.root);
+    let config = fixture.root.join("engine.json");
+    fs::write(&config, "{}").unwrap();
+    std::env::set_var("SUSI_PYIMPORT_SCAN_READY_CONFIG", &config);
     let mut python_ids = Vec::new();
+    let mut ready_peer = None;
     for def in catalog(CatalogKind::Framework).unwrap() {
         if let Adapter::Python { import_name, .. } = &def.adapter {
+            // The first entry imports `json` and finds its config: ready. The
+            // rest keep their import and find no config: never registered.
+            let (import_name, config_env) = if ready_peer.is_none() {
+                ready_peer = Some(def.peer_name.clone());
+                ("json".to_string(), "SUSI_PYIMPORT_SCAN_READY_CONFIG")
+            } else {
+                (import_name.clone(), "SUSI_PYIMPORT_SCAN_UNSET_CONFIG")
+            };
             fixture
                 .manager
                 .configure(
                     &def.id,
                     &Adapter::Python {
                         python: python.to_string_lossy().into_owned(),
-                        import_name: import_name.clone(),
-                        // Unset: the import check passes or fails, and the
-                        // config check keeps every entry from being registered.
-                        config_env: "SUSI_PYIMPORT_SCAN_UNSET_CONFIG".into(),
+                        import_name,
+                        config_env: config_env.into(),
                     },
                 )
                 .unwrap();
@@ -679,24 +710,32 @@ fn python_imports_the_catalog_scan_starts_one_interpreter() {
         .manager
         .scan_ready(&mut |cap| registered.push(cap.name))
         .unwrap();
-    assert!(registered.is_empty(), "{registered:?}");
+    std::env::remove_var("SUSI_PYIMPORT_SCAN_READY_CONFIG");
     assert_eq!(
         starts(&log),
         1,
         "one interpreter for the {} Python frameworks of the scan",
         python_ids.len()
     );
-    assert!(
-        ready
-            .iter()
-            .all(|r| !python_ids.iter().any(|id| r["id"] == id.as_str())),
-        "{ready:?}"
+    let ready_peers: Vec<&str> = ready
+        .iter()
+        .filter_map(|r| r["peer_name"].as_str())
+        .collect();
+    assert_eq!(
+        registered, ready_peers,
+        "every ready entry, and only those, is registered"
     );
+    let python_ready: Vec<&serde_json::Value> = ready
+        .iter()
+        .filter(|r| python_ids.iter().any(|id| r["id"] == id.as_str()))
+        .collect();
+    assert_eq!(python_ready.len(), 1, "{python_ready:?}");
+    assert_eq!(python_ready[0]["peer_name"].as_str(), ready_peer.as_deref());
 }
 
 /// Whether process `pid` has exited (gone, or a zombie nobody reaped yet)
-/// within `wait`. A state that cannot be read fails the test rather than
-/// passing for "gone".
+/// within `wait`. Something that is not a pid, or a `ps` that cannot run,
+/// fails the test rather than passing for "gone".
 #[cfg(unix)]
 fn gone_within(pid: &str, wait: std::time::Duration) -> bool {
     let until = std::time::Instant::now() + wait;
@@ -712,10 +751,14 @@ fn gone_within(pid: &str, wait: std::time::Duration) -> bool {
 }
 
 /// The state letter of process `pid`, `None` once it is gone. On Linux it is
-/// read from /proc (the field after the parenthesised command name); elsewhere
-/// from `ps`, which must run.
+/// read from /proc (the field after the parenthesised command name, which may
+/// itself hold parentheses); elsewhere from `ps`, which must run.
 #[cfg(unix)]
 fn process_state(pid: &str) -> Option<char> {
+    assert!(
+        pid.parse::<u32>().is_ok_and(|p| p > 0),
+        "not a pid: {pid:?}"
+    );
     if Path::new("/proc/self/stat").is_file() {
         let stat = fs::read_to_string(Path::new("/proc").join(pid).join("stat")).ok()?;
         let (_, rest) = stat.rsplit_once(')')?;
@@ -799,50 +842,77 @@ fn python_import_batch_survives_a_stopped_or_killed_interpreter() {
 }
 
 /// The batch's own process group keeps a terminal's Ctrl-C from reaching it.
-/// When the process that started it ends, the batch must stop the import in
-/// flight and exit, not leave it running out its bound unwatched. The caller
-/// here is a shell that starts the batch, waits until the import runs, and
-/// exits.
+/// When the process that started it ends, the batch must end its whole group:
+/// the import in flight and the helper process it started, not leave them
+/// running out the bound or for good. The caller here starts the batch as
+/// `run_import_batch` does (a group of its own, a stdin pipe it never writes),
+/// waits until the import runs, and exits; once straight to the interpreter,
+/// once through a wrapper script that runs python without exec'ing it.
 #[test]
 #[cfg(unix)]
 fn python_import_batch_ends_with_its_caller() {
     let fixture = Fixture::for_kind(CatalogKind::Framework);
     let pidfile = fixture.root.join("import.pid");
-    let python = python_with_modules(
+    let exec_wrapper = python_with_modules(
         &fixture.root,
         &[(
-            "susi_hangs_with_pid",
+            "susi_hangs_with_helper",
             &format!(
-                "import os, time\nopen('{}', 'w').write(str(os.getpid()))\ntime.sleep(60)\n",
+                "import os, subprocess, time\n\
+                 helper = subprocess.Popen(['sleep', '60'])\n\
+                 open('{0}.tmp', 'w').write('%d %d' % (os.getpid(), helper.pid))\n\
+                 os.rename('{0}.tmp', '{0}')\n\
+                 time.sleep(60)\n",
                 pidfile.display()
             ),
         )],
     );
-    let out = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(
-            "\"$1\" -c \"$2\" token 30 susi_hangs_with_pid >/dev/null 2>&1 &\n\
-             echo $!\n\
-             i=0\n\
-             while [ ! -s \"$3\" ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i + 1)); done\n",
-        )
-        .arg("sh")
-        .arg(&python)
-        .arg(catalog::BATCH_SCRIPT)
-        .arg(&pidfile)
-        .output()
-        .unwrap();
-    let batch = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let import = fs::read_to_string(&pidfile)
-        .expect("the import never started")
-        .trim()
-        .to_string();
-    let wait = std::time::Duration::from_secs(3);
-    assert!(gone_within(&batch, wait), "the batch outlived its caller");
-    assert!(
-        gone_within(&import, wait),
-        "the import outlived the batch's caller"
+    let noexec_wrapper = fixture.root.join("python3-noexec");
+    write_executable(
+        &noexec_wrapper,
+        &format!(
+            "#!/bin/sh\nPYTHONPATH='{}' python3 \"$@\"\n",
+            fixture.root.join("pymods").display()
+        ),
     );
+    const CALLER: &str = "import os, subprocess, sys, time
+python, script, pidfile = sys.argv[1:4]
+batch = subprocess.Popen(
+    [python, '-c', script, 'token', '30', 'own-group', 'susi_hangs_with_helper'],
+    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    preexec_fn=os.setpgrp)
+print(batch.pid, flush=True)
+deadline = time.monotonic() + 20
+while not os.path.exists(pidfile) and time.monotonic() < deadline:
+    time.sleep(0.05)
+os._exit(0)
+";
+    let wait = std::time::Duration::from_secs(3);
+    for python in [&exec_wrapper, &noexec_wrapper] {
+        let _ = fs::remove_file(&pidfile);
+        let out = std::process::Command::new("python3")
+            .args(["-c", CALLER])
+            .arg(python)
+            .arg(catalog::BATCH_SCRIPT)
+            .arg(&pidfile)
+            .output()
+            .unwrap();
+        let batch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let pids = fs::read_to_string(&pidfile)
+            .unwrap_or_else(|_| panic!("{}: the import never started", python.display()));
+        let (import, helper) = pids.split_once(' ').unwrap();
+        for (what, pid) in [
+            ("batch", batch.as_str()),
+            ("import", import),
+            ("helper", helper),
+        ] {
+            assert!(
+                gone_within(pid, wait),
+                "{}: the {what} outlived the batch's caller",
+                python.display()
+            );
+        }
+    }
 }
 
 /// A fork the system refuses, on the first module or a later one, leaves the
