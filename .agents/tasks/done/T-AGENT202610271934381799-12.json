@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT202610271934381799-12",
+  "title": "Write coverage reports off the tmpfs (respect TMPDIR)",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793154677,
+  "closed": {
+    "at_unix": 1793155689,
+    "commit": "ca3ffe22aecbc36ab9b304dd864faecc04864abd",
+    "by": "AGENT202610271934381799"
+  }
+}

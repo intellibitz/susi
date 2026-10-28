@@ -1,0 +1,19 @@
+{
+  "id": "T-SUSI-2",
+  "title": "Restore intent trivial.note.write (trivial)",
+  "goal": "Restoring the trivial intent `trivial.note.write` from ladder revision 1.\nExpected: a file `ladder-note.txt` containing `susi`.\nObserved: ladder-note.txt was never produced — verdict fail, stopped completed, worker F:\\src\\github.com\\intellibitz\\susi-agent-20261027-193438-1799\\target\\debug\\susi.exe@44424, 99s and 0µs.\nClose requires the intent itself to pass: `susi admin intent-ladder --verify trivial.note.write`.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "susi",
+      "admin",
+      "intent-ladder",
+      "--verify",
+      "trivial.note.write"
+    ]
+  },
+  "created_by": "SUSI",
+  "created_unix": 1793155280,
+  "authored": true
+}
