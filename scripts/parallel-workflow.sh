@@ -183,6 +183,11 @@ gate() {
         gate_pkgs=$("$root/scripts/ci-changed-crates.sh")
         return 0
     fi
+    # The shared target may hold another worktree's build of a crate this
+    # branch has differently; the gate must judge this branch's code.
+    if [ -x "$root/scripts/target-guard.sh" ]; then
+        "$root/scripts/target-guard.sh"
+    fi
     cargo fmt --all --check
     pkgs=$("$root/scripts/ci-changed-crates.sh")
     gate_pkgs=$pkgs

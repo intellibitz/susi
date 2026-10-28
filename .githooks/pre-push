@@ -52,6 +52,10 @@ if [ -n "$PUSHED_RUST_FILES" ]; then
         # crate's test targets as well, a cold build the gate never needed. A
         # workspace-wide input (lockfile, toolchain, root build.rs) is `ALL` and keeps
         # the whole-workspace lint.
+        # The shared target may hold another worktree's build of a crate
+        # this branch has differently: lint this branch's code, not theirs.
+        guard="$(git rev-parse --show-toplevel)/scripts/target-guard.sh"
+        if [ -x "$guard" ]; then "$guard"; fi
         LINT_PKGS=$("$(git rev-parse --show-toplevel)/scripts/ci-changed-crates.sh" --dependents)
         if [ "$LINT_PKGS" = ALL ] || [ -z "$LINT_PKGS" ]; then
             cargo clippy --workspace --all-targets --locked -- -D warnings

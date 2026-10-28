@@ -450,6 +450,37 @@ fn the_main_shards_retry_a_flaky_test_alone() {
     );
 }
 
+/// Worktrees share one target, and cargo names a workspace crate's build by
+/// its path relative to the workspace: a crate another worktree built (with
+/// other content) reads as fresh here, and its code is linked into this
+/// branch's build. Both gates run the guard that rebuilds such crates before
+/// any cargo command, so what they accept is this branch's code.
+#[test]
+fn the_gates_guard_the_shared_target_before_cargo() {
+    let gate = read("scripts/parallel-workflow.sh");
+    let hook = read(".githooks/pre-push");
+    for (name, text, first_cargo) in [
+        ("the finish gate", &gate, "cargo fmt --all --check"),
+        ("pre-push", &hook, "cargo clippy"),
+    ] {
+        let guard = text
+            .find("scripts/target-guard.sh")
+            .unwrap_or_else(|| panic!("{name} must run scripts/target-guard.sh"));
+        let cargo = text
+            .find(first_cargo)
+            .unwrap_or_else(|| panic!("{name} runs no `{first_cargo}`?"));
+        assert!(
+            guard < cargo,
+            "{name} must guard the target before cargo runs"
+        );
+    }
+    let guard = read("scripts/target-guard.sh");
+    assert!(
+        guard.contains("git -C \"$root\" ls-tree HEAD"),
+        "the guard reads every member's content in one call, not a process per member"
+    );
+}
+
 /// The pre-push hook lints what the finish gate lints, with the same command
 /// line, so its run is a cache hit. `--workspace` compiled every other crate's
 /// test targets too - a cold build the gate never needed - on every Rust push.

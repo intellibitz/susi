@@ -371,17 +371,40 @@ fn claim_requires_a_synced_worktree_and_says_how_to_sync() {
     let w = World::new("claimsync");
     add_task(&w);
     advance_origin(&w);
+    // A tracked change in progress: the claim does not merge over it.
+    std::fs::write(w.wt.join("notes.txt"), "in progress\n").unwrap();
+    git(&w.wt, &["add", "notes.txt"]);
     let (code, _, err) = w.susi(&w.wt, &["tasks", "claim", "T-TEST-1", "--scope", "work"]);
-    assert_ne!(code, 0, "a stale worktree must not claim");
+    assert_ne!(code, 0, "a stale, dirty worktree must not claim");
     assert!(err.contains("1 commit(s) behind origin/main"), "{err}");
     assert!(err.contains("git merge origin/main"), "{err}");
     // No claim was taken.
     let (_, out, _) = w.susi(&w.wt, &["tasks", "list"]);
     assert!(!out.contains("\"claimed_by\": \"TEST\""), "{out}");
     // After syncing, the same claim goes through.
+    git(&w.wt, &["reset", "--quiet", "--", "notes.txt"]);
     git(&w.wt, &["merge", "--quiet", "origin/main"]);
     let (code, _, err) = w.susi(&w.wt, &["tasks", "claim", "T-TEST-1", "--scope", "work"]);
     assert_eq!(code, 0, "{err}");
+}
+
+/// In a busy swarm main moves between an agent's sync and its claim most of
+/// the time. A clean worktree whose merge with main is clean is merged by the
+/// claim itself, instead of a refusal and a manual merge-and-retry loop.
+#[test]
+fn a_clean_stale_worktree_is_merged_and_claims() {
+    let w = World::new("claimautomerge");
+    add_task(&w);
+    advance_origin(&w);
+    let (code, _, err) = w.susi(&w.wt, &["tasks", "claim", "T-TEST-1", "--scope", "work"]);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("merged origin/main"), "{err}");
+    let behind = std::process::Command::new("git")
+        .args(["rev-list", "--count", "HEAD..origin/main"])
+        .current_dir(&w.wt)
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&behind.stdout).trim(), "0");
 }
 
 #[test]
