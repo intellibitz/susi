@@ -316,13 +316,22 @@ impl Adapter {
                 config_env,
             } => {
                 let program = resolve_program(python).context("Python executable missing")?;
-                let status = crate::susi_core::bounded_cmd::output_within(
-                    Command::new(&program).args(["-c", &format!("import {import_name}")]),
-                    std::time::Duration::from_secs(10),
-                )
-                .with_context(|| format!("failed to probe import {import_name}"))?
-                .status;
-                if !status.success() {
+                let importable = match scan_import_verdict(&program, import_name) {
+                    Some(ImportVerdict::Importable) => true,
+                    Some(ImportVerdict::NotImportable) => false,
+                    Some(ImportVerdict::TimedOut) => bail!(
+                        "failed to probe import {import_name}: it did not finish within {} s",
+                        PER_IMPORT.as_secs()
+                    ),
+                    None => crate::susi_core::bounded_cmd::output_within(
+                        Command::new(&program).args(["-c", &format!("import {import_name}")]),
+                        PER_IMPORT,
+                    )
+                    .with_context(|| format!("failed to probe import {import_name}"))?
+                    .status
+                    .success(),
+                };
+                if !importable {
                     bail!("Python package not importable: {import_name}");
                 }
                 let path = std::env::var(config_env).unwrap_or_default();
@@ -380,6 +389,279 @@ impl Adapter {
                 | Self::OpenHandsServer { .. }
         )
     }
+}
+
+/// How long one Python import may take before its probe gives up, in the batch
+/// as in the single probe it replaces.
+const PER_IMPORT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// One module's answer from a batch probe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ImportVerdict {
+    Importable,
+    NotImportable,
+    /// The import did not finish within [`PER_IMPORT`]; the single probe would
+    /// have timed out the same way.
+    TimedOut,
+}
+
+type ImportVerdicts = std::collections::HashMap<(PathBuf, String), ImportVerdict>;
+
+thread_local! {
+    /// Import verdicts for the readiness scan running on this thread, keyed by
+    /// interpreter and module. Set only for the length of one scan
+    /// ([`with_python_imports`]): a daemon that rescans must still see a
+    /// framework installed after its previous scan.
+    static SCAN_IMPORTS: std::cell::RefCell<Option<ImportVerdicts>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn scan_import_verdict(program: &Path, module: &str) -> Option<ImportVerdict> {
+    SCAN_IMPORTS.with(|scan| {
+        scan.borrow()
+            .as_ref()?
+            .get(&(program.to_path_buf(), module.to_string()))
+            .copied()
+    })
+}
+
+/// Run `scan` with every Python import the `adapters` declare probed up front,
+/// in one interpreter per program. Each Python preflight used to start its own
+/// `python -c "import X"`, about 50 ms apiece: sixteen of them on every susi
+/// command, which primes the catalogs, so about half of each launch. A module
+/// the batch gives no answer for is left to the single probe.
+pub fn with_python_imports<T>(adapters: &[Adapter], scan: impl FnOnce() -> T) -> T {
+    let mut wanted: std::collections::BTreeMap<PathBuf, Vec<String>> = Default::default();
+    for adapter in adapters {
+        if let Adapter::Python {
+            python,
+            import_name,
+            ..
+        } = adapter
+        {
+            if let Some(program) = resolve_program(python) {
+                wanted.entry(program).or_default().push(import_name.clone());
+            }
+        }
+    }
+    let mut verdicts = ImportVerdicts::new();
+    for (program, modules) in wanted {
+        for (module, verdict) in probe_imports(&program, &modules, PER_IMPORT) {
+            verdicts.insert((program.clone(), module), verdict);
+        }
+    }
+    struct Clear;
+    impl Drop for Clear {
+        fn drop(&mut self) {
+            SCAN_IMPORTS.with(|scan| scan.borrow_mut().take());
+        }
+    }
+    SCAN_IMPORTS.with(|scan| *scan.borrow_mut() = Some(verdicts));
+    let _clear = Clear;
+    scan()
+}
+
+/// Run `scan` with one stored verdict, as a scan would have stored it.
+#[cfg(test)]
+pub(super) fn with_scan_verdicts_for_test<T>(
+    program: &Path,
+    module: &str,
+    verdict: ImportVerdict,
+    scan: impl FnOnce() -> T,
+) -> T {
+    let mut verdicts = ImportVerdicts::new();
+    verdicts.insert((program.to_path_buf(), module.to_string()), verdict);
+    SCAN_IMPORTS.with(|s| *s.borrow_mut() = Some(verdicts));
+    let out = scan();
+    SCAN_IMPORTS.with(|s| s.borrow_mut().take());
+    out
+}
+
+/// The batch probe. One interpreter starts, then forks a fresh child per
+/// module that runs the import the single probe ran, `import X` in an
+/// interpreter nothing else has imported into, and exits the way
+/// `python -c "import X"` would (SystemExit codes, atexit, threads left
+/// running). The child's output goes to the null device, so no import can
+/// forge or hide an answer; the parent reports each one on a line of its own,
+/// tagged with a token the modules cannot know, and kills a child that runs
+/// past the per-import bound. Without `os.fork` (Windows) it exits before
+/// answering and every module gets the single probe.
+const BATCH_SCRIPT: &str = "import importlib, os, sys, time
+token, bound = sys.argv[1], float(sys.argv[2])
+def say(kind, m):
+    sys.stdout.write('\\n%s %s %s\\n' % (token, kind, m))
+    sys.stdout.flush()
+if not hasattr(os, 'fork'):
+    sys.exit(3)
+for m in sys.argv[3:]:
+    say('begin', m)
+    pid = os.fork()
+    if pid == 0:
+        null = os.open(os.devnull, os.O_RDWR)
+        for fd in (0, 1, 2):
+            os.dup2(null, fd)
+        sys.argv = ['-c']
+        try:
+            importlib.import_module(m)
+        except SystemExit:
+            raise
+        except BaseException:
+            os._exit(1)
+        sys.exit(0)
+    deadline = time.monotonic() + bound
+    while True:
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if done:
+            ok = os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
+            say('ok' if ok else 'fail', m)
+            break
+        if time.monotonic() > deadline:
+            os.kill(pid, 9)
+            os.waitpid(pid, 0)
+            say('timeout', m)
+            break
+        time.sleep(0.002)
+say('done', '-')
+";
+
+/// How one batch interpreter ended.
+enum BatchEnd {
+    /// Every module answered.
+    Done,
+    /// The interpreter stopped answering while this module was being probed;
+    /// it was killed, and the modules after it still need a batch.
+    Stuck(String),
+    /// The interpreter ended without finishing (no `os.fork`, or it could not
+    /// start). The module it was probing, if any, is left to the single probe.
+    Died(Option<String>),
+}
+
+/// The verdict of every module the batch could decide, with the per-import
+/// bound the single probe had: one import that hangs costs one bound, as it
+/// did, and the answers before it are kept. A module missing from the result
+/// is left to the single probe.
+pub(super) fn probe_imports(
+    program: &Path,
+    modules: &[String],
+    per_import: std::time::Duration,
+) -> std::collections::HashMap<String, ImportVerdict> {
+    let mut verdicts = std::collections::HashMap::new();
+    let mut undecided: std::collections::HashSet<String> = Default::default();
+    loop {
+        let pending: Vec<String> = modules
+            .iter()
+            .filter(|m| !verdicts.contains_key(*m) && !undecided.contains(*m))
+            .cloned()
+            .collect();
+        if pending.is_empty() {
+            break;
+        }
+        match run_import_batch(program, &pending, per_import, &mut verdicts) {
+            BatchEnd::Done => break,
+            BatchEnd::Stuck(module) => {
+                verdicts.insert(module, ImportVerdict::TimedOut);
+            }
+            BatchEnd::Died(Some(module)) => {
+                undecided.insert(module);
+            }
+            BatchEnd::Died(None) => break,
+        }
+    }
+    verdicts
+}
+
+fn run_import_batch(
+    program: &Path,
+    modules: &[String],
+    per_import: std::time::Duration,
+    verdicts: &mut std::collections::HashMap<String, ImportVerdict>,
+) -> BatchEnd {
+    use std::io::BufRead;
+    use std::process::Stdio;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::Instant;
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let token = format!("susi-import-{}-{nanos}", std::process::id());
+    let Ok(mut child) = Command::new(program)
+        .arg("-c")
+        .arg(BATCH_SCRIPT)
+        .arg(&token)
+        .arg(per_import.as_secs_f64().to_string())
+        .args(modules)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return BatchEnd::Died(None);
+    };
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return BatchEnd::Died(None);
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    // Detached: an import may hand stdout to a process of its own that
+    // outlives the interpreter, and nothing here waits for that.
+    // Read bytes, not text: an import may print anything, and its output must
+    // not end the batch.
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).split(b'\n') {
+            let line = line.map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+            if tx.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let prefix = format!("{token} ");
+    // The interpreter enforces the per-import bound itself and reports a
+    // `timeout`; this one, a little longer, only catches an interpreter that
+    // stopped answering altogether.
+    let bound = per_import + std::time::Duration::from_secs(2);
+    let mut current: Option<String> = None;
+    let mut deadline = Instant::now() + bound;
+    let end = loop {
+        let wait = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(wait) {
+            Ok(Ok(line)) => {
+                let Some(rest) = line.trim_end_matches('\r').strip_prefix(&prefix) else {
+                    continue;
+                };
+                let (kind, module) = rest.split_once(' ').unwrap_or((rest, ""));
+                match kind {
+                    "begin" => {
+                        current = Some(module.to_string());
+                        deadline = Instant::now() + bound;
+                    }
+                    "ok" | "fail" | "timeout" if current.as_deref() == Some(module) => {
+                        let verdict = match kind {
+                            "ok" => ImportVerdict::Importable,
+                            "fail" => ImportVerdict::NotImportable,
+                            _ => ImportVerdict::TimedOut,
+                        };
+                        verdicts.insert(module.to_string(), verdict);
+                        current = None;
+                        deadline = Instant::now() + bound;
+                    }
+                    "done" => break BatchEnd::Done,
+                    _ => {}
+                }
+            }
+            Ok(Err(_)) | Err(RecvTimeoutError::Disconnected) => break BatchEnd::Died(current),
+            Err(RecvTimeoutError::Timeout) => match current {
+                Some(module) => break BatchEnd::Stuck(module),
+                None => break BatchEnd::Died(None),
+            },
+        }
+    };
+    // Every answer is in; an interpreter still running (a thread an import
+    // left behind, a stuck import) is not waited for.
+    let _ = child.kill();
+    let _ = child.wait();
+    end
 }
 
 pub fn resolve_program(program: &str) -> Option<PathBuf> {
