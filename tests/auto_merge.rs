@@ -135,7 +135,13 @@ rev-parse)
   *) echo "${{!#}}"; exit 0 ;;
   esac ;;
 merge-tree) echo "git $*" >> "$D/calls"; [ -f "$D/conflict" ] && exit 1; cat "$D/treefile" 2>/dev/null || echo tree999; exit 0 ;;
-commit-tree) echo "git $*" >> "$D/calls"; cat "$D/mcfile" 2>/dev/null || echo mc999; exit 0 ;;
+commit-tree)
+  # A CI runner has no git identity: refuse as git does unless the gate
+  # supplies its own.
+  [ -n "${{GIT_AUTHOR_NAME:-}}" ] && [ -n "${{GIT_AUTHOR_EMAIL:-}}" ] \
+    && [ -n "${{GIT_COMMITTER_NAME:-}}" ] && [ -n "${{GIT_COMMITTER_EMAIL:-}}" ] \
+    || {{ echo "fatal: empty ident name not allowed" >&2; exit 128; }}
+  echo "git $*" >> "$D/calls"; cat "$D/mcfile" 2>/dev/null || echo mc999; exit 0 ;;
 checkout) echo "git $*" >> "$D/calls"; [ -f "$D/checkoutfail" ] && exit 1; exit 0 ;;
 esac
 exec "{}" "$@"
@@ -165,6 +171,11 @@ exec "{}" "$@"
         .args(args)
         .env("PATH", path)
         .env("SUSI_TEST_GIT", self.dir.join("git"))
+        // As on a CI runner: no git identity unless the script supplies one.
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
         .envs(envs.iter().copied())
         .output()
         .unwrap();
