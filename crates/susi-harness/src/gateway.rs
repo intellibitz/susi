@@ -446,6 +446,13 @@ async fn buffered_upstream(
         record_failure(&state.ledger_path, &tag, started_unix_ms, class);
     }
 
+    // A provider's error body can echo the key it was sent; it goes back to
+    // the caller with every key-shaped run redacted.
+    let response_bytes = if (200..300).contains(&status) {
+        response_bytes
+    } else {
+        crate::secrets::redact(&String::from_utf8_lossy(&response_bytes)).into_bytes()
+    };
     let response_bytes = if (200..300).contains(&status) && is_anthropic {
         if let Ok(anth_val) = serde_json::from_slice::<Value>(&response_bytes) {
             match susi_adapters_llm::inference_wire::anthropic_to_openai_chat(
@@ -596,6 +603,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
             if let Some(class) = provider_failure(status, &bytes) {
                 record_failure(&ledger_path, &tag, started_unix_ms, class);
             }
+            let bytes = crate::secrets::redact(&String::from_utf8_lossy(&bytes)).into_bytes();
             let _ = chunk_tx.blocking_send(bytes);
             return;
         }

@@ -17,7 +17,7 @@ use crate::budget::Budget;
 use crate::catalog::PriceCatalogue;
 use crate::control::{self, ControlRecord};
 use crate::event::{append_event, read_events, Event, EventKind};
-use crate::ledger::{read_entries, LedgerEntry, Outcome};
+use crate::ledger::{LedgerEntry, Outcome};
 use crate::mission_control::{GraphView, Replay, ReplayEvent};
 use crate::money::MicroUsd;
 use crate::pricing::ModelPrice;
@@ -167,7 +167,7 @@ impl Cockpit {
     /// Read the ledger, feed, state, plan and controls and build a snapshot.
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
-        let entries = read_entries(&self.ledger_path).unwrap_or_default();
+        let entries = crate::ledger::read_entries_lenient(&self.ledger_path).0;
         let mut events = read_events(&self.events_path).unwrap_or_default();
         let now = now_ms();
         let mut missions: BTreeMap<String, MissionView> = BTreeMap::new();
@@ -369,9 +369,10 @@ impl Cockpit {
             .clone()
             .or_else(|| plan_mission.map(str::to_string))
             .or_else(|| {
-                read_entries(&self.ledger_path)
-                    .ok()
-                    .and_then(|entries| entries.last().map(|entry| entry.mission.clone()))
+                crate::ledger::read_entries_lenient(&self.ledger_path)
+                    .0
+                    .last()
+                    .map(|entry| entry.mission.clone())
             })
     }
 }

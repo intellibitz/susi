@@ -201,6 +201,45 @@ pub fn read_entries(path: &Path) -> EaiResult<Vec<LedgerEntry>> {
     Ok(entries)
 }
 
+/// Every row of `path` that decodes, and how many non-blank lines did not.
+///
+/// For the readers that make decisions (the budget guard, the fleet's
+/// evidence, a task's model order, the cockpit). The ledger is append-only and
+/// many processes write it, so a line torn by a crash, or written by a newer
+/// version, is possible; [`read_entries`] refuses the whole file on it, and its
+/// callers fell back to an empty ledger, which dropped every charge (the
+/// budget guard then saw nothing spent) and every lesson. This drops only the
+/// unreadable lines and says how many there were. A missing ledger is empty.
+#[must_use]
+pub fn read_entries_lenient(path: &Path) -> (Vec<LedgerEntry>, usize) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (Vec::new(), 0);
+    };
+    let mut entries = Vec::new();
+    let mut skipped = 0;
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        match serde_json::from_str(line) {
+            Ok(entry) => entries.push(entry),
+            Err(_) => skipped += 1,
+        }
+    }
+    (entries, skipped)
+}
+
+/// [`read_entries_lenient`] that names the skipped lines on stderr, once per
+/// read, so a damaged ledger is visible instead of silently thinner.
+#[must_use]
+pub fn read_entries_reporting(path: &Path) -> Vec<LedgerEntry> {
+    let (entries, skipped) = read_entries_lenient(path);
+    if skipped > 0 {
+        eprintln!(
+            "⚠ ledger {}: {skipped} line(s) could not be read and were skipped",
+            path.display()
+        );
+    }
+    entries
+}
+
 /// Sum the settled cost of every row, saturating rather than wrapping.
 #[must_use]
 pub fn total_cost(entries: &[LedgerEntry]) -> MicroUsd {
@@ -416,6 +455,31 @@ mod tests {
         std::fs::write(&path, "{\"mission\":\"m\"}\nnot json\n").unwrap();
         let err = read_entries(&path).unwrap_err();
         assert!(err.to_string().contains("line 1"));
+    }
+
+    #[test]
+    fn a_torn_line_costs_only_itself_in_the_lenient_reader() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.jsonl");
+        let good = serde_json::to_string(&entry("T-1", Outcome::Completed)).unwrap();
+        std::fs::write(
+            &path,
+            format!(
+                "{good}
+{{\"mission\":\"tor
+{good}
+"
+            ),
+        )
+        .unwrap();
+        let (entries, skipped) = read_entries_lenient(&path);
+        assert_eq!(entries.len(), 2, "both whole rows still count");
+        assert_eq!(skipped, 1);
+        assert_eq!(total_cost(&entries), MicroUsd::from_micros(217_200 * 2));
+        assert_eq!(
+            read_entries_lenient(&dir.path().join("absent.jsonl")),
+            (Vec::new(), 0)
+        );
     }
 
     #[test]

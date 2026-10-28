@@ -15,6 +15,19 @@ on:
   push:
     branches: ['**']
   workflow_dispatch:
+    inputs:
+      # `full` (the default) is the whole suite: the release workflow and the
+      # dispatch onto main after a merge want it. `branch` is exactly what a
+      # branch push runs (compile check and workflow compliance). The merge
+      # bot retests a head it resynced with `branch`: that head must pass the
+      # same gate a push would have, and a full-suite retest took 20+ minutes
+      # and failed the PR on suite-wide flakes no branch push would run.
+      gate:
+        description: "full: the whole suite; branch: the checks a branch push runs"
+        required: false
+        default: full
+        type: choice
+        options: [full, branch]
 
 # A newer push supersedes its older run, including on `main`. Post-merge
 # acceptance and coverage are audit work, not merge gates, and may otherwise
@@ -30,7 +43,7 @@ on:
 # went nine pushes without one Test run finishing. On main the dispatch the
 # auto-merger sends still supersedes, as before.
 concurrency:
-  group: test-${{ github.ref }}${{ github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && '-dispatch' || '' }}
+  group: test-${{ github.ref }}${{ github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', inputs.gate || 'full') || '' }}
   cancel-in-progress: true
 
 # A run on a tag (release.yml dispatches the suite on the tag it is about to
@@ -280,7 +293,7 @@ jobs:
   # be skipped with --no-verify; this job cannot.
   workflow:
     name: Workflow Compliance
-    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    if: (github.event_name == 'push' || inputs.gate == 'branch') && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -379,7 +392,7 @@ jobs:
   # it blocks every merge.
   check:
     name: Compile Check (branch pushes)
-    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    if: (github.event_name == 'push' || inputs.gate == 'branch') && github.ref != 'refs/heads/main'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -519,7 +532,7 @@ jobs:
   test:
     name: Test (${{ matrix.shard.name }})
     needs: codetree
-    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     # 90, not 60: a shard that loses its cache entry to the 10 GB quota rebuilds
     # its test profile, and root-cli then needs more than 60 — it was cancelled
@@ -644,7 +657,7 @@ jobs:
   coverage:
     name: Coverage Ratchet
     needs: codetree
-    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     # The instrumented build is the cost, and it is cold whenever the llvm-cov
     # entry is evicted: 60 cancelled it on the last main run. Same bound as the
@@ -701,7 +714,7 @@ jobs:
   lint:
     name: Doc Tests + Clippy
     needs: codetree
-    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     env:
@@ -772,7 +785,7 @@ jobs:
   kani:
     name: Kani Bounded Proofs
     needs: codetree
-    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && !startsWith(github.ref, 'refs/tags/') && needs.codetree.outputs.proven != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -895,7 +908,7 @@ jobs:
   e2e:
     name: capability_gap_e2e (live susi-native)
     needs: codetree
-    if: (github.event_name != 'push' || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
+    if: ((github.event_name != 'push' && inputs.gate != 'branch') || github.ref == 'refs/heads/main') && needs.codetree.outputs.proven != 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     steps:

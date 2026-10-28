@@ -203,6 +203,53 @@ pub fn setting(name: &str) -> Option<String> {
     lookup(name).map(|value| value.0)
 }
 
+/// `text` with every key in it replaced by `<redacted>`: any value this
+/// process has read for a key variable, and anything shaped like a provider
+/// key (`sk-…`, `AIza…`), masked forms included (`sk-abcd****1234`).
+///
+/// For text that came from outside and is going back out: a provider's error
+/// body can echo the key it was sent (OpenAI's 401 names a masked prefix and
+/// suffix of it), and the gateway hands error bodies to its callers, remote
+/// ones too under `--accounts`.
+#[must_use]
+pub fn redact(text: &str) -> String {
+    let mut out = text.to_string();
+    if let Some(cache) = CACHE.get() {
+        let cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
+        for key in cache.values().flatten() {
+            if key.0.len() >= 8 {
+                out = out.replace(&key.0, "<redacted>");
+            }
+        }
+    }
+    for prefix in ["sk-", "AIza"] {
+        out = redact_shaped(&out, prefix);
+    }
+    out
+}
+
+/// Replace each run that starts with `prefix` and continues with key
+/// characters (letters, digits, `-`, `_`, `*`, `.`) for at least eight more.
+fn redact_shaped(text: &str, prefix: &str) -> String {
+    let key_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '*' | '.');
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(prefix) {
+        let (before, from) = rest.split_at(at);
+        out.push_str(before);
+        let tail = &from[prefix.len()..];
+        let run = tail.find(|c: char| !key_char(c)).unwrap_or(tail.len());
+        if run >= 8 {
+            out.push_str("<redacted>");
+        } else {
+            out.push_str(&from[..prefix.len() + run]);
+        }
+        rest = &tail[run..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Whether any scope sets `name`. The key itself is not returned.
 #[must_use]
 pub fn is_set(name: &str) -> bool {
@@ -368,6 +415,29 @@ mod tests {
             Some("C:/x")
         );
         assert!(parse_scopes("not json").is_empty());
+    }
+
+    #[test]
+    fn key_shaped_text_is_redacted_and_ordinary_text_is_not() {
+        let body = r#"{"error":{"message":"Incorrect API key provided: sk-litel**************************2026. See https://platform.openai.com/account/api-keys."}}"#;
+        let clean = redact(body);
+        assert!(!clean.contains("sk-litel"), "{clean}");
+        assert!(
+            clean.contains("Incorrect API key provided: <redacted>"),
+            "{clean}"
+        );
+        assert!(clean.contains("api-keys"), "ordinary words stay: {clean}");
+        assert_eq!(
+            redact("key AIzaSyA1234567890abcdef ok"),
+            "key <redacted> ok"
+        );
+        assert_eq!(
+            redact("Bearer sk-ant-api03-abcdefghijklmnop end"),
+            "Bearer <redacted> end"
+        );
+        // Short runs are words, not keys.
+        assert_eq!(redact("risk-free task-ok sk-1"), "risk-free task-ok sk-1");
+        assert_eq!(redact("context length exceeded"), "context length exceeded");
     }
 
     #[test]

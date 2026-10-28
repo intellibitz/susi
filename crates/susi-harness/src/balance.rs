@@ -221,9 +221,23 @@ impl Budgets {
                 )
             })
             .collect::<Vec<_>>();
+        // A provider that does not answer, with no balance known, is not a
+        // budget problem: telling the operator to top it up sent them looking
+        // in the wrong place. It is named for what it is.
+        let silent = needed
+            .iter()
+            .filter(|entry| !entry.key_refused && entry.remaining.is_none())
+            .map(|entry| {
+                let models = models_of(registry, &entry.provider).join(", ");
+                format!(
+                    "{} ({}; models off: {models}; they return when the provider answers)",
+                    entry.provider, entry.note
+                )
+            })
+            .collect::<Vec<_>>();
         let parts = needed
             .iter()
-            .filter(|entry| !entry.key_refused)
+            .filter(|entry| !entry.key_refused && entry.remaining.is_some())
             .map(|entry| {
                 let models = models_of(registry, &entry.provider).join(", ");
                 let hint = format!(
@@ -243,6 +257,9 @@ impl Budgets {
         let mut alerts = Vec::new();
         if !refused.is_empty() {
             alerts.push(format!("key refused: {}", refused.join(" | ")));
+        }
+        if !silent.is_empty() {
+            alerts.push(format!("not answering: {}", silent.join(" | ")));
         }
         if !parts.is_empty() {
             alerts.push(format!("topup needed: {}", parts.join(" | ")));
@@ -678,6 +695,17 @@ mod tests {
     }
 
     #[test]
+    fn a_provider_that_does_not_answer_is_not_told_to_top_up() {
+        let budgets = Budgets {
+            providers: vec![entry("gemini", None), entry("deepseek", Some("0.50"))],
+        };
+        let alert = budgets.topup_alert(Registry::builtin()).unwrap();
+        assert!(alert.contains("not answering: gemini"), "{alert}");
+        assert!(alert.contains("topup needed: deepseek"), "{alert}");
+        assert!(!alert.contains("topup needed: gemini"), "{alert}");
+    }
+
+    #[test]
     fn a_refused_key_says_so_instead_of_asking_for_a_top_up() {
         let mut refused = entry("openai", None);
         refused.key_refused = true;
@@ -688,7 +716,7 @@ mod tests {
         assert!(alert.contains("key refused: openai"), "{alert}");
         assert!(alert.contains("check or replace OPENAI_API_KEY"), "{alert}");
         assert!(!alert.contains("SUSI_HARNESS_BUDGET_OPENAI_USD"), "{alert}");
-        assert!(alert.contains("topup needed: gemini"), "{alert}");
+        assert!(alert.contains("not answering: gemini"), "{alert}");
     }
 
     #[test]
@@ -722,9 +750,9 @@ mod tests {
             "a provider with no budget is not gated"
         );
         let alert = budgets.topup_alert(registry).unwrap();
-        assert!(alert.starts_with("topup needed: gemini"), "{alert}");
+        // No balance known and not answering: named for what it is.
+        assert!(alert.starts_with("not answering: gemini"), "{alert}");
         assert!(alert.contains("gemini-flash"), "{alert}");
-        assert!(alert.contains("SUSI_HARNESS_BUDGET_GEMINI_USD"), "{alert}");
         assert!(!alert.contains("deepseek"), "{alert}");
     }
 

@@ -110,11 +110,13 @@ impl Capabilities {
 ///
 /// A model with no tier is still addressable by name, but it is never chosen
 /// automatically: the ladder only spends on models somebody placed on it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tier {
-    /// A cheap first attempt. Ordered by budget, then capability.
+    /// A light model that does the work: every task starts on one.
     Worker,
-    /// A stronger fallback, tried after every worker has failed the task.
+    /// A strong model that fixes what a worker could not (a failed or
+    /// hallucinated attempt escalates straight to the fixers), and the tier
+    /// the orchestrator comes from.
     Rescue,
 }
 
@@ -154,8 +156,9 @@ pub struct AutoConfig {
     /// is usable.
     pub orchestrator: Option<String>,
     /// Models whose provider holds credit that expires, of either tier,
-    /// soonest expiry first. They lead the ladder, so the credit is spent
-    /// before it is lost.
+    /// soonest expiry first. Each leads its own tier (workers or rescue), so
+    /// the credit is spent before it is lost without a strong model taking
+    /// the light models' work.
     pub use_first: Vec<String>,
     /// Workers, cheapest first.
     pub workers: Vec<String>,
@@ -201,6 +204,16 @@ fn cost_band(cost: crate::money::MicroUsd) -> u32 {
     band
 }
 
+/// Credit that expires first, soonest first; undated credit after it.
+fn by_expiry(a: Option<u64>, b: Option<u64>) -> std::cmp::Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
 /// Known latency first, fastest first; unmeasured models after them.
 fn by_latency(a: Option<u64>, b: Option<u64>) -> std::cmp::Ordering {
     match (a, b) {
@@ -228,13 +241,14 @@ struct Ranked {
 }
 
 impl AutoConfig {
-    /// The escalation order: models on expiring credit, then every worker,
-    /// then every rescue model.
+    /// Every model in the fleet: the light workers, then the strong rescue
+    /// models that fix what a worker could not. Expiring credit leads within
+    /// each tier, never across: a strong model on expiring credit is still a
+    /// fixer, not a first-line worker.
     #[must_use]
     pub fn ladder(&self) -> Vec<String> {
-        self.use_first
+        self.workers
             .iter()
-            .chain(self.workers.iter())
             .chain(self.rescue.iter())
             .cloned()
             .collect()
@@ -293,6 +307,17 @@ pub struct Registry {
 pub const OVERLAY_ENV: &str = "SUSI_HARNESS_PROVIDERS";
 
 impl Registry {
+    /// The tier a model is placed in, when the registry places it.
+    #[must_use]
+    pub fn tier_of(&self, model: &str) -> Option<Tier> {
+        let id = self.canonical_id(model);
+        self.providers
+            .iter()
+            .flat_map(|provider| provider.models.iter())
+            .find(|record| record.id == id)
+            .and_then(|record| record.tier)
+    }
+
     /// The key prefix the provider reading the variable `name` requires, when
     /// one does.
     #[must_use]
@@ -600,7 +625,6 @@ impl Registry {
         profile: UsageProfile,
         gate: &ProviderGate<'_>,
     ) -> AutoConfig {
-        let mut first = Vec::new();
         let mut workers = Vec::new();
         let mut rescue = Vec::new();
         let mut unpriced = Vec::new();
@@ -653,30 +677,38 @@ impl Registry {
                     band: cost_band(cost),
                     latency: (gate.latency)(&model.id),
                 };
-                match (ranked.expires, tier) {
-                    (Some(_), _) => first.push(ranked),
-                    (None, Tier::Worker) => workers.push(ranked),
-                    (None, Tier::Rescue) => rescue.push(ranked),
+                match tier {
+                    Tier::Worker => workers.push(ranked),
+                    Tier::Rescue => rescue.push(ranked),
                 }
             }
         }
-        // Expiring credit: soonest expiry first, then the usual keys.
-        first.sort_by(|a, b| {
+        // Expiring credit, soonest expiry first, across both tiers: reported,
+        // and it leads each tier below.
+        let mut expiring = workers
+            .iter()
+            .chain(rescue.iter())
+            .filter(|ranked| ranked.expires.is_some())
+            .collect::<Vec<_>>();
+        expiring.sort_by(|a, b| {
             a.expires
                 .cmp(&b.expires)
+                .then_with(|| a.tier.cmp(&b.tier))
                 .then_with(|| b.cache.cmp(&a.cache))
-                .then_with(|| a.band.cmp(&b.band))
-                .then_with(|| by_latency(a.latency, b.latency))
                 .then_with(|| a.cost.cmp(&b.cost))
                 .then_with(|| a.id.cmp(&b.id))
         });
+        let use_first = expiring
+            .iter()
+            .map(|ranked| ranked.id.clone())
+            .collect::<Vec<_>>();
         // The orchestrator on expiring credit is its most capable rescue
         // model. Equal capabilities go to the dearer model: list price is
         // the best proxy for strength there is, and this credit is spent
         // either way.
-        let first_orchestrator = first
+        let first_orchestrator = rescue
             .iter()
-            .filter(|ranked| ranked.tier == Tier::Rescue)
+            .filter(|ranked| ranked.expires.is_some())
             .max_by(|a, b| {
                 a.score
                     .cmp(&b.score)
@@ -685,10 +717,6 @@ impl Registry {
                     .then_with(|| b.id.cmp(&a.id))
             })
             .map(|ranked| ranked.id.clone());
-        let use_first = first
-            .iter()
-            .map(|ranked| ranked.id.clone())
-            .collect::<Vec<_>>();
         // Cache first, always: a cached prefix is the cheapest input a model
         // can take, and the harness re-sends the same prompt on every turn of a
         // task. Budget second. Capability is the third key, and it decides only
@@ -698,8 +726,9 @@ impl Registry {
         // by measured latency, then the cheaper by exact price.
         let order = |list: &mut Vec<Ranked>, by_capability: bool| {
             list.sort_by(|a, b| {
-                b.cache
-                    .cmp(&a.cache)
+                // Expiring credit first within the tier, soonest expiry first.
+                by_expiry(a.expires, b.expires)
+                    .then_with(|| b.cache.cmp(&a.cache))
                     .then_with(|| a.band.cmp(&b.band))
                     .then_with(|| {
                         if by_capability {
@@ -726,19 +755,10 @@ impl Registry {
         let primary = Self::primary_orchestrator();
         let orchestrator = if first_orchestrator.is_some() {
             first_orchestrator
-        } else if use_first
-            .iter()
-            .chain(workers.iter())
-            .chain(rescue.iter())
-            .any(|id| id == primary)
-        {
+        } else if workers.iter().chain(rescue.iter()).any(|id| id == primary) {
             Some(primary.to_string())
         } else {
-            rescue
-                .first()
-                .or_else(|| workers.first())
-                .or_else(|| use_first.first())
-                .cloned()
+            rescue.first().or_else(|| workers.first()).cloned()
         };
         AutoConfig {
             orchestrator,
@@ -971,7 +991,7 @@ const BUILTIN: &str = r#"
       "key_url": "https://console.anthropic.com/settings/keys",
       "key_prefix": "sk-ant-",
       "models": [
-        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
         {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
         {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
       ]
@@ -1235,9 +1255,11 @@ mod tests {
     }
 
     #[test]
-    fn expiring_credit_leads_the_ladder_and_orchestrates() {
-        // Anthropic credit expires; every Anthropic model leads the ladder,
-        // and its strongest model drives.
+    fn expiring_credit_leads_its_tier_and_orchestrates() {
+        // Anthropic credit expires: each Anthropic model leads its own tier
+        // (Haiku the light workers, Sonnet and Opus the fixers), and the
+        // strongest of them drives. A strong model is never a first-line
+        // worker because its credit expires.
         let expiring = |provider: &str| (provider == "anthropic").then_some(20_800);
         let auto = Registry::builtin().auto_config_ranked(
             &keys(&["DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"]),
@@ -1255,13 +1277,21 @@ mod tests {
             vec!["claude-haiku", "claude-sonnet", "claude-opus"]
         );
         assert_eq!(auto.orchestrator.as_deref(), Some("claude-opus"));
-        let ladder = auto.ladder();
+        assert_eq!(auto.workers, vec!["claude-haiku", "deepseek-flash"]);
         assert_eq!(
-            &ladder[..3],
-            &["claude-haiku", "claude-sonnet", "claude-opus"]
+            auto.rescue,
+            vec!["claude-sonnet", "claude-opus", "deepseek-pro"]
         );
-        assert_eq!(&ladder[3..], &["deepseek-flash", "deepseek-pro"]);
-        assert!(auto.rescue.iter().all(|id| !id.starts_with("claude")));
+        assert_eq!(
+            auto.ladder(),
+            vec![
+                "claude-haiku",
+                "deepseek-flash",
+                "claude-sonnet",
+                "claude-opus",
+                "deepseek-pro"
+            ]
+        );
     }
 
     #[test]
@@ -1283,7 +1313,11 @@ mod tests {
             },
         );
         assert_eq!(&auto.use_first[..2], &["deepseek-flash", "deepseek-pro"]);
-        assert!(auto.workers.is_empty() && auto.rescue.is_empty());
+        assert_eq!(auto.workers, vec!["deepseek-flash", "claude-haiku"]);
+        assert_eq!(
+            auto.rescue,
+            vec!["deepseek-pro", "claude-sonnet", "claude-opus"]
+        );
     }
 
     #[test]
@@ -1545,7 +1579,8 @@ mod tests {
             &builtin_catalogue(),
             UsageProfile::agent(),
         );
-        assert!(auto.workers.is_empty());
+        // Haiku is the light worker; Sonnet and Opus fix, and one drives.
+        assert_eq!(auto.workers, vec!["claude-haiku"]);
         assert_eq!(auto.orchestrator, auto.rescue.first().cloned());
         assert!(
             auto.rescue.iter().all(|id| id.starts_with("claude-")),
