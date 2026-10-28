@@ -366,7 +366,8 @@ impl AgentManager {
     /// Zero-config readiness scan: adapters that pass local preflight are marked
     /// ready and advertised on the capability registry.
     pub fn auto_prime_ready(&self) -> Result<Vec<serde_json::Value>> {
-        let ready = self.scan_ready()?;
+        let caps = crate::susi_core::registry::CapabilityRegistry::global();
+        let ready = self.scan_ready(&mut |cap| caps.register_agent_capability(cap))?;
         let status_path = susi_paths::SusiDirs::config_dir()
             .join(self.kind.config_subdir())
             .join("ready.json");
@@ -379,10 +380,13 @@ impl AgentManager {
 
     /// The readiness scan itself, every catalog entry in rank order with its
     /// Python imports probed in one interpreter: the ready entries, each also
-    /// registered as a capability.
-    fn scan_ready(&self) -> Result<Vec<serde_json::Value>> {
+    /// handed to `register` as a capability. The caller owns the registry, so
+    /// a scan in a test reaches no process-wide state.
+    fn scan_ready(
+        &self,
+        register: &mut dyn FnMut(crate::susi_core::registry::AgentCapability),
+    ) -> Result<Vec<serde_json::Value>> {
         let mut ready = Vec::new();
-        let caps = crate::susi_core::registry::CapabilityRegistry::global();
         let mut catalog = catalog(self.kind)?;
         catalog.sort_by_key(|a| a.rank);
         let defs: Vec<_> = catalog
@@ -390,20 +394,22 @@ impl AgentManager {
             .filter_map(|def| self.adapter(&def.id).ok().map(|adapter| (def, adapter)))
             .collect();
         let adapters: Vec<Adapter> = defs.iter().map(|(_, adapter)| adapter.clone()).collect();
-        catalog::with_python_imports(&adapters, || self.register_ready(defs, caps, &mut ready));
+        catalog::with_python_imports(&adapters, || {
+            self.register_ready(defs, register, &mut ready)
+        });
         Ok(ready)
     }
 
     fn register_ready(
         &self,
         defs: Vec<(AgentDefinition, Adapter)>,
-        caps: &crate::susi_core::registry::CapabilityRegistry,
+        register: &mut dyn FnMut(crate::susi_core::registry::AgentCapability),
         ready: &mut Vec<serde_json::Value>,
     ) {
         for (def, adapter) in defs {
             match adapter.preflight() {
                 Ok(detail) => {
-                    caps.register_agent_capability(crate::susi_core::registry::AgentCapability {
+                    register(crate::susi_core::registry::AgentCapability {
                         name: def.peer_name.clone(),
                         description: format!(
                             "Managed {} `{}` (auto-ready)",

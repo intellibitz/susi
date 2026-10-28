@@ -674,7 +674,12 @@ fn python_imports_the_catalog_scan_starts_one_interpreter() {
         }
     }
     assert!(python_ids.len() > 2, "the catalog ships Python frameworks");
-    let ready = fixture.manager.scan_ready().unwrap();
+    let mut registered = Vec::new();
+    let ready = fixture
+        .manager
+        .scan_ready(&mut |cap| registered.push(cap.name))
+        .unwrap();
+    assert!(registered.is_empty(), "{registered:?}");
     assert_eq!(
         starts(&log),
         1,
@@ -690,17 +695,13 @@ fn python_imports_the_catalog_scan_starts_one_interpreter() {
 }
 
 /// Whether process `pid` has exited (gone, or a zombie nobody reaped yet)
-/// within `wait`.
+/// within `wait`. A state that cannot be read fails the test rather than
+/// passing for "gone".
 #[cfg(unix)]
 fn gone_within(pid: &str, wait: std::time::Duration) -> bool {
     let until = std::time::Instant::now() + wait;
     loop {
-        let stat = std::process::Command::new("ps")
-            .args(["-o", "stat=", "-p", pid])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_default();
-        if stat.is_empty() || stat.starts_with('Z') {
+        if process_state(pid).is_none_or(|state| state == 'Z') {
             return true;
         }
         if std::time::Instant::now() > until {
@@ -708,6 +709,23 @@ fn gone_within(pid: &str, wait: std::time::Duration) -> bool {
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+}
+
+/// The state letter of process `pid`, `None` once it is gone. On Linux it is
+/// read from /proc (the field after the parenthesised command name); elsewhere
+/// from `ps`, which must run.
+#[cfg(unix)]
+fn process_state(pid: &str) -> Option<char> {
+    if Path::new("/proc/self/stat").is_file() {
+        let stat = fs::read_to_string(Path::new("/proc").join(pid).join("stat")).ok()?;
+        let (_, rest) = stat.rsplit_once(')')?;
+        return rest.trim_start().chars().next();
+    }
+    let out = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", pid])
+        .output()
+        .expect("ps reports whether a process is gone");
+    String::from_utf8_lossy(&out.stdout).trim().chars().next()
 }
 
 /// The interpreter itself can stop answering (stopped by an import) or die
