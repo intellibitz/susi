@@ -1,0 +1,19 @@
+{
+  "id": "T-CLAUDEADORINGEINSTEINMAUPHG-2",
+  "title": "CI follow-ups: queue main runs; harden the batch Python probe",
+  "goal": "Main's Test runs cancelled each other (latest wins) while merges came every 5-12 min against a 30-45 min suite: none completed from 19:07 to 20:48. Queue on main (cancel only off main). And fix what review confirmed in the one-interpreter Python probe (T-CLAUDEADORINGEINSTEINMAUPHG-1): run exactly 'import X' in the child (an importlib.py in the cwd broke every verdict), kill the batch's process group when it stops answering or dies, skip the batch where os.fork is missing, stop retrying a batch that decided nothing, and test the scan-level one-interpreter claim, the stuck/killed paths and interpreter noise.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-vendor-agents",
+      "python_imports"
+    ]
+  },
+  "created_by": "CLAUDEADORINGEINSTEINMAUPHG",
+  "created_unix": 1793221943
+}
