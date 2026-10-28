@@ -18,7 +18,7 @@ use susi_harness::catalog::PriceCatalogue;
 use susi_harness::cockpit::{serve, Cockpit};
 use susi_harness::executor::NativeWorker;
 use susi_harness::money::MicroUsd;
-use susi_harness::policy::Policy;
+use susi_harness::policy::{Policy, UsageProfile};
 use susi_harness::providers::{Registry, Wire};
 use susi_harness::queue;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
@@ -49,10 +49,7 @@ pub enum HarnessCommands {
         #[arg(long, default_value_t = 3)]
         max_tasks: usize,
         /// Worker models tasks are spread across (comma-separated)
-        #[arg(
-            long,
-            default_value = "gemini-flash,deepseek-flash,kimi-flash,deepseek-pro,gemini-pro,kimi-pro"
-        )]
+        #[arg(long, default_value = "auto")]
         workers: String,
     },
     /// Plan a batch of dependency-ready queue tasks; each entry claims its id
@@ -71,10 +68,7 @@ pub enum HarnessCommands {
         #[arg(long, default_value_t = 1)]
         limit: usize,
         /// Worker models, assigned round-robin (comma-separated)
-        #[arg(
-            long,
-            default_value = "gemini-flash,deepseek-flash,kimi-flash,deepseek-pro,gemini-pro,kimi-pro"
-        )]
+        #[arg(long, default_value = "auto")]
         workers: String,
         /// Only tasks whose roadmap vector is this id
         #[arg(long)]
@@ -107,10 +101,7 @@ pub enum HarnessCommands {
         prefix: String,
         /// Models a task may escalate to when its own model does not pass
         /// (comma-separated)
-        #[arg(
-            long,
-            default_value = "gemini-flash,deepseek-flash,kimi-flash,deepseek-pro,gemini-pro,kimi-pro"
-        )]
+        #[arg(long, default_value = "auto")]
         workers: String,
         /// Mission cap in dollars
         #[arg(long, default_value = "5")]
@@ -417,12 +408,7 @@ fn plan_queue(
     } else {
         repo.to_path_buf()
     };
-    let workers: Vec<String> = workers
-        .split(',')
-        .map(str::trim)
-        .filter(|worker| !worker.is_empty())
-        .map(str::to_string)
-        .collect();
+    let workers = resolve_ladder(workers, || default_catalogue(cwd))?;
     let claimed = claimed_ids(&repo);
     let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
@@ -567,11 +553,7 @@ fn author(
         vector: format!("{vector} {title}"),
         target: target.to_string(),
         packages: facts.packages.iter().cloned().collect(),
-        workers: workers
-            .split(',')
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .collect(),
+        workers: resolve_ladder(workers, || default_catalogue(cwd))?,
         narrative: tail(narrative, 4000),
         max_tasks,
         retry_hint: None,
@@ -659,12 +641,7 @@ fn run(
     // Every named worker stays on the ladder. The task's own model is moved to
     // the front by the adapter, so a task assigned a non-default worker still
     // has a stronger model to escalate to when it does not pass.
-    let alternates: Vec<String> = workers
-        .split(',')
-        .map(str::trim)
-        .filter(|worker| !worker.is_empty())
-        .map(str::to_string)
-        .collect();
+    let alternates = resolve_ladder(workers, || Ok(catalogue.clone()))?;
     let susi_program =
         susi.unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi")));
     let target = SusiTarget::new(repo, susi_program);
@@ -740,6 +717,48 @@ fn tail(text: &str, limit: usize) -> String {
     text.get(text.len() - limit..).unwrap_or(text).to_string()
 }
 
+/// The worker ladder a command runs on.
+///
+/// `auto` builds it from the API keys in the environment, ordered by the price
+/// catalogue (budget first, then capability): every worker, then every rescue
+/// model. Any other value is an explicit comma-separated list of model ids.
+/// The catalogue is loaded only for `auto`.
+fn resolve_ladder(
+    spec: &str,
+    catalogue: impl FnOnce() -> Result<PriceCatalogue>,
+) -> Result<Vec<String>> {
+    if spec.trim() != "auto" {
+        return Ok(spec
+            .split(',')
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_string)
+            .collect());
+    }
+    let catalogue = catalogue()?;
+    let auto = Registry::builtin().auto_config(&key_present, &catalogue, UsageProfile::agent());
+    let ladder = auto.ladder();
+    if ladder.is_empty() {
+        bail!(
+            "--workers auto found no tool-capable, priced model for the API keys set in the \
+             environment (DEEPSEEK_API_KEY, GEMINI_API_KEY, MOONSHOT_API_KEY, ANTHROPIC_API_KEY); \
+             set one or pass --workers <models>"
+        );
+    }
+    Ok(ladder)
+}
+
+/// The price catalogue at the workspace's default location.
+fn default_catalogue(cwd: &Path) -> Result<PriceCatalogue> {
+    let path = cwd.join("deploy/harness/prices.json");
+    PriceCatalogue::load(&path).with_context(|| format!("load {}", path.display()))
+}
+
+/// Whether an API key variable holds a non-empty value.
+fn key_present(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| !value.trim().is_empty())
+}
+
 /// Verify the registry's backend ids against the providers' live model lists.
 ///
 /// Prints the report even when it fails, then exits non-zero so a caller can
@@ -769,10 +788,20 @@ fn models_available(cwd: &Path) -> Result<()> {
         catalogue.as_ref(),
         susi_harness::policy::UsageProfile::agent(),
     );
+    let auto = catalogue
+        .as_ref()
+        .map(|catalogue| registry.auto_config(&key_present, catalogue, UsageProfile::agent()));
     let output = serde_json::json!({
         "orchestrator": Registry::primary_orchestrator(),
         "worker_ladder": Registry::default_worker_ladder(),
         "available_capable_models_sorted_by_cost": capable,
+        "auto": auto.map(|auto| serde_json::json!({
+            "orchestrator": auto.orchestrator,
+            "workers": auto.workers,
+            "rescue": auto.rescue,
+            "unpriced": auto.unpriced,
+            "ladder": auto.ladder(),
+        })),
     });
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
