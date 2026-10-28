@@ -130,7 +130,10 @@ pub fn append_event(path: &Path, event: &Event) -> EaiResult<()> {
         .append(true)
         .open(path)
         .map_err(|error| EaiError::io(format!("open event log {}: {error}", path.display())))?;
-    writeln!(file, "{line}")
+    // One buffer, one write, so concurrent appenders cannot interleave lines.
+    let mut row = line.into_bytes();
+    row.push(b'\n');
+    file.write_all(&row)
         .map_err(|error| EaiError::io(format!("append event log {}: {error}", path.display())))
 }
 

@@ -7,12 +7,14 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use susi_harness::adapter::SusiTarget;
 use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
+use susi_harness::balance::{self, Budgets};
 use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
 use susi_harness::cockpit::{serve, Cockpit};
@@ -207,6 +209,12 @@ pub enum HarnessCommands {
         #[arg(long)]
         available: bool,
     },
+    /// Print the one-line budget report and any top-up alert, without running
+    Budget {
+        /// Ledger the spend is read from
+        #[arg(long, default_value = "out/ledger.jsonl")]
+        ledger: PathBuf,
+    },
     /// Serve the metered multi-provider gateway directly from susi
     Gateway {
         /// Port to bind (default: 9180)
@@ -240,6 +248,7 @@ pub enum HarnessCommands {
 /// Returns the first error from authoring, validation, execution or I/O.
 pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
     match action {
+        HarnessCommands::Budget { ledger } => budget_report(&ledger, cwd),
         HarnessCommands::Models {
             verify,
             provider,
@@ -408,7 +417,9 @@ fn plan_queue(
     } else {
         repo.to_path_buf()
     };
-    let workers = resolve_ladder(workers, || default_catalogue(cwd))?;
+    let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
+    alert_topups(&budgets);
+    let workers = resolve_ladder(workers, || default_catalogue(cwd), &budgets)?;
     let claimed = claimed_ids(&repo);
     let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
@@ -549,11 +560,13 @@ fn author(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
     let facts = RepoFacts::load(cwd).context("read the workspace's packages")?;
+    let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
+    alert_topups(&budgets);
     let request = AuthorRequest {
         vector: format!("{vector} {title}"),
         target: target.to_string(),
         packages: facts.packages.iter().cloned().collect(),
-        workers: resolve_ladder(workers, || default_catalogue(cwd))?,
+        workers: resolve_ladder(workers, || default_catalogue(cwd), &budgets)?,
         narrative: tail(narrative, 4000),
         max_tasks,
         retry_hint: None,
@@ -594,7 +607,12 @@ fn author(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Run a plan under the budget gate.
+///
+/// Alerts on stderr before the first task when a keyed provider needs a
+/// top-up, and prints the one-line budget report on stdout after the run,
+/// whether or not the run succeeded.
+#[allow(clippy::too_many_arguments)] // a command's flags, one per option
 fn run(
     plan_path: &Path,
     repo: &Path,
@@ -616,7 +634,91 @@ fn run(
     susi: Option<PathBuf>,
     cwd: &Path,
 ) -> Result<()> {
+    let (before, spent_before) = gather_budgets(ledger);
+    alert_topups(&before);
+    let outcome = run_mission(
+        plan_path,
+        repo,
+        state,
+        gateway,
+        model,
+        timeout,
+        parallel,
+        prefix,
+        workers,
+        budget_usd,
+        catalogue,
+        daily_usd,
+        ledger,
+        controls,
+        rsi_log,
+        attempts,
+        adapter_state,
+        susi,
+        cwd,
+        &before,
+    );
+    let (after, spent_after) = gather_budgets(ledger);
+    let spend = total_spent(&spent_after).checked_sub(total_spent(&spent_before));
+    let spend = spend.unwrap_or(MicroUsd::ZERO);
+    println!("{}", after.report_line(spend, Registry::builtin()));
+    outcome
+}
+
+/// `susi harness budget`: the report line and the top-up alert, read now.
+fn budget_report(ledger: &Path, cwd: &Path) -> Result<()> {
+    let path = if ledger.is_absolute() {
+        ledger.to_path_buf()
+    } else {
+        cwd.join(ledger)
+    };
+    let (budgets, spent) = gather_budgets(&path);
+    println!(
+        "{}",
+        budgets.report_line(total_spent(&spent), Registry::builtin())
+    );
+    alert_topups(&budgets);
+    Ok(())
+}
+
+/// Total ledger spend across providers.
+fn total_spent(spent: &BTreeMap<String, MicroUsd>) -> MicroUsd {
+    spent
+        .values()
+        .fold(MicroUsd::ZERO, |sum, value| sum.saturating_add(*value))
+}
+
+#[allow(clippy::too_many_arguments)] // a command's flags, one per option
+fn run_mission(
+    plan_path: &Path,
+    repo: &Path,
+    state: &Path,
+    gateway: &str,
+    model: &str,
+    timeout: u64,
+    parallel: usize,
+    prefix: &str,
+    workers: &str,
+    budget_usd: &str,
+    catalogue: PathBuf,
+    daily_usd: &str,
+    ledger: &Path,
+    controls: &Path,
+    rsi_log: &Path,
+    attempts: usize,
+    adapter_state: &Path,
+    susi: Option<PathBuf>,
+    cwd: &Path,
+    budgets: &Budgets,
+) -> Result<()> {
     let plan = Plan::load(plan_path).with_context(|| format!("load {}", plan_path.display()))?;
+    // The default state is per mission, so two agents running missions in the
+    // same directory never resume or overwrite each other's progress.
+    let state_path = if state == Path::new("supervisor-state.json") {
+        cwd.join(format!("supervisor-{}.json", plan.mission))
+    } else {
+        state.to_path_buf()
+    };
     let repo = if repo == Path::new(".") {
         cwd.to_path_buf()
     } else {
@@ -641,7 +743,7 @@ fn run(
     // Every named worker stays on the ladder. The task's own model is moved to
     // the front by the adapter, so a task assigned a non-default worker still
     // has a stronger model to escalate to when it does not pass.
-    let alternates = resolve_ladder(workers, || Ok(catalogue.clone()))?;
+    let alternates = resolve_ladder(workers, || Ok(catalogue.clone()), budgets)?;
     let susi_program =
         susi.unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi")));
     let target = SusiTarget::new(repo, susi_program);
@@ -667,7 +769,7 @@ fn run(
         guard: std::sync::OnceLock::new(),
         exhausted: AtomicBool::new(false),
     };
-    let supervisor = Supervisor::new(state, &executor)
+    let supervisor = Supervisor::new(&state_path, &executor)
         .with_parallelism(parallel)
         .with_controls(controls);
     let report = supervisor.run(&plan).context("run the mission")?;
@@ -726,26 +828,68 @@ fn tail(text: &str, limit: usize) -> String {
 fn resolve_ladder(
     spec: &str,
     catalogue: impl FnOnce() -> Result<PriceCatalogue>,
+    budgets: &Budgets,
 ) -> Result<Vec<String>> {
+    let registry = Registry::builtin();
     if spec.trim() != "auto" {
-        return Ok(spec
-            .split(',')
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-            .map(str::to_string)
-            .collect());
+        // An explicit list is honoured, except that a model whose provider is
+        // inactive is left off and named, so it cannot spend a dollar it lacks.
+        let mut models = Vec::new();
+        for model in spec.split(',').map(str::trim).filter(|m| !m.is_empty()) {
+            let provider = registry.resolve(model).map(|resolved| resolved.provider);
+            match provider {
+                Some(id) if budgets.gated(&id) && !budgets.is_active(&id) => {
+                    eprintln!(
+                        "⚠ {model} left off: provider {id} is inactive (under $1 or unknown)"
+                    );
+                }
+                _ => models.push(model.to_string()),
+            }
+        }
+        if models.is_empty() {
+            bail!(
+                "every model in --workers is inactive: {}",
+                topup_text(budgets)
+            );
+        }
+        return Ok(models);
     }
     let catalogue = catalogue()?;
-    let auto = Registry::builtin().auto_config(&key_present, &catalogue, UsageProfile::agent());
+    let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
+    let auto =
+        registry.auto_config_budgeted(&key_present, &catalogue, UsageProfile::agent(), &active);
     let ladder = auto.ladder();
     if ladder.is_empty() {
         bail!(
-            "--workers auto found no tool-capable, priced model for the API keys set in the \
-             environment (DEEPSEEK_API_KEY, GEMINI_API_KEY, MOONSHOT_API_KEY, ANTHROPIC_API_KEY); \
-             set one or pass --workers <models>"
+            "--workers auto found no tool-capable, priced, active model for the API keys set in              the environment (DEEPSEEK_API_KEY, GEMINI_API_KEY, MOONSHOT_API_KEY, ANTHROPIC_API_KEY): {};              add budget or pass --workers <models>",
+            topup_text(budgets)
         );
     }
     Ok(ladder)
+}
+
+/// The top-up alert as text, or a plain statement when nothing needs one.
+fn topup_text(budgets: &Budgets) -> String {
+    budgets
+        .topup_alert(Registry::builtin())
+        .unwrap_or_else(|| "no provider needs a top-up".to_string())
+}
+
+/// Each keyed provider's budget, and the ledger's spend per provider, read
+/// now. Balances come from the providers' own endpoints where they publish
+/// one, and from `SUSI_HARNESS_BUDGET_<PROVIDER>_USD` otherwise.
+fn gather_budgets(ledger: &Path) -> (Budgets, BTreeMap<String, MicroUsd>) {
+    let registry = Registry::builtin();
+    let spent = balance::spent_by_provider(ledger, registry);
+    let budgets = balance::collect(registry, &fetch_http, &spent);
+    (budgets, spent)
+}
+
+/// Print the top-up alert on stderr, when any keyed provider needs one.
+fn alert_topups(budgets: &Budgets) {
+    if let Some(alert) = budgets.topup_alert(Registry::builtin()) {
+        eprintln!("⚠ {alert}");
+    }
 }
 
 /// The price catalogue at the workspace's default location.
@@ -789,9 +933,11 @@ fn models_available(cwd: &Path) -> Result<()> {
         catalogue.as_ref(),
         susi_harness::policy::UsageProfile::agent(),
     );
-    let auto = catalogue
-        .as_ref()
-        .map(|catalogue| registry.auto_config(&key_present, catalogue, UsageProfile::agent()));
+    let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
+    let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
+    let auto = catalogue.as_ref().map(|catalogue| {
+        registry.auto_config_budgeted(&key_present, catalogue, UsageProfile::agent(), &active)
+    });
     let output = serde_json::json!({
         "orchestrator": Registry::primary_orchestrator(),
         "worker_ladder": Registry::default_worker_ladder(),
