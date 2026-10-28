@@ -247,7 +247,7 @@ jobs:
           SUSI_HOME="$RUNNER_TEMP/harness-home" "$bin" | grep -q 'No API key found'
 
       - name: Upload Harness
-        if: always() && github.event_name == 'push' && steps.harness.outcome == 'success'
+        if: github.event_name == 'push' && always() && steps.harness.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
           files: |
