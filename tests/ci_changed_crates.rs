@@ -218,6 +218,16 @@ fn a_diff_that_touches_no_crate_prints_nothing_in_both_modes() {
     assert!(ws.pkgs(&["--dependents"]).is_empty());
 }
 
+/// A branch that holds nothing its base lacks (merges of main, or a done
+/// record about to be committed) has nothing to prove. Reading that as ALL
+/// sent `susi workflow finish` through the whole workspace suite.
+#[test]
+fn a_branch_with_no_diff_from_its_base_prints_nothing() {
+    let ws = Workspace::new("nodiff");
+    assert!(ws.pkgs(&[]).is_empty());
+    assert!(ws.pkgs(&["--dependents"]).is_empty());
+}
+
 #[test]
 fn an_unknown_argument_is_refused_rather_than_silently_ignored() {
     let ws = Workspace::new("usage");

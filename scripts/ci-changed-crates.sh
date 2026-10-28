@@ -51,10 +51,12 @@ mb=$(git merge-base "$BASE" HEAD 2>/dev/null) || {
     exit 0
 }
 changed=$(git diff --name-only "$mb" HEAD)
-[ -n "$changed" ] || {
-    echo ALL
-    exit 0
-}
+# A branch whose content is its base's has nothing of its own to prove: the
+# base's suite already proved these bytes. This used to print ALL, so a branch
+# holding only merges of main ran the whole workspace suite, and publishing
+# a task's done record (`susi workflow finish` gates before it commits the
+# record) took hours instead of seconds.
+[ -n "$changed" ] || exit 0
 # The task queue is inert at build time; see the header.
 changed=$(grep -v '^\.agents/tasks/' <<<"$changed" || true)
 
