@@ -244,24 +244,15 @@ jobs:
                 esac
               fi
             fi
-          else
-            # A branch push. The Windows leg is the long pole of every merge
-            # (about 20 min, no target cache), and the merge waits on the whole
-            # workflow, so it runs only when the branch changes what the `susi`
-            # binary is built from. A task-record, docs or data-only branch
-            # (every task close publishes one) skips it; a branch touching CI
-            # machinery still proves everything.
-            base=$(git merge-base HEAD origin/main 2>/dev/null || true)
-            if [ -n "$base" ]; then
-              changed=$(git diff --name-only "$base" HEAD)
-              if ! grep -Eq '^(\.github/|scripts/|\.cargo/|rust-toolchain)' <<<"$changed"; then
-                pkgs=$(BASE_REF="$base" scripts/ci-changed-crates.sh --dependents || echo ALL)
-                case "$pkgs" in
-                  ALL) ;;
-                  *) grep -qx 'susi' <<<"$pkgs" || win=false ;;
-                esac
-              fi
-            fi
+          elif [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            # A branch run (push, or the dispatched retest of a resynced head)
+            # never builds Windows. It was 94% of the merge gate (a cold ~23 min
+            # build against ~1.5 min for every Linux check), and each agent may
+            # hold only one unmerged task, so it capped every agent's rate.
+            # main's post-merge run builds it and attributes a red result to the
+            # PR (main-failure.yml); a release tag builds it before anything
+            # publishes. A release tag keeps run_windows=true.
+            win=false
           fi
           {
             echo "affected=$affected"
@@ -981,7 +972,8 @@ jobs:
         run: cargo nextest run -p susi-daemon --test capability_gap_e2e --locked
 
   # The release publishes a Windows binary, so the Windows binary is proven on
-  # the push that would merge it — not first on the tag. The contract here is
+  # every main run (post-merge) and on the release tag, never on a branch: it
+  # is off the merge gate (see `run_windows` in codetree). The contract here is
   # narrow on purpose: the built `susi.exe` starts and answers the release
   # gate's own offline checks (`susi_gawd::admin::E2E_CHECKS`, driven through
   # tests/release_e2e_checks.rs). The workspace suite has Windows-host failures
