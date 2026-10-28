@@ -216,7 +216,11 @@ fn no_workflow_targets_a_retired_runner_image() {
 }
 
 #[test]
-fn main_runs_cancel_stale_tail_work() {
+fn main_runs_queue_and_branch_runs_supersede() {
+    // Latest-wins on main cancelled every main run once merges (every 5-12
+    // min) came faster than the suite (30-45 min): nothing proved the merged
+    // tree for hours. A main run now always finishes and later merges collapse
+    // into one pending run; a branch run is still superseded by its next push.
     let text = read(".github/workflows/test.yml");
     let line = code(&text)
         .lines()
@@ -225,8 +229,8 @@ fn main_runs_cancel_stale_tail_work() {
         .trim()
         .to_string();
     assert_eq!(
-        line, "cancel-in-progress: true",
-        "main must use latest-wins concurrency: `{line}`"
+        line, "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}",
+        "main runs must queue and branch runs supersede: `{line}`"
     );
 }
 
@@ -300,6 +304,112 @@ fn the_windows_build_caches_its_dependencies() {
             .body
             .contains("save-if: ${{ github.ref == 'refs/heads/main' }}"),
         "only main writes the windows entry"
+    );
+}
+
+#[test]
+fn a_job_sharing_a_test_cache_shares_its_profile() {
+    // rust-cache keys on CARGO_* variables. The merge gate restored the `lint`
+    // entry without test.yml's CARGO_PROFILE_DEV_DEBUG, so the key never
+    // matched and every gated merge compiled cold (about 8 min, the whole
+    // serialized merge queue waiting) against about 30 s of clippy warm.
+    let test = read(".github/workflows/test.yml");
+    let profile: Vec<String> = code(&test)
+        .split("\njobs:")
+        .next()
+        .unwrap()
+        .split("\nenv:")
+        .nth(1)
+        .expect("test.yml sets a workflow env")
+        .lines()
+        .take_while(|l| l.starts_with("  ") || l.trim().is_empty())
+        .filter(|l| l.trim_start().starts_with("CARGO_"))
+        .map(|l| l.trim().to_string())
+        .collect();
+    assert!(
+        profile
+            .iter()
+            .any(|l| l.starts_with("CARGO_PROFILE_DEV_DEBUG:")),
+        "test.yml's workflow env sets the dev profile: {profile:?}"
+    );
+    let keys: Vec<String> = jobs(&test)
+        .iter()
+        .flat_map(|j| {
+            j.body
+                .lines()
+                .map(str::trim)
+                .map(String::from)
+                .collect::<Vec<_>>()
+        })
+        .filter(|l| l.starts_with("shared-key:"))
+        .collect();
+    for (name, text) in workflows() {
+        if name == "test.yml" {
+            continue;
+        }
+        for job in jobs(&text) {
+            let shares = job
+                .body
+                .lines()
+                .map(str::trim)
+                .any(|l| keys.iter().any(|k| k == l));
+            if !shares {
+                continue;
+            }
+            for var in &profile {
+                assert!(
+                    job.body
+                        .lines()
+                        .any(|l| l.trim().split(" #").next() == Some(var.as_str())),
+                    "{name}: job `{}` restores a test.yml cache but does not set `{var}`; \
+                     rust-cache keys on CARGO_* variables, so it never gets a warm entry",
+                    job.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_root_cli_shard_runs_in_partitions() {
+    // root-cli was the longest shard of main's post-merge suite (17-45 min,
+    // nearly all nextest). Its legs must cover every partition of one count
+    // exactly once, by hash (counted partitioning goes binary by binary and
+    // piles the first test of each of ~100 small binaries onto partition 1),
+    // keep the shard's name (scoping and the shard map key on it), and the
+    // nextest step must pass the partition on.
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let test = job(&jobs, "test");
+    let parts: Vec<&str> = test
+        .body
+        .split("- name: root-cli\n            pkgs: -p susi -p xtask\n")
+        .skip(1)
+        .map(|leg| {
+            leg.lines()
+                .next()
+                .and_then(|l| l.trim().strip_prefix("partition: hash:"))
+                .expect("every root-cli leg declares `partition: hash:<k>/<n>`")
+        })
+        .collect();
+    assert!(parts.len() >= 2, "root-cli runs in partitions: {parts:?}");
+    let n = parts.len().to_string();
+    for (k, part) in parts.iter().enumerate() {
+        assert_eq!(
+            *part,
+            format!("{}/{n}", k + 1),
+            "root-cli legs must be hash:1/{n} .. hash:{n}/{n}, in order: {parts:?}"
+        );
+    }
+    assert!(
+        test.body
+            .contains("format('--partition {0}', matrix.shard.partition)"),
+        "the nextest step must pass each leg's partition"
+    );
+    assert!(
+        test.body
+            .contains("shared-key: test-${{ matrix.shard.name }}"),
+        "the legs share the shard's cache entry, not one each"
     );
 }
 

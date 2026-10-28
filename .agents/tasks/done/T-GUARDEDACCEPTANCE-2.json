@@ -1,0 +1,23 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-2",
+  "title": "Publishing a done record never runs the whole workspace suite",
+  "goal": "A branch whose content equals its base (only merges of main, or a done record not yet committed) has nothing to prove, so ci-changed-crates.sh prints nothing instead of ALL, and susi workflow finish publishes in seconds instead of running the whole workspace suite.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_changed_crates"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793219818,
+  "closed": {
+    "at_unix": 1793221059,
+    "commit": "ad38ff77d51bf0508bb0aff72d617c42a7caefb9",
+    "by": "GUARDEDACCEPTANCE"
+  }
+}

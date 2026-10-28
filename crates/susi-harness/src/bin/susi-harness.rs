@@ -62,6 +62,18 @@ fn main() {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
+    // Help and version answer first, ahead of anything that can fail: with
+    // flags meaning `up`, `susi-harness --help` read as `up --help` and
+    // exited 1 on an unknown argument.
+    let first = args.first().map(String::as_str);
+    if first == Some("help") || args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("{USAGE}");
+        return Ok(());
+    }
+    if matches!(first, Some("version" | "--version" | "-V")) {
+        println!("susi-harness {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     // No command, or only flags (`susi-harness --port 9300`), means `up`.
     let (command, rest) = match args.split_first() {
         Some((command, rest)) if !command.starts_with("--") => (command.as_str(), rest),
@@ -79,14 +91,6 @@ fn run(args: &[String]) -> Result<(), String> {
         "budget" => budget_command(&options),
         "env" => env_command(),
         "gateway" => gateway_command(&options),
-        "version" | "--version" | "-V" => {
-            println!("susi-harness {}", env!("CARGO_PKG_VERSION"));
-            Ok(())
-        }
-        "help" | "--help" | "-h" => {
-            println!("{USAGE}");
-            Ok(())
-        }
         other => Err(format!("unknown command `{other}`\n\n{USAGE}")),
     }
 }
@@ -491,6 +495,22 @@ mod tests {
             .unwrap_err()
             .contains("--port must be a number"));
         assert!(run(&strings(&["version"])).is_ok());
+    }
+
+    /// The flags a newcomer types first. With flags meaning `up`, `--help`
+    /// and `--version` were read as gateway flags and exited 1.
+    #[test]
+    fn help_and_version_answer_as_flags_too() {
+        for line in [
+            &["--help"][..],
+            &["-h"],
+            &["gateway", "--help"],
+            &["fleet", "-h"],
+            &["--version"],
+            &["-V"],
+        ] {
+            assert!(run(&strings(line)).is_ok(), "{line:?}");
+        }
     }
 
     #[test]

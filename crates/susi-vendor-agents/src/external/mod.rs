@@ -366,6 +366,21 @@ impl AgentManager {
     /// Zero-config readiness scan: adapters that pass local preflight are marked
     /// ready and advertised on the capability registry.
     pub fn auto_prime_ready(&self) -> Result<Vec<serde_json::Value>> {
+        let ready = self.scan_ready()?;
+        let status_path = susi_paths::SusiDirs::config_dir()
+            .join(self.kind.config_subdir())
+            .join("ready.json");
+        if let Some(parent) = status_path.parent() {
+            crate::susi_config::create_private_dir(parent)?;
+        }
+        crate::susi_config::atomic_write_json_pretty(&status_path, &ready)?;
+        Ok(ready)
+    }
+
+    /// The readiness scan itself, every catalog entry in rank order with its
+    /// Python imports probed in one interpreter: the ready entries, each also
+    /// registered as a capability.
+    fn scan_ready(&self) -> Result<Vec<serde_json::Value>> {
         let mut ready = Vec::new();
         let caps = crate::susi_core::registry::CapabilityRegistry::global();
         let mut catalog = catalog(self.kind)?;
@@ -376,13 +391,6 @@ impl AgentManager {
             .collect();
         let adapters: Vec<Adapter> = defs.iter().map(|(_, adapter)| adapter.clone()).collect();
         catalog::with_python_imports(&adapters, || self.register_ready(defs, caps, &mut ready));
-        let status_path = susi_paths::SusiDirs::config_dir()
-            .join(self.kind.config_subdir())
-            .join("ready.json");
-        if let Some(parent) = status_path.parent() {
-            crate::susi_config::create_private_dir(parent)?;
-        }
-        crate::susi_config::atomic_write_json_pretty(&status_path, &ready)?;
         Ok(ready)
     }
 

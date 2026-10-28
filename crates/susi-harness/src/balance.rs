@@ -145,11 +145,12 @@ impl Budgets {
                 let day = entry.use_first(today)?;
                 let left = day - today;
                 (left <= EXPIRY_ALERT_DAYS).then(|| {
-                    let amount = entry
-                        .remaining
-                        .map_or_else(|| "unknown".to_string(), |value| value.to_string());
+                    let amount = entry.remaining.map_or_else(
+                        || "balance unknown".to_string(),
+                        |value| format!("{value} left"),
+                    );
                     format!(
-                        "{} {amount} by {} ({left} day(s); its models run first)",
+                        "{}: {amount}, expires {} ({left} day(s)); its models run first",
                         entry.provider,
                         format_day(day)
                     )
@@ -682,7 +683,7 @@ mod tests {
         };
         let alert = budgets.expiry_alert(today).unwrap();
         assert!(
-            alert.contains("anthropic $40.000000 by 2026-11-02 (5 day(s)"),
+            alert.contains("anthropic: $40.000000 left, expires 2026-11-02 (5 day(s))"),
             "{alert}"
         );
         assert!(!alert.contains("moonshot"), "{alert}");
@@ -692,6 +693,25 @@ mod tests {
             "{line}"
         );
         assert!(!line.contains('\n'));
+    }
+
+    /// Anthropic publishes no balance API: its expiring credit is known by
+    /// its date alone, and the alert must say so in words.
+    #[test]
+    fn expiring_credit_with_no_balance_api_reads_as_balance_unknown() {
+        let today = parse_day("2026-10-28").unwrap();
+        let mut anthropic = entry("anthropic", None);
+        anthropic.working = true;
+        apply_expiry(&mut anthropic, "X", "2026-11-04", today);
+        let budgets = Budgets {
+            providers: vec![anthropic],
+        };
+        let alert = budgets.expiry_alert(today).unwrap();
+        assert_eq!(
+            alert,
+            "credit expiring: anthropic: balance unknown, expires 2026-11-04 (7 day(s)); \
+             its models run first"
+        );
     }
 
     #[test]

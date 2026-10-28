@@ -124,8 +124,15 @@ jobs:
       && !startsWith(github.event.workflow_run.head_branch, 'dependabot/')
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30 # the inline gate is a bounded compile, not a CI run
+    # CARGO_PROFILE_DEV_DEBUG matches test.yml's workflow env. rust-cache puts
+    # CARGO_* variables in its key, so without it this job never restored the
+    # `lint` entry main writes, and its artifacts (with debug info) would not
+    # have matched it anyway: every gated merge compiled cold, about 8 min
+    # (#988's: 2m18s ONNX prefetch, 5m43s clippy) against about 30 s of clippy
+    # warm, with the whole serialized queue waiting behind it.
     env:
       SUSI_INLINE_MERGE_GATE: "1"
+      CARGO_PROFILE_DEV_DEBUG: 0
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
       RUSTC_WORKSPACE_WRAPPER: "sccache"
@@ -179,6 +186,7 @@ jobs:
     timeout-minutes: 30
     env:
       SUSI_INLINE_MERGE_GATE: "1"
+      CARGO_PROFILE_DEV_DEBUG: 0 # as merge-pr: test.yml's profile, or no warm cache
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
       RUSTC_WORKSPACE_WRAPPER: "sccache"
