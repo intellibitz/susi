@@ -29,6 +29,7 @@ use std::sync::Arc;
 use susi_vendor_mcp_server as rmcp;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 use rmcp::service::{RoleServer, RxJsonRpcMessage, TxJsonRpcMessage};
 use rmcp::transport::Transport;
@@ -387,6 +388,14 @@ pub struct StdioGate<R, W> {
     /// Inside an oversized line's tail — the `-32600` answer is emitted
     /// once per dead line, not once per consumed chunk.
     oversized: bool,
+    /// The last rejection's write, on a task of its own. rmcp polls
+    /// `receive` inside an unbiased `select!` and drops it whenever another
+    /// branch wins; a rejection written inline died with it while it
+    /// waited for the writer an answer still held, and the client waited
+    /// out its whole deadline for an answer that never came. `receive`
+    /// settles this before reading on, so rejections keep their order and
+    /// a client that stops reading still pushes back on the reader.
+    rejection: Option<JoinHandle<std::io::Result<()>>>,
 }
 
 impl<R, W> StdioGate<R, W>
@@ -401,25 +410,43 @@ where
             line_buf: Vec::new(),
             era: EraState::default(),
             oversized: false,
+            rejection: None,
         }
     }
 
-    /// Emit a JSON-RPC error response for a rejected line. `id` echoes
-    /// the sender's id when the envelope carried a legible one.
-    async fn emit_rejection(
-        write: &SharedWriter<W>,
+    /// Queue a JSON-RPC error response for a rejected line. `id` echoes
+    /// the sender's id when the envelope carried a legible one. Nothing
+    /// here awaits, so a `receive` dropped right after cannot lose it.
+    fn emit_rejection(
+        &mut self,
         code: i64,
         message: &str,
         data: Option<&Value>,
         id: Option<&Value>,
-    ) -> std::io::Result<()> {
+    ) {
         let line = error_json(code, message, data, id);
-        let mut bytes = serde_json::to_vec(&line)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-        bytes.push(b'\n');
-        let mut guard = write.lock().await;
-        guard.write_all(&bytes).await?;
-        guard.flush().await
+        let bytes = serde_json::to_vec(&line)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()));
+        let write = Arc::clone(&self.write);
+        self.rejection = Some(tokio::spawn(async move {
+            let mut bytes = bytes?;
+            bytes.push(b'\n');
+            let mut guard = write.lock().await;
+            guard.write_all(&bytes).await?;
+            guard.flush().await
+        }));
+    }
+
+    /// Wait for the last rejection to reach the writer; `false` once the
+    /// client's end is gone. Cancel-safe: the handle stays put until the
+    /// write has finished.
+    async fn settle_rejection(&mut self) -> bool {
+        let Some(write) = self.rejection.as_mut() else {
+            return true;
+        };
+        let written = matches!(write.await, Ok(Ok(())));
+        self.rejection = None;
+        written
     }
 
     /// Serialize a service answer with the era-correct `resultType`
@@ -476,6 +503,9 @@ where
 
     async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleServer>> {
         loop {
+            if !self.settle_rejection().await {
+                return None;
+            }
             // `receive` is polled inside a `select!` in the service
             // loop; `line_buf` lives on `self` so a cancelled read
             // resumes the same partial line instead of dropping it.
@@ -494,18 +524,12 @@ where
                         continue;
                     }
                     self.oversized = true;
-                    if Self::emit_rejection(
-                        &self.write,
+                    self.emit_rejection(
                         -32600,
                         "Invalid request: message exceeds the configured byte limit",
                         None,
                         None,
-                    )
-                    .await
-                    .is_err()
-                    {
-                        return None;
-                    }
+                    );
                     continue;
                 }
                 Err(_) => return None,
@@ -522,20 +546,7 @@ where
                 GateVerdict::Forward => {
                     match serde_json::from_slice::<RxJsonRpcMessage<RoleServer>>(&line) {
                         Ok(message) => return Some(message),
-                        Err(_) => {
-                            if Self::emit_rejection(
-                                &self.write,
-                                -32600,
-                                "Invalid request",
-                                None,
-                                None,
-                            )
-                            .await
-                            .is_err()
-                            {
-                                return None;
-                            }
-                        }
+                        Err(_) => self.emit_rejection(-32600, "Invalid request", None, None),
                     }
                 }
                 GateVerdict::Drop => {}
@@ -544,19 +555,94 @@ where
                     message,
                     data,
                     id,
-                } => {
-                    if Self::emit_rejection(&self.write, code, message, data.as_ref(), id.as_ref())
-                        .await
-                        .is_err()
-                    {
-                        return None;
-                    }
-                }
+                } => self.emit_rejection(code, message, data.as_ref(), id.as_ref()),
             }
         }
     }
 
     async fn close(&mut self) -> Result<(), Self::Error> {
+        // rmcp drains its in-flight answers before closing; the gate's own
+        // last rejection gets the same courtesy.
+        self.settle_rejection().await;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::model::{NumberOrString, ServerJsonRpcMessage, ServerResult};
+    use std::time::Duration;
+
+    /// GMCP-203-004-04 on a loaded runner: rmcp dropped `receive` (another
+    /// `select!` branch won) while its rejection waited for the writer an
+    /// answer still held, and the client never got its typed error. The
+    /// pipe here holds eight bytes, so the answer keeps the writer until
+    /// the client reads — the exact window, made deterministic.
+    #[tokio::test]
+    async fn a_dropped_receive_still_delivers_its_rejection() {
+        let (mut client_in, server_in) = tokio::io::duplex(1024);
+        let (server_out, client_out) = tokio::io::duplex(8);
+        let mut gate = StdioGate::new(server_in, server_out);
+
+        let answer =
+            ServerJsonRpcMessage::response(ServerResult::empty(()), NumberOrString::Number(1));
+        let answering = tokio::spawn(gate.send(answer));
+        while gate.write.try_lock().is_ok() {
+            tokio::task::yield_now().await;
+        }
+
+        client_in.write_all(b"{not json\n").await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), gate.receive())
+                .await
+                .is_err(),
+            "nothing valid arrived, so receive must still be pending when it is dropped"
+        );
+
+        let reading = tokio::spawn(async move {
+            let mut lines = BufReader::new(client_out).lines();
+            let mut seen = Vec::new();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                seen.push(serde_json::from_str::<Value>(&line).unwrap());
+            }
+            seen
+        });
+        answering.await.unwrap().unwrap();
+        drop(client_in);
+        assert!(gate.receive().await.is_none(), "EOF ends the session");
+        gate.close().await.unwrap();
+        drop(gate);
+
+        let seen = reading.await.unwrap();
+        assert!(
+            seen.iter().any(|line| line["id"] == 1),
+            "the answer must arrive: {seen:?}"
+        );
+        assert!(
+            seen.iter().any(|line| line["error"]["code"] == -32700),
+            "the dropped receive's rejection must still arrive: {seen:?}"
+        );
+    }
+
+    /// Rejections leave in the order their lines arrived — a client that
+    /// pairs null-id errors with what it sent depends on it.
+    #[tokio::test]
+    async fn rejections_keep_their_order() {
+        let (mut client_in, server_in) = tokio::io::duplex(1024);
+        let (server_out, client_out) = tokio::io::duplex(1024);
+        let mut gate = StdioGate::new(server_in, server_out);
+        client_in.write_all(b"{not json\n[]\n").await.unwrap();
+        drop(client_in);
+        assert!(gate.receive().await.is_none());
+        gate.close().await.unwrap();
+        drop(gate);
+
+        let mut lines = BufReader::new(client_out).lines();
+        let mut codes = Vec::new();
+        while let Some(line) = lines.next_line().await.unwrap() {
+            codes.push(serde_json::from_str::<Value>(&line).unwrap()["error"]["code"].clone());
+        }
+        assert_eq!(codes, [-32700, -32600]);
     }
 }
