@@ -364,3 +364,243 @@ fn cursor_adapter_trusts_the_workspace_for_headless_runs() {
         other => panic!("expected command adapter, got {other:?}"),
     }
 }
+
+/// A `python3` that logs each interpreter start, so a test can count them.
+#[cfg(unix)]
+fn counting_python(root: &Path) -> (PathBuf, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let log = root.join("python-starts.log");
+    let wrapper = root.join("python3");
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\necho start >> '{}'\nexec python3 \"$@\"\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    (wrapper, log)
+}
+
+#[cfg(unix)]
+fn starts(log: &Path) -> usize {
+    fs::read_to_string(log).map_or(0, |s| s.lines().count())
+}
+
+/// The readiness scan used to start one interpreter per Python framework,
+/// sixteen on every susi command. It now probes all of a scan's imports in
+/// one interpreter, with the verdict the single `import` probe gives.
+#[test]
+#[cfg(unix)]
+fn python_imports_are_probed_in_one_interpreter_per_scan() {
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let (python, log) = counting_python(&fixture.root);
+    let config = fixture.root.join("engine.json");
+    fs::write(&config, "{}").unwrap();
+    std::env::set_var("SUSI_PYIMPORT_SCAN_CONFIG", &config);
+    let adapter = |module: &str| Adapter::Python {
+        python: python.to_string_lossy().into_owned(),
+        import_name: module.into(),
+        config_env: "SUSI_PYIMPORT_SCAN_CONFIG".into(),
+    };
+    let adapters = vec![
+        adapter("json"),
+        adapter("susi_no_such_module_xyz"),
+        adapter("os.path"),
+    ];
+    let verdicts = catalog::with_python_imports(&adapters, || {
+        adapters
+            .iter()
+            .map(|a| a.preflight().map(|_| ()).map_err(|e| e.to_string()))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(starts(&log), 1, "one interpreter for the whole scan");
+    assert!(verdicts[0].is_ok(), "{:?}", verdicts[0]);
+    assert!(
+        verdicts[1]
+            .as_ref()
+            .unwrap_err()
+            .contains("not importable: susi_no_such_module_xyz"),
+        "{:?}",
+        verdicts[1]
+    );
+    assert!(
+        verdicts[2].is_ok(),
+        "a dotted module imports as `import os.path` does"
+    );
+
+    // Outside a scan nothing is remembered: a framework installed after the
+    // last scan must be seen, so a preflight probes on its own again.
+    assert!(adapters[0].preflight().is_ok());
+    assert_eq!(starts(&log), 2);
+    std::env::remove_var("SUSI_PYIMPORT_SCAN_CONFIG");
+}
+
+/// An interpreter that cannot finish the batch probe leaves every module to
+/// the single probe, so the scan never reports less than it did before.
+#[test]
+#[cfg(unix)]
+fn python_imports_fall_back_to_single_probes_when_the_batch_fails() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let log = fixture.root.join("starts.log");
+    // Fails any run with more than one module (the batch); answers a single
+    // `-c "import json"` the way python3 does.
+    let python = fixture.root.join("python3");
+    fs::write(
+        &python,
+        format!(
+            "#!/bin/sh\necho start >> '{}'\n[ $# -gt 2 ] && exit 9\nexec python3 \"$@\"\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+    let config = fixture.root.join("engine.json");
+    fs::write(&config, "{}").unwrap();
+    std::env::set_var("SUSI_PYIMPORT_FALLBACK_CONFIG", &config);
+    let adapter = |module: &str| Adapter::Python {
+        python: python.to_string_lossy().into_owned(),
+        import_name: module.into(),
+        config_env: "SUSI_PYIMPORT_FALLBACK_CONFIG".into(),
+    };
+    let adapters = vec![adapter("json"), adapter("susi_no_such_module_xyz")];
+    let verdicts = catalog::with_python_imports(&adapters, || {
+        adapters
+            .iter()
+            .map(|a| a.preflight().is_ok())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(verdicts, vec![true, false]);
+    assert_eq!(
+        starts(&log),
+        3,
+        "one failed batch, then one probe per module"
+    );
+    std::env::remove_var("SUSI_PYIMPORT_FALLBACK_CONFIG");
+}
+
+/// A `python3` that also finds the fixture modules in `dir`.
+#[cfg(unix)]
+fn python_with_modules(root: &Path, modules: &[(&str, &str)]) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = root.join("pymods");
+    fs::create_dir_all(&dir).unwrap();
+    for (name, source) in modules {
+        fs::write(dir.join(format!("{name}.py")), source).unwrap();
+    }
+    let wrapper = root.join("python3-with-modules");
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nPYTHONPATH='{}' exec python3 \"$@\"\n",
+            dir.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    wrapper
+}
+
+/// What an import prints, what state it leaves, how it ends and how long it
+/// takes must not change a verdict or lose the others: each module gets the
+/// answer `python -c "import X"` gives (`susi_binary_noise` after
+/// `susi_swaps_stdout` imports as it would alone), and one that hangs costs
+/// one per-import bound.
+#[test]
+#[cfg(unix)]
+fn python_import_batch_survives_hostile_imports() {
+    use catalog::ImportVerdict::{Importable, NotImportable, TimedOut};
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let python = python_with_modules(
+        &fixture.root,
+        &[
+            ("susi_noisy", "import sys\nsys.stdout.write('loading...')\n"),
+            (
+                "susi_swaps_stdout",
+                "import io, sys\nsys.stdout = io.StringIO()\nprint('hidden')\n",
+            ),
+            (
+                "susi_binary_noise",
+                "import sys\nsys.stdout.buffer.write(b'\\xff\\xfe\\n')\nsys.stdout.flush()\n",
+            ),
+            ("susi_exit_zero", "raise SystemExit(0)\n"),
+            ("susi_exit_three", "raise SystemExit(3)\n"),
+            ("susi_hangs", "import time\ntime.sleep(60)\n"),
+            ("susi_ends_process", "import os\nos._exit(0)\n"),
+            ("susi_raises", "raise ImportError('missing dependency')\n"),
+        ],
+    );
+    let modules: Vec<String> = [
+        "json",
+        "susi_noisy",
+        "susi_swaps_stdout",
+        "susi_binary_noise",
+        "susi_exit_zero",
+        "susi_exit_three",
+        "susi_hangs",
+        "os.path",
+        "susi_ends_process",
+        "susi_raises",
+        "susi_no_such_module_xyz",
+    ]
+    .iter()
+    .map(|m| (*m).to_string())
+    .collect();
+    let started = std::time::Instant::now();
+    let verdicts = catalog::probe_imports(&python, &modules, std::time::Duration::from_secs(2));
+    let elapsed = started.elapsed();
+    let get = |m: &str| verdicts.get(m).copied();
+    assert_eq!(get("json"), Some(Importable));
+    assert_eq!(get("susi_noisy"), Some(Importable), "unterminated output");
+    assert_eq!(
+        get("susi_swaps_stdout"),
+        Some(Importable),
+        "replaced sys.stdout"
+    );
+    assert_eq!(
+        get("susi_binary_noise"),
+        Some(Importable),
+        "non-UTF-8 output"
+    );
+    assert_eq!(get("susi_exit_zero"), Some(Importable), "exit 0 is success");
+    assert_eq!(get("susi_exit_three"), Some(NotImportable));
+    assert_eq!(get("susi_hangs"), Some(TimedOut));
+    assert_eq!(get("os.path"), Some(Importable), "answered after a hang");
+    assert_eq!(
+        get("susi_ends_process"),
+        Some(Importable),
+        "os._exit(0) exits 0, as `python -c` reports it"
+    );
+    assert_eq!(get("susi_raises"), Some(NotImportable));
+    assert_eq!(get("susi_no_such_module_xyz"), Some(NotImportable));
+    assert!(
+        elapsed < std::time::Duration::from_secs(8),
+        "one hang costs one bound, not one per module: {elapsed:?}"
+    );
+}
+
+/// A stuck import is reported the way the single probe's timeout was: not
+/// ready, as a failed probe, not as a missing package.
+#[test]
+#[cfg(unix)]
+fn a_stuck_python_import_fails_its_preflight_as_a_timeout() {
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let python = python_with_modules(&fixture.root, &[]);
+    let adapter = Adapter::Python {
+        python: python.to_string_lossy().into_owned(),
+        import_name: "susi_never_probed".into(),
+        config_env: "SUSI_PYIMPORT_UNUSED_CONFIG".into(),
+    };
+    let err = catalog::with_scan_verdicts_for_test(
+        &python,
+        "susi_never_probed",
+        catalog::ImportVerdict::TimedOut,
+        || adapter.preflight().unwrap_err().to_string(),
+    );
+    assert!(
+        err.contains("failed to probe import susi_never_probed") && err.contains("did not finish"),
+        "{err}"
+    );
+}

@@ -370,11 +370,29 @@ impl AgentManager {
         let caps = crate::susi_core::registry::CapabilityRegistry::global();
         let mut catalog = catalog(self.kind)?;
         catalog.sort_by_key(|a| a.rank);
-        for def in catalog {
-            let adapter = match self.adapter(&def.id) {
-                Ok(a) => a,
-                Err(_) => continue,
-            };
+        let defs: Vec<_> = catalog
+            .into_iter()
+            .filter_map(|def| self.adapter(&def.id).ok().map(|adapter| (def, adapter)))
+            .collect();
+        let adapters: Vec<Adapter> = defs.iter().map(|(_, adapter)| adapter.clone()).collect();
+        catalog::with_python_imports(&adapters, || self.register_ready(defs, caps, &mut ready));
+        let status_path = susi_paths::SusiDirs::config_dir()
+            .join(self.kind.config_subdir())
+            .join("ready.json");
+        if let Some(parent) = status_path.parent() {
+            crate::susi_config::create_private_dir(parent)?;
+        }
+        crate::susi_config::atomic_write_json_pretty(&status_path, &ready)?;
+        Ok(ready)
+    }
+
+    fn register_ready(
+        &self,
+        defs: Vec<(AgentDefinition, Adapter)>,
+        caps: &crate::susi_core::registry::CapabilityRegistry,
+        ready: &mut Vec<serde_json::Value>,
+    ) {
+        for (def, adapter) in defs {
             match adapter.preflight() {
                 Ok(detail) => {
                     caps.register_agent_capability(crate::susi_core::registry::AgentCapability {
@@ -401,14 +419,6 @@ impl AgentManager {
                 }
             }
         }
-        let status_path = susi_paths::SusiDirs::config_dir()
-            .join(self.kind.config_subdir())
-            .join("ready.json");
-        if let Some(parent) = status_path.parent() {
-            crate::susi_config::create_private_dir(parent)?;
-        }
-        crate::susi_config::atomic_write_json_pretty(&status_path, &ready)?;
-        Ok(ready)
     }
 
     pub fn cancel(&self, id: &str) -> Result<RunRecord> {
