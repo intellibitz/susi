@@ -16,7 +16,6 @@
 //!   scheduler reports the refusal as a [`crate::scheduler::AttemptOutcome::Skipped`]
 //!   and leaves the task for a later mission or a top-up.
 
-use crate::ledger::read_entries;
 use crate::money::MicroUsd;
 use crate::pricing::{ModelPrice, TokenUsage};
 use serde::{Deserialize, Serialize};
@@ -59,7 +58,9 @@ impl Budget {
     /// What the mission has spent so far, read from the ledger.
     #[must_use]
     pub fn spent(ledger_path: &Path, mission: &str) -> Spend {
-        let entries = read_entries(ledger_path).unwrap_or_default();
+        // A torn line must not zero the spend: the strict reader refused the
+        // whole file on one, and the guard then saw nothing spent.
+        let entries = crate::ledger::read_entries_reporting(ledger_path);
         let mut spend = Spend::default();
         for entry in entries.iter().filter(|entry| entry.mission == mission) {
             spend.total = spend
