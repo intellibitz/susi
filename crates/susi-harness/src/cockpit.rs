@@ -178,25 +178,31 @@ impl Cockpit {
             total = total
                 .checked_add(entry.cost)
                 .unwrap_or(MicroUsd::from_micros(u64::MAX));
+            // An attempt's verdict row (accepted or rejected) is not a call:
+            // it only says how the calls before it ended.
+            let verdict = matches!(entry.outcome, Outcome::Accepted | Outcome::Rejected { .. });
             let view = missions
                 .entry(entry.mission.clone())
                 .or_insert_with(|| MissionView::new(entry.mission.clone()));
-            view.calls += 1;
+            if !verdict {
+                view.calls += 1;
+            }
             view.cost_micro_usd = view.cost_micro_usd.saturating_add(entry.cost.micros());
             view.worker_set.insert(entry.task.clone());
             let worker = workers
                 .entry(entry.model.clone())
                 .or_insert_with(|| WorkerView::new(entry.model.clone()));
-            worker.calls += 1;
+            if !verdict {
+                worker.calls += 1;
+            }
             worker.cost_micro_usd = worker.cost_micro_usd.saturating_add(entry.cost.micros());
             if !worker.providers.contains(&entry.provider) {
                 worker.providers.push(entry.provider.clone());
             }
             match entry.outcome {
                 Outcome::ModelFailed { .. } | Outcome::Rejected { .. } => worker.failures += 1,
-                Outcome::Accepted | Outcome::Completed | Outcome::Cancelled => {
-                    worker.successes += 1;
-                }
+                Outcome::Completed | Outcome::Cancelled => worker.successes += 1,
+                Outcome::Accepted => {}
             }
         }
 

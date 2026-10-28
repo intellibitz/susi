@@ -17,8 +17,8 @@
 
 use crate::cache::ResponseCache;
 use crate::catalog::PriceCatalogue;
-use crate::ledger::{append_entry, Dispatch, LedgerEntry, Outcome};
-use crate::pricing::ModelPrice;
+use crate::ledger::{append_entry, Dispatch, FailureClass, LedgerEntry, Outcome};
+use crate::pricing::{ModelPrice, TokenUsage};
 use crate::usage::token_usage_from_json;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -27,7 +27,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures::StreamExt;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -83,6 +83,7 @@ impl GatewayState {
 }
 
 /// One dispatch the gateway is about to price.
+#[derive(Clone)]
 struct Attempt {
     mission: String,
     task: String,
@@ -156,12 +157,10 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
             return error_response(StatusCode::BAD_REQUEST, &error.to_string());
         }
     }
-    let Some(price) = state.catalogue.price(model) else {
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            &format!("model `{model}` has no catalogue price"),
-        );
-    };
+    // A model the catalogue cannot price still runs: a working model is
+    // never refused for lack of costing. Its rows record the tokens at a
+    // zero price, so the spend is visible even though it is not costed.
+    let price = state.catalogue.price(model).unwrap_or_default();
 
     let tagged = run_tag(&headers);
     let mission = header_tag(&headers, "x-susi-mission")
@@ -297,6 +296,7 @@ async fn buffered_upstream(
     body: String,
     cache_key: String,
 ) -> Response {
+    let tag = attempt.clone();
     let Attempt {
         mission,
         task,
@@ -369,10 +369,15 @@ async fn buffered_upstream(
     let call = match upstream {
         Ok(Ok(call)) => call,
         Ok(Err(error)) => {
-            return error_response(
-                StatusCode::BAD_GATEWAY,
-                &format!("upstream call failed: {error}"),
+            let message = format!("upstream call failed: {error}");
+            record_failure(
+                &state.ledger_path,
+                &tag,
+                &state.provider,
+                started_unix_ms,
+                transport_failure(&message),
             );
+            return error_response(StatusCode::BAD_GATEWAY, &message);
         }
         Err(error) => {
             return error_response(
@@ -396,6 +401,15 @@ async fn buffered_upstream(
         }
     };
     let ended_unix_ms = now_ms();
+    if let Some(class) = provider_failure(status, &response_bytes) {
+        record_failure(
+            &state.ledger_path,
+            &tag,
+            &state.provider,
+            started_unix_ms,
+            class,
+        );
+    }
 
     let response_bytes = if (200..300).contains(&status) && is_anthropic {
         if let Ok(anth_val) = serde_json::from_slice::<Value>(&response_bytes) {
@@ -462,6 +476,7 @@ async fn buffered_upstream(
 }
 
 async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: String) -> Response {
+    let tag = attempt.clone();
     let Attempt {
         mission,
         task,
@@ -515,7 +530,15 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         ) {
             Ok(call) => call,
             Err(error) => {
-                let _ = meta_tx.send(Err(format!("upstream call failed: {error}")));
+                let message = format!("upstream call failed: {error}");
+                record_failure(
+                    &ledger_path,
+                    &tag,
+                    &provider,
+                    started_unix_ms,
+                    transport_failure(&message),
+                );
+                let _ = meta_tx.send(Err(message));
                 return;
             }
         };
@@ -528,9 +551,11 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
             return;
         }
         if !(200..300).contains(&status) {
-            if let Ok(bytes) = call.into_bytes(MAX_RESPONSE_BYTES) {
-                let _ = chunk_tx.blocking_send(bytes);
+            let bytes = call.into_bytes(MAX_RESPONSE_BYTES).unwrap_or_default();
+            if let Some(class) = provider_failure(status, &bytes) {
+                record_failure(&ledger_path, &tag, &provider, started_unix_ms, class);
             }
+            let _ = chunk_tx.blocking_send(bytes);
             return;
         }
 
@@ -592,6 +617,73 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         }
         Ok(Err(message)) => error_response(StatusCode::BAD_GATEWAY, &message),
         Err(_) => error_response(StatusCode::BAD_GATEWAY, "upstream task failed"),
+    }
+}
+
+/// The failure class of a provider's error answer, or `None` when the error
+/// is about the request itself (a 4xx over its content), which says nothing
+/// about whether the provider can serve.
+///
+/// Some providers report an empty account as a plain 400 (Anthropic's "credit
+/// balance is too low"), so the body is read for that as well as the status.
+fn provider_failure(status: u16, body: &[u8]) -> Option<FailureClass> {
+    if (200..300).contains(&status) {
+        return None;
+    }
+    let head = body.get(..body.len().min(4096)).unwrap_or(body);
+    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
+    const NO_CREDIT: &[&str] = &[
+        "credit balance",
+        "insufficient balance",
+        "insufficient_quota",
+        "payment required",
+    ];
+    if NO_CREDIT.iter().any(|needle| text.contains(needle)) {
+        return Some(FailureClass::NoCredit);
+    }
+    match status {
+        // The key cannot pay for calls: missing, revoked or out of credit.
+        401..=403 => Some(FailureClass::NoCredit),
+        429 => Some(FailureClass::RateLimited),
+        408 | 504 => Some(FailureClass::Timeout),
+        500..=599 => Some(FailureClass::Other),
+        _ => None,
+    }
+}
+
+/// The failure class of a call that never got an answer.
+fn transport_failure(message: &str) -> FailureClass {
+    let text = message.to_ascii_lowercase();
+    if text.contains("timed out") || text.contains("timeout") {
+        FailureClass::Timeout
+    } else {
+        FailureClass::Other
+    }
+}
+
+/// Record a provider failure: no tokens and no cost, but the ranking learns
+/// from it ([`crate::policy::history`], [`crate::policy::cooling_providers`]).
+fn record_failure(
+    ledger_path: &Path,
+    attempt: &Attempt,
+    provider: &str,
+    started_unix_ms: u64,
+    class: FailureClass,
+) {
+    let entry = LedgerEntry::settle(Dispatch {
+        mission: attempt.mission.clone(),
+        task: attempt.task.clone(),
+        attempt: attempt.attempt,
+        model: attempt.model.clone(),
+        provider: provider.to_string(),
+        usage: TokenUsage::default(),
+        price: attempt.price,
+        started_unix_ms,
+        ended_unix_ms: now_ms(),
+        outcome: Outcome::ModelFailed { class },
+    });
+    if let Err(error) = append_entry(ledger_path, &entry) {
+        eprintln!("harness-gateway: ledger append failed: {error}");
     }
 }
 
@@ -666,6 +758,7 @@ fn clamp_output_tokens(request: &mut Value, cap: u32) {
 mod tests {
     use super::*;
     use crate::ledger::read_entries;
+    use crate::money::MicroUsd;
     use std::net::SocketAddr;
 
     const CATALOGUE: &str = r#"{
@@ -853,19 +946,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unpriced_model_is_refused_without_a_row() {
+    async fn an_unpriced_model_runs_and_its_tokens_are_recorded_uncosted() {
         let upstream = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
         let dir = tempfile::tempdir().unwrap();
         let ledger_path = dir.path().join("ledger.jsonl");
         let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
         let (status, _) = post_json(gateway, r#"{"model":"mystery","messages":[]}"#, &[]).await;
-        assert_eq!(status, 400);
-        assert!(!ledger_path.exists());
+        assert_eq!(status, 200);
+        let rows = read_entries(&ledger_path).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, "mystery");
+        assert_eq!(rows[0].cost, MicroUsd::ZERO);
+        assert!(rows[0].usage.input > 0);
     }
 
     #[tokio::test]
-    async fn an_upstream_error_passes_through_unbilled() {
+    async fn an_upstream_error_passes_through_unbilled_and_is_recorded_as_a_failure() {
         let upstream = spawn(Router::new().route("/v1/chat/completions", post(failing))).await;
         let dir = tempfile::tempdir().unwrap();
         let ledger_path = dir.path().join("ledger.jsonl");
@@ -874,7 +971,46 @@ mod tests {
         let (status, _) =
             post_json(gateway, r#"{"model":"deepseek-flash","messages":[]}"#, &[]).await;
         assert_eq!(status, 500);
-        assert!(!ledger_path.exists());
+        let rows = read_entries(&ledger_path).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].cost, MicroUsd::ZERO);
+        assert_eq!(
+            rows[0].outcome,
+            Outcome::ModelFailed {
+                class: FailureClass::Other
+            }
+        );
+    }
+
+    #[test]
+    fn provider_errors_are_classified_and_request_errors_are_not() {
+        assert_eq!(provider_failure(200, b""), None);
+        assert_eq!(
+            provider_failure(429, b"slow down"),
+            Some(FailureClass::RateLimited)
+        );
+        assert_eq!(provider_failure(402, b""), Some(FailureClass::NoCredit));
+        assert_eq!(
+            provider_failure(401, b"bad key"),
+            Some(FailureClass::NoCredit)
+        );
+        assert_eq!(
+            provider_failure(
+                400,
+                br#"{"error":{"message":"Your credit balance is too low"}}"#
+            ),
+            Some(FailureClass::NoCredit)
+        );
+        assert_eq!(provider_failure(400, b"context length exceeded"), None);
+        assert_eq!(
+            provider_failure(503, b"overloaded"),
+            Some(FailureClass::Other)
+        );
+        assert_eq!(provider_failure(504, b""), Some(FailureClass::Timeout));
+        assert_eq!(
+            transport_failure("upstream call failed: operation timed out"),
+            FailureClass::Timeout
+        );
     }
 
     #[tokio::test]

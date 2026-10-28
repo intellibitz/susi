@@ -19,7 +19,7 @@
 //! is testable without running a model.
 
 use crate::catalog::PriceCatalogue;
-use crate::ledger::{LedgerEntry, Outcome};
+use crate::ledger::{FailureClass, LedgerEntry, Outcome};
 use crate::money::MicroUsd;
 use std::collections::{BTreeMap, BTreeSet};
 use susi_error::{EaiError, EaiResult};
@@ -33,18 +33,32 @@ use susi_error::{EaiError, EaiResult};
 pub struct UsageProfile {
     /// Input tokens one typical turn consumes.
     pub input: u64,
+    /// Of those, input tokens a caching model serves from its prompt cache.
+    pub cached: u64,
     /// Output tokens one typical turn produces.
     pub output: u64,
 }
 
 impl UsageProfile {
-    /// A typical agent turn: 200k input, 20k output.
+    /// A typical agent turn: 200k input, 20k output, and three quarters of
+    /// the input served from cache by a model that caches. The harness
+    /// re-sends one growing prompt on every turn of a task, so most of it is
+    /// a prefix the provider has already seen.
     #[must_use]
     pub const fn agent() -> Self {
         Self {
             input: 200_000,
+            cached: 150_000,
             output: 20_000,
         }
+    }
+
+    /// The usage this profile stands for on a model that does, or does not,
+    /// serve a cached prefix at the cache price.
+    #[must_use]
+    pub const fn usage(self, caches: bool) -> crate::pricing::TokenUsage {
+        let cached = if caches { self.cached } else { 0 };
+        crate::pricing::TokenUsage::new(self.input, cached, self.output)
     }
 }
 
@@ -54,32 +68,66 @@ impl Default for UsageProfile {
     }
 }
 
-/// What the ledger has taught us about one model.
+/// What the ledger has taught us about one model, attempt by attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ModelHistory {
-    /// Priced calls.
+    /// Attempts: the ledger rows sharing a mission, task, attempt number and
+    /// model are one attempt, however many calls it made.
     pub calls: u64,
-    /// Calls the provider or the acceptance rejected.
+    /// Attempts with a failure row: the provider failed, or the work the
+    /// attempt produced was rejected.
     pub failures: u64,
     /// Total spend on this model.
     pub cost: MicroUsd,
+    /// Input tokens the provider read, over every attempt.
+    pub input: u64,
+    /// Of those, input tokens the provider served from its prompt cache.
+    pub cache_hit: u64,
 }
 
+/// Attempts a model needs on record before its failure rate can demote it.
+pub const RELIABILITY_EVIDENCE: u64 = 3;
+
 impl ModelHistory {
-    /// Calls that were not rejected.
+    /// Attempts that did not fail.
     #[must_use]
     pub const fn successes(self) -> u64 {
         self.calls.saturating_sub(self.failures)
     }
+
+    /// The share of input the model served from cache, in parts per
+    /// thousand, once it has read any input.
+    #[must_use]
+    pub const fn cache_share_permille(self) -> Option<u64> {
+        self.cache_hit.saturating_mul(1000).checked_div(self.input)
+    }
+
+    /// Whether the record shows the model failing most of its attempts:
+    /// at least [`RELIABILITY_EVIDENCE`] attempts, under half of them good.
+    #[must_use]
+    pub const fn unreliable(self) -> bool {
+        self.calls >= RELIABILITY_EVIDENCE && self.successes().saturating_mul(2) < self.calls
+    }
 }
 
 /// Learn per-model history from every settled row.
+///
+/// Rows are grouped into attempts first, so a model is judged on attempts
+/// that paid off, not on how many calls each attempt happened to make. A row
+/// the gateway answered from its own response cache did not reach the
+/// provider and says nothing about the provider's prompt cache.
 #[must_use]
 pub fn history(entries: &[LedgerEntry]) -> BTreeMap<String, ModelHistory> {
-    let mut history: BTreeMap<String, ModelHistory> = BTreeMap::new();
+    let mut attempts: BTreeMap<(&str, &str, u32, &str), ModelHistory> = BTreeMap::new();
     for entry in entries {
-        let slot = history.entry(entry.model.clone()).or_default();
-        slot.calls = slot.calls.saturating_add(1);
+        let key = (
+            entry.mission.as_str(),
+            entry.task.as_str(),
+            entry.attempt,
+            entry.model.as_str(),
+        );
+        let slot = attempts.entry(key).or_default();
+        slot.calls = 1;
         slot.cost = slot
             .cost
             .checked_add(entry.cost)
@@ -88,10 +136,104 @@ pub fn history(entries: &[LedgerEntry]) -> BTreeMap<String, ModelHistory> {
             entry.outcome,
             Outcome::ModelFailed { .. } | Outcome::Rejected { .. }
         ) {
-            slot.failures = slot.failures.saturating_add(1);
+            slot.failures = 1;
+        }
+        if !entry.cached {
+            slot.input = slot.input.saturating_add(entry.usage.input);
+            slot.cache_hit = slot.cache_hit.saturating_add(entry.usage.cache_hit);
         }
     }
+    let mut history: BTreeMap<String, ModelHistory> = BTreeMap::new();
+    for ((_, _, _, model), attempt) in attempts {
+        let slot = history.entry(model.to_string()).or_default();
+        slot.calls = slot.calls.saturating_add(attempt.calls);
+        slot.failures = slot.failures.saturating_add(attempt.failures);
+        slot.cost = slot
+            .cost
+            .checked_add(attempt.cost)
+            .unwrap_or(MicroUsd::from_micros(u64::MAX));
+        slot.input = slot.input.saturating_add(attempt.input);
+        slot.cache_hit = slot.cache_hit.saturating_add(attempt.cache_hit);
+    }
     history
+}
+
+/// How long a provider failure is remembered for cooling down.
+pub const COOLDOWN_MS: u64 = 10 * 60 * 1000;
+
+/// Providers that failed recently and often enough that a new task should
+/// not start on them.
+///
+/// Only provider failures count (`ModelFailed` rows, which the gateway
+/// writes), never rejected work: a rejection is about the task. Out of
+/// credit cools a provider at once; any other provider failure cools it at
+/// the second in a row. A completed call clears the record, because the
+/// provider has recovered. Only the last [`COOLDOWN_MS`] are read.
+#[must_use]
+pub fn cooling_providers(entries: &[LedgerEntry], now_unix_ms: u64) -> BTreeSet<String> {
+    let mut recent = entries
+        .iter()
+        .filter(|entry| entry.ended_unix_ms.saturating_add(COOLDOWN_MS) >= now_unix_ms)
+        .collect::<Vec<_>>();
+    recent.sort_by_key(|entry| entry.ended_unix_ms);
+    let mut streaks: BTreeMap<&str, (u32, bool)> = BTreeMap::new();
+    for entry in recent {
+        match &entry.outcome {
+            Outcome::ModelFailed { class } => {
+                let streak = streaks.entry(entry.provider.as_str()).or_default();
+                streak.0 = streak.0.saturating_add(1);
+                streak.1 |= *class == FailureClass::NoCredit;
+            }
+            Outcome::Completed if !entry.cached => {
+                streaks.remove(entry.provider.as_str());
+            }
+            Outcome::Completed
+            | Outcome::Accepted
+            | Outcome::Rejected { .. }
+            | Outcome::Cancelled => {}
+        }
+    }
+    streaks
+        .into_iter()
+        .filter(|(_, (failures, no_credit))| *no_credit || *failures >= 2)
+        .map(|(provider, _)| provider.to_string())
+        .collect()
+}
+
+/// The order one task tries its models in.
+///
+/// The fleet's ladder is the policy: it already ranks expiring credit, cache,
+/// price and capability. The task's own model goes first, then the ladder in
+/// its order. Evidence only demotes, and the order is otherwise kept: a model
+/// whose record is [`ModelHistory::unreliable`] moves behind the healthy
+/// ones, and a model whose provider is cooling down ([`cooling_providers`])
+/// moves to the end. Nothing is dropped, so a fleet of one still runs.
+#[must_use]
+pub fn arrange(
+    preferred: &str,
+    ladder: &[String],
+    history: &BTreeMap<String, ModelHistory>,
+    cooling: &BTreeSet<String>,
+    provider_of: &dyn Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let mut models = vec![preferred.to_string()];
+    for model in ladder {
+        if !models.contains(model) {
+            models.push(model.clone());
+        }
+    }
+    let standing = |model: &String| -> u8 {
+        if provider_of(model).is_some_and(|provider| cooling.contains(&provider)) {
+            2
+        } else if history.get(model).is_some_and(|record| record.unreliable()) {
+            1
+        } else {
+            0
+        }
+    };
+    // A stable sort: within a standing, the fleet's order holds.
+    models.sort_by_key(standing);
+    models
 }
 
 /// One ranked candidate.
@@ -127,14 +269,20 @@ pub fn rank_models(
         if !seen.insert(model.as_str()) {
             continue;
         }
+        let record = history.get(model).copied().unwrap_or_default();
         let expected = match catalogue.price(model) {
             Some(price) => {
+                // The cache share the model has shown, priced at its cache
+                // rate; a model with no record is priced as all misses.
+                let cached = record
+                    .cache_share_permille()
+                    .map_or(0, |share| profile.input.saturating_mul(share) / 1000);
                 let base = price.cost(crate::pricing::TokenUsage::new(
                     profile.input,
-                    0,
+                    cached,
                     profile.output,
                 ));
-                expected_cost(base, history.get(model).copied().unwrap_or_default())
+                expected_cost(base, record)
             }
             None => MicroUsd::from_micros(u64::MAX),
         };
@@ -479,6 +627,7 @@ mod tests {
                 calls: 4,
                 failures: 4,
                 cost: MicroUsd::from_micros(4_000),
+                ..ModelHistory::default()
             },
         );
         history.insert(
@@ -487,6 +636,7 @@ mod tests {
                 calls: 4,
                 failures: 0,
                 cost: MicroUsd::from_micros(40_000),
+                ..ModelHistory::default()
             },
         );
         let ranked =
@@ -507,6 +657,7 @@ mod tests {
                 calls: 2,
                 failures: 0,
                 cost: MicroUsd::from_micros(1_000),
+                ..ModelHistory::default()
             },
         );
         history.insert(
@@ -515,6 +666,7 @@ mod tests {
                 calls: 2,
                 failures: 0,
                 cost: MicroUsd::from_micros(4_000),
+                ..ModelHistory::default()
             },
         );
         let ranked =
@@ -533,6 +685,200 @@ mod tests {
         .unwrap();
         assert_eq!(ranked[0].model, "cheap");
         assert_eq!(ranked[1].model, "mystery");
+    }
+
+    fn row(
+        (task, attempt): (&str, u32),
+        model: &str,
+        provider: &str,
+        at_ms: u64,
+        outcome: Outcome,
+    ) -> LedgerEntry {
+        LedgerEntry::settle(crate::ledger::Dispatch {
+            mission: "m".to_string(),
+            task: task.to_string(),
+            attempt,
+            model: model.to_string(),
+            provider: provider.to_string(),
+            usage: crate::pricing::TokenUsage::new(1000, 800, 100),
+            price: ModelPrice::default(),
+            started_unix_ms: at_ms,
+            ended_unix_ms: at_ms,
+            outcome,
+        })
+    }
+
+    fn rejected() -> Outcome {
+        Outcome::Rejected {
+            reason: "tests red".to_string(),
+        }
+    }
+
+    fn failed(class: FailureClass) -> Outcome {
+        Outcome::ModelFailed { class }
+    }
+
+    #[test]
+    fn history_counts_attempts_not_calls() {
+        // Attempt 1 made three calls and was rejected; attempt 2 made two
+        // calls and was accepted. Two attempts, one failure.
+        let entries = vec![
+            row(("T", 1), "cheap", "p", 1, Outcome::Completed),
+            row(("T", 1), "cheap", "p", 2, Outcome::Completed),
+            row(("T", 1), "cheap", "p", 3, Outcome::Completed),
+            row(("T", 1), "cheap", "p", 4, rejected()),
+            row(("T", 2), "cheap", "p", 5, Outcome::Completed),
+            row(("T", 2), "cheap", "p", 6, Outcome::Completed),
+            row(("T", 2), "cheap", "p", 7, Outcome::Accepted),
+        ];
+        let record = history(&entries)["cheap"];
+        assert_eq!(record.calls, 2);
+        assert_eq!(record.failures, 1);
+        // Every row read 1000 input with 800 from cache.
+        assert_eq!(record.cache_share_permille(), Some(800));
+    }
+
+    #[test]
+    fn a_model_failing_most_attempts_is_unreliable_only_with_evidence() {
+        let two_failures = vec![
+            row(("A", 1), "m", "p", 1, rejected()),
+            row(("B", 1), "m", "p", 2, rejected()),
+        ];
+        assert!(
+            !history(&two_failures)["m"].unreliable(),
+            "two attempts are too few"
+        );
+        let mut three = two_failures.clone();
+        three.push(row(("C", 1), "m", "p", 3, Outcome::Accepted));
+        assert!(history(&three)["m"].unreliable(), "one in three succeeded");
+        three.push(row(("D", 1), "m", "p", 4, Outcome::Accepted));
+        assert!(!history(&three)["m"].unreliable(), "half succeeded");
+    }
+
+    #[test]
+    fn a_measured_cache_share_lowers_the_expected_cost() {
+        let mut cached = BTreeMap::new();
+        cached.insert(
+            "cheap".to_string(),
+            ModelHistory {
+                input: 1000,
+                cache_hit: 900,
+                ..ModelHistory::default()
+            },
+        );
+        let plain = rank_models(
+            &catalogue(),
+            &["cheap".into()],
+            UsageProfile::agent(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let warm = rank_models(
+            &catalogue(),
+            &["cheap".into()],
+            UsageProfile::agent(),
+            &cached,
+        )
+        .unwrap();
+        assert!(warm[0].expected_cost < plain[0].expected_cost);
+    }
+
+    #[test]
+    fn providers_cool_down_on_no_credit_at_once_and_on_two_other_failures() {
+        let now = 1_000_000_000;
+        let entries = vec![
+            row(
+                ("T", 1),
+                "a1",
+                "broke",
+                now - 1000,
+                failed(FailureClass::NoCredit),
+            ),
+            row(
+                ("T", 1),
+                "b1",
+                "busy",
+                now - 3000,
+                failed(FailureClass::RateLimited),
+            ),
+            row(
+                ("T", 1),
+                "b1",
+                "busy",
+                now - 2000,
+                failed(FailureClass::RateLimited),
+            ),
+            row(
+                ("T", 1),
+                "c1",
+                "blip",
+                now - 1000,
+                failed(FailureClass::Other),
+            ),
+            row(
+                ("T", 1),
+                "d1",
+                "healed",
+                now - 3000,
+                failed(FailureClass::Other),
+            ),
+            row(
+                ("T", 1),
+                "d1",
+                "healed",
+                now - 2000,
+                failed(FailureClass::Other),
+            ),
+            row(("T", 1), "d1", "healed", now - 1000, Outcome::Completed),
+            row(
+                ("T", 1),
+                "e1",
+                "old",
+                now - COOLDOWN_MS - 1,
+                failed(FailureClass::NoCredit),
+            ),
+            row(("T", 1), "f1", "rejected", now - 1000, rejected()),
+        ];
+        let cooling = cooling_providers(&entries, now);
+        assert_eq!(
+            cooling.into_iter().collect::<Vec<_>>(),
+            vec!["broke".to_string(), "busy".to_string()]
+        );
+    }
+
+    #[test]
+    fn arrange_keeps_the_fleet_order_and_only_demotes() {
+        let ladder: Vec<String> = ["fast", "cached", "rescue", "cooling", "flaky"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut records = BTreeMap::new();
+        records.insert(
+            "flaky".to_string(),
+            ModelHistory {
+                calls: 4,
+                failures: 3,
+                ..ModelHistory::default()
+            },
+        );
+        records.insert(
+            "rescue".to_string(),
+            ModelHistory {
+                calls: 4,
+                failures: 3,
+                ..ModelHistory::default()
+            },
+        );
+        let cooling: BTreeSet<String> = ["down".to_string()].into_iter().collect();
+        let provider_of =
+            |model: &str| Some(if model == "cooling" { "down" } else { "up" }.to_string());
+        let order = arrange("cached", &ladder, &records, &cooling, &provider_of);
+        // The preferred model leads, healthy models keep the fleet's order,
+        // the unreliable ones follow in the fleet's order, cooling is last.
+        assert_eq!(order, vec!["cached", "fast", "rescue", "flaky", "cooling"]);
+        // A fleet of one cooling model still runs it.
+        let alone = arrange("cooling", &[], &records, &cooling, &provider_of);
+        assert_eq!(alone, vec!["cooling"]);
     }
 
     #[test]

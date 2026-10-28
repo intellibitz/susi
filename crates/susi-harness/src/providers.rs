@@ -566,12 +566,10 @@ impl Registry {
                 // every priced model of the same tier, so a missing price
                 // never makes it the cheapest choice, and it is reported.
                 let price_key = model.price_ref.as_deref().unwrap_or(&model.id);
+                // A caching model is priced with the profile's cached share
+                // at its cache rate: that is what a task's turns pay.
                 let cost = match catalogue.price(price_key) {
-                    Some(price) => price.cost(crate::pricing::TokenUsage::new(
-                        profile.input,
-                        0,
-                        profile.output,
-                    )),
+                    Some(price) => price.cost(profile.usage(model.capabilities.cache)),
                     None => {
                         unpriced.push(model.id.clone());
                         crate::money::MicroUsd::from_micros(u64::MAX)
