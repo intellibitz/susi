@@ -280,6 +280,30 @@ fn the_windows_build_is_off_the_merge_gate() {
 }
 
 #[test]
+fn the_windows_build_caches_its_dependencies() {
+    // A cold Windows build is 23-24 min, ~530 registry crates; with them
+    // cached it recompiles only the workspace, about 6 min for the job. A
+    // registry-only cache (`cache-targets: "false"`) paid the cold build on
+    // every run.
+    let text = read(".github/workflows/test.yml");
+    let windows = jobs(&text)
+        .into_iter()
+        .find(|j| j.id == "windows")
+        .expect("test.yml keeps the windows job for main and tags");
+    assert!(
+        windows.body.contains("uses: Swatinem/rust-cache@v2")
+            && !windows.body.contains("cache-targets"),
+        "the windows job must cache its dependency artifacts, not only the registry"
+    );
+    assert!(
+        windows
+            .body
+            .contains("save-if: ${{ github.ref == 'refs/heads/main' }}"),
+        "only main writes the windows entry"
+    );
+}
+
+#[test]
 fn every_test_workflow_job_is_bounded() {
     let text = read(".github/workflows/test.yml");
     for j in jobs(&text) {
