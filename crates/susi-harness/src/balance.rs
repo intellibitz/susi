@@ -68,6 +68,10 @@ pub struct ProviderBudget {
     /// from `SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>`. No provider API
     /// publishes it, so it is configured.
     pub expires_day: Option<u64>,
+    /// Whether the provider refused the key (HTTP 401 or 403) when it was
+    /// checked: the key is wrong, revoked or a placeholder, and no top-up
+    /// will help.
+    pub key_refused: bool,
 }
 
 impl ProviderBudget {
@@ -197,8 +201,29 @@ impl Budgets {
         if needed.is_empty() {
             return None;
         }
+        let key_names = |id: &str| {
+            registry
+                .providers()
+                .iter()
+                .find(|provider| provider.id == id)
+                .map(|provider| provider.key_envs.join(" or "))
+                .unwrap_or_default()
+        };
+        let refused = needed
+            .iter()
+            .filter(|entry| entry.key_refused)
+            .map(|entry| {
+                let models = models_of(registry, &entry.provider).join(", ");
+                format!(
+                    "{} (the provider refused the key; check or replace {}; models off: {models})",
+                    entry.provider,
+                    key_names(&entry.provider)
+                )
+            })
+            .collect::<Vec<_>>();
         let parts = needed
             .iter()
+            .filter(|entry| !entry.key_refused)
             .map(|entry| {
                 let models = models_of(registry, &entry.provider).join(", ");
                 let hint = format!(
@@ -215,7 +240,14 @@ impl Budgets {
                 )
             })
             .collect::<Vec<_>>();
-        Some(format!("topup needed: {}", parts.join(" | ")))
+        let mut alerts = Vec::new();
+        if !refused.is_empty() {
+            alerts.push(format!("key refused: {}", refused.join(" | ")));
+        }
+        if !parts.is_empty() {
+            alerts.push(format!("topup needed: {}", parts.join(" | ")));
+        }
+        Some(alerts.join(" · "))
     }
 }
 
@@ -239,7 +271,12 @@ pub fn collect(
         }
         let mut entry = budget_for(&provider.id, &provider.key_envs, fetch, spent);
         if entry.remaining.is_none() {
-            entry.working = works(provider, fetch);
+            let (working, refused, note) = works(provider, fetch);
+            entry.working = working;
+            entry.key_refused = refused;
+            if !working {
+                entry.note = format!("{}; {note}", entry.note);
+            }
         }
         let name = format!(
             "SUSI_HARNESS_CREDIT_EXPIRES_{}",
@@ -344,6 +381,7 @@ fn budget_for(
                 source: Source::Api,
                 working: false,
                 expires_day: None,
+                key_refused: false,
                 note: "balance from the provider".to_string(),
             },
             Err(reason) => ProviderBudget {
@@ -352,6 +390,7 @@ fn budget_for(
                 source: Source::Unknown,
                 working: false,
                 expires_day: None,
+                key_refused: false,
                 note: reason,
             },
         };
@@ -366,6 +405,7 @@ fn budget_for(
             source: Source::Unknown,
             working: false,
             expires_day: None,
+            key_refused: false,
             note: format!("no balance API; {name} is not set"),
         };
     };
@@ -388,6 +428,7 @@ pub fn configured_budget(
         source: Source::Configured,
         working: false,
         expires_day: None,
+        key_refused: false,
         note: format!("configured {configured}, spent {used}"),
     }
 }
@@ -397,9 +438,10 @@ type BalanceParser = fn(&str) -> Result<MicroUsd, String>;
 
 /// Whether the provider answers its models endpoint with the key: the live
 /// proof that its models work, used when no balance can be costed.
-fn works(provider: &ProviderRecord, fetch: &Fetch<'_>) -> bool {
+fn works(provider: &ProviderRecord, fetch: &Fetch<'_>) -> (bool, bool, String) {
     let report = check_provider(provider, fetch);
-    report.ok && report.reachable
+    let refused = report.note.contains("HTTP 401") || report.note.contains("HTTP 403");
+    (report.ok && report.reachable, refused, report.note)
 }
 
 /// The provider's own balance answer, for the providers that publish one.
@@ -541,6 +583,7 @@ mod tests {
             note: "test".to_string(),
             working: false,
             expires_day: None,
+            key_refused: false,
         }
     }
 
@@ -632,6 +675,20 @@ mod tests {
             "{line}"
         );
         assert!(!line.contains('\n'));
+    }
+
+    #[test]
+    fn a_refused_key_says_so_instead_of_asking_for_a_top_up() {
+        let mut refused = entry("openai", None);
+        refused.key_refused = true;
+        let budgets = Budgets {
+            providers: vec![refused, entry("gemini", None)],
+        };
+        let alert = budgets.topup_alert(Registry::builtin()).unwrap();
+        assert!(alert.contains("key refused: openai"), "{alert}");
+        assert!(alert.contains("check or replace OPENAI_API_KEY"), "{alert}");
+        assert!(!alert.contains("SUSI_HARNESS_BUDGET_OPENAI_USD"), "{alert}");
+        assert!(alert.contains("topup needed: gemini"), "{alert}");
     }
 
     #[test]

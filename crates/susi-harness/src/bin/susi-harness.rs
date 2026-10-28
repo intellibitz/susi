@@ -18,6 +18,7 @@
 //! and routes model calls.
 //!
 //! ```text
+//! susi-harness                        zero config: find the keys, report, serve
 //! susi-harness fleet                  the orchestrator and ladder the keys give
 //! susi-harness models [--verify]      usable models, or check them live
 //! susi-harness budget                 the budget line and any alerts
@@ -35,6 +36,8 @@ use susi_harness::providers::Registry;
 const USAGE: &str = "susi-harness: model routing, metering and budgets for agent fleets
 
 usage:
+  susi-harness                         find your keys, show the fleet and budget, start the gateway
+  susi-harness up      [gateway flags]  the same, by name
   susi-harness fleet   [--workers auto|<m1,m2,...>] [--ledger PATH] [--catalogue PATH]
   susi-harness models  [--verify [--provider ID]] [--ledger PATH] [--catalogue PATH]
   susi-harness budget  [--ledger PATH]
@@ -43,9 +46,12 @@ usage:
                        [--timeout SECS] [--max-output-tokens N] [--accounts PATH]
   susi-harness version
 
-defaults: --ledger out/ledger.jsonl, --catalogue deploy/harness/prices.json (the
-built-in catalogue when that file does not exist). Keys and settings are read
-from the process, user and machine environment; `susi-harness env` lists them.";
+Bring your own key: set any provider's key in the environment or in a .env file
+(here, or in ~/.susi/.env). One key is enough; `susi-harness env` lists them all.
+
+defaults: --ledger is out/ledger.jsonl in a susi workspace, else
+~/.susi/harness/ledger.jsonl (SUSI_HOME moves ~/.susi); --catalogue is
+deploy/harness/prices.json when it exists, else the built-in catalogue.";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -56,16 +62,18 @@ fn main() {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
-    let Some((command, rest)) = args.split_first() else {
-        println!("{USAGE}");
-        return Ok(());
+    // No command, or only flags (`susi-harness --port 9300`), means `up`.
+    let (command, rest) = match args.split_first() {
+        Some((command, rest)) if !command.starts_with("--") => (command.as_str(), rest),
+        _ => ("up", args),
     };
     // Fail closed on a registry overlay the operator named but cannot be used.
     if let Some(error) = Registry::overlay_error() {
         return Err(error);
     }
     let options = Options::parse(rest)?;
-    match command.as_str() {
+    match command {
+        "up" => up_command(&options),
         "fleet" => fleet_command(&options),
         "models" => models_command(&options),
         "budget" => budget_command(&options),
@@ -87,7 +95,8 @@ fn run(args: &[String]) -> Result<(), String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Options {
     workers: String,
-    ledger: PathBuf,
+    /// `None` means the default ledger ([`fleet::default_ledger`]).
+    ledger: Option<PathBuf>,
     catalogue: PathBuf,
     verify: bool,
     provider: Option<String>,
@@ -102,7 +111,7 @@ impl Options {
     fn parse(args: &[String]) -> Result<Self, String> {
         let mut options = Self {
             workers: "auto".to_string(),
-            ledger: PathBuf::from("out/ledger.jsonl"),
+            ledger: None,
             catalogue: PathBuf::from("deploy/harness/prices.json"),
             verify: false,
             provider: None,
@@ -121,7 +130,7 @@ impl Options {
             };
             match flag.as_str() {
                 "--workers" => options.workers = value()?,
-                "--ledger" => options.ledger = PathBuf::from(value()?),
+                "--ledger" => options.ledger = Some(PathBuf::from(value()?)),
                 "--catalogue" => options.catalogue = PathBuf::from(value()?),
                 "--verify" => options.verify = true,
                 "--provider" => options.provider = Some(value()?),
@@ -150,6 +159,13 @@ impl Options {
         Ok(options)
     }
 
+    fn ledger(&self) -> PathBuf {
+        self.ledger.clone().unwrap_or_else(|| {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            fleet::default_ledger(&cwd)
+        })
+    }
+
     fn catalogue(&self) -> Result<PriceCatalogue, String> {
         PriceCatalogue::load_or_builtin(&self.catalogue).map_err(|error| error.to_string())
     }
@@ -167,15 +183,56 @@ fn alert(budgets: &susi_harness::balance::Budgets) {
     }
 }
 
-/// The fleet the keys give: orchestrator and ladder, with the alerts.
-fn fleet_command(options: &Options) -> Result<(), String> {
-    let (budgets, _) = fleet::gather_budgets(&options.ledger);
+/// Zero config: find the keys, say what they give, and serve. With no key,
+/// say where to get one.
+fn up_command(options: &Options) -> Result<(), String> {
+    println!("susi-harness {}", env!("CARGO_PKG_VERSION"));
+    let (keyed, _) = fleet::providers_by_key();
+    if keyed.is_empty() {
+        println!("{}", fleet::onboarding());
+        return Ok(());
+    }
+    let ids = keyed
+        .iter()
+        .map(|provider| provider.id.as_str())
+        .collect::<Vec<_>>();
+    println!("keys:   {}", ids.join(", "));
+    let ledger = options.ledger();
+    println!("ledger: {}", ledger.display());
+    let (budgets, spent) = fleet::gather_budgets(&ledger);
     alert(&budgets);
     let resolved = fleet::resolve_fleet(
         &options.workers,
         || PriceCatalogue::load_or_builtin(&options.catalogue),
         &budgets,
-        &fleet::measured_latency(&options.ledger),
+        &fleet::measured_latency(&ledger),
+    )
+    .map_err(|error| error.to_string())?;
+    println!(
+        "fleet:  {} drives; ladder {}",
+        resolved.orchestrator.as_deref().unwrap_or("none"),
+        resolved.ladder.join(", ")
+    );
+    println!(
+        "{}",
+        budgets.report_line(fleet::total_spent(&spent), Registry::builtin())
+    );
+    println!(
+        "use:    point any OpenAI-compatible client at http://{}:{}/v1 and pick a model above",
+        options.host, options.port
+    );
+    gateway_command(options)
+}
+
+/// The fleet the keys give: orchestrator and ladder, with the alerts.
+fn fleet_command(options: &Options) -> Result<(), String> {
+    let (budgets, _) = fleet::gather_budgets(&options.ledger());
+    alert(&budgets);
+    let resolved = fleet::resolve_fleet(
+        &options.workers,
+        || PriceCatalogue::load_or_builtin(&options.catalogue),
+        &budgets,
+        &fleet::measured_latency(&options.ledger()),
     )
     .map_err(|error| error.to_string())?;
     for note in &resolved.left_off {
@@ -234,18 +291,18 @@ fn models_command(options: &Options) -> Result<(), String> {
         return Err(format!("verification failed for: {}", failed.join(", ")));
     }
     let catalogue = options.catalogue()?;
-    let (budgets, _) = fleet::gather_budgets(&options.ledger);
+    let (budgets, _) = fleet::gather_budgets(&options.ledger());
     let report = fleet::available_report(
         Some(&catalogue),
         &budgets,
-        &fleet::measured_latency(&options.ledger),
+        &fleet::measured_latency(&options.ledger()),
     );
     print_json(&report)
 }
 
 /// The one-line budget report, and any alerts.
 fn budget_command(options: &Options) -> Result<(), String> {
-    let (budgets, spent) = fleet::gather_budgets(&options.ledger);
+    let (budgets, spent) = fleet::gather_budgets(&options.ledger());
     println!(
         "{}",
         budgets.report_line(fleet::total_spent(&spent), Registry::builtin())
@@ -263,18 +320,18 @@ fn env_command() -> Result<(), String> {
 /// provider with that provider's key.
 fn gateway_command(options: &Options) -> Result<(), String> {
     let catalogue = options.catalogue()?;
-    if let Some(parent) = options
-        .ledger
+    let ledger = options.ledger();
+    if let Some(parent) = ledger
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
     {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("create {}: {error}", parent.display()))?;
     }
-    let cache_dir = options.ledger.parent().map(Path::to_path_buf);
+    let cache_dir = ledger.parent().map(Path::to_path_buf);
     let state = Arc::new(GatewayState {
         catalogue,
-        ledger_path: options.ledger.clone(),
+        ledger_path: ledger.clone(),
         upstream_chat_url: "direct".to_string(),
         provider: "susi-harness".to_string(),
         api_key: None,
@@ -311,7 +368,7 @@ fn gateway_command(options: &Options) -> Result<(), String> {
             .map_err(|error| format!("local address: {error}"))?;
         eprintln!(
             "susi-harness gateway listening on http://{address}/v1 (ledger {})",
-            options.ledger.display()
+            ledger.display()
         );
         match ingress {
             Some(ingress) => susi_harness::ingress::serve(listener, state, ingress).await,
@@ -343,7 +400,10 @@ mod tests {
         assert_eq!(options.workers, "auto");
         assert_eq!(options.port, 9180);
         assert_eq!(options.host, "127.0.0.1");
-        assert_eq!(options.ledger, PathBuf::from("out/ledger.jsonl"));
+        assert_eq!(
+            options.ledger, None,
+            "the default ledger is resolved at use"
+        );
     }
 
     #[test]
@@ -370,7 +430,11 @@ mod tests {
     #[test]
     fn an_unknown_command_is_an_error_and_no_command_prints_usage() {
         assert!(run(&strings(&["launch"])).is_err());
-        assert!(run(&[]).is_ok());
+        assert!(run(&strings(&["help"])).is_ok());
+        // Flags alone are `up`'s flags, not a command.
+        assert!(run(&strings(&["--port", "not-a-port"]))
+            .unwrap_err()
+            .contains("--port must be a number"));
         assert!(run(&strings(&["version"])).is_ok());
     }
 

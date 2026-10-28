@@ -2,33 +2,19 @@
   "schema": "susi/harness/prices/v1",
   "models": {
     "claude-haiku": {
-      "input_hit": 100000,
-      "input_miss": 1000000,
-      "output": 5000000
-    },
-        "kimi-flash": {
-      "input_hit": 150000,
-      "input_miss": 600000,
-      "output": 2500000
-    },
-    "kimi-k3": {
-      "input_hit": 300000,
-      "input_miss": 3000000,
-      "output": 15000000
-    },
-    "kimi-k3-pro": {
-      "input_hit": 300000,
-      "input_miss": 3000000,
-      "output": 15000000
-    },"claude-sonnet": {
-      "input_hit": 300000,
-      "input_miss": 3000000,
-      "output": 15000000
+      "input_hit": 10000,
+      "input_miss": 100000,
+      "output": 500000
     },
     "claude-opus": {
-      "input_hit": 1500000,
-      "input_miss": 15000000,
-      "output": 75000000
+      "input_hit": 200000,
+      "input_miss": 4000000,
+      "output": 20000000
+    },
+    "claude-sonnet": {
+      "input_hit": 200000,
+      "input_miss": 2000000,
+      "output": 10000000
     },
     "dashscope-qwen-coder": {
       "input_hit": 400000,
@@ -64,6 +50,61 @@
       "input_hit": 31250,
       "input_miss": 1250000,
       "output": 10000000
+    },
+    "gpt-luna": {
+      "input_hit": 10000,
+      "input_miss": 100000,
+      "output": 500000
+    },
+    "gpt-sol": {
+      "input_hit": 100000,
+      "input_miss": 2000000,
+      "output": 10000000
+    },
+    "kimi-flash": {
+      "input_hit": 150000,
+      "input_miss": 600000,
+      "output": 2500000
+    },
+    "kimi-k3": {
+      "input_hit": 300000,
+      "input_miss": 3000000,
+      "output": 15000000
+    },
+    "kimi-k3-pro": {
+      "input_hit": 300000,
+      "input_miss": 3000000,
+      "output": 15000000
+    },
+    "or-claude-opus": {
+      "input_hit": 200000,
+      "input_miss": 4000000,
+      "output": 20000000
+    },
+    "or-claude-sonnet": {
+      "input_hit": 100000,
+      "input_miss": 2000000,
+      "output": 10000000
+    },
+    "or-deepseek-flash": {
+      "input_hit": 4200,
+      "input_miss": 140000,
+      "output": 420000
+    },
+    "or-gemini-flash": {
+      "input_hit": 82500,
+      "input_miss": 825000,
+      "output": 4125000
+    },
+    "or-gpt-sol": {
+      "input_hit": 100000,
+      "input_miss": 2000000,
+      "output": 10000000
+    },
+    "or-qwen-flash": {
+      "input_hit": 16000,
+      "input_miss": 150000,
+      "output": 470000
     },
     "siliconflow-deepseek": {
       "input_hit": 250000,

@@ -250,6 +250,8 @@ pub struct ProviderRecord {
     /// publishes a fixed form (`sk-ant-` for Anthropic). A value that does
     /// not is not this provider's key, and [`crate::secrets`] passes over it.
     pub key_prefix: Option<String>,
+    /// Where a user gets a key for this provider, for first-run guidance.
+    pub key_url: Option<String>,
     /// Models known by name.
     pub models: Vec<ModelRecord>,
 }
@@ -802,12 +804,18 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
         .and_then(Value::as_str)
         .filter(|prefix| !prefix.is_empty())
         .map(str::to_string);
+    let key_url = raw
+        .get("key_url")
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string);
     Ok(ProviderRecord {
         id,
         wire,
         endpoint,
         key_envs,
         key_prefix,
+        key_url,
         models,
     })
 }
@@ -889,6 +897,7 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://api.deepseek.com/chat/completions",
       "key_env": ["DEEPSEEK_API_KEY"],
+      "key_url": "https://platform.deepseek.com/api_keys",
       "models": [
         {"id": "deepseek-flash", "backend": "deepseek-flash", "context": 128000, "tools": true, "streaming": true, "tier": "worker", "cache": true},
         {"id": "deepseek-pro", "backend": "deepseek-v4-pro", "context": 128000, "tools": true, "streaming": true, "tier": "rescue", "cache": true}
@@ -899,10 +908,11 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://api.siliconflow.cn/v1/chat/completions",
       "key_env": ["SILICONFLOW_API_KEY"],
+      "key_url": "https://cloud.siliconflow.cn/account/ak",
       "models": [
-        {"id": "siliconflow-qwen", "backend": "Qwen/Qwen3-235B-A22B-Instruct-2507", "context": 128000, "tools": true, "streaming": true},
-        {"id": "siliconflow-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 128000, "tools": true, "streaming": true},
-        {"id": "siliconflow-qwen-coder", "backend": "Qwen/Qwen2.5-Coder-32B-Instruct", "context": 32768, "tools": true, "streaming": true}
+        {"id": "siliconflow-qwen", "backend": "Qwen/Qwen3-235B-A22B-Instruct-2507", "context": 128000, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "siliconflow-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 128000, "tools": true, "streaming": true, "tier": "rescue"},
+        {"id": "siliconflow-qwen-coder", "backend": "Qwen/Qwen2.5-Coder-32B-Instruct", "context": 32768, "tools": true, "streaming": true, "tier": "worker"}
       ]
     },
     {
@@ -910,10 +920,11 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
       "key_env": ["DASHSCOPE_API_KEY"],
+      "key_url": "https://dashscope.console.aliyun.com/apiKey",
       "models": [
-        {"id": "dashscope-qwen-plus", "backend": "qwen-plus", "context": 131072, "tools": true, "streaming": true},
-        {"id": "dashscope-qwen-max", "backend": "qwen-max", "context": 32768, "tools": true, "streaming": true},
-        {"id": "dashscope-qwen-coder", "backend": "qwen2.5-coder-32b-instruct", "context": 32768, "tools": true, "streaming": true}
+        {"id": "dashscope-qwen-plus", "backend": "qwen-plus", "context": 131072, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "dashscope-qwen-max", "backend": "qwen-max", "context": 32768, "tools": true, "streaming": true, "tier": "rescue"},
+        {"id": "dashscope-qwen-coder", "backend": "qwen2.5-coder-32b-instruct", "context": 32768, "tools": true, "streaming": true, "tier": "worker"}
       ]
     },
     {
@@ -921,6 +932,7 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       "key_env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+      "key_url": "https://aistudio.google.com/apikey",
       "models": [
         {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
         {"id": "gemini-pro", "backend": "gemini-pro-latest", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
@@ -931,6 +943,7 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://api.moonshot.ai/v1/chat/completions",
       "key_env": ["MOONSHOT_API_KEY", "KIMI_API_KEY"],
+      "key_url": "https://platform.moonshot.ai/console/api-keys",
       "models": [
         {"id": "kimi-flash", "backend": "kimi-k2.7-code-highspeed", "context": 262144, "tools": true, "streaming": true, "tier": "worker"},
         {"id": "kimi-k3", "backend": "kimi-k3", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue"},
@@ -942,11 +955,12 @@ const BUILTIN: &str = r#"
       "wire": "anthropic",
       "endpoint": "https://api.anthropic.com/v1/messages",
       "key_env": ["ANTHROPIC_API_KEY"],
+      "key_url": "https://console.anthropic.com/settings/keys",
       "key_prefix": "sk-ant-",
       "models": [
-        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
-        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
-        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
+        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
       ]
     },
     {
@@ -954,7 +968,27 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://openrouter.ai/api/v1/chat/completions",
       "key_env": ["OPENROUTER_API_KEY"],
-      "models": []
+      "key_url": "https://openrouter.ai/settings/keys",
+      "models": [
+        {"id": "or-deepseek-flash", "backend": "deepseek/deepseek-v4.1-flash", "context": 1048576, "tools": true, "streaming": true, "tier": "worker", "cache": true},
+        {"id": "or-qwen-flash", "backend": "qwen/qwen3.8-flash", "context": 1000000, "tools": true, "streaming": true, "tier": "worker", "cache": true},
+        {"id": "or-gemini-flash", "backend": "google/gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
+        {"id": "or-claude-sonnet", "backend": "anthropic/claude-sonnet-5.5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "or-gpt-sol", "backend": "openai/gpt-6.1-sol", "context": 1050000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "or-claude-opus", "backend": "anthropic/claude-opus-5.5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
+      ]
+    },
+    {
+      "id": "openai",
+      "wire": "openai",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "key_env": ["OPENAI_API_KEY"],
+      "key_url": "https://platform.openai.com/api-keys",
+      "key_prefix": "sk-",
+      "models": [
+        {"id": "gpt-luna", "backend": "gpt-6-luna", "context": 1050000, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
+        {"id": "gpt-sol", "backend": "gpt-6.1-sol", "context": 1050000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
+      ]
     }
   ]
 }
@@ -1287,6 +1321,42 @@ mod tests {
         }
         assert_eq!(band(22_660), band(23_540), "the test fleet's close pair");
         assert!(band(u64::MAX) > band(1_000_000));
+    }
+
+    #[test]
+    fn any_single_key_the_world_brings_gives_a_whole_priced_fleet() {
+        // Bring-your-own-key, zero config: whichever one provider a user has
+        // a key for, the harness must build a fleet from it alone, with an
+        // orchestrator, and price every model on the ladder.
+        let registry = Registry::builtin();
+        let catalogue = builtin_catalogue();
+        let keyed = registry
+            .providers()
+            .iter()
+            .filter(|provider| !provider.key_envs.is_empty())
+            .collect::<Vec<_>>();
+        assert!(keyed.len() >= 8, "{} keyed providers", keyed.len());
+        for provider in keyed {
+            let key = provider.key_envs[0].clone();
+            let only = move |name: &str| name == key;
+            let auto = registry.auto_config(&only, &catalogue, UsageProfile::agent());
+            assert!(
+                !auto.ladder().is_empty(),
+                "{} alone gives no ladder",
+                provider.id
+            );
+            assert!(
+                auto.orchestrator.is_some(),
+                "{} alone has no orchestrator",
+                provider.id
+            );
+            assert!(
+                auto.unpriced.is_empty(),
+                "{} has unpriced models {:?}",
+                provider.id,
+                auto.unpriced
+            );
+        }
     }
 
     /// One provider, one model, one key: the smallest fleet the harness runs.

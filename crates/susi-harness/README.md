@@ -20,26 +20,63 @@ cargo build --release -p susi-harness --bin susi-harness
 This produces `target/release/susi-harness` (`susi-harness.exe` on Windows).
 Inside a susi checkout, `susi harness <command>` runs the same code.
 
-## Quick start
+## Quick start: bring your own key, nothing to configure
 
 ```bash
-export DEEPSEEK_API_KEY=...        # any one provider's key is enough
-susi-harness fleet                 # the orchestrator and ladder your keys give
-susi-harness budget                # what each provider has left, in one line
-susi-harness gateway               # an OpenAI-compatible endpoint on 127.0.0.1:9180
+export OPENAI_API_KEY=...   # or any other provider's key below; one is enough
+susi-harness
 ```
 
-Point any OpenAI-compatible client at `http://127.0.0.1:9180/v1` and choose a
-model by its id: `deepseek-flash`, `gemini-flash`, `kimi-flash`,
-`deepseek-pro`, `gemini-pro`, `kimi-k3`, `claude-haiku`, `claude-sonnet` or
-`claude-opus`. The gateway sends each call to that model's provider with that
-provider's key, prices the call, and appends a row to the ledger
-(`out/ledger.jsonl`) before it returns the answer.
+That's the whole setup. `susi-harness` with no arguments:
+
+1. Finds your keys. It checks the environment, a `.env` file in the current
+   folder, and `~/.susi/.env`.
+2. Checks each provider live and reads its balance where the provider
+   publishes one.
+3. Builds the model ladder and picks an orchestrator.
+4. Prints the fleet and a one-line budget report.
+5. Starts an OpenAI-compatible gateway on `http://127.0.0.1:9180/v1`.
+
+With no key at all, it lists each provider, the variable its key goes in,
+and the page where you can get one.
+
+Point any OpenAI-compatible client at the gateway and pick a model from the
+fleet. The gateway sends each call to that model's provider with that
+provider's key, prices the call, and appends a row to the ledger before it
+returns the answer. The ledger lives in `~/.susi/harness/ledger.jsonl`, so
+what the harness learns (spend, latency, failures) follows you from one
+folder to the next. In a susi workspace it uses the workspace's own
+`out/ledger.jsonl`.
+
+### Providers
+
+| Provider | Key | Models |
+|---|---|---|
+| OpenAI | `OPENAI_API_KEY` | `gpt-luna` (worker), `gpt-sol` (rescue) |
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-haiku`, `claude-sonnet`, `claude-opus` |
+| Google Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `gemini-flash`, `gemini-pro` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-flash`, `deepseek-pro` |
+| Moonshot (Kimi) | `MOONSHOT_API_KEY` or `KIMI_API_KEY` | `kimi-flash`, `kimi-k3`, `kimi-k3-pro` |
+| OpenRouter | `OPENROUTER_API_KEY` | `or-deepseek-flash`, `or-qwen-flash`, `or-gemini-flash`, `or-claude-sonnet`, `or-gpt-sol`, `or-claude-opus` |
+| SiliconFlow | `SILICONFLOW_API_KEY` | `siliconflow-qwen`, `siliconflow-qwen-coder`, `siliconflow-deepseek` |
+| DashScope (Qwen) | `DASHSCOPE_API_KEY` | `dashscope-qwen-plus`, `dashscope-qwen-coder`, `dashscope-qwen-max` |
+
+Any one key gives a complete fleet: workers, rescue models and an
+orchestrator. A test enforces this for every provider. More keys give a
+deeper ladder, and to add a provider you write a registry file (see below).
+
+### As part of susi AI OS
+
+Inside susi, `susi harness <command>` runs the same code with the same
+defaults, and susi's own build workflows run through it. On its own,
+the `susi-harness` binary needs nothing else from susi. Use it to build
+anything, with any agent or tool that speaks the OpenAI API.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `susi-harness` (or `susi-harness up`) | Finds your keys, prints the fleet and budget, and serves the gateway. Takes the gateway flags. |
 | `susi-harness fleet [--workers auto\|m1,m2]` | Prints the orchestrator and the escalation ladder. |
 | `susi-harness models` | Lists the models your keys make usable, and the ranking evidence. |
 | `susi-harness models --verify [--provider ID]` | Checks each provider live: key accepted, models present. |
@@ -48,9 +85,12 @@ provider's key, prices the call, and appends a row to the ledger
 | `susi-harness gateway [--port N] [--host H] [--accounts F]` | Runs the metering gateway. |
 | `susi-harness version` | Prints the version. |
 
-`--ledger` (default `out/ledger.jsonl`) and `--catalogue` (default
-`deploy/harness/prices.json`, falling back to the built-in catalogue) apply to
-every command.
+`--ledger` and `--catalogue` apply to every command.
+
+- `--ledger` defaults to `SUSI_HARNESS_LEDGER` if set, then
+  `out/ledger.jsonl` in a susi workspace, then `~/.susi/harness/ledger.jsonl`.
+- `--catalogue` defaults to `deploy/harness/prices.json` when that file
+  exists, otherwise the built-in catalogue.
 
 ## How models are ranked
 
@@ -88,13 +128,24 @@ While a task runs, the ladder keeps this order and only moves models back:
 
 ## Settings
 
-Every setting is read from the process environment first, then the user
-environment, then the machine environment. A value set after a shell started
-is still seen. Run `susi-harness env` to see what is set.
+Nothing needs setting except one key. Every key and setting is read from
+these places, first match wins:
+
+1. the process environment;
+2. on Windows, the user environment, then the machine environment (so a value
+   set after a shell started is still seen);
+3. `./.env`;
+4. `~/.susi/.env`.
+
+`.env` files use the usual `NAME=value` form: `#` comments, an optional
+`export`, and quoted values are accepted. Run `susi-harness env` to see what
+is set.
 
 | Variable | Meaning |
 |---|---|
-| `DEEPSEEK_API_KEY`, `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `MOONSHOT_API_KEY` / `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, … | Provider keys. Any number of them; each one enables its provider. |
+| Provider keys (see Providers) | Any number of them; each enables its provider. A key the provider refuses (401 or 403) is reported as refused, and that provider's models are left off. |
+| `SUSI_HOME` | The data home, for the ledger and `.env`. Default `~/.susi`. |
+| `SUSI_HARNESS_LEDGER` | The ledger file. |
 | `SUSI_HARNESS_BUDGET_<PROVIDER>_USD` | Dollars left at a provider that publishes no balance (Gemini, Anthropic). DeepSeek and Moonshot report their own balance. |
 | `SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>` | `YYYY-MM-DD` the provider's credit expires. Its models run first until then, and each run alerts in the last 7 days. |
 | `SUSI_HARNESS_RPM_<PROVIDER>` | Requests per minute the gateway sends to the provider. Unset means no limit. |
@@ -102,8 +153,9 @@ is still seen. Run `susi-harness env` to see what is set.
 | `SUSI_HARNESS_PROVIDERS` | Path to a registry file whose providers and models are added to the built-in ones. A missing or malformed file stops the harness. |
 | `ANTHROPIC_WORKSPACE_ID` | Workspace for an Anthropic console user key (process environment only). |
 
-`<PROVIDER>` is the registry id in upper case: `DEEPSEEK`, `GEMINI`,
-`MOONSHOT`, `ANTHROPIC`, and any provider an overlay adds.
+`<PROVIDER>` is the registry id in upper case: `OPENAI`, `ANTHROPIC`,
+`GEMINI`, `DEEPSEEK`, `MOONSHOT`, `OPENROUTER`, `SILICONFLOW`, `DASHSCOPE`, and
+any provider an overlay adds.
 
 ## Adding a provider or a model
 

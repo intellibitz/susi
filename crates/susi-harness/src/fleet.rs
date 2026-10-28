@@ -177,6 +177,68 @@ pub fn alerts(budgets: &Budgets) -> Vec<String> {
     lines
 }
 
+/// The ledger a command uses when none is named: `SUSI_HARNESS_LEDGER` when
+/// set, else `out/ledger.jsonl` under `cwd` when that file exists (a susi
+/// workspace keeps its own), else `harness/ledger.jsonl` in the data home
+/// ([`crate::secrets::data_home`]). The data home is the default so that what
+/// the harness learns (spend, latency, failures) follows the user from one
+/// directory to the next.
+#[must_use]
+pub fn default_ledger(cwd: &Path) -> std::path::PathBuf {
+    if let Some(path) = crate::secrets::setting("SUSI_HARNESS_LEDGER") {
+        return std::path::PathBuf::from(path);
+    }
+    let workspace = cwd.join("out").join("ledger.jsonl");
+    if workspace.exists() {
+        return workspace;
+    }
+    crate::secrets::data_home()
+        .join("harness")
+        .join("ledger.jsonl")
+}
+
+/// The keyed providers that have a key, and those that do not.
+#[must_use]
+pub fn providers_by_key() -> (
+    Vec<&'static crate::providers::ProviderRecord>,
+    Vec<&'static crate::providers::ProviderRecord>,
+) {
+    Registry::builtin()
+        .providers()
+        .iter()
+        .filter(|provider| !provider.key_envs.is_empty())
+        .partition(|provider| {
+            provider
+                .key_envs
+                .iter()
+                .any(|name| crate::secrets::is_set(name))
+        })
+}
+
+/// What a first run with no key says: one key from any provider is enough,
+/// where to put it, and where each provider hands one out.
+#[must_use]
+pub fn onboarding() -> String {
+    let (_, missing) = providers_by_key();
+    let mut text = String::from(
+        "No API key found. Bring your own key from any one provider below; one is enough.\n\
+Set it in the environment, or put NAME=key in a .env file here or in ",
+    );
+    text.push_str(
+        &crate::secrets::data_home()
+            .join(".env")
+            .display()
+            .to_string(),
+    );
+    text.push_str(", then run susi-harness again.\n\n");
+    for provider in missing {
+        let names = provider.key_envs.join(" or ");
+        let url = provider.key_url.as_deref().unwrap_or("");
+        text.push_str(&format!("  {:<12} {names:<38} {url}\n", provider.id));
+    }
+    text
+}
+
 /// One environment variable the harness reads.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Variable {
@@ -244,6 +306,24 @@ pub fn environment() -> Vec<Variable> {
             });
         }
     }
+    for (name, purpose) in [
+        (
+            "SUSI_HOME",
+            "the data home: ledger and .env; default ~/.susi",
+        ),
+        (
+            "SUSI_HARNESS_LEDGER",
+            "the ledger file; default out/ledger.jsonl in a susi workspace, else <data home>/harness/ledger.jsonl",
+        ),
+    ] {
+        let value = crate::secrets::setting(name);
+        variables.push(Variable {
+            name: name.to_string(),
+            purpose: purpose.to_string(),
+            set: value.is_some(),
+            value,
+        });
+    }
     let overlay = crate::secrets::setting(crate::providers::OVERLAY_ENV);
     variables.push(Variable {
         name: crate::providers::OVERLAY_ENV.to_string(),
@@ -310,6 +390,7 @@ mod tests {
                     note: "test".to_string(),
                     working: false,
                     expires_day: None,
+                    key_refused: false,
                 })
                 .collect(),
         }
