@@ -416,7 +416,7 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-fn scan_import_verdict(program: &Path, module: &str) -> Option<ImportVerdict> {
+pub(super) fn scan_import_verdict(program: &Path, module: &str) -> Option<ImportVerdict> {
     SCAN_IMPORTS.with(|scan| {
         scan.borrow()
             .as_ref()?
@@ -450,6 +450,12 @@ pub fn with_python_imports<T>(adapters: &[Adapter], scan: impl FnOnce() -> T) ->
             verdicts.insert((program.clone(), module), verdict);
         }
     }
+    with_verdicts(verdicts, scan)
+}
+
+/// Run `scan` with `verdicts` stored for this thread, and clear them when it
+/// returns or unwinds.
+fn with_verdicts<T>(verdicts: ImportVerdicts, scan: impl FnOnce() -> T) -> T {
     struct Clear;
     impl Drop for Clear {
         fn drop(&mut self) {
@@ -471,10 +477,7 @@ pub(super) fn with_scan_verdicts_for_test<T>(
 ) -> T {
     let mut verdicts = ImportVerdicts::new();
     verdicts.insert((program.to_path_buf(), module.to_string()), verdict);
-    SCAN_IMPORTS.with(|s| *s.borrow_mut() = Some(verdicts));
-    let out = scan();
-    SCAN_IMPORTS.with(|s| s.borrow_mut().take());
-    out
+    with_verdicts(verdicts, scan)
 }
 
 /// The batch probe. One interpreter starts, then forks a fresh child per
