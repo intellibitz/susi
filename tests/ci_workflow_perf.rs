@@ -480,6 +480,30 @@ fn the_main_shards_retry_a_flaky_test_alone() {
     );
 }
 
+/// The merge bot retests a head it resynced with `gate=branch`: exactly the
+/// checks a branch push runs. A dispatched run used to run the whole suite,
+/// 20+ minutes that failed PRs on suite-wide flakes no branch push runs.
+#[test]
+fn a_branch_gate_dispatch_runs_what_a_push_runs() {
+    let test = read(".github/workflows/test.yml");
+    assert!(
+        test.contains("options: [full, branch]"),
+        "test.yml takes a gate input"
+    );
+    let branch_gate = "if: (github.event_name == 'push' || inputs.gate == 'branch') && github.ref != 'refs/heads/main'";
+    assert_eq!(
+        test.matches(branch_gate).count(),
+        2,
+        "the compile check and workflow compliance run for a branch-gate dispatch"
+    );
+    assert!(
+        !test.contains("(github.event_name != 'push' || github.ref == 'refs/heads/main')"),
+        "no full-suite job may run for a branch-gate dispatch"
+    );
+    let merge = read("scripts/auto-merge-pr.sh");
+    assert!(merge.contains("--ref \"$branch\" -f gate=branch"));
+}
+
 /// Worktrees share one target, and cargo names a workspace crate's build by
 /// its path relative to the workspace: a crate another worktree built (with
 /// other content) reads as fresh here, and its code is linked into this
