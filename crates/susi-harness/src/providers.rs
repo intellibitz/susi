@@ -148,9 +148,15 @@ pub struct ModelRecord {
 /// The ladder built from the API keys present in the environment.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AutoConfig {
-    /// The orchestrator: `deepseek-pro` when its key is set, otherwise the
-    /// cheapest capable rescue model. `None` when no model is usable.
+    /// The orchestrator: the strongest rescue model on expiring credit when
+    /// there is one, else `deepseek-pro` when it is eligible, else the
+    /// cheapest rescue model, else the cheapest worker. `None` when no model
+    /// is usable.
     pub orchestrator: Option<String>,
+    /// Models whose provider holds credit that expires, of either tier,
+    /// soonest expiry first. They lead the ladder, so the credit is spent
+    /// before it is lost.
+    pub use_first: Vec<String>,
     /// Workers, cheapest first.
     pub workers: Vec<String>,
     /// Rescue models, cheapest first. Tried after the workers.
@@ -161,6 +167,15 @@ pub struct AutoConfig {
     pub unpriced: Vec<String>,
 }
 
+/// What the budget says of each keyed provider, for [`Registry::auto_config_ranked`].
+pub struct ProviderGate<'a> {
+    /// Whether the provider may run: the one-dollar rule in [`crate::balance`].
+    pub active: &'a dyn Fn(&str) -> bool,
+    /// The day the provider's credit expires, when that credit should be
+    /// spent before anything else: active, dated and not yet expired.
+    pub use_first: &'a dyn Fn(&str) -> Option<u64>,
+}
+
 /// A ladder candidate whose position is not yet settled.
 struct Ranked {
     id: String,
@@ -168,14 +183,19 @@ struct Ranked {
     cache: bool,
     score: u8,
     context: u64,
+    /// The day the provider's credit expires, when it is to be spent first.
+    expires: Option<u64>,
+    tier: Tier,
 }
 
 impl AutoConfig {
-    /// The escalation order: every worker, then every rescue model.
+    /// The escalation order: models on expiring credit, then every worker,
+    /// then every rescue model.
     #[must_use]
     pub fn ladder(&self) -> Vec<String> {
-        self.workers
+        self.use_first
             .iter()
+            .chain(self.workers.iter())
             .chain(self.rescue.iter())
             .cloned()
             .collect()
@@ -496,6 +516,30 @@ impl Registry {
         profile: UsageProfile,
         provider_active: &dyn Fn(&str) -> bool,
     ) -> AutoConfig {
+        let gate = ProviderGate {
+            active: provider_active,
+            use_first: &|_| None,
+        };
+        self.auto_config_ranked(key_present, catalogue, profile, &gate)
+    }
+
+    /// [`Registry::auto_config_budgeted`] that also spends expiring credit
+    /// first, as the [`ProviderGate`] answers per provider.
+    ///
+    /// Those providers' models lead the ladder, soonest expiry first, ahead of
+    /// cache and price: credit that expires unused is lost, so spending it
+    /// costs nothing that would otherwise be kept. The most capable of them
+    /// that is a rescue model also orchestrates, because the orchestrator makes
+    /// the most calls of any model in a run.
+    #[must_use]
+    pub fn auto_config_ranked(
+        &self,
+        key_present: &dyn Fn(&str) -> bool,
+        catalogue: &PriceCatalogue,
+        profile: UsageProfile,
+        gate: &ProviderGate<'_>,
+    ) -> AutoConfig {
+        let mut first = Vec::new();
         let mut workers = Vec::new();
         let mut rescue = Vec::new();
         let mut unpriced = Vec::new();
@@ -507,7 +551,7 @@ impl Registry {
                 continue;
             }
             // A keyless provider is local and has no balance to gate on.
-            if !provider.key_envs.is_empty() && !provider_active(&provider.id) {
+            if !provider.key_envs.is_empty() && !(gate.active)(&provider.id) {
                 continue;
             }
             for model in &provider.models {
@@ -540,13 +584,43 @@ impl Registry {
                     score: u8::from(model.capabilities.streaming)
                         + u8::from(model.capabilities.vision),
                     context: model.capabilities.context.unwrap_or(0),
+                    expires: (gate.use_first)(&provider.id),
+                    tier,
                 };
-                match tier {
-                    Tier::Worker => workers.push(ranked),
-                    Tier::Rescue => rescue.push(ranked),
+                match (ranked.expires, tier) {
+                    (Some(_), _) => first.push(ranked),
+                    (None, Tier::Worker) => workers.push(ranked),
+                    (None, Tier::Rescue) => rescue.push(ranked),
                 }
             }
         }
+        // Expiring credit: soonest expiry first, then the usual keys.
+        first.sort_by(|a, b| {
+            a.expires
+                .cmp(&b.expires)
+                .then_with(|| b.cache.cmp(&a.cache))
+                .then_with(|| a.cost.cmp(&b.cost))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        // The orchestrator on expiring credit is its most capable rescue
+        // model. Equal capabilities go to the dearer model: list price is
+        // the best proxy for strength there is, and this credit is spent
+        // either way.
+        let first_orchestrator = first
+            .iter()
+            .filter(|ranked| ranked.tier == Tier::Rescue)
+            .max_by(|a, b| {
+                a.score
+                    .cmp(&b.score)
+                    .then_with(|| a.context.cmp(&b.context))
+                    .then_with(|| a.cost.cmp(&b.cost))
+                    .then_with(|| b.id.cmp(&a.id))
+            })
+            .map(|ranked| ranked.id.clone());
+        let use_first = first
+            .iter()
+            .map(|ranked| ranked.id.clone())
+            .collect::<Vec<_>>();
         // Cache first, always: a cached prefix is the cheapest input a model
         // can take, and the harness re-sends the same prompt on every turn of a
         // task. Budget second. Capability is the third key, and it decides only
@@ -577,13 +651,25 @@ impl Registry {
         // cheapest rescue model, else the cheapest worker. A fleet of workers
         // alone, or one model of any tier, still has an orchestrator.
         let primary = Self::primary_orchestrator();
-        let orchestrator = if workers.iter().chain(rescue.iter()).any(|id| id == primary) {
+        let orchestrator = if first_orchestrator.is_some() {
+            first_orchestrator
+        } else if use_first
+            .iter()
+            .chain(workers.iter())
+            .chain(rescue.iter())
+            .any(|id| id == primary)
+        {
             Some(primary.to_string())
         } else {
-            rescue.first().or_else(|| workers.first()).cloned()
+            rescue
+                .first()
+                .or_else(|| workers.first())
+                .or_else(|| use_first.first())
+                .cloned()
         };
         AutoConfig {
             orchestrator,
+            use_first,
             workers,
             rescue,
             unpriced,
@@ -1033,6 +1119,54 @@ mod tests {
                 "kimi-pro"
             ]
         );
+    }
+
+    #[test]
+    fn expiring_credit_leads_the_ladder_and_orchestrates() {
+        // Anthropic credit expires; every Anthropic model leads the ladder,
+        // and its strongest model drives.
+        let expiring = |provider: &str| (provider == "anthropic").then_some(20_800);
+        let auto = Registry::builtin().auto_config_ranked(
+            &keys(&["DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &expiring,
+            },
+        );
+        assert_eq!(
+            auto.use_first,
+            vec!["claude-haiku", "claude-sonnet", "claude-opus"]
+        );
+        assert_eq!(auto.orchestrator.as_deref(), Some("claude-opus"));
+        let ladder = auto.ladder();
+        assert_eq!(
+            &ladder[..3],
+            &["claude-haiku", "claude-sonnet", "claude-opus"]
+        );
+        assert_eq!(&ladder[3..], &["deepseek-flash", "deepseek-pro"]);
+        assert!(auto.rescue.iter().all(|id| !id.starts_with("claude")));
+    }
+
+    #[test]
+    fn sooner_expiry_goes_first() {
+        let expiring = |provider: &str| match provider {
+            "anthropic" => Some(20_900),
+            "deepseek" => Some(20_800),
+            _ => None,
+        };
+        let auto = Registry::builtin().auto_config_ranked(
+            &keys(&["DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &expiring,
+            },
+        );
+        assert_eq!(&auto.use_first[..2], &["deepseek-flash", "deepseek-pro"]);
+        assert!(auto.workers.is_empty() && auto.rescue.is_empty());
     }
 
     /// One provider, one model, one key: the smallest fleet the harness runs.

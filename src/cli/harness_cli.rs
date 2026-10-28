@@ -21,7 +21,7 @@ use susi_harness::cockpit::{serve, Cockpit};
 use susi_harness::executor::NativeWorker;
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::{Policy, UsageProfile};
-use susi_harness::providers::{Registry, Wire};
+use susi_harness::providers::{ProviderGate, Registry, Wire};
 use susi_harness::queue;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
@@ -880,8 +880,15 @@ fn resolve_fleet(
     }
     let catalogue = catalogue()?;
     let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
-    let auto =
-        registry.auto_config_budgeted(&key_present, &catalogue, UsageProfile::agent(), &active);
+    let auto = registry.auto_config_ranked(
+        &key_present,
+        &catalogue,
+        UsageProfile::agent(),
+        &ProviderGate {
+            active: &active,
+            use_first: &|provider| budgets.use_first(provider),
+        },
+    );
     let ladder = auto.ladder();
     if ladder.is_empty() {
         // The key names come from the registry, so a provider added there is
@@ -937,6 +944,9 @@ fn alert_topups(budgets: &Budgets) {
     if let Some(alert) = budgets.topup_alert(Registry::builtin()) {
         eprintln!("⚠ {alert}");
     }
+    if let Some(alert) = budgets.expiry_alert(balance::today()) {
+        eprintln!("⏳ {alert}");
+    }
 }
 
 /// The price catalogue at the workspace's default location.
@@ -983,7 +993,15 @@ fn models_available(cwd: &Path) -> Result<()> {
     let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
     let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
     let auto = catalogue.as_ref().map(|catalogue| {
-        registry.auto_config_budgeted(&key_present, catalogue, UsageProfile::agent(), &active)
+        registry.auto_config_ranked(
+            &key_present,
+            catalogue,
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &active,
+                use_first: &|provider| budgets.use_first(provider),
+            },
+        )
     });
     let output = serde_json::json!({
         "orchestrator": Registry::primary_orchestrator(),
@@ -992,6 +1010,7 @@ fn models_available(cwd: &Path) -> Result<()> {
         "auto": auto.map(|auto| serde_json::json!({
             "orchestrator": auto.orchestrator,
             "workers": auto.workers,
+            "use_first": auto.use_first,
             "rescue": auto.rescue,
             "unpriced": auto.unpriced,
             "ladder": auto.ladder(),

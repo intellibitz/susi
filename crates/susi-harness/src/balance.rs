@@ -13,6 +13,13 @@
 //! Anthropic through its console), so their budget is configured per provider:
 //! `SUSI_HARNESS_BUDGET_<PROVIDER>_USD`, less what the ledger shows spent.
 //!
+//! Credit can be time-bound. No provider's balance API says when it expires
+//! (DeepSeek splits granted from topped-up credit, Moonshot vouchers from
+//! cash, neither with a date), so the day is configured:
+//! `SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>=YYYY-MM-DD`. An active provider
+//! with dated credit is spent first, and a run alerts in the last
+//! [`EXPIRY_ALERT_DAYS`] days.
+//!
 //! Keys are read through [`crate::secrets`] and sent only in an
 //! `authorization` header. Nothing here prints or stores a key.
 
@@ -57,6 +64,10 @@ pub struct ProviderBudget {
     /// when no balance is known: a provider that works is active even though
     /// its spend cannot be costed.
     pub working: bool,
+    /// The day the provider's credit expires, in days since the Unix epoch,
+    /// from `SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>`. No provider API
+    /// publishes it, so it is configured.
+    pub expires_day: Option<u64>,
 }
 
 impl ProviderBudget {
@@ -68,6 +79,16 @@ impl ProviderBudget {
             Some(left) => left >= ACTIVE_FLOOR,
             None => self.working,
         }
+    }
+
+    /// The expiry day when the provider's credit should be spent first: it
+    /// is active and its credit has not yet expired on `today`. Credit that
+    /// expires is lost when unused, so spending it costs nothing that would
+    /// otherwise be kept.
+    #[must_use]
+    pub fn use_first(&self, today: u64) -> Option<u64> {
+        self.expires_day
+            .filter(|day| *day >= today && self.active())
     }
 }
 
@@ -98,6 +119,42 @@ impl Budgets {
             .any(|entry| entry.provider == provider)
     }
 
+    /// The expiry day of `provider`'s credit when it should be spent first
+    /// today. See [`ProviderBudget::use_first`].
+    #[must_use]
+    pub fn use_first(&self, provider: &str) -> Option<u64> {
+        let today = today();
+        self.providers
+            .iter()
+            .find(|entry| entry.provider == provider)
+            .and_then(|entry| entry.use_first(today))
+    }
+
+    /// The expiry alert: active credit that expires within
+    /// [`EXPIRY_ALERT_DAYS`] of `today`, or `None` when there is none.
+    #[must_use]
+    pub fn expiry_alert(&self, today: u64) -> Option<String> {
+        let parts = self
+            .providers
+            .iter()
+            .filter_map(|entry| {
+                let day = entry.use_first(today)?;
+                let left = day - today;
+                (left <= EXPIRY_ALERT_DAYS).then(|| {
+                    let amount = entry
+                        .remaining
+                        .map_or_else(|| "unknown".to_string(), |value| value.to_string());
+                    format!(
+                        "{} {amount} by {} ({left} day(s); its models run first)",
+                        entry.provider,
+                        format_day(day)
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        (!parts.is_empty()).then(|| format!("credit expiring: {}", parts.join(" | ")))
+    }
+
     /// Keyed providers below the floor, which need a top-up.
     #[must_use]
     pub fn topup_needed(&self) -> Vec<&ProviderBudget> {
@@ -116,7 +173,11 @@ impl Budgets {
             let amount = entry
                 .remaining
                 .map_or_else(|| "unknown".to_string(), |left| left.to_string());
-            let _ = write!(line, " {} {amount} {state} ·", entry.provider);
+            let _ = write!(line, " {} {amount} {state}", entry.provider);
+            if let Some(day) = entry.expires_day {
+                let _ = write!(line, " expires {}", format_day(day));
+            }
+            line.push_str(" ·");
         }
         if self.providers.is_empty() {
             line.push_str(" no keyed providers ·");
@@ -180,9 +241,93 @@ pub fn collect(
         if entry.remaining.is_none() {
             entry.working = works(provider, fetch);
         }
+        let name = format!(
+            "SUSI_HARNESS_CREDIT_EXPIRES_{}",
+            provider.id.to_ascii_uppercase()
+        );
+        if let Ok(text) = std::env::var(&name) {
+            apply_expiry(&mut entry, &name, &text, today());
+        }
         providers.push(entry);
     }
     Budgets { providers }
+}
+
+/// Days before expiry from which the run alerts on unspent credit.
+pub const EXPIRY_ALERT_DAYS: u64 = 7;
+
+/// Record the credit expiry `text` (from the variable `name`) on `entry`.
+///
+/// A configured budget whose credit has expired is spent: nothing is left. A
+/// balance a provider reports is its own answer and is left as it is. A value
+/// that is not a `YYYY-MM-DD` date is named in the note and ignored.
+pub fn apply_expiry(entry: &mut ProviderBudget, name: &str, text: &str, today: u64) {
+    let Some(day) = parse_day(text.trim()) else {
+        let _ = write!(entry.note, "; {name} is not a YYYY-MM-DD date");
+        return;
+    };
+    entry.expires_day = Some(day);
+    if day < today && entry.source == Source::Configured {
+        entry.remaining = Some(MicroUsd::ZERO);
+        let _ = write!(entry.note, "; credit expired {}", format_day(day));
+    }
+}
+
+/// Today, in days since the Unix epoch (UTC).
+#[must_use]
+pub fn today() -> u64 {
+    crate::lifecycle::now_unix() / 86_400
+}
+
+/// A `YYYY-MM-DD` date as days since the Unix epoch, or `None` when it is not
+/// a real date on or after 1970-01-01.
+#[must_use]
+pub fn parse_day(text: &str) -> Option<u64> {
+    let mut parts = text.split('-');
+    let year: i64 = parts.next()?.parse().ok()?;
+    let month: u32 = parts.next()?.parse().ok()?;
+    let day: u32 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || !(1..=12).contains(&month) || day == 0 {
+        return None;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let length = match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    if day > length {
+        return None;
+    }
+    // Days from civil (Howard Hinnant's algorithm), proleptic Gregorian.
+    let shifted = if month <= 2 { year - 1 } else { year };
+    let era = shifted.div_euclid(400);
+    let year_of_era = shifted - era * 400;
+    let month_index = i64::from((month + 9) % 12);
+    let day_of_year = (153 * month_index + 2) / 5 + i64::from(day) - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    u64::try_from(era * 146_097 + day_of_era - 719_468).ok()
+}
+
+/// Days since the Unix epoch as `YYYY-MM-DD`.
+#[must_use]
+pub fn format_day(days: u64) -> String {
+    let z = i64::try_from(days).unwrap_or(i64::MAX - 719_468) + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 fn budget_for(
@@ -198,6 +343,7 @@ fn budget_for(
                 remaining: Some(left),
                 source: Source::Api,
                 working: false,
+                expires_day: None,
                 note: "balance from the provider".to_string(),
             },
             Err(reason) => ProviderBudget {
@@ -205,6 +351,7 @@ fn budget_for(
                 remaining: None,
                 source: Source::Unknown,
                 working: false,
+                expires_day: None,
                 note: reason,
             },
         };
@@ -219,6 +366,7 @@ fn budget_for(
             remaining: None,
             source: Source::Unknown,
             working: false,
+            expires_day: None,
             note: format!("no balance API; {name} is not set"),
         };
     };
@@ -240,6 +388,7 @@ pub fn configured_budget(
         remaining: Some(left),
         source: Source::Configured,
         working: false,
+        expires_day: None,
         note: format!("configured {configured}, spent {used}"),
     }
 }
@@ -392,6 +541,7 @@ mod tests {
             },
             note: "test".to_string(),
             working: false,
+            expires_day: None,
         }
     }
 
@@ -410,6 +560,79 @@ mod tests {
             working.active(),
             "a working model is active without costing"
         );
+    }
+
+    #[test]
+    fn dates_round_trip_through_days_since_the_epoch() {
+        assert_eq!(parse_day("1970-01-01"), Some(0));
+        assert_eq!(parse_day("2000-03-01"), Some(11_017));
+        assert_eq!(format_day(11_017), "2000-03-01");
+        let day = parse_day("2026-12-31").unwrap();
+        assert_eq!(format_day(day), "2026-12-31");
+        assert_eq!(
+            parse_day("2028-02-29").map(format_day).as_deref(),
+            Some("2028-02-29")
+        );
+        assert_eq!(parse_day("2026-02-29"), None, "not a leap year");
+        assert_eq!(parse_day("2026-13-01"), None);
+        assert_eq!(parse_day("31/12/2026"), None);
+        assert_eq!(parse_day("1969-12-31"), None);
+    }
+
+    #[test]
+    fn active_dated_credit_is_used_first_until_it_expires() {
+        let today = parse_day("2026-10-28").unwrap();
+        let mut anthropic = entry("anthropic", Some("40.00"));
+        apply_expiry(&mut anthropic, "X", "2026-11-30", today);
+        assert_eq!(anthropic.use_first(today), parse_day("2026-11-30"));
+        // A thin balance is not worth reordering the ladder for.
+        let mut thin = entry("anthropic", Some("0.50"));
+        apply_expiry(&mut thin, "X", "2026-11-30", today);
+        assert_eq!(thin.use_first(today), None);
+        // Undated credit keeps the normal order.
+        assert_eq!(entry("deepseek", Some("18.00")).use_first(today), None);
+    }
+
+    #[test]
+    fn an_expired_configured_credit_is_spent() {
+        let today = parse_day("2026-10-28").unwrap();
+        let mut gemini = configured_budget("gemini", usd("25.00"), &BTreeMap::new());
+        apply_expiry(&mut gemini, "X", "2026-10-01", today);
+        assert_eq!(gemini.remaining, Some(MicroUsd::ZERO));
+        assert!(!gemini.active());
+        assert!(gemini.note.contains("credit expired 2026-10-01"));
+    }
+
+    #[test]
+    fn a_malformed_expiry_is_named_and_ignored() {
+        let mut gemini = entry("gemini", Some("5.00"));
+        apply_expiry(&mut gemini, "SUSI_HARNESS_CREDIT_EXPIRES_GEMINI", "soon", 0);
+        assert_eq!(gemini.expires_day, None);
+        assert!(gemini.note.contains("SUSI_HARNESS_CREDIT_EXPIRES_GEMINI"));
+    }
+
+    #[test]
+    fn credit_expiring_within_a_week_raises_an_alert_and_shows_in_the_report() {
+        let today = parse_day("2026-10-28").unwrap();
+        let mut soon = entry("anthropic", Some("40.00"));
+        apply_expiry(&mut soon, "X", "2026-11-02", today);
+        let mut later = entry("moonshot", Some("9.00"));
+        apply_expiry(&mut later, "X", "2027-01-01", today);
+        let budgets = Budgets {
+            providers: vec![soon, later],
+        };
+        let alert = budgets.expiry_alert(today).unwrap();
+        assert!(
+            alert.contains("anthropic $40.000000 by 2026-11-02 (5 day(s)"),
+            "{alert}"
+        );
+        assert!(!alert.contains("moonshot"), "{alert}");
+        let line = budgets.report_line(MicroUsd::ZERO, Registry::builtin());
+        assert!(
+            line.contains("anthropic $40.000000 active expires 2026-11-02"),
+            "{line}"
+        );
+        assert!(!line.contains('\n'));
     }
 
     #[test]
