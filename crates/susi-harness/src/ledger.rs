@@ -168,7 +168,11 @@ pub fn append_entry(path: &Path, entry: &LedgerEntry) -> EaiResult<()> {
         .append(true)
         .open(path)
         .map_err(|e| EaiError::io(format!("open ledger {}: {e}", path.display())))?;
-    writeln!(file, "{line}")
+    // One buffer, one write: several agents append to the same ledger, and a
+    // line split across two writes could interleave with another writer's line.
+    let mut row = line.into_bytes();
+    row.push(b'\n');
+    file.write_all(&row)
         .map_err(|e| EaiError::io(format!("append ledger {}: {e}", path.display())))
 }
 
@@ -250,6 +254,38 @@ mod tests {
             input_hit: MicroUsd::from_micros(3_000),
             output: MicroUsd::from_micros(600_000),
         }
+    }
+
+    /// Eight writers, each appending its own rows to one ledger at once. The
+    /// file must end with every row, each one whole: the appends are single
+    /// writes, so no line is split or spliced with another writer's line.
+    #[test]
+    fn concurrent_appenders_never_interleave_ledger_rows() {
+        let dir =
+            std::env::temp_dir().join(format!("susi-ledger-concurrency-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ledger.jsonl");
+        let _ = std::fs::remove_file(&path);
+        let writers = 8;
+        let rows_each = 200;
+        std::thread::scope(|scope| {
+            for writer in 0..writers {
+                let path = path.clone();
+                scope.spawn(move || {
+                    for row in 0..rows_each {
+                        let task = format!("w{writer}-r{row}");
+                        append_entry(&path, &entry(&task, Outcome::Completed)).unwrap();
+                    }
+                });
+            }
+        });
+        let entries = read_entries(&path).expect("every line must decode");
+        assert_eq!(entries.len(), writers * rows_each);
+        let mut seen: Vec<&str> = entries.iter().map(|e| e.task.as_str()).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), writers * rows_each, "no row lost or duplicated");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn entry(task: &str, outcome: Outcome) -> LedgerEntry {

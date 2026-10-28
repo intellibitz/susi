@@ -597,8 +597,13 @@ fn save_state(path: &Path, state: &State) -> EaiResult<()> {
     }
     let text = serde_json::to_string_pretty(state)
         .map_err(|error| EaiError::io(format!("encode state: {error}")))?;
-    std::fs::write(path, text)
-        .map_err(|error| EaiError::io(format!("write state {}: {error}", path.display())))
+    // Write a sibling temp file, then rename it over the state. A reader or a
+    // crash never sees a half-written state, and two writers never splice.
+    let temp = path.with_extension(format!("tmp-{}", std::process::id()));
+    std::fs::write(&temp, text)
+        .map_err(|error| EaiError::io(format!("write state {}: {error}", temp.display())))?;
+    std::fs::rename(&temp, path)
+        .map_err(|error| EaiError::io(format!("replace state {}: {error}", path.display())))
 }
 
 #[cfg(test)]
