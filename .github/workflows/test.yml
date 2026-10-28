@@ -1005,16 +1005,20 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Registry only, no target/: the repository's cache quota is 10 GB and
-      # every target cache costs 1-2 GB. This job is one more entry than the
-      # suite had before it existed, and the jobs it evicted are the two that
-      # then cannot finish inside 90 minutes (root-cli, coverage). Paying ~20
-      # minutes of rebuild here to keep them warm is the right trade.
+      # Dependency artifacts cached, not only the registry: rust-cache keeps
+      # target/'s ~530 registry crates and drops the workspace ones. Measured
+      # on windows-latest (4 cores): cold, the build is 23-24 min; warm, it
+      # recompiles the ~89 workspace crates in about 4 min, plus about 1 min
+      # to restore an 883 MB entry, so about 6 min for the job. A Dev Drive
+      # bought nothing (real-time scanning is already off on the image; the
+      # build is CPU-bound). The entry counts against the 10 GB quota (see the
+      # top of this file) and is written by main only: this job is off the
+      # merge gate, so main's post-merge run and every release tag, which
+      # restores main's entries, are what it speeds up.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: windows-binary
-          cache-targets: "false"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # This builds the debug `susi.exe` and runs all seven E2E checks against
