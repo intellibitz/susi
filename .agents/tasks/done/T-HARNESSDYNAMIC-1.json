@@ -14,5 +14,10 @@
     ]
   },
   "created_by": "HARNESSDYNAMIC",
-  "created_unix": 1793198379
+  "created_unix": 1793198379,
+  "closed": {
+    "at_unix": 1793212574,
+    "commit": "59a48101e085eb1f23452fc6aea16b48acb4173b",
+    "by": "HARNESSDYNAMIC"
+  }
 }
