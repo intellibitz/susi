@@ -150,8 +150,12 @@ impl Bus {
             .create(true)
             .append(true)
             .open(path)?;
+        // Each message is one buffer and one write, so concurrent writers to
+        // the same bus cannot interleave a line.
         for message in &self.messages {
-            writeln!(file, "{}", message.to_json())?;
+            let mut row = message.to_json().to_string().into_bytes();
+            row.push(b'\n');
+            file.write_all(&row)?;
         }
         Ok(())
     }

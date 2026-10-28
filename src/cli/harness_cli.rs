@@ -712,6 +712,13 @@ fn run_mission(
     budgets: &Budgets,
 ) -> Result<()> {
     let plan = Plan::load(plan_path).with_context(|| format!("load {}", plan_path.display()))?;
+    // The default state is per mission, so two agents running missions in the
+    // same directory never resume or overwrite each other's progress.
+    let state_path = if state == Path::new("supervisor-state.json") {
+        cwd.join(format!("supervisor-{}.json", plan.mission))
+    } else {
+        state.to_path_buf()
+    };
     let repo = if repo == Path::new(".") {
         cwd.to_path_buf()
     } else {
@@ -762,7 +769,7 @@ fn run_mission(
         guard: std::sync::OnceLock::new(),
         exhausted: AtomicBool::new(false),
     };
-    let supervisor = Supervisor::new(state, &executor)
+    let supervisor = Supervisor::new(&state_path, &executor)
         .with_parallelism(parallel)
         .with_controls(controls);
     let report = supervisor.run(&plan).context("run the mission")?;
