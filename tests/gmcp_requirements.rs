@@ -271,43 +271,52 @@ impl StdioSession {
     ) -> Option<serde_json::Value> {
         self.send(message);
         let deadline = std::time::Instant::now() + timeout;
+        let Some(id) = message.get("id").filter(|id| !id.is_null()) else {
+            return self.verdict_for_uncorrelated(deadline);
+        };
+        if let Some(pos) = self.pending.iter().position(|v| v["id"] == *id) {
+            return Some(self.pending.remove(pos));
+        }
         loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                return None;
+            let value = self.rx.recv_timeout(remaining).ok()?;
+            if &value["id"] == id {
+                return Some(value);
             }
-            let value = match message.get("id") {
-                Some(id) if !id.is_null() => {
-                    if let Some(pos) = self.pending.iter().position(|v| v["id"] == *id) {
-                        self.pending.remove(pos)
-                    } else {
-                        match self.rx.recv_timeout(remaining) {
-                            Ok(value) => value,
-                            Err(_) => return None,
-                        }
-                    }
-                }
-                // A null/absent id has no correlation key — the first
-                // response the endpoint emits to it (if any) is the verdict.
-                _ => {
-                    if !self.pending.is_empty() {
-                        self.pending.remove(0)
-                    } else {
-                        match self.rx.recv_timeout(remaining) {
-                            Ok(value) => value,
-                            Err(_) => return None,
-                        }
-                    }
-                }
+            self.pending.push(value);
+        }
+    }
+
+    /// A null/absent id has no correlation key — the first response the
+    /// endpoint emits after it (if any) is the verdict. The gate answers a
+    /// line before it reads the next, so a ping sent right behind is a
+    /// barrier: its answer arriving first proves a silent drop at once,
+    /// where waiting for nothing used to cost the whole deadline (300 s per
+    /// dropped fixture). The barrier's own answer is consumed here so it
+    /// never reaches a later caller.
+    fn verdict_for_uncorrelated(
+        &mut self,
+        deadline: std::time::Instant,
+    ) -> Option<serde_json::Value> {
+        if !self.pending.is_empty() {
+            return Some(self.pending.remove(0));
+        }
+        let barrier = serde_json::json!(format!("verbatim-barrier-{}", self.next_id));
+        self.next_id += 1;
+        self.send(&serde_json::json!({"jsonrpc": "2.0", "id": barrier, "method": "ping"}));
+        let mut verdict = None;
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let Ok(value) = self.rx.recv_timeout(remaining) else {
+                return verdict;
             };
-            match message.get("id") {
-                Some(id) if !id.is_null() => {
-                    if &value["id"] == id {
-                        return Some(value);
-                    }
-                    self.pending.push(value);
-                }
-                _ => return Some(value),
+            if value["id"] == barrier {
+                return verdict;
+            }
+            if verdict.is_none() {
+                verdict = Some(value);
+            } else {
+                self.pending.push(value);
             }
         }
     }
@@ -12049,11 +12058,13 @@ fn gmcp_req_203_013_05_interop() {
         transcripts[0], transcripts[1],
         "independent sessions must agree on every typed verdict"
     );
-    // The whole suite runs in parallel and spawns dozens of stdio sessions, so
-    // this budget proves the request path stays bounded, not that the machine is
-    // idle: ten seconds failed only under a loaded suite.
+    // An unknown tool is checked against the full tool list, which live-probes
+    // every linked MCP server for up to 12 s (`GmcpClient::discover_live_tools`)
+    // until one answers — ten seconds sat under that bound and failed on a
+    // loaded runner. The session's own work is milliseconds;
+    // `gmcp_req_203_013_06_operations_latency` pins the rest.
     assert!(
-        worst < std::time::Duration::from_secs(180),
+        worst < std::time::Duration::from_secs(30),
         "per-request latency budget exceeded: {worst:?}"
     );
     let _ = std::fs::remove_dir_all(&scratch);
@@ -12155,11 +12166,13 @@ fn gmcp_req_203_013_06_operations() {
     );
     let ping = wire.request("ping", serde_json::json!({}));
     assert!(ping.is_object(), "session must still serve: {ping}");
-    // The whole suite runs in parallel and spawns dozens of stdio sessions, so
-    // this budget proves the request path stays bounded, not that the machine is
-    // idle: ten seconds failed only under a loaded suite.
+    // An unknown tool is checked against the full tool list, which live-probes
+    // every linked MCP server for up to 12 s (`GmcpClient::discover_live_tools`)
+    // until one answers — ten seconds sat under that bound and failed on a
+    // loaded runner. The session's own work is milliseconds;
+    // `gmcp_req_203_013_06_operations_latency` pins the rest.
     assert!(
-        worst < std::time::Duration::from_secs(180),
+        worst < std::time::Duration::from_secs(30),
         "per-request latency budget exceeded: {worst:?}"
     );
 
@@ -12199,6 +12212,88 @@ fn gmcp_req_203_013_06_operations() {
         "a changed dependency must invalidate stale proof"
     );
     let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// GMCP-203-013-06, latency: a stdio session's first answer waits only on
+/// the server's own startup, and every later answer — gate rejections
+/// included — arrives at once.
+///
+/// `mcp serve` used to prime every catalog and wait out a daemon's
+/// host-contract bind before it read a line: ~40 s to the first answer on a
+/// fresh home, a daemon left behind by every session, and the suite's stdio
+/// tests running past their deadlines on a loaded runner. Both causes leave
+/// a file in the home, so they are pinned by what they write rather than by
+/// a wall-clock race; the clocks below only bound gross regressions.
+#[test]
+fn gmcp_req_203_013_06_operations_latency() {
+    fn holds(dir: &Path, name: &str) -> bool {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| {
+                entry.file_name() == name
+                    || (entry.file_type().is_ok_and(|kind| kind.is_dir())
+                        && holds(&entry.path(), name))
+            })
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = std::env::temp_dir().join(format!("gmcp-013-latency-{}", std::process::id()));
+    let home = scratch.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let started = std::time::Instant::now();
+    let mut modern = StdioSession::spawn_modern(root, &home);
+    let startup = started.elapsed();
+
+    let mut worst = std::time::Duration::ZERO;
+    for attempt in 0..5 {
+        let asked = std::time::Instant::now();
+        let bare = modern
+            .request_verbatim(
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "id": format!("bare-{attempt}"),
+                    "method": "tools/list", "params": {}
+                }),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("a request missing its _meta must earn a typed answer");
+        assert_eq!(bare["error"]["code"], -32602, "{bare}");
+        worst = worst.max(asked.elapsed());
+
+        let asked = std::time::Instant::now();
+        modern.send_raw(b"{not json\n");
+        let parse = modern
+            .response_for(&serde_json::Value::Null, std::time::Duration::from_secs(60))
+            .expect("a malformed line must earn a typed answer");
+        assert_eq!(parse["error"]["code"], -32700, "{parse}");
+        worst = worst.max(asked.elapsed());
+    }
+    drop(modern);
+
+    let boot_work: Vec<&str> = [
+        // SusiDaemon::ensure_daemon_running verifies the binary first.
+        "binary.hash",
+        // discovery_pipeline::prime_catalogs reports here when it finishes.
+        "last_auto_prime.json",
+    ]
+    .into_iter()
+    .filter(|name| holds(&home, name))
+    .collect();
+    let _ = std::fs::remove_dir_all(&scratch);
+    assert!(
+        boot_work.is_empty(),
+        "mcp serve must reach its read loop without ensuring the daemon or priming \
+         catalogs, yet the session left {boot_work:?}"
+    );
+    assert!(
+        startup < std::time::Duration::from_secs(60),
+        "the first answer took {startup:?}"
+    );
+    assert!(
+        worst < std::time::Duration::from_secs(5),
+        "a gate rejection took {worst:?}: nothing in the gate waits on work"
+    );
 }
 
 #[test]
