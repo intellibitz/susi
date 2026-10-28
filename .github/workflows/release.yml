@@ -91,10 +91,14 @@ jobs:
             name: linux-x86_64
             artifact: susi-linux-x86_64
             src: target/dist/susi
+            harness: susi-harness-linux-x86_64
+            harness_src: target/dist/susi-harness
           - os: ubuntu-24.04-arm
             name: linux-aarch64
             artifact: susi-linux-aarch64
             src: target/dist/susi
+            harness: susi-harness-linux-aarch64
+            harness_src: target/dist/susi-harness
           # macos-x86_64 is not published: ort-sys (ONNX Runtime, via
           # fastembed) no longer ships prebuilt binaries for
           # x86_64-apple-darwin, so the build fails in the ort-sys build
@@ -103,6 +107,8 @@ jobs:
             name: macos-aarch64
             artifact: susi-macos-aarch64
             src: target/dist/susi
+            harness: susi-harness-macos-aarch64
+            harness_src: target/dist/susi-harness
           # The Windows artifact is a first-class release leg: the same tag that
           # publishes the Linux and macOS binaries publishes this one, and the
           # built binary is exercised on the runner before it is uploaded.
@@ -110,6 +116,8 @@ jobs:
             name: windows-x86_64
             artifact: susi-windows-x86_64.exe
             src: target/dist/susi.exe
+            harness: susi-harness-windows-x86_64.exe
+            harness_src: target/dist/susi-harness.exe
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
@@ -205,6 +213,44 @@ jobs:
           files: |
             ${{ matrix.artifact }}
             ${{ matrix.artifact }}.sha256
+
+      # The harness ships on its own. It needs nothing else from susi (the
+      # registry and price catalogue are compiled in), so it builds, is checked
+      # and is published even when the engine above fails: when nothing else
+      # works, the harness still meters, budgets and routes model calls.
+      - name: Build Harness
+        id: harness
+        if: always()
+        continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
+        shell: bash
+        run: |
+          cargo build --profile dist -p susi-harness --bin susi-harness
+          mv "${{ matrix.harness_src }}" "${{ matrix.harness }}"
+          if command -v shasum >/dev/null; then
+            shasum -a 256 "${{ matrix.harness }}" > "${{ matrix.harness }}.sha256"
+          else
+            sha256sum "${{ matrix.harness }}" > "${{ matrix.harness }}.sha256"
+          fi
+
+      # The artifact must answer with no keys and no workspace: the built-in
+      # registry and catalogue, an empty ledger, a budget line.
+      - name: Verify the harness artifact answers offline
+        if: always() && steps.harness.outcome == 'success'
+        shell: bash
+        run: |
+          bin="$GITHUB_WORKSPACE/${{ matrix.harness }}"
+          cd "$RUNNER_TEMP"
+          "$bin" version
+          "$bin" env > /dev/null
+          "$bin" budget --ledger "$RUNNER_TEMP/harness-ledger.jsonl" | grep -q '^budget:'
+
+      - name: Upload Harness
+        if: always() && github.event_name == 'push' && steps.harness.outcome == 'success'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            ${{ matrix.harness }}
+            ${{ matrix.harness }}.sha256
 
   build-cuda:
     name: Build linux-x86_64-cuda

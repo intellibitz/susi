@@ -197,15 +197,40 @@ fn models_command(options: &Options) -> Result<(), String> {
         )
         .map_err(|error| error.to_string())?;
         print_json(&report)?;
-        if report.ok {
-            return Ok(());
+        // A provider with no key cannot be verified and is not in use; it is
+        // reported as skipped. Every keyed provider must pass, and so must a
+        // provider named with --provider, keyed or not.
+        let keyed = |id: &str| {
+            Registry::builtin()
+                .providers()
+                .iter()
+                .find(|provider| provider.id == id)
+                .is_some_and(|provider| {
+                    provider
+                        .key_envs
+                        .iter()
+                        .any(|name| susi_harness::secrets::is_set(name))
+                })
+        };
+        let judged = |id: &str| options.provider.is_some() || keyed(id);
+        let skipped = report
+            .providers
+            .iter()
+            .filter(|entry| !judged(&entry.provider))
+            .map(|entry| entry.provider.as_str())
+            .collect::<Vec<_>>();
+        if !skipped.is_empty() {
+            eprintln!("skipped (no key): {}", skipped.join(", "));
         }
         let failed = report
             .providers
             .iter()
-            .filter(|entry| !entry.ok)
+            .filter(|entry| !entry.ok && judged(&entry.provider))
             .map(|entry| entry.provider.as_str())
             .collect::<Vec<_>>();
+        if failed.is_empty() {
+            return Ok(());
+        }
         return Err(format!("verification failed for: {}", failed.join(", ")));
     }
     let catalogue = options.catalogue()?;

@@ -3,7 +3,11 @@ name = "susi-harness"
 version = "0.21.20"
 license = "Apache-2.0"
 edition = "2021"
-description = "SUSI self-build harness: durable ledger, event stream and control-API contracts that drive autonomous agents building SUSI."
+description = "Model routing, metering and budgets for fleets of coding agents: a dynamic model ladder built from the API keys in the environment, an OpenAI-compatible metering gateway, and a durable cost ledger."
+readme = "README.md"
+repository = "https://github.com/intellibitz/susi"
+keywords = ["llm", "agents", "router", "gateway", "budget"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 susi-error = { workspace = true }
