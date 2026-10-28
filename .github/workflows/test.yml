@@ -30,15 +30,15 @@ on:
         options: [full, branch]
 
 # Off main a newer run supersedes the older one: a branch's gate is only ever
-# about its newest head. On `main` a run is never cancelled: the run in
-# progress finishes, and the merges that land meanwhile collapse into one
-# pending run (GitHub keeps at most one pending per group and replaces it).
-# Latest-wins on main stopped working once merges came faster than the suite:
-# with a merge every 5-12 min and a 30-45 min suite, every main run from 19:07
-# to 20:48 on 2026-10-28 was cancelled, so nothing proved the merged tree,
-# reported a failure to its PR (main-failure.yml) or refreshed the caches only
-# main writes. Queued, main gets a completed, cumulative proof at least once
-# per suite length.
+# about its newest head. On `main` a running run is never cancelled: it
+# finishes, and the merges that land meanwhile collapse into one pending run
+# (GitHub keeps at most one pending per group; the one it replaces shows as
+# cancelled). Latest-wins on main stopped working once merges came faster than
+# the suite: with a merge every 5-12 min and a 30-45 min suite, every main run
+# from 17:50 to 21:02 on 2026-10-28 was cancelled, so nothing proved the merged
+# tree or refreshed the caches only main writes. Queued, main completes a run
+# at least once per suite length, and the run covers every merge since the
+# last green one (codetree scopes from that head, not from the previous merge).
 #
 # Off main, a dispatched run gets its own group. The release dry run
 # (`gh workflow run release.yml --ref <branch>`) dispatches this suite on the
@@ -204,17 +204,23 @@ jobs:
       # Which shards this merge can still break. A shard's tests only run the
       # shard's own crates, so it can only fail when the merge touched one of
       # them or something one of them depends on — the changed-crates-plus-
-      # dependents set (`ci-changed-crates.sh --dependents` against the previous
-      # main tip: `before` on a push, HEAD^1 — the merge commit's main-side
-      # parent — on the dispatch the auto-merger sends). Two escapes, both
-      # toward proving more: the suite's own machinery (.github/, scripts/)
-      # cannot scope itself out, and anything the diff cannot resolve is ALL.
+      # dependents set (`ci-changed-crates.sh --dependents` against main's
+      # newest head with a green Test run). Not the previous merge: main's runs
+      # queue and a newer merge replaces the pending one, so a run that starts
+      # has absorbed every merge whose own run never ran, and scoping from
+      # HEAD^1 skipped their shards and still went green. From the last green
+      # head, each green run covers everything since the one before it, and a
+      # red run leaves the base where it was, so the next run retests what
+      # failed. Two escapes, both toward proving more: the suite's own
+      # machinery (.github/, scripts/) cannot scope itself out, and anything the
+      # diff cannot resolve — no green ancestor among the last 20, or no answer
+      # from the API — is ALL.
       # `affected` is the scalar verdict; `skip_shards` is what each matrix leg
       # checks before spending a runner; `run_e2e` does the same for the e2e.
       - name: Resolve which shards this merge can affect
         id: scope
         env:
-          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           affected=ALL
           skip='[]'
@@ -224,10 +230,16 @@ jobs:
           # in the affected set, including as a dependent.
           win=true
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            base=$BEFORE
-            [ "$base" = "0000000000000000000000000000000000000000" ] && base=
-            [ -n "$base" ] || base=$(git rev-parse 'HEAD^1' 2>/dev/null || true)
-            if [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null; then
+            base=
+            for sha in $(gh run list --workflow test.yml --branch main --status success \
+              --limit 20 --json headSha --jq '.[].headSha' || true); do
+              if git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+                base=$sha
+                break
+              fi
+            done
+            echo "scoping against the last green main head: ${base:-none}"
+            if [ -n "$base" ]; then
               changed=$(git diff --name-only "$base" HEAD)
               if grep -Eq '^(\.github/|scripts/|\.cargo/|rust-toolchain)' <<<"$changed"; then
                 echo "merge touched CI machinery — scoping nothing"
@@ -588,8 +600,9 @@ jobs:
       # a leg whose shard the merge cannot affect exits in seconds instead of
       # building its dependency closure. The map from shard name to packages
       # is scripts/ci-test-shards.sh (kept in sync with the matrix above by
-      # tests/ci_workflow_perf.rs); codetree has already folded dependents in,
-      # so an absent shard can only prove what was already green.
+      # tests/ci_workflow_perf.rs); codetree has already folded dependents in
+      # and scoped from the last green head, so an absent shard can only prove
+      # what was already green.
       - name: Skip when this shard cannot be affected
         id: scope
         env:

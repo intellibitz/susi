@@ -1656,6 +1656,123 @@ fn the_main_suite_scopes_shards_and_e2e_to_the_merge() {
     }
 }
 
+/// Main's runs queue and a newer merge replaces the pending one, so the run
+/// that starts has absorbed merges whose own runs never ran. Scoped from the
+/// previous merge, an absorbed merge's shards never ran and the run still went
+/// green; the scope must start at main's last green head. The step's own shell
+/// runs here, against a scratch repository and a fake `gh`.
+#[cfg(unix)]
+#[test]
+fn main_scopes_from_the_last_green_head_not_the_previous_merge() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    let step = steps(&job(&jobs, "codetree").body)
+        .into_iter()
+        .find(|s| s.contains("id: scope"))
+        .expect("codetree resolves its scope in the step with id `scope`");
+    let script = step
+        .lines()
+        .skip_while(|l| l.trim() != "run: |")
+        .skip(1)
+        .map(|l| l.strip_prefix("          ").unwrap_or(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let dir = std::env::temp_dir().join(format!("susi-scope-base-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let repo = dir.join("repo");
+    let fakes = dir.join("bin");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(&fakes).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let commit = |rel: &str, body: &str| {
+        let path = repo.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+        set_script_executable(&path);
+        git(&["add", "."]);
+        git(&["commit", "--quiet", "-m", rel]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "--quiet", "-b", "main", "."]);
+    // The machinery the step calls lands with the first green head, so no later
+    // diff touches scripts/: no crate is ever affected, and one shard exists.
+    commit(
+        "scripts/ci-test-shards.sh",
+        "#!/bin/sh\nprintf 'root-cli\\t-p susi\\n'\n",
+    );
+    let green = commit("scripts/ci-changed-crates.sh", "#!/bin/sh\nexit 0\n");
+    // A merge whose pending run the next merge replaced; it touched CI.
+    let absorbed = commit(".github/workflows/x.yml", "on: push\n");
+    git(&["checkout", "--quiet", "-b", "side", &green]);
+    let side = commit("docs/side.md", "side\n");
+    git(&["checkout", "--quiet", "main"]);
+    // The merge this run is for: docs only.
+    commit("docs/n.md", "n\n");
+
+    let affected = |gh: &str| {
+        let path = fakes.join("gh");
+        std::fs::write(&path, format!("#!/bin/sh\n{gh}\n")).unwrap();
+        set_script_executable(&path);
+        let output = dir.join("output");
+        std::fs::write(&output, "").unwrap();
+        let out = std::process::Command::new("bash")
+            .args(["-e", "-c", &script])
+            .current_dir(&repo)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env("PATH", path_with_prefix(&fakes, true))
+            .env("GITHUB_REF", "refs/heads/main")
+            .env("GITHUB_OUTPUT", &output)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "the scope step failed: {out:?}");
+        std::fs::read_to_string(&output)
+            .unwrap()
+            .lines()
+            .find_map(|l| l.strip_prefix("affected=").map(str::to_string))
+            .expect("the scope step writes `affected`")
+    };
+    assert_eq!(
+        affected(&format!("printf '%s\\n' {side} {green}")),
+        "ALL",
+        "the run absorbed a merge that touched CI since the last green head on \
+         main's history: everything runs, even though the run's own merge is docs"
+    );
+    assert_eq!(
+        affected(&format!("printf '%s\\n' {absorbed}")),
+        "NONE",
+        "from a green head whose only successor is docs, no shard is affected"
+    );
+    assert_eq!(
+        affected(&format!("printf '%s\\n' {side}")),
+        "ALL",
+        "a green head that is not on main's history is no base"
+    );
+    assert_eq!(
+        affected("exit 1"),
+        "ALL",
+        "no answer from the API proves everything"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The ONNX prefetch builds susi-vendor-fastembed to warm a CDN download; on a
 /// push whose affected set cannot reach that crate it is a pure wait. The gate
 /// must resolve the intersection, not run it for every crate-touching push.
