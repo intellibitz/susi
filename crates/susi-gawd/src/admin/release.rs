@@ -938,9 +938,14 @@ mod tests {
         // Annotated tags need a committer identity, and a CI runner has none:
         // the first version of these tests passed here and failed there with
         // "Committer identity unknown". The fixture owns its identity.
+        // Nor may it inherit the developer's signing setup: a global
+        // `commit.gpgsign`/`tag.gpgsign` sent every fixture commit and tag
+        // through gpg, which fails under parallel test load.
         for dir in [&bare, &work] {
             run(dir, &["config", "user.name", "t"]);
             run(dir, &["config", "user.email", "t@t"]);
+            run(dir, &["config", "commit.gpgsign", "false"]);
+            run(dir, &["config", "tag.gpgsign", "false"]);
         }
         run(&work, &["remote", "add", "origin", bare.to_str().unwrap()]);
         run(&work, &["commit", "--allow-empty", "--quiet", "-m", "init"]);
