@@ -231,6 +231,55 @@ fn main_runs_cancel_stale_tail_work() {
 }
 
 #[test]
+fn a_branch_dispatch_never_cancels_the_branch_gate() {
+    // The release dry run dispatches this suite on its branch. In the push run's
+    // group it cancelled the gate auto-merge waits on, and each push cancelled it
+    // back: nine pushes on one PR, not one finished Test run.
+    let text = read(".github/workflows/test.yml");
+    let line = code(&text)
+        .lines()
+        .find(|l| l.trim_start().starts_with("group: test-"))
+        .expect("test.yml declares its concurrency group")
+        .trim()
+        .to_string();
+    assert!(
+        line.contains("github.ref != 'refs/heads/main'")
+            && line.contains("github.event_name == 'workflow_dispatch'"),
+        "test.yml: a dispatch off main must run in its own concurrency group: `{line}`"
+    );
+}
+
+#[test]
+fn the_windows_build_is_off_the_merge_gate() {
+    // The Windows leg was 94% of a branch's Test run (a cold ~23 min build
+    // against ~1.5 min for every Linux check), and auto-merge waits on the whole
+    // run. A branch never builds it; main's post-merge run and a release tag do.
+    let text = read(".github/workflows/test.yml");
+    let body = code(&text);
+    let branch = body
+        .split("elif [[ \"$GITHUB_REF\" != refs/tags/* ]]; then")
+        .nth(1)
+        .expect("codetree scopes branch runs apart from main and tags")
+        .split("echo \"affected=$affected\"")
+        .next()
+        .unwrap();
+    assert!(
+        branch.trim_start().starts_with("win=false"),
+        "test.yml: a branch run must not build Windows"
+    );
+    let windows = jobs(&text)
+        .into_iter()
+        .find(|j| j.id == "windows")
+        .expect("test.yml keeps the windows job for main and tags");
+    assert!(
+        windows
+            .body
+            .contains("if: needs.codetree.outputs.run_windows == 'true'"),
+        "the windows job must follow codetree's run_windows"
+    );
+}
+
+#[test]
 fn every_test_workflow_job_is_bounded() {
     let text = read(".github/workflows/test.yml");
     for j in jobs(&text) {

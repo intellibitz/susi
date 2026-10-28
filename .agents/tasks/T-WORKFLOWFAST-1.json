@@ -1,0 +1,19 @@
+{
+  "id": "T-WORKFLOWFAST-1",
+  "title": "Workflow: many agents in parallel without conflicts, and a fast loop",
+  "goal": "",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "workflow"
+    ]
+  },
+  "created_by": "WORKFLOWFAST",
+  "created_unix": 1793205879
+}

@@ -644,6 +644,11 @@
           "id": 60,
           "imperative": "All `susi-*` crates declare zero direct third-party dependencies across normal, build, and dev targets. Every external crates.io or git crate is owned by exactly one `susi-vendor-*` crate, serving as an implementation vendor or pure re-export facade. Consumers import vendor capabilities exclusively through vendor facade paths (`use susi_vendor_*`), guaranteeing modular architectural isolation, clean dependency boundaries, and strict auditability.",
           "title": "Vendor Facade Isolation & Zero Direct Third-Party Dependencies"
+        },
+        {
+          "id": 61,
+          "imperative": "Every susi workflow runs through `susi harness`. A workflow is any agent or operator loop that changes the susi repository: planning, claiming a task, working it, gating it, pushing it, merging it, and closing it. The harness owns that loop. Its `plan` and `run` commands claim each task, prepare its worktree, run the worker, check the acceptance, and publish through `workflow finish`, and they meter every model call through the gateway. An agent starts a workflow with `susi harness plan` and `susi harness run`, not by hand-running `workflow finish`, `tasks claim`, or `tasks close`. Worker commands that call those verbs are refused by the harness, so the claim, close, and publish steps stay in one place. The harness picks its models from the API keys in the environment, by budget first and capability second. A workflow run outside the harness is a defect to be fixed in the harness, not a shortcut around it. The rules in Mandates 49 and 50 still hold inside the harness: own worktree, one live claim, every commit names its task.",
+          "title": "Every Susi Workflow Runs Through the Susi Harness"
         }
       ],
       "name": "THE DNA",

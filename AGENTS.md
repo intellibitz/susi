@@ -42,6 +42,14 @@ The agent loop is **atomic per task** (own worktree, always synced with
    and take the next claim. Do not push to `main`, tag, or cut a release;
    pushed branches open and merge their own PR.
 
+**Mandate 61 (Harness-Driven Workflow).** Every susi workflow runs through
+`susi harness`. The harness claims the task, prepares the worktree, runs the
+worker, checks the acceptance and publishes; an agent starts it with
+`susi harness plan` and `susi harness run` rather than hand-running
+`workflow finish`, `tasks claim` or `tasks close`. Workflow steps run outside
+the harness are defects to fix in the harness. Mandates 49 and 50 still hold
+inside it. The text is compiled into the genome from `.agents/identity.json`.
+
 This block is loaded for you: `CLAUDE.md`, `GEMINI.md`,
 and `.github/copilot-instructions.md` each point every agent tool here, and
 SessionStart hooks (Claude Code: `.claude/settings.json`; Codex:
