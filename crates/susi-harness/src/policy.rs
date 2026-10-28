@@ -259,6 +259,19 @@ pub fn failed_models(entries: &[LedgerEntry]) -> BTreeMap<String, u64> {
         .collect()
 }
 
+/// Where a task goes after its first model, from the fleet's ladder: the
+/// strong models first, then the other light ones. A light worker that
+/// failed, or produced work that did not pass (a hallucination shows up
+/// exactly there), is followed by a model strong enough to fix it, not by
+/// another light model of the same reach. The fleet's order holds within each
+/// group, and the light models stay as a last resort.
+#[must_use]
+pub fn escalation_order(ladder: &[String], strong: &dyn Fn(&str) -> bool) -> Vec<String> {
+    let (fixers, workers): (Vec<String>, Vec<String>) =
+        ladder.iter().cloned().partition(|model| strong(model));
+    fixers.into_iter().chain(workers).collect()
+}
+
 /// What the ledger says about each model and provider, for [`arrange`].
 #[derive(Debug, Clone, Copy)]
 pub struct Standing<'a> {
@@ -935,6 +948,44 @@ mod tests {
         assert_eq!(history(&entries)["m"].mean_latency_ms(), Some(400));
         assert_eq!(latencies(&entries).get("m"), Some(&400));
         assert_eq!(ModelHistory::default().mean_latency_ms(), None);
+    }
+
+    #[test]
+    fn a_light_workers_failure_goes_to_the_strong_fixers_first() {
+        let ladder: Vec<String> = [
+            "deepseek-flash",
+            "gemini-flash",
+            "kimi-flash",
+            "deepseek-pro",
+            "gemini-pro",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let strong = |model: &str| model.ends_with("-pro");
+        let order = escalation_order(&ladder, &strong);
+        assert_eq!(
+            order,
+            vec![
+                "deepseek-pro",
+                "gemini-pro",
+                "deepseek-flash",
+                "gemini-flash",
+                "kimi-flash"
+            ]
+        );
+        // A task on gemini-flash: its own light model first, then the fixers.
+        let task = arrange(
+            "gemini-flash",
+            &order,
+            &Standing {
+                history: &BTreeMap::new(),
+                cooling: &BTreeSet::new(),
+                failed: &BTreeMap::new(),
+            },
+            &|_| None,
+        );
+        assert_eq!(&task[..3], &["gemini-flash", "deepseek-pro", "gemini-pro"]);
     }
 
     #[test]
