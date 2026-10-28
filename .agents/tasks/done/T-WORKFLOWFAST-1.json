@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "WORKFLOWFAST",
-  "created_unix": 1793205879
+  "created_unix": 1793205879,
+  "closed": {
+    "at_unix": 1793212174,
+    "commit": "c394865a789314b567bb6b4bf48199a6de5bad19",
+    "by": "WORKFLOWFAST"
+  }
 }
