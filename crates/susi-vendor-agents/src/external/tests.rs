@@ -365,21 +365,34 @@ fn cursor_adapter_trusts_the_workspace_for_headless_runs() {
     }
 }
 
+/// Write an executable script from a child process. Written from this one, its
+/// descriptor is open in every child another test thread forks until that
+/// child execs, and running the script meanwhile fails with "Text file busy".
+#[cfg(unix)]
+fn write_executable(path: &Path, body: &str) {
+    use std::io::Write;
+    let mut sh = std::process::Command::new("sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    sh.stdin.take().unwrap().write_all(body.as_bytes()).unwrap();
+    assert!(sh.wait().unwrap().success(), "write {}", path.display());
+}
+
 /// A `python3` that logs each interpreter start, so a test can count them.
 #[cfg(unix)]
 fn counting_python(root: &Path) -> (PathBuf, PathBuf) {
-    use std::os::unix::fs::PermissionsExt;
     let log = root.join("python-starts.log");
     let wrapper = root.join("python3");
-    fs::write(
+    write_executable(
         &wrapper,
-        format!(
+        &format!(
             "#!/bin/sh\necho start >> '{}'\nexec python3 \"$@\"\n",
             log.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     (wrapper, log)
 }
 
@@ -442,21 +455,18 @@ fn python_imports_are_probed_in_one_interpreter_per_scan() {
 #[test]
 #[cfg(unix)]
 fn python_imports_fall_back_to_single_probes_when_the_batch_fails() {
-    use std::os::unix::fs::PermissionsExt;
     let fixture = Fixture::for_kind(CatalogKind::Framework);
     let log = fixture.root.join("starts.log");
     // Fails any run with more than one module (the batch); answers a single
     // `-c "import json"` the way python3 does.
     let python = fixture.root.join("python3");
-    fs::write(
+    write_executable(
         &python,
-        format!(
+        &format!(
             "#!/bin/sh\necho start >> '{}'\n[ $# -gt 2 ] && exit 9\nexec python3 \"$@\"\n",
             log.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let config = fixture.root.join("engine.json");
     fs::write(&config, "{}").unwrap();
     std::env::set_var("SUSI_PYIMPORT_FALLBACK_CONFIG", &config);
@@ -484,22 +494,19 @@ fn python_imports_fall_back_to_single_probes_when_the_batch_fails() {
 /// A `python3` that also finds the fixture modules in `dir`.
 #[cfg(unix)]
 fn python_with_modules(root: &Path, modules: &[(&str, &str)]) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let dir = root.join("pymods");
     fs::create_dir_all(&dir).unwrap();
     for (name, source) in modules {
         fs::write(dir.join(format!("{name}.py")), source).unwrap();
     }
     let wrapper = root.join("python3-with-modules");
-    fs::write(
+    write_executable(
         &wrapper,
-        format!(
+        &format!(
             "#!/bin/sh\nPYTHONPATH='{}' exec python3 \"$@\"\n",
             dir.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     wrapper
 }
 
@@ -533,6 +540,18 @@ fn python_import_batch_survives_hostile_imports() {
             // On the path ahead of the standard library, as a file in the
             // working directory would be: the batch must not need it.
             ("importlib", "raise ImportError('shadowed importlib')\n"),
+            // Importable under `python -c` only if the importing frame, the
+            // `__main__` namespace and the descriptors look as they do there.
+            (
+                "susi_inspects_importer",
+                "import os, sys, __main__\n\
+                 f = sys._getframe(1)\n\
+                 while f.f_code.co_filename.startswith('<frozen'):\n    f = f.f_back\n\
+                 assert f.f_globals['__name__'] == '__main__', 'importer namespace'\n\
+                 assert not [n for n in vars(__main__) if not n.startswith('__')], 'batch names'\n\
+                 try:\n    os.fstat(3)\nexcept OSError:\n    pass\n\
+                 else:\n    raise ImportError('a descriptor beyond 0-2 is open')\n",
+            ),
         ],
     );
     let modules: Vec<String> = [
@@ -547,6 +566,7 @@ fn python_import_batch_survives_hostile_imports() {
         "susi_ends_process",
         "susi_raises",
         "susi_no_such_module_xyz",
+        "susi_inspects_importer",
     ]
     .iter()
     .map(|m| (*m).to_string())
@@ -578,6 +598,11 @@ fn python_import_batch_survives_hostile_imports() {
     );
     assert_eq!(get("susi_raises"), Some(NotImportable));
     assert_eq!(get("susi_no_such_module_xyz"), Some(NotImportable));
+    assert_eq!(
+        get("susi_inspects_importer"),
+        Some(Importable),
+        "imported from a namespace and descriptors other than `python -c`'s"
+    );
     assert!(
         elapsed < std::time::Duration::from_secs(8),
         "one hang costs one bound, not one per module: {elapsed:?}"
@@ -689,6 +714,9 @@ fn gone_within(pid: &str, wait: std::time::Duration) -> bool {
 /// (killed by one). Either way the import it was waiting on must not keep
 /// running unwatched, and the modules after it still get a batch; a batch
 /// that dies before deciding anything is not restarted module by module.
+/// The interpreter here is slow to resume after each fork, as a loaded
+/// machine makes it: the import acts first, and the caller must already know
+/// which module is in flight.
 #[test]
 #[cfg(unix)]
 fn python_import_batch_survives_a_stopped_or_killed_interpreter() {
@@ -698,6 +726,12 @@ fn python_import_batch_survives_a_stopped_or_killed_interpreter() {
     let python = python_with_modules(
         &fixture.root,
         &[
+            (
+                "sitecustomize",
+                "import os, time\nfork = os.fork\n\
+                 def slow():\n    pid = fork()\n    if pid:\n        time.sleep(0.2)\n    \
+                 return pid\nos.fork = slow\n",
+            ),
             (
                 "susi_stops_parent",
                 &format!(
@@ -744,6 +778,105 @@ fn python_import_batch_survives_a_stopped_or_killed_interpreter() {
         verdicts.is_empty(),
         "a batch that decided nothing is not retried: {verdicts:?}"
     );
+}
+
+/// The batch's own process group keeps a terminal's Ctrl-C from reaching it.
+/// When the process that started it ends, the batch must stop the import in
+/// flight and exit, not leave it running out its bound unwatched. The caller
+/// here is a shell that starts the batch, waits until the import runs, and
+/// exits.
+#[test]
+#[cfg(unix)]
+fn python_import_batch_ends_with_its_caller() {
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let pidfile = fixture.root.join("import.pid");
+    let python = python_with_modules(
+        &fixture.root,
+        &[(
+            "susi_hangs_with_pid",
+            &format!(
+                "import os, time\nopen('{}', 'w').write(str(os.getpid()))\ntime.sleep(60)\n",
+                pidfile.display()
+            ),
+        )],
+    );
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(
+            "\"$1\" -c \"$2\" token 30 susi_hangs_with_pid >/dev/null 2>&1 &\n\
+             echo $!\n\
+             i=0\n\
+             while [ ! -s \"$3\" ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i + 1)); done\n",
+        )
+        .arg("sh")
+        .arg(&python)
+        .arg(catalog::BATCH_SCRIPT)
+        .arg(&pidfile)
+        .output()
+        .unwrap();
+    let batch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let import = fs::read_to_string(&pidfile)
+        .expect("the import never started")
+        .trim()
+        .to_string();
+    let wait = std::time::Duration::from_secs(3);
+    assert!(gone_within(&batch, wait), "the batch outlived its caller");
+    assert!(
+        gone_within(&import, wait),
+        "the import outlived the batch's caller"
+    );
+}
+
+/// A fork the system refuses, on the first module or a later one, leaves the
+/// undecided modules to the single probe without starting another batch.
+#[test]
+#[cfg(unix)]
+fn python_import_batch_stops_when_a_fork_is_refused() {
+    use catalog::ImportVerdict::Importable;
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let (counting, log) = counting_python(&fixture.root);
+    let refuse_after = |forks: usize| {
+        let dir = fixture.root.join(format!("refuse-after-{forks}"));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("sitecustomize.py"),
+            format!(
+                "import errno, os\nforks, fork = [0], os.fork\n\
+                 def refusing():\n    forks[0] += 1\n    \
+                 if forks[0] > {forks}:\n        raise OSError(errno.EAGAIN, 'refused')\n    \
+                 return fork()\nos.fork = refusing\n"
+            ),
+        )
+        .unwrap();
+        let wrapper = dir.join("python3");
+        write_executable(
+            &wrapper,
+            &format!(
+                "#!/bin/sh\nPYTHONPATH='{}' exec '{}' \"$@\"\n",
+                dir.display(),
+                counting.display()
+            ),
+        );
+        wrapper
+    };
+    let modules: Vec<String> = ["json", "os.path", "susi_no_such_module_xyz"]
+        .iter()
+        .map(|m| (*m).to_string())
+        .collect();
+    let bound = std::time::Duration::from_secs(5);
+
+    let verdicts = catalog::probe_imports(&refuse_after(0), &modules, bound);
+    assert!(verdicts.is_empty(), "{verdicts:?}");
+    assert_eq!(starts(&log), 1, "a refused fork starts no second batch");
+
+    let verdicts = catalog::probe_imports(&refuse_after(1), &modules, bound);
+    assert_eq!(verdicts.get("json"), Some(&Importable));
+    assert_eq!(
+        verdicts.len(),
+        1,
+        "the rest go to the single probe: {verdicts:?}"
+    );
+    assert_eq!(starts(&log), 2, "a refused fork starts no second batch");
 }
 
 /// Whatever the interpreter prints before answering (a sitecustomize, a
