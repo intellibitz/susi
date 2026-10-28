@@ -312,6 +312,11 @@ only, P0 before P1, smaller first, and **scope-disjoint** within a batch: two
 workers editing the same tree would only conflict at merge. `--roadmap VC-…`
 narrows a batch to one vector.
 
+Every susi workflow runs this way. Mandate 61 (in `.agents/identity.json`,
+compiled into the genome, and mirrored in `AGENTS.md`) requires agents to start
+work with `susi harness plan` and `run`, not by hand-running `workflow finish`,
+`tasks claim` or `tasks close`.
+
 ## Self-build scorecard
 
 The RSI scorecard reads phases git can prove and lifecycle facts git cannot.
