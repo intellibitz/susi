@@ -304,6 +304,69 @@ fn the_windows_build_caches_its_dependencies() {
 }
 
 #[test]
+fn a_job_sharing_a_test_cache_shares_its_profile() {
+    // rust-cache keys on CARGO_* variables. The merge gate restored the `lint`
+    // entry without test.yml's CARGO_PROFILE_DEV_DEBUG, so the key never
+    // matched and every gated merge compiled cold (about 8 min, the whole
+    // serialized merge queue waiting) against about 30 s of clippy warm.
+    let test = read(".github/workflows/test.yml");
+    let profile: Vec<String> = code(&test)
+        .split("\njobs:")
+        .next()
+        .unwrap()
+        .split("\nenv:")
+        .nth(1)
+        .expect("test.yml sets a workflow env")
+        .lines()
+        .take_while(|l| l.starts_with("  ") || l.trim().is_empty())
+        .filter(|l| l.trim_start().starts_with("CARGO_"))
+        .map(|l| l.trim().to_string())
+        .collect();
+    assert!(
+        profile
+            .iter()
+            .any(|l| l.starts_with("CARGO_PROFILE_DEV_DEBUG:")),
+        "test.yml's workflow env sets the dev profile: {profile:?}"
+    );
+    let keys: Vec<String> = jobs(&test)
+        .iter()
+        .flat_map(|j| {
+            j.body
+                .lines()
+                .map(str::trim)
+                .map(String::from)
+                .collect::<Vec<_>>()
+        })
+        .filter(|l| l.starts_with("shared-key:"))
+        .collect();
+    for (name, text) in workflows() {
+        if name == "test.yml" {
+            continue;
+        }
+        for job in jobs(&text) {
+            let shares = job
+                .body
+                .lines()
+                .map(str::trim)
+                .any(|l| keys.iter().any(|k| k == l));
+            if !shares {
+                continue;
+            }
+            for var in &profile {
+                assert!(
+                    job.body
+                        .lines()
+                        .any(|l| l.trim().split(" #").next() == Some(var.as_str())),
+                    "{name}: job `{}` restores a test.yml cache but does not set `{var}`; \
+                     rust-cache keys on CARGO_* variables, so it never gets a warm entry",
+                    job.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn every_test_workflow_job_is_bounded() {
     let text = read(".github/workflows/test.yml");
     for j in jobs(&text) {
