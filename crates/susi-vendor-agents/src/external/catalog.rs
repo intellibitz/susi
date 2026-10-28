@@ -481,35 +481,50 @@ pub(super) fn with_scan_verdicts_for_test<T>(
 }
 
 /// The batch probe. One interpreter starts, then forks a fresh child per
-/// module. The child leaves the batch function and runs, at the top level of
-/// the script, exactly what the single probe ran: `import X` (as source, so
-/// the import statement's own rules apply). An import that succeeds ends the
-/// script, so it exits the way `python -c "import X"` would (atexit, threads
-/// left running, PYTHONINSPECT); a SystemExit keeps its code; any other error
-/// exits 1 at once, as the single probe's traceback did, without the
-/// interpreter shutdown that cost about 30 ms for each framework not installed. The parent imports nothing a file in the
-/// working directory could stand in for (`os` and `sys` are loaded at
-/// startup, `time` is built in). The child's output goes to the null device,
-/// so no import can forge or hide an answer; the parent reports each one on a
-/// line of its own, tagged with a token the modules cannot know, and kills a
-/// child that runs past the per-import bound. A fork that fails ends the
-/// script before the module's `begin`, so that module and the rest get the
-/// single probe.
-const BATCH_SCRIPT: &str = "import os, sys, time
-token, bound = sys.argv[1], float(sys.argv[2])
+/// module. The child empties `__main__` of the batch's names and runs there
+/// exactly what the single probe ran: `import X` (as source, so the import
+/// statement's own rules apply), with `sys.argv` as `-c` sets it and no
+/// descriptor beyond 0-2. An import that succeeds ends the script, so it exits
+/// the way `python -c "import X"` would (atexit, threads left running,
+/// PYTHONINSPECT); a SystemExit keeps its code. Any other error exits 1 at
+/// once, skipping the interpreter shutdown that cost about 30 ms for each
+/// framework not installed: an import that fails is not importable here even
+/// where `python -c` would then hang in its shutdown (a non-daemon thread) or
+/// exit 0 from it (an atexit hook). What is left different is accepted: the
+/// child's output goes to the null device rather than a pipe, and
+/// `sys.orig_argv` is the batch's.
+///
+/// The parent imports nothing a file in the working directory could stand in
+/// for (`os` and `sys` are loaded at startup, `time` is built in). No import
+/// can forge or hide an answer: the parent reports each one on a line of its
+/// own, tagged with a token the modules cannot know, and kills a child that
+/// runs past the per-import bound. It announces each module before forking
+/// it, so no import runs before the caller knows it is in flight; a fork that
+/// fails is reported as `nofork`, and that module and the rest get the single
+/// probe. The batch sits in a process group of its own, which a terminal's
+/// Ctrl-C does not reach, so it watches its parent instead: once the caller is
+/// gone, it kills the import in flight and exits.
+pub(super) const BATCH_SCRIPT: &str = "import os, sys, time
+token, bound, caller = sys.argv[1], float(sys.argv[2]), os.getppid()
 def say(kind, m):
     sys.stdout.write('\\n%s %s %s\\n' % (token, kind, m))
     sys.stdout.flush()
 def batch():
     for m in sys.argv[3:]:
-        pid = os.fork()
+        say('begin', m)
+        try:
+            pid = os.fork()
+        except OSError:
+            say('nofork', m)
+            return None
         if pid == 0:
             null = os.open(os.devnull, os.O_RDWR)
             for fd in (0, 1, 2):
                 os.dup2(null, fd)
+            if null > 2:
+                os.close(null)
             sys.argv = ['-c']
             return m
-        say('begin', m)
         deadline = time.monotonic() + bound
         while True:
             done, status = os.waitpid(pid, os.WNOHANG)
@@ -517,21 +532,27 @@ def batch():
                 ok = os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
                 say('ok' if ok else 'fail', m)
                 break
-            if time.monotonic() > deadline:
+            if time.monotonic() > deadline or os.getppid() != caller:
                 os.kill(pid, 9)
                 os.waitpid(pid, 0)
+                if os.getppid() != caller:
+                    os._exit(1)
                 say('timeout', m)
                 break
             time.sleep(0.002)
     say('done', '-')
-child = batch()
-if child is not None:
+def run(m, main=globals(), _exit=os._exit):
+    for name in [n for n in main if not n.startswith('__')]:
+        del main[name]
     try:
-        exec('import ' + child, {})
+        exec('import ' + m, main)
     except SystemExit:
         raise
     except BaseException:
-        os._exit(1)
+        _exit(1)
+child = batch()
+if child is not None:
+    run(child)
 ";
 
 /// How one batch interpreter ended.
@@ -541,9 +562,10 @@ enum BatchEnd {
     /// The interpreter stopped answering while this module was being probed;
     /// it was killed, and the modules after it still need a batch.
     Stuck(String),
-    /// The interpreter ended without finishing (a fork failed, an import
-    /// killed it, it could not start). The module it was probing, if any, is
-    /// left to the single probe.
+    /// The interpreter ended without finishing. An import that killed it names
+    /// its module, which is left to the single probe while the rest get a new
+    /// batch; `None` (a fork refused, no interpreter at all) leaves everything
+    /// undecided to the single probe.
     Died(Option<String>),
 }
 
@@ -616,7 +638,8 @@ fn run_import_batch(
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     // Its own process group, so an interpreter that stopped answering is
-    // killed with the import it was waiting on.
+    // killed with the import it was waiting on. A Ctrl-C no longer reaches
+    // it; the script stops when this process is gone instead.
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -672,6 +695,8 @@ fn run_import_batch(
                         current = None;
                         deadline = Instant::now() + bound;
                     }
+                    // A refused fork would be refused again: no restart.
+                    "nofork" if current.as_deref() == Some(module) => break BatchEnd::Died(None),
                     "done" => break BatchEnd::Done,
                     _ => {}
                 }
@@ -692,13 +717,17 @@ fn run_import_batch(
             let _ = child.wait();
         }
         // The import in flight has no parent watching its bound any more.
+        // The group kill also ends any process an earlier import of this batch
+        // left in the group, which the single probe would have left running;
+        // no framework the catalog ships starts one when imported.
         BatchEnd::Stuck(_) | BatchEnd::Died(_) => kill_batch(&mut child),
     }
     end
 }
 
-/// Kill a batch interpreter's whole process group (the interpreter and the
-/// import it forked), then reap the interpreter.
+/// Kill a batch interpreter's whole process group (the interpreter, the import
+/// it forked, and anything an import left in the group), then reap the
+/// interpreter.
 #[allow(unsafe_code)]
 fn kill_batch(child: &mut std::process::Child) {
     #[cfg(unix)]
