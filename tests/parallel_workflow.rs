@@ -131,6 +131,7 @@ impl World {
             "ci-changed-crates.sh",
             "check-hermetic-tests.sh",
             "posix-compat.sh",
+            "target-guard.sh",
         ] {
             std::fs::copy(
                 Path::new(env!("CARGO_MANIFEST_DIR"))

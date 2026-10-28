@@ -1923,10 +1923,29 @@ pub fn ensure_synced_for(ws: &Path, claiming: Option<&str>) -> EaiResult<()> {
     }
     match n.parse::<u64>() {
         Ok(0) | Err(_) => Ok(()),
-        Ok(n) => Err(EaiError::config(format!(
-            "claim refused: this worktree is {n} commit(s) behind origin/main. \
-             Sync first: `git merge origin/main` (then re-run the claim)"
-        ))),
+        Ok(n) => {
+            // In a busy swarm main moves between an agent's sync and its
+            // claim most of the time, and every refusal was a manual
+            // merge-and-retry loop. A clean tree whose merge with main has no
+            // conflict is merged here, exactly as the advice below would have
+            // had the agent do; anything else is still the agent's call.
+            let dirty = git(ws, &["status", "--porcelain", "--untracked-files=no"])?;
+            if dirty.trim().is_empty()
+                && git(ws, &["merge-tree", "--write-tree", "HEAD", "origin/main"]).is_ok()
+            {
+                if git(ws, &["merge", "--no-edit", "--quiet", "origin/main"]).is_ok() {
+                    eprintln!(
+                        "merged origin/main ({n} commit(s)) before claiming: the merge was clean"
+                    );
+                    return Ok(());
+                }
+                let _ = git(ws, &["merge", "--abort"]);
+            }
+            Err(EaiError::config(format!(
+                "claim refused: this worktree is {n} commit(s) behind origin/main. \
+                 Sync first: `git merge origin/main` (then re-run the claim)"
+            )))
+        }
     }
 }
 

@@ -585,10 +585,11 @@ fn a_tested_branch_missing_current_main_is_resynced_not_merged_or_failed() {
             f.calls()
         );
         // A token-made update fires no push event — the gate must be
-        // dispatched or the resynced head is never tested.
+        // dispatched or the resynced head is never tested. It is the branch
+        // gate a push would have run, not the full suite.
         assert!(
             f.calls()
-                .contains("workflow run test.yml --repo o/r --ref feat"),
+                .contains("workflow run test.yml --repo o/r --ref feat -f gate=branch"),
             "{}",
             f.calls()
         );
