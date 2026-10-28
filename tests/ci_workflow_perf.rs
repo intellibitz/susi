@@ -231,6 +231,25 @@ fn main_runs_cancel_stale_tail_work() {
 }
 
 #[test]
+fn a_branch_dispatch_never_cancels_the_branch_gate() {
+    // The release dry run dispatches this suite on its branch. In the push run's
+    // group it cancelled the gate auto-merge waits on, and each push cancelled it
+    // back: nine pushes on one PR, not one finished Test run.
+    let text = read(".github/workflows/test.yml");
+    let line = code(&text)
+        .lines()
+        .find(|l| l.trim_start().starts_with("group: test-"))
+        .expect("test.yml declares its concurrency group")
+        .trim()
+        .to_string();
+    assert!(
+        line.contains("github.ref != 'refs/heads/main'")
+            && line.contains("github.event_name == 'workflow_dispatch'"),
+        "test.yml: a dispatch off main must run in its own concurrency group: `{line}`"
+    );
+}
+
+#[test]
 fn every_test_workflow_job_is_bounded() {
     let text = read(".github/workflows/test.yml");
     for j in jobs(&text) {
