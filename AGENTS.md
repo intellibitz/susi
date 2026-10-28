@@ -23,6 +23,12 @@ The agent loop is **atomic per task** (own worktree, always synced with
    never in the primary, never over a `target/` that already holds a build, and
    `SUSI_PRIVATE_TARGET=1` opts out); cargo locks the build directory, so two
    sessions compiling at the same moment wait for each other.
+   **Run `scripts/target-guard.sh` before you run cargo yourself.** Cargo
+   names a workspace crate's build by its path relative to the workspace, so a
+   crate a sibling worktree built last reads as fresh in yours, and your
+   build or test then uses the other branch's code. The guard rebuilds exactly
+   the crates whose content differs (about 2 s). `sync`, the `finish` gate,
+   the pre-push hook and `tasks close` run it for you.
 2. **Sync, then claim one task:** if behind, `git fetch && git merge
    origin/main`; then `susi tasks list` and `susi tasks claim <id>`. One live
    claim at a time. Nobody starts a claimed task.

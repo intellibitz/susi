@@ -353,35 +353,14 @@ fn workflow_script_command(script: &Path, args: &[&str]) -> std::process::Comman
     cmd
 }
 
+/// Git for Windows' POSIX shell ([`susi_gawd::admin::tasks::posix_shell`]).
+/// Probing a bare `bash` here used to find WSL's System32 stub, which cannot
+/// run a Windows-path script, and the `git --exec-path` fallback looked one
+/// directory too shallow, so outside Git Bash no shell was found at all.
 #[cfg(windows)]
 fn windows_posix_shell() -> Option<std::path::PathBuf> {
-    for name in ["sh", "bash"] {
-        let ok = std::process::Command::new(name)
-            .args(["-c", "exit 0"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if ok {
-            return Some(std::path::PathBuf::from(name));
-        }
-    }
-    // `git --exec-path` resolves to <git>/mingw64/libexec/git-core; the
-    // bundled POSIX shell lives in <git>/usr/bin or <git>/bin.
-    let out = std::process::Command::new("git")
-        .arg("--exec-path")
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    for rel in ["../usr/bin/sh.exe", "../bin/sh.exe"] {
-        let candidate = Path::new(&exec_path).join(rel);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    let shell = susi_gawd::admin::tasks::posix_shell("sh");
+    shell.is_absolute().then_some(shell)
 }
 
 #[cfg(test)]
