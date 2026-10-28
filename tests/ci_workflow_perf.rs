@@ -1659,8 +1659,10 @@ fn the_main_suite_scopes_shards_and_e2e_to_the_merge() {
 /// Main's runs queue and a newer merge replaces the pending one, so the run
 /// that starts has absorbed merges whose own runs never ran. Scoped from the
 /// previous merge, an absorbed merge's shards never ran and the run still went
-/// green; the scope must start at main's last green head. The step's own shell
-/// runs here, against a scratch repository and a fake `gh`.
+/// green; the scope must start at main's last green head that ran its suite.
+/// The step's own shell runs here, against a scratch repository, a fake `gh`
+/// that answers the query the way the API would (so a dropped filter picks
+/// the wrong run), and a `ci-changed-crates.sh` that diffs from `BASE_REF`.
 #[cfg(unix)]
 #[test]
 fn main_scopes_from_the_last_green_head_not_the_previous_merge() {
@@ -1684,92 +1686,228 @@ fn main_scopes_from_the_last_green_head_not_the_previous_merge() {
     let fakes = dir.join("bin");
     std::fs::create_dir_all(&repo).unwrap();
     std::fs::create_dir_all(&fakes).unwrap();
-    let git = |args: &[&str]| {
-        let out = std::process::Command::new("git")
-            .args(args)
-            .current_dir(&repo)
+    // Neither the developer's git configuration (signing, rename settings) nor
+    // a hook's GIT_DIR reaches the scratch repository.
+    let isolated = |cmd: &mut std::process::Command| {
+        cmd.current_dir(&repo)
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_CONFIG_COUNT")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1");
+    };
+    let git = |args: &[&str]| {
+        let mut cmd = std::process::Command::new("git");
+        cmd.args(args)
             .env("GIT_AUTHOR_NAME", "t")
             .env("GIT_AUTHOR_EMAIL", "t@t")
             .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@t")
-            .output()
-            .unwrap();
+            .env("GIT_COMMITTER_EMAIL", "t@t");
+        isolated(&mut cmd);
+        let out = cmd.output().unwrap();
         assert!(out.status.success(), "git {args:?}: {out:?}");
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
-    let commit = |rel: &str, body: &str| {
+    let write = |rel: &str, body: &str| {
         let path = repo.join(rel);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, body).unwrap();
         set_script_executable(&path);
-        git(&["add", "."]);
-        git(&["commit", "--quiet", "-m", rel]);
+    };
+    let commit = |message: &str| {
+        git(&["add", "-A", "."]);
+        git(&["commit", "--quiet", "-m", message]);
         git(&["rev-parse", "HEAD"])
     };
     git(&["init", "--quiet", "-b", "main", "."]);
-    // The machinery the step calls lands with the first green head, so no later
-    // diff touches scripts/: no crate is ever affected, and one shard exists.
-    commit(
+    // The machinery the step calls lands with the first green head. Two
+    // shards; a change under src/ affects `susi`, which root-cli runs.
+    write(
         "scripts/ci-test-shards.sh",
-        "#!/bin/sh\nprintf 'root-cli\\t-p susi\\n'\n",
+        "#!/bin/sh\nprintf 'root-cli\\t-p susi\\nfoundation\\t-p susi-core\\n'\n",
     );
-    let green = commit("scripts/ci-changed-crates.sh", "#!/bin/sh\nexit 0\n");
-    // A merge whose pending run the next merge replaced; it touched CI.
-    let absorbed = commit(".github/workflows/x.yml", "on: push\n");
-    git(&["checkout", "--quiet", "-b", "side", &green]);
-    let side = commit("docs/side.md", "side\n");
+    write(
+        "scripts/ci-changed-crates.sh",
+        "#!/bin/sh\ngit diff --name-only \"${BASE_REF:-origin/main}\" HEAD 2>/dev/null \
+         | grep -q '^src/' && echo susi\nexit 0\n",
+    );
+    let helper: String = (1..=20).map(|i| format!("echo step {i}\n")).collect();
+    write("scripts/helper.sh", &helper);
+    write("src/lib.rs", "pub fn f() {}\n");
+    let c0 = commit("green");
+    write(".github/workflows/x.yml", "on: push\n");
+    let c1 = commit("absorbed: CI machinery");
+    std::fs::create_dir_all(repo.join("tools")).unwrap();
+    git(&["mv", "scripts/helper.sh", "tools/helper.sh"]);
+    let c2 = commit("absorbed: a script moved out of scripts/");
+    write("src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
+    let c3 = commit("absorbed: crate code");
+    git(&["checkout", "--quiet", "-b", "side", &c0]);
+    write("docs/side.md", "side\n");
+    let side = commit("off main's history");
     git(&["checkout", "--quiet", "main"]);
-    // The merge this run is for: docs only.
-    commit("docs/n.md", "n\n");
+    write("docs/n.md", "n\n");
+    let head = commit("the merge this run is for: docs only");
 
-    let affected = |gh: &str| {
-        let path = fakes.join("gh");
-        std::fs::write(&path, format!("#!/bin/sh\n{gh}\n")).unwrap();
-        set_script_executable(&path);
+    let gh = fakes.join("gh");
+    std::fs::write(
+        &gh,
+        r#"#!/bin/sh
+[ "$1" = run ] && [ "$2" = list ] || exit 1
+shift 2
+filter=.
+fields=
+expr=.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --workflow) filter="$filter | map(select(.workflow == \"$2\"))" ;;
+    --branch) filter="$filter | map(select(.headBranch == \"$2\"))" ;;
+    --status) filter="$filter | map(select(.status == \"$2\" or .conclusion == \"$2\"))" ;;
+    --limit) filter="$filter | .[:$2]" ;;
+    --json) fields=$2 ;;
+    --jq) expr=$2 ;;
+    *) exit 1 ;;
+  esac
+  shift 2
+done
+[ -n "$fields" ] && [ -f "$GH_RUNS" ] || exit 1
+jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | split(\",\") | index(\$k))))" "$GH_RUNS" | jq -r "$expr"
+"#,
+    )
+    .unwrap();
+    set_script_executable(&gh);
+
+    // Runs newest first, as the API lists them: (head, branch, event,
+    // conclusion, workflow); `None` is an API that does not answer.
+    type Run = (
+        String,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+    );
+    let scope = |runs: Option<&[Run]>| {
+        let runs_file = dir.join("runs.json");
+        let _ = std::fs::remove_file(&runs_file);
+        if let Some(runs) = runs {
+            let runs: Vec<String> = runs
+                .iter()
+                .map(|(sha, branch, event, conclusion, workflow)| {
+                    let status = if conclusion.is_empty() {
+                        "in_progress"
+                    } else {
+                        "completed"
+                    };
+                    format!(
+                        r#"{{"headSha":"{sha}","headBranch":"{branch}","event":"{event}","status":"{status}","conclusion":"{conclusion}","workflow":"{workflow}"}}"#
+                    )
+                })
+                .collect();
+            std::fs::write(&runs_file, format!("[{}]", runs.join(","))).unwrap();
+        }
         let output = dir.join("output");
         std::fs::write(&output, "").unwrap();
-        let out = std::process::Command::new("bash")
-            .args(["-e", "-c", &script])
-            .current_dir(&repo)
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
+        let mut cmd = std::process::Command::new("bash");
+        cmd.args(["-e", "-c", &script])
             .env("PATH", path_with_prefix(&fakes, true))
             .env("GITHUB_REF", "refs/heads/main")
             .env("GITHUB_OUTPUT", &output)
-            .output()
-            .unwrap();
+            .env("GH_RUNS", &runs_file);
+        isolated(&mut cmd);
+        let out = cmd.output().unwrap();
         assert!(out.status.success(), "the scope step failed: {out:?}");
-        std::fs::read_to_string(&output)
-            .unwrap()
+        let log = String::from_utf8_lossy(&out.stdout).into_owned();
+        let outputs = std::fs::read_to_string(&output).unwrap();
+        let get = |key: &str| {
+            outputs
+                .lines()
+                .find_map(|l| l.strip_prefix(&format!("{key}=")).map(str::to_string))
+                .unwrap_or_else(|| panic!("the scope step writes `{key}`"))
+        };
+        let base = log
             .lines()
-            .find_map(|l| l.strip_prefix("affected=").map(str::to_string))
-            .expect("the scope step writes `affected`")
+            .find_map(|l| l.strip_prefix("scoping against the last green main head: "))
+            .unwrap_or("?")
+            .to_string();
+        (base, get("affected"), get("skip_shards"))
     };
+    let green = |sha: &str| -> Run {
+        (
+            sha.to_string(),
+            "main",
+            "workflow_dispatch",
+            "success",
+            "test.yml",
+        )
+    };
+
+    // Each base, and what the diff from it to HEAD resolves to.
+    let (_, affected, skip) = scope(Some(&[green(&c3)]));
     assert_eq!(
-        affected(&format!("printf '%s\\n' {side} {green}")),
-        "ALL",
-        "the run absorbed a merge that touched CI since the last green head on \
-         main's history: everything runs, even though the run's own merge is docs"
-    );
-    assert_eq!(
-        affected(&format!("printf '%s\\n' {absorbed}")),
-        "NONE",
+        (affected.as_str(), skip.as_str()),
+        ("NONE", r#"["root-cli","foundation"]"#),
         "from a green head whose only successor is docs, no shard is affected"
     );
+    let (_, affected, skip) = scope(Some(&[green(&c2)]));
     assert_eq!(
-        affected(&format!("printf '%s\\n' {side}")),
-        "ALL",
+        (affected.as_str(), skip.as_str()),
+        ("SCOPED", r#"["foundation"]"#),
+        "an absorbed merge changed src/: root-cli runs, though the run's own merge \
+         is docs (scoped from HEAD^1 it would be NONE)"
+    );
+    let (_, affected, _) = scope(Some(&[green(&c1)]));
+    assert_eq!(
+        affected, "ALL",
+        "an absorbed merge moved a file out of scripts/: the path it left is CI \
+         machinery, though rename detection would show only where it went"
+    );
+    let (_, affected, _) = scope(Some(&[green(&c0)]));
+    assert_eq!(affected, "ALL", "an absorbed merge touched .github/");
+
+    // Which run is the base: the newest that ran its suite green on main's
+    // history, never the run's own head, a push, another branch, another
+    // workflow or one still running. Every decoy is newer than the real base,
+    // and each one, taken as the base, scopes NONE.
+    let (base, affected, _) = scope(Some(&[
+        green(&head),
+        (c3.clone(), "main", "push", "success", "test.yml"),
+        (
+            c3.clone(),
+            "feature",
+            "workflow_dispatch",
+            "success",
+            "test.yml",
+        ),
+        (c3.clone(), "main", "workflow_dispatch", "", "test.yml"),
+        (
+            c3.clone(),
+            "main",
+            "workflow_dispatch",
+            "success",
+            "zc-matrix.yml",
+        ),
+        (
+            side.clone(),
+            "main",
+            "workflow_dispatch",
+            "success",
+            "test.yml",
+        ),
+        green(&c2),
+    ]));
+    assert_eq!(base, c2, "the base skipped no decoy");
+    assert_eq!(affected, "SCOPED");
+    let (base, affected, _) = scope(Some(&[green(&side)]));
+    assert_eq!(
+        (base.as_str(), affected.as_str()),
+        ("none", "ALL"),
         "a green head that is not on main's history is no base"
     );
-    assert_eq!(
-        affected("exit 1"),
-        "ALL",
-        "no answer from the API proves everything"
-    );
+    let (_, affected, _) = scope(Some(&[]));
+    assert_eq!(affected, "ALL", "no green base proves everything");
+    let (_, affected, _) = scope(None);
+    assert_eq!(affected, "ALL", "no answer from the API proves everything");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
