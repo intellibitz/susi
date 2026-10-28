@@ -90,6 +90,10 @@ struct Attempt {
     attempt: u32,
     model: String,
     price: ModelPrice,
+    /// The provider the model resolves to, recorded on every row so the
+    /// ledger's per-provider views (cooldown, spend) see the real provider
+    /// even when one gateway routes to several.
+    provider: String,
 }
 
 /// Build the gateway router.
@@ -180,12 +184,16 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
         body
     };
 
+    let provider = crate::providers::Registry::builtin()
+        .resolve(model)
+        .map_or_else(|| state.provider.clone(), |resolved| resolved.provider);
     let attempt = Attempt {
         mission,
         task,
         attempt,
         model: model.to_string(),
         price,
+        provider,
     };
 
     let cache_key = ResponseCache::compute_key(&request);
@@ -197,7 +205,7 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
                 task: attempt.task.clone(),
                 attempt: attempt.attempt,
                 model: attempt.model.clone(),
-                provider: state.provider.clone(),
+                provider: attempt.provider.clone(),
                 usage,
                 price: attempt.price,
                 started_unix_ms: now_ms(),
@@ -224,6 +232,11 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
             );
             return res;
         }
+    }
+
+    let wait = crate::ratelimit::Pacer::global().reserve(&attempt.provider, now_ms(), None);
+    if wait > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
     }
 
     if streaming {
@@ -303,6 +316,7 @@ async fn buffered_upstream(
         attempt,
         model,
         price,
+        ..
     } = attempt;
     let started_unix_ms = now_ms();
     let timeout_secs = state.timeout_secs;
@@ -373,7 +387,6 @@ async fn buffered_upstream(
             record_failure(
                 &state.ledger_path,
                 &tag,
-                &state.provider,
                 started_unix_ms,
                 transport_failure(&message),
             );
@@ -387,6 +400,7 @@ async fn buffered_upstream(
         }
     };
     let status = call.status;
+    pause_on_retry_after(&tag.provider, status, call.header("retry-after"));
     // The cache marks the response when it served the answer; the provider was
     // not called, so the row must not charge for it.
     let cached = call.header("x-susi-cache-key").is_some();
@@ -402,13 +416,7 @@ async fn buffered_upstream(
     };
     let ended_unix_ms = now_ms();
     if let Some(class) = provider_failure(status, &response_bytes) {
-        record_failure(
-            &state.ledger_path,
-            &tag,
-            &state.provider,
-            started_unix_ms,
-            class,
-        );
+        record_failure(&state.ledger_path, &tag, started_unix_ms, class);
     }
 
     let response_bytes = if (200..300).contains(&status) && is_anthropic {
@@ -443,12 +451,17 @@ async fn buffered_upstream(
                 );
             }
         };
+        crate::ratelimit::Pacer::global().record_tokens(
+            &tag.provider,
+            ended_unix_ms,
+            usage.input.saturating_add(usage.output),
+        );
         let entry = LedgerEntry::settle(Dispatch {
             mission,
             task,
             attempt,
             model,
-            provider: state.provider.clone(),
+            provider: tag.provider.clone(),
             usage,
             price,
             started_unix_ms,
@@ -483,6 +496,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         attempt,
         model,
         price,
+        ..
     } = attempt;
     let started_unix_ms = now_ms();
     let route = match crate::router::resolve_route(
@@ -499,7 +513,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
     let target_url = route.url.clone();
     let route_headers = route.headers.clone();
     let timeout_secs = state.timeout_secs;
-    let provider = state.provider.clone();
+    let provider = tag.provider.clone();
     let ledger_path = state.ledger_path.clone();
 
     let outgoing_body = if route.model_id != model {
@@ -534,7 +548,6 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
                 record_failure(
                     &ledger_path,
                     &tag,
-                    &provider,
                     started_unix_ms,
                     transport_failure(&message),
                 );
@@ -543,6 +556,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
             }
         };
         let status = call.status;
+        pause_on_retry_after(&provider, status, call.header("retry-after"));
         let content_type = call
             .header("content-type")
             .unwrap_or("text/event-stream")
@@ -553,7 +567,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         if !(200..300).contains(&status) {
             let bytes = call.into_bytes(MAX_RESPONSE_BYTES).unwrap_or_default();
             if let Some(class) = provider_failure(status, &bytes) {
-                record_failure(&ledger_path, &tag, &provider, started_unix_ms, class);
+                record_failure(&ledger_path, &tag, started_unix_ms, class);
             }
             let _ = chunk_tx.blocking_send(bytes);
             return;
@@ -581,6 +595,12 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         }
         match usage {
             Some(usage) => {
+                let ended_unix_ms = now_ms();
+                crate::ratelimit::Pacer::global().record_tokens(
+                    &provider,
+                    ended_unix_ms,
+                    usage.input.saturating_add(usage.output),
+                );
                 let entry = LedgerEntry::settle(Dispatch {
                     mission,
                     task,
@@ -590,7 +610,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
                     usage,
                     price,
                     started_unix_ms,
-                    ended_unix_ms: now_ms(),
+                    ended_unix_ms,
                     outcome: Outcome::Completed,
                 });
                 if let Err(error) = append_entry(&ledger_path, &entry) {
@@ -651,6 +671,17 @@ fn provider_failure(status: u16, body: &[u8]) -> Option<FailureClass> {
     }
 }
 
+/// Pause every call to `provider` for as long as a 429's `Retry-After` asks,
+/// so the agents sharing this gateway stop hitting the limit together.
+fn pause_on_retry_after(provider: &str, status: u16, retry_after: Option<&str>) {
+    if status != 429 {
+        return;
+    }
+    if let Some(wait) = retry_after.and_then(crate::ratelimit::retry_after_ms) {
+        crate::ratelimit::Pacer::global().pause(provider, now_ms(), wait);
+    }
+}
+
 /// The failure class of a call that never got an answer.
 fn transport_failure(message: &str) -> FailureClass {
     let text = message.to_ascii_lowercase();
@@ -666,7 +697,6 @@ fn transport_failure(message: &str) -> FailureClass {
 fn record_failure(
     ledger_path: &Path,
     attempt: &Attempt,
-    provider: &str,
     started_unix_ms: u64,
     class: FailureClass,
 ) {
@@ -675,7 +705,7 @@ fn record_failure(
         task: attempt.task.clone(),
         attempt: attempt.attempt,
         model: attempt.model.clone(),
-        provider: provider.to_string(),
+        provider: attempt.provider.clone(),
         usage: TokenUsage::default(),
         price: attempt.price,
         started_unix_ms,
@@ -787,7 +817,9 @@ mod tests {
             catalogue: catalogue(),
             ledger_path,
             upstream_chat_url: format!("http://{upstream}/v1/chat/completions"),
-            provider: "deepseek".into(),
+            // As `susi harness gateway` sets it: a name for the gateway, not a
+            // provider. Rows must still carry the model's own provider.
+            provider: "susi".into(),
             api_key: Some("test-key".into()),
             timeout_secs: 10,
             max_output_tokens: None,
@@ -979,6 +1011,23 @@ mod tests {
             Outcome::ModelFailed {
                 class: FailureClass::Other
             }
+        );
+    }
+
+    #[test]
+    fn a_429_with_retry_after_pauses_its_provider_only() {
+        // A provider name no other test uses: the pacer is process-wide.
+        let limits = Some(crate::ratelimit::Limits::default());
+        pause_on_retry_after("pause-test-provider", 429, Some("3"));
+        let wait =
+            crate::ratelimit::Pacer::global().reserve("pause-test-provider", now_ms(), limits);
+        assert!((2_000..=3_000).contains(&wait), "waited {wait}ms");
+        // Another status, or no header, pauses nothing.
+        pause_on_retry_after("pause-test-other", 503, Some("30"));
+        pause_on_retry_after("pause-test-other", 429, None);
+        assert_eq!(
+            crate::ratelimit::Pacer::global().reserve("pause-test-other", now_ms(), limits),
+            0
         );
     }
 

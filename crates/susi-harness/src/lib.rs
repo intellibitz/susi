@@ -84,6 +84,7 @@ pub mod policy;
 pub mod pricing;
 pub mod providers;
 pub mod queue;
+pub mod ratelimit;
 pub mod scheduler;
 pub mod secrets;
 pub mod supervisor;

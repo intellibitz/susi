@@ -424,7 +424,8 @@ fn plan_queue(
     };
     let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
     alert_topups(&budgets);
-    let workers = resolve_fleet(workers, || default_catalogue(cwd), &budgets)?.ladder;
+    let latency = measured_latency(&cwd.join("out/ledger.jsonl"));
+    let workers = resolve_fleet(workers, || default_catalogue(cwd), &budgets, &latency)?.ladder;
     let claimed = claimed_ids(&repo);
     let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
@@ -571,7 +572,13 @@ fn author(
         vector: format!("{vector} {title}"),
         target: target.to_string(),
         packages: facts.packages.iter().cloned().collect(),
-        workers: resolve_fleet(workers, || default_catalogue(cwd), &budgets)?.ladder,
+        workers: resolve_fleet(
+            workers,
+            || default_catalogue(cwd),
+            &budgets,
+            &measured_latency(&cwd.join("out/ledger.jsonl")),
+        )?
+        .ladder,
         narrative: tail(narrative, 4000),
         max_tasks,
         retry_hint: None,
@@ -748,7 +755,12 @@ fn run_mission(
     // Every named worker stays on the ladder. The task's own model is moved to
     // the front by the adapter, so a task assigned a non-default worker still
     // has a stronger model to escalate to when it does not pass.
-    let fleet = resolve_fleet(workers, || Ok(catalogue.clone()), budgets)?;
+    let fleet = resolve_fleet(
+        workers,
+        || Ok(catalogue.clone()),
+        budgets,
+        &measured_latency(ledger),
+    )?;
     let model = resolve_model(model, &fleet)?;
     eprintln!(
         "fleet: orchestrator {model}; ladder {}",
@@ -850,6 +862,7 @@ fn resolve_fleet(
     spec: &str,
     catalogue: impl FnOnce() -> Result<PriceCatalogue>,
     budgets: &Budgets,
+    latency: &BTreeMap<String, u64>,
 ) -> Result<Fleet> {
     let registry = Registry::builtin();
     if spec.trim() != "auto" {
@@ -887,6 +900,7 @@ fn resolve_fleet(
         &ProviderGate {
             active: &active,
             use_first: &|provider| budgets.use_first(provider),
+            latency: &|model| latency.get(model).copied(),
         },
     );
     let ladder = auto.ladder();
@@ -920,6 +934,13 @@ fn resolve_model(model: &str, fleet: &Fleet) -> Result<String> {
         .orchestrator
         .clone()
         .context("--model auto found no orchestrator in the fleet")
+}
+
+/// Each model's measured mean provider-call latency, from the ledger. A
+/// ledger that cannot be read has measured nothing.
+fn measured_latency(ledger: &Path) -> BTreeMap<String, u64> {
+    let entries = susi_harness::ledger::read_entries(ledger).unwrap_or_default();
+    susi_harness::policy::latencies(&entries)
 }
 
 /// The top-up alert as text, or a plain statement when nothing needs one.
@@ -991,6 +1012,7 @@ fn models_available(cwd: &Path) -> Result<()> {
         susi_harness::policy::UsageProfile::agent(),
     );
     let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
+    let latency = measured_latency(&cwd.join("out/ledger.jsonl"));
     let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
     let auto = catalogue.as_ref().map(|catalogue| {
         registry.auto_config_ranked(
@@ -1000,6 +1022,7 @@ fn models_available(cwd: &Path) -> Result<()> {
             &ProviderGate {
                 active: &active,
                 use_first: &|provider| budgets.use_first(provider),
+                latency: &|model| latency.get(model).copied(),
             },
         )
     });
@@ -1011,6 +1034,7 @@ fn models_available(cwd: &Path) -> Result<()> {
             "orchestrator": auto.orchestrator,
             "workers": auto.workers,
             "use_first": auto.use_first,
+            "latency_ms": &latency,
             "rescue": auto.rescue,
             "unpriced": auto.unpriced,
             "ladder": auto.ladder(),

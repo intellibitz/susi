@@ -11,6 +11,16 @@
 //! variable and never its value. Lookups are cached for the life of the
 //! process, so a command that checks several providers reads the registry once
 //! per variable.
+//!
+//! A provider that publishes a fixed key form ([`ProviderRecord::key_prefix`],
+//! `sk-ant-` for Anthropic) gets only a value of that form. A scope holding
+//! something else under the name (a token for another tool, a stale paste) is
+//! passed over for the next scope, with a one-line warning that names the
+//! variable and the scope, never the value. Without that, one wrong value in
+//! the user scope hides a good key in the machine scope and every call fails
+//! with 401.
+//!
+//! [`ProviderRecord::key_prefix`]: crate::providers::ProviderRecord::key_prefix
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -56,11 +66,51 @@ pub fn lookup(name: &str) -> Option<ApiKey> {
     if let Some(found) = cache.get(name) {
         return found.clone();
     }
-    let found = process_value(name)
-        .or_else(|| registry_value(name))
-        .map(ApiKey);
+    let shape = crate::providers::Registry::builtin().key_prefix_for(name);
+    let found = first_fitting(name, shape).map(ApiKey);
     cache.insert(name.to_string(), found.clone());
     found
+}
+
+/// The first scope's value for `name` that has the provider's key form, when
+/// `shape` names one, warning about each scope passed over.
+fn first_fitting(name: &str, shape: Option<(&str, &str)>) -> Option<String> {
+    let mut passed_over = Vec::new();
+    for scope in SCOPES {
+        let Some(value) = scope_value(name, scope) else {
+            continue;
+        };
+        match shape {
+            Some((_, prefix)) if !value.starts_with(prefix) => passed_over.push(scope),
+            _ => {
+                if let Some((provider, prefix)) = shape {
+                    for skipped in &passed_over {
+                        eprintln!(
+                            "⚠ {name} in the {skipped} environment is not a key for {provider} (it does not start with {prefix}); using the {scope} environment's"
+                        );
+                    }
+                }
+                return Some(value);
+            }
+        }
+    }
+    if let (Some((provider, prefix)), false) = (shape, passed_over.is_empty()) {
+        eprintln!(
+            "⚠ {name} holds no key for {provider} in any environment (none starts with {prefix}); {provider} is treated as having no key"
+        );
+    }
+    None
+}
+
+/// Where a variable is read from, in order.
+const SCOPES: [&str; 3] = ["process", "user", "machine"];
+
+fn scope_value(name: &str, scope: &str) -> Option<String> {
+    match scope {
+        "process" => process_value(name),
+        "user" => registry_value(name, "User"),
+        _ => registry_value(name, "Machine"),
+    }
 }
 
 /// A harness setting that is not a secret (a budget, an expiry date), read
@@ -94,39 +144,32 @@ fn process_value(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// The value in the Windows user scope, then the machine scope.
+/// The value in one Windows scope (`User` or `Machine`).
 ///
 /// PowerShell reads the scope through the same API the OS uses for its own
 /// environment, so the value is expanded the way a new process would see it.
 /// The variable name is validated by [`valid_name`] before it reaches the
 /// script, and the script is passed as one argument with no shell.
 #[cfg(windows)]
-fn registry_value(name: &str) -> Option<String> {
+fn registry_value(name: &str, scope: &str) -> Option<String> {
     use std::process::{Command, Stdio};
-    for scope in ["User", "Machine"] {
-        let script = format!("[Environment]::GetEnvironmentVariable('{name}','{scope}')");
-        let Ok(output) = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-        else {
-            return None;
-        };
-        if !output.status.success() {
-            continue;
-        }
-        let value = String::from_utf8(output.stdout).ok()?;
-        let value = value.trim();
-        if !value.is_empty() {
-            return Some(value.to_string());
-        }
+    let script = format!("[Environment]::GetEnvironmentVariable('{name}','{scope}')");
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
-    None
+    let value = String::from_utf8(output.stdout).ok()?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 #[cfg(not(windows))]
-fn registry_value(_name: &str) -> Option<String> {
+fn registry_value(_name: &str, _scope: &str) -> Option<String> {
     None
 }
 
@@ -151,6 +194,40 @@ mod tests {
         assert!(!valid_name("KEY VALUE"));
         assert!(valid_name("DEEPSEEK_API_KEY"));
         assert!(lookup("bad name").is_none());
+    }
+
+    #[test]
+    fn the_registry_names_the_anthropic_key_form_only() {
+        let registry = crate::providers::Registry::builtin();
+        assert_eq!(
+            registry.key_prefix_for("ANTHROPIC_API_KEY"),
+            Some(("anthropic", "sk-ant-"))
+        );
+        assert_eq!(registry.key_prefix_for("DEEPSEEK_API_KEY"), None);
+        assert_eq!(
+            registry.key_prefix_for("SUSI_HARNESS_BUDGET_ANTHROPIC_USD"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_value_of_the_wrong_form_is_passed_over() {
+        // The process scope is the one a test can set; a wrong form there is
+        // skipped. A name no other scope sets then has no key at all.
+        let name = "SUSI_TEST_SHAPED_KEY_0001";
+        std::env::set_var(name, "not-the-right-form");
+        assert_eq!(first_fitting(name, Some(("example", "sk-ex-"))), None);
+        assert_eq!(
+            first_fitting(name, None).as_deref(),
+            Some("not-the-right-form"),
+            "a provider with no published form takes any value"
+        );
+        std::env::set_var(name, "sk-ex-123");
+        assert_eq!(
+            first_fitting(name, Some(("example", "sk-ex-"))).as_deref(),
+            Some("sk-ex-123")
+        );
+        std::env::remove_var(name);
     }
 
     #[test]

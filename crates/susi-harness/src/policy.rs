@@ -83,6 +83,10 @@ pub struct ModelHistory {
     pub input: u64,
     /// Of those, input tokens the provider served from its prompt cache.
     pub cache_hit: u64,
+    /// Wall time of the completed provider calls, in milliseconds, summed.
+    pub latency_ms: u64,
+    /// How many completed provider calls `latency_ms` sums.
+    pub timed_calls: u64,
 }
 
 /// Attempts a model needs on record before its failure rate can demote it.
@@ -100,6 +104,13 @@ impl ModelHistory {
     #[must_use]
     pub const fn cache_share_permille(self) -> Option<u64> {
         self.cache_hit.saturating_mul(1000).checked_div(self.input)
+    }
+
+    /// The mean wall time of one completed provider call, once any is on
+    /// record. A call the gateway answered from its own cache is not timed.
+    #[must_use]
+    pub const fn mean_latency_ms(self) -> Option<u64> {
+        self.latency_ms.checked_div(self.timed_calls)
     }
 
     /// Whether the record shows the model failing most of its attempts:
@@ -141,6 +152,11 @@ pub fn history(entries: &[LedgerEntry]) -> BTreeMap<String, ModelHistory> {
         if !entry.cached {
             slot.input = slot.input.saturating_add(entry.usage.input);
             slot.cache_hit = slot.cache_hit.saturating_add(entry.usage.cache_hit);
+            if entry.outcome == Outcome::Completed {
+                let took = entry.ended_unix_ms.saturating_sub(entry.started_unix_ms);
+                slot.latency_ms = slot.latency_ms.saturating_add(took);
+                slot.timed_calls = slot.timed_calls.saturating_add(1);
+            }
         }
     }
     let mut history: BTreeMap<String, ModelHistory> = BTreeMap::new();
@@ -154,8 +170,19 @@ pub fn history(entries: &[LedgerEntry]) -> BTreeMap<String, ModelHistory> {
             .unwrap_or(MicroUsd::from_micros(u64::MAX));
         slot.input = slot.input.saturating_add(attempt.input);
         slot.cache_hit = slot.cache_hit.saturating_add(attempt.cache_hit);
+        slot.latency_ms = slot.latency_ms.saturating_add(attempt.latency_ms);
+        slot.timed_calls = slot.timed_calls.saturating_add(attempt.timed_calls);
     }
     history
+}
+
+/// Each model's mean provider-call latency, from the ledger.
+#[must_use]
+pub fn latencies(entries: &[LedgerEntry]) -> BTreeMap<String, u64> {
+    history(entries)
+        .into_iter()
+        .filter_map(|(model, record)| Some((model, record.mean_latency_ms()?)))
+        .collect()
 }
 
 /// How long a provider failure is remembered for cooling down.
@@ -334,6 +361,9 @@ pub enum FailureKind {
     Timeout,
     /// The agent ran and produced work that did not pass.
     Semantic,
+    /// The prompt did not fit the model's context window. Only a model with
+    /// a larger window can take the task further.
+    ContextOverflow,
     /// The executor itself could not run (spawn, I/O).
     Executor,
 }
@@ -357,6 +387,23 @@ impl FailureKind {
             "504",
         ];
         const TIMEOUT: &[&str] = &["timed out", "timeout", "deadline exceeded"];
+        // How the providers word a prompt that is longer than the window:
+        // OpenAI-compatible `context_length_exceeded` and "maximum context
+        // length", Anthropic "prompt is too long", Gemini "exceeds the
+        // maximum number of tokens" / "input token count".
+        const CONTEXT: &[&str] = &[
+            "context_length_exceeded",
+            "context length",
+            "maximum context",
+            "context window",
+            "prompt is too long",
+            "input is too long",
+            "exceeds the maximum number of tokens",
+            "input token count",
+        ];
+        if CONTEXT.iter().any(|needle| text.contains(needle)) {
+            return Self::ContextOverflow;
+        }
         if TIMEOUT.iter().any(|needle| text.contains(needle)) {
             return Self::Timeout;
         }
@@ -432,6 +479,7 @@ pub struct Ladder {
     pending_same_model: bool,
     signatures: BTreeMap<String, String>,
     stuck: Option<String>,
+    contexts: BTreeMap<String, u64>,
 }
 
 impl Ladder {
@@ -447,7 +495,17 @@ impl Ladder {
             pending_same_model: false,
             signatures: BTreeMap::new(),
             stuck: None,
+            contexts: BTreeMap::new(),
         }
+    }
+
+    /// Tell the ladder each model's context window, in tokens, so a prompt
+    /// that overflowed one model goes next to a model that can hold more. A
+    /// model left out has an unknown window and is not skipped.
+    #[must_use]
+    pub fn with_contexts(mut self, contexts: BTreeMap<String, u64>) -> Self {
+        self.contexts = contexts;
+        self
     }
 
     /// Build a ladder that tries the candidates in the given order.
@@ -500,6 +558,35 @@ impl Ladder {
             self.stuck = Some("executor".to_string());
             return;
         }
+        if kind == FailureKind::ContextOverflow {
+            // Retrying, or trying a model with no more room, would fail the
+            // same way. Skip to the next model with a larger window, in the
+            // ladder's order; a model with an unknown window may be larger.
+            let held = self.contexts.get(model).copied().unwrap_or(0);
+            let next = self
+                .ranked
+                .iter()
+                .enumerate()
+                .skip(self.index.saturating_add(1))
+                .find(|(_, candidate)| {
+                    self.contexts
+                        .get(candidate.as_str())
+                        .is_none_or(|window| *window > held)
+                })
+                .map(|(position, _)| position);
+            match next {
+                Some(position) => {
+                    self.index = position;
+                    self.same_model = 0;
+                }
+                None => {
+                    self.stuck = Some(format!(
+                        "context: no model on the ladder has a larger window than {model}"
+                    ));
+                }
+            }
+            return;
+        }
         let signature = signature(kind, message);
         if self.policy.stop_on_repeat {
             match self.signatures.get(&signature) {
@@ -536,6 +623,7 @@ pub fn signature(kind: FailureKind, message: &str) -> String {
         FailureKind::Transient => "transient",
         FailureKind::Timeout => "timeout",
         FailureKind::Semantic => "semantic",
+        FailureKind::ContextOverflow => "context",
         FailureKind::Executor => "executor",
     };
     if kind == FailureKind::Timeout {
@@ -716,6 +804,88 @@ mod tests {
 
     fn failed(class: FailureClass) -> Outcome {
         Outcome::ModelFailed { class }
+    }
+
+    #[test]
+    fn provider_context_errors_are_classified_as_overflow() {
+        for message in [
+            "400: This model's maximum context length is 128000 tokens",
+            r#"{"error":{"code":"context_length_exceeded"}}"#,
+            "prompt is too long: 210000 tokens > 200000 maximum",
+            "The input token count (1100000) exceeds the maximum number of tokens allowed",
+        ] {
+            assert_eq!(
+                FailureKind::classify(message),
+                FailureKind::ContextOverflow,
+                "{message}"
+            );
+        }
+        assert_eq!(
+            FailureKind::classify("Rate limit reached for tokens per min"),
+            FailureKind::Transient
+        );
+    }
+
+    #[test]
+    fn a_context_overflow_skips_to_a_larger_window() {
+        let ranked: Vec<String> = ["small", "also-small", "unknown", "large"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let contexts: BTreeMap<String, u64> = [
+            ("small".to_string(), 128_000),
+            ("also-small".to_string(), 128_000),
+            ("large".to_string(), 1_000_000),
+        ]
+        .into_iter()
+        .collect();
+        let mut ladder =
+            Ladder::new(ranked.clone(), Policy::default()).with_contexts(contexts.clone());
+        let NextAttempt::Attempt(first) = ladder.next_attempt() else {
+            panic!("expected an attempt");
+        };
+        ladder.record(&first.model, FailureKind::ContextOverflow, "context length");
+        let NextAttempt::Attempt(second) = ladder.next_attempt() else {
+            panic!("expected an attempt");
+        };
+        // `also-small` holds no more, so it is skipped; an unknown window may.
+        assert_eq!(second.model, "unknown");
+        ladder.record(
+            &second.model,
+            FailureKind::ContextOverflow,
+            "context length",
+        );
+        let NextAttempt::Attempt(third) = ladder.next_attempt() else {
+            panic!("expected an attempt");
+        };
+        assert_eq!(third.model, "large");
+        ladder.record(&third.model, FailureKind::ContextOverflow, "context length");
+        assert!(matches!(
+            ladder.next_attempt(),
+            NextAttempt::Stop(StopReason::Stuck { .. })
+        ));
+    }
+
+    #[test]
+    fn latency_is_the_mean_of_completed_provider_calls() {
+        let timed = |at: u64, took: u64, outcome: Outcome| {
+            let mut entry = row(("T", 1), "m", "p", at, outcome);
+            entry.started_unix_ms = at;
+            entry.ended_unix_ms = at + took;
+            entry
+        };
+        let mut cached = timed(50, 1, Outcome::Completed);
+        cached.cached = true;
+        let entries = vec![
+            timed(0, 300, Outcome::Completed),
+            timed(1_000, 500, Outcome::Completed),
+            // Neither a failure nor a gateway-cache answer is a timed call.
+            timed(2_000, 90_000, failed(FailureClass::Timeout)),
+            cached,
+        ];
+        assert_eq!(history(&entries)["m"].mean_latency_ms(), Some(400));
+        assert_eq!(latencies(&entries).get("m"), Some(&400));
+        assert_eq!(ModelHistory::default().mean_latency_ms(), None);
     }
 
     #[test]

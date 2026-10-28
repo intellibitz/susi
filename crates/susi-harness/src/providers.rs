@@ -174,6 +174,35 @@ pub struct ProviderGate<'a> {
     /// The day the provider's credit expires, when that credit should be
     /// spent before anything else: active, dated and not yet expired.
     pub use_first: &'a dyn Fn(&str) -> Option<u64>,
+    /// A model's measured mean call latency in milliseconds, when the ledger
+    /// has any ([`crate::policy::latencies`]).
+    pub latency: &'a dyn Fn(&str) -> Option<u64>,
+}
+
+/// A price's band. Bands are about 10% wide (each edge is 1.1 times the
+/// last), so prices that close usually share one and a trivial price
+/// difference does not outrank a faster model. Fixed edges keep the order a
+/// total order: two near prices on either side of an edge stay ordered by
+/// price.
+fn cost_band(cost: crate::money::MicroUsd) -> u32 {
+    let cost = u128::from(cost.micros());
+    let mut band = 0;
+    let mut edge: u128 = 1;
+    while edge < cost {
+        edge = edge * 11 / 10 + 1;
+        band += 1;
+    }
+    band
+}
+
+/// Known latency first, fastest first; unmeasured models after them.
+fn by_latency(a: Option<u64>, b: Option<u64>) -> std::cmp::Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
 }
 
 /// A ladder candidate whose position is not yet settled.
@@ -186,6 +215,10 @@ struct Ranked {
     /// The day the provider's credit expires, when it is to be spent first.
     expires: Option<u64>,
     tier: Tier,
+    /// The price band ([`cost_band`]).
+    band: u32,
+    /// Measured mean call latency, in milliseconds.
+    latency: Option<u64>,
 }
 
 impl AutoConfig {
@@ -213,6 +246,10 @@ pub struct ProviderRecord {
     pub endpoint: String,
     /// Environment variables that may hold the key, in priority order.
     pub key_envs: Vec<String>,
+    /// What every key of this provider starts with, when the provider
+    /// publishes a fixed form (`sk-ant-` for Anthropic). A value that does
+    /// not is not this provider's key, and [`crate::secrets`] passes over it.
+    pub key_prefix: Option<String>,
     /// Models known by name.
     pub models: Vec<ModelRecord>,
 }
@@ -248,6 +285,20 @@ pub struct Registry {
 pub const OVERLAY_ENV: &str = "SUSI_HARNESS_PROVIDERS";
 
 impl Registry {
+    /// The key prefix the provider reading the variable `name` requires, when
+    /// one does.
+    #[must_use]
+    pub fn key_prefix_for(&self, name: &str) -> Option<(&str, &str)> {
+        self.providers.iter().find_map(|provider| {
+            let prefix = provider.key_prefix.as_deref()?;
+            provider
+                .key_envs
+                .iter()
+                .any(|env| env == name)
+                .then_some((provider.id.as_str(), prefix))
+        })
+    }
+
     /// The registry in force: the one compiled into the binary, with the
     /// overlay file named by [`OVERLAY_ENV`] merged over it when that variable
     /// is set. A new provider or model is added there, with no rebuild.
@@ -519,6 +570,7 @@ impl Registry {
         let gate = ProviderGate {
             active: provider_active,
             use_first: &|_| None,
+            latency: &|_| None,
         };
         self.auto_config_ranked(key_present, catalogue, profile, &gate)
     }
@@ -584,6 +636,8 @@ impl Registry {
                     context: model.capabilities.context.unwrap_or(0),
                     expires: (gate.use_first)(&provider.id),
                     tier,
+                    band: cost_band(cost),
+                    latency: (gate.latency)(&model.id),
                 };
                 match (ranked.expires, tier) {
                     (Some(_), _) => first.push(ranked),
@@ -597,6 +651,8 @@ impl Registry {
             a.expires
                 .cmp(&b.expires)
                 .then_with(|| b.cache.cmp(&a.cache))
+                .then_with(|| a.band.cmp(&b.band))
+                .then_with(|| by_latency(a.latency, b.latency))
                 .then_with(|| a.cost.cmp(&b.cost))
                 .then_with(|| a.id.cmp(&b.id))
         });
@@ -623,11 +679,14 @@ impl Registry {
         // can take, and the harness re-sends the same prompt on every turn of a
         // task. Budget second. Capability is the third key, and it decides only
         // the rescue tier, where the task is complex and the model must do more.
+        // Within a price band (prices within about 10%), the rescue tier
+        // takes the more capable model, then every tier takes the faster one
+        // by measured latency, then the cheaper by exact price.
         let order = |list: &mut Vec<Ranked>, by_capability: bool| {
             list.sort_by(|a, b| {
                 b.cache
                     .cmp(&a.cache)
-                    .then_with(|| a.cost.cmp(&b.cost))
+                    .then_with(|| a.band.cmp(&b.band))
                     .then_with(|| {
                         if by_capability {
                             b.score
@@ -637,6 +696,8 @@ impl Registry {
                             std::cmp::Ordering::Equal
                         }
                     })
+                    .then_with(|| by_latency(a.latency, b.latency))
+                    .then_with(|| a.cost.cmp(&b.cost))
                     .then_with(|| a.id.cmp(&b.id))
             });
             list.iter()
@@ -736,11 +797,17 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
             models.push(parse_model(record)?);
         }
     }
+    let key_prefix = raw
+        .get("key_prefix")
+        .and_then(Value::as_str)
+        .filter(|prefix| !prefix.is_empty())
+        .map(str::to_string);
     Ok(ProviderRecord {
         id,
         wire,
         endpoint,
         key_envs,
+        key_prefix,
         models,
     })
 }
@@ -875,6 +942,7 @@ const BUILTIN: &str = r#"
       "wire": "anthropic",
       "endpoint": "https://api.anthropic.com/v1/messages",
       "key_env": ["ANTHROPIC_API_KEY"],
+      "key_prefix": "sk-ant-",
       "models": [
         {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
         {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
@@ -1131,6 +1199,7 @@ mod tests {
             &ProviderGate {
                 active: &|_| true,
                 use_first: &expiring,
+                latency: &|_| None,
             },
         );
         assert_eq!(
@@ -1161,10 +1230,63 @@ mod tests {
             &ProviderGate {
                 active: &|_| true,
                 use_first: &expiring,
+                latency: &|_| None,
             },
         );
         assert_eq!(&auto.use_first[..2], &["deepseek-flash", "deepseek-pro"]);
         assert!(auto.workers.is_empty() && auto.rescue.is_empty());
+    }
+
+    #[test]
+    fn latency_decides_within_a_price_band_and_never_across_one() {
+        let json = r#"{"providers":[{"id":"solo","wire":"openai","endpoint":"https://solo.example/v1/chat/completions","key_env":["SOLO_API_KEY"],"models":[
+            {"id":"m-cheap","tools":true,"tier":"worker"},
+            {"id":"m-close","tools":true,"tier":"worker"},
+            {"id":"m-dear","tools":true,"tier":"worker"}]}]}"#;
+        let registry = Registry::parse(json).unwrap();
+        let catalogue = PriceCatalogue::from_json(
+            r#"{"schema":"susi/harness/prices/v1","models":{
+                "m-cheap":{"input_hit":103000,"input_miss":103000,"output":103000},
+                "m-close":{"input_hit":107000,"input_miss":107000,"output":107000},
+                "m-dear":{"input_hit":300000,"input_miss":300000,"output":300000}}}"#,
+        )
+        .unwrap();
+        let latency = |model: &str| match model {
+            "m-cheap" => Some(5_000),
+            "m-close" => Some(1_000),
+            "m-dear" => Some(10),
+            _ => None,
+        };
+        let auto = registry.auto_config_ranked(
+            &keys(&["SOLO_API_KEY"]),
+            &catalogue,
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &|_| None,
+                latency: &latency,
+            },
+        );
+        // 4% dearer (one band) but five times faster wins; three times the
+        // price does not, however fast.
+        assert_eq!(auto.workers, vec!["m-close", "m-cheap", "m-dear"]);
+    }
+
+    #[test]
+    fn price_bands_are_about_ten_percent_wide() {
+        use crate::money::MicroUsd;
+        let band = |micros| cost_band(MicroUsd::from_micros(micros));
+        let mut previous = 0;
+        for micros in (0..2_000_000u64).step_by(997) {
+            let current = band(micros);
+            assert!(current >= previous, "bands never go down");
+            previous = current;
+        }
+        for micros in [1_000u64, 22_660, 1_000_000, 987_654_321] {
+            assert!(band(micros * 5 / 4) > band(micros), "25% apart never share");
+        }
+        assert_eq!(band(22_660), band(23_540), "the test fleet's close pair");
+        assert!(band(u64::MAX) > band(1_000_000));
     }
 
     /// One provider, one model, one key: the smallest fleet the harness runs.

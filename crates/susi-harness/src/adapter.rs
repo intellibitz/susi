@@ -897,7 +897,17 @@ nothing outside the task.",
         spec.prompt
     );
     let mut prompt = base_prompt.clone();
-    let mut ladder = Ladder::new(ranked, policy.policy);
+    // Each model's context window, so a prompt that overflows one goes next
+    // to a model that can hold it.
+    let registry = crate::providers::Registry::builtin();
+    let contexts = ranked
+        .iter()
+        .filter_map(|model| {
+            let window = registry.resolve(model)?.capabilities.context?;
+            Some((model.clone(), window))
+        })
+        .collect();
+    let mut ladder = Ladder::new(ranked, policy.policy).with_contexts(contexts);
     let mut attempts = Vec::new();
     let mut last_outcome = None;
     let mut last_model = spec.model.clone();
