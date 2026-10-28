@@ -185,7 +185,10 @@ case "$comparison" in
         # never see the new head. Dispatch it explicitly; the next reconcile
         # pass (or a workflow_run hook) merges it once green.
         if gh pr update-branch "$pr" --repo "$repo"; then
-            gh workflow run test.yml --repo "$repo" --ref "$branch" || true
+            # The branch gate, as a push would have run it: not the full
+            # suite, which takes 20+ minutes and fails on flakes no branch
+            # push runs.
+            gh workflow run test.yml --repo "$repo" --ref "$branch" -f gate=branch || true
             echo "PR #$pr was behind main; branch updated — its retest merges it."
             exit 0
         fi
