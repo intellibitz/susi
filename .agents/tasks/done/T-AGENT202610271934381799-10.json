@@ -1,0 +1,23 @@
+{
+  "id": "T-AGENT202610271934381799-10",
+  "title": "Scope the CI TMPDIR to the coverage step, not the workflow env",
+  "goal": "",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "AGENT202610271934381799",
+  "created_unix": 1793143643,
+  "closed": {
+    "at_unix": 1793143769,
+    "commit": "eacdd5f375d253914fa669ddb1b973780f8cabd4",
+    "by": "AGENT202610271934381799"
+  }
+}
