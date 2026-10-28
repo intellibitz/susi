@@ -170,6 +170,13 @@ pub fn append_entry(path: &Path, entry: &LedgerEntry) -> EaiResult<()> {
         .map_err(|e| EaiError::io(format!("open ledger {}: {e}", path.display())))?;
     // One buffer, one write: several agents append to the same ledger, and a
     // line split across two writes could interleave with another writer's line.
+    //
+    // A row torn by a crash has no newline after it, so this row can land on
+    // its line; the lenient reader recovers it ([`read_rows_lenient`]). The
+    // writer does not look at the file's last byte first: that is a read of
+    // the ledger on every append, and on Windows the read handle had the
+    // growing file scanned on each one (eight concurrent appenders went from
+    // under a second to over four minutes).
     let mut row = line.into_bytes();
     row.push(b'\n');
     file.write_all(&row)
@@ -212,18 +219,56 @@ pub fn read_entries(path: &Path) -> EaiResult<Vec<LedgerEntry>> {
 /// unreadable lines and says how many there were. A missing ledger is empty.
 #[must_use]
 pub fn read_entries_lenient(path: &Path) -> (Vec<LedgerEntry>, usize) {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return (Vec::new(), 0);
+    read_rows_lenient(path)
+}
+
+/// Every line of `path` that decodes as a `T`, and how many non-blank lines
+/// did not: [`read_entries_lenient`] for a reader that wants its own row type
+/// (a `serde_json::Value` reads rows of any version).
+///
+/// The file is split into lines as bytes and each line is decoded on its own.
+/// A tear can cut a multi-byte character, and the whole file then is not
+/// UTF-8: read as one string it failed as a whole, and every row was dropped
+/// with no line counted as skipped. A missing ledger is empty; any other read
+/// failure is said on stderr, since it reads as nothing spent.
+///
+/// A torn row has no newline after it, so the next append lands on the same
+/// line: a line that does not decode is tried again from each later `{`, and
+/// a row found there counts while the fragment before it is skipped. Only the
+/// glued row's own start can decode to the end of the line: a `{` inside the
+/// fragment opens an object the fragment never closes, or one it closes
+/// before more text.
+#[must_use]
+pub fn read_rows_lenient<T: serde::de::DeserializeOwned>(path: &Path) -> (Vec<T>, usize) {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("⚠ ledger {}: cannot be read: {error}", path.display());
+            }
+            return (Vec::new(), 0);
+        }
     };
-    let mut entries = Vec::new();
+    let mut rows = Vec::new();
     let mut skipped = 0;
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        match serde_json::from_str(line) {
-            Ok(entry) => entries.push(entry),
-            Err(_) => skipped += 1,
+    for line in bytes
+        .split(|byte| *byte == b'\n')
+        .map(<[u8]>::trim_ascii)
+        .filter(|line| !line.is_empty())
+    {
+        if let Ok(row) = serde_json::from_slice(line) {
+            rows.push(row);
+            continue;
+        }
+        skipped += 1;
+        let glued = (1..line.len())
+            .filter(|start| line[*start] == b'{')
+            .find_map(|start| serde_json::from_slice(&line[start..]).ok());
+        if let Some(row) = glued {
+            rows.push(row);
         }
     }
-    (entries, skipped)
+    (rows, skipped)
 }
 
 /// [`read_entries_lenient`] that names the skipped lines on stderr, once per
@@ -480,6 +525,63 @@ mod tests {
             read_entries_lenient(&dir.path().join("absent.jsonl")),
             (Vec::new(), 0)
         );
+    }
+
+    /// A real tear: a crash or a full disk cuts a rejected row's free-text
+    /// reason inside a multi-byte character, with no newline after it. The
+    /// file is then not UTF-8, which made the lenient reader see no ledger at
+    /// all, and the next row went onto the torn line and was lost with it.
+    #[test]
+    fn a_tear_inside_a_character_costs_only_the_torn_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.jsonl");
+        append_entry(&path, &entry("T-1", Outcome::Completed)).unwrap();
+        let rejected = serde_json::to_string(&entry(
+            "T-2",
+            Outcome::Rejected {
+                reason: "quality gate failed: “tests” red".into(),
+            },
+        ))
+        .unwrap();
+        let cut = rejected.find('“').unwrap() + 1;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(&rejected.as_bytes()[..cut]).unwrap();
+        drop(file);
+        append_entry(&path, &entry("T-3", Outcome::Completed)).unwrap();
+
+        let (entries, skipped) = read_entries_lenient(&path);
+        let tasks: Vec<&str> = entries.iter().map(|e| e.task.as_str()).collect();
+        assert_eq!(tasks, ["T-1", "T-3"], "the row after the tear still counts");
+        assert_eq!(skipped, 1);
+        assert_eq!(total_cost(&entries), MicroUsd::from_micros(217_200 * 2));
+    }
+
+    /// An ASCII tear has no newline after it either, so the next append is
+    /// glued onto the fragment's line. That row is still read, by every
+    /// lenient reader, whatever row type it reads into.
+    #[test]
+    fn a_row_appended_onto_a_torn_line_still_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.jsonl");
+        let torn = r#"{"mission":"m","task":"torn","usage":{"input":1,"cache_hit":0"#;
+        std::fs::write(&path, torn).unwrap();
+        append_entry(&path, &entry("T-1", Outcome::Completed)).unwrap();
+        append_entry(&path, &entry("T-2", Outcome::Completed)).unwrap();
+
+        let (entries, skipped) = read_entries_lenient(&path);
+        let tasks: Vec<&str> = entries.iter().map(|e| e.task.as_str()).collect();
+        assert_eq!(tasks, ["T-1", "T-2"]);
+        assert_eq!(skipped, 1, "only the fragment is lost");
+        let (values, skipped) = read_rows_lenient::<serde_json::Value>(&path);
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0]["task"], "T-1");
+        assert_eq!(skipped, 1);
+        // A line that is not a torn row yields nothing from its inner objects.
+        std::fs::write(&path, "{\"outcome\":{\"unknown\":{\"x\":1}}}\n").unwrap();
+        assert_eq!(read_entries_lenient(&path), (Vec::new(), 1));
     }
 
     #[test]

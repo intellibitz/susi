@@ -13,7 +13,19 @@
 //!   the gateway forces `stream_options.include_usage` upstream and prices the
 //!   final usage chunk before the stream closes. A stream that ends without a
 //!   usage chunk is logged loudly and writes no row: it is uncountable, and
-//!   inventing a number would be worse than saying so.
+//!   inventing a number would be worse than saying so. A streamed call to an
+//!   Anthropic model is made buffered (the Messages API streams its own event
+//!   protocol) and its translated answer is sent as an OpenAI stream.
+//!
+//! A client that hangs up does not cancel the meter: once a call has gone to
+//! the provider, it is read to its end and settled on a blocking thread of
+//! its own, which the runtime finishes even when the gateway stops.
+//!
+//! A provider with a configured rate limit ([`crate::ratelimit`]) is paced:
+//! a call waits for its slot, and a call whose slot is further off than the
+//! gateway's upstream timeout (at most [`crate::ratelimit::MAX_PAUSE_MS`]) is
+//! answered 429 with a `Retry-After` at once, sending nothing upstream and
+//! writing no row.
 
 use crate::cache::ResponseCache;
 use crate::catalog::PriceCatalogue;
@@ -22,9 +34,9 @@ use crate::pricing::{ModelPrice, TokenUsage};
 use crate::usage::token_usage_from_json;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Router;
 use futures::StreamExt;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -120,7 +132,10 @@ pub async fn serve(
 
 /// Resolves when the process is asked to stop (Ctrl-C, or `SIGTERM` on
 /// Unix). The servers stop accepting then, and finish the calls in flight,
-/// so every call that reached a provider still gets its ledger row.
+/// so every call that reached a provider still gets its ledger row. A call
+/// whose client has already gone is no longer in flight for the server; it
+/// is settled on the blocking thread that made it, which the runtime
+/// finishes before the process exits.
 pub async fn shutdown_signal() {
     let interrupt = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -243,7 +258,13 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
             let _ = append_entry(&state.ledger_path, &entry);
 
             if streaming {
-                return cached_streaming_response(&cache_key, &cached_response, &attempt.model);
+                let id = format!("chatcmpl-cache-{cache_key}");
+                let mut res = sse_response(stream_of(&cached_response, &id, &attempt.model));
+                res.headers_mut().insert(
+                    header::HeaderName::from_static("x-susi-cache-key"),
+                    HeaderValue::from_str(&cache_key).unwrap_or(HeaderValue::from_static("hit")),
+                );
+                return res;
             }
 
             let body_bytes = serde_json::to_vec(&cached_response).unwrap_or_default();
@@ -261,65 +282,238 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
         }
     }
 
-    let wait = crate::ratelimit::Pacer::global().reserve(&attempt.provider, now_ms(), None);
-    if wait > 0 {
-        tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+    // The wait for a paced slot happens here, in the request: a client that
+    // gives up meanwhile drops this future and the reservation with it, so
+    // the slot goes back instead of counting against the provider's minute.
+    // A slot further off than the cap is not queued for: under sustained
+    // overload the queue otherwise ran past every client's timeout and the
+    // provider served nothing for as long as the load lasted.
+    let reservation = match crate::ratelimit::Pacer::global().hold_within(
+        &attempt.provider,
+        now_ms(),
+        None,
+        queue_cap_ms(&state),
+    ) {
+        Ok(reservation) => reservation,
+        Err(wait_ms) => return paced_out(&attempt.provider, wait_ms),
+    };
+    if reservation.wait_ms() > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(reservation.wait_ms())).await;
     }
+    reservation.keep();
 
-    if streaming {
-        stream_upstream(state, attempt, forwarded).await
-    } else {
-        buffered_upstream(state, attempt, forwarded, cache_key, false).await
+    // From here the provider is called, and bills. The call and its ledger row
+    // run in a task of their own: hyper drops this handler when the client
+    // hangs up (a worker killed at its time limit, Esc in an agent, a client
+    // timeout shorter than the gateway's), and the row used to be written by
+    // the handler, so a billed call went unrecorded. Inside that task the row
+    // is written on the blocking thread that makes the call, which a stopping
+    // runtime still finishes.
+    let call = tokio::spawn(async move {
+        if streaming {
+            stream_upstream(state, attempt, forwarded, cache_key).await
+        } else {
+            buffered_upstream(state, attempt, forwarded, cache_key, false)
+                .await
+                .into_response()
+        }
+    });
+    match call.await {
+        Ok(response) => response,
+        Err(error) => error_response(
+            StatusCode::BAD_GATEWAY,
+            &format!("upstream task failed: {error}"),
+        ),
     }
 }
 
-fn cached_streaming_response(cache_key: &str, cached_response: &Value, model: &str) -> Response {
-    let content = cached_response
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c0| c0.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let chunk1 = json!({
-        "id": format!("chatcmpl-cache-{cache_key}"),
-        "object": "chat.completion.chunk",
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "delta": {
-                "role": "assistant",
-                "content": content
-            },
-            "finish_reason": Value::Null
-        }]
+/// The longest a call waits for a paced slot before it is turned away.
+///
+/// A client of the gateway waits at least as long as the gateway waits for
+/// the provider, or its calls would fail on every slow answer; a slot further
+/// off than that is most likely one its client gives up before. A
+/// `Retry-After` pause is never longer than [`crate::ratelimit::MAX_PAUSE_MS`].
+fn queue_cap_ms(state: &GatewayState) -> u64 {
+    crate::ratelimit::MAX_PAUSE_MS.min(state.timeout_secs.max(1).saturating_mul(1_000))
+}
+
+/// The answer to a call whose paced slot is further off than
+/// [`queue_cap_ms`]: 429 in OpenAI's error shape, with the wait as
+/// `Retry-After`, so a client backs off as it would from the provider itself.
+/// Nothing went upstream, so no row is written.
+fn paced_out(provider: &str, wait_ms: u64) -> Response {
+    let seconds = wait_ms.div_ceil(1_000);
+    let body = json!({
+        "error": {
+            "message": format!(
+                "{provider} is paced to its configured rate limit and its next free slot is {seconds}s away; retry then"
+            ),
+            "type": "rate_limit_exceeded",
+            "code": "rate_limit_exceeded"
+        }
     });
-    let chunk2 = json!({
-        "id": format!("chatcmpl-cache-{cache_key}"),
-        "object": "chat.completion.chunk",
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "delta": {},
-            "finish_reason": "stop"
-        }]
+    let mut response = Answer {
+        status: StatusCode::TOO_MANY_REQUESTS,
+        content_type: "application/json".into(),
+        body: body.to_string().into_bytes(),
+    }
+    .into_response();
+    response
+        .headers_mut()
+        .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
+    response
+}
+
+/// A finished buffered exchange, as the gateway answers it.
+///
+/// Kept as bytes rather than a [`Response`] so a streaming client can be
+/// sent the same answer as a stream ([`Answer::into_stream`]).
+struct Answer {
+    status: StatusCode,
+    content_type: String,
+    body: Vec<u8>,
+}
+
+impl Answer {
+    fn error(status: StatusCode, message: &str) -> Self {
+        Self {
+            status,
+            content_type: "application/json".into(),
+            body: json!({ "error": { "message": message } })
+                .to_string()
+                .into_bytes(),
+        }
+    }
+
+    fn into_response(self) -> Response {
+        let mut response = Response::new(axum::body::Body::from(self.body));
+        *response.status_mut() = self.status;
+        if let Ok(value) = HeaderValue::from_str(&self.content_type) {
+            response.headers_mut().insert(header::CONTENT_TYPE, value);
+        }
+        response
+    }
+
+    /// The answer as the OpenAI stream a streaming client reads; an error is
+    /// answered as it is, which is what an OpenAI client expects of a stream
+    /// that never started.
+    fn into_stream(self, model: &str) -> Response {
+        if !self.status.is_success() {
+            return self.into_response();
+        }
+        let Ok(answer) = serde_json::from_slice::<Value>(&self.body) else {
+            return self.into_response();
+        };
+        let id = answer
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("chatcmpl-susi")
+            .to_string();
+        sse_response(stream_of(&answer, &id, model))
+    }
+}
+
+/// An OpenAI `chat.completion` answer as the `chat.completion.chunk` events a
+/// streaming client reads: the whole message in one delta (content, reasoning
+/// and tool calls, each call with the `index` a stream carries), the answer's
+/// own finish reason, the usage chunk, and `[DONE]`.
+///
+/// A cached answer replayed to a streaming request used to be one content
+/// chunk ending in `stop`: a cached tool call reached the agent as an empty
+/// final answer, and a cut-off answer read as complete.
+fn stream_of(answer: &Value, id: &str, model: &str) -> String {
+    let choice = answer.pointer("/choices/0");
+    let message = choice.and_then(|choice| choice.get("message"));
+    let field = |name: &str| {
+        message
+            .and_then(|message| message.get(name))
+            .filter(|value| !value.is_null())
+    };
+    let mut delta = json!({
+        "role": "assistant",
+        "content": field("content").cloned().unwrap_or(Value::Null)
     });
-    let sse_body = format!(
-        "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
-        serde_json::to_string(&chunk1).unwrap_or_default(),
-        serde_json::to_string(&chunk2).unwrap_or_default()
-    );
-    let mut res = Response::new(axum::body::Body::from(sse_body));
-    *res.status_mut() = StatusCode::OK;
-    res.headers_mut().insert(
+    if let Some(reasoning) = field("reasoning_content") {
+        delta["reasoning_content"] = reasoning.clone();
+    }
+    if let Some(calls) = field("tool_calls")
+        .and_then(Value::as_array)
+        .filter(|calls| !calls.is_empty())
+    {
+        let indexed: Vec<Value> = calls
+            .iter()
+            .enumerate()
+            .map(|(index, call)| {
+                let mut call = call.clone();
+                if let Some(object) = call.as_object_mut() {
+                    object.insert("index".into(), json!(index));
+                }
+                call
+            })
+            .collect();
+        delta["tool_calls"] = Value::Array(indexed);
+    }
+    let finish = choice
+        .and_then(|choice| choice.get("finish_reason"))
+        .filter(|finish| !finish.is_null())
+        .cloned()
+        .unwrap_or_else(|| json!("stop"));
+    let created = answer
+        .get("created")
+        .and_then(Value::as_u64)
+        .filter(|created| *created > 0)
+        .unwrap_or_else(|| now_ms() / 1000);
+    let chunk = |choices: Value| {
+        json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": choices
+        })
+    };
+    let mut events = vec![
+        chunk(json!([{"index": 0, "delta": delta, "finish_reason": null}])),
+        chunk(json!([{"index": 0, "delta": {}, "finish_reason": finish}])),
+    ];
+    // Every stream the gateway forwards carries the usage chunk (it asks the
+    // provider for one), so a synthesized stream does too.
+    if let Some(usage) = answer.get("usage").filter(|usage| usage.is_object()) {
+        let mut last = chunk(json!([]));
+        last["usage"] = usage.clone();
+        events.push(last);
+    }
+    let mut body = String::new();
+    for event in events {
+        body.push_str("data: ");
+        body.push_str(&event.to_string());
+        body.push_str("\n\n");
+    }
+    body.push_str("data: [DONE]\n\n");
+    body
+}
+
+fn sse_response(body: String) -> Response {
+    let mut response = Response::new(axum::body::Body::from(body));
+    *response.status_mut() = StatusCode::OK;
+    response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("text/event-stream"),
     );
-    res.headers_mut().insert(
-        header::HeaderName::from_static("x-susi-cache-key"),
-        HeaderValue::from_str(cache_key).unwrap_or(HeaderValue::from_static("hit")),
-    );
-    res
+    response
+}
+
+/// `body` without `stream` and `stream_options`, for a streamed request that
+/// is made buffered.
+fn without_stream(body: &str) -> String {
+    let Ok(mut request) = serde_json::from_str::<Value>(body) else {
+        return body.to_string();
+    };
+    if let Some(object) = request.as_object_mut() {
+        object.remove("stream");
+        object.remove("stream_options");
+    }
+    serde_json::to_string(&request).unwrap_or_else(|_| body.to_string())
 }
 
 fn with_usage_in_stream(request: &Value, original: &str) -> String {
@@ -330,40 +524,37 @@ fn with_usage_in_stream(request: &Value, original: &str) -> String {
     serde_json::to_string(&request).unwrap_or_else(|_| original.to_string())
 }
 
+/// What a buffered exchange came to.
+struct Settled {
+    answer: Answer,
+    /// The answer spent the output limit on hidden thinking and holds
+    /// nothing usable ([`starved`]); it is on the ledger but not cached.
+    starved: bool,
+}
+
 async fn buffered_upstream(
     state: Arc<GatewayState>,
     attempt: Attempt,
     body: String,
     cache_key: String,
     retried: bool,
-) -> Response {
+) -> Answer {
     let resend = (!retried).then(|| body.clone());
-    let tag = attempt.clone();
-    let Attempt {
-        mission,
-        task,
-        attempt,
-        model,
-        price,
-        ..
-    } = attempt;
     let started_unix_ms = now_ms();
-    let timeout_secs = state.timeout_secs;
     let route = match crate::router::resolve_route(
-        &model,
+        &attempt.model,
         Some(&state.upstream_chat_url),
         state.api_key.as_deref(),
     ) {
         Ok(r) => r,
-        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
+        Err(e) => return Answer::error(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
     };
 
     let is_anthropic = route.is_anthropic;
-    let model_name = model.clone();
 
     let outgoing_body = if is_anthropic {
         let Ok(mut parsed) = serde_json::from_str::<Value>(&body) else {
-            return error_response(StatusCode::BAD_REQUEST, "invalid json request body");
+            return Answer::error(StatusCode::BAD_REQUEST, "invalid json request body");
         };
         if let Some(obj) = parsed.as_object_mut() {
             obj.insert("model".to_string(), Value::String(route.model_id.clone()));
@@ -371,13 +562,13 @@ async fn buffered_upstream(
         match susi_adapters_llm::inference_wire::openai_to_anthropic_messages(&parsed) {
             Ok(v) => serde_json::to_vec(&v).unwrap_or_else(|_| body.into_bytes()),
             Err(e) => {
-                return error_response(
+                return Answer::error(
                     StatusCode::BAD_REQUEST,
                     &format!("anthropic translation: {e}"),
                 )
             }
         }
-    } else if route.model_id != model {
+    } else if route.model_id != attempt.model {
         if let Ok(mut parsed) = serde_json::from_str::<Value>(&body) {
             if let Some(obj) = parsed.as_object_mut() {
                 obj.insert("model".to_string(), Value::String(route.model_id.clone()));
@@ -393,39 +584,109 @@ async fn buffered_upstream(
     let target_url = route.url.clone();
     let route_headers = route.headers.clone();
 
-    let upstream = tokio::task::spawn_blocking(move || {
-        let headers_ref: Vec<(&str, &str)> = route_headers
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
-        susi_http_transport::http_call_with_body(
-            "POST",
-            &target_url,
-            &headers_ref,
-            Some(&outgoing_body),
-            timeout_secs,
-            0,
-        )
-    })
-    .await;
-
-    let call = match upstream {
-        Ok(Ok(call)) => call,
-        Ok(Err(error)) => {
-            let message = format!("upstream call failed: {error}");
-            record_failure(
-                &state.ledger_path,
-                &tag,
-                started_unix_ms,
-                transport_failure(&message),
+    // The call and its settlement run together on a blocking thread. This
+    // future is detached from the client, but when the gateway stops the
+    // runtime drops a detached task at its next await, and finishes only the
+    // blocking threads it has started: a client hung up, Ctrl-C then reached
+    // the gateway, and the row of a call the provider had billed, settled out
+    // here, was never written.
+    let settling = {
+        let state = Arc::clone(&state);
+        let exchange = Exchange {
+            tag: attempt.clone(),
+            started_unix_ms,
+            is_anthropic,
+            cache_key: cache_key.clone(),
+        };
+        tokio::task::spawn_blocking(move || {
+            let headers_ref: Vec<(&str, &str)> = route_headers
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            let call = susi_http_transport::http_call_with_body(
+                "POST",
+                &target_url,
+                &headers_ref,
+                Some(&outgoing_body),
+                state.timeout_secs,
+                0,
             );
-            return error_response(StatusCode::BAD_GATEWAY, &message);
-        }
+            settle_buffered(&state, &exchange, call)
+        })
+    };
+    let settled = match settling.await {
+        Ok(settled) => settled,
         Err(error) => {
-            return error_response(
+            return Answer::error(
                 StatusCode::BAD_GATEWAY,
                 &format!("upstream task failed: {error}"),
             );
+        }
+    };
+    // The starved call stays on the ledger: its hidden thinking was billed.
+    // The caller gets one more call with room to answer.
+    if settled.starved {
+        if let Some(grown) = resend.and_then(|body| with_headroom(&body, state.max_output_tokens)) {
+            // The retry is a call of its own and waits for a slot of its
+            // own: on the first call's slot alone, a starved answer put two
+            // calls in the provider's minute and drew the 429s the pacer is
+            // there to prevent. This runs detached from the client, so the
+            // slot is kept at once. A slot further off than the cap is one
+            // the client gives up before; it gets the answer the provider
+            // gave instead.
+            let slot = crate::ratelimit::Pacer::global().hold_within(
+                &attempt.provider,
+                now_ms(),
+                None,
+                queue_cap_ms(&state),
+            );
+            if let Ok(reservation) = slot {
+                let wait = reservation.wait_ms();
+                reservation.keep();
+                if wait > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+                }
+                return Box::pin(buffered_upstream(state, attempt, grown, cache_key, true)).await;
+            }
+        }
+    }
+    settled.answer
+}
+
+/// What settling a buffered call needs besides its answer.
+struct Exchange {
+    tag: Attempt,
+    started_unix_ms: u64,
+    /// The call went to the Messages API, so its answer is translated back.
+    is_anthropic: bool,
+    cache_key: String,
+}
+
+/// Read a buffered call's answer, put it on the ledger (and in the cache),
+/// and shape it for the caller. Runs on the blocking thread that made the
+/// call, so a stopping gateway still finishes it ([`buffered_upstream`]).
+fn settle_buffered(
+    state: &GatewayState,
+    exchange: &Exchange,
+    call: Result<susi_http_transport::HttpCall, String>,
+) -> Settled {
+    let tag = &exchange.tag;
+    let started_unix_ms = exchange.started_unix_ms;
+    let unstarved = |answer| Settled {
+        answer,
+        starved: false,
+    };
+    let call = match call {
+        Ok(call) => call,
+        Err(error) => {
+            let message = format!("upstream call failed: {error}");
+            record_failure(
+                &state.ledger_path,
+                tag,
+                started_unix_ms,
+                transport_failure(&message),
+            );
+            return unstarved(Answer::error(StatusCode::BAD_GATEWAY, &message));
         }
     };
     let status = call.status;
@@ -440,12 +701,15 @@ async fn buffered_upstream(
     let response_bytes = match call.into_bytes(MAX_RESPONSE_BYTES) {
         Ok(bytes) => bytes,
         Err(error) => {
-            return error_response(StatusCode::BAD_GATEWAY, &format!("upstream body: {error}"));
+            return unstarved(Answer::error(
+                StatusCode::BAD_GATEWAY,
+                &format!("upstream body: {error}"),
+            ));
         }
     };
     let ended_unix_ms = now_ms();
     if let Some(class) = provider_failure(status, &response_bytes) {
-        record_failure(&state.ledger_path, &tag, started_unix_ms, class);
+        record_failure(&state.ledger_path, tag, started_unix_ms, class);
     }
 
     // A provider's error body can echo the key it was sent; it goes back to
@@ -455,12 +719,10 @@ async fn buffered_upstream(
     } else {
         crate::secrets::redact(&String::from_utf8_lossy(&response_bytes)).into_bytes()
     };
-    let response_bytes = if (200..300).contains(&status) && is_anthropic {
+    let response_bytes = if (200..300).contains(&status) && exchange.is_anthropic {
         if let Ok(anth_val) = serde_json::from_slice::<Value>(&response_bytes) {
-            match susi_adapters_llm::inference_wire::anthropic_to_openai_chat(
-                &anth_val,
-                &model_name,
-            ) {
+            match susi_adapters_llm::inference_wire::anthropic_to_openai_chat(&anth_val, &tag.model)
+            {
                 Ok(openai_val) => serde_json::to_vec(&openai_val).unwrap_or(response_bytes),
                 Err(_) => response_bytes,
             }
@@ -471,20 +733,21 @@ async fn buffered_upstream(
         response_bytes
     };
 
+    let mut starved_answer = false;
     if (200..300).contains(&status) {
         let Ok(value) = serde_json::from_slice::<Value>(&response_bytes) else {
-            return error_response(
+            return unstarved(Answer::error(
                 StatusCode::BAD_GATEWAY,
                 "upstream answer is not JSON, so it cannot be priced",
-            );
+            ));
         };
         let usage = match token_usage_from_json(&value) {
             Ok(usage) => usage,
             Err(error) => {
-                return error_response(
+                return unstarved(Answer::error(
                     StatusCode::BAD_GATEWAY,
                     &format!("unmetered provider answer: {error}"),
-                );
+                ));
             }
         };
         crate::ratelimit::Pacer::global().record_tokens(
@@ -493,52 +756,69 @@ async fn buffered_upstream(
             usage.input.saturating_add(usage.output),
         );
         let entry = LedgerEntry::settle(Dispatch {
-            mission,
-            task,
-            attempt,
-            model,
+            mission: tag.mission.clone(),
+            task: tag.task.clone(),
+            attempt: tag.attempt,
+            model: tag.model.clone(),
             provider: tag.provider.clone(),
             usage,
-            price,
+            price: tag.price,
             started_unix_ms,
             ended_unix_ms,
             outcome: Outcome::Completed,
         });
         // A starved answer is not this request's answer: cached, it was
         // replayed to every later identical call at no cost and no content.
-        let starved = starved(&value);
-        if !starved {
+        starved_answer = starved(&value);
+        if !starved_answer {
             if let Some(ref cache) = state.cache {
-                cache.set(&cache_key, &value);
+                cache.set(&exchange.cache_key, &value);
             }
         }
         let entry = if cached { entry.as_cached() } else { entry };
         if let Err(error) = append_entry(&state.ledger_path, &entry) {
-            return error_response(
+            return unstarved(Answer::error(
                 StatusCode::BAD_GATEWAY,
                 &format!("ledger append failed: {error}"),
-            );
-        }
-        // The starved call stays on the ledger: its hidden thinking was
-        // billed. The caller gets one more call with room to answer.
-        if starved {
-            if let Some(grown) =
-                resend.and_then(|body| with_headroom(&body, state.max_output_tokens))
-            {
-                return Box::pin(buffered_upstream(state, tag, grown, cache_key, true)).await;
-            }
+            ));
         }
     }
 
-    let mut response = Response::new(axum::body::Body::from(response_bytes));
-    *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
-    if let Ok(value) = HeaderValue::from_str(&content_type) {
-        response.headers_mut().insert(header::CONTENT_TYPE, value);
+    Settled {
+        answer: Answer {
+            status: StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+            content_type,
+            body: response_bytes,
+        },
+        starved: starved_answer,
     }
-    response
 }
 
-async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: String) -> Response {
+async fn stream_upstream(
+    state: Arc<GatewayState>,
+    attempt: Attempt,
+    body: String,
+    cache_key: String,
+) -> Response {
+    let route = match crate::router::resolve_route(
+        &attempt.model,
+        Some(&state.upstream_chat_url),
+        state.api_key.as_deref(),
+    ) {
+        Ok(r) => r,
+        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
+    };
+    if route.is_anthropic {
+        // The Messages API refuses an OpenAI chat body (`stream_options`,
+        // `role: system` in `messages`: a 400 on every streamed Claude call)
+        // and streams its own event protocol, which an OpenAI client cannot
+        // read and the meter could not price. The call is made buffered,
+        // translated both ways and metered there, and its answer goes back
+        // as an OpenAI stream.
+        let model = attempt.model.clone();
+        let answer = buffered_upstream(state, attempt, without_stream(&body), cache_key, false);
+        return answer.await.into_stream(&model);
+    }
     let tag = attempt.clone();
     let Attempt {
         mission,
@@ -549,14 +829,6 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         ..
     } = attempt;
     let started_unix_ms = now_ms();
-    let route = match crate::router::resolve_route(
-        &model,
-        Some(&state.upstream_chat_url),
-        state.api_key.as_deref(),
-    ) {
-        Ok(r) => r,
-        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("resolve route: {e}")),
-    };
 
     let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
     let (meta_tx, meta_rx) = tokio::sync::oneshot::channel::<Result<(u16, String), String>>();
@@ -611,16 +883,21 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
             .header("content-type")
             .unwrap_or("text/event-stream")
             .to_string();
-        if meta_tx.send(Ok((status, content_type))).is_err() {
-            return;
-        }
+        // `None` once the client has gone. The call was made either way, so it
+        // is still read to its end and settled: the provider billed it.
+        let mut client = meta_tx
+            .send(Ok((status, content_type)))
+            .is_ok()
+            .then_some(chunk_tx);
         if !(200..300).contains(&status) {
             let bytes = call.into_bytes(MAX_RESPONSE_BYTES).unwrap_or_default();
             if let Some(class) = provider_failure(status, &bytes) {
                 record_failure(&ledger_path, &tag, started_unix_ms, class);
             }
             let bytes = crate::secrets::redact(&String::from_utf8_lossy(&bytes)).into_bytes();
-            let _ = chunk_tx.blocking_send(bytes);
+            if let Some(client) = client {
+                let _ = client.blocking_send(bytes);
+            }
             return;
         }
 
@@ -640,8 +917,13 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
                     }
                 }
             }
-            if chunk_tx.blocking_send(line).is_err() {
-                return;
+            // A client that hangs up stops the forwarding, not the reading:
+            // the usage comes in the last chunk, and returning here left a
+            // billed stream without its row.
+            if let Some(sender) = &client {
+                if sender.blocking_send(line).is_err() {
+                    client = None;
+                }
             }
         }
         match usage {
@@ -775,7 +1057,7 @@ fn sse_data(line: &[u8]) -> Option<&str> {
 }
 
 fn error_response(status: StatusCode, message: &str) -> Response {
-    (status, Json(json!({ "error": { "message": message } }))).into_response()
+    Answer::error(status, message).into_response()
 }
 
 /// A per-run key: `Bearer susi:<mission>:<task>:<attempt>`.
@@ -885,6 +1167,8 @@ mod tests {
     use super::*;
     use crate::ledger::read_entries;
     use crate::money::MicroUsd;
+    use axum::response::IntoResponse;
+    use axum::Json;
     use std::net::SocketAddr;
 
     const CATALOGUE: &str = r#"{
@@ -993,29 +1277,57 @@ mod tests {
         Json(json!({"id": "cmpl-2", "choices": []}))
     }
 
+    /// A reasoning model that spends a small `max_tokens` on hidden thinking
+    /// and answers nothing, as `gemini-flash` did live.
+    async fn thinker(Json(request): Json<Value>) -> Json<Value> {
+        let limit = request["max_tokens"].as_u64().unwrap_or(0);
+        let (content, finish, output) = if limit < 100 {
+            (Value::Null, "length", 0)
+        } else {
+            (json!("ready"), "stop", 1)
+        };
+        Json(json!({
+            "id": format!("cmpl-{limit}"),
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": finish
+            }],
+            "usage": {"prompt_tokens": 8, "completion_tokens": output}
+        }))
+    }
+
+    /// The starved answer's retry is a second call in the provider's minute,
+    /// so it takes a paced slot of its own instead of riding on the first.
+    #[tokio::test]
+    async fn a_starved_retry_takes_a_paced_slot_of_its_own() {
+        let provider = "pacer-starved-test";
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(thinker))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = Arc::try_unwrap(gateway_state(upstream, dir.path().join("ledger.jsonl")))
+            .unwrap_or_else(|_| unreachable!());
+        state.max_output_tokens = Some(8_000);
+        // A model the registry does not know runs on the gateway's provider.
+        state.provider = provider.into();
+        let gateway = spawn(router(Arc::new(state))).await;
+
+        let request = r#"{"model":"starved-probe-model","max_tokens":40,"messages":[]}"#;
+        let (status, body) = post_json(gateway, request, &[]).await;
+
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(
+            crate::ratelimit::Pacer::global().reserved(provider),
+            2,
+            "one slot per upstream call"
+        );
+    }
+
     /// A reasoning model answers a small `max_tokens` with hidden thinking
     /// and no content, as `gemini-flash` did live. The caller gets the answer
     /// a retry with room produces; both calls are on the ledger; the cache
     /// keeps the real answer, never the empty one.
     #[tokio::test]
     async fn a_starved_answer_is_retried_with_room_and_never_cached() {
-        async fn thinker(Json(request): Json<Value>) -> Json<Value> {
-            let limit = request["max_tokens"].as_u64().unwrap_or(0);
-            let (content, finish, output) = if limit < 100 {
-                (Value::Null, "length", 0)
-            } else {
-                (json!("ready"), "stop", 1)
-            };
-            Json(json!({
-                "id": format!("cmpl-{limit}"),
-                "choices": [{
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": finish
-                }],
-                "usage": {"prompt_tokens": 8, "completion_tokens": output}
-            }))
-        }
         let upstream = spawn(Router::new().route("/v1/chat/completions", post(thinker))).await;
         let dir = tempfile::tempdir().unwrap();
         let ledger_path = dir.path().join("ledger.jsonl");
@@ -1392,5 +1704,446 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].usage.input, 20);
         assert_eq!(entries[0].usage.output, 10);
+    }
+
+    /// The JSON events of an SSE body, without the closing `[DONE]`.
+    fn sse_events(body: &str) -> Vec<Value> {
+        body.lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter(|data| *data != "[DONE]")
+            .map(|data| serde_json::from_str(data).unwrap())
+            .collect()
+    }
+
+    const READ_FILE_TOOL: &str =
+        r#"[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]"#;
+
+    /// A tool-calling turn answered buffered, then asked again streamed: the
+    /// replay must still carry the tool call and its finish reason. It used
+    /// to be one empty content chunk ending in `stop`, which an agent loop
+    /// reads as a final empty answer.
+    #[tokio::test]
+    async fn a_cached_tool_call_replayed_to_a_stream_keeps_the_call_and_its_finish() {
+        async fn tool_call() -> Json<Value> {
+            Json(json!({
+                "id": "cmpl-tool",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "read_file", "arguments": "{\"path\":\"a.rs\"}"}
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 7}
+            }))
+        }
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(tool_call))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
+            .unwrap_or_else(|_| unreachable!());
+        state.cache = Some(Arc::new(ResponseCache::new(None)));
+        let gateway = spawn(router(Arc::new(state))).await;
+        let buffered = format!(
+            r#"{{"model":"deepseek-flash","messages":[{{"role":"user","content":"read a.rs"}}],"tools":{READ_FILE_TOOL}}}"#
+        );
+        let streamed = buffered.replacen('{', r#"{"stream":true,"#, 1);
+
+        let (status, _) = post_json(gateway, &buffered, &[]).await;
+        assert_eq!(status, 200);
+        let (status, body) = post_json(gateway, &streamed, &[]).await;
+
+        assert_eq!(status, 200, "{body}");
+        assert!(body.trim_end().ends_with("data: [DONE]"), "{body}");
+        let events = sse_events(&body);
+        let call = events
+            .iter()
+            .find_map(|event| event["choices"][0]["delta"]["tool_calls"].get(0))
+            .expect("the replay carries the tool call");
+        assert_eq!(call["index"], 0);
+        assert_eq!(call["id"], "call_1");
+        assert_eq!(call["function"]["name"], "read_file");
+        assert_eq!(call["function"]["arguments"], "{\"path\":\"a.rs\"}");
+        let finish: Vec<&Value> = events
+            .iter()
+            .map(|event| &event["choices"][0]["finish_reason"])
+            .filter(|finish| !finish.is_null())
+            .collect();
+        assert_eq!(finish, [&json!("tool_calls")]);
+        assert!(events
+            .iter()
+            .any(|event| event["usage"]["prompt_tokens"] == 12));
+        let rows = read_entries(&ledger_path).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows[1].cached);
+    }
+
+    /// An OpenAI client streaming to a Claude model (most agents stream by
+    /// default): the Messages API gets a Messages request, never the OpenAI
+    /// body (it answered 400 to `stream_options` and `role: system`), and the
+    /// client gets an OpenAI stream with the tool call, its finish reason and
+    /// the usage, which is metered into the ledger.
+    #[tokio::test]
+    async fn a_streamed_call_to_an_anthropic_model_is_translated_and_metered() {
+        let app = Router::new().route(
+            "/v1/messages",
+            post(|body: String| async move {
+                let request: Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(request["model"], "claude-sonnet-5-5");
+                assert!(request.get("stream_options").is_none(), "{request}");
+                assert_ne!(request["stream"], json!(true), "{request}");
+                assert_eq!(request["system"][0]["text"], "You are a test assistant.");
+                assert!(request["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|message| message["role"] != "system"));
+                assert_eq!(request["tools"][0]["name"], "read_file");
+                Json(json!({
+                    "id": "msg_stream_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Reading it."},
+                        {"type": "tool_use", "id": "toolu_1", "name": "read_file", "input": {"path": "a.rs"}}
+                    ],
+                    "stop_reason": "tool_use",
+                    "usage": {"input_tokens": 20, "output_tokens": 10, "cache_read_input_tokens": 5}
+                }))
+            }),
+        );
+        let upstream = spawn(app).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let state = Arc::new(GatewayState {
+            catalogue: catalogue(),
+            ledger_path: ledger_path.clone(),
+            upstream_chat_url: format!("http://{upstream}/v1/messages"),
+            provider: "anthropic".into(),
+            api_key: Some("test-anthropic-key".into()),
+            timeout_secs: 10,
+            max_output_tokens: None,
+            cache: None,
+        });
+        let gateway = spawn(router(state)).await;
+        let body = format!(
+            r#"{{"model":"claude-sonnet","stream":true,"messages":[{{"role":"system","content":"You are a test assistant."}},{{"role":"user","content":"read a.rs"}}],"tools":{READ_FILE_TOOL}}}"#
+        );
+
+        let (status, answer) = post_json(gateway, &body, &[("x-susi-mission", "m-a")]).await;
+
+        assert_eq!(status, 200, "{answer}");
+        assert!(answer.trim_end().ends_with("data: [DONE]"), "{answer}");
+        let events = sse_events(&answer);
+        assert!(events
+            .iter()
+            .all(|event| event["object"] == "chat.completion.chunk"));
+        let text: String = events
+            .iter()
+            .filter_map(|event| event["choices"][0]["delta"]["content"].as_str())
+            .collect();
+        assert_eq!(text, "Reading it.");
+        let call = events
+            .iter()
+            .find_map(|event| event["choices"][0]["delta"]["tool_calls"].get(0))
+            .expect("the stream carries the tool call");
+        assert_eq!(call["index"], 0);
+        assert_eq!(call["id"], "toolu_1");
+        assert_eq!(call["function"]["name"], "read_file");
+        assert_eq!(
+            serde_json::from_str::<Value>(call["function"]["arguments"].as_str().unwrap()).unwrap(),
+            json!({"path": "a.rs"})
+        );
+        assert!(events
+            .iter()
+            .any(|event| event["choices"][0]["finish_reason"] == "tool_calls"));
+        let usage = events
+            .iter()
+            .find(|event| event["usage"].is_object())
+            .expect("the stream carries the usage");
+        assert_eq!(usage["usage"]["prompt_tokens"], 25);
+        assert_eq!(usage["usage"]["completion_tokens"], 10);
+        let rows = read_entries(&ledger_path).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].mission, "m-a");
+        assert_eq!(rows[0].provider, "anthropic");
+        assert_eq!(rows[0].usage.input, 25);
+        assert_eq!(rows[0].usage.cache_hit, 5);
+        assert_eq!(rows[0].usage.output, 10);
+        assert!(rows[0].cost.micros() > 0);
+    }
+
+    /// Send `body` over a raw socket and hang up: at once (after a moment for
+    /// the gateway to start the call) when `wait_for` is empty, otherwise as
+    /// soon as the answer shows `wait_for`. This is a worker killed at its
+    /// time limit, or Esc in an agent, as the gateway sees it.
+    async fn post_and_hang_up(address: SocketAddr, body: &str, wait_for: &str) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+        let request = format!(
+            "POST /v1/chat/completions HTTP/1.1\r\nhost: {address}\r\n\
+             content-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        socket.write_all(request.as_bytes()).await.unwrap();
+        if wait_for.is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        } else {
+            let mut seen = Vec::new();
+            let mut buffer = [0u8; 1024];
+            while !String::from_utf8_lossy(&seen).contains(wait_for) {
+                let read = socket.read(&mut buffer).await.unwrap();
+                assert!(read > 0, "the gateway closed before `{wait_for}`");
+                seen.extend_from_slice(&buffer[..read]);
+            }
+        }
+        drop(socket);
+    }
+
+    /// The ledger's rows once it holds `rows` of them, or what it holds after
+    /// five seconds.
+    async fn rows_eventually(path: &Path, rows: usize) -> Vec<LedgerEntry> {
+        for _ in 0..100 {
+            let (entries, _) = crate::ledger::read_entries_lenient(path);
+            if entries.len() >= rows {
+                return entries;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        crate::ledger::read_entries_lenient(path).0
+    }
+
+    /// The provider answers after the client has gone. It billed the call, so
+    /// the row must be written anyway: hyper drops the handler of a closed
+    /// connection, and the settlement used to live in that handler.
+    #[tokio::test]
+    async fn a_buffered_call_whose_client_hangs_up_still_writes_its_row() {
+        async fn slow() -> Json<Value> {
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            complete().await
+        }
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(slow))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
+
+        post_and_hang_up(gateway, r#"{"model":"deepseek-flash","messages":[]}"#, "").await;
+
+        let rows = rows_eventually(&ledger_path, 1).await;
+        assert_eq!(rows.len(), 1, "the billed call has its row");
+        assert_eq!(rows[0].cost.micros(), 217_200);
+        assert_eq!(rows[0].outcome, Outcome::Completed);
+    }
+
+    /// A streaming client that hangs up mid-answer: the gateway stops
+    /// forwarding but reads on to the provider's usage chunk, so the row
+    /// carries what the provider billed.
+    #[tokio::test]
+    async fn a_stream_whose_client_hangs_up_mid_answer_still_writes_its_row() {
+        async fn slow_stream() -> impl IntoResponse {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<String, std::io::Error>>(4);
+            tokio::spawn(async move {
+                let first = "data: {\"id\":\"cmpl-5\",\"choices\":[{\"delta\":{\"content\":\"PARTIAL\"}}]}\n\n";
+                let _ = tx.send(Ok(first.to_string())).await;
+                tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                let rest = concat!(
+                    "data: {\"id\":\"cmpl-5\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,",
+                    "\"completion_tokens\":2,\"prompt_cache_hit_tokens\":4}}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                let _ = tx.send(Ok(rest.to_string())).await;
+            });
+            let stream = futures::stream::poll_fn(move |cx| rx.poll_recv(cx));
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                axum::body::Body::from_stream(stream),
+            )
+        }
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(slow_stream))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
+
+        post_and_hang_up(
+            gateway,
+            r#"{"model":"deepseek-flash","stream":true,"messages":[]}"#,
+            "PARTIAL",
+        )
+        .await;
+
+        let rows = rows_eventually(&ledger_path, 1).await;
+        assert_eq!(rows.len(), 1, "the billed stream has its row");
+        assert_eq!(rows[0].usage.input, 10);
+        assert_eq!(rows[0].usage.output, 2);
+    }
+
+    /// A call waiting for a paced slot whose client gives up gives the slot
+    /// back. Kept, abandoned slots filled the minute while every live call
+    /// queued behind them past its own client's timeout.
+    #[tokio::test]
+    async fn a_call_abandoned_while_it_waits_for_its_slot_gives_the_slot_back() {
+        let provider = "pacer-abandon-test";
+        let one_a_minute = Some(crate::ratelimit::Limits {
+            rpm: Some(1),
+            tpm: None,
+        });
+        let pacer = crate::ratelimit::Pacer::global();
+        assert_eq!(pacer.reserve(provider, now_ms(), one_a_minute), 0);
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
+            .unwrap_or_else(|_| unreachable!());
+        // A model the registry does not know runs on the gateway's provider.
+        state.provider = provider.into();
+        // The minute's wait is inside the queue's cap, so the call queues.
+        state.timeout_secs = 120;
+        let gateway = spawn(router(Arc::new(state))).await;
+
+        post_and_hang_up(
+            gateway,
+            r#"{"model":"pacer-abandon-model","messages":[]}"#,
+            "",
+        )
+        .await;
+
+        let mut held = pacer.reserved(provider);
+        for _ in 0..40 {
+            if held == 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            held = pacer.reserved(provider);
+        }
+        assert_eq!(held, 1, "only the call that ran still holds a slot");
+        assert!(!ledger_path.exists(), "the abandoned call never ran");
+    }
+
+    /// A call whose paced slot is further off than the gateway waits is
+    /// answered 429 at once, with the wait as `Retry-After`: it holds no
+    /// slot, calls nothing upstream and writes no row. Queued, such calls ran
+    /// the queue past every client's timeout under sustained overload, and
+    /// the provider served nothing while the load lasted.
+    #[tokio::test]
+    async fn a_call_whose_paced_slot_is_past_the_cap_is_answered_429_with_retry_after() {
+        let provider = "pacer-cap-test";
+        let one_a_minute = Some(crate::ratelimit::Limits {
+            rpm: Some(1),
+            tpm: None,
+        });
+        let pacer = crate::ratelimit::Pacer::global();
+        assert_eq!(pacer.reserve(provider, now_ms(), one_a_minute), 0);
+        let upstream_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = Arc::clone(&upstream_calls);
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move || {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                complete()
+            }),
+        );
+        let upstream = spawn(app).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
+            .unwrap_or_else(|_| unreachable!());
+        // A model the registry does not know runs on the gateway's provider;
+        // the gateway waits 10 s for it, and its next slot is a minute away.
+        state.provider = provider.into();
+        let gateway = spawn(router(Arc::new(state))).await;
+
+        let url = format!("http://{gateway}/v1/chat/completions");
+        let (status, retry_after, body) = tokio::task::spawn_blocking(move || {
+            let call = susi_http_transport::http_call_with_body(
+                "POST",
+                &url,
+                &[],
+                Some(br#"{"model":"pacer-cap-model","messages":[]}"#),
+                10,
+                0,
+            )
+            .unwrap();
+            let retry_after = call.header("retry-after").map(str::to_string);
+            let status = call.status;
+            (
+                status,
+                retry_after,
+                call.into_utf8(MAX_RESPONSE_BYTES).unwrap(),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(status, 429, "{body}");
+        let seconds: u64 = retry_after.expect("a Retry-After").parse().unwrap();
+        assert!((50..=60).contains(&seconds), "Retry-After {seconds}");
+        let error: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(error["error"]["code"], "rate_limit_exceeded");
+        assert_eq!(pacer.reserved(provider), 1, "the call took no slot");
+        assert_eq!(
+            upstream_calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "nothing went upstream"
+        );
+        assert!(!ledger_path.exists(), "and no row was written");
+    }
+
+    /// A client hangs up, then the gateway stops before the provider has
+    /// answered (Ctrl-C reaching the agents and the gateway in one console).
+    /// The runtime drops a detached task at its next await when it stops, but
+    /// finishes a blocking thread it has started: settled in the task, the
+    /// row of a call the provider billed was lost.
+    #[test]
+    fn a_buffered_call_is_settled_when_the_gateway_stops_after_its_client_hung_up() {
+        let asked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = Arc::clone(&asked);
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move || {
+                seen.store(true, std::sync::atomic::Ordering::SeqCst);
+                async {
+                    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                    complete().await
+                }
+            }),
+        );
+        // The provider is not the gateway: it answers after the gateway stops.
+        let provider = tokio::runtime::Runtime::new().unwrap();
+        let upstream = provider.block_on(spawn(app));
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let gateway_runtime = tokio::runtime::Runtime::new().unwrap();
+        let gateway =
+            gateway_runtime.block_on(spawn(router(gateway_state(upstream, ledger_path.clone()))));
+
+        gateway_runtime.block_on(post_and_hang_up(
+            gateway,
+            r#"{"model":"deepseek-flash","messages":[]}"#,
+            "",
+        ));
+        for _ in 0..100 {
+            if asked.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(
+            asked.load(std::sync::atomic::Ordering::SeqCst),
+            "the call went upstream"
+        );
+        drop(gateway_runtime);
+
+        let (rows, _) = crate::ledger::read_entries_lenient(&ledger_path);
+        assert_eq!(rows.len(), 1, "the billed call has its row");
+        assert_eq!(rows[0].cost.micros(), 217_200);
+        assert_eq!(rows[0].outcome, Outcome::Completed);
     }
 }

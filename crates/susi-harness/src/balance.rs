@@ -11,7 +11,16 @@
 //! DeepSeek (`/user/balance`) and Moonshot (`/v1/users/me/balance`). The
 //! others publish none that a key can read (Gemini bills through Google Cloud,
 //! Anthropic through its console), so their budget is configured per provider:
-//! `SUSI_HARNESS_BUDGET_<PROVIDER>_USD`, less what the ledger shows spent.
+//! `SUSI_HARNESS_BUDGET_<PROVIDER>_USD` is the total credited to the provider,
+//! and what the ledger shows spent there is subtracted from it. After a
+//! top-up, raise it by the amount added. (It is not the balance the console
+//! shows: that figure already has the spend taken off, and subtracting the
+//! ledger's spend again turned a topped-up provider off.)
+//!
+//! With no balance known, the provider is active while it answers its models
+//! endpoint with the key. A model the endpoint no longer lists is left off on
+//! its own ([`ProviderBudget::absent`]); the provider's other models keep
+//! running.
 //!
 //! Credit can be time-bound. No provider's balance API says when it expires
 //! (DeepSeek splits granted from topped-up credit, Moonshot vouchers from
@@ -37,13 +46,48 @@ use std::path::Path;
 /// A provider is active while it holds at least this much.
 pub const ACTIVE_FLOOR: MicroUsd = MicroUsd::from_micros(1_000_000);
 
+/// The `<PROVIDER>` part of a per-provider variable name for the registry id
+/// `id`: upper case, with every character that is not a letter or a digit
+/// written as `_`.
+///
+/// A variable name may only hold `A-Z`, `0-9` and `_` ([`crate::secrets`]
+/// refuses any other), so an overlay provider `together-ai` is configured as
+/// `SUSI_HARNESS_BUDGET_TOGETHER_AI_USD`. The budget used to be read as
+/// `..._TOGETHER-AI_USD`, a name no scope can hold, while `susi-harness env`
+/// advertised the underscore form, so the setting was silently ignored.
+#[must_use]
+pub fn env_suffix(id: &str) -> String {
+    id.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// The variable holding the total credited to provider `id`.
+#[must_use]
+pub fn budget_variable(id: &str) -> String {
+    format!("SUSI_HARNESS_BUDGET_{}_USD", env_suffix(id))
+}
+
+/// The variable holding the day provider `id`'s credit expires.
+#[must_use]
+pub fn expiry_variable(id: &str) -> String {
+    format!("SUSI_HARNESS_CREDIT_EXPIRES_{}", env_suffix(id))
+}
+
 /// Where a remaining balance came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     /// The provider's own balance endpoint.
     Api,
-    /// `SUSI_HARNESS_BUDGET_<PROVIDER>_USD`, less the ledger's spend.
+    /// `SUSI_HARNESS_BUDGET_<PROVIDER>_USD` (the total credited), less the
+    /// ledger's spend.
     Configured,
     /// Neither source could answer. The provider is treated as inactive.
     Unknown,
@@ -60,10 +104,16 @@ pub struct ProviderBudget {
     pub source: Source,
     /// Why the figure is missing or how it was obtained, for the alert.
     pub note: String,
-    /// Whether the provider answered its models endpoint. Consulted only
-    /// when no balance is known: a provider that works is active even though
-    /// its spend cannot be costed.
+    /// Whether the provider answered its models endpoint with the key (or
+    /// has none the harness can derive, in which case the calls decide).
+    /// Consulted only when no balance is known: a provider that works is
+    /// active even though its spend cannot be costed.
     pub working: bool,
+    /// Registry model ids whose backend the provider's model list, read with
+    /// the key, no longer advertises: retired, renamed, or not open to this
+    /// key. Each is left off the fleet on its own; one drifted id used to
+    /// mark the whole provider inactive and take every model of it off.
+    pub absent: Vec<String>,
     /// The day the provider's credit expires, in days since the Unix epoch,
     /// from `SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>`. No provider API
     /// publishes it, so it is configured.
@@ -121,6 +171,34 @@ impl Budgets {
         self.providers
             .iter()
             .any(|entry| entry.provider == provider)
+    }
+
+    /// Whether `model` (a registry id or alias) is one its provider's model
+    /// list no longer advertises ([`ProviderBudget::absent`]).
+    #[must_use]
+    pub fn absent(&self, model: &str) -> bool {
+        let id = crate::policy::canonical(model);
+        self.providers
+            .iter()
+            .any(|entry| entry.absent.contains(&id))
+    }
+
+    /// The alert for models their provider no longer lists, or `None` when
+    /// every listed provider advertises all of its models.
+    #[must_use]
+    pub fn absent_alert(&self) -> Option<String> {
+        let parts = self
+            .providers
+            .iter()
+            .filter(|entry| !entry.absent.is_empty())
+            .map(|entry| format!("{}: {}", entry.provider, entry.absent.join(", ")))
+            .collect::<Vec<_>>();
+        (!parts.is_empty()).then(|| {
+            format!(
+                "not listed by their provider, left off: {}; the provider's other models still run",
+                parts.join(" | ")
+            )
+        })
     }
 
     /// The expiry day of `provider`'s credit when it should be spent first
@@ -241,9 +319,12 @@ impl Budgets {
             .filter(|entry| !entry.key_refused && entry.remaining.is_some())
             .map(|entry| {
                 let models = models_of(registry, &entry.provider).join(", ");
+                // The variable is the total credited, and the ledger's spend
+                // is taken off it. Setting it to what the console shows left
+                // took that spend off twice and kept a topped-up provider off.
                 let hint = format!(
-                    "set SUSI_HARNESS_BUDGET_{}_USD to the remaining amount",
-                    entry.provider.to_ascii_uppercase()
+                    "top up, then raise {} by the amount added (it is the total credited; the ledger's spend is subtracted)",
+                    budget_variable(&entry.provider)
                 );
                 let hint = match entry.source {
                     Source::Api => "top up the account".to_string(),
@@ -289,17 +370,15 @@ pub fn collect(
         }
         let mut entry = budget_for(&provider.id, &provider.key_envs, fetch, spent);
         if entry.remaining.is_none() {
-            let (working, refused, note) = works(provider, fetch);
-            entry.working = working;
-            entry.key_refused = refused;
-            if !working {
-                entry.note = format!("{}; {note}", entry.note);
+            let check = works(provider, fetch);
+            entry.working = check.working;
+            entry.key_refused = check.refused;
+            entry.absent = check.absent;
+            if !check.working || !entry.absent.is_empty() {
+                entry.note = format!("{}; {}", entry.note, check.note);
             }
         }
-        let name = format!(
-            "SUSI_HARNESS_CREDIT_EXPIRES_{}",
-            provider.id.to_ascii_uppercase()
-        );
+        let name = expiry_variable(&provider.id);
         if let Some(text) = secrets::setting(&name) {
             apply_expiry(&mut entry, &name, &text, today());
         }
@@ -398,6 +477,7 @@ fn budget_for(
                 remaining: Some(left),
                 source: Source::Api,
                 working: false,
+                absent: Vec::new(),
                 expires_day: None,
                 key_refused: false,
                 note: "balance from the provider".to_string(),
@@ -407,13 +487,14 @@ fn budget_for(
                 remaining: None,
                 source: Source::Unknown,
                 working: false,
+                absent: Vec::new(),
                 expires_day: None,
                 key_refused: false,
                 note: reason,
             },
         };
     }
-    let name = format!("SUSI_HARNESS_BUDGET_{}_USD", id.to_ascii_uppercase());
+    let name = budget_variable(id);
     let Some(configured) =
         secrets::setting(&name).and_then(|text| MicroUsd::parse_usd(text.trim()))
     else {
@@ -422,6 +503,7 @@ fn budget_for(
             remaining: None,
             source: Source::Unknown,
             working: false,
+            absent: Vec::new(),
             expires_day: None,
             key_refused: false,
             note: format!("no balance API; {name} is not set"),
@@ -432,6 +514,10 @@ fn budget_for(
 
 /// A configured budget less what the ledger shows spent on the provider. A
 /// budget already spent is zero, never negative.
+///
+/// `configured` is the total credited to the provider
+/// (`SUSI_HARNESS_BUDGET_<PROVIDER>_USD`), not what is left: the ledger's
+/// spend is what turns the one into the other.
 #[must_use]
 pub fn configured_budget(
     id: &str,
@@ -445,21 +531,57 @@ pub fn configured_budget(
         remaining: Some(left),
         source: Source::Configured,
         working: false,
+        absent: Vec::new(),
         expires_day: None,
         key_refused: false,
-        note: format!("configured {configured}, spent {used}"),
+        note: format!("credited {configured}, spent {used}"),
     }
 }
 
 /// Reads one provider's balance document into micro-dollars.
 type BalanceParser = fn(&str) -> Result<MicroUsd, String>;
 
+/// What a provider's models endpoint says, read with the key.
+struct Check {
+    /// The provider answers, or the harness cannot ask it (the calls decide).
+    working: bool,
+    /// The provider refused the key (HTTP 401 or 403).
+    refused: bool,
+    /// Registry model ids the provider's list does not advertise.
+    absent: Vec<String>,
+    /// The check's own account of itself.
+    note: String,
+}
+
 /// Whether the provider answers its models endpoint with the key: the live
 /// proof that its models work, used when no balance can be costed.
-fn works(provider: &ProviderRecord, fetch: &Fetch<'_>) -> (bool, bool, String) {
+///
+/// A 2xx is an answer, whatever the list holds: a backend the list leaves
+/// out is that model's problem, not the provider's, and is named in
+/// [`Check::absent`]. A provider whose models endpoint
+/// cannot be derived from its chat endpoint is not refused for it either:
+/// nothing was asked, so a real call is the first evidence there is.
+fn works(provider: &ProviderRecord, fetch: &Fetch<'_>) -> Check {
     let report = check_provider(provider, fetch);
     let refused = report.note.contains("HTTP 401") || report.note.contains("HTTP 403");
-    (report.ok && report.reachable, refused, report.note)
+    let not_asked = report.ok && !report.reachable;
+    let absent = provider
+        .models
+        .iter()
+        .filter(|model| report.missing.contains(&model.backend))
+        .map(|model| model.id.clone())
+        .collect::<Vec<_>>();
+    let note = if absent.is_empty() {
+        report.note
+    } else {
+        format!("{}: {}", report.note, absent.join(", "))
+    };
+    Check {
+        working: report.reachable || not_asked,
+        refused,
+        absent,
+        note,
+    }
 }
 
 /// The provider's own balance answer, for the providers that publish one.
@@ -541,13 +663,11 @@ pub fn parse_moonshot(body: &str) -> Result<MicroUsd, String> {
 #[must_use]
 pub fn spent_by_provider(ledger: &Path, registry: &Registry) -> BTreeMap<String, MicroUsd> {
     let mut spent: BTreeMap<String, MicroUsd> = BTreeMap::new();
-    let Ok(text) = std::fs::read_to_string(ledger) else {
-        return spent;
-    };
-    for entry in text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-    {
+    // Read as the ledger's other readers do: a torn row costs only itself. A
+    // `read_to_string` here turned one invalid UTF-8 byte into "nothing spent"
+    // for every provider, and a provider's budget into its full amount again.
+    let (rows, _) = crate::ledger::read_rows_lenient::<Value>(ledger);
+    for entry in rows {
         let Some(model) = entry.get("model").and_then(Value::as_str) else {
             continue;
         };
@@ -600,9 +720,105 @@ mod tests {
             },
             note: "test".to_string(),
             working: false,
+            absent: Vec::new(),
             expires_day: None,
             key_refused: false,
         }
+    }
+
+    /// A one-provider registry whose key lives in `key_env`, a variable name
+    /// no other test reads, so setting it cannot leak into another test.
+    fn keyed_registry(id: &str, key_env: &str) -> Registry {
+        Registry::parse(&format!(
+            r#"{{"providers":[{{"id":"{id}","wire":"openai",
+                "endpoint":"https://{id}.example/v1/chat/completions",
+                "key_env":["{key_env}"],
+                "models":[
+                  {{"id":"{id}-flash","backend":"flash-1","tools":true,"tier":"worker"}},
+                  {{"id":"{id}-pro","backend":"pro-1","tools":true,"tier":"rescue"}}
+                ]}}]}}"#
+        ))
+        .unwrap()
+    }
+
+    /// The observed failure: Google retired one backend, its list still
+    /// answered 200 without it, and every Gemini model went off the fleet.
+    #[test]
+    fn a_provider_that_answers_without_one_model_stays_active_and_drops_only_that_one() {
+        const KEY: &str = "SUSI_HARNESS_TEST_KEY_F2_PARTIAL_LIST";
+        let registry = keyed_registry("partial", KEY);
+        std::env::set_var(KEY, "test-key");
+        let fetch =
+            |_: &str, _: &[(&str, &str)]| Ok((200, r#"{"data":[{"id":"flash-1"}]}"#.to_string()));
+        let budgets = collect(&registry, &fetch, &BTreeMap::new());
+        std::env::remove_var(KEY);
+        assert!(budgets.is_active("partial"), "{budgets:?}");
+        assert!(budgets.absent("partial-pro"));
+        assert!(!budgets.absent("partial-flash"));
+        assert!(
+            budgets.topup_alert(&registry).is_none(),
+            "the provider answered"
+        );
+        let alert = budgets.absent_alert().unwrap();
+        assert!(alert.contains("partial: partial-pro"), "{alert}");
+    }
+
+    #[test]
+    fn a_refused_key_or_a_silent_provider_is_still_inactive() {
+        const KEY: &str = "SUSI_HARNESS_TEST_KEY_F2_REFUSED";
+        let registry = keyed_registry("refusing", KEY);
+        std::env::set_var(KEY, "test-key");
+        let refused = |_: &str, _: &[(&str, &str)]| Ok((401, "bad key".to_string()));
+        let silent = |_: &str, _: &[(&str, &str)]| Err("connection refused".to_string());
+        let refused = collect(&registry, &refused, &BTreeMap::new());
+        let silent = collect(&registry, &silent, &BTreeMap::new());
+        std::env::remove_var(KEY);
+        assert!(!refused.is_active("refusing"));
+        assert!(refused.providers[0].key_refused);
+        assert!(!silent.is_active("refusing"));
+    }
+
+    #[test]
+    fn an_overlay_provider_id_with_a_dash_reads_its_budget_under_underscores() {
+        const KEY: &str = "SUSI_HARNESS_TEST_KEY_F31_DASHED";
+        assert_eq!(env_suffix("together-ai"), "TOGETHER_AI");
+        assert_eq!(env_suffix("acme.v2"), "ACME_V2");
+        let registry = keyed_registry("susi-test-f31", KEY);
+        std::env::set_var(KEY, "test-key");
+        std::env::set_var("SUSI_HARNESS_BUDGET_SUSI_TEST_F31_USD", "12.50");
+        std::env::set_var("SUSI_HARNESS_CREDIT_EXPIRES_SUSI_TEST_F31", "2999-01-01");
+        let unreachable = |_: &str, _: &[(&str, &str)]| Err("not asked".to_string());
+        let budgets = collect(&registry, &unreachable, &BTreeMap::new());
+        std::env::remove_var(KEY);
+        std::env::remove_var("SUSI_HARNESS_BUDGET_SUSI_TEST_F31_USD");
+        std::env::remove_var("SUSI_HARNESS_CREDIT_EXPIRES_SUSI_TEST_F31");
+        let entry = &budgets.providers[0];
+        assert_eq!(entry.source, Source::Configured, "{entry:?}");
+        assert_eq!(entry.remaining, Some(usd("12.50")));
+        assert_eq!(entry.expires_day, parse_day("2999-01-01"));
+    }
+
+    /// The alert used to say "set it to the remaining amount" while the code
+    /// subtracted every dollar the ledger ever recorded from it: a user who
+    /// topped up and followed the hint stayed off.
+    #[test]
+    fn following_the_topup_hint_after_a_top_up_brings_the_provider_back() {
+        let spent = BTreeMap::from([("gemini".to_string(), usd("24.50"))]);
+        let low = configured_budget("gemini", usd("25.00"), &spent);
+        assert!(!low.active());
+        let alert = Budgets {
+            providers: vec![low],
+        }
+        .topup_alert(Registry::builtin())
+        .unwrap();
+        assert!(
+            alert.contains("raise SUSI_HARNESS_BUDGET_GEMINI_USD by the amount added"),
+            "{alert}"
+        );
+        // A $20 top-up, as the hint says: 25 + 20.
+        let topped = configured_budget("gemini", usd("45.00"), &spent);
+        assert_eq!(topped.remaining, Some(usd("20.50")));
+        assert!(topped.active());
     }
 
     #[test]

@@ -22,7 +22,8 @@
 //! - [`money`] and [`pricing`] make cost arithmetic reproducible — integer
 //!   micro-USD, prices per million tokens, cache hits priced far below misses.
 //! - [`catalog`] holds the price data itself: a model the catalogue cannot
-//!   price is refused at dispatch, because unpriced spend cannot be accounted.
+//!   price still runs at a zero recorded price, and a capped account is
+//!   refused it, because its spend could not be counted against the cap.
 //! - [`budget`] admits an attempt only when its worst-case estimate, the money
 //!   already spent and the attempts already in flight all fit the mission cap.
 //! - [`policy`] ranks models by expected cost per accepted task (learned from

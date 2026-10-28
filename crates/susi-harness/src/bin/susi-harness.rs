@@ -31,7 +31,8 @@ use std::sync::Arc;
 use susi_harness::catalog::PriceCatalogue;
 use susi_harness::fleet;
 use susi_harness::gateway::GatewayState;
-use susi_harness::providers::Registry;
+use susi_harness::ingress::Ingress;
+use susi_harness::providers::{ProviderRecord, Registry};
 
 const USAGE: &str = "susi-harness: model routing, metering and budgets for agent fleets
 
@@ -176,21 +177,18 @@ impl Options {
 }
 
 /// What the real calls say about the models: the source of truth for which
-/// ones are active. Models whose last call failed long enough ago are probed
-/// with one real call each, and each probe is reported.
+/// ones are active. Models whose last call was refused long enough ago are
+/// probed with one real call each, and each probe is reported
+/// ([`fleet::probe_report`]).
 fn evidence(options: &Options, ledger: &Path) -> fleet::Evidence {
     let catalogue = options.catalogue().ok();
     let evidence = fleet::evidence(ledger, catalogue.as_ref(), true);
-    for (model, answered) in &evidence.probed {
-        if *answered {
-            eprintln!("probe: {model} answered; active again");
-        } else {
-            eprintln!("probe: {model} failed again; it stays inactive");
-        }
+    for line in fleet::probe_report(&evidence) {
+        eprintln!("{line}");
     }
     if !evidence.failed.is_empty() {
         let names = evidence.failed.keys().cloned().collect::<Vec<_>>();
-        eprintln!("inactive (last real call failed): {}", names.join(", "));
+        eprintln!("inactive (last real call refused): {}", names.join(", "));
     }
     evidence
 }
@@ -212,15 +210,22 @@ fn alert(budgets: &susi_harness::balance::Budgets) {
 fn up_command(options: &Options) -> Result<(), String> {
     println!("susi-harness {}", env!("CARGO_PKG_VERSION"));
     let (keyed, _) = fleet::providers_by_key();
-    if keyed.is_empty() {
+    // A local provider (no `key_env`) serves with no key at all: counting
+    // only keyed providers told an Ollama-only user "No API key found" and
+    // exited without serving the fleet `resolve_fleet` would have built.
+    let local = local_providers(Registry::builtin());
+    if keyed.is_empty() && local.is_empty() {
         println!("{}", fleet::onboarding());
         return Ok(());
     }
-    let ids = keyed
-        .iter()
-        .map(|provider| provider.id.as_str())
-        .collect::<Vec<_>>();
-    println!("keys:   {}", ids.join(", "));
+    // Refuse an exposed host before probing models or printing a fleet.
+    let ingress = load_ingress(options)?;
+    if !keyed.is_empty() {
+        println!("keys:   {}", provider_ids(&keyed));
+    }
+    if !local.is_empty() {
+        println!("local:  {} (no key)", provider_ids(&local));
+    }
     let ledger = options.ledger();
     println!("ledger: {}", ledger.display());
     let (budgets, spent) = fleet::gather_budgets(&ledger);
@@ -246,7 +251,24 @@ fn up_command(options: &Options) -> Result<(), String> {
         "use:    point any OpenAI-compatible client at http://{}:{}/v1 and pick a model above",
         options.host, options.port
     );
-    gateway_command(options)
+    serve_gateway(options, ingress)
+}
+
+/// The providers that need no key: an overlay's local servers.
+fn local_providers(registry: &Registry) -> Vec<&ProviderRecord> {
+    registry
+        .providers()
+        .iter()
+        .filter(|provider| provider.key_envs.is_empty() && !provider.models.is_empty())
+        .collect()
+}
+
+fn provider_ids(providers: &[&ProviderRecord]) -> String {
+    providers
+        .iter()
+        .map(|provider| provider.id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The fleet the keys give: orchestrator and ladder, with the alerts.
@@ -277,7 +299,8 @@ fn fleet_command(options: &Options) -> Result<(), String> {
     let ladder = susi_harness::policy::escalation_order(&resolved.ladder, &strong);
     let history = susi_harness::policy::history(&entries);
     let cooling = susi_harness::policy::cooling_providers(&entries, now_ms);
-    let failed = susi_harness::policy::failed_models(&entries);
+    let failed =
+        susi_harness::policy::in_force(susi_harness::policy::failed_models(&entries), now_ms);
     let standing = susi_harness::policy::Standing {
         history: &history,
         cooling: &cooling,
@@ -378,6 +401,29 @@ fn env_command() -> Result<(), String> {
 /// The metering gateway: OpenAI-compatible, routing each model to its
 /// provider with that provider's key.
 fn gateway_command(options: &Options) -> Result<(), String> {
+    let ingress = load_ingress(options)?;
+    serve_gateway(options, ingress)
+}
+
+/// The `--accounts` file, if any, once the serving rule allows `--host`
+/// with it: an address other machines can reach needs at least one account.
+fn load_ingress(options: &Options) -> Result<Option<Arc<Ingress>>, String> {
+    let ingress = match &options.accounts {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .map_err(|error| format!("accounts {}: {error}", path.display()))?;
+            Some(Arc::new(
+                Ingress::parse(&text).map_err(|error| error.to_string())?,
+            ))
+        }
+        None => None,
+    };
+    susi_harness::ingress::require_accounts_off_loopback(&options.host, ingress.as_deref())
+        .map_err(|error| error.to_string())?;
+    Ok(ingress)
+}
+
+fn serve_gateway(options: &Options, ingress: Option<Arc<Ingress>>) -> Result<(), String> {
     let catalogue = options.catalogue()?;
     let ledger = options.ledger();
     if let Some(parent) = ledger
@@ -398,22 +444,6 @@ fn gateway_command(options: &Options) -> Result<(), String> {
         max_output_tokens: options.max_output_tokens,
         cache: Some(Arc::new(susi_harness::cache::ResponseCache::new(cache_dir))),
     });
-    let ingress = match &options.accounts {
-        Some(path) => {
-            let text = std::fs::read_to_string(path)
-                .map_err(|error| format!("accounts {}: {error}", path.display()))?;
-            Some(Arc::new(
-                susi_harness::ingress::Ingress::parse(&text).map_err(|error| error.to_string())?,
-            ))
-        }
-        None => None,
-    };
-    if ingress.is_none() && !is_loopback(&options.host) {
-        return Err(format!(
-            "--host {} is reachable from other machines; pass --accounts so callers must authenticate",
-            options.host
-        ));
-    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -435,14 +465,6 @@ fn gateway_command(options: &Options) -> Result<(), String> {
         }
         .map_err(|error| format!("serve: {error}"))
     })
-}
-
-/// Whether `host` only accepts connections from this machine.
-fn is_loopback(host: &str) -> bool {
-    host == "localhost"
-        || host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|address| address.is_loopback())
 }
 
 #[cfg(test)]
@@ -513,12 +535,72 @@ mod tests {
         }
     }
 
+    fn options_with(host: &str, accounts: Option<&Path>) -> Options {
+        let mut options = Options::parse(&strings(&["--host", host])).unwrap();
+        options.accounts = accounts.map(Path::to_path_buf);
+        options
+    }
+
     #[test]
     fn only_loopback_hosts_may_serve_without_accounts() {
-        assert!(is_loopback("127.0.0.1"));
-        assert!(is_loopback("::1"));
-        assert!(is_loopback("localhost"));
-        assert!(!is_loopback("0.0.0.0"));
-        assert!(!is_loopback("192.168.1.10"));
+        assert!(load_ingress(&options_with("127.0.0.1", None))
+            .unwrap()
+            .is_none());
+        assert!(load_ingress(&options_with("localhost", None)).is_ok());
+        for host in ["0.0.0.0", "::", "192.168.1.10"] {
+            let error = load_ingress(&options_with(host, None)).unwrap_err();
+            assert!(error.contains("--accounts"), "{error}");
+        }
+    }
+
+    /// `{"accounts": []}` passed the check (an accounts file was given), and
+    /// the ingress then admitted every caller, without a token, uncapped.
+    #[test]
+    fn an_accounts_file_with_no_account_does_not_open_a_public_gateway() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = dir.path().join("empty.json");
+        std::fs::write(&empty, r#"{"accounts": []}"#).unwrap();
+        let error = load_ingress(&options_with("0.0.0.0", Some(&empty))).unwrap_err();
+        assert!(error.contains("lists no account"), "{error}");
+        let one = dir.path().join("one.json");
+        std::fs::write(
+            &one,
+            r#"{"accounts": [{"token": "sk-a", "budget_usd": "1"}]}"#,
+        )
+        .unwrap();
+        let ingress = load_ingress(&options_with("0.0.0.0", Some(&one)))
+            .unwrap()
+            .unwrap();
+        assert!(!ingress.is_open());
+    }
+
+    /// The README's own overlay example: one local provider, no `key_env`.
+    /// `up` counted only keyed providers, so this alone printed "No API key
+    /// found" and exited without serving.
+    #[test]
+    fn a_keyless_local_provider_is_enough_to_serve() {
+        let overlay = Registry::parse(
+            r#"{"providers": [{
+                "id": "local",
+                "wire": "openai",
+                "endpoint": "http://127.0.0.1:8080/v1/chat/completions",
+                "models": [
+                    {"id": "local-coder", "context": 32768, "tools": true, "tier": "worker"}
+                ]
+            }]}"#,
+        )
+        .unwrap();
+        assert_eq!(provider_ids(&local_providers(&overlay)), "local");
+        let keyed = Registry::parse(
+            r#"{"providers": [{
+                "id": "deepseek",
+                "wire": "openai",
+                "endpoint": "https://api.deepseek.com/chat/completions",
+                "key_env": ["DEEPSEEK_API_KEY"],
+                "models": [{"id": "deepseek-flash", "tier": "worker"}]
+            }]}"#,
+        )
+        .unwrap();
+        assert!(local_providers(&keyed).is_empty());
     }
 }

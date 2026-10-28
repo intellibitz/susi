@@ -91,7 +91,7 @@ discovered twenty turns in), and there were no aliases (`--model coder`).
 Now: a registry of records
 
 ```json
-{"id": "deepseek", "wire": "openai", "base_url": "https://api.deepseek.com",
+{"id": "deepseek", "wire": "openai", "endpoint": "https://api.deepseek.com/chat/completions",
  "key_env": "DEEPSEEK_API_KEY",
  "models": [{"id": "deepseek-flash", "context": 128000, "tools": true,
              "streaming": true, "price_ref": "deepseek-flash"}]}

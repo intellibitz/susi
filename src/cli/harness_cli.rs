@@ -115,8 +115,10 @@ pub enum HarnessCommands {
         #[arg(long, default_value = "25")]
         daily_usd: String,
         /// Ledger the gateway writes (spend authority)
-        #[arg(long, default_value = "out/ledger.jsonl")]
-        ledger: PathBuf,
+        /// (default: `out/ledger.jsonl` in a susi workspace, else `SUSI_HARNESS_LEDGER` or
+        /// `~/.susi/harness/ledger.jsonl`, as standalone `susi-harness` reads it)
+        #[arg(long)]
+        ledger: Option<PathBuf>,
         /// Control log the cockpit writes pause/resume/abort to
         #[arg(long, default_value = "out/control.jsonl")]
         controls: PathBuf,
@@ -212,30 +214,36 @@ pub enum HarnessCommands {
     /// Print the one-line budget report and any top-up alert, without running
     Budget {
         /// Ledger the spend is read from
-        #[arg(long, default_value = "out/ledger.jsonl")]
-        ledger: PathBuf,
+        /// (default: `out/ledger.jsonl` in a susi workspace, else `SUSI_HARNESS_LEDGER` or
+        /// `~/.susi/harness/ledger.jsonl`, as standalone `susi-harness` reads it)
+        #[arg(long)]
+        ledger: Option<PathBuf>,
     },
     /// Serve the metered multi-provider gateway directly from susi
     Gateway {
         /// Port to bind (default: 9180)
         #[arg(long, default_value_t = 9180)]
         port: u16,
-        /// Interface to bind (default: 127.0.0.1)
+        /// Interface to bind (default: 127.0.0.1). Any address other machines
+        /// can reach needs --accounts with at least one account
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
         /// Price catalogue
         #[arg(long, default_value = "deploy/harness/prices.json")]
         catalogue: PathBuf,
         /// Ledger path
-        #[arg(long, default_value = "out/ledger.jsonl")]
-        ledger: PathBuf,
+        /// (default: `out/ledger.jsonl` in a susi workspace, else `SUSI_HARNESS_LEDGER` or
+        /// `~/.susi/harness/ledger.jsonl`, as standalone `susi-harness` reads it)
+        #[arg(long)]
+        ledger: Option<PathBuf>,
         /// Upstream URL or "direct" for multi-provider routing
         #[arg(long, default_value = "direct")]
         upstream: String,
         /// Upstream call timeout in seconds
         #[arg(long, default_value_t = 120)]
         timeout: u64,
-        /// Accounts file for authenticated ingress (optional)
+        /// Accounts file: every caller must present a bearer token naming one
+        /// of its accounts (optional on loopback, required on any other host)
         #[arg(long)]
         accounts: Option<PathBuf>,
     },
@@ -253,7 +261,9 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
         bail!("{error}");
     }
     match action {
-        HarnessCommands::Budget { ledger } => budget_report(&ledger, cwd),
+        HarnessCommands::Budget { ledger } => {
+            budget_report(&ledger.unwrap_or_else(|| fleet::default_ledger(cwd)), cwd)
+        }
         HarnessCommands::Models {
             verify,
             provider,
@@ -277,7 +287,14 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             timeout,
             accounts,
         } => serve_gateway(
-            port, &host, catalogue, ledger, upstream, timeout, accounts, cwd,
+            port,
+            &host,
+            catalogue,
+            ledger.unwrap_or_else(|| fleet::default_ledger(cwd)),
+            upstream,
+            timeout,
+            accounts,
+            cwd,
         ),
         HarnessCommands::Status { ledger, events } => {
             let cockpit = Cockpit {
@@ -369,7 +386,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             &budget_usd,
             catalogue,
             &daily_usd,
-            &ledger,
+            &ledger.unwrap_or_else(|| fleet::default_ledger(cwd)),
             &controls,
             &rsi_log,
             attempts,
@@ -422,9 +439,9 @@ fn plan_queue(
     } else {
         repo.to_path_buf()
     };
-    let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
+    let (budgets, _) = gather_budgets(&fleet::default_ledger(cwd));
     alert_topups(&budgets);
-    let evidence = live_evidence(&cwd.join("out/ledger.jsonl"), cwd);
+    let evidence = live_evidence(&fleet::default_ledger(cwd), cwd);
     // Tasks go to the light workers, spread across them; the fixers and the
     // orchestrator are not assigned first-line work.
     let workers =
@@ -569,13 +586,13 @@ fn author(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
     let facts = RepoFacts::load(cwd).context("read the workspace's packages")?;
-    let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
+    let (budgets, _) = gather_budgets(&fleet::default_ledger(cwd));
     alert_topups(&budgets);
     let fleet = resolve_fleet(
         workers,
         || default_catalogue(cwd),
         &budgets,
-        &live_evidence(&cwd.join("out/ledger.jsonl"), cwd),
+        &live_evidence(&fleet::default_ledger(cwd), cwd),
     )?;
     let request = AuthorRequest {
         vector: format!("{vector} {title}"),
@@ -872,12 +889,8 @@ fn resolve_fleet(
 fn live_evidence(ledger: &Path, cwd: &Path) -> fleet::Evidence {
     let catalogue = default_catalogue(cwd).ok();
     let evidence = fleet::evidence(ledger, catalogue.as_ref(), true);
-    for (model, answered) in &evidence.probed {
-        if *answered {
-            eprintln!("probe: {model} answered; active again");
-        } else {
-            eprintln!("probe: {model} failed again; it stays inactive");
-        }
+    for line in fleet::probe_report(&evidence) {
+        eprintln!("{line}");
     }
     evidence
 }
@@ -917,7 +930,7 @@ fn models_verify(provider: Option<&str>) -> Result<()> {
 
 fn models_available(cwd: &Path) -> Result<()> {
     let catalogue = default_catalogue(cwd).ok();
-    let ledger = cwd.join("out/ledger.jsonl");
+    let ledger = fleet::default_ledger(cwd);
     let (budgets, _) = gather_budgets(&ledger);
     let report =
         fleet::available_report(catalogue.as_ref(), &budgets, &live_evidence(&ledger, cwd));
@@ -936,6 +949,10 @@ fn serve_gateway(
     accounts_path: Option<PathBuf>,
     cwd: &Path,
 ) -> Result<()> {
+    // The serving rule comes first, before anything is created or bound:
+    // this entry point bound any --host as given, so `--host 0.0.0.0` served
+    // an open gateway that spent the operator's keys for anyone.
+    let ingress = gateway_ingress(host, accounts_path, cwd)?;
     let resolved_cat = if catalogue_path.is_absolute() {
         catalogue_path
     } else {
@@ -976,17 +993,8 @@ fn serve_gateway(
         let addr = listener.local_addr()?;
         eprintln!("susi harness gateway listening on http://{addr}/v1 (full cache on)");
 
-        if let Some(accounts_file) = accounts_path {
-            let acc_resolved = if accounts_file.is_absolute() {
-                accounts_file
-            } else {
-                cwd.join(accounts_file)
-            };
-            let text = std::fs::read_to_string(&acc_resolved)
-                .with_context(|| format!("read accounts file {}", acc_resolved.display()))?;
-            let ingress =
-                susi_harness::ingress::Ingress::parse(&text).map_err(|e| anyhow::anyhow!("{e}"))?;
-            susi_harness::ingress::serve(listener, state, Arc::new(ingress))
+        if let Some(ingress) = ingress {
+            susi_harness::ingress::serve(listener, state, ingress)
                 .await
                 .map_err(|e| anyhow::anyhow!("{e}"))
         } else {
@@ -995,6 +1003,35 @@ fn serve_gateway(
                 .map_err(|e| anyhow::anyhow!("{e}"))
         }
     })
+}
+
+/// The accounts the gateway authenticates callers against, read from
+/// `accounts_path`, once the serving rule the harness binaries share allows
+/// `host` with them: any address other machines can reach needs at least
+/// one account.
+fn gateway_ingress(
+    host: &str,
+    accounts_path: Option<PathBuf>,
+    cwd: &Path,
+) -> Result<Option<Arc<susi_harness::ingress::Ingress>>> {
+    let ingress = match accounts_path {
+        Some(accounts_file) => {
+            let resolved = if accounts_file.is_absolute() {
+                accounts_file
+            } else {
+                cwd.join(accounts_file)
+            };
+            let text = std::fs::read_to_string(&resolved)
+                .with_context(|| format!("read accounts file {}", resolved.display()))?;
+            let ingress =
+                susi_harness::ingress::Ingress::parse(&text).map_err(|e| anyhow::anyhow!("{e}"))?;
+            Some(Arc::new(ingress))
+        }
+        None => None,
+    };
+    susi_harness::ingress::require_accounts_off_loopback(host, ingress.as_deref())
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(ingress)
 }
 
 /// The provider registry as JSON: each provider with its models, a flat model
@@ -1120,6 +1157,47 @@ mod tests {
             }
             _ => panic!("expected harness gateway"),
         }
+    }
+
+    /// `susi harness gateway --host 0.0.0.0` bound every interface and served
+    /// an unauthenticated gateway on the operator's keys; `susi-harness`
+    /// refused the same command. Both now share one rule.
+    #[test]
+    fn gateway_off_loopback_needs_an_accounts_file_with_an_account() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-gateway-accounts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        std::fs::write(dir.join("empty.json"), r#"{"accounts": []}"#).expect("write");
+        std::fs::write(
+            dir.join("one.json"),
+            r#"{"accounts": [{"token": "sk-a", "name": "alice", "budget_usd": "1"}]}"#,
+        )
+        .expect("write");
+
+        assert!(super::gateway_ingress("127.0.0.1", None, &dir)
+            .expect("loopback serves open")
+            .is_none());
+        for host in ["0.0.0.0", "::", "192.168.1.10"] {
+            let error = super::gateway_ingress(host, None, &dir)
+                .expect_err("an open gateway off loopback")
+                .to_string();
+            assert!(error.contains("--accounts"), "{error}");
+            let error = super::gateway_ingress(host, Some(PathBuf::from("empty.json")), &dir)
+                .expect_err("an accounts file with no account")
+                .to_string();
+            assert!(error.contains("lists no account"), "{error}");
+            let ingress = super::gateway_ingress(host, Some(PathBuf::from("one.json")), &dir)
+                .expect("an authenticated gateway")
+                .expect("an ingress");
+            assert!(!ingress.is_open());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -40,14 +40,20 @@ tool and MCP layer, an agent graph and plugins — is in
    a model that cannot call tools is refused before it is dispatched.
    `susi harness models --verify` GETs each selected provider's models endpoint
    (10 s bound) and reports any configured backend id the provider no longer
-   advertises, exiting 1 on drift; `--provider <id>` limits the check, and
-   Anthropic — which has no `/models` — is reported as not verifiable.
+   advertises, exiting 1 on drift; `--provider <id>` limits the check.
+   Anthropic's list sits beside its Messages route (`/v1/models`); only a
+   provider whose chat endpoint gives no models URL is reported as not
+   verifiable.
 2. **The gateway** is the control point. It forwards a completion — directly
    when the registry knows the route, or to `--upstream` for anything it does
    not — prices the provider's own usage at the rate in the catalogue, and
-   appends a ledger row before answering. An unpriced model is refused —
-   unpriced spend cannot be accounted. `--accounts accounts.json` turns it into
-   the public ingress: bearer keys, per-key budgets and rate limits, and
+   appends a ledger row before answering. A model the catalogue cannot price
+   is still forwarded: a working model is never refused for lack of costing.
+   Its tokens are recorded at a zero price, so no budget — the mission's
+   `--budget-usd`, `--daily-usd` or a provider budget — counts that spend, and
+   an account with a spend cap is refused the model outright; add a price to
+   budget it. `--accounts accounts.json` turns it
+   into the public ingress: bearer keys, per-key budgets and rate limits, and
    `/v1/models` served from the registry.
 3. **The scheduler** runs the tasks of a mission concurrently. Before every
    turn the budget guard must admit its worst-case estimate; after every turn
@@ -81,28 +87,87 @@ rerouting the fleet never touches a plan:
 ### Automatic ladder from the environment
 
 The ladder is built from the API keys in the environment, so nothing has to be
-listed by hand. Each registry model carries a `tier`: `worker` for the cheap
-first attempts (DeepSeek Flash, Gemini Flash, Kimi Flash) and `rescue` for the
-stronger fallbacks (DeepSeek Pro, Gemini Pro, Kimi K3 and K3 Pro, and the
-Anthropic models). A model with no tier, such as SiliconFlow or DashScope, is
-addressable by name but never chosen automatically.
+listed by hand. Each registry model carries a `tier`: `worker` for the light
+first attempts and `rescue` for the strong models that fix what a worker could
+not. Every built-in provider has both, so any one key gives a complete fleet:
 
-A model is eligible when its provider's key is set, it can call tools, and the
-price catalogue prices it. An unpriced model is left out and reported under
-`unpriced`, because it cannot be budgeted.
+| Provider | Workers | Rescue |
+|---|---|---|
+| DeepSeek | `deepseek-flash` | `deepseek-pro` |
+| Gemini | `gemini-flash` | `gemini-pro` |
+| Moonshot (Kimi) | `kimi-flash` | `kimi-k3`, `kimi-k3-pro` |
+| Anthropic | `claude-haiku` | `claude-sonnet`, `claude-opus` |
+| OpenAI | `gpt-luna` | `gpt-sol` |
+| OpenRouter | `or-deepseek-flash`, `or-qwen-flash`, `or-gemini-flash` | `or-claude-sonnet`, `or-gpt-sol`, `or-claude-opus` |
+| SiliconFlow | `siliconflow-qwen`, `siliconflow-qwen-coder` | `siliconflow-deepseek` |
+| DashScope | `dashscope-qwen-plus`, `dashscope-qwen-coder` | `dashscope-qwen-max` |
 
-- **Budget first.** Within a tier, the cheapest model comes first, using the
-  agent usage profile from `deploy/harness/prices.json`.
-- **Capability second.** Equal prices go to the model with more capabilities
-  (streaming, vision), then the larger context, then the id.
-- **Orchestrator.** `deepseek-pro` when its key is set; otherwise the cheapest
-  rescue model.
+Only a model with no `tier` (one an overlay adds without one) is addressable
+by name but never chosen automatically.
 
-`--workers auto` is the default for `susi harness plan`, `author` and `run`. The
-escalation order is every worker, then every rescue model. `--workers` with a
-comma-separated list still names the ladder explicitly.
+A model is eligible when its provider's key is set and the provider is active
+(at least $1 left, or, when no balance can be read, it answers its models
+endpoint with the key), the model can call tools, the provider's model list
+still advertises it, and its last real call was not refused (see below). A
+model the catalogue cannot price stays on the ladder and is listed under
+`unpriced`; it ranks after every priced model of its tier, and its spend is
+recorded at zero (see the gateway above).
+
+Within a tier, priced models come first, in this order (the unpriced ones
+follow in the same order):
+
+1. **Expiring credit** (`SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>`), soonest
+   expiry first: credit lost unused costs nothing to spend.
+2. **Cache.** A model that serves a cached prefix comes first, because a task
+   re-sends the same prompt on every turn.
+3. **Price**, by the agent usage profile priced at each model's cache rate,
+   in bands about 10% wide.
+4. **Capability**, in the rescue tier only: streaming and vision, then the
+   larger context.
+5. **Measured latency** from the ledger, fastest first.
+6. The exact price, then the id.
+
+The **orchestrator** is the most capable rescue model on expiring credit when
+there is one, else `deepseek-pro` when it is eligible, else the first-ranked
+rescue model, else the first worker.
+
+`--workers auto` is the default for `susi harness plan`, `author` and `run`.
+A task starts on a worker; when it fails or its work does not pass, it goes to
+the rescue models, then to the other workers. `--workers` with a
+comma-separated list still names the ladder explicitly; a listed model whose
+provider has no key set or is inactive, whose last real call was refused, or
+that its provider no longer lists, is left off and named.
 `susi harness models --available` prints the resolved `auto` section, and
 exits with a message when no key is set.
+
+### What a failed call does to a model
+
+The real calls are the source of truth. The gateway writes a `model_failed`
+row when a provider refuses the key or has no credit (401, 402, 403, or an
+empty-account body), rate-limits (429), times out (408, 504, or a transport
+timeout), fails with a 5xx, or drops the connection. A call that gets any
+other 4xx (a 400 or 404), or that the gateway cannot route (no key set),
+writes no row and leaves the model's record as it was; a probe (below) records
+a 400 or 404 as a transient failure. The model's last recorded call decides,
+whatever its budget or balance says. Calls made through an alias (`coder`) or
+with the `susi/` prefix count for the model they name.
+
+| Last real call | The model |
+|---|---|
+| completed | active |
+| refused: 401, 402, 403 or an empty account (`no_credit`) | inactive: off the fleet and out of every task's order until a probe answers |
+| rate limited, timed out, a 5xx, a dropped connection | stays; for 10 minutes each task tries it after the other models. A fleet of one model still runs it |
+
+A refused model is probed with one small call once the refusal is 5 minutes
+old: when a run starts, and again before each task of a running mission, so a
+key that was fixed or an account that was topped up comes back without a
+restart. If every model on a task's ladder has been refused, the mission
+stops as it does when its budget runs out, and leaves its remaining tasks for
+a later run instead of failing them unattempted.
+
+A provider whose models endpoint answers is active even when its list leaves
+out one of the registry's backends: only that model is left off, with a `⚠`
+alert, and the provider's other models keep running.
 
 `susi harness models --verify` checks each registered backend id against the
 provider's own list, so an id retired upstream is reported before a call fails.
@@ -193,12 +258,17 @@ recorded as `timed out` or `failed`, which the ladder escalates like any other
 failure — no subprocess and no guard thread is involved.
 
 A mission budget needs a price catalogue: `susi harness run --budget-usd 0.50
---catalogue deploy/harness/prices.json ...`.
+--catalogue deploy/harness/prices.json ...`. An attempt on a model the
+catalogue cannot price has no estimate to admit and is recorded at zero, so
+the cap does not hold it.
 
 ## Cost-ranked escalation
 
-Candidates are not tried in the order they were typed. `rank_models` orders them
-by **expected cost per accepted task**:
+`susi harness run` keeps the fleet's order (above) for each task and only
+moves models back: an unreliable model, a cooling provider, a model that just
+failed transiently. The scheduler (`harness-mission`) ranks a list of
+candidates instead; there they are not tried in the order they were typed.
+`rank_models` orders them by **expected cost per accepted task**:
 
 ```
 expected = (served calls / accepted tasks) × (average price of an attempt)

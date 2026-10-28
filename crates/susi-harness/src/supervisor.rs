@@ -161,9 +161,14 @@ pub struct SupervisorReport {
     pub failed: Vec<(String, String)>,
     /// Task keys skipped because an earlier run landed them.
     pub skipped: Vec<String>,
-    /// Task keys not started because the mission budget was exhausted.
+    /// Task keys not started because the mission budget was exhausted, or
+    /// because no model on a task's ladder can be paid for (every model's
+    /// last real call was refused: the key was refused or has no credit).
     pub unstarted: Vec<String>,
-    /// True when the budget stopped the run early.
+    /// True when the run stopped early for a top-up: the mission budget was
+    /// exhausted, or no model on a task's ladder can be paid for (every
+    /// model's last real call was refused). The rest of the plan is left for
+    /// a later run rather than failed unattempted.
     pub budget_exhausted: bool,
     /// True when the operator paused the mission.
     pub paused: bool,
@@ -196,10 +201,12 @@ pub trait TaskExecutor: Sync {
     /// land is [`TaskStatus::Failed`].
     fn land(&self, prepared: Self::Prepared) -> EaiResult<TaskStatus>;
 
-    /// True once the mission budget refused an attempt.
+    /// True once the mission budget refused an attempt, or once no model on a
+    /// task's ladder could be paid for (every model's last real call was
+    /// refused: the key was refused or has no credit).
     ///
-    /// The supervisor checks this after every task and stops the plan instead
-    /// of starting work the mission cannot pay for.
+    /// The supervisor checks this after every task and stops the plan for a
+    /// top-up instead of starting work the mission cannot pay for.
     fn budget_exhausted(&self) -> bool {
         false
     }
@@ -429,7 +436,8 @@ pub struct SusiExecutor<'a, R: CommandRunner> {
     pub lifecycle_path: Option<PathBuf>,
     /// Built on the first prepare when a budget is set.
     pub guard: std::sync::OnceLock<BudgetGuard>,
-    /// Set once the budget refused an attempt.
+    /// Set once the budget refused an attempt, or a task found no model on its
+    /// ladder that can be paid for ([`SusiRunReport::budget_exhausted`]).
     pub exhausted: AtomicBool,
 }
 

@@ -1,9 +1,11 @@
 //! API keys from the environment, read without ever showing them.
 //!
 //! A key is looked up by variable name, in this order: the process
-//! environment, then (on Windows) the user scope and the machine scope. The
-//! machine scope matters because a shell started before a key was set does not
-//! see it, and a key set by an installer usually lives there.
+//! environment, then (on Windows) the user scope and the machine scope, then
+//! `./.env` and the data home's `.env`. The machine scope matters because a
+//! shell started before a key was set does not see it, and a key set by an
+//! installer usually lives there. A harness setting ([`setting`]) is read
+//! from the same places.
 //!
 //! The value is wrapped in [`ApiKey`], whose `Debug` and `Display` print
 //! `<redacted>`. The only way to read the key is [`ApiKey::expose`], which the
@@ -114,30 +116,41 @@ const SCOPES: [&str; 5] = [
     "data-home .env file",
 ];
 
+/// The variable that names the data home ([`data_home`]).
+const HOME_ENV: &str = "SUSI_HOME";
+
 fn scope_value(name: &str, scope: &str) -> Option<String> {
     match scope {
         "process environment" => process_value(name),
         "user environment" => registry_value(name, "User"),
         "machine environment" => registry_value(name, "Machine"),
         "./.env file" => dotenv_value(name, DotEnv::WorkingDirectory),
+        // The data home's `.env` is found through `SUSI_HOME`, so it cannot
+        // say where the data home is: reading it there would go in a circle,
+        // and `susi-harness env` would report a home the harness never uses.
+        _ if name == HOME_ENV => None,
         _ => dotenv_value(name, DotEnv::DataHome),
     }
 }
 
 /// The harness's per-user home: `SUSI_HOME` when set (process, user or
-/// machine environment), else `.susi` in the user's home directory. The
-/// ledger, the `.env` file and anything else the harness keeps across runs
-/// live here, so they follow the user, not the directory.
+/// machine environment, or `./.env`; never the data home's own `.env`,
+/// which is found through it), else `.susi` in the user's home directory.
+/// The ledger, the `.env` file and anything else the harness keeps across
+/// runs live here, so they follow the user, not the directory.
 #[must_use]
 pub fn data_home() -> std::path::PathBuf {
+    // Read the way every other setting is, so the home `susi-harness env`
+    // reports is the one in use: a `SUSI_HOME` in `./.env` was once shown as
+    // set while the ledger stayed under `~/.susi`.
+    if let Some(home) = setting(HOME_ENV) {
+        return std::path::PathBuf::from(home);
+    }
     let from_environment = |name: &str| {
         process_value(name)
             .or_else(|| registry_value(name, "User"))
             .or_else(|| registry_value(name, "Machine"))
     };
-    if let Some(home) = from_environment("SUSI_HOME") {
-        return std::path::PathBuf::from(home);
-    }
     let user_home = from_environment("USERPROFILE")
         .or_else(|| from_environment("HOME"))
         .unwrap_or_else(|| ".".to_string());
@@ -154,6 +167,10 @@ enum DotEnv {
 fn dotenv_value(name: &str, which: DotEnv) -> Option<String> {
     static WORKING: OnceLock<BTreeMap<String, String>> = OnceLock::new();
     static HOME: OnceLock<BTreeMap<String, String>> = OnceLock::new();
+    #[cfg(test)]
+    if let (DotEnv::WorkingDirectory, Some(found)) = (which, test_dotenv::value(name)) {
+        return found;
+    }
     let file = match which {
         DotEnv::WorkingDirectory => {
             WORKING.get_or_init(|| read_dotenv(std::path::Path::new(".env")))
@@ -163,44 +180,147 @@ fn dotenv_value(name: &str, which: DotEnv) -> Option<String> {
     file.get(name).cloned()
 }
 
+/// The pairs in the `.env` file at `path`; none when there is no such file.
+///
+/// A file that is there but cannot be used gets a one-line warning naming
+/// the file and the reason, never what is in it. It once failed in silence:
+/// a key in a file Windows PowerShell wrote (UTF-16) was never read, and the
+/// harness told the user to put the key in a `.env` file, which they had.
 fn read_dotenv(path: &std::path::Path) -> BTreeMap<String, String> {
-    std::fs::read_to_string(path)
-        .map(|text| parse_dotenv(&text))
-        .unwrap_or_default()
+    // A directory named `.env` is a Python virtual environment, not a key
+    // file, so it is passed over without a word, like a missing file.
+    if !path.is_file() {
+        return BTreeMap::new();
+    }
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!(
+                "⚠ {} could not be read ({error}); nothing in it is used",
+                path.display()
+            );
+            return BTreeMap::new();
+        }
+    };
+    let (text, problem) = decode_dotenv(&bytes);
+    if let Some(problem) = problem {
+        eprintln!(
+            "⚠ {} {problem}; save it as UTF-8 so every line is read as written",
+            path.display()
+        );
+    }
+    parse_dotenv(&text)
 }
 
-/// `NAME=value` lines, as `.env` files write them: `#` comments and blank
-/// lines skipped, an optional `export ` prefix, and one pair of matching
-/// quotes around the value removed. Names that are not variable names, and
-/// blank values, are left out.
+/// The text of a `.env` file in the encodings editors and shells write:
+/// UTF-8 with or without a byte-order mark (Windows PowerShell 5's
+/// `-Encoding UTF8`, older Notepad), and UTF-16 with one, little- or
+/// big-endian (Windows PowerShell 5's `>`, `Out-File` and `-Encoding
+/// Unicode`). Text that does not decode is replaced character by character,
+/// so the lines that do still count, and the reason comes back with it.
+fn decode_dotenv(bytes: &[u8]) -> (String, Option<&'static str>) {
+    let utf16 = |rest: &[u8], unit: fn([u8; 2]) -> u16| {
+        let (pairs, odd_byte) = rest.as_chunks::<2>();
+        let units = pairs.iter().map(|&pair| unit(pair));
+        let mut clean = odd_byte.is_empty();
+        let text = char::decode_utf16(units)
+            .map(|decoded| {
+                decoded.unwrap_or_else(|_| {
+                    clean = false;
+                    char::REPLACEMENT_CHARACTER
+                })
+            })
+            .collect::<String>();
+        (text, (!clean).then_some("is not valid UTF-16 text"))
+    };
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        return utf16(rest, u16::from_le_bytes);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        return utf16(rest, u16::from_be_bytes);
+    }
+    let rest = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    match std::str::from_utf8(rest) {
+        Ok(text) if text.contains('\0') => (
+            text.to_string(),
+            Some("holds NUL bytes, as UTF-16 written without a byte-order mark does"),
+        ),
+        Ok(text) => (text.to_string(), None),
+        Err(_) => (
+            String::from_utf8_lossy(rest).into_owned(),
+            Some("is not UTF-8 text"),
+        ),
+    }
+}
+
+/// `NAME=value` lines, as `.env` files write them: a byte-order mark, `#`
+/// comments and blank lines skipped, an optional `export ` prefix, CRLF or
+/// LF line ends, and the value read as [`dotenv_value_text`] reads it.
+/// Names that are not variable names, and blank values, are left out.
 fn parse_dotenv(text: &str) -> BTreeMap<String, String> {
-    text.lines()
+    text.trim_start_matches('\u{feff}')
+        .lines()
         .filter_map(|line| {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 return None;
             }
-            let line = line.strip_prefix("export ").unwrap_or(line);
+            let line = line
+                .strip_prefix("export")
+                .filter(|rest| rest.starts_with([' ', '\t']))
+                .map_or(line, str::trim_start);
             let (name, value) = line.split_once('=')?;
             let name = name.trim();
-            let mut value = value.trim();
-            for quote in ['"', '\''] {
-                if value.len() >= 2 && value.starts_with(quote) && value.ends_with(quote) {
-                    value = &value[1..value.len() - 1];
-                }
-            }
+            let value = dotenv_value_text(value);
             (valid_name(name) && !value.is_empty()).then(|| (name.to_string(), value.to_string()))
         })
         .collect()
 }
 
-/// A harness setting that is not a secret (a budget, an expiry date), read
-/// from the same scopes as a key: the process, then the user and machine
-/// environment. A value set in the user environment reaches a process that
-/// started before it was set, as a key does.
+/// The value after a `.env` line's `=`: inside its quotes when it is quoted
+/// (anything after the closing quote must be a comment), else the text up to
+/// a `#` that follows a space or tab. Every common dotenv reader (python-dotenv,
+/// Node dotenv, docker compose, a shell's `source`) ends a value there, and no
+/// provider key holds whitespace before a `#`; reading on once sent
+/// `sk-… # personal` as the key, and every call got 401. Escape sequences are
+/// not decoded: a Windows path in double quotes means what it says.
+fn dotenv_value_text(raw: &str) -> &str {
+    let value = raw.trim();
+    for quote in ['"', '\''] {
+        let Some(inner) = value.strip_prefix(quote) else {
+            continue;
+        };
+        if let Some(end) = inner.find(quote) {
+            let after = inner[end + quote.len_utf8()..].trim_start();
+            if after.is_empty() || after.starts_with('#') {
+                return &inner[..end];
+            }
+        }
+    }
+    let comment = raw
+        .char_indices()
+        .find(|&(at, c)| c == '#' && raw[..at].ends_with([' ', '\t']))
+        .map_or(raw.len(), |(at, _)| at);
+    raw[..comment].trim()
+}
+
+/// A harness setting that is not a secret (a budget, an expiry date, the
+/// registry overlay's path), read from the same places as a key, first match
+/// wins: the process, the Windows user and machine environment (so a value
+/// set after a shell started is still seen), `./.env`, then the data home's
+/// `.env`.
+///
+/// It reads no key form and keeps no cache, so it never reaches the provider
+/// registry: the registry reads its own overlay path through it
+/// ([`crate::providers::OVERLAY_ENV`]), and a lookup that went back to the
+/// registry would re-enter the registry while it is being built. Outside the
+/// key cache, a setting is also never masked by [`redact`] as if it were a key.
 #[must_use]
 pub fn setting(name: &str) -> Option<String> {
-    lookup(name).map(|value| value.0)
+    if !valid_name(name) {
+        return None;
+    }
+    first_fitting(name, None)
 }
 
 /// `text` with every key in it replaced by `<redacted>`: any value this
@@ -230,6 +350,10 @@ pub fn redact(text: &str) -> String {
 
 /// Replace each run that starts with `prefix` and continues with key
 /// characters (letters, digits, `-`, `_`, `*`, `.`) for at least eight more.
+///
+/// The prefix must start a word: a key follows a space, a quote, `=` or `:`,
+/// never a letter. Command output a worker reads is masked too, and
+/// `task-runner-tests` is a file name, not `ta` and a key.
 fn redact_shaped(text: &str, prefix: &str) -> String {
     let key_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '*' | '.');
     let mut out = String::with_capacity(text.len());
@@ -239,7 +363,8 @@ fn redact_shaped(text: &str, prefix: &str) -> String {
         out.push_str(before);
         let tail = &from[prefix.len()..];
         let run = tail.find(|c: char| !key_char(c)).unwrap_or(tail.len());
-        if run >= 8 {
+        let starts_a_word = !out.chars().next_back().is_some_and(key_char);
+        if run >= 8 && starts_a_word {
             out.push_str("<redacted>");
         } else {
             out.push_str(&from[..prefix.len() + run]);
@@ -258,7 +383,9 @@ pub fn is_set(name: &str) -> bool {
 
 static CACHE: OnceLock<Mutex<BTreeMap<String, Option<ApiKey>>>> = OnceLock::new();
 
-fn valid_name(name: &str) -> bool {
+/// Whether `name` is a variable the harness reads: upper-case letters,
+/// digits and `_`. Any other name is never looked up.
+pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name
             .chars()
@@ -340,6 +467,37 @@ fn parse_scopes(text: &str) -> BTreeMap<String, BTreeMap<String, String>> {
 #[cfg(not(windows))]
 fn registry_value(_name: &str, _scope: &str) -> Option<String> {
     None
+}
+
+/// A `./.env` a test stands in for the real one, on its own thread only, so
+/// a test can show what a value set there does without touching the files
+/// the process reads (or the user's own keys).
+#[cfg(test)]
+pub(crate) mod test_dotenv {
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    thread_local! {
+        static FILE: RefCell<Option<BTreeMap<String, String>>> = const { RefCell::new(None) };
+    }
+
+    /// `Some` with the stand-in's value for `name` while one is in place.
+    pub(super) fn value(name: &str) -> Option<Option<String>> {
+        FILE.with(|file| file.borrow().as_ref().map(|pairs| pairs.get(name).cloned()))
+    }
+
+    /// Run `body` with `text` read as `./.env` on this thread.
+    pub(crate) fn with<T>(text: &str, body: impl FnOnce() -> T) -> T {
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                FILE.with(|file| file.borrow_mut().take());
+            }
+        }
+        FILE.with(|file| *file.borrow_mut() = Some(super::parse_dotenv(text)));
+        let _restore = Restore;
+        body()
+    }
 }
 
 #[cfg(test)]
@@ -438,6 +596,16 @@ mod tests {
         // Short runs are words, not keys.
         assert_eq!(redact("risk-free task-ok sk-1"), "risk-free task-ok sk-1");
         assert_eq!(redact("context length exceeded"), "context length exceeded");
+        // A prefix inside a word is not a key: command output a worker reads
+        // keeps its file names.
+        assert_eq!(
+            redact("src/task-runner-tests.rs risk-assessment-module"),
+            "src/task-runner-tests.rs risk-assessment-module"
+        );
+        assert_eq!(
+            redact("OPENAI_API_KEY=sk-proj-abcdefghij\n'AIzaSyA1234567890abcdef'"),
+            "OPENAI_API_KEY=<redacted>\n'<redacted>'"
+        );
     }
 
     #[test]
@@ -466,6 +634,142 @@ mod tests {
         assert!(!parsed.contains_key("EMPTY"));
         assert!(!parsed.contains_key("lower"));
         assert_eq!(parsed.len(), 3);
+    }
+
+    /// `text` as Windows PowerShell 5 writes it with `>` or `Out-File`:
+    /// UTF-16LE with a byte-order mark and CRLF line ends.
+    fn utf16le_with_bom(text: &str) -> Vec<u8> {
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in text.replace('\n', "\r\n").encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn a_dotenv_file_in_any_encoding_windows_writes_is_read() {
+        let line = "OPENAI_API_KEY=sk-test-encoding\n";
+        let mut utf16be = vec![0xFE, 0xFF];
+        for unit in line.encode_utf16() {
+            utf16be.extend_from_slice(&unit.to_be_bytes());
+        }
+        let utf8_bom = [b"\xEF\xBB\xBF".as_slice(), line.as_bytes()].concat();
+        let crlf = line.replace('\n', "\r\n").into_bytes();
+        for (form, bytes) in [
+            ("UTF-16LE with a BOM", utf16le_with_bom(line)),
+            ("UTF-16BE with a BOM", utf16be),
+            ("UTF-8 with a BOM", utf8_bom),
+            ("UTF-8 with CRLF", crlf),
+            ("UTF-8", line.as_bytes().to_vec()),
+        ] {
+            let (text, problem) = decode_dotenv(&bytes);
+            assert_eq!(problem, None, "{form}");
+            assert_eq!(
+                parse_dotenv(&text)
+                    .get("OPENAI_API_KEY")
+                    .map(String::as_str),
+                Some("sk-test-encoding"),
+                "{form}"
+            );
+        }
+        // Through the file, as the harness reads it.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".env");
+        std::fs::write(&path, utf16le_with_bom(line)).unwrap();
+        assert_eq!(
+            read_dotenv(&path).get("OPENAI_API_KEY").map(String::as_str),
+            Some("sk-test-encoding")
+        );
+    }
+
+    #[test]
+    fn a_dotenv_file_that_does_not_decode_says_so_and_keeps_the_lines_that_do() {
+        // A Windows-1252 comment: the key line still counts.
+        let (text, problem) = decode_dotenv(b"# caf\xE9\nOPENAI_API_KEY=sk-test-ansi\n");
+        assert_eq!(problem, Some("is not UTF-8 text"));
+        assert_eq!(
+            parse_dotenv(&text)
+                .get("OPENAI_API_KEY")
+                .map(String::as_str),
+            Some("sk-test-ansi")
+        );
+        let (_, problem) = decode_dotenv(b"K\0=\0v\0");
+        assert!(problem.is_some_and(|p| p.contains("NUL")), "{problem:?}");
+        let (_, problem) = decode_dotenv(&[0xFF, 0xFE, 0x41]);
+        assert_eq!(problem, Some("is not valid UTF-16 text"));
+    }
+
+    #[test]
+    fn a_dotenv_directory_is_passed_over() {
+        // Python projects keep a virtual environment in a `.env` folder.
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_dotenv(dir.path()).is_empty());
+        assert!(read_dotenv(&dir.path().join("missing")).is_empty());
+    }
+
+    #[test]
+    fn an_inline_comment_after_a_dotenv_value_is_not_part_of_the_key() {
+        let parsed = parse_dotenv(concat!(
+            "OPENAI_API_KEY=sk-abc  # personal\n",
+            "ANTHROPIC_API_KEY=\"sk-ant-1\" # work\n",
+            "GEMINI_API_KEY='g-1'#c\n",
+            "DEEPSEEK_API_KEY=sk-hash#in-the-value\n",
+            "MOONSHOT_API_KEY=\t# nothing but a comment\n",
+            "export\tKIMI_API_KEY=\"k # quoted\"\n",
+            "SUSI_HARNESS_PROVIDERS=\"C:\\cfg\\providers.json\"\n",
+        ));
+        let get = |name: &str| parsed.get(name).map(String::as_str);
+        assert_eq!(get("OPENAI_API_KEY"), Some("sk-abc"));
+        assert_eq!(get("ANTHROPIC_API_KEY"), Some("sk-ant-1"));
+        assert_eq!(get("GEMINI_API_KEY"), Some("g-1"));
+        assert_eq!(
+            get("DEEPSEEK_API_KEY"),
+            Some("sk-hash#in-the-value"),
+            "a # with no space before it is part of the value"
+        );
+        assert_eq!(get("MOONSHOT_API_KEY"), None);
+        assert_eq!(get("KIMI_API_KEY"), Some("k # quoted"));
+        assert_eq!(
+            get("SUSI_HARNESS_PROVIDERS"),
+            Some("C:\\cfg\\providers.json"),
+            "no escapes are decoded"
+        );
+    }
+
+    #[test]
+    fn susi_home_in_dotenv_is_the_data_home_and_its_own_file_never_names_it() {
+        // The data home's `.env` is found through SUSI_HOME; it cannot say
+        // where it is itself.
+        assert_eq!(scope_value(HOME_ENV, "data-home .env file"), None);
+        let set_elsewhere = process_value(HOME_ENV)
+            .or_else(|| registry_value(HOME_ENV, "User"))
+            .or_else(|| registry_value(HOME_ENV, "Machine"));
+        if set_elsewhere.is_some() {
+            eprintln!("SUSI_HOME is set in the environment, which comes first; skipping");
+            return;
+        }
+        let home = test_dotenv::with("SUSI_HOME=/srv/susi-test-home\n", data_home);
+        assert_eq!(home, std::path::PathBuf::from("/srv/susi-test-home"));
+        let reported = test_dotenv::with("SUSI_HOME=/srv/susi-test-home\n", || setting(HOME_ENV));
+        assert_eq!(
+            reported.as_deref(),
+            Some("/srv/susi-test-home"),
+            "`env` reports the home in use"
+        );
+    }
+
+    #[test]
+    fn a_setting_is_read_from_dotenv_and_never_masked_as_a_key() {
+        let name = "SUSI_TEST_SETTING_ONLY_IN_DOTENV_0001";
+        let value = test_dotenv::with(&format!("{name}=/srv/overlay-0001.json\n"), || {
+            setting(name)
+        });
+        assert_eq!(value.as_deref(), Some("/srv/overlay-0001.json"));
+        assert_eq!(setting(name), None, "the stand-in is gone");
+        assert_eq!(
+            redact("ledger at /srv/overlay-0001.json"),
+            "ledger at /srv/overlay-0001.json"
+        );
     }
 
     #[test]

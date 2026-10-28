@@ -2,8 +2,10 @@
 //!
 //! Prices are data, not code: a catalogue file lists each model's per-million
 //! rates in micro-USD, and the ledger stores the rate that was in force when a
-//! call ran. A model the catalogue cannot price is refused at dispatch — an
-//! unpriced call is spend nobody can account for.
+//! call ran. A model the catalogue cannot price still runs: a working model is
+//! never refused for lack of costing. Its tokens are recorded at a zero price,
+//! so no budget counts that spend, and an account with a spend cap is refused
+//! it at the ingress.
 
 use crate::pricing::ModelPrice;
 use serde::{Deserialize, Serialize};

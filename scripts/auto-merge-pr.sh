@@ -5,21 +5,27 @@
 # exists) and the reconciler. Idempotent and safe to call repeatedly.
 #
 #   auto-merge-pr.sh <owner/repo> <branch> <sha>
-# exit 0: merged, nothing to do (no such open PR / head moved), or the head
-#         was re-synced to main (update-branch) and the retest will merge it
+# exit 0: merged, nothing to do (no such open PR / head moved), the head
+#         was re-synced to main (update-branch) and the retest will merge it,
+#         or (SUSI_NO_RESYNC=1) the stale head was handed to a reconcile pass
 # exit 1: the merge was refused (a comment explains, once per head sha)
 #
 # A green head must include the latest integration branch, not merely have
 # passed against an older base. Serialization means every merge turns the next
-# green head stale. When SUSI_INLINE_MERGE_GATE=1 (the integration jobs set it)
-# the stale head is not sent through an update-branch + retest round-trip —
-# minutes of queue latency per merge: the script builds the merge locally
-# (`git merge-tree`), runs the same compile gate the `check` job runs
-# (merge-gate.sh) on the merge tree, and merges the PR when it passes. The
-# merge commit GitHub produces has that exact tree for a clean merge, so the
-# gated bytes are the bytes that land. A gate failure or a conflict is
-# explained once per head sha; an environment that cannot run the gate falls
-# back to the resync-and-retest path.
+# green head stale. When SUSI_INLINE_MERGE_GATE=1 (the integration jobs set it
+# when their probe installed the gate's toolchain) the stale head is not sent
+# through an update-branch + retest round-trip — minutes of queue latency per
+# merge: the script builds the merge locally (`git merge-tree`), runs the same
+# compile gate the `check` job runs (merge-gate.sh) on the merge tree, and
+# merges the PR when it passes. The merge commit GitHub produces has that exact
+# tree for a clean merge, so the gated bytes are the bytes that land. A gate
+# failure or a conflict is explained once per head sha; an environment that
+# cannot run the gate falls back to the resync-and-retest path.
+#
+# SUSI_NO_RESYNC=1 is the retest's own merge job (test.yml `merge`): that run
+# is the retest a resync dispatched, so a resync from there dispatches another
+# retest of the same PR, and one more each time main moves while it runs. When
+# it cannot gate a stale head it hands the head to a reconcile pass instead.
 set -uo pipefail
 [ ! -f "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh" ] || . "$(dirname "${BASH_SOURCE[0]}")/posix-compat.sh"
 repo=${1:?repo} branch=${2:?branch} sha=${3:?sha}
@@ -138,6 +144,16 @@ gated_tree=
 inline_merge_gate() {
     command -v git >/dev/null 2>&1 || return 1
     command -v cargo >/dev/null 2>&1 || return 1
+    # The runner image ships cargo, so cargo alone does not say the job set
+    # the gate up. A reconcile pass whose probe skipped the toolchain still
+    # had RUSTC_WRAPPER=sccache in its job env; clippy failed with "could not
+    # execute process `sccache ...`" and the PR was told its merge "fails the
+    # compile gate" when nothing was wrong with it. A wrapper that does not
+    # resolve is an environment that cannot gate, not a red gate.
+    local wrapper
+    for wrapper in "${RUSTC_WRAPPER:-}" "${RUSTC_WORKSPACE_WRAPPER:-}"; do
+        [ -z "$wrapper" ] || command -v "$wrapper" >/dev/null 2>&1 || return 1
+    done
     git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || return 1
     git fetch --quiet origin main "$sha" || return 1
     local base tree merge_commit
@@ -187,6 +203,17 @@ case "$comparison" in
     ;;
  *)
     resync() {
+        # The retest's merge job never resyncs: its run is the retest, and
+        # every resync from it dispatched the next one, so a PR whose retest
+        # kept falling behind looped for as long as main kept moving — a
+        # branch gate and a merge commit per lap, never merged. A reconcile
+        # pass judges the completed green head with the inline gate.
+        if [ "${SUSI_NO_RESYNC:-0}" = 1 ]; then
+            gh workflow run auto-merge.yml --repo "$repo" --ref main \
+                || echo "note: could not dispatch a reconcile pass; the scheduled pass merges it" >&2
+            echo "PR #$pr fell behind main during its retest; not resyncing again — a reconcile pass gates its merge."
+            exit 0
+        fi
         # A token-made branch update raises no push event, so the gate would
         # never see the new head. Dispatch it explicitly; the dispatched run
         # merges the head itself once green (test.yml `merge`), because its
@@ -211,7 +238,7 @@ case "$comparison" in
             state=$(gh pr view "$pr" --repo "$repo" --json mergeable --jq .mergeable 2>/dev/null || echo UNKNOWN)
             reason="GitHub refused the merge of the gated merge tree (mergeable=$state) — if the head moved, the next push retries"
             ;;
-        1) resync ;; # no checkout or toolchain here — the retest path
+        1) resync ;; # no checkout or toolchain here — the retest path, or a reconcile pass
         2) ;;        # conflict or a red gate: `reason` is set
         esac
     else

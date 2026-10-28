@@ -93,6 +93,20 @@ async fn run(options: Options) -> Result<(), String> {
                 .to_string(),
         ),
     };
+    // The accounts are read, and the serving rule applied, before anything
+    // listens: a malformed file used to fail only after the port was bound.
+    let ingress = match &options.accounts {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .map_err(|error| format!("accounts {}: {error}", path.display()))?;
+            Some(Arc::new(
+                susi_harness::ingress::Ingress::parse(&text).map_err(|error| error.to_string())?,
+            ))
+        }
+        None => None,
+    };
+    susi_harness::ingress::require_accounts_off_loopback(HOST, ingress.as_deref())
+        .map_err(|error| error.to_string())?;
     let cache_dir = options.ledger.parent().map(std::path::Path::to_path_buf);
     let state = Arc::new(GatewayState {
         catalogue,
@@ -106,7 +120,7 @@ async fn run(options: Options) -> Result<(), String> {
             susi_harness::cache::ResponseCache::new(cache_dir),
         )),
     });
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", options.port))
+    let listener = tokio::net::TcpListener::bind((HOST, options.port))
         .await
         .map_err(|error| format!("bind: {error}"))?;
     let address = listener
@@ -114,20 +128,29 @@ async fn run(options: Options) -> Result<(), String> {
         .map_err(|error| format!("local_addr: {error}"))?;
     println!("harness-gateway listening on http://{address}");
     let _ = std::io::stdout().flush();
-    match options.accounts {
-        Some(path) => {
-            let text = std::fs::read_to_string(&path)
-                .map_err(|error| format!("accounts {}: {error}", path.display()))?;
-            let ingress =
-                susi_harness::ingress::Ingress::parse(&text).map_err(|error| error.to_string())?;
-            susi_harness::ingress::serve(listener, state, Arc::new(ingress))
-                .await
-                .map_err(|error| format!("serve: {error}"))
-        }
+    match ingress {
+        Some(ingress) => susi_harness::ingress::serve(listener, state, ingress)
+            .await
+            .map_err(|error| format!("serve: {error}")),
         None => serve(listener, state)
             .await
             .map_err(|error| format!("serve: {error}")),
     }
+}
+
+/// The one address this binary serves on. Any other goes through
+/// [`susi_harness::ingress::require_accounts_off_loopback`], as the other
+/// entry points do.
+const HOST: &str = "127.0.0.1";
+
+/// Whether `name` can name a key variable: upper-case letters, digits and
+/// `_`, the only names the key lookup reads. Any other name was reported
+/// as "unset or empty" even when it was set.
+fn key_env_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
@@ -151,7 +174,16 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--ledger" => ledger = PathBuf::from(take(&mut args, &flag)?),
             "--upstream" => upstream = take(&mut args, &flag)?,
             "--provider" => provider = take(&mut args, &flag)?,
-            "--api-key-env" => api_key_env = Some(take(&mut args, &flag)?),
+            "--api-key-env" => {
+                let name = take(&mut args, &flag)?;
+                if !key_env_name(&name) {
+                    return Err(format!(
+                        "--api-key-env {name}: key variable names are upper-case letters, \
+                         digits and _"
+                    ));
+                }
+                api_key_env = Some(name);
+            }
             "--accounts" => accounts = Some(PathBuf::from(take(&mut args, &flag)?)),
             "--timeout" => {
                 timeout = take(&mut args, &flag)?
@@ -263,6 +295,37 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(options.accounts, Some(PathBuf::from("accounts.json")));
+    }
+
+    /// `--api-key-env my_proxy_key` was accepted, then reported as "unset or
+    /// empty" while it was set: the key lookup reads upper-case names only.
+    #[test]
+    fn a_key_env_name_the_lookup_cannot_read_is_refused_by_name() {
+        let with_key_env = |name: &'static str| {
+            parse(args(&[
+                "--catalogue",
+                "prices.json",
+                "--ledger",
+                "ledger.jsonl",
+                "--upstream",
+                "direct",
+                "--api-key-env",
+                name,
+            ]))
+        };
+        let error = with_key_env("my_proxy_key").err().unwrap();
+        assert!(error.contains("upper-case"), "{error}");
+        assert!(!error.contains("unset"), "{error}");
+        assert_eq!(
+            with_key_env("MY_PROXY_KEY").unwrap().api_key_env.as_deref(),
+            Some("MY_PROXY_KEY")
+        );
+    }
+
+    #[test]
+    fn this_binary_serves_on_loopback_only() {
+        assert!(susi_harness::ingress::is_loopback(HOST));
+        assert!(susi_harness::ingress::require_accounts_off_loopback(HOST, None).is_ok());
     }
 
     #[test]

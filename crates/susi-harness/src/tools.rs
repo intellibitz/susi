@@ -402,7 +402,20 @@ fn tool_run_command(workspace: &Path, args: &Value) -> String {
 them — leave the finished changes in the working tree and summarize."
             .to_string();
     }
+    run_shell(workspace, cmd_str, &withheld_variables())
+}
 
+/// The variables a worker's command never inherits: every provider key the
+/// registry (overlay included) names. The command's output goes to a model,
+/// which may be another company's, and `env` or `printenv` once handed it
+/// every key in the harness's environment.
+fn withheld_variables() -> Vec<&'static str> {
+    crate::fleet::key_names(crate::providers::Registry::builtin())
+}
+
+/// Run `cmd_str` in the worker's shell, in `workspace`, without the
+/// `withheld` variables, and report its exit code and output for the model.
+fn run_shell(workspace: &Path, cmd_str: &str, withheld: &[&str]) -> String {
     let mut command = if cfg!(windows) {
         let mut c = Command::new("powershell");
         c.arg("-NoProfile").arg("-Command").arg(cmd_str);
@@ -418,33 +431,58 @@ them — leave the finished changes in the working tree and summarize."
     // harness-owned subcommands under it, so a wrapper or an argv split (which
     // the text refusal cannot see) cannot run the harness's own close path.
     command.env("SUSI_WORKER_GUARD", "1");
+    for name in withheld {
+        command.env_remove(name);
+    }
 
     match run_with_deadline(command) {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let code = out.status.code().unwrap_or(-1);
+        Ok(out) => command_report(
+            out.status.code().unwrap_or(-1),
+            &String::from_utf8_lossy(&out.stdout),
+            &String::from_utf8_lossy(&out.stderr),
+        ),
+        Err(e) => crate::secrets::redact(&format!("failed to run command '{cmd_str}': {e}")),
+    }
+}
 
-            let mut combined = String::new();
-            if !stdout.is_empty() {
-                combined.push_str(&stdout);
-            }
-            if !stderr.is_empty() {
-                if !combined.is_empty() {
-                    combined.push('\n');
-                }
-                combined.push_str("[stderr]\n");
-                combined.push_str(&stderr);
-            }
-            // Cap output at 32KB
-            if combined.len() > 32 * 1024 {
-                let tail = &combined[combined.len() - 32 * 1024..];
-                format!("exit code: {code}\n[truncated...]\n{tail}")
-            } else {
-                format!("exit code: {code}\n{combined}")
-            }
+/// Most of a command's output a tool result carries: the last 32 KB.
+const OUTPUT_LIMIT: usize = 32 * 1024;
+
+/// The tool result for a finished command: its exit code, then its output
+/// with every key masked ([`crate::secrets::redact`]), cut to its last
+/// [`OUTPUT_LIMIT`] bytes.
+///
+/// A command reaches more than the environment (`cat ~/.susi/.env`), so the
+/// output is masked too, whole and before the cut, which could otherwise
+/// leave the tail of a key unmatched. The cut lands on a character boundary:
+/// a byte cut inside an em dash or a U+FFFD in long cargo output panicked.
+fn command_report(code: i32, stdout: &str, stderr: &str) -> String {
+    let mut combined = String::new();
+    if !stdout.is_empty() {
+        combined.push_str(stdout);
+    }
+    if !stderr.is_empty() {
+        if !combined.is_empty() {
+            combined.push('\n');
         }
-        Err(e) => format!("failed to run command '{cmd_str}': {e}"),
+        combined.push_str("[stderr]\n");
+        combined.push_str(stderr);
+    }
+    // Read every provider key first, so one this process has not used yet (in
+    // a `.env` file or the Windows registry) is masked by its value, not only
+    // when it has a provider's usual shape.
+    for name in withheld_variables() {
+        let _ = crate::secrets::is_set(name);
+    }
+    let combined = crate::secrets::redact(&combined);
+    if combined.len() > OUTPUT_LIMIT {
+        let mut start = combined.len() - OUTPUT_LIMIT;
+        while !combined.is_char_boundary(start) {
+            start += 1;
+        }
+        format!("exit code: {code}\n[truncated...]\n{}", &combined[start..])
+    } else {
+        format!("exit code: {code}\n{combined}")
     }
 }
 
@@ -728,6 +766,75 @@ mod tests {
             "the deadline must end the wait, not the sleep: {elapsed:?}"
         );
     }
+    #[test]
+    fn every_provider_key_variable_is_withheld_from_a_command() {
+        let withheld = withheld_variables();
+        for name in [
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "MOONSHOT_API_KEY",
+            "KIMI_API_KEY",
+            "OPENROUTER_API_KEY",
+        ] {
+            assert!(withheld.contains(&name), "{name} missing from {withheld:?}");
+        }
+    }
+
+    #[test]
+    fn a_command_never_inherits_a_withheld_key_variable() {
+        // A name of its own, so no other test's view of the keys changes.
+        let name = "SUSI_TEST_TOOLS_WITHHELD_0001";
+        std::env::set_var(name, "withheld-value-0001");
+        let print = if cfg!(windows) {
+            format!("Write-Output ('[' + $env:{name} + ']')")
+        } else {
+            format!("printf '[%s]\\n' \"${name}\"")
+        };
+        let workspace = tempfile::tempdir().unwrap();
+        let inherited = run_shell(workspace.path(), &print, &[]);
+        let withheld = run_shell(workspace.path(), &print, &[name]);
+        std::env::remove_var(name);
+        assert!(
+            inherited.contains("[withheld-value-0001]"),
+            "the shell sees the environment it is given: {inherited}"
+        );
+        assert!(withheld.contains("[]"), "{withheld}");
+        assert!(!withheld.contains("withheld-value-0001"), "{withheld}");
+    }
+
+    #[test]
+    fn command_output_is_masked_before_the_model_sees_it() {
+        let report = command_report(
+            0,
+            "OPENAI_API_KEY=sk-proj-test0123456789abcdef\n",
+            "GEMINI_API_KEY='AIzaSyTest0123456789abcdef'",
+        );
+        assert!(!report.contains("sk-proj-test"), "{report}");
+        assert!(!report.contains("AIzaSyTest"), "{report}");
+        assert!(report.contains("OPENAI_API_KEY=<redacted>"), "{report}");
+        assert!(report.starts_with("exit code: 0\n"), "{report}");
+        // Ordinary output, file names included, is left as it is.
+        let plain = command_report(1, "test task-runner-tests ... ok\n", "");
+        assert_eq!(plain, "exit code: 1\ntest task-runner-tests ... ok\n");
+    }
+
+    #[test]
+    fn long_output_is_cut_on_a_character_boundary() {
+        // 40,001 bytes: the last 32 KB start inside a two-byte character,
+        // where a byte cut panicked.
+        let stdout = format!("{}x", "é".repeat(20_000));
+        assert!(!stdout.is_char_boundary(stdout.len() - OUTPUT_LIMIT));
+        let report = command_report(0, &stdout, "");
+        let tail = report
+            .strip_prefix("exit code: 0\n[truncated...]\n")
+            .expect("long output is marked as cut");
+        assert!(tail.len() <= OUTPUT_LIMIT, "{}", tail.len());
+        assert!(tail.ends_with("éx"));
+    }
+
     #[test]
     fn a_susi_invocation_at_command_position_is_refused() {
         assert!(runs_susi("susi workflow finish T-X"));

@@ -1,0 +1,18 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-3",
+  "title": "Release-readiness review fixes for susi harness and workflow",
+  "goal": "Fix the confirmed findings of the v0.21.22..main release-readiness review (findings F1-F51): harness routing resilience, gateway streaming/settlement/cache/ledger, serving auth and account caps, .env and secrets handling, Windows shell and shared-target guard, release packaging, merge bot - so the next release is safe to publish.",
+  "size": "l",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793228705
+}

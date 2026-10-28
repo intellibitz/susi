@@ -50,8 +50,9 @@ jobs:
   # workspace root selects one package of 86, and this workflow ran no tests at
   # all, so the other 85 were covered for a release only by whatever main's run
   # happened to do. scripts/release-await-tests.sh reuses a passed full-suite run
-  # for this exact sha (a dispatch, or a push to main - a branch-push run only
-  # compiles) and otherwise dispatches the Test workflow on this ref and waits:
+  # for this exact sha (a push to main, or a dispatch whose suite ran - a branch
+  # push and the merge bot's `gate=branch` retest only compile and lint) and
+  # otherwise dispatches the Test workflow on this ref and waits:
   # the sharded suite, lint and e2e, not the coverage ratchet or the Kani proofs,
   # which gate merges to main. Waiting here costs the suite's wall time (about
   # four to five minutes warm) before the 15-31 minute builds start, and saves all
@@ -218,9 +219,14 @@ jobs:
       # registry and price catalogue are compiled in), so it builds, is checked
       # and is published even when the engine above fails: when nothing else
       # works, the harness still meters, budgets and routes model calls.
+      # `!cancelled()`, not `always()`: `always()` holds after a cancel or the
+      # job timeout too, so a cancelled release still ran this fat-LTO build in
+      # the runner's grace period and could publish a release holding only the
+      # harness - one that becomes `latest`, where install.sh and install.ps1
+      # then find no engine.
       - name: Build Harness
         id: harness
-        if: always()
+        if: ${{ !cancelled() }}
         continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
         shell: bash
         run: |
@@ -233,21 +239,45 @@ jobs:
           fi
 
       # The artifact must answer with no keys and no workspace: the built-in
-      # registry and catalogue, an empty ledger, a budget line.
+      # registry and catalogue, an empty ledger, a budget line. It must also say
+      # it is this release: the harness crate is versioned with the engine, yet
+      # stood at 0.21.20 while the tag it was built for said 0.21.23, and
+      # nothing compared the two.
+      # Soft exactly where the build is: an optional leg's harness cannot fail
+      # the release, and the upload below still refuses what did not pass here.
       - name: Verify the harness artifact answers offline
-        if: always() && steps.harness.outcome == 'success'
+        id: harness_verify
+        if: ${{ !cancelled() && steps.harness.outcome == 'success' }}
+        continue-on-error: ${{ matrix.name != 'linux-x86_64' && matrix.name != 'windows-x86_64' }}
         shell: bash
         run: |
           bin="$GITHUB_WORKSPACE/${{ matrix.harness }}"
+          # The root package's version, read as scripts/check-release-tag.sh
+          # reads it; on a tag push verify-tag has proven the tag equals it. The
+          # Windows runner checks out with CRLF, hence the `tr`.
+          release=$(awk '/^\[package\]/{p=1} p && /^version[[:space:]]*=/{gsub(/[",]/, "", $3); print $3; exit}' Cargo.toml | tr -d '\r')
           cd "$RUNNER_TEMP"
-          "$bin" version
+          reported=$("$bin" version)
+          echo "$reported"
+          if [ "$reported" != "susi-harness $release" ]; then
+            echo "the harness reports '$reported'; this release is $release" >&2
+            exit 1
+          fi
           "$bin" env > /dev/null
-          "$bin" budget --ledger "$RUNNER_TEMP/harness-ledger.jsonl" | grep -q '^budget:'
+          # Captured, then matched: under the step's pipefail, `"$bin" | grep -q`
+          # fails whenever grep matches and exits before the binary's last
+          # write, which then dies of EPIPE.
+          out=$("$bin" budget --ledger "$RUNNER_TEMP/harness-ledger.jsonl")
+          grep -q '^budget:' <<<"$out"
           # Zero config with no key: the first run explains how to bring one.
-          SUSI_HOME="$RUNNER_TEMP/harness-home" "$bin" | grep -q 'No API key found'
+          out=$(SUSI_HOME="$RUNNER_TEMP/harness-home" "$bin")
+          grep -q 'No API key found' <<<"$out"
 
+      # Only a binary that passed its own check ships. Gated on the build alone,
+      # under `always()`, a harness that failed the check above was still
+      # attached to the release, and a cancelled run could still publish.
       - name: Upload Harness
-        if: github.event_name == 'push' && always() && steps.harness.outcome == 'success'
+        if: github.event_name == 'push' && !cancelled() && steps.harness_verify.outcome == 'success'
         uses: softprops/action-gh-release@v3
         with:
           files: |

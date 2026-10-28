@@ -342,18 +342,33 @@ impl Registry {
     #[must_use]
     pub fn builtin() -> &'static Self {
         static REGISTRY: OnceLock<Registry> = OnceLock::new();
-        REGISTRY.get_or_init(|| {
-            let base = Self::parse(BUILTIN).unwrap_or_default();
-            let overlay = std::env::var_os(OVERLAY_ENV).map(std::path::PathBuf::from);
-            Self::with_overlay(&base, overlay.as_deref()).unwrap_or(base)
-        })
+        REGISTRY.get_or_init(Self::from_environment)
+    }
+
+    /// The compiled-in registry with the overlay in force merged over it, or
+    /// without it when the overlay cannot be used.
+    fn from_environment() -> Self {
+        let base = Self::parse(BUILTIN).unwrap_or_default();
+        Self::with_overlay(&base, Self::overlay_path().as_deref()).unwrap_or(base)
+    }
+
+    /// The overlay file [`OVERLAY_ENV`] names, read from every place a
+    /// setting is read ([`crate::secrets::setting`]: the process, the Windows
+    /// user and machine environment, `./.env`, the data home's `.env`).
+    ///
+    /// The registry and its fail-closed check both read it here, the place
+    /// `susi-harness env` reports it from. They once read the process
+    /// environment alone, so an overlay set in a `.env` file was shown as set
+    /// and never loaded, and a bad one never stopped the harness.
+    fn overlay_path() -> Option<std::path::PathBuf> {
+        crate::secrets::setting(OVERLAY_ENV).map(std::path::PathBuf::from)
     }
 
     /// Why the overlay named by [`OVERLAY_ENV`] cannot be used, or `None` when
     /// the variable is unset or the overlay is sound.
     #[must_use]
     pub fn overlay_error() -> Option<String> {
-        let overlay = std::env::var_os(OVERLAY_ENV).map(std::path::PathBuf::from)?;
+        let overlay = Self::overlay_path()?;
         let base = Self::parse(BUILTIN).unwrap_or_default();
         Self::with_overlay(&base, Some(&overlay))
             .err()
@@ -401,33 +416,91 @@ impl Registry {
 
     /// This registry with another document merged on top.
     ///
-    /// Providers are matched by id, models by id and aliases by name, so an
-    /// override can add a model to an existing provider without restating it.
+    /// Providers are matched by id, models by id and aliases by name. An
+    /// override adds: new providers, new models (to a new provider or to an
+    /// existing one) and aliases. A provider it names that already exists
+    /// must state the same wire and endpoint, and the same key variables, key
+    /// form and key page where it states those; a model id that already
+    /// exists must be restated unchanged under the same provider. Anything
+    /// else is refused, not dropped: an overlay that pointed `deepseek` at a
+    /// proxy was once accepted while every call still went to DeepSeek.
     ///
     /// # Errors
     ///
-    /// Returns the parse error of the override document.
+    /// Returns the parse error of the override document, or a config error
+    /// naming the provider or model it would redefine.
     pub fn merged(&self, overrides: &str) -> EaiResult<Self> {
         let extra = Self::parse(overrides)?;
+        let stated = stated_key_fields(overrides);
         let mut merged = self.clone();
-        for provider in extra.providers {
-            match merged
+        let mut added = Vec::new();
+        for (index, mut provider) in extra.providers.into_iter().enumerate() {
+            let models = std::mem::take(&mut provider.models);
+            let at = match merged
                 .providers
-                .iter_mut()
-                .find(|existing| existing.id == provider.id)
+                .iter()
+                .position(|existing| existing.id == provider.id)
             {
-                Some(existing) => {
-                    for model in provider.models {
-                        if !existing.models.iter().any(|known| known.id == model.id) {
-                            existing.models.push(model);
-                        }
+                Some(at) => {
+                    let stated = stated.get(index).map_or(&[][..], Vec::as_slice);
+                    let changed = changed_fields(&merged.providers[at], &provider, stated);
+                    if !changed.is_empty() {
+                        return Err(EaiError::config(format!(
+                            "provider registry: provider `{}` is already defined and an overlay only adds; it cannot change its {} (give the provider a new id)",
+                            provider.id,
+                            changed.join(", ")
+                        )));
                     }
+                    at
                 }
-                None => merged.providers.push(provider),
+                None => {
+                    merged.providers.push(provider);
+                    merged.providers.len() - 1
+                }
+            };
+            for model in models {
+                added.push(model.id.clone());
+                merged.add_model(at, model)?;
             }
         }
         merged.aliases.extend(extra.aliases);
+        // Resolution follows an alias before it matches a model id, so a
+        // model named like an alias could never be called by its name.
+        for id in added {
+            if let Some(target) = merged.aliases.get(&id).filter(|target| **target != id) {
+                return Err(EaiError::config(format!(
+                    "provider registry: model `{id}` is also an alias for `{target}`, so it could never be called by its name (give the model a new id)"
+                )));
+            }
+        }
         Ok(merged)
+    }
+
+    /// Add `model` to the provider at `at`, unless it restates a model that
+    /// provider already has, unchanged.
+    fn add_model(&mut self, at: usize, model: ModelRecord) -> EaiResult<()> {
+        let known = self
+            .providers
+            .iter()
+            .enumerate()
+            .find_map(|(index, provider)| {
+                provider
+                    .models
+                    .iter()
+                    .find(|known| known.id == model.id)
+                    .map(|known| (index, *known == model))
+            });
+        match known {
+            None => {
+                self.providers[at].models.push(model);
+                Ok(())
+            }
+            Some((index, true)) if index == at => Ok(()),
+            Some((index, _)) => Err(EaiError::config(format!(
+                "provider registry: model `{}` is already defined by provider `{}` and an overlay only adds; it cannot redefine it (give the model a new id)",
+                model.id, self.providers[index].id
+            ))),
+        }
     }
 
     /// Providers in the registry.
@@ -806,6 +879,90 @@ impl ProviderRecord {
     }
 }
 
+/// The optional key fields each provider of a registry document states, in
+/// document order. A parsed record cannot tell an absent `key_env` from an
+/// empty one, and an overlay that restates a provider without them is not
+/// changing them.
+fn stated_key_fields(json: &str) -> Vec<Vec<&'static str>> {
+    let Ok(root) = serde_json::from_str::<Value>(json) else {
+        return Vec::new();
+    };
+    root.get("providers")
+        .and_then(Value::as_array)
+        .map(|providers| {
+            providers
+                .iter()
+                .map(|raw| {
+                    ["key_env", "key_prefix", "key_url"]
+                        .into_iter()
+                        .filter(|field| raw.get(*field).is_some_and(|value| !value.is_null()))
+                        .collect()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The fields of `existing` that the overlay's `restated` record changes;
+/// the key fields count only where the overlay states them (`stated`).
+fn changed_fields(
+    existing: &ProviderRecord,
+    restated: &ProviderRecord,
+    stated: &[&str],
+) -> Vec<&'static str> {
+    let mut changed = Vec::new();
+    if existing.wire != restated.wire {
+        changed.push("wire");
+    }
+    if existing.endpoint != restated.endpoint {
+        changed.push("endpoint");
+    }
+    if stated.contains(&"key_env") && existing.key_envs != restated.key_envs {
+        changed.push("key_env");
+    }
+    if stated.contains(&"key_prefix") && existing.key_prefix != restated.key_prefix {
+        changed.push("key_prefix");
+    }
+    if stated.contains(&"key_url") && existing.key_url != restated.key_url {
+        changed.push("key_url");
+    }
+    changed
+}
+
+/// The variables that may hold a provider's key: `key_env` as one name or a
+/// list of names; absent or `null` for a local provider with no key.
+///
+/// Anything else is refused. A string was once read as no list at all, so a
+/// keyed provider ran as local: no budget gate, and every call sent without
+/// its key got 401. The refusal never repeats the entry, which may be a key
+/// pasted where its variable's name belongs.
+fn parse_key_envs(id: &str, raw: Option<&Value>) -> EaiResult<Vec<String>> {
+    let names = match raw {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::String(name)) => vec![name.trim().to_string()],
+        Some(Value::Array(names)) => names
+            .iter()
+            .map(|name| name.as_str().map(|name| name.trim().to_string()))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| {
+                EaiError::config(format!(
+                    "provider registry: provider `{id}` key_env must be a variable name or a list of variable names"
+                ))
+            })?,
+        Some(_) => {
+            return Err(EaiError::config(format!(
+                "provider registry: provider `{id}` key_env must be a variable name or a list of variable names"
+            )))
+        }
+    };
+    if names.iter().any(|name| !crate::secrets::valid_name(name)) {
+        return Err(EaiError::config(format!(
+            "provider registry: provider `{id}` key_env holds an entry that is not an environment variable name (upper-case letters, digits and _); it names the variable that holds the key, not the key"
+        )));
+    }
+    Ok(names)
+}
+
 fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
     let id = string_field(raw, "id")?;
     let wire = Wire::parse(&string_field(raw, "wire")?)?;
@@ -815,17 +972,7 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
             "provider registry: provider `{id}` endpoint `{endpoint}` is not a URL"
         )));
     }
-    let key_envs = raw
-        .get("key_env")
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let key_envs = parse_key_envs(&id, raw.get("key_env"))?;
     let mut models = Vec::new();
     if let Some(records) = raw.get("models").and_then(Value::as_array) {
         for record in records {
@@ -1477,6 +1624,138 @@ mod tests {
         assert!(Registry::with_overlay(&base, Some(&bad)).is_err());
         let missing = dir.path().join("missing.json");
         assert!(Registry::with_overlay(&base, Some(&missing)).is_err());
+    }
+
+    #[test]
+    fn an_overlay_named_only_in_a_dotenv_file_is_loaded_and_a_bad_one_stops_the_harness() {
+        if crate::secrets::setting(OVERLAY_ENV).is_some() {
+            eprintln!("{OVERLAY_ENV} is set where this machine reads settings; skipping");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("good.json");
+        std::fs::write(
+            &good,
+            r#"{"providers":[{"id":"local","wire":"openai","endpoint":"http://127.0.0.1:8080/v1/chat/completions","models":[{"id":"local-tiny","tools":true,"tier":"worker"}]}]}"#,
+        )
+        .unwrap();
+        let dotenv = |path: &std::path::Path| format!("{OVERLAY_ENV}='{}'\n", path.display());
+        crate::secrets::test_dotenv::with(&dotenv(&good), || {
+            assert_eq!(Registry::overlay_error(), None);
+            assert!(
+                Registry::from_environment().resolve("local-tiny").is_some(),
+                "the overlay set in ./.env is merged"
+            );
+        });
+        let bad = dir.path().join("bad.json");
+        std::fs::write(&bad, "{not json").unwrap();
+        for path in [bad, dir.path().join("missing.json")] {
+            let error = crate::secrets::test_dotenv::with(&dotenv(&path), Registry::overlay_error);
+            assert!(
+                error
+                    .as_deref()
+                    .is_some_and(|error| error.contains(OVERLAY_ENV)),
+                "a bad overlay set in ./.env stops the harness: {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn key_env_is_a_name_or_a_list_of_names_and_anything_else_is_refused() {
+        let keys = |key_env: &str| {
+            Registry::parse(&format!(
+                r#"{{"providers":[{{"id":"together","wire":"openai","endpoint":"https://api.together.xyz/v1/chat/completions"{key_env}}}]}}"#
+            ))
+            .map(|registry| registry.providers()[0].key_envs.clone())
+        };
+        assert_eq!(
+            keys(r#","key_env":"TOGETHER_API_KEY""#).unwrap(),
+            vec!["TOGETHER_API_KEY"],
+            "the string form docs/harness-os.md writes is one name"
+        );
+        assert_eq!(
+            keys(r#","key_env":["TOGETHER_API_KEY","TOGETHER_KEY"]"#).unwrap(),
+            vec!["TOGETHER_API_KEY", "TOGETHER_KEY"]
+        );
+        assert!(
+            keys("").unwrap().is_empty(),
+            "no key_env is a local provider"
+        );
+        assert!(keys(r#","key_env":null"#).unwrap().is_empty());
+        for bad in [
+            r#","key_env":42"#,
+            r#","key_env":{"name":"TOGETHER_API_KEY"}"#,
+            r#","key_env":["TOGETHER_API_KEY",42]"#,
+            r#","key_env":"""#,
+            r#","key_env":["together_api_key"]"#,
+        ] {
+            assert!(keys(bad).is_err(), "{bad} must be refused");
+        }
+        let error = keys(r#","key_env":"sk-pasted-in-by-mistake-0001""#)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            !error.contains("sk-pasted"),
+            "a key pasted as a name is never repeated: {error}"
+        );
+    }
+
+    #[test]
+    fn an_overlay_cannot_redefine_a_provider_or_a_model_but_may_restate_one() {
+        let base = Registry::parse(BUILTIN).unwrap();
+        let refusal = |overlay: &str| base.merged(overlay).unwrap_err().to_string();
+
+        // Pointing a built-in provider at a proxy is refused, not dropped.
+        let error = refusal(
+            r#"{"providers":[{"id":"deepseek","wire":"openai","endpoint":"https://my-proxy.example/v1/chat/completions"}]}"#,
+        );
+        assert!(
+            error.contains("`deepseek`") && error.contains("endpoint"),
+            "{error}"
+        );
+        let error = refusal(
+            r#"{"providers":[{"id":"deepseek","wire":"openai","endpoint":"https://api.deepseek.com/chat/completions","key_env":["OTHER_API_KEY"]}]}"#,
+        );
+        assert!(error.contains("key_env"), "{error}");
+        // A drifted backend under the model's own provider is refused.
+        let error = refusal(
+            r#"{"providers":[{"id":"gemini","wire":"openai","endpoint":"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions","models":[{"id":"gemini-flash","backend":"gemini-9-flash","tools":true,"tier":"worker"}]}]}"#,
+        );
+        assert!(error.contains("`gemini-flash`"), "{error}");
+        // A built-in model id under a new provider would be shadowed by the
+        // built-in one, and a model named like an alias by the alias.
+        let error = refusal(
+            r#"{"providers":[{"id":"mirror","wire":"openai","endpoint":"https://mirror.example/v1/chat/completions","models":[{"id":"deepseek-flash","tools":true}]}]}"#,
+        );
+        assert!(
+            error.contains("`deepseek-flash`") && error.contains("`deepseek`"),
+            "{error}"
+        );
+        let error = refusal(
+            r#"{"providers":[{"id":"mirror","wire":"openai","endpoint":"https://mirror.example/v1/chat/completions","models":[{"id":"coder","tools":true}]}]}"#,
+        );
+        assert!(error.contains("alias"), "{error}");
+
+        // Restating a provider unchanged (key fields left out or the same)
+        // and a model unchanged, to add a model, is accepted.
+        let merged = base
+            .merged(
+                r#"{"providers":[{"id":"deepseek","wire":"openai","endpoint":"https://api.deepseek.com/chat/completions","key_env":"DEEPSEEK_API_KEY","models":[
+                    {"id":"deepseek-flash","backend":"deepseek-flash","context":128000,"tools":true,"streaming":true,"tier":"worker","cache":true},
+                    {"id":"deepseek-coder","tools":true}]}]}"#,
+            )
+            .unwrap();
+        assert_eq!(
+            merged.resolve("deepseek-coder").unwrap().provider,
+            "deepseek"
+        );
+        let flash = merged
+            .providers()
+            .iter()
+            .flat_map(|provider| provider.models.iter())
+            .filter(|model| model.id == "deepseek-flash")
+            .count();
+        assert_eq!(flash, 1, "a restated model is not added twice");
     }
 
     fn builtin_catalogue() -> PriceCatalogue {
