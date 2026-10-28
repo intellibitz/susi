@@ -1201,6 +1201,77 @@ fn fetch_origin(ws: &Path) -> EaiResult<()> {
     git(ws, &["fetch", "--quiet", "origin"]).map(|_| ())
 }
 
+/// Make the shared cargo target build this worktree's code before a cargo
+/// acceptance runs (`scripts/target-guard.sh`).
+///
+/// Worktrees share one target, and cargo names a workspace crate's build by
+/// its path relative to the workspace, so a crate another worktree built last
+/// reads as fresh here: the acceptance then tests the other branch's code. It
+/// happened: a close failed its acceptance (and could as easily have passed
+/// one) because a sibling worktree's `finish` had just built a crate both
+/// branches have. The guard rebuilds exactly the crates whose content differs.
+/// It is a correctness aid, never a gate: a checkout without the script, or a
+/// host without bash, runs the acceptance as before.
+pub fn guard_shared_target(ws: &Path) {
+    let script = ws.join("scripts").join("target-guard.sh");
+    if script.is_file() {
+        let _ = Command::new(posix_shell("bash"))
+            .arg(&script)
+            .current_dir(ws)
+            .stdin(std::process::Stdio::null())
+            .status();
+    }
+}
+
+/// The POSIX shell to run a repo script with: `name` (`sh` or `bash`).
+///
+/// Elsewhere that is just the name. On Windows a bare name is a trap: process
+/// creation searches the system directories before PATH, so `bash` finds
+/// WSL's `System32ash.exe` (or the WindowsApps stub), which cannot run a
+/// script given as a Windows path. So the PATH is searched here, skipping
+/// those, and then Git for Windows' own shell is used: `git --exec-path` is
+/// `<git>/<mingw64|ucrt64>/libexec/git-core`, and the shells are in
+/// `<git>/usr/bin` and `<git>/bin`, three levels up. A standard Git install
+/// puts only `<git>/cmd` on PATH, so that fallback is the common case outside
+/// Git Bash (PowerShell, the desktop app).
+#[must_use]
+pub fn posix_shell(name: &str) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let exe = format!("{name}.exe");
+        if let Some(path) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path) {
+                let lowered = dir.to_string_lossy().to_ascii_lowercase();
+                if lowered.contains("system32") || lowered.contains("windowsapps") {
+                    continue;
+                }
+                let candidate = dir.join(&exe);
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+        if let Ok(out) = Command::new("git").arg("--exec-path").output() {
+            if out.status.success() {
+                let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let git_root = Path::new(&exec_path)
+                    .ancestors()
+                    .nth(3)
+                    .map(Path::to_path_buf);
+                if let Some(root) = git_root {
+                    for dir in ["usr/bin", "bin"] {
+                        let candidate = root.join(dir).join(&exe);
+                        if candidate.is_file() {
+                            return candidate;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    std::path::PathBuf::from(name)
+}
+
 /// Whether an unobserved close is still *owed*. A receipt reports debt while
 /// a merge could still publish something: a missing done file whose task is
 /// still open, or a tested head that never reached `origin/main`. A receipt
@@ -2630,6 +2701,9 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             task.accept.cmd.join(" ")
         );
     } else {
+        if task.accept.cmd.first().is_some_and(|p| p == "cargo") {
+            guard_shared_target(ws);
+        }
         let mut command = acceptance_command(&task.accept.cmd);
         let out = command.current_dir(ws).output().map_err(|e| {
             // A check that does not exist yet is "not done", not an I/O crash.
@@ -2778,6 +2852,54 @@ mod tests {
         ] {
             assert!(!is_cas_race(&EaiError::process(text)), "{text}");
         }
+    }
+
+    /// On Windows a bare `bash` is WSL's System32 stub, which cannot run a
+    /// script by its Windows path; the resolver must find Git's shell.
+    #[cfg(windows)]
+    #[test]
+    fn the_posix_shell_on_windows_is_never_the_wsl_stub() {
+        for name in ["sh", "bash"] {
+            let shell = posix_shell(name);
+            let lowered = shell.to_string_lossy().to_ascii_lowercase();
+            assert!(!lowered.contains("system32"), "{}", shell.display());
+            assert!(!lowered.contains("windowsapps"), "{}", shell.display());
+            if Command::new("git").arg("--version").output().is_ok() {
+                assert!(
+                    shell.is_absolute() && shell.is_file(),
+                    "{}",
+                    shell.display()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_cargo_acceptance_is_preceded_by_the_target_guard() {
+        if Command::new(posix_shell("bash"))
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return; // no bash on this host: the guard is skipped by design
+        }
+        let ws = std::env::temp_dir().join(format!("susi-guard-{}", std::process::id()));
+        std::fs::create_dir_all(ws.join("scripts")).unwrap();
+        std::fs::write(
+            ws.join("scripts").join("target-guard.sh"),
+            "#!/usr/bin/env bash
+echo guarded > guard-ran
+",
+        )
+        .unwrap();
+        guard_shared_target(&ws);
+        assert!(ws.join("guard-ran").exists(), "the guard must run");
+        // A checkout without the script is not an error.
+        let bare = std::env::temp_dir().join(format!("susi-noguard-{}", std::process::id()));
+        std::fs::create_dir_all(&bare).unwrap();
+        guard_shared_target(&bare);
+        let _ = std::fs::remove_dir_all(&ws);
+        let _ = std::fs::remove_dir_all(&bare);
     }
 
     #[test]
