@@ -22,8 +22,15 @@ on:
 # proves the exact pre-merge tree; the newest main run must perform the merged
 # tree proof and repopulate the shared cache. Latest-wins keeps remote feedback
 # bounded by one suite instead of making every merge wait behind stale tail jobs.
+#
+# Off main, a dispatched run gets its own group. The release dry run
+# (`gh workflow run release.yml --ref <branch>`) dispatches this suite on the
+# branch; sharing the push run's group, it cancelled the branch gate — the only
+# run auto-merge merges on — and the next push cancelled it back, so PR #977
+# went nine pushes without one Test run finishing. On main the dispatch the
+# auto-merger sends still supersedes, as before.
 concurrency:
-  group: test-${{ github.ref }}
+  group: test-${{ github.ref }}${{ github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && '-dispatch' || '' }}
   cancel-in-progress: true
 
 # A run on a tag (release.yml dispatches the suite on the tag it is about to
