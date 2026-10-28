@@ -245,7 +245,7 @@ pub fn collect(
             "SUSI_HARNESS_CREDIT_EXPIRES_{}",
             provider.id.to_ascii_uppercase()
         );
-        if let Ok(text) = std::env::var(&name) {
+        if let Some(text) = secrets::setting(&name) {
             apply_expiry(&mut entry, &name, &text, today());
         }
         providers.push(entry);
@@ -357,9 +357,8 @@ fn budget_for(
         };
     }
     let name = format!("SUSI_HARNESS_BUDGET_{}_USD", id.to_ascii_uppercase());
-    let Some(configured) = std::env::var(&name)
-        .ok()
-        .and_then(|text| MicroUsd::parse_usd(text.trim()))
+    let Some(configured) =
+        secrets::setting(&name).and_then(|text| MicroUsd::parse_usd(text.trim()))
     else {
         return ProviderBudget {
             provider: id.to_string(),

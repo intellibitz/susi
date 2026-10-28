@@ -63,6 +63,15 @@ pub fn lookup(name: &str) -> Option<ApiKey> {
     found
 }
 
+/// A harness setting that is not a secret (a budget, an expiry date), read
+/// from the same scopes as a key: the process, then the user and machine
+/// environment. A value set in the user environment reaches a process that
+/// started before it was set, as a key does.
+#[must_use]
+pub fn setting(name: &str) -> Option<String> {
+    lookup(name).map(|value| value.0)
+}
+
 /// Whether any scope sets `name`. The key itself is not returned.
 #[must_use]
 pub fn is_set(name: &str) -> bool {
