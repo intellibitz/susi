@@ -29,22 +29,26 @@ on:
         type: choice
         options: [full, branch]
 
-# A newer push supersedes its older run, including on `main`. Post-merge
-# acceptance and coverage are audit work, not merge gates, and may otherwise
-# keep the newest main run pending for tens of minutes. The branch gate already
-# proves the exact pre-merge tree; the newest main run must perform the merged
-# tree proof and repopulate the shared cache. Latest-wins keeps remote feedback
-# bounded by one suite instead of making every merge wait behind stale tail jobs.
+# Off main a newer run supersedes the older one: a branch's gate is only ever
+# about its newest head. On `main` a run is never cancelled: the run in
+# progress finishes, and the merges that land meanwhile collapse into one
+# pending run (GitHub keeps at most one pending per group and replaces it).
+# Latest-wins on main stopped working once merges came faster than the suite:
+# with a merge every 5-12 min and a 30-45 min suite, every main run from 19:07
+# to 20:48 on 2026-10-28 was cancelled, so nothing proved the merged tree,
+# reported a failure to its PR (main-failure.yml) or refreshed the caches only
+# main writes. Queued, main gets a completed, cumulative proof at least once
+# per suite length.
 #
 # Off main, a dispatched run gets its own group. The release dry run
 # (`gh workflow run release.yml --ref <branch>`) dispatches this suite on the
 # branch; sharing the push run's group, it cancelled the branch gate — the only
 # run auto-merge merges on — and the next push cancelled it back, so PR #977
-# went nine pushes without one Test run finishing. On main the dispatch the
-# auto-merger sends still supersedes, as before.
+# went nine pushes without one Test run finishing. On main the auto-merger's
+# dispatches share one group and queue, as above.
 concurrency:
   group: test-${{ github.ref }}${{ github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', inputs.gate || 'full') || '' }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # A run on a tag (release.yml dispatches the suite on the tag it is about to
 # build) restores the caches main wrote and writes none: an entry saved under a
