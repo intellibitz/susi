@@ -250,6 +250,36 @@ fn a_branch_dispatch_never_cancels_the_branch_gate() {
 }
 
 #[test]
+fn the_windows_build_is_off_the_merge_gate() {
+    // The Windows leg was 94% of a branch's Test run (a cold ~23 min build
+    // against ~1.5 min for every Linux check), and auto-merge waits on the whole
+    // run. A branch never builds it; main's post-merge run and a release tag do.
+    let text = read(".github/workflows/test.yml");
+    let body = code(&text);
+    let branch = body
+        .split("elif [[ \"$GITHUB_REF\" != refs/tags/* ]]; then")
+        .nth(1)
+        .expect("codetree scopes branch runs apart from main and tags")
+        .split("echo \"affected=$affected\"")
+        .next()
+        .unwrap();
+    assert!(
+        branch.trim_start().starts_with("win=false"),
+        "test.yml: a branch run must not build Windows"
+    );
+    let windows = jobs(&text)
+        .into_iter()
+        .find(|j| j.id == "windows")
+        .expect("test.yml keeps the windows job for main and tags");
+    assert!(
+        windows
+            .body
+            .contains("if: needs.codetree.outputs.run_windows == 'true'"),
+        "the windows job must follow codetree's run_windows"
+    );
+}
+
+#[test]
 fn every_test_workflow_job_is_bounded() {
     let text = read(".github/workflows/test.yml");
     for j in jobs(&text) {
