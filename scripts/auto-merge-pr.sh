@@ -146,7 +146,13 @@ inline_merge_gate() {
         reason="the branch conflicts with main — merge origin/main into it, resolve, and push (this re-runs automatically)"
         return 2
     fi
-    merge_commit=$(git commit-tree "$tree" -p origin/main -p "$sha" \
+    # A CI runner has no git identity and commit-tree refuses without one
+    # ("Author identity unknown"), so the gate fell back to resync-and-retest
+    # for every behind PR instead of merging it. This commit stays local and is
+    # never pushed: any fixed identity will do.
+    merge_commit=$(GIT_AUTHOR_NAME="susi merge gate" GIT_AUTHOR_EMAIL="merge-gate@susi.invalid" \
+        GIT_COMMITTER_NAME="susi merge gate" GIT_COMMITTER_EMAIL="merge-gate@susi.invalid" \
+        git commit-tree "$tree" -p origin/main -p "$sha" \
         -m "merge-gate: $branch onto ${base:0:12}") || return 1
     # Gate in place: this checkout is disposable, and its warm target dir and
     # fingerprints are what make the proof a bounded compile.
