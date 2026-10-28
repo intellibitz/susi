@@ -199,12 +199,12 @@ impl World {
         std::os::unix::fs::symlink(&bins, root.join("cargo-home").join("bin")).unwrap();
         // GitHub's successful PR merge is emulated only for the code branch push.
         // With TEST_RACE_PRIMARY set, the first push instead lands the primary's
-        // unpushed main commit on remote main — a merge that raced ours — so the
-        // wait loop must integrate and repush (once) before ours can land.
+        // unpushed main commit on remote main — a merge that raced ours. Each
+        // branch push is recorded in TEST_PUSHES when it is set.
         executable(
             &bins.join("git"),
             &format!(
-                "#!/bin/sh\n\"{g}\" \"$@\" || exit $?\nif [ \"$1\" = push ]; then\n for arg in \"$@\"; do\n  case \"$arg\" in HEAD:refs/heads/*)\n   if [ -n \"$TEST_RACE_PRIMARY\" ] && [ ! -f \"$TEST_RACE_USED\" ]; then\n    : > \"$TEST_RACE_USED\"\n    (cd \"$TEST_RACE_PRIMARY\" && \"{g}\" push -q origin main)\n   elif [ \"$TEST_NO_MERGE\" != 1 ]; then\n    sha=$(\"{g}\" rev-parse HEAD); \"{g}\" --git-dir=\"$TEST_REMOTE\" update-ref refs/heads/main \"$sha\"\n   fi ;;\n  esac\n done\nfi\n",
+                "#!/bin/sh\n\"{g}\" \"$@\" || exit $?\nif [ \"$1\" = push ]; then\n for arg in \"$@\"; do\n  case \"$arg\" in HEAD:refs/heads/*)\n   if [ -n \"$TEST_PUSHES\" ]; then echo \"$arg\" >> \"$TEST_PUSHES\"; fi\n   if [ -n \"$TEST_RACE_PRIMARY\" ] && [ ! -f \"$TEST_RACE_USED\" ]; then\n    : > \"$TEST_RACE_USED\"\n    (cd \"$TEST_RACE_PRIMARY\" && \"{g}\" push -q origin main)\n   elif [ \"$TEST_NO_MERGE\" != 1 ]; then\n    sha=$(\"{g}\" rev-parse HEAD); \"{g}\" --git-dir=\"$TEST_REMOTE\" update-ref refs/heads/main \"$sha\"\n   fi ;;\n  esac\n done\nfi\n",
                 g = host_git_binary()
             ),
         );
@@ -320,8 +320,9 @@ impl World {
     }
 
     /// `finish` while another merge lands on main exactly as our branch
-    /// pushes: the wait loop must integrate the race and repush — without
-    /// re-running the gate, which is what made every merge a multiplier.
+    /// pushes: the head is now behind main but merges cleanly, which is the
+    /// merge machinery's to gate, so the wait loop neither re-runs the gate nor
+    /// repushes (a repush cancelled the branch's own in-flight run).
     fn finish_racing_an_intervening_merge(&self) -> std::process::Output {
         // The competitor's commit lives on the primary's main but is unpushed;
         // the fake remote lands it when our branch push arrives.
@@ -337,7 +338,8 @@ impl World {
             .env("TEST_REAL_CARGO", env!("CARGO"))
             .env("TEST_RACE_PRIMARY", &self.primary)
             .env("TEST_RACE_USED", self.root.join("race-used"))
-            .env("SUSI_FINISH_WAIT_MAX", "60")
+            .env("TEST_PUSHES", self.root.join("pushes"))
+            .env("SUSI_FINISH_WAIT_MAX", "3")
             .env("SUSI_FINISH_POLL", "1")
             .output()
             .unwrap()
@@ -700,13 +702,15 @@ fn a_scripts_acceptance_is_never_skipped() {
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
 }
 
-/// When another merge lands between our gate and our push, finish integrates
-/// it and repushes — once, without re-running the gate. The remote merge gate
-/// only accepts heads that contain main and whose branch run is green, so the
-/// merged head is proven by its own CI run; the old re-gate multiplied the
-/// whole workspace suite by every merge that raced the wait.
+/// When another merge lands between our gate and our push, the head is behind
+/// main but merges cleanly. That is the merge machinery's case: it gates the
+/// merge tree itself (auto-merge-pr.sh's inline gate). So finish neither
+/// re-runs the gate (that multiplied the workspace suite by every raced
+/// merge) nor repushes (that cancelled the branch's own in-flight run, so in a
+/// busy swarm a slow branch never went green); past the wait budget it hands
+/// the merge to the machinery and frees the agent.
 #[test]
-fn an_intervening_merge_does_not_re_run_the_gate() {
+fn an_intervening_merge_neither_re_runs_the_gate_nor_repushes() {
     let w = World::new("race");
     let out = w.finish_racing_an_intervening_merge();
     assert!(
@@ -720,7 +724,13 @@ fn an_intervening_merge_does_not_re_run_the_gate() {
         1,
         "the gate ran exactly once despite the raced merge: {gates}"
     );
-    // And the branch did merge: the raced head was integrated and repushed.
+    let pushes = std::fs::read_to_string(w.root.join("pushes")).unwrap_or_default();
+    assert_eq!(
+        pushes.lines().count(),
+        1,
+        "the branch was pushed once; a clean behind head is not repushed: {pushes}"
+    );
+    // The task is closed, and the claim is handed to the merge machinery.
     assert!(w.work.join(".agents/tasks/done/T-WORKER-1.json").exists());
     assert!(git(&w.work, &["ls-remote", "origin", "refs/claims/*"]).is_empty());
 }

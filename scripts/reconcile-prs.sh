@@ -21,6 +21,10 @@ stale_days=${STALE_DAYS:-7}
 marker='<!-- susi-reconcile -->'
 now=$(date +%s)
 rc=0
+merged=0
+# Each merge in this pass would otherwise dispatch a pass of its own; this pass
+# is the reconciler, and it dispatches one follow-up below if it merged.
+export SUSI_RECONCILING=1
 
 while IFS=$'\t' read -r num branch sha updated draft; do
     case "$branch" in wip/* | nopr/* | dependabot/*) continue ;; esac
@@ -37,6 +41,7 @@ while IFS=$'\t' read -r num branch sha updated draft; do
         echo "#$num green at ${sha:0:8}: merging"
         out=$("$here/auto-merge-pr.sh" "$repo" "$branch" "$sha" 2>&1) || rc=1
         printf '%s\n' "$out"
+        case "$out" in *"merged #"*) merged=$((merged + 1)) ;; esac
         # With the inline merge gate a green-but-behind head merges in place —
         # the whole queue is processed in this one pass. The break only guards
         # the resync fallback: a head re-synced instead of merged leaves every
@@ -63,4 +68,10 @@ done < <(gh pr list --repo "$repo" --base main --state open \
     --json number,headRefName,headRefOid,updatedAt,isDraft \
     --jq 'sort_by(.number) | .[] | [.number, .headRefName, .headRefOid, .updatedAt, .isDraft] | @tsv' |
     tr -d '\r')
+# Main moved during this pass, so a PR examined before a later merge may now be
+# mergeable. One follow-up pass picks it up; a pass that merges nothing stops.
+if [ "$merged" -gt 0 ]; then
+    gh workflow run auto-merge.yml --repo "$repo" --ref main ||
+        echo "note: could not dispatch the follow-up reconcile pass" >&2
+fi
 exit "$rc"

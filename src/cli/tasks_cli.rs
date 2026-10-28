@@ -111,8 +111,10 @@ pub enum TaskCommands {
         id: String,
         #[arg(long)]
         agent: Option<String>,
-        #[arg(long, default_value_t = tasks::DEFAULT_LEASE_HOURS)]
-        hours: u64,
+        /// Lease length. Defaults to the claim's own: 4h, or 12h for a size-l
+        /// task.
+        #[arg(long)]
+        hours: Option<u64>,
     },
     /// Give up a claim
     Release {
@@ -299,6 +301,17 @@ fn argv_head(cmdline: &[u8]) -> String {
 /// The agent this command acts as, most explicit signal first: `--agent`,
 /// `SUSI_AGENT`, the worktree's `susi.agent`, the `<agent>-<date>-<time>`
 /// branch, the tool in the process tree, then the clone-wide `user.name`.
+/// The lease a task's claim takes when none is named: 4h, or 12h for a size-l
+/// task, which will not finish inside a shorter one.
+fn lease_hours(root: &Path, id: &str) -> u64 {
+    tasks::list_open(root)
+        .iter()
+        .find(|t| t.id == id)
+        .map_or(tasks::DEFAULT_LEASE_HOURS, |t| {
+            tasks::lease_hours_for_size(&t.size)
+        })
+}
+
 pub(crate) fn who(agent: Option<String>, root: &Path) -> String {
     agent
         .or_else(|| std::env::var("SUSI_AGENT").ok())
@@ -525,14 +538,7 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             // Size-l work is integration, and an agent at work does not renew:
             // an expired lease is taken over, which would hand the same task to
             // a second agent mid-flight.
-            let hours = hours.unwrap_or_else(|| {
-                tasks::list_open(&root)
-                    .iter()
-                    .find(|t| t.id == id)
-                    .map_or(tasks::DEFAULT_LEASE_HOURS, |t| {
-                        tasks::lease_hours_for_size(&t.size)
-                    })
-            });
+            let hours = hours.unwrap_or_else(|| lease_hours(&root, &id));
             let c = tasks::claim_scoped(
                 &root,
                 &id,
@@ -549,6 +555,10 @@ pub fn execute(action: Option<TaskCommands>, cwd: &Path) -> Result<()> {
             );
         }
         TaskCommands::Renew { id, agent, hours } => {
+            // The same lease the claim took. Renewing with a flat 4h cut a
+            // size-l task's 12h lease to 4h at its first sync, and an expired
+            // lease can be taken over mid-flight.
+            let hours = hours.unwrap_or_else(|| lease_hours(&root, &id));
             let claim = tasks::renew(&root, &id, &who(agent, &root), hours, tasks::now_unix())?;
             println!("renewed {id} until unix {}", claim.lease_until_unix);
         }

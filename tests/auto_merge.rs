@@ -407,6 +407,77 @@ fn the_reconciler_merges_green_prs_it_was_never_told_about() {
     );
 }
 
+/// Main moved, so every other green PR may now be mergeable: a merge made
+/// outside a reconcile pass starts one, instead of leaving the queue to the
+/// scheduled pass that GitHub throttles to hours.
+#[test]
+fn a_merge_starts_a_reconcile_pass() {
+    let f = Fake::new(
+        "merge-reconcile",
+        serde_json::json!([pr(5, "feat", "aaa", NOW, false)]),
+        serde_json::json!({}),
+    );
+    let (code, out) = f.script("auto-merge-pr.sh", &["o/r", "feat", "aaa"]);
+    assert_eq!(code, 0, "{out}\ncalls: {}", f.calls());
+    assert!(
+        f.calls()
+            .contains("workflow run auto-merge.yml --repo o/r --ref main"),
+        "{}",
+        f.calls()
+    );
+}
+
+/// A reconcile pass that merges several PRs starts exactly one follow-up pass
+/// (main moved under the PRs it looked at first), not one per merge; a pass
+/// that merges nothing starts none, so the queue drains and the chain stops.
+#[test]
+fn a_reconcile_pass_that_merges_starts_one_follow_up_and_an_idle_one_none() {
+    let f = Fake::new(
+        "rec-follow-up",
+        serde_json::json!([
+            pr(1, "feat-a", "s1", NOW, false),
+            pr(2, "feat-b", "s2", NOW, false)
+        ]),
+        serde_json::json!({"s1": green(), "s2": green()}),
+    );
+    let (code, out) = f.script("reconcile-prs.sh", &["o/r"]);
+    assert_eq!(code, 0, "{out}\ncalls: {}", f.calls());
+    assert_eq!(
+        f.calls()
+            .matches("workflow run auto-merge.yml --repo o/r --ref main")
+            .count(),
+        1,
+        "{}",
+        f.calls()
+    );
+    let idle = Fake::new(
+        "rec-idle",
+        serde_json::json!([pr(3, "feat-c", "s3", NOW, false)]),
+        serde_json::json!({"s3": red()}),
+    );
+    idle.script("reconcile-prs.sh", &["o/r"]);
+    assert!(
+        !idle.calls().contains("workflow run auto-merge.yml"),
+        "{}",
+        idle.calls()
+    );
+}
+
+/// The resync path dispatches the retest of a head it updated (a token-made
+/// push starts nothing). That dispatched run must be able to merge the PR when
+/// it passes, or the PR waits for the throttled scheduled pass.
+#[test]
+fn a_dispatched_green_run_can_merge_its_pr() {
+    let workflow = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/auto-merge.yml"),
+    )
+    .unwrap();
+    assert!(
+        workflow.contains("github.event.workflow_run.event == 'workflow_dispatch'"),
+        "merge-pr must accept a dispatched Test run"
+    );
+}
+
 #[test]
 fn a_red_pr_gets_one_comment_with_the_run_link_and_stays_open() {
     let f = Fake::new(
