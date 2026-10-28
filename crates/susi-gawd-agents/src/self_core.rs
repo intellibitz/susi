@@ -177,6 +177,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn genome_bakes_the_harness_workflow_mandate() {
+        let mandate = AlphaSelf::rules_of(RuleKind::Mandate)
+            .find(|rule| rule.cite == "Mandate 61")
+            .expect("identity.json DNA must compile Mandate 61 into the genome");
+        assert!(
+            mandate.imperative.contains("susi harness"),
+            "Mandate 61 must name the harness: {}",
+            mandate.imperative
+        );
+    }
+
+    #[test]
     fn test_compiled_genome_accuracy() {
         assert_eq!(AlphaSelf::VERSION, GEN_ENGINE_VERSION);
         assert!(

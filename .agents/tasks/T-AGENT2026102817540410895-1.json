@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT2026102817540410895-1",
+  "title": "Every susi workflow must use the susi harness (Mandate 61)",
+  "goal": "Bake Mandate 61 into the susi genome: every susi workflow runs through susi harness",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd-agents",
+      "genome"
+    ]
+  },
+  "created_by": "AGENT2026102817540410895",
+  "created_unix": 1793190350
+}

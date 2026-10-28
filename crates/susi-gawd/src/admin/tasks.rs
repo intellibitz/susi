@@ -1066,8 +1066,100 @@ fn read_closed(ws: &Path, id: &str) -> EaiResult<Option<CloseRecord>> {
 /// accepted work is actually done. An unreachable origin is an error, never a
 /// silent "published": the caller must not treat an unknown as a merge.
 fn published_on_main(ws: &Path, id: &str) -> EaiResult<bool> {
-    git(ws, &["fetch", "--quiet", "origin"])?;
+    fetch_origin(ws)?;
     Ok(done_on_main(ws, id))
+}
+
+/// Every readable close receipt on the queue, with the id it was filed under.
+///
+/// One `cat-file --batch` reads them all. Reading each record with its own
+/// `rev-parse` and `cat-file` cost two git processes per receipt, and on Windows
+/// process start-up is most of that cost. Unreadable records are skipped, as
+/// [`read_record`] skips them.
+fn closed_receipts(ws: &Path) -> EaiResult<Vec<(String, CloseRecord)>> {
+    let listed = git(
+        ws,
+        &[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/closed/",
+        ],
+    )?;
+    let refs: Vec<(String, String)> = listed
+        .lines()
+        .filter_map(|line| {
+            let (name, sha) = line.split_once(' ')?;
+            let id = name.strip_prefix("refs/closed/")?;
+            Some((id.to_string(), sha.to_string()))
+        })
+        .collect();
+    if refs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let input: String = refs.iter().map(|(_, sha)| format!("{sha}\n")).collect();
+    let mut child = Command::new("git")
+        .args(["cat-file", "--batch"])
+        .current_dir(ws)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| EaiError::process("git cat-file stdin"))?
+            .write_all(input.as_bytes())?;
+    }
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        return Err(EaiError::process("git cat-file --batch failed"));
+    }
+    let bodies = split_batch(&out.stdout, refs.len());
+    Ok(refs
+        .into_iter()
+        .zip(bodies)
+        .filter_map(|((id, _), body)| {
+            let record = serde_json::from_slice::<CloseRecord>(body?).ok()?;
+            Some((id, record))
+        })
+        .collect())
+}
+
+/// The bodies of `count` answers from `git cat-file --batch`, in request order.
+/// A missing object answers `<sha> missing` with no body and yields `None`.
+fn split_batch(mut rest: &[u8], count: usize) -> Vec<Option<&[u8]>> {
+    let mut bodies = Vec::with_capacity(count);
+    for _ in 0..count {
+        let Some(end) = rest.iter().position(|byte| *byte == b'\n') else {
+            break;
+        };
+        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
+        rest = &rest[end + 1..];
+        let mut fields = header.split_whitespace().skip(1);
+        match (
+            fields.next(),
+            fields.next().and_then(|size| size.parse::<usize>().ok()),
+        ) {
+            (Some(_), Some(size)) if size < rest.len() => {
+                bodies.push(Some(&rest[..size]));
+                rest = &rest[size + 1..];
+            }
+            _ => bodies.push(None),
+        }
+    }
+    bodies
+}
+
+/// Refresh `origin` once for a loop that asks [`done_on_main`] per record.
+///
+/// Fetching per record cost one remote round-trip (seconds over SSH) for every
+/// accepted close on the queue: `workflow check` took about three minutes with
+/// sixty-odd receipts outstanding. The loop fetches here and reads the local
+/// `origin/main` for each record.
+fn fetch_origin(ws: &Path) -> EaiResult<()> {
+    git(ws, &["fetch", "--quiet", "origin"]).map(|_| ())
 }
 
 /// Whether an unobserved close is still *owed*. A receipt reports debt while
@@ -1199,25 +1291,19 @@ fn accepted_unpublished(ws: &Path, id: &str, agent: &str) -> EaiResult<bool> {
 /// The caller must have synchronized first ([`sync_queue_refs`], which [`claims`]
 /// does): the local receipt refs are what this reads.
 fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<String>> {
-    let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/closed/"])?;
+    let receipts = closed_receipts(ws)?;
+    if !receipts.is_empty() {
+        fetch_origin(ws)?;
+    }
     let mut owed = Vec::new();
-    for name in refs.lines() {
-        let Some(id) = name.strip_prefix("refs/closed/") else {
-            continue;
-        };
-        if except == Some(id) {
+    for (id, record) in receipts {
+        if except == Some(id.as_str()) || record.agent != agent {
             continue;
         }
-        let Some(record) = read_closed(ws, id)? else {
-            continue;
-        };
-        if record.agent != agent {
-            continue;
-        }
-        if published_on_main(ws, id)? {
-            clear_record(ws, &closed_ref(id))?;
+        if done_on_main(ws, &id) {
+            clear_record(ws, &closed_ref(&id))?;
         } else if receipt_owed(ws, &record) {
-            owed.push(id.to_string());
+            owed.push(id);
         }
     }
     owed.sort();
@@ -1237,16 +1323,13 @@ pub fn unpublished_closes(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>>
 /// same read, without a second identical fetch behind the first.
 pub fn unpublished_closes_synced(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
     let by = agent_token(agent)?;
-    let refs = git(ws, &["for-each-ref", "--format=%(refname)", "refs/closed/"])?;
+    let receipts = closed_receipts(ws)?;
+    if !receipts.is_empty() {
+        fetch_origin(ws)?;
+    }
     let mut out = Vec::new();
-    for name in refs.lines() {
-        let Some(id) = name.strip_prefix("refs/closed/") else {
-            continue;
-        };
-        let Some(record) = read_closed(ws, id)? else {
-            continue;
-        };
-        if record.agent == by && !published_on_main(ws, id)? && receipt_owed(ws, &record) {
+    for (id, record) in receipts {
+        if record.agent == by && !done_on_main(ws, &id) && receipt_owed(ws, &record) {
             out.push(record);
         }
     }
