@@ -248,9 +248,19 @@ fn run() -> std::process::ExitCode {
     }
 
     // Composition root (CLI): hooks → packs → cloud.env → auto-prime.
-    // See ARCHITECTURE.md and susi_daemon::composition.
+    // See ARCHITECTURE.md and susi_daemon::composition. `mcp serve` skips
+    // the auto-prime: its client is waiting on the handshake.
     let substrate = susi_paths::SusiDirs::substrate_home();
-    susi_daemon::composition::wire_cli_substrate(&substrate);
+    if matches!(
+        command,
+        Some(cli::defs::Commands::Mcp {
+            action: Some(cli::mcp_cli::McpCommands::Serve) | None,
+        })
+    ) {
+        susi_daemon::composition::wire_mcp_serve_substrate(&substrate);
+    } else {
+        susi_daemon::composition::wire_cli_substrate(&substrate);
+    }
     #[cfg(all(feature = "tokio-console", tokio_unstable))]
     console_subscriber::init();
 

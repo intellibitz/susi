@@ -660,9 +660,10 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Chat { .. }
         | Commands::Code { .. }
         | Commands::Top { .. } => false,
-        Commands::Mcp {
-            action: Some(mcp_cli::McpCommands::Serve) | None,
-        } => true,
+        // `mcp serve` answers from its own in-process service. Ensuring the
+        // daemon first held the MCP handshake for the whole host-contract
+        // wait (10 s when the daemon never binds) and left a daemon behind
+        // every session.
         Commands::Mcp { .. } => false,
         Commands::Clean
         | Commands::Review

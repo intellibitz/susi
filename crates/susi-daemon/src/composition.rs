@@ -494,6 +494,21 @@ pub fn wire_engine_hooks() {
 /// dispatch that may touch tools, catalogs, or inference.
 pub fn wire_cli_substrate(substrate: &Path) {
     wire_plane_bus();
+    wire_mcp_serve_substrate(substrate);
+    crate::ambient::start_ambient_indexer(substrate);
+    // Catalog priming only: Swarm Cells are long-running servers owned by
+    // the daemon, never spawned per CLI invocation.
+    let _ = crate::discovery_pipeline::prime_catalogs(substrate);
+}
+
+/// Composition root for `susi mcp serve`: what GMCP's tool handlers reach
+/// (engine hooks, extension packs, the context graph, MAC policy) and
+/// nothing more. An MCP client waits on the handshake while this runs
+/// (Mandate 32): catalog priming probed every launcher and held the first
+/// answer ~26 s on a fresh home, and the ambient indexer's commits competed
+/// with the session for CPU. The daemon and every other command still run
+/// both.
+pub fn wire_mcp_serve_substrate(substrate: &Path) {
     wire_engine_hooks();
     let _ = crate::susi_sandbox::extensions::ensure_extensions_substrate();
     let _ = std::fs::create_dir_all(substrate);
@@ -501,10 +516,12 @@ pub fn wire_cli_substrate(substrate: &Path) {
         substrate.join("context_graph.jsonl"),
     );
     crate::privacy::wire_mac_policy(substrate);
-    crate::ambient::start_ambient_indexer(substrate);
-    // Catalog priming only: Swarm Cells are long-running servers owned by
-    // the daemon, never spawned per CLI invocation.
-    let _ = crate::discovery_pipeline::prime_catalogs(substrate);
+    // The registry boots on first use and links the essential MCP servers
+    // on a one-shot thread (`gmcp_bootstrap`). Settle both before the first
+    // line is read: a session that answered sooner saw its `tools/list`
+    // grow under it once the link landed.
+    let _ = susi_tools::ToolRegistry::global();
+    let _ = crate::service_supervision::Supervisor::global().join("mcp-auto-link");
 }
 
 #[cfg(test)]
