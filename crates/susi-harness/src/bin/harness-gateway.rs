@@ -64,28 +64,33 @@ fn main() {
 }
 
 async fn run(options: Options) -> Result<(), String> {
-    let catalogue =
-        PriceCatalogue::load(&options.catalogue).map_err(|error| format!("catalogue: {error}"))?;
+    if let Some(error) = susi_harness::providers::Registry::overlay_error() {
+        return Err(error);
+    }
+    let catalogue = PriceCatalogue::load_or_builtin(&options.catalogue)
+        .map_err(|error| format!("catalogue: {error}"))?;
     // A single explicit upstream needs one key: `--api-key-env` when given,
     // otherwise the historical default. In direct mode the gateway routes each
     // model through the registry, so the default is *no* override — pinning one
     // provider's key there made every other provider authenticate with it.
     let api_key = match (options.api_key_env.as_deref(), options.upstream == "direct") {
+        // Keys come through `secrets`: process, user and machine scope, with
+        // the provider's key form checked, and never printed.
         (Some(name), _) => Some(
-            std::env::var(name)
-                .ok()
-                .filter(|key| !key.trim().is_empty())
-                .ok_or_else(|| format!("{name} is unset or empty"))?,
+            susi_harness::secrets::lookup(name)
+                .ok_or_else(|| format!("{name} is unset or empty"))?
+                .expose()
+                .to_string(),
         ),
         (None, true) => None,
         (None, false) => Some(
-            std::env::var("DEEPSEEK_API_KEY")
-                .ok()
-                .filter(|key| !key.trim().is_empty())
+            susi_harness::secrets::lookup("DEEPSEEK_API_KEY")
                 .ok_or_else(|| {
                     "DEEPSEEK_API_KEY is unset or empty (pass --api-key-env for another provider)"
                         .to_string()
-                })?,
+                })?
+                .expose()
+                .to_string(),
         ),
     };
     let cache_dir = options.ledger.parent().map(std::path::Path::to_path_buf);

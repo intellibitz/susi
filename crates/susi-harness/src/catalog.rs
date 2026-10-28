@@ -63,6 +63,35 @@ impl PriceCatalogue {
         Self::from_json(&text)
     }
 
+    /// The catalogue compiled into the binary (`deploy/harness/prices.json`
+    /// at build time), so the harness can price calls from any directory.
+    ///
+    /// # Panics
+    ///
+    /// Never at run time: a test parses the compiled document.
+    #[must_use]
+    pub fn builtin() -> Self {
+        static DOC: &str = include_str!("../../../deploy/harness/prices.json");
+        Self::from_json(DOC).unwrap_or_else(|_| Self {
+            schema: PRICE_SCHEMA.to_string(),
+            models: BTreeMap::new(),
+        })
+    }
+
+    /// The catalogue at `path` when that file exists, else the built-in one.
+    ///
+    /// # Errors
+    ///
+    /// Returns the load error of a file that exists but cannot be read or
+    /// parsed: a catalogue the operator wrote is never silently replaced.
+    pub fn load_or_builtin(path: &Path) -> EaiResult<Self> {
+        if path.exists() {
+            Self::load(path)
+        } else {
+            Ok(Self::builtin())
+        }
+    }
+
     /// The price for `model`, when the catalogue knows it.
     #[must_use]
     pub fn price(&self, model: &str) -> Option<ModelPrice> {

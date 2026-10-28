@@ -7,20 +7,20 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 use susi_harness::adapter::SusiTarget;
 use susi_harness::author::{author_plan, AuthorConfig, AuthorRequest};
-use susi_harness::balance::{self, Budgets};
+use susi_harness::balance::Budgets;
 use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
 use susi_harness::cockpit::{serve, Cockpit};
 use susi_harness::executor::NativeWorker;
+use susi_harness::fleet::{self, gather_budgets, total_spent, Fleet};
 use susi_harness::money::MicroUsd;
-use susi_harness::policy::{Policy, UsageProfile};
+use susi_harness::policy::Policy;
 use susi_harness::providers::{Registry, Wire};
 use susi_harness::queue;
 use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
@@ -37,7 +37,7 @@ pub enum HarnessCommands {
         #[arg(long)]
         gateway: String,
         /// Model id the gateway prices (such as `deepseek-pro`)
-        #[arg(long, default_value = "deepseek-pro")]
+        #[arg(long, default_value = "auto")]
         model: String,
         /// Roadmap file
         #[arg(long, default_value = ".agents/roadmap.json")]
@@ -90,7 +90,7 @@ pub enum HarnessCommands {
         #[arg(long)]
         gateway: String,
         /// Model id the gateway prices
-        #[arg(long, default_value = "deepseek-pro")]
+        #[arg(long, default_value = "auto")]
         model: String,
         /// Per-turn deadline, seconds
         #[arg(long, default_value_t = 900)]
@@ -247,6 +247,11 @@ pub enum HarnessCommands {
 ///
 /// Returns the first error from authoring, validation, execution or I/O.
 pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
+    // Fail closed: an overlay the operator named but the harness cannot use
+    // would otherwise run every command on a registry they did not ask for.
+    if let Some(error) = Registry::overlay_error() {
+        bail!("{error}");
+    }
     match action {
         HarnessCommands::Budget { ledger } => budget_report(&ledger, cwd),
         HarnessCommands::Models {
@@ -419,7 +424,8 @@ fn plan_queue(
     };
     let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
     alert_topups(&budgets);
-    let workers = resolve_ladder(workers, || default_catalogue(cwd), &budgets)?;
+    let evidence = live_evidence(&cwd.join("out/ledger.jsonl"), cwd);
+    let workers = resolve_fleet(workers, || default_catalogue(cwd), &budgets, &evidence)?.ladder;
     let claimed = claimed_ids(&repo);
     let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
@@ -566,7 +572,13 @@ fn author(
         vector: format!("{vector} {title}"),
         target: target.to_string(),
         packages: facts.packages.iter().cloned().collect(),
-        workers: resolve_ladder(workers, || default_catalogue(cwd), &budgets)?,
+        workers: resolve_fleet(
+            workers,
+            || default_catalogue(cwd),
+            &budgets,
+            &live_evidence(&cwd.join("out/ledger.jsonl"), cwd),
+        )?
+        .ladder,
         narrative: tail(narrative, 4000),
         max_tasks,
         retry_hint: None,
@@ -681,13 +693,6 @@ fn budget_report(ledger: &Path, cwd: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Total ledger spend across providers.
-fn total_spent(spent: &BTreeMap<String, MicroUsd>) -> MicroUsd {
-    spent
-        .values()
-        .fold(MicroUsd::ZERO, |sum, value| sum.saturating_add(*value))
-}
-
 #[allow(clippy::too_many_arguments)] // a command's flags, one per option
 fn run_mission(
     plan_path: &Path,
@@ -743,7 +748,18 @@ fn run_mission(
     // Every named worker stays on the ladder. The task's own model is moved to
     // the front by the adapter, so a task assigned a non-default worker still
     // has a stronger model to escalate to when it does not pass.
-    let alternates = resolve_ladder(workers, || Ok(catalogue.clone()), budgets)?;
+    let fleet = resolve_fleet(
+        workers,
+        || Ok(catalogue.clone()),
+        budgets,
+        &live_evidence(ledger, cwd),
+    )?;
+    let model = fleet::resolve_model(model, &fleet).map_err(|error| anyhow::anyhow!("{error}"))?;
+    eprintln!(
+        "fleet: orchestrator {model}; ladder {}",
+        fleet.ladder.join(", ")
+    );
+    let alternates = fleet.ladder;
     let susi_program =
         susi.unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi")));
     let target = SusiTarget::new(repo, susi_program);
@@ -819,89 +835,48 @@ fn tail(text: &str, limit: usize) -> String {
     text.get(text.len() - limit..).unwrap_or(text).to_string()
 }
 
-/// The worker ladder a command runs on.
-///
-/// `auto` builds it from the API keys in the environment, ordered by the price
-/// catalogue (budget first, then capability): every worker, then every rescue
-/// model. Any other value is an explicit comma-separated list of model ids.
-/// The catalogue is loaded only for `auto`.
-fn resolve_ladder(
+/// The fleet for `--workers` ([`fleet::resolve_fleet`]), with each model
+/// left off named on stderr.
+fn resolve_fleet(
     spec: &str,
-    catalogue: impl FnOnce() -> Result<PriceCatalogue>,
+    catalogue: impl FnOnce() -> susi_error::EaiResult<PriceCatalogue>,
     budgets: &Budgets,
-) -> Result<Vec<String>> {
-    let registry = Registry::builtin();
-    if spec.trim() != "auto" {
-        // An explicit list is honoured, except that a model whose provider is
-        // inactive is left off and named, so it cannot spend a dollar it lacks.
-        let mut models = Vec::new();
-        for model in spec.split(',').map(str::trim).filter(|m| !m.is_empty()) {
-            let provider = registry.resolve(model).map(|resolved| resolved.provider);
-            match provider {
-                Some(id) if budgets.gated(&id) && !budgets.is_active(&id) => {
-                    eprintln!(
-                        "⚠ {model} left off: provider {id} is inactive (under $1 or unknown)"
-                    );
-                }
-                _ => models.push(model.to_string()),
-            }
-        }
-        if models.is_empty() {
-            bail!(
-                "every model in --workers is inactive: {}",
-                topup_text(budgets)
-            );
-        }
-        return Ok(models);
+    evidence: &fleet::Evidence,
+) -> Result<Fleet> {
+    let fleet = fleet::resolve_fleet(spec, catalogue, budgets, evidence)
+        .map_err(|error| anyhow::anyhow!("--workers {spec}: {error}"))?;
+    for note in &fleet.left_off {
+        eprintln!("⚠ {note}");
     }
-    let catalogue = catalogue()?;
-    let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
-    let auto =
-        registry.auto_config_budgeted(&key_present, &catalogue, UsageProfile::agent(), &active);
-    let ladder = auto.ladder();
-    if ladder.is_empty() {
-        bail!(
-            "--workers auto found no tool-capable, priced, active model for the API keys set in              the environment (DEEPSEEK_API_KEY, GEMINI_API_KEY, MOONSHOT_API_KEY, ANTHROPIC_API_KEY): {};              add budget or pass --workers <models>",
-            topup_text(budgets)
-        );
+    Ok(fleet)
+}
+
+/// What the real calls say about the models, probing the ones whose last call
+/// failed long enough ago ([`fleet::evidence`]); each probe is reported.
+fn live_evidence(ledger: &Path, cwd: &Path) -> fleet::Evidence {
+    let catalogue = default_catalogue(cwd).ok();
+    let evidence = fleet::evidence(ledger, catalogue.as_ref(), true);
+    for (model, answered) in &evidence.probed {
+        if *answered {
+            eprintln!("probe: {model} answered; active again");
+        } else {
+            eprintln!("probe: {model} failed again; it stays inactive");
+        }
     }
-    Ok(ladder)
+    evidence
 }
 
-/// The top-up alert as text, or a plain statement when nothing needs one.
-fn topup_text(budgets: &Budgets) -> String {
-    budgets
-        .topup_alert(Registry::builtin())
-        .unwrap_or_else(|| "no provider needs a top-up".to_string())
-}
-
-/// Each keyed provider's budget, and the ledger's spend per provider, read
-/// now. Balances come from the providers' own endpoints where they publish
-/// one, and from `SUSI_HARNESS_BUDGET_<PROVIDER>_USD` otherwise.
-fn gather_budgets(ledger: &Path) -> (Budgets, BTreeMap<String, MicroUsd>) {
-    let registry = Registry::builtin();
-    let spent = balance::spent_by_provider(ledger, registry);
-    let budgets = balance::collect(registry, &fetch_http, &spent);
-    (budgets, spent)
-}
-
-/// Print the top-up alert on stderr, when any keyed provider needs one.
+/// Print the top-up and expiry alerts on stderr.
 fn alert_topups(budgets: &Budgets) {
-    if let Some(alert) = budgets.topup_alert(Registry::builtin()) {
-        eprintln!("⚠ {alert}");
+    for line in fleet::alerts(budgets) {
+        eprintln!("{line}");
     }
 }
 
-/// The price catalogue at the workspace's default location.
-fn default_catalogue(cwd: &Path) -> Result<PriceCatalogue> {
-    let path = cwd.join("deploy/harness/prices.json");
-    PriceCatalogue::load(&path).with_context(|| format!("load {}", path.display()))
-}
-
-/// Whether an API key is set in the environment or the user or machine scope.
-/// The key is never printed.
-fn key_present(name: &str) -> bool {
-    susi_harness::secrets::is_set(name)
+/// The price catalogue at the workspace's default location, or the one built
+/// into the binary when the workspace has none.
+fn default_catalogue(cwd: &Path) -> susi_error::EaiResult<PriceCatalogue> {
+    PriceCatalogue::load_or_builtin(&cwd.join("deploy/harness/prices.json"))
 }
 
 /// Verify the registry's backend ids against the providers' live model lists.
@@ -925,32 +900,12 @@ fn models_verify(provider: Option<&str>) -> Result<()> {
 }
 
 fn models_available(cwd: &Path) -> Result<()> {
-    let registry = Registry::builtin();
-    let cat_path = cwd.join("deploy/harness/prices.json");
-    let catalogue = PriceCatalogue::load(&cat_path).ok();
-    let capable = registry.available_capable_models(
-        &[susi_harness::providers::Capability::Tools],
-        catalogue.as_ref(),
-        susi_harness::policy::UsageProfile::agent(),
-    );
-    let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
-    let active = |provider: &str| !budgets.gated(provider) || budgets.is_active(provider);
-    let auto = catalogue.as_ref().map(|catalogue| {
-        registry.auto_config_budgeted(&key_present, catalogue, UsageProfile::agent(), &active)
-    });
-    let output = serde_json::json!({
-        "orchestrator": Registry::primary_orchestrator(),
-        "worker_ladder": Registry::default_worker_ladder(),
-        "available_capable_models_sorted_by_cost": capable,
-        "auto": auto.map(|auto| serde_json::json!({
-            "orchestrator": auto.orchestrator,
-            "workers": auto.workers,
-            "rescue": auto.rescue,
-            "unpriced": auto.unpriced,
-            "ladder": auto.ladder(),
-        })),
-    });
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    let catalogue = default_catalogue(cwd).ok();
+    let ledger = cwd.join("out/ledger.jsonl");
+    let (budgets, _) = gather_budgets(&ledger);
+    let report =
+        fleet::available_report(catalogue.as_ref(), &budgets, &live_evidence(&ledger, cwd));
+    println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
 
@@ -978,7 +933,7 @@ fn serve_gateway(
     if let Some(parent) = resolved_ledger.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let catalogue = PriceCatalogue::load(&resolved_cat)
+    let catalogue = PriceCatalogue::load_or_builtin(&resolved_cat)
         .with_context(|| format!("load price catalogue {}", resolved_cat.display()))?;
 
     let cache_dir = resolved_ledger.parent().map(Path::to_path_buf);

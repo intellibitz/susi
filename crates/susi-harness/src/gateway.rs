@@ -17,8 +17,8 @@
 
 use crate::cache::ResponseCache;
 use crate::catalog::PriceCatalogue;
-use crate::ledger::{append_entry, Dispatch, LedgerEntry, Outcome};
-use crate::pricing::ModelPrice;
+use crate::ledger::{append_entry, Dispatch, FailureClass, LedgerEntry, Outcome};
+use crate::pricing::{ModelPrice, TokenUsage};
 use crate::usage::token_usage_from_json;
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -27,7 +27,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures::StreamExt;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -83,12 +83,17 @@ impl GatewayState {
 }
 
 /// One dispatch the gateway is about to price.
+#[derive(Clone)]
 struct Attempt {
     mission: String,
     task: String,
     attempt: u32,
     model: String,
     price: ModelPrice,
+    /// The provider the model resolves to, recorded on every row so the
+    /// ledger's per-provider views (cooldown, spend) see the real provider
+    /// even when one gateway routes to several.
+    provider: String,
 }
 
 /// Build the gateway router.
@@ -108,7 +113,34 @@ pub async fn serve(
     listener: tokio::net::TcpListener,
     state: Arc<GatewayState>,
 ) -> std::io::Result<()> {
-    axum::serve(listener, router(state)).await
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+}
+
+/// Resolves when the process is asked to stop (Ctrl-C, or `SIGTERM` on
+/// Unix). The servers stop accepting then, and finish the calls in flight,
+/// so every call that reached a provider still gets its ledger row.
+pub async fn shutdown_signal() {
+    let interrupt = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = interrupt => {}
+        () = terminate => {}
+    }
+    eprintln!("harness gateway: stopping; finishing the calls in flight");
 }
 
 async fn health() -> &'static str {
@@ -156,12 +188,10 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
             return error_response(StatusCode::BAD_REQUEST, &error.to_string());
         }
     }
-    let Some(price) = state.catalogue.price(model) else {
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            &format!("model `{model}` has no catalogue price"),
-        );
-    };
+    // A model the catalogue cannot price still runs: a working model is
+    // never refused for lack of costing. Its rows record the tokens at a
+    // zero price, so the spend is visible even though it is not costed.
+    let price = state.catalogue.price(model).unwrap_or_default();
 
     let tagged = run_tag(&headers);
     let mission = header_tag(&headers, "x-susi-mission")
@@ -181,12 +211,16 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
         body
     };
 
+    let provider = crate::providers::Registry::builtin()
+        .resolve(model)
+        .map_or_else(|| state.provider.clone(), |resolved| resolved.provider);
     let attempt = Attempt {
         mission,
         task,
         attempt,
         model: model.to_string(),
         price,
+        provider,
     };
 
     let cache_key = ResponseCache::compute_key(&request);
@@ -198,7 +232,7 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
                 task: attempt.task.clone(),
                 attempt: attempt.attempt,
                 model: attempt.model.clone(),
-                provider: state.provider.clone(),
+                provider: attempt.provider.clone(),
                 usage,
                 price: attempt.price,
                 started_unix_ms: now_ms(),
@@ -225,6 +259,11 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
             );
             return res;
         }
+    }
+
+    let wait = crate::ratelimit::Pacer::global().reserve(&attempt.provider, now_ms(), None);
+    if wait > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
     }
 
     if streaming {
@@ -297,12 +336,14 @@ async fn buffered_upstream(
     body: String,
     cache_key: String,
 ) -> Response {
+    let tag = attempt.clone();
     let Attempt {
         mission,
         task,
         attempt,
         model,
         price,
+        ..
     } = attempt;
     let started_unix_ms = now_ms();
     let timeout_secs = state.timeout_secs;
@@ -369,10 +410,14 @@ async fn buffered_upstream(
     let call = match upstream {
         Ok(Ok(call)) => call,
         Ok(Err(error)) => {
-            return error_response(
-                StatusCode::BAD_GATEWAY,
-                &format!("upstream call failed: {error}"),
+            let message = format!("upstream call failed: {error}");
+            record_failure(
+                &state.ledger_path,
+                &tag,
+                started_unix_ms,
+                transport_failure(&message),
             );
+            return error_response(StatusCode::BAD_GATEWAY, &message);
         }
         Err(error) => {
             return error_response(
@@ -382,6 +427,7 @@ async fn buffered_upstream(
         }
     };
     let status = call.status;
+    pause_on_retry_after(&tag.provider, status, call.header("retry-after"));
     // The cache marks the response when it served the answer; the provider was
     // not called, so the row must not charge for it.
     let cached = call.header("x-susi-cache-key").is_some();
@@ -396,6 +442,9 @@ async fn buffered_upstream(
         }
     };
     let ended_unix_ms = now_ms();
+    if let Some(class) = provider_failure(status, &response_bytes) {
+        record_failure(&state.ledger_path, &tag, started_unix_ms, class);
+    }
 
     let response_bytes = if (200..300).contains(&status) && is_anthropic {
         if let Ok(anth_val) = serde_json::from_slice::<Value>(&response_bytes) {
@@ -429,12 +478,17 @@ async fn buffered_upstream(
                 );
             }
         };
+        crate::ratelimit::Pacer::global().record_tokens(
+            &tag.provider,
+            ended_unix_ms,
+            usage.input.saturating_add(usage.output),
+        );
         let entry = LedgerEntry::settle(Dispatch {
             mission,
             task,
             attempt,
             model,
-            provider: state.provider.clone(),
+            provider: tag.provider.clone(),
             usage,
             price,
             started_unix_ms,
@@ -462,12 +516,14 @@ async fn buffered_upstream(
 }
 
 async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: String) -> Response {
+    let tag = attempt.clone();
     let Attempt {
         mission,
         task,
         attempt,
         model,
         price,
+        ..
     } = attempt;
     let started_unix_ms = now_ms();
     let route = match crate::router::resolve_route(
@@ -484,7 +540,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
     let target_url = route.url.clone();
     let route_headers = route.headers.clone();
     let timeout_secs = state.timeout_secs;
-    let provider = state.provider.clone();
+    let provider = tag.provider.clone();
     let ledger_path = state.ledger_path.clone();
 
     let outgoing_body = if route.model_id != model {
@@ -515,11 +571,19 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         ) {
             Ok(call) => call,
             Err(error) => {
-                let _ = meta_tx.send(Err(format!("upstream call failed: {error}")));
+                let message = format!("upstream call failed: {error}");
+                record_failure(
+                    &ledger_path,
+                    &tag,
+                    started_unix_ms,
+                    transport_failure(&message),
+                );
+                let _ = meta_tx.send(Err(message));
                 return;
             }
         };
         let status = call.status;
+        pause_on_retry_after(&provider, status, call.header("retry-after"));
         let content_type = call
             .header("content-type")
             .unwrap_or("text/event-stream")
@@ -528,9 +592,11 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
             return;
         }
         if !(200..300).contains(&status) {
-            if let Ok(bytes) = call.into_bytes(MAX_RESPONSE_BYTES) {
-                let _ = chunk_tx.blocking_send(bytes);
+            let bytes = call.into_bytes(MAX_RESPONSE_BYTES).unwrap_or_default();
+            if let Some(class) = provider_failure(status, &bytes) {
+                record_failure(&ledger_path, &tag, started_unix_ms, class);
             }
+            let _ = chunk_tx.blocking_send(bytes);
             return;
         }
 
@@ -556,6 +622,12 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         }
         match usage {
             Some(usage) => {
+                let ended_unix_ms = now_ms();
+                crate::ratelimit::Pacer::global().record_tokens(
+                    &provider,
+                    ended_unix_ms,
+                    usage.input.saturating_add(usage.output),
+                );
                 let entry = LedgerEntry::settle(Dispatch {
                     mission,
                     task,
@@ -565,7 +637,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
                     usage,
                     price,
                     started_unix_ms,
-                    ended_unix_ms: now_ms(),
+                    ended_unix_ms,
                     outcome: Outcome::Completed,
                 });
                 if let Err(error) = append_entry(&ledger_path, &entry) {
@@ -592,6 +664,83 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
         }
         Ok(Err(message)) => error_response(StatusCode::BAD_GATEWAY, &message),
         Err(_) => error_response(StatusCode::BAD_GATEWAY, "upstream task failed"),
+    }
+}
+
+/// The failure class of a provider's error answer, or `None` when the error
+/// is about the request itself (a 4xx over its content), which says nothing
+/// about whether the provider can serve.
+///
+/// Some providers report an empty account as a plain 400 (Anthropic's "credit
+/// balance is too low"), so the body is read for that as well as the status.
+pub(crate) fn provider_failure(status: u16, body: &[u8]) -> Option<FailureClass> {
+    if (200..300).contains(&status) {
+        return None;
+    }
+    let head = body.get(..body.len().min(4096)).unwrap_or(body);
+    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
+    const NO_CREDIT: &[&str] = &[
+        "credit balance",
+        "insufficient balance",
+        "insufficient_quota",
+        "payment required",
+    ];
+    if NO_CREDIT.iter().any(|needle| text.contains(needle)) {
+        return Some(FailureClass::NoCredit);
+    }
+    match status {
+        // The key cannot pay for calls: missing, revoked or out of credit.
+        401..=403 => Some(FailureClass::NoCredit),
+        429 => Some(FailureClass::RateLimited),
+        408 | 504 => Some(FailureClass::Timeout),
+        500..=599 => Some(FailureClass::Other),
+        _ => None,
+    }
+}
+
+/// Pause every call to `provider` for as long as a 429's `Retry-After` asks,
+/// so the agents sharing this gateway stop hitting the limit together.
+fn pause_on_retry_after(provider: &str, status: u16, retry_after: Option<&str>) {
+    if status != 429 {
+        return;
+    }
+    if let Some(wait) = retry_after.and_then(crate::ratelimit::retry_after_ms) {
+        crate::ratelimit::Pacer::global().pause(provider, now_ms(), wait);
+    }
+}
+
+/// The failure class of a call that never got an answer.
+pub(crate) fn transport_failure(message: &str) -> FailureClass {
+    let text = message.to_ascii_lowercase();
+    if text.contains("timed out") || text.contains("timeout") {
+        FailureClass::Timeout
+    } else {
+        FailureClass::Other
+    }
+}
+
+/// Record a provider failure: no tokens and no cost, but the ranking learns
+/// from it ([`crate::policy::history`], [`crate::policy::cooling_providers`]).
+fn record_failure(
+    ledger_path: &Path,
+    attempt: &Attempt,
+    started_unix_ms: u64,
+    class: FailureClass,
+) {
+    let entry = LedgerEntry::settle(Dispatch {
+        mission: attempt.mission.clone(),
+        task: attempt.task.clone(),
+        attempt: attempt.attempt,
+        model: attempt.model.clone(),
+        provider: attempt.provider.clone(),
+        usage: TokenUsage::default(),
+        price: attempt.price,
+        started_unix_ms,
+        ended_unix_ms: now_ms(),
+        outcome: Outcome::ModelFailed { class },
+    });
+    if let Err(error) = append_entry(ledger_path, &entry) {
+        eprintln!("harness-gateway: ledger append failed: {error}");
     }
 }
 
@@ -666,6 +815,7 @@ fn clamp_output_tokens(request: &mut Value, cap: u32) {
 mod tests {
     use super::*;
     use crate::ledger::read_entries;
+    use crate::money::MicroUsd;
     use std::net::SocketAddr;
 
     const CATALOGUE: &str = r#"{
@@ -694,7 +844,9 @@ mod tests {
             catalogue: catalogue(),
             ledger_path,
             upstream_chat_url: format!("http://{upstream}/v1/chat/completions"),
-            provider: "deepseek".into(),
+            // As `susi harness gateway` sets it: a name for the gateway, not a
+            // provider. Rows must still carry the model's own provider.
+            provider: "susi".into(),
             api_key: Some("test-key".into()),
             timeout_secs: 10,
             max_output_tokens: None,
@@ -853,19 +1005,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unpriced_model_is_refused_without_a_row() {
+    async fn an_unpriced_model_runs_and_its_tokens_are_recorded_uncosted() {
         let upstream = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
         let dir = tempfile::tempdir().unwrap();
         let ledger_path = dir.path().join("ledger.jsonl");
         let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
 
         let (status, _) = post_json(gateway, r#"{"model":"mystery","messages":[]}"#, &[]).await;
-        assert_eq!(status, 400);
-        assert!(!ledger_path.exists());
+        assert_eq!(status, 200);
+        let rows = read_entries(&ledger_path).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, "mystery");
+        assert_eq!(rows[0].cost, MicroUsd::ZERO);
+        assert!(rows[0].usage.input > 0);
     }
 
     #[tokio::test]
-    async fn an_upstream_error_passes_through_unbilled() {
+    async fn an_upstream_error_passes_through_unbilled_and_is_recorded_as_a_failure() {
         let upstream = spawn(Router::new().route("/v1/chat/completions", post(failing))).await;
         let dir = tempfile::tempdir().unwrap();
         let ledger_path = dir.path().join("ledger.jsonl");
@@ -874,7 +1030,63 @@ mod tests {
         let (status, _) =
             post_json(gateway, r#"{"model":"deepseek-flash","messages":[]}"#, &[]).await;
         assert_eq!(status, 500);
-        assert!(!ledger_path.exists());
+        let rows = read_entries(&ledger_path).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].cost, MicroUsd::ZERO);
+        assert_eq!(
+            rows[0].outcome,
+            Outcome::ModelFailed {
+                class: FailureClass::Other
+            }
+        );
+    }
+
+    #[test]
+    fn a_429_with_retry_after_pauses_its_provider_only() {
+        // A provider name no other test uses: the pacer is process-wide.
+        let limits = Some(crate::ratelimit::Limits::default());
+        pause_on_retry_after("pause-test-provider", 429, Some("3"));
+        let wait =
+            crate::ratelimit::Pacer::global().reserve("pause-test-provider", now_ms(), limits);
+        assert!((2_000..=3_000).contains(&wait), "waited {wait}ms");
+        // Another status, or no header, pauses nothing.
+        pause_on_retry_after("pause-test-other", 503, Some("30"));
+        pause_on_retry_after("pause-test-other", 429, None);
+        assert_eq!(
+            crate::ratelimit::Pacer::global().reserve("pause-test-other", now_ms(), limits),
+            0
+        );
+    }
+
+    #[test]
+    fn provider_errors_are_classified_and_request_errors_are_not() {
+        assert_eq!(provider_failure(200, b""), None);
+        assert_eq!(
+            provider_failure(429, b"slow down"),
+            Some(FailureClass::RateLimited)
+        );
+        assert_eq!(provider_failure(402, b""), Some(FailureClass::NoCredit));
+        assert_eq!(
+            provider_failure(401, b"bad key"),
+            Some(FailureClass::NoCredit)
+        );
+        assert_eq!(
+            provider_failure(
+                400,
+                br#"{"error":{"message":"Your credit balance is too low"}}"#
+            ),
+            Some(FailureClass::NoCredit)
+        );
+        assert_eq!(provider_failure(400, b"context length exceeded"), None);
+        assert_eq!(
+            provider_failure(503, b"overloaded"),
+            Some(FailureClass::Other)
+        );
+        assert_eq!(provider_failure(504, b""), Some(FailureClass::Timeout));
+        assert_eq!(
+            transport_failure("upstream call failed: operation timed out"),
+            FailureClass::Timeout
+        );
     }
 
     #[tokio::test]
