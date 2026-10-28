@@ -13,8 +13,10 @@
 use crate::budget::{estimate_tokens, Admission, Budget, BudgetGuard, DEFAULT_OUTPUT_RESERVE};
 use crate::catalog::PriceCatalogue;
 use crate::executor::{ExecutorConfig, RunOutcome, Runner};
+use crate::ledger::{append_entry, Dispatch, LedgerEntry, Outcome};
 use crate::money::MicroUsd;
 use crate::policy::{FailureKind, Ladder, NextAttempt, Policy, StopReason};
+use crate::pricing::TokenUsage;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -883,7 +885,7 @@ pub fn run_task<R: CommandRunner>(
             budget_exhausted: false,
         });
     }
-    let ranked = rank_alternates(spec, policy)?;
+    let ranked = rank_alternates(spec, policy);
     let base_prompt = format!(
         "Work in this order: read only what you need to identify the exact API you are changing, \
 then make the edit. Your first write must happen before you have read more than ten files; do \
@@ -895,7 +897,17 @@ nothing outside the task.",
         spec.prompt
     );
     let mut prompt = base_prompt.clone();
-    let mut ladder = Ladder::new(ranked, policy.policy);
+    // Each model's context window, so a prompt that overflows one goes next
+    // to a model that can hold it.
+    let registry = crate::providers::Registry::builtin();
+    let contexts = ranked
+        .iter()
+        .filter_map(|model| {
+            let window = registry.resolve(model)?.capabilities.context?;
+            Some((model.clone(), window))
+        })
+        .collect();
+    let mut ladder = Ladder::new(ranked, policy.policy).with_contexts(contexts);
     let mut attempts = Vec::new();
     let mut last_outcome = None;
     let mut last_model = spec.model.clone();
@@ -1017,6 +1029,13 @@ nothing outside the task.",
             estimate,
         });
         if attempt_accepted {
+            record_verdict(
+                policy,
+                &task,
+                attempt.number,
+                &attempt.model,
+                Outcome::Accepted,
+            );
             committed = attempt_committed;
             accepted = true;
             last_outcome = Some(agent);
@@ -1035,6 +1054,15 @@ nothing outside the task.",
         } else {
             failure_of(&agent)
         };
+        record_verdict(
+            policy,
+            &task,
+            attempt.number,
+            &attempt.model,
+            Outcome::Rejected {
+                reason: message.chars().take(240).collect(),
+            },
+        );
         ladder.record(&attempt.model, kind, &message);
         // Keep a rejected attempt's work for the next model to finish; only a
         // rewritten history makes the base unusable. The next prompt names the
@@ -1067,36 +1095,66 @@ Fix this in the worktree before you finish:\n{message}"
     })
 }
 
-/// The model order for a task: its own choice first, then the ranked rest.
-fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> EaiResult<Vec<String>> {
-    let mut models = vec![spec.model.clone()];
-    for model in &spec.alternates {
-        if !models.contains(model) {
-            models.push(model.clone());
-        }
-    }
-    let mut ranked = match policy.catalogue {
-        Some(catalogue) => {
-            let entries = crate::ledger::read_entries(policy.ledger_path).unwrap_or_default();
-            crate::policy::rank_models(
-                catalogue,
-                &models,
-                crate::policy::UsageProfile::agent(),
-                &crate::policy::history(&entries),
-            )?
-            .into_iter()
-            .map(|candidate| candidate.model)
-            .collect::<Vec<_>>()
-        }
-        None => models.clone(),
-    };
-    // The task's own model is a deliberate assignment; keep it first, then the
-    // ranked alternates.
-    if let Some(position) = ranked.iter().position(|model| model == &spec.model) {
-        let preferred = ranked.remove(position);
-        ranked.insert(0, preferred);
-    }
-    Ok(ranked)
+/// The model order for a task: its own choice first, then the fleet's ladder
+/// in the fleet's order, with unreliable models and cooling providers moved
+/// back ([`crate::policy::arrange`]). The ladder already ranks expiring
+/// credit, cache, price and capability; re-sorting it by price here would
+/// undo all of that.
+fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> Vec<String> {
+    let entries = crate::ledger::read_entries(policy.ledger_path).unwrap_or_default();
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+    let registry = crate::providers::Registry::builtin();
+    let provider_of = |model: &str| registry.resolve(model).map(|resolved| resolved.provider);
+    crate::policy::arrange(
+        &spec.model,
+        &spec.alternates,
+        &crate::policy::Standing {
+            history: &crate::policy::history(&entries),
+            cooling: &crate::policy::cooling_providers(&entries, now_ms),
+            failed: &crate::policy::failed_models(&entries),
+        },
+        &provider_of,
+    )
+}
+
+/// Record how an attempt ended, so the ranking learns which models' attempts
+/// pay off. The row carries no tokens and costs nothing; the gateway's rows
+/// already hold the spend. A ledger that cannot be written loses only this
+/// lesson, never the run.
+fn record_verdict(
+    policy: &SusiRunPolicy<'_>,
+    task: &str,
+    attempt: u32,
+    model: &str,
+    outcome: Outcome,
+) {
+    let provider = crate::providers::Registry::builtin()
+        .resolve(model)
+        .map_or_else(|| "unknown".to_string(), |resolved| resolved.provider);
+    let price = policy
+        .catalogue
+        .and_then(|catalogue| catalogue.price(model))
+        .unwrap_or_default();
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+    let entry = LedgerEntry::settle(Dispatch {
+        mission: policy.mission.to_string(),
+        task: task.to_string(),
+        attempt,
+        model: model.to_string(),
+        provider,
+        usage: TokenUsage::default(),
+        price,
+        started_unix_ms: now_ms,
+        ended_unix_ms: now_ms,
+        outcome,
+    });
+    let _ = append_entry(policy.ledger_path, &entry);
 }
 
 fn failure_of(agent: &RunOutcome) -> (FailureKind, String) {

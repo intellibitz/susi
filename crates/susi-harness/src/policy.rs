@@ -19,7 +19,7 @@
 //! is testable without running a model.
 
 use crate::catalog::PriceCatalogue;
-use crate::ledger::{LedgerEntry, Outcome};
+use crate::ledger::{FailureClass, LedgerEntry, Outcome};
 use crate::money::MicroUsd;
 use std::collections::{BTreeMap, BTreeSet};
 use susi_error::{EaiError, EaiResult};
@@ -33,18 +33,32 @@ use susi_error::{EaiError, EaiResult};
 pub struct UsageProfile {
     /// Input tokens one typical turn consumes.
     pub input: u64,
+    /// Of those, input tokens a caching model serves from its prompt cache.
+    pub cached: u64,
     /// Output tokens one typical turn produces.
     pub output: u64,
 }
 
 impl UsageProfile {
-    /// A typical agent turn: 200k input, 20k output.
+    /// A typical agent turn: 200k input, 20k output, and three quarters of
+    /// the input served from cache by a model that caches. The harness
+    /// re-sends one growing prompt on every turn of a task, so most of it is
+    /// a prefix the provider has already seen.
     #[must_use]
     pub const fn agent() -> Self {
         Self {
             input: 200_000,
+            cached: 150_000,
             output: 20_000,
         }
+    }
+
+    /// The usage this profile stands for on a model that does, or does not,
+    /// serve a cached prefix at the cache price.
+    #[must_use]
+    pub const fn usage(self, caches: bool) -> crate::pricing::TokenUsage {
+        let cached = if caches { self.cached } else { 0 };
+        crate::pricing::TokenUsage::new(self.input, cached, self.output)
     }
 }
 
@@ -54,32 +68,77 @@ impl Default for UsageProfile {
     }
 }
 
-/// What the ledger has taught us about one model.
+/// What the ledger has taught us about one model, attempt by attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ModelHistory {
-    /// Priced calls.
+    /// Attempts: the ledger rows sharing a mission, task, attempt number and
+    /// model are one attempt, however many calls it made.
     pub calls: u64,
-    /// Calls the provider or the acceptance rejected.
+    /// Attempts with a failure row: the provider failed, or the work the
+    /// attempt produced was rejected.
     pub failures: u64,
     /// Total spend on this model.
     pub cost: MicroUsd,
+    /// Input tokens the provider read, over every attempt.
+    pub input: u64,
+    /// Of those, input tokens the provider served from its prompt cache.
+    pub cache_hit: u64,
+    /// Wall time of the completed provider calls, in milliseconds, summed.
+    pub latency_ms: u64,
+    /// How many completed provider calls `latency_ms` sums.
+    pub timed_calls: u64,
 }
 
+/// Attempts a model needs on record before its failure rate can demote it.
+pub const RELIABILITY_EVIDENCE: u64 = 3;
+
 impl ModelHistory {
-    /// Calls that were not rejected.
+    /// Attempts that did not fail.
     #[must_use]
     pub const fn successes(self) -> u64 {
         self.calls.saturating_sub(self.failures)
     }
+
+    /// The share of input the model served from cache, in parts per
+    /// thousand, once it has read any input.
+    #[must_use]
+    pub const fn cache_share_permille(self) -> Option<u64> {
+        self.cache_hit.saturating_mul(1000).checked_div(self.input)
+    }
+
+    /// The mean wall time of one completed provider call, once any is on
+    /// record. A call the gateway answered from its own cache is not timed.
+    #[must_use]
+    pub const fn mean_latency_ms(self) -> Option<u64> {
+        self.latency_ms.checked_div(self.timed_calls)
+    }
+
+    /// Whether the record shows the model failing most of its attempts:
+    /// at least [`RELIABILITY_EVIDENCE`] attempts, under half of them good.
+    #[must_use]
+    pub const fn unreliable(self) -> bool {
+        self.calls >= RELIABILITY_EVIDENCE && self.successes().saturating_mul(2) < self.calls
+    }
 }
 
 /// Learn per-model history from every settled row.
+///
+/// Rows are grouped into attempts first, so a model is judged on attempts
+/// that paid off, not on how many calls each attempt happened to make. A row
+/// the gateway answered from its own response cache did not reach the
+/// provider and says nothing about the provider's prompt cache.
 #[must_use]
 pub fn history(entries: &[LedgerEntry]) -> BTreeMap<String, ModelHistory> {
-    let mut history: BTreeMap<String, ModelHistory> = BTreeMap::new();
+    let mut attempts: BTreeMap<(&str, &str, u32, &str), ModelHistory> = BTreeMap::new();
     for entry in entries {
-        let slot = history.entry(entry.model.clone()).or_default();
-        slot.calls = slot.calls.saturating_add(1);
+        let key = (
+            entry.mission.as_str(),
+            entry.task.as_str(),
+            entry.attempt,
+            entry.model.as_str(),
+        );
+        let slot = attempts.entry(key).or_default();
+        slot.calls = 1;
         slot.cost = slot
             .cost
             .checked_add(entry.cost)
@@ -88,10 +147,169 @@ pub fn history(entries: &[LedgerEntry]) -> BTreeMap<String, ModelHistory> {
             entry.outcome,
             Outcome::ModelFailed { .. } | Outcome::Rejected { .. }
         ) {
-            slot.failures = slot.failures.saturating_add(1);
+            slot.failures = 1;
+        }
+        if !entry.cached {
+            slot.input = slot.input.saturating_add(entry.usage.input);
+            slot.cache_hit = slot.cache_hit.saturating_add(entry.usage.cache_hit);
+            if entry.outcome == Outcome::Completed {
+                let took = entry.ended_unix_ms.saturating_sub(entry.started_unix_ms);
+                slot.latency_ms = slot.latency_ms.saturating_add(took);
+                slot.timed_calls = slot.timed_calls.saturating_add(1);
+            }
         }
     }
+    let mut history: BTreeMap<String, ModelHistory> = BTreeMap::new();
+    for ((_, _, _, model), attempt) in attempts {
+        let slot = history.entry(model.to_string()).or_default();
+        slot.calls = slot.calls.saturating_add(attempt.calls);
+        slot.failures = slot.failures.saturating_add(attempt.failures);
+        slot.cost = slot
+            .cost
+            .checked_add(attempt.cost)
+            .unwrap_or(MicroUsd::from_micros(u64::MAX));
+        slot.input = slot.input.saturating_add(attempt.input);
+        slot.cache_hit = slot.cache_hit.saturating_add(attempt.cache_hit);
+        slot.latency_ms = slot.latency_ms.saturating_add(attempt.latency_ms);
+        slot.timed_calls = slot.timed_calls.saturating_add(attempt.timed_calls);
+    }
     history
+}
+
+/// Each model's mean provider-call latency, from the ledger.
+#[must_use]
+pub fn latencies(entries: &[LedgerEntry]) -> BTreeMap<String, u64> {
+    history(entries)
+        .into_iter()
+        .filter_map(|(model, record)| Some((model, record.mean_latency_ms()?)))
+        .collect()
+}
+
+/// How long a provider failure is remembered for cooling down.
+pub const COOLDOWN_MS: u64 = 10 * 60 * 1000;
+
+/// Providers that failed recently and often enough that a new task should
+/// not start on them.
+///
+/// Only provider failures count (`ModelFailed` rows, which the gateway
+/// writes), never rejected work: a rejection is about the task. Out of
+/// credit cools a provider at once; any other provider failure cools it at
+/// the second in a row. A completed call clears the record, because the
+/// provider has recovered. Only the last [`COOLDOWN_MS`] are read.
+#[must_use]
+pub fn cooling_providers(entries: &[LedgerEntry], now_unix_ms: u64) -> BTreeSet<String> {
+    let mut recent = entries
+        .iter()
+        .filter(|entry| entry.ended_unix_ms.saturating_add(COOLDOWN_MS) >= now_unix_ms)
+        .collect::<Vec<_>>();
+    recent.sort_by_key(|entry| entry.ended_unix_ms);
+    let mut streaks: BTreeMap<&str, (u32, bool)> = BTreeMap::new();
+    for entry in recent {
+        match &entry.outcome {
+            Outcome::ModelFailed { class } => {
+                let streak = streaks.entry(entry.provider.as_str()).or_default();
+                streak.0 = streak.0.saturating_add(1);
+                streak.1 |= *class == FailureClass::NoCredit;
+            }
+            Outcome::Completed if !entry.cached => {
+                streaks.remove(entry.provider.as_str());
+            }
+            Outcome::Completed
+            | Outcome::Accepted
+            | Outcome::Rejected { .. }
+            | Outcome::Cancelled => {}
+        }
+    }
+    streaks
+        .into_iter()
+        .filter(|(_, (failures, no_credit))| *no_credit || *failures >= 2)
+        .map(|(provider, _)| provider.to_string())
+        .collect()
+}
+
+/// Models whose most recent real call failed, with when it failed (ms since
+/// the epoch).
+///
+/// The actual API calls are the source of truth for whether a model works: a
+/// model whose last call to its provider failed is inactive, whatever its
+/// budget, balance or listing says, until a later real call succeeds (a task's
+/// call, or [`crate::fleet`]'s probe). Only provider calls count: a gateway
+/// row (`Completed` or `ModelFailed`), never a task verdict, since rejected
+/// work is about the task, and never an answer the gateway's own cache gave.
+#[must_use]
+pub fn failed_models(entries: &[LedgerEntry]) -> BTreeMap<String, u64> {
+    let mut last: BTreeMap<&str, (u64, bool)> = BTreeMap::new();
+    for entry in entries {
+        let ok = match &entry.outcome {
+            Outcome::Completed if !entry.cached => true,
+            Outcome::ModelFailed { .. } => false,
+            Outcome::Completed
+            | Outcome::Accepted
+            | Outcome::Rejected { .. }
+            | Outcome::Cancelled => continue,
+        };
+        let slot = last.entry(entry.model.as_str()).or_insert((0, true));
+        if entry.ended_unix_ms >= slot.0 {
+            *slot = (entry.ended_unix_ms, ok);
+        }
+    }
+    last.into_iter()
+        .filter(|(_, (_, ok))| !ok)
+        .map(|(model, (at, _))| (model.to_string(), at))
+        .collect()
+}
+
+/// What the ledger says about each model and provider, for [`arrange`].
+#[derive(Debug, Clone, Copy)]
+pub struct Standing<'a> {
+    /// Per-model attempt record ([`history`]).
+    pub history: &'a BTreeMap<String, ModelHistory>,
+    /// Providers cooling down ([`cooling_providers`]).
+    pub cooling: &'a BTreeSet<String>,
+    /// Models whose last real call failed ([`failed_models`]).
+    pub failed: &'a BTreeMap<String, u64>,
+}
+
+/// The order one task tries its models in.
+///
+/// The fleet's ladder is the policy: it already ranks expiring credit, cache,
+/// price and capability. The task's own model goes first, then the ladder in
+/// its order. A model whose last real call failed ([`failed_models`]) is left
+/// out: the calls decide. The rest only move back, and their order is
+/// otherwise kept: a model whose record is [`ModelHistory::unreliable`] goes
+/// behind the healthy ones, and a model whose provider is cooling down
+/// ([`cooling_providers`]) goes to the end.
+#[must_use]
+pub fn arrange(
+    preferred: &str,
+    ladder: &[String],
+    standing: &Standing<'_>,
+    provider_of: &dyn Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let Standing {
+        history,
+        cooling,
+        failed,
+    } = *standing;
+    let mut models = vec![preferred.to_string()];
+    for model in ladder {
+        if !models.contains(model) {
+            models.push(model.clone());
+        }
+    }
+    models.retain(|model| !failed.contains_key(model));
+    let standing = |model: &String| -> u8 {
+        if provider_of(model).is_some_and(|provider| cooling.contains(&provider)) {
+            2
+        } else if history.get(model).is_some_and(|record| record.unreliable()) {
+            1
+        } else {
+            0
+        }
+    };
+    // A stable sort: within a standing, the fleet's order holds.
+    models.sort_by_key(standing);
+    models
 }
 
 /// One ranked candidate.
@@ -105,13 +323,13 @@ pub struct Candidate {
 
 /// Rank candidate models by expected cost per accepted task, cheapest first.
 ///
-/// A model the catalogue cannot price is refused here rather than at the
-/// gateway, because an unpriced model cannot be ranked or budgeted.
+/// A candidate the catalogue cannot price still ranks: it goes last, because
+/// a model that works must not be dropped for lack of a price, and a missing
+/// price must never make it the cheapest choice.
 ///
 /// # Errors
 ///
-/// Returns `EaiError::config` when a candidate has no price, or when there is
-/// no candidate at all.
+/// Returns `EaiError::config` when there is no candidate at all.
 pub fn rank_models(
     catalogue: &PriceCatalogue,
     candidates: &[String],
@@ -127,15 +345,23 @@ pub fn rank_models(
         if !seen.insert(model.as_str()) {
             continue;
         }
-        let price = catalogue.price(model).ok_or_else(|| {
-            EaiError::config(format!("model {model} has no price in the catalogue"))
-        })?;
-        let base = price.cost(crate::pricing::TokenUsage::new(
-            profile.input,
-            0,
-            profile.output,
-        ));
-        let expected = expected_cost(base, history.get(model).copied().unwrap_or_default());
+        let record = history.get(model).copied().unwrap_or_default();
+        let expected = match catalogue.price(model) {
+            Some(price) => {
+                // The cache share the model has shown, priced at its cache
+                // rate; a model with no record is priced as all misses.
+                let cached = record
+                    .cache_share_permille()
+                    .map_or(0, |share| profile.input.saturating_mul(share) / 1000);
+                let base = price.cost(crate::pricing::TokenUsage::new(
+                    profile.input,
+                    cached,
+                    profile.output,
+                ));
+                expected_cost(base, record)
+            }
+            None => MicroUsd::from_micros(u64::MAX),
+        };
         ranked.push(Candidate {
             model: model.clone(),
             expected_cost: expected,
@@ -184,6 +410,9 @@ pub enum FailureKind {
     Timeout,
     /// The agent ran and produced work that did not pass.
     Semantic,
+    /// The prompt did not fit the model's context window. Only a model with
+    /// a larger window can take the task further.
+    ContextOverflow,
     /// The executor itself could not run (spawn, I/O).
     Executor,
 }
@@ -207,6 +436,23 @@ impl FailureKind {
             "504",
         ];
         const TIMEOUT: &[&str] = &["timed out", "timeout", "deadline exceeded"];
+        // How the providers word a prompt that is longer than the window:
+        // OpenAI-compatible `context_length_exceeded` and "maximum context
+        // length", Anthropic "prompt is too long", Gemini "exceeds the
+        // maximum number of tokens" / "input token count".
+        const CONTEXT: &[&str] = &[
+            "context_length_exceeded",
+            "context length",
+            "maximum context",
+            "context window",
+            "prompt is too long",
+            "input is too long",
+            "exceeds the maximum number of tokens",
+            "input token count",
+        ];
+        if CONTEXT.iter().any(|needle| text.contains(needle)) {
+            return Self::ContextOverflow;
+        }
         if TIMEOUT.iter().any(|needle| text.contains(needle)) {
             return Self::Timeout;
         }
@@ -282,6 +528,7 @@ pub struct Ladder {
     pending_same_model: bool,
     signatures: BTreeMap<String, String>,
     stuck: Option<String>,
+    contexts: BTreeMap<String, u64>,
 }
 
 impl Ladder {
@@ -297,7 +544,17 @@ impl Ladder {
             pending_same_model: false,
             signatures: BTreeMap::new(),
             stuck: None,
+            contexts: BTreeMap::new(),
         }
+    }
+
+    /// Tell the ladder each model's context window, in tokens, so a prompt
+    /// that overflowed one model goes next to a model that can hold more. A
+    /// model left out has an unknown window and is not skipped.
+    #[must_use]
+    pub fn with_contexts(mut self, contexts: BTreeMap<String, u64>) -> Self {
+        self.contexts = contexts;
+        self
     }
 
     /// Build a ladder that tries the candidates in the given order.
@@ -350,6 +607,35 @@ impl Ladder {
             self.stuck = Some("executor".to_string());
             return;
         }
+        if kind == FailureKind::ContextOverflow {
+            // Retrying, or trying a model with no more room, would fail the
+            // same way. Skip to the next model with a larger window, in the
+            // ladder's order; a model with an unknown window may be larger.
+            let held = self.contexts.get(model).copied().unwrap_or(0);
+            let next = self
+                .ranked
+                .iter()
+                .enumerate()
+                .skip(self.index.saturating_add(1))
+                .find(|(_, candidate)| {
+                    self.contexts
+                        .get(candidate.as_str())
+                        .is_none_or(|window| *window > held)
+                })
+                .map(|(position, _)| position);
+            match next {
+                Some(position) => {
+                    self.index = position;
+                    self.same_model = 0;
+                }
+                None => {
+                    self.stuck = Some(format!(
+                        "context: no model on the ladder has a larger window than {model}"
+                    ));
+                }
+            }
+            return;
+        }
         let signature = signature(kind, message);
         if self.policy.stop_on_repeat {
             match self.signatures.get(&signature) {
@@ -386,6 +672,7 @@ pub fn signature(kind: FailureKind, message: &str) -> String {
         FailureKind::Transient => "transient",
         FailureKind::Timeout => "timeout",
         FailureKind::Semantic => "semantic",
+        FailureKind::ContextOverflow => "context",
         FailureKind::Executor => "executor",
     };
     if kind == FailureKind::Timeout {
@@ -477,6 +764,7 @@ mod tests {
                 calls: 4,
                 failures: 4,
                 cost: MicroUsd::from_micros(4_000),
+                ..ModelHistory::default()
             },
         );
         history.insert(
@@ -485,6 +773,7 @@ mod tests {
                 calls: 4,
                 failures: 0,
                 cost: MicroUsd::from_micros(40_000),
+                ..ModelHistory::default()
             },
         );
         let ranked =
@@ -505,6 +794,7 @@ mod tests {
                 calls: 2,
                 failures: 0,
                 cost: MicroUsd::from_micros(1_000),
+                ..ModelHistory::default()
             },
         );
         history.insert(
@@ -513,6 +803,7 @@ mod tests {
                 calls: 2,
                 failures: 0,
                 cost: MicroUsd::from_micros(4_000),
+                ..ModelHistory::default()
             },
         );
         let ranked =
@@ -521,15 +812,347 @@ mod tests {
     }
 
     #[test]
-    fn an_unpriced_candidate_is_refused() {
-        let error = rank_models(
+    fn an_unpriced_candidate_ranks_last_instead_of_failing_the_run() {
+        let ranked = rank_models(
             &catalogue(),
-            &["cheap".into(), "mystery".into()],
+            &["mystery".into(), "cheap".into()],
             UsageProfile::agent(),
             &BTreeMap::new(),
         )
-        .unwrap_err();
-        assert!(error.to_string().contains("mystery"));
+        .unwrap();
+        assert_eq!(ranked[0].model, "cheap");
+        assert_eq!(ranked[1].model, "mystery");
+    }
+
+    fn row(
+        (task, attempt): (&str, u32),
+        model: &str,
+        provider: &str,
+        at_ms: u64,
+        outcome: Outcome,
+    ) -> LedgerEntry {
+        LedgerEntry::settle(crate::ledger::Dispatch {
+            mission: "m".to_string(),
+            task: task.to_string(),
+            attempt,
+            model: model.to_string(),
+            provider: provider.to_string(),
+            usage: crate::pricing::TokenUsage::new(1000, 800, 100),
+            price: ModelPrice::default(),
+            started_unix_ms: at_ms,
+            ended_unix_ms: at_ms,
+            outcome,
+        })
+    }
+
+    fn rejected() -> Outcome {
+        Outcome::Rejected {
+            reason: "tests red".to_string(),
+        }
+    }
+
+    fn failed(class: FailureClass) -> Outcome {
+        Outcome::ModelFailed { class }
+    }
+
+    #[test]
+    fn provider_context_errors_are_classified_as_overflow() {
+        for message in [
+            "400: This model's maximum context length is 128000 tokens",
+            r#"{"error":{"code":"context_length_exceeded"}}"#,
+            "prompt is too long: 210000 tokens > 200000 maximum",
+            "The input token count (1100000) exceeds the maximum number of tokens allowed",
+        ] {
+            assert_eq!(
+                FailureKind::classify(message),
+                FailureKind::ContextOverflow,
+                "{message}"
+            );
+        }
+        assert_eq!(
+            FailureKind::classify("Rate limit reached for tokens per min"),
+            FailureKind::Transient
+        );
+    }
+
+    #[test]
+    fn a_context_overflow_skips_to_a_larger_window() {
+        let ranked: Vec<String> = ["small", "also-small", "unknown", "large"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let contexts: BTreeMap<String, u64> = [
+            ("small".to_string(), 128_000),
+            ("also-small".to_string(), 128_000),
+            ("large".to_string(), 1_000_000),
+        ]
+        .into_iter()
+        .collect();
+        let mut ladder =
+            Ladder::new(ranked.clone(), Policy::default()).with_contexts(contexts.clone());
+        let NextAttempt::Attempt(first) = ladder.next_attempt() else {
+            panic!("expected an attempt");
+        };
+        ladder.record(&first.model, FailureKind::ContextOverflow, "context length");
+        let NextAttempt::Attempt(second) = ladder.next_attempt() else {
+            panic!("expected an attempt");
+        };
+        // `also-small` holds no more, so it is skipped; an unknown window may.
+        assert_eq!(second.model, "unknown");
+        ladder.record(
+            &second.model,
+            FailureKind::ContextOverflow,
+            "context length",
+        );
+        let NextAttempt::Attempt(third) = ladder.next_attempt() else {
+            panic!("expected an attempt");
+        };
+        assert_eq!(third.model, "large");
+        ladder.record(&third.model, FailureKind::ContextOverflow, "context length");
+        assert!(matches!(
+            ladder.next_attempt(),
+            NextAttempt::Stop(StopReason::Stuck { .. })
+        ));
+    }
+
+    #[test]
+    fn latency_is_the_mean_of_completed_provider_calls() {
+        let timed = |at: u64, took: u64, outcome: Outcome| {
+            let mut entry = row(("T", 1), "m", "p", at, outcome);
+            entry.started_unix_ms = at;
+            entry.ended_unix_ms = at + took;
+            entry
+        };
+        let mut cached = timed(50, 1, Outcome::Completed);
+        cached.cached = true;
+        let entries = vec![
+            timed(0, 300, Outcome::Completed),
+            timed(1_000, 500, Outcome::Completed),
+            // Neither a failure nor a gateway-cache answer is a timed call.
+            timed(2_000, 90_000, failed(FailureClass::Timeout)),
+            cached,
+        ];
+        assert_eq!(history(&entries)["m"].mean_latency_ms(), Some(400));
+        assert_eq!(latencies(&entries).get("m"), Some(&400));
+        assert_eq!(ModelHistory::default().mean_latency_ms(), None);
+    }
+
+    #[test]
+    fn a_models_last_real_call_decides_whether_it_works() {
+        let entries = vec![
+            // Failed, then recovered: works.
+            row(
+                ("T", 1),
+                "healed",
+                "p",
+                10,
+                failed(FailureClass::RateLimited),
+            ),
+            row(("T", 1), "healed", "p", 20, Outcome::Completed),
+            // Worked, then failed: inactive, whatever else is true of it.
+            row(("T", 1), "broken", "p", 10, Outcome::Completed),
+            row(("T", 1), "broken", "p", 30, failed(FailureClass::Other)),
+            // A rejected task is about the task, not the model's API.
+            row(("T", 1), "judged", "p", 10, Outcome::Completed),
+            row(("T", 1), "judged", "p", 40, rejected()),
+        ];
+        let failed = failed_models(&entries);
+        assert_eq!(failed.keys().collect::<Vec<_>>(), vec!["broken"]);
+        assert_eq!(failed["broken"], 30);
+        // A failed model is left out of a task's order, even the task's own.
+        let ladder = vec!["broken".to_string(), "healed".to_string()];
+        let order = arrange(
+            "broken",
+            &ladder,
+            &Standing {
+                history: &BTreeMap::new(),
+                cooling: &BTreeSet::new(),
+                failed: &failed,
+            },
+            &|_| None,
+        );
+        assert_eq!(order, vec!["healed".to_string()]);
+    }
+
+    #[test]
+    fn history_counts_attempts_not_calls() {
+        // Attempt 1 made three calls and was rejected; attempt 2 made two
+        // calls and was accepted. Two attempts, one failure.
+        let entries = vec![
+            row(("T", 1), "cheap", "p", 1, Outcome::Completed),
+            row(("T", 1), "cheap", "p", 2, Outcome::Completed),
+            row(("T", 1), "cheap", "p", 3, Outcome::Completed),
+            row(("T", 1), "cheap", "p", 4, rejected()),
+            row(("T", 2), "cheap", "p", 5, Outcome::Completed),
+            row(("T", 2), "cheap", "p", 6, Outcome::Completed),
+            row(("T", 2), "cheap", "p", 7, Outcome::Accepted),
+        ];
+        let record = history(&entries)["cheap"];
+        assert_eq!(record.calls, 2);
+        assert_eq!(record.failures, 1);
+        // Every row read 1000 input with 800 from cache.
+        assert_eq!(record.cache_share_permille(), Some(800));
+    }
+
+    #[test]
+    fn a_model_failing_most_attempts_is_unreliable_only_with_evidence() {
+        let two_failures = vec![
+            row(("A", 1), "m", "p", 1, rejected()),
+            row(("B", 1), "m", "p", 2, rejected()),
+        ];
+        assert!(
+            !history(&two_failures)["m"].unreliable(),
+            "two attempts are too few"
+        );
+        let mut three = two_failures.clone();
+        three.push(row(("C", 1), "m", "p", 3, Outcome::Accepted));
+        assert!(history(&three)["m"].unreliable(), "one in three succeeded");
+        three.push(row(("D", 1), "m", "p", 4, Outcome::Accepted));
+        assert!(!history(&three)["m"].unreliable(), "half succeeded");
+    }
+
+    #[test]
+    fn a_measured_cache_share_lowers_the_expected_cost() {
+        let mut cached = BTreeMap::new();
+        cached.insert(
+            "cheap".to_string(),
+            ModelHistory {
+                input: 1000,
+                cache_hit: 900,
+                ..ModelHistory::default()
+            },
+        );
+        let plain = rank_models(
+            &catalogue(),
+            &["cheap".into()],
+            UsageProfile::agent(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let warm = rank_models(
+            &catalogue(),
+            &["cheap".into()],
+            UsageProfile::agent(),
+            &cached,
+        )
+        .unwrap();
+        assert!(warm[0].expected_cost < plain[0].expected_cost);
+    }
+
+    #[test]
+    fn providers_cool_down_on_no_credit_at_once_and_on_two_other_failures() {
+        let now = 1_000_000_000;
+        let entries = vec![
+            row(
+                ("T", 1),
+                "a1",
+                "broke",
+                now - 1000,
+                failed(FailureClass::NoCredit),
+            ),
+            row(
+                ("T", 1),
+                "b1",
+                "busy",
+                now - 3000,
+                failed(FailureClass::RateLimited),
+            ),
+            row(
+                ("T", 1),
+                "b1",
+                "busy",
+                now - 2000,
+                failed(FailureClass::RateLimited),
+            ),
+            row(
+                ("T", 1),
+                "c1",
+                "blip",
+                now - 1000,
+                failed(FailureClass::Other),
+            ),
+            row(
+                ("T", 1),
+                "d1",
+                "healed",
+                now - 3000,
+                failed(FailureClass::Other),
+            ),
+            row(
+                ("T", 1),
+                "d1",
+                "healed",
+                now - 2000,
+                failed(FailureClass::Other),
+            ),
+            row(("T", 1), "d1", "healed", now - 1000, Outcome::Completed),
+            row(
+                ("T", 1),
+                "e1",
+                "old",
+                now - COOLDOWN_MS - 1,
+                failed(FailureClass::NoCredit),
+            ),
+            row(("T", 1), "f1", "rejected", now - 1000, rejected()),
+        ];
+        let cooling = cooling_providers(&entries, now);
+        assert_eq!(
+            cooling.into_iter().collect::<Vec<_>>(),
+            vec!["broke".to_string(), "busy".to_string()]
+        );
+    }
+
+    #[test]
+    fn arrange_keeps_the_fleet_order_and_only_demotes() {
+        let ladder: Vec<String> = ["fast", "cached", "rescue", "cooling", "flaky"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut records = BTreeMap::new();
+        records.insert(
+            "flaky".to_string(),
+            ModelHistory {
+                calls: 4,
+                failures: 3,
+                ..ModelHistory::default()
+            },
+        );
+        records.insert(
+            "rescue".to_string(),
+            ModelHistory {
+                calls: 4,
+                failures: 3,
+                ..ModelHistory::default()
+            },
+        );
+        let cooling: BTreeSet<String> = ["down".to_string()].into_iter().collect();
+        let provider_of =
+            |model: &str| Some(if model == "cooling" { "down" } else { "up" }.to_string());
+        let order = arrange(
+            "cached",
+            &ladder,
+            &Standing {
+                history: &records,
+                cooling: &cooling,
+                failed: &BTreeMap::new(),
+            },
+            &provider_of,
+        );
+        // The preferred model leads, healthy models keep the fleet's order,
+        // the unreliable ones follow in the fleet's order, cooling is last.
+        assert_eq!(order, vec!["cached", "fast", "rescue", "flaky", "cooling"]);
+        // A fleet of one cooling model still runs it.
+        let alone = arrange(
+            "cooling",
+            &[],
+            &Standing {
+                history: &records,
+                cooling: &cooling,
+                failed: &BTreeMap::new(),
+            },
+            &provider_of,
+        );
+        assert_eq!(alone, vec!["cooling"]);
     }
 
     #[test]

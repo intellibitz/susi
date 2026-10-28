@@ -148,16 +148,67 @@ pub struct ModelRecord {
 /// The ladder built from the API keys present in the environment.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AutoConfig {
-    /// The orchestrator: `deepseek-pro` when its key is set, otherwise the
-    /// cheapest capable rescue model. `None` when no model is usable.
+    /// The orchestrator: the strongest rescue model on expiring credit when
+    /// there is one, else `deepseek-pro` when it is eligible, else the
+    /// cheapest rescue model, else the cheapest worker. `None` when no model
+    /// is usable.
     pub orchestrator: Option<String>,
+    /// Models whose provider holds credit that expires, of either tier,
+    /// soonest expiry first. They lead the ladder, so the credit is spent
+    /// before it is lost.
+    pub use_first: Vec<String>,
     /// Workers, cheapest first.
     pub workers: Vec<String>,
     /// Rescue models, cheapest first. Tried after the workers.
     pub rescue: Vec<String>,
-    /// Ladder models the catalogue cannot price. They are left out, because
-    /// an unpriced model cannot be budgeted.
+    /// Ladder models the catalogue cannot price. They stay on the ladder, last
+    /// within their tier, so a working model is never dropped for lack of a
+    /// price; this list says which ones are running on no costing data.
     pub unpriced: Vec<String>,
+    /// Models left out because their last real call failed: the calls are the
+    /// source of truth, whatever the provider's budget says.
+    pub failed: Vec<String>,
+}
+
+/// What the budget says of each keyed provider, for [`Registry::auto_config_ranked`].
+pub struct ProviderGate<'a> {
+    /// Whether the provider may run: the one-dollar rule in [`crate::balance`].
+    pub active: &'a dyn Fn(&str) -> bool,
+    /// The day the provider's credit expires, when that credit should be
+    /// spent before anything else: active, dated and not yet expired.
+    pub use_first: &'a dyn Fn(&str) -> Option<u64>,
+    /// A model's measured mean call latency in milliseconds, when the ledger
+    /// has any ([`crate::policy::latencies`]).
+    pub latency: &'a dyn Fn(&str) -> Option<u64>,
+    /// Whether the model's last real call succeeded (or it has made none).
+    /// A model that answers no is left out ([`crate::policy::failed_models`]).
+    pub live: &'a dyn Fn(&str) -> bool,
+}
+
+/// A price's band. Bands are about 10% wide (each edge is 1.1 times the
+/// last), so prices that close usually share one and a trivial price
+/// difference does not outrank a faster model. Fixed edges keep the order a
+/// total order: two near prices on either side of an edge stay ordered by
+/// price.
+fn cost_band(cost: crate::money::MicroUsd) -> u32 {
+    let cost = u128::from(cost.micros());
+    let mut band = 0;
+    let mut edge: u128 = 1;
+    while edge < cost {
+        edge = edge * 11 / 10 + 1;
+        band += 1;
+    }
+    band
+}
+
+/// Known latency first, fastest first; unmeasured models after them.
+fn by_latency(a: Option<u64>, b: Option<u64>) -> std::cmp::Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
 }
 
 /// A ladder candidate whose position is not yet settled.
@@ -167,14 +218,23 @@ struct Ranked {
     cache: bool,
     score: u8,
     context: u64,
+    /// The day the provider's credit expires, when it is to be spent first.
+    expires: Option<u64>,
+    tier: Tier,
+    /// The price band ([`cost_band`]).
+    band: u32,
+    /// Measured mean call latency, in milliseconds.
+    latency: Option<u64>,
 }
 
 impl AutoConfig {
-    /// The escalation order: every worker, then every rescue model.
+    /// The escalation order: models on expiring credit, then every worker,
+    /// then every rescue model.
     #[must_use]
     pub fn ladder(&self) -> Vec<String> {
-        self.workers
+        self.use_first
             .iter()
+            .chain(self.workers.iter())
             .chain(self.rescue.iter())
             .cloned()
             .collect()
@@ -192,6 +252,12 @@ pub struct ProviderRecord {
     pub endpoint: String,
     /// Environment variables that may hold the key, in priority order.
     pub key_envs: Vec<String>,
+    /// What every key of this provider starts with, when the provider
+    /// publishes a fixed form (`sk-ant-` for Anthropic). A value that does
+    /// not is not this provider's key, and [`crate::secrets`] passes over it.
+    pub key_prefix: Option<String>,
+    /// Where a user gets a key for this provider, for first-run guidance.
+    pub key_url: Option<String>,
     /// Models known by name.
     pub models: Vec<ModelRecord>,
 }
@@ -222,12 +288,63 @@ pub struct Registry {
     aliases: BTreeMap<String, String>,
 }
 
+/// The environment variable naming an overlay registry file: JSON in the
+/// built-in registry's shape, whose providers, models and aliases are added.
+pub const OVERLAY_ENV: &str = "SUSI_HARNESS_PROVIDERS";
+
 impl Registry {
-    /// The registry compiled into the binary.
+    /// The key prefix the provider reading the variable `name` requires, when
+    /// one does.
+    #[must_use]
+    pub fn key_prefix_for(&self, name: &str) -> Option<(&str, &str)> {
+        self.providers.iter().find_map(|provider| {
+            let prefix = provider.key_prefix.as_deref()?;
+            provider
+                .key_envs
+                .iter()
+                .any(|env| env == name)
+                .then_some((provider.id.as_str(), prefix))
+        })
+    }
+
+    /// The registry in force: the one compiled into the binary, with the
+    /// overlay file named by [`OVERLAY_ENV`] merged over it when that variable
+    /// is set. A new provider or model is added there, with no rebuild.
+    ///
+    /// A missing or malformed overlay is never used and never ignored
+    /// silently: [`Registry::overlay_error`] names it, and the harness CLI
+    /// refuses to start on it.
     #[must_use]
     pub fn builtin() -> &'static Self {
         static REGISTRY: OnceLock<Registry> = OnceLock::new();
-        REGISTRY.get_or_init(|| Self::parse(BUILTIN).unwrap_or_default())
+        REGISTRY.get_or_init(|| {
+            let base = Self::parse(BUILTIN).unwrap_or_default();
+            let overlay = std::env::var_os(OVERLAY_ENV).map(std::path::PathBuf::from);
+            Self::with_overlay(&base, overlay.as_deref()).unwrap_or(base)
+        })
+    }
+
+    /// Why the overlay named by [`OVERLAY_ENV`] cannot be used, or `None` when
+    /// the variable is unset or the overlay is sound.
+    #[must_use]
+    pub fn overlay_error() -> Option<String> {
+        let overlay = std::env::var_os(OVERLAY_ENV).map(std::path::PathBuf::from)?;
+        let base = Self::parse(BUILTIN).unwrap_or_default();
+        Self::with_overlay(&base, Some(&overlay))
+            .err()
+            .map(|error| error.to_string())
+    }
+
+    /// `base` with the registry document at `path` merged over it.
+    fn with_overlay(base: &Self, path: Option<&std::path::Path>) -> EaiResult<Self> {
+        let Some(path) = path else {
+            return Ok(base.clone());
+        };
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            EaiError::config(format!("{OVERLAY_ENV}: read {}: {error}", path.display()))
+        })?;
+        base.merged(&text)
+            .map_err(|error| EaiError::config(format!("{OVERLAY_ENV} {}: {error}", path.display())))
     }
 
     /// Parse a registry document.
@@ -432,9 +549,9 @@ impl Registry {
     /// Build the ladder from the keys `key_present` reports, budget first and
     /// capability second.
     ///
-    /// A model is eligible when its provider's key is set, it can call tools
-    /// (a worker without tools cannot finish a task), and the catalogue prices
-    /// it. Cheaper comes first within a tier. Equal prices go to the model with
+    /// A model is eligible when its provider's key is set and it can call tools
+    /// (a worker without tools cannot finish a task). Cached models come first,
+    /// then cheaper ones; a model the catalogue does not price comes last. Equal prices go to the model with
     /// more capabilities, then the larger context, then the id, so the order is
     /// the same on every machine.
     #[must_use]
@@ -458,9 +575,36 @@ impl Registry {
         profile: UsageProfile,
         provider_active: &dyn Fn(&str) -> bool,
     ) -> AutoConfig {
+        let gate = ProviderGate {
+            active: provider_active,
+            use_first: &|_| None,
+            latency: &|_| None,
+            live: &|_| true,
+        };
+        self.auto_config_ranked(key_present, catalogue, profile, &gate)
+    }
+
+    /// [`Registry::auto_config_budgeted`] that also spends expiring credit
+    /// first, as the [`ProviderGate`] answers per provider.
+    ///
+    /// Those providers' models lead the ladder, soonest expiry first, ahead of
+    /// cache and price: credit that expires unused is lost, so spending it
+    /// costs nothing that would otherwise be kept. The most capable of them
+    /// that is a rescue model also orchestrates, because the orchestrator makes
+    /// the most calls of any model in a run.
+    #[must_use]
+    pub fn auto_config_ranked(
+        &self,
+        key_present: &dyn Fn(&str) -> bool,
+        catalogue: &PriceCatalogue,
+        profile: UsageProfile,
+        gate: &ProviderGate<'_>,
+    ) -> AutoConfig {
+        let mut first = Vec::new();
         let mut workers = Vec::new();
         let mut rescue = Vec::new();
         let mut unpriced = Vec::new();
+        let mut failed = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
         for provider in &self.providers {
             let keyed = provider.key_envs.is_empty()
@@ -469,49 +613,94 @@ impl Registry {
                 continue;
             }
             // A keyless provider is local and has no balance to gate on.
-            if !provider.key_envs.is_empty() && !provider_active(&provider.id) {
+            if !provider.key_envs.is_empty() && !(gate.active)(&provider.id) {
                 continue;
             }
             for model in &provider.models {
                 let Some(tier) = model.tier else { continue };
+                if !(gate.live)(&model.id) {
+                    failed.push(model.id.clone());
+                    continue;
+                }
                 if !model.capabilities.missing(&[Capability::Tools]).is_empty() {
                     continue;
                 }
                 if !seen.insert(model.id.clone()) {
                     continue;
                 }
+                // A working model with no price still runs. It is ranked after
+                // every priced model of the same tier, so a missing price
+                // never makes it the cheapest choice, and it is reported.
                 let price_key = model.price_ref.as_deref().unwrap_or(&model.id);
-                let Some(price) = catalogue.price(price_key) else {
-                    unpriced.push(model.id.clone());
-                    continue;
+                // A caching model is priced with the profile's cached share
+                // at its cache rate: that is what a task's turns pay.
+                let cost = match catalogue.price(price_key) {
+                    Some(price) => price.cost(profile.usage(model.capabilities.cache)),
+                    None => {
+                        unpriced.push(model.id.clone());
+                        crate::money::MicroUsd::from_micros(u64::MAX)
+                    }
                 };
                 let ranked = Ranked {
                     id: model.id.clone(),
-                    cost: price.cost(crate::pricing::TokenUsage::new(
-                        profile.input,
-                        0,
-                        profile.output,
-                    )),
+                    cost,
                     cache: model.capabilities.cache,
                     score: u8::from(model.capabilities.streaming)
                         + u8::from(model.capabilities.vision),
                     context: model.capabilities.context.unwrap_or(0),
+                    expires: (gate.use_first)(&provider.id),
+                    tier,
+                    band: cost_band(cost),
+                    latency: (gate.latency)(&model.id),
                 };
-                match tier {
-                    Tier::Worker => workers.push(ranked),
-                    Tier::Rescue => rescue.push(ranked),
+                match (ranked.expires, tier) {
+                    (Some(_), _) => first.push(ranked),
+                    (None, Tier::Worker) => workers.push(ranked),
+                    (None, Tier::Rescue) => rescue.push(ranked),
                 }
             }
         }
+        // Expiring credit: soonest expiry first, then the usual keys.
+        first.sort_by(|a, b| {
+            a.expires
+                .cmp(&b.expires)
+                .then_with(|| b.cache.cmp(&a.cache))
+                .then_with(|| a.band.cmp(&b.band))
+                .then_with(|| by_latency(a.latency, b.latency))
+                .then_with(|| a.cost.cmp(&b.cost))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        // The orchestrator on expiring credit is its most capable rescue
+        // model. Equal capabilities go to the dearer model: list price is
+        // the best proxy for strength there is, and this credit is spent
+        // either way.
+        let first_orchestrator = first
+            .iter()
+            .filter(|ranked| ranked.tier == Tier::Rescue)
+            .max_by(|a, b| {
+                a.score
+                    .cmp(&b.score)
+                    .then_with(|| a.context.cmp(&b.context))
+                    .then_with(|| a.cost.cmp(&b.cost))
+                    .then_with(|| b.id.cmp(&a.id))
+            })
+            .map(|ranked| ranked.id.clone());
+        let use_first = first
+            .iter()
+            .map(|ranked| ranked.id.clone())
+            .collect::<Vec<_>>();
         // Cache first, always: a cached prefix is the cheapest input a model
         // can take, and the harness re-sends the same prompt on every turn of a
         // task. Budget second. Capability is the third key, and it decides only
         // the rescue tier, where the task is complex and the model must do more.
+        // Within a price band (prices within about 10%), the rescue tier
+        // takes the more capable model, then every tier takes the faster one
+        // by measured latency, then the cheaper by exact price.
         let order = |list: &mut Vec<Ranked>, by_capability: bool| {
             list.sort_by(|a, b| {
                 b.cache
                     .cmp(&a.cache)
-                    .then_with(|| a.cost.cmp(&b.cost))
+                    .then_with(|| a.band.cmp(&b.band))
                     .then_with(|| {
                         if by_capability {
                             b.score
@@ -521,6 +710,8 @@ impl Registry {
                             std::cmp::Ordering::Equal
                         }
                     })
+                    .then_with(|| by_latency(a.latency, b.latency))
+                    .then_with(|| a.cost.cmp(&b.cost))
                     .then_with(|| a.id.cmp(&b.id))
             });
             list.iter()
@@ -529,16 +720,33 @@ impl Registry {
         };
         let workers = order(&mut workers, false);
         let rescue = order(&mut rescue, true);
-        let orchestrator = if rescue.iter().any(|id| id == Self::primary_orchestrator()) {
-            Some(Self::primary_orchestrator().to_string())
+        // The orchestrator is the primary when it is eligible, else the
+        // cheapest rescue model, else the cheapest worker. A fleet of workers
+        // alone, or one model of any tier, still has an orchestrator.
+        let primary = Self::primary_orchestrator();
+        let orchestrator = if first_orchestrator.is_some() {
+            first_orchestrator
+        } else if use_first
+            .iter()
+            .chain(workers.iter())
+            .chain(rescue.iter())
+            .any(|id| id == primary)
+        {
+            Some(primary.to_string())
         } else {
-            rescue.first().cloned()
+            rescue
+                .first()
+                .or_else(|| workers.first())
+                .or_else(|| use_first.first())
+                .cloned()
         };
         AutoConfig {
             orchestrator,
+            use_first,
             workers,
             rescue,
             unpriced,
+            failed,
         }
     }
 
@@ -604,11 +812,23 @@ fn parse_provider(raw: &Value) -> EaiResult<ProviderRecord> {
             models.push(parse_model(record)?);
         }
     }
+    let key_prefix = raw
+        .get("key_prefix")
+        .and_then(Value::as_str)
+        .filter(|prefix| !prefix.is_empty())
+        .map(str::to_string);
+    let key_url = raw
+        .get("key_url")
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string);
     Ok(ProviderRecord {
         id,
         wire,
         endpoint,
         key_envs,
+        key_prefix,
+        key_url,
         models,
     })
 }
@@ -690,6 +910,7 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://api.deepseek.com/chat/completions",
       "key_env": ["DEEPSEEK_API_KEY"],
+      "key_url": "https://platform.deepseek.com/api_keys",
       "models": [
         {"id": "deepseek-flash", "backend": "deepseek-flash", "context": 128000, "tools": true, "streaming": true, "tier": "worker", "cache": true},
         {"id": "deepseek-pro", "backend": "deepseek-v4-pro", "context": 128000, "tools": true, "streaming": true, "tier": "rescue", "cache": true}
@@ -700,10 +921,11 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://api.siliconflow.cn/v1/chat/completions",
       "key_env": ["SILICONFLOW_API_KEY"],
+      "key_url": "https://cloud.siliconflow.cn/account/ak",
       "models": [
-        {"id": "siliconflow-qwen", "backend": "Qwen/Qwen3-235B-A22B-Instruct-2507", "context": 128000, "tools": true, "streaming": true},
-        {"id": "siliconflow-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 128000, "tools": true, "streaming": true},
-        {"id": "siliconflow-qwen-coder", "backend": "Qwen/Qwen2.5-Coder-32B-Instruct", "context": 32768, "tools": true, "streaming": true}
+        {"id": "siliconflow-qwen", "backend": "Qwen/Qwen3-235B-A22B-Instruct-2507", "context": 128000, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "siliconflow-deepseek", "backend": "deepseek-ai/DeepSeek-V3.2", "context": 128000, "tools": true, "streaming": true, "tier": "rescue"},
+        {"id": "siliconflow-qwen-coder", "backend": "Qwen/Qwen2.5-Coder-32B-Instruct", "context": 32768, "tools": true, "streaming": true, "tier": "worker"}
       ]
     },
     {
@@ -711,10 +933,11 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
       "key_env": ["DASHSCOPE_API_KEY"],
+      "key_url": "https://dashscope.console.aliyun.com/apiKey",
       "models": [
-        {"id": "dashscope-qwen-plus", "backend": "qwen-plus", "context": 131072, "tools": true, "streaming": true},
-        {"id": "dashscope-qwen-max", "backend": "qwen-max", "context": 32768, "tools": true, "streaming": true},
-        {"id": "dashscope-qwen-coder", "backend": "qwen2.5-coder-32b-instruct", "context": 32768, "tools": true, "streaming": true}
+        {"id": "dashscope-qwen-plus", "backend": "qwen-plus", "context": 131072, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "dashscope-qwen-max", "backend": "qwen-max", "context": 32768, "tools": true, "streaming": true, "tier": "rescue"},
+        {"id": "dashscope-qwen-coder", "backend": "qwen2.5-coder-32b-instruct", "context": 32768, "tools": true, "streaming": true, "tier": "worker"}
       ]
     },
     {
@@ -722,6 +945,7 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       "key_env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+      "key_url": "https://aistudio.google.com/apikey",
       "models": [
         {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
         {"id": "gemini-pro", "backend": "gemini-pro-latest", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
@@ -732,6 +956,7 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://api.moonshot.ai/v1/chat/completions",
       "key_env": ["MOONSHOT_API_KEY", "KIMI_API_KEY"],
+      "key_url": "https://platform.moonshot.ai/console/api-keys",
       "models": [
         {"id": "kimi-flash", "backend": "kimi-k2.7-code-highspeed", "context": 262144, "tools": true, "streaming": true, "tier": "worker"},
         {"id": "kimi-k3", "backend": "kimi-k3", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue"},
@@ -743,10 +968,12 @@ const BUILTIN: &str = r#"
       "wire": "anthropic",
       "endpoint": "https://api.anthropic.com/v1/messages",
       "key_env": ["ANTHROPIC_API_KEY"],
+      "key_url": "https://console.anthropic.com/settings/keys",
+      "key_prefix": "sk-ant-",
       "models": [
-        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
-        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
-        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
+        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
       ]
     },
     {
@@ -754,7 +981,27 @@ const BUILTIN: &str = r#"
       "wire": "openai",
       "endpoint": "https://openrouter.ai/api/v1/chat/completions",
       "key_env": ["OPENROUTER_API_KEY"],
-      "models": []
+      "key_url": "https://openrouter.ai/settings/keys",
+      "models": [
+        {"id": "or-deepseek-flash", "backend": "deepseek/deepseek-v4.1-flash", "context": 1048576, "tools": true, "streaming": true, "tier": "worker", "cache": true},
+        {"id": "or-qwen-flash", "backend": "qwen/qwen3.8-flash", "context": 1000000, "tools": true, "streaming": true, "tier": "worker", "cache": true},
+        {"id": "or-gemini-flash", "backend": "google/gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
+        {"id": "or-claude-sonnet", "backend": "anthropic/claude-sonnet-5.5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "or-gpt-sol", "backend": "openai/gpt-6.1-sol", "context": 1050000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "or-claude-opus", "backend": "anthropic/claude-opus-5.5", "context": 1000000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
+      ]
+    },
+    {
+      "id": "openai",
+      "wire": "openai",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "key_env": ["OPENAI_API_KEY"],
+      "key_url": "https://platform.openai.com/api-keys",
+      "key_prefix": "sk-",
+      "models": [
+        {"id": "gpt-luna", "backend": "gpt-6-luna", "context": 1050000, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
+        {"id": "gpt-sol", "backend": "gpt-6.1-sol", "context": 1050000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
+      ]
     }
   ]
 }
@@ -987,6 +1234,217 @@ mod tests {
         );
     }
 
+    #[test]
+    fn expiring_credit_leads_the_ladder_and_orchestrates() {
+        // Anthropic credit expires; every Anthropic model leads the ladder,
+        // and its strongest model drives.
+        let expiring = |provider: &str| (provider == "anthropic").then_some(20_800);
+        let auto = Registry::builtin().auto_config_ranked(
+            &keys(&["DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &expiring,
+                latency: &|_| None,
+                live: &|_| true,
+            },
+        );
+        assert_eq!(
+            auto.use_first,
+            vec!["claude-haiku", "claude-sonnet", "claude-opus"]
+        );
+        assert_eq!(auto.orchestrator.as_deref(), Some("claude-opus"));
+        let ladder = auto.ladder();
+        assert_eq!(
+            &ladder[..3],
+            &["claude-haiku", "claude-sonnet", "claude-opus"]
+        );
+        assert_eq!(&ladder[3..], &["deepseek-flash", "deepseek-pro"]);
+        assert!(auto.rescue.iter().all(|id| !id.starts_with("claude")));
+    }
+
+    #[test]
+    fn sooner_expiry_goes_first() {
+        let expiring = |provider: &str| match provider {
+            "anthropic" => Some(20_900),
+            "deepseek" => Some(20_800),
+            _ => None,
+        };
+        let auto = Registry::builtin().auto_config_ranked(
+            &keys(&["DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &expiring,
+                latency: &|_| None,
+                live: &|_| true,
+            },
+        );
+        assert_eq!(&auto.use_first[..2], &["deepseek-flash", "deepseek-pro"]);
+        assert!(auto.workers.is_empty() && auto.rescue.is_empty());
+    }
+
+    #[test]
+    fn latency_decides_within_a_price_band_and_never_across_one() {
+        let json = r#"{"providers":[{"id":"solo","wire":"openai","endpoint":"https://solo.example/v1/chat/completions","key_env":["SOLO_API_KEY"],"models":[
+            {"id":"m-cheap","tools":true,"tier":"worker"},
+            {"id":"m-close","tools":true,"tier":"worker"},
+            {"id":"m-dear","tools":true,"tier":"worker"}]}]}"#;
+        let registry = Registry::parse(json).unwrap();
+        let catalogue = PriceCatalogue::from_json(
+            r#"{"schema":"susi/harness/prices/v1","models":{
+                "m-cheap":{"input_hit":103000,"input_miss":103000,"output":103000},
+                "m-close":{"input_hit":107000,"input_miss":107000,"output":107000},
+                "m-dear":{"input_hit":300000,"input_miss":300000,"output":300000}}}"#,
+        )
+        .unwrap();
+        let latency = |model: &str| match model {
+            "m-cheap" => Some(5_000),
+            "m-close" => Some(1_000),
+            "m-dear" => Some(10),
+            _ => None,
+        };
+        let auto = registry.auto_config_ranked(
+            &keys(&["SOLO_API_KEY"]),
+            &catalogue,
+            UsageProfile::agent(),
+            &ProviderGate {
+                active: &|_| true,
+                use_first: &|_| None,
+                latency: &latency,
+                live: &|_| true,
+            },
+        );
+        // 4% dearer (one band) but five times faster wins; three times the
+        // price does not, however fast.
+        assert_eq!(auto.workers, vec!["m-close", "m-cheap", "m-dear"]);
+    }
+
+    #[test]
+    fn price_bands_are_about_ten_percent_wide() {
+        use crate::money::MicroUsd;
+        let band = |micros| cost_band(MicroUsd::from_micros(micros));
+        let mut previous = 0;
+        for micros in (0..2_000_000u64).step_by(997) {
+            let current = band(micros);
+            assert!(current >= previous, "bands never go down");
+            previous = current;
+        }
+        for micros in [1_000u64, 22_660, 1_000_000, 987_654_321] {
+            assert!(band(micros * 5 / 4) > band(micros), "25% apart never share");
+        }
+        assert_eq!(band(22_660), band(23_540), "the test fleet's close pair");
+        assert!(band(u64::MAX) > band(1_000_000));
+    }
+
+    #[test]
+    fn any_single_key_the_world_brings_gives_a_whole_priced_fleet() {
+        // Bring-your-own-key, zero config: whichever one provider a user has
+        // a key for, the harness must build a fleet from it alone, with an
+        // orchestrator, and price every model on the ladder.
+        let registry = Registry::builtin();
+        let catalogue = builtin_catalogue();
+        let keyed = registry
+            .providers()
+            .iter()
+            .filter(|provider| !provider.key_envs.is_empty())
+            .collect::<Vec<_>>();
+        assert!(keyed.len() >= 8, "{} keyed providers", keyed.len());
+        for provider in keyed {
+            let key = provider.key_envs[0].clone();
+            let only = move |name: &str| name == key;
+            let auto = registry.auto_config(&only, &catalogue, UsageProfile::agent());
+            assert!(
+                !auto.ladder().is_empty(),
+                "{} alone gives no ladder",
+                provider.id
+            );
+            assert!(
+                auto.orchestrator.is_some(),
+                "{} alone has no orchestrator",
+                provider.id
+            );
+            assert!(
+                auto.unpriced.is_empty(),
+                "{} has unpriced models {:?}",
+                provider.id,
+                auto.unpriced
+            );
+        }
+    }
+
+    /// One provider, one model, one key: the smallest fleet the harness runs.
+    fn one_model_registry(model: &str, tier: &str) -> Registry {
+        let json = format!(
+            r#"{{"providers":[{{"id":"solo","wire":"openai","endpoint":"https://solo.example/v1/chat/completions","key_env":["SOLO_API_KEY"],"models":[{{"id":"{model}","tools":true,"tier":"{tier}"}}]}}]}}"#
+        );
+        Registry::parse(&json).unwrap()
+    }
+
+    #[test]
+    fn one_worker_model_is_a_whole_fleet() {
+        let registry = one_model_registry("gemini-flash", "worker");
+        let auto = registry.auto_config(
+            &keys(&["SOLO_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert_eq!(auto.orchestrator.as_deref(), Some("gemini-flash"));
+        assert_eq!(auto.ladder(), vec!["gemini-flash"]);
+    }
+
+    #[test]
+    fn one_rescue_model_is_a_whole_fleet() {
+        let registry = one_model_registry("gemini-pro", "rescue");
+        let auto = registry.auto_config(
+            &keys(&["SOLO_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert!(auto.workers.is_empty());
+        assert_eq!(auto.orchestrator.as_deref(), Some("gemini-pro"));
+        assert_eq!(auto.ladder(), vec!["gemini-pro"]);
+    }
+
+    #[test]
+    fn a_model_without_a_price_stays_on_the_ladder_last() {
+        let json = r#"{"providers":[{"id":"solo","wire":"openai","endpoint":"https://solo.example/v1/chat/completions","key_env":["SOLO_API_KEY"],"models":[{"id":"no-such-price","tools":true,"tier":"worker"},{"id":"gemini-flash","tools":true,"tier":"worker"}]}]}"#;
+        let registry = Registry::parse(json).unwrap();
+        let auto = registry.auto_config(
+            &keys(&["SOLO_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert_eq!(auto.unpriced, vec!["no-such-price"]);
+        assert_eq!(
+            auto.workers.last().map(String::as_str),
+            Some("no-such-price")
+        );
+        assert!(auto.orchestrator.is_some());
+    }
+
+    #[test]
+    fn an_overlay_file_adds_a_provider_and_a_bad_one_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("good.json");
+        std::fs::write(
+            &good,
+            r#"{"providers":[{"id":"local","wire":"openai","endpoint":"http://127.0.0.1:8080/v1/chat/completions","models":[{"id":"local-tiny","tools":true,"tier":"worker"}]}]}"#,
+        )
+        .unwrap();
+        let base = Registry::parse(BUILTIN).unwrap();
+        let merged = Registry::with_overlay(&base, Some(&good)).unwrap();
+        assert!(merged.resolve("local-tiny").is_some());
+        assert!(merged.resolve("deepseek-pro").is_some());
+        let bad = dir.path().join("bad.json");
+        std::fs::write(&bad, "{not json").unwrap();
+        assert!(Registry::with_overlay(&base, Some(&bad)).is_err());
+        let missing = dir.path().join("missing.json");
+        assert!(Registry::with_overlay(&base, Some(&missing)).is_err());
+    }
+
     fn builtin_catalogue() -> PriceCatalogue {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1097,7 +1555,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_registry_auto_config_leaves_unpriced_models_off_the_ladder() {
+    fn provider_registry_auto_config_keeps_unpriced_models_last_on_the_ladder() {
         let catalogue = PriceCatalogue::from_json(
             r#"{"schema":"susi/harness/prices/v1","models":{"deepseek-flash":{"input_hit":3000,"input_miss":150000,"output":600000}}}"#,
         )
@@ -1107,11 +1565,16 @@ mod tests {
             &catalogue,
             UsageProfile::agent(),
         );
-        assert_eq!(auto.workers, vec!["deepseek-flash"]);
+        // Priced first, unpriced after: a working model is never dropped.
+        assert_eq!(auto.workers, vec!["deepseek-flash", "gemini-flash"]);
+        // Unpriced rescue models tie on cost, so capability decides: Gemini Pro
+        // has the larger context and vision, and goes first.
+        assert_eq!(auto.rescue, vec!["gemini-pro", "deepseek-pro"]);
         assert_eq!(
             auto.unpriced,
             vec!["deepseek-pro", "gemini-flash", "gemini-pro"]
         );
+        assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
     }
 
     #[test]

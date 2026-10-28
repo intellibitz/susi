@@ -267,7 +267,9 @@ pub async fn serve(
     gateway: Arc<GatewayState>,
     ingress: Arc<Ingress>,
 ) -> std::io::Result<()> {
-    axum::serve(listener, router(gateway, ingress)).await
+    axum::serve(listener, router(gateway, ingress))
+        .with_graceful_shutdown(crate::gateway::shutdown_signal())
+        .await
 }
 
 /// The model catalogue as an OpenAI-compatible list, aliases included.
