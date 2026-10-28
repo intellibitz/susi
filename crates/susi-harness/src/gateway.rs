@@ -269,7 +269,7 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
     if streaming {
         stream_upstream(state, attempt, forwarded).await
     } else {
-        buffered_upstream(state, attempt, forwarded, cache_key).await
+        buffered_upstream(state, attempt, forwarded, cache_key, false).await
     }
 }
 
@@ -335,7 +335,9 @@ async fn buffered_upstream(
     attempt: Attempt,
     body: String,
     cache_key: String,
+    retried: bool,
 ) -> Response {
+    let resend = (!retried).then(|| body.clone());
     let tag = attempt.clone();
     let Attempt {
         mission,
@@ -502,8 +504,13 @@ async fn buffered_upstream(
             ended_unix_ms,
             outcome: Outcome::Completed,
         });
-        if let Some(ref cache) = state.cache {
-            cache.set(&cache_key, &value);
+        // A starved answer is not this request's answer: cached, it was
+        // replayed to every later identical call at no cost and no content.
+        let starved = starved(&value);
+        if !starved {
+            if let Some(ref cache) = state.cache {
+                cache.set(&cache_key, &value);
+            }
         }
         let entry = if cached { entry.as_cached() } else { entry };
         if let Err(error) = append_entry(&state.ledger_path, &entry) {
@@ -511,6 +518,15 @@ async fn buffered_upstream(
                 StatusCode::BAD_GATEWAY,
                 &format!("ledger append failed: {error}"),
             );
+        }
+        // The starved call stays on the ledger: its hidden thinking was
+        // billed. The caller gets one more call with room to answer.
+        if starved {
+            if let Some(grown) =
+                resend.and_then(|body| with_headroom(&body, state.max_output_tokens))
+            {
+                return Box::pin(buffered_upstream(state, tag, grown, cache_key, true)).await;
+            }
         }
     }
 
@@ -819,6 +835,51 @@ fn clamp_output_tokens(request: &mut Value, cap: u32) {
     }
 }
 
+/// Output tokens added to a starved request's limit for its one retry.
+const STARVED_HEADROOM: u64 = 2_048;
+
+/// An answer that hit its output limit with nothing a caller can use: no
+/// text and no tool call. A reasoning model spends `max_tokens` on hidden
+/// thinking first. Live, `gemini-flash` with `max_tokens: 40` thought for 37
+/// tokens and answered `finish_reason: length` with no content.
+fn starved(answer: &Value) -> bool {
+    let Some(choice) = answer.get("choices").and_then(|choices| choices.get(0)) else {
+        return false;
+    };
+    let message = choice.get("message");
+    let no_text = message
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .is_none_or(|text| text.trim().is_empty());
+    let no_tool_call = message
+        .and_then(|message| message.get("tool_calls"))
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    choice.get("finish_reason").and_then(Value::as_str) == Some("length") && no_text && no_tool_call
+}
+
+/// `body` with [`STARVED_HEADROOM`] more output tokens on every limit it
+/// sets, within the gateway's `cap`; `None` when no limit can grow.
+fn with_headroom(body: &str, cap: Option<u32>) -> Option<String> {
+    let mut request = serde_json::from_str::<Value>(body).ok()?;
+    let object = request.as_object_mut()?;
+    let mut grew = false;
+    for key in ["max_tokens", "max_completion_tokens"] {
+        let Some(asked) = object.get(key).and_then(Value::as_u64) else {
+            continue;
+        };
+        let mut grown = asked.saturating_add(STARVED_HEADROOM);
+        if let Some(cap) = cap {
+            grown = grown.min(u64::from(cap));
+        }
+        if grown > asked {
+            object.insert(key.to_string(), Value::from(grown));
+            grew = true;
+        }
+    }
+    grew.then(|| serde_json::to_string(&request).ok()).flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -932,6 +993,70 @@ mod tests {
         Json(json!({"id": "cmpl-2", "choices": []}))
     }
 
+    /// A reasoning model answers a small `max_tokens` with hidden thinking
+    /// and no content, as `gemini-flash` did live. The caller gets the answer
+    /// a retry with room produces; both calls are on the ledger; the cache
+    /// keeps the real answer, never the empty one.
+    #[tokio::test]
+    async fn a_starved_answer_is_retried_with_room_and_never_cached() {
+        async fn thinker(Json(request): Json<Value>) -> Json<Value> {
+            let limit = request["max_tokens"].as_u64().unwrap_or(0);
+            let (content, finish, output) = if limit < 100 {
+                (Value::Null, "length", 0)
+            } else {
+                (json!("ready"), "stop", 1)
+            };
+            Json(json!({
+                "id": format!("cmpl-{limit}"),
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": finish
+                }],
+                "usage": {"prompt_tokens": 8, "completion_tokens": output}
+            }))
+        }
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(thinker))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let cache = Arc::new(ResponseCache::new(None));
+        let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
+            .unwrap_or_else(|_| unreachable!());
+        state.max_output_tokens = Some(8_000);
+        state.cache = Some(Arc::clone(&cache));
+        let gateway = spawn(router(Arc::new(state))).await;
+        let request = r#"{"model":"deepseek-flash","max_tokens":40,"messages":[{"role":"user","content":"Reply: ready"}]}"#;
+
+        let (status, body) = post_json(gateway, request, &[]).await;
+
+        assert_eq!(status, 200);
+        let answer: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(answer["choices"][0]["message"]["content"], "ready");
+        assert_eq!(answer["id"], "cmpl-2088", "retried with 2048 more tokens");
+        let entries = read_entries(&ledger_path).unwrap();
+        assert_eq!(entries.len(), 2, "the starved call was billed too");
+        let key = ResponseCache::compute_key(&serde_json::from_str(request).unwrap());
+        assert_eq!(cache.get(&key).unwrap()["id"], "cmpl-2088");
+    }
+
+    #[test]
+    fn only_an_answer_with_nothing_usable_is_starved() {
+        let answer = |message: Value, finish: &str| json!({"choices": [{"message": message, "finish_reason": finish}]});
+        assert!(starved(&answer(json!({"content": null}), "length")));
+        assert!(starved(&answer(json!({"content": "  "}), "length")));
+        assert!(!starved(&answer(json!({"content": "partial"}), "length")));
+        assert!(!starved(&answer(json!({"content": null}), "stop")));
+        let tool_call = json!({"content": null, "tool_calls": [{"id": "t"}]});
+        assert!(!starved(&answer(tool_call, "length")));
+        // Headroom stays inside the operator's cap and never shrinks a limit.
+        assert_eq!(
+            with_headroom(r#"{"max_tokens":40}"#, Some(1_000)).as_deref(),
+            Some(r#"{"max_tokens":1000}"#)
+        );
+        assert_eq!(with_headroom(r#"{"max_tokens":8000}"#, Some(8_000)), None);
+        assert_eq!(with_headroom(r#"{"model":"m"}"#, Some(8_000)), None);
+    }
+
     #[tokio::test]
     async fn a_completion_is_priced_and_recorded() {
         let upstream = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
@@ -977,7 +1102,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(status, 200);
+        assert_eq!(status, 200, "{body}");
         assert!(body.contains("data: [DONE]"));
         let entries = read_entries(&ledger_path).unwrap();
         assert_eq!(entries.len(), 1);

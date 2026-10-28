@@ -34,7 +34,7 @@ pub fn token_usage_from_json(body: &Value) -> EaiResult<TokenUsage> {
 
 fn openai_usage(usage: &Value) -> EaiResult<TokenUsage> {
     let input = required_u64(usage, "prompt_tokens")?;
-    let output = optional_u64(usage, "completion_tokens");
+    let output = optional_u64(usage, "completion_tokens").unwrap_or(0);
     let hit = optional_u64(usage, "prompt_cache_hit_tokens").or_else(|| {
         usage
             .get("prompt_tokens_details")
@@ -44,19 +44,30 @@ fn openai_usage(usage: &Value) -> EaiResult<TokenUsage> {
     Ok(TokenUsage::new(
         input,
         hit.unwrap_or(0),
-        output.unwrap_or(0),
+        billed_output(output, optional_u64(usage, "total_tokens"), input),
     ))
 }
 
 fn gemini_usage(usage: &Value) -> EaiResult<TokenUsage> {
     let input = required_u64(usage, "promptTokenCount")?;
-    let output = optional_u64(usage, "candidatesTokenCount");
+    let output = optional_u64(usage, "candidatesTokenCount")
+        .unwrap_or(0)
+        .saturating_add(optional_u64(usage, "thoughtsTokenCount").unwrap_or(0));
     let hit = optional_u64(usage, "cachedContentTokenCount");
     Ok(TokenUsage::new(
         input,
         hit.unwrap_or(0),
-        output.unwrap_or(0),
+        billed_output(output, optional_u64(usage, "totalTokenCount"), input),
     ))
+}
+
+/// The output tokens a provider bills: the visible output, or whatever the
+/// total holds beyond the prompt when that is more. Gemini bills hidden
+/// thinking as output and its OpenAI endpoint reports it only in the total:
+/// live, an 8-token prompt answered `completion_tokens: 1, total_tokens: 88`,
+/// and metering the 1 under-priced that call 80 times over.
+fn billed_output(output: u64, total: Option<u64>, input: u64) -> u64 {
+    total.map_or(output, |total| output.max(total.saturating_sub(input)))
 }
 
 fn required_u64(value: &Value, field: &str) -> EaiResult<u64> {
@@ -115,6 +126,39 @@ mod tests {
         assert_eq!(
             token_usage_from_json(&body).unwrap(),
             TokenUsage::new(900, 600, 100)
+        );
+    }
+
+    #[test]
+    fn hidden_thinking_in_the_total_is_billed_as_output() {
+        // Gemini's OpenAI endpoint, live: thinking only in the total.
+        let compat = serde_json::json!({
+            "usage": {"prompt_tokens": 8, "completion_tokens": 1, "total_tokens": 88}
+        });
+        assert_eq!(
+            token_usage_from_json(&compat).unwrap(),
+            TokenUsage::new(8, 0, 80)
+        );
+        // Native Gemini names it.
+        let native = serde_json::json!({
+            "usageMetadata": {
+                "promptTokenCount": 8,
+                "candidatesTokenCount": 1,
+                "thoughtsTokenCount": 79,
+                "totalTokenCount": 88
+            }
+        });
+        assert_eq!(
+            token_usage_from_json(&native).unwrap(),
+            TokenUsage::new(8, 0, 80)
+        );
+        // A total that is just prompt plus output changes nothing.
+        let plain = serde_json::json!({
+            "usage": {"prompt_tokens": 1_000, "completion_tokens": 50, "total_tokens": 1_050}
+        });
+        assert_eq!(
+            token_usage_from_json(&plain).unwrap(),
+            TokenUsage::new(1_000, 0, 50)
         );
     }
 

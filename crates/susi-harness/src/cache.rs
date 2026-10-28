@@ -3,7 +3,7 @@
 //! A zero-dependency, embedded cache: exact-match hits cost $0.000000 and
 //! preserve the `LedgerEntry::as_cached()` contract.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -29,15 +29,21 @@ impl ResponseCache {
     }
 
     /// Compute the deterministic SHA-256 cache key for an inference request.
+    ///
+    /// The key covers every field that shapes the answer. Only `stream` and
+    /// `stream_options` are left out: they change how an answer is delivered,
+    /// not what it is, and a cached answer is served either way. A key of
+    /// model, messages, temperature and max_tokens alone handed a turn that
+    /// declares tools (or a `reasoning_effort`, a `response_format`, `stop`)
+    /// the cached answer of a turn that did not.
     #[must_use]
     pub fn compute_key(body: &Value) -> String {
         use sha2::{Digest, Sha256};
-        let normalized = json!({
-            "model": body.get("model"),
-            "messages": body.get("messages"),
-            "temperature": body.get("temperature"),
-            "max_tokens": body.get("max_tokens").or_else(|| body.get("max_completion_tokens")),
-        });
+        let mut normalized = canonical(body);
+        if let Some(object) = normalized.as_object_mut() {
+            object.remove("stream");
+            object.remove("stream_options");
+        }
         let bytes = serde_json::to_vec(&normalized).unwrap_or_default();
         hex::encode(Sha256::digest(&bytes))
     }
@@ -94,9 +100,67 @@ impl ResponseCache {
     }
 }
 
+/// `value` with every object's keys in sorted order, so two clients that
+/// send the same request with fields in a different order share one key.
+fn canonical(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            Value::Object(
+                keys.into_iter()
+                    .map(|key| (key.clone(), canonical(&map[key])))
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),
+        scalar @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)) => {
+            scalar.clone()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn every_field_that_shapes_the_answer_is_in_the_key() {
+        let plain = json!({
+            "model": "gemini-flash",
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 40
+        });
+        let key = ResponseCache::compute_key(&plain);
+        for (field, value) in [
+            (
+                "tools",
+                json!([{"type": "function", "function": {"name": "f"}}]),
+            ),
+            ("tool_choice", json!("required")),
+            ("reasoning_effort", json!("none")),
+            ("response_format", json!({"type": "json_object"})),
+            ("stop", json!(["\n"])),
+            ("top_p", json!(0.5)),
+        ] {
+            let mut shaped = plain.clone();
+            shaped[field] = value;
+            assert_ne!(ResponseCache::compute_key(&shaped), key, "{field}");
+        }
+        // Delivery is not shape: a streamed request is served the same answer.
+        let mut streamed = plain.clone();
+        streamed["stream"] = json!(true);
+        streamed["stream_options"] = json!({"include_usage": true});
+        assert_eq!(ResponseCache::compute_key(&streamed), key);
+        // Nor is the order of a nested object's fields.
+        let reordered = json!({
+            "max_tokens": 40,
+            "messages": [{"content": "hello", "role": "user"}],
+            "model": "gemini-flash"
+        });
+        assert_eq!(ResponseCache::compute_key(&reordered), key);
+    }
 
     #[test]
     fn cache_computes_deterministic_keys() {
