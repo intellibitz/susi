@@ -1,0 +1,19 @@
+{
+  "id": "T-AGENT2026102818390521056-1",
+  "title": "Harness gates models by budget and reports it each run",
+  "goal": "Budget gate: models whose provider balance is under USD 1 are inactive; one-line budget report and topup alerts on every harness run",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-harness",
+      "balance"
+    ]
+  },
+  "created_by": "AGENT2026102818390521056",
+  "created_unix": 1793192977
+}

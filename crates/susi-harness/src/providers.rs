@@ -444,6 +444,20 @@ impl Registry {
         catalogue: &PriceCatalogue,
         profile: UsageProfile,
     ) -> AutoConfig {
+        self.auto_config_budgeted(key_present, catalogue, profile, &|_| true)
+    }
+
+    /// [`Registry::auto_config`] with a budget gate: a keyed provider whose
+    /// `provider_active` answer is `false` contributes no model. The gate is
+    /// the one-dollar rule in [`crate::balance`].
+    #[must_use]
+    pub fn auto_config_budgeted(
+        &self,
+        key_present: &dyn Fn(&str) -> bool,
+        catalogue: &PriceCatalogue,
+        profile: UsageProfile,
+        provider_active: &dyn Fn(&str) -> bool,
+    ) -> AutoConfig {
         let mut workers = Vec::new();
         let mut rescue = Vec::new();
         let mut unpriced = Vec::new();
@@ -452,6 +466,10 @@ impl Registry {
             let keyed = provider.key_envs.is_empty()
                 || provider.key_envs.iter().any(|name| key_present(name));
             if !keyed {
+                continue;
+            }
+            // A keyless provider is local and has no balance to gate on.
+            if !provider.key_envs.is_empty() && !provider_active(&provider.id) {
                 continue;
             }
             for model in &provider.models {
@@ -1094,6 +1112,31 @@ mod tests {
             auto.unpriced,
             vec!["deepseek-pro", "gemini-flash", "gemini-pro"]
         );
+    }
+
+    #[test]
+    fn provider_registry_budget_gate_keeps_inactive_providers_off_the_ladder() {
+        // Gemini holds a key but is below the budget floor, so none of its
+        // models may be on the ladder. DeepSeek is active and stays.
+        let gemini_off = |provider: &str| provider != "gemini";
+        let auto = Registry::builtin().auto_config_budgeted(
+            &keys(&["DEEPSEEK_API_KEY", "GEMINI_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+            &gemini_off,
+        );
+        assert!(
+            auto.workers.iter().all(|id| id != "gemini-flash"),
+            "{:?}",
+            auto.workers
+        );
+        assert!(
+            auto.rescue.iter().all(|id| id != "gemini-pro"),
+            "{:?}",
+            auto.rescue
+        );
+        assert_eq!(auto.workers, vec!["deepseek-flash"]);
+        assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
     }
 
     #[test]
