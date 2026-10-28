@@ -581,26 +581,39 @@ fn python_import_batch_survives_hostile_imports() {
     );
 }
 
-/// A stuck import is reported the way the single probe's timeout was: not
-/// ready, as a failed probe, not as a missing package.
+/// A scan's verdict decides the preflight inside that scan and is gone after
+/// it, on every platform (the batch probe itself needs `os.fork`, so on Windows
+/// every module takes the single probe). The test binary stands in for the
+/// interpreter: a stored verdict means nothing is run.
 #[test]
-#[cfg(unix)]
-fn a_stuck_python_import_fails_its_preflight_as_a_timeout() {
-    let fixture = Fixture::for_kind(CatalogKind::Framework);
-    let python = python_with_modules(&fixture.root, &[]);
+fn python_imports_decide_preflight_only_inside_their_scan() {
+    use catalog::ImportVerdict::{Importable, NotImportable, TimedOut};
+    let program = std::env::current_exe().unwrap();
     let adapter = Adapter::Python {
-        python: python.to_string_lossy().into_owned(),
-        import_name: "susi_never_probed".into(),
-        config_env: "SUSI_PYIMPORT_UNUSED_CONFIG".into(),
+        python: program.to_string_lossy().into_owned(),
+        import_name: "susi_scoped_module".into(),
+        config_env: "SUSI_PYIMPORT_SCOPE_UNSET_CONFIG".into(),
     };
-    let err = catalog::with_scan_verdicts_for_test(
-        &python,
-        "susi_never_probed",
-        catalog::ImportVerdict::TimedOut,
-        || adapter.preflight().unwrap_err().to_string(),
-    );
+    let preflight_in_scan = |verdict| {
+        catalog::with_scan_verdicts_for_test(&program, "susi_scoped_module", verdict, || {
+            adapter.preflight().unwrap_err().to_string()
+        })
+    };
+    let err = preflight_in_scan(NotImportable);
+    assert!(err.contains("not importable: susi_scoped_module"), "{err}");
+    // A stuck import fails the way the single probe's timeout did: as a failed
+    // probe, not as a missing package.
+    let err = preflight_in_scan(TimedOut);
     assert!(
-        err.contains("failed to probe import susi_never_probed") && err.contains("did not finish"),
+        err.contains("failed to probe import susi_scoped_module") && err.contains("did not finish"),
         "{err}"
+    );
+    // Importable passes the import check; the config check decides next.
+    let err = preflight_in_scan(Importable);
+    assert!(err.contains("SUSI_PYIMPORT_SCOPE_UNSET_CONFIG"), "{err}");
+    assert_eq!(
+        catalog::scan_import_verdict(&program, "susi_scoped_module"),
+        None,
+        "a verdict outlived its scan"
     );
 }
