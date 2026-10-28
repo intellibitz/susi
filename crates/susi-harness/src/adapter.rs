@@ -1111,8 +1111,11 @@ fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> Vec<Strin
     crate::policy::arrange(
         &spec.model,
         &spec.alternates,
-        &crate::policy::history(&entries),
-        &crate::policy::cooling_providers(&entries, now_ms),
+        &crate::policy::Standing {
+            history: &crate::policy::history(&entries),
+            cooling: &crate::policy::cooling_providers(&entries, now_ms),
+            failed: &crate::policy::failed_models(&entries),
+        },
         &provider_of,
     )
 }

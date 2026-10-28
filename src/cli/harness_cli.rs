@@ -7,7 +7,6 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -19,7 +18,7 @@ use susi_harness::budget::Budget;
 use susi_harness::catalog::PriceCatalogue;
 use susi_harness::cockpit::{serve, Cockpit};
 use susi_harness::executor::NativeWorker;
-use susi_harness::fleet::{self, gather_budgets, measured_latency, total_spent, Fleet};
+use susi_harness::fleet::{self, gather_budgets, total_spent, Fleet};
 use susi_harness::money::MicroUsd;
 use susi_harness::policy::Policy;
 use susi_harness::providers::{Registry, Wire};
@@ -425,8 +424,8 @@ fn plan_queue(
     };
     let (budgets, _) = gather_budgets(&cwd.join("out/ledger.jsonl"));
     alert_topups(&budgets);
-    let latency = measured_latency(&cwd.join("out/ledger.jsonl"));
-    let workers = resolve_fleet(workers, || default_catalogue(cwd), &budgets, &latency)?.ladder;
+    let evidence = live_evidence(&cwd.join("out/ledger.jsonl"), cwd);
+    let workers = resolve_fleet(workers, || default_catalogue(cwd), &budgets, &evidence)?.ladder;
     let claimed = claimed_ids(&repo);
     let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
@@ -577,7 +576,7 @@ fn author(
             workers,
             || default_catalogue(cwd),
             &budgets,
-            &measured_latency(&cwd.join("out/ledger.jsonl")),
+            &live_evidence(&cwd.join("out/ledger.jsonl"), cwd),
         )?
         .ladder,
         narrative: tail(narrative, 4000),
@@ -753,7 +752,7 @@ fn run_mission(
         workers,
         || Ok(catalogue.clone()),
         budgets,
-        &measured_latency(ledger),
+        &live_evidence(ledger, cwd),
     )?;
     let model = fleet::resolve_model(model, &fleet).map_err(|error| anyhow::anyhow!("{error}"))?;
     eprintln!(
@@ -842,14 +841,29 @@ fn resolve_fleet(
     spec: &str,
     catalogue: impl FnOnce() -> susi_error::EaiResult<PriceCatalogue>,
     budgets: &Budgets,
-    latency: &BTreeMap<String, u64>,
+    evidence: &fleet::Evidence,
 ) -> Result<Fleet> {
-    let fleet = fleet::resolve_fleet(spec, catalogue, budgets, latency)
+    let fleet = fleet::resolve_fleet(spec, catalogue, budgets, evidence)
         .map_err(|error| anyhow::anyhow!("--workers {spec}: {error}"))?;
     for note in &fleet.left_off {
         eprintln!("⚠ {note}");
     }
     Ok(fleet)
+}
+
+/// What the real calls say about the models, probing the ones whose last call
+/// failed long enough ago ([`fleet::evidence`]); each probe is reported.
+fn live_evidence(ledger: &Path, cwd: &Path) -> fleet::Evidence {
+    let catalogue = default_catalogue(cwd).ok();
+    let evidence = fleet::evidence(ledger, catalogue.as_ref(), true);
+    for (model, answered) in &evidence.probed {
+        if *answered {
+            eprintln!("probe: {model} answered; active again");
+        } else {
+            eprintln!("probe: {model} failed again; it stays inactive");
+        }
+    }
+    evidence
 }
 
 /// Print the top-up and expiry alerts on stderr.
@@ -889,7 +903,8 @@ fn models_available(cwd: &Path) -> Result<()> {
     let catalogue = default_catalogue(cwd).ok();
     let ledger = cwd.join("out/ledger.jsonl");
     let (budgets, _) = gather_budgets(&ledger);
-    let report = fleet::available_report(catalogue.as_ref(), &budgets, &measured_latency(&ledger));
+    let report =
+        fleet::available_report(catalogue.as_ref(), &budgets, &live_evidence(&ledger, cwd));
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }

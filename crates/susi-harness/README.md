@@ -96,8 +96,13 @@ anything, with any agent or tool that speaks the OpenAI API.
 
 The ladder is rebuilt from the live environment on every run:
 
-1. **Eligible**: the provider has a key, its budget is active, and the model
-   can call tools. A provider is active with at least $1 left. When the
+1. **Eligible**: the model's last real call succeeded, or it has made none;
+   the provider has a key and an active budget; and the model can call
+   tools. Real calls are the source of truth. A model whose last call failed
+   is inactive whatever its budget or balance says, and it stays out until a
+   real call succeeds. Each run sends a failed model one small probe call
+   once its failure is at least 5 minutes old, and records the result in the
+   ledger. If it answers, it is active again. A provider is active with at least $1 left. When the
    remaining balance can't be costed, the provider is active if it answers.
 2. **Expiring credit first**: a provider whose credit expires soon leads the
    ladder with all of its models, soonest expiry first. Its strongest rescue

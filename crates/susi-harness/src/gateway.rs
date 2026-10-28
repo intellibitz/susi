@@ -673,7 +673,7 @@ async fn stream_upstream(state: Arc<GatewayState>, attempt: Attempt, body: Strin
 ///
 /// Some providers report an empty account as a plain 400 (Anthropic's "credit
 /// balance is too low"), so the body is read for that as well as the status.
-fn provider_failure(status: u16, body: &[u8]) -> Option<FailureClass> {
+pub(crate) fn provider_failure(status: u16, body: &[u8]) -> Option<FailureClass> {
     if (200..300).contains(&status) {
         return None;
     }
@@ -710,7 +710,7 @@ fn pause_on_retry_after(provider: &str, status: u16, retry_after: Option<&str>) 
 }
 
 /// The failure class of a call that never got an answer.
-fn transport_failure(message: &str) -> FailureClass {
+pub(crate) fn transport_failure(message: &str) -> FailureClass {
     let text = message.to_ascii_lowercase();
     if text.contains("timed out") || text.contains("timeout") {
         FailureClass::Timeout

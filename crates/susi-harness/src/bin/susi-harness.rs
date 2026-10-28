@@ -171,6 +171,26 @@ impl Options {
     }
 }
 
+/// What the real calls say about the models: the source of truth for which
+/// ones are active. Models whose last call failed long enough ago are probed
+/// with one real call each, and each probe is reported.
+fn evidence(options: &Options, ledger: &Path) -> fleet::Evidence {
+    let catalogue = options.catalogue().ok();
+    let evidence = fleet::evidence(ledger, catalogue.as_ref(), true);
+    for (model, answered) in &evidence.probed {
+        if *answered {
+            eprintln!("probe: {model} answered; active again");
+        } else {
+            eprintln!("probe: {model} failed again; it stays inactive");
+        }
+    }
+    if !evidence.failed.is_empty() {
+        let names = evidence.failed.keys().cloned().collect::<Vec<_>>();
+        eprintln!("inactive (last real call failed): {}", names.join(", "));
+    }
+    evidence
+}
+
 fn print_json(value: &impl serde::Serialize) -> Result<(), String> {
     let text = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
     println!("{text}");
@@ -205,7 +225,7 @@ fn up_command(options: &Options) -> Result<(), String> {
         &options.workers,
         || PriceCatalogue::load_or_builtin(&options.catalogue),
         &budgets,
-        &fleet::measured_latency(&ledger),
+        &evidence(options, &ledger),
     )
     .map_err(|error| error.to_string())?;
     println!(
@@ -232,7 +252,7 @@ fn fleet_command(options: &Options) -> Result<(), String> {
         &options.workers,
         || PriceCatalogue::load_or_builtin(&options.catalogue),
         &budgets,
-        &fleet::measured_latency(&options.ledger()),
+        &evidence(options, &options.ledger()),
     )
     .map_err(|error| error.to_string())?;
     for note in &resolved.left_off {
@@ -295,7 +315,7 @@ fn models_command(options: &Options) -> Result<(), String> {
     let report = fleet::available_report(
         Some(&catalogue),
         &budgets,
-        &fleet::measured_latency(&options.ledger()),
+        &evidence(options, &options.ledger()),
     );
     print_json(&report)
 }

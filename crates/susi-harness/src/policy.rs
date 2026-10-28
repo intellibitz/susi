@@ -227,28 +227,77 @@ pub fn cooling_providers(entries: &[LedgerEntry], now_unix_ms: u64) -> BTreeSet<
         .collect()
 }
 
+/// Models whose most recent real call failed, with when it failed (ms since
+/// the epoch).
+///
+/// The actual API calls are the source of truth for whether a model works: a
+/// model whose last call to its provider failed is inactive, whatever its
+/// budget, balance or listing says, until a later real call succeeds (a task's
+/// call, or [`crate::fleet`]'s probe). Only provider calls count: a gateway
+/// row (`Completed` or `ModelFailed`), never a task verdict, since rejected
+/// work is about the task, and never an answer the gateway's own cache gave.
+#[must_use]
+pub fn failed_models(entries: &[LedgerEntry]) -> BTreeMap<String, u64> {
+    let mut last: BTreeMap<&str, (u64, bool)> = BTreeMap::new();
+    for entry in entries {
+        let ok = match &entry.outcome {
+            Outcome::Completed if !entry.cached => true,
+            Outcome::ModelFailed { .. } => false,
+            Outcome::Completed
+            | Outcome::Accepted
+            | Outcome::Rejected { .. }
+            | Outcome::Cancelled => continue,
+        };
+        let slot = last.entry(entry.model.as_str()).or_insert((0, true));
+        if entry.ended_unix_ms >= slot.0 {
+            *slot = (entry.ended_unix_ms, ok);
+        }
+    }
+    last.into_iter()
+        .filter(|(_, (_, ok))| !ok)
+        .map(|(model, (at, _))| (model.to_string(), at))
+        .collect()
+}
+
+/// What the ledger says about each model and provider, for [`arrange`].
+#[derive(Debug, Clone, Copy)]
+pub struct Standing<'a> {
+    /// Per-model attempt record ([`history`]).
+    pub history: &'a BTreeMap<String, ModelHistory>,
+    /// Providers cooling down ([`cooling_providers`]).
+    pub cooling: &'a BTreeSet<String>,
+    /// Models whose last real call failed ([`failed_models`]).
+    pub failed: &'a BTreeMap<String, u64>,
+}
+
 /// The order one task tries its models in.
 ///
 /// The fleet's ladder is the policy: it already ranks expiring credit, cache,
 /// price and capability. The task's own model goes first, then the ladder in
-/// its order. Evidence only demotes, and the order is otherwise kept: a model
-/// whose record is [`ModelHistory::unreliable`] moves behind the healthy
-/// ones, and a model whose provider is cooling down ([`cooling_providers`])
-/// moves to the end. Nothing is dropped, so a fleet of one still runs.
+/// its order. A model whose last real call failed ([`failed_models`]) is left
+/// out: the calls decide. The rest only move back, and their order is
+/// otherwise kept: a model whose record is [`ModelHistory::unreliable`] goes
+/// behind the healthy ones, and a model whose provider is cooling down
+/// ([`cooling_providers`]) goes to the end.
 #[must_use]
 pub fn arrange(
     preferred: &str,
     ladder: &[String],
-    history: &BTreeMap<String, ModelHistory>,
-    cooling: &BTreeSet<String>,
+    standing: &Standing<'_>,
     provider_of: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<String> {
+    let Standing {
+        history,
+        cooling,
+        failed,
+    } = *standing;
     let mut models = vec![preferred.to_string()];
     for model in ladder {
         if !models.contains(model) {
             models.push(model.clone());
         }
     }
+    models.retain(|model| !failed.contains_key(model));
     let standing = |model: &String| -> u8 {
         if provider_of(model).is_some_and(|provider| cooling.contains(&provider)) {
             2
@@ -889,6 +938,43 @@ mod tests {
     }
 
     #[test]
+    fn a_models_last_real_call_decides_whether_it_works() {
+        let entries = vec![
+            // Failed, then recovered: works.
+            row(
+                ("T", 1),
+                "healed",
+                "p",
+                10,
+                failed(FailureClass::RateLimited),
+            ),
+            row(("T", 1), "healed", "p", 20, Outcome::Completed),
+            // Worked, then failed: inactive, whatever else is true of it.
+            row(("T", 1), "broken", "p", 10, Outcome::Completed),
+            row(("T", 1), "broken", "p", 30, failed(FailureClass::Other)),
+            // A rejected task is about the task, not the model's API.
+            row(("T", 1), "judged", "p", 10, Outcome::Completed),
+            row(("T", 1), "judged", "p", 40, rejected()),
+        ];
+        let failed = failed_models(&entries);
+        assert_eq!(failed.keys().collect::<Vec<_>>(), vec!["broken"]);
+        assert_eq!(failed["broken"], 30);
+        // A failed model is left out of a task's order, even the task's own.
+        let ladder = vec!["broken".to_string(), "healed".to_string()];
+        let order = arrange(
+            "broken",
+            &ladder,
+            &Standing {
+                history: &BTreeMap::new(),
+                cooling: &BTreeSet::new(),
+                failed: &failed,
+            },
+            &|_| None,
+        );
+        assert_eq!(order, vec!["healed".to_string()]);
+    }
+
+    #[test]
     fn history_counts_attempts_not_calls() {
         // Attempt 1 made three calls and was rejected; attempt 2 made two
         // calls and was accepted. Two attempts, one failure.
@@ -1042,12 +1128,30 @@ mod tests {
         let cooling: BTreeSet<String> = ["down".to_string()].into_iter().collect();
         let provider_of =
             |model: &str| Some(if model == "cooling" { "down" } else { "up" }.to_string());
-        let order = arrange("cached", &ladder, &records, &cooling, &provider_of);
+        let order = arrange(
+            "cached",
+            &ladder,
+            &Standing {
+                history: &records,
+                cooling: &cooling,
+                failed: &BTreeMap::new(),
+            },
+            &provider_of,
+        );
         // The preferred model leads, healthy models keep the fleet's order,
         // the unreliable ones follow in the fleet's order, cooling is last.
         assert_eq!(order, vec!["cached", "fast", "rescue", "flaky", "cooling"]);
         // A fleet of one cooling model still runs it.
-        let alone = arrange("cooling", &[], &records, &cooling, &provider_of);
+        let alone = arrange(
+            "cooling",
+            &[],
+            &Standing {
+                history: &records,
+                cooling: &cooling,
+                failed: &BTreeMap::new(),
+            },
+            &provider_of,
+        );
         assert_eq!(alone, vec!["cooling"]);
     }
 

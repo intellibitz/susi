@@ -165,6 +165,9 @@ pub struct AutoConfig {
     /// within their tier, so a working model is never dropped for lack of a
     /// price; this list says which ones are running on no costing data.
     pub unpriced: Vec<String>,
+    /// Models left out because their last real call failed: the calls are the
+    /// source of truth, whatever the provider's budget says.
+    pub failed: Vec<String>,
 }
 
 /// What the budget says of each keyed provider, for [`Registry::auto_config_ranked`].
@@ -177,6 +180,9 @@ pub struct ProviderGate<'a> {
     /// A model's measured mean call latency in milliseconds, when the ledger
     /// has any ([`crate::policy::latencies`]).
     pub latency: &'a dyn Fn(&str) -> Option<u64>,
+    /// Whether the model's last real call succeeded (or it has made none).
+    /// A model that answers no is left out ([`crate::policy::failed_models`]).
+    pub live: &'a dyn Fn(&str) -> bool,
 }
 
 /// A price's band. Bands are about 10% wide (each edge is 1.1 times the
@@ -573,6 +579,7 @@ impl Registry {
             active: provider_active,
             use_first: &|_| None,
             latency: &|_| None,
+            live: &|_| true,
         };
         self.auto_config_ranked(key_present, catalogue, profile, &gate)
     }
@@ -597,6 +604,7 @@ impl Registry {
         let mut workers = Vec::new();
         let mut rescue = Vec::new();
         let mut unpriced = Vec::new();
+        let mut failed = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
         for provider in &self.providers {
             let keyed = provider.key_envs.is_empty()
@@ -610,6 +618,10 @@ impl Registry {
             }
             for model in &provider.models {
                 let Some(tier) = model.tier else { continue };
+                if !(gate.live)(&model.id) {
+                    failed.push(model.id.clone());
+                    continue;
+                }
                 if !model.capabilities.missing(&[Capability::Tools]).is_empty() {
                     continue;
                 }
@@ -734,6 +746,7 @@ impl Registry {
             workers,
             rescue,
             unpriced,
+            failed,
         }
     }
 
@@ -1234,6 +1247,7 @@ mod tests {
                 active: &|_| true,
                 use_first: &expiring,
                 latency: &|_| None,
+                live: &|_| true,
             },
         );
         assert_eq!(
@@ -1265,6 +1279,7 @@ mod tests {
                 active: &|_| true,
                 use_first: &expiring,
                 latency: &|_| None,
+                live: &|_| true,
             },
         );
         assert_eq!(&auto.use_first[..2], &["deepseek-flash", "deepseek-pro"]);
@@ -1299,6 +1314,7 @@ mod tests {
                 active: &|_| true,
                 use_first: &|_| None,
                 latency: &latency,
+                live: &|_| true,
             },
         );
         // 4% dearer (one band) but five times faster wins; three times the
