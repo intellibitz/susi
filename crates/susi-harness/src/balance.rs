@@ -17,8 +17,9 @@
 //! `authorization` header. Nothing here prints or stores a key.
 
 use crate::money::MicroUsd;
-use crate::providers::Registry;
+use crate::providers::{ProviderRecord, Registry};
 use crate::secrets;
+use crate::verify::check_provider;
 use crate::verify::Fetch;
 use serde::Serialize;
 use serde_json::Value;
@@ -52,13 +53,21 @@ pub struct ProviderBudget {
     pub source: Source,
     /// Why the figure is missing or how it was obtained, for the alert.
     pub note: String,
+    /// Whether the provider answered its models endpoint. Consulted only
+    /// when no balance is known: a provider that works is active even though
+    /// its spend cannot be costed.
+    pub working: bool,
 }
 
 impl ProviderBudget {
-    /// Whether the provider's models may run.
+    /// Whether the provider's models may run. A known balance decides by the
+    /// one-dollar floor. With no costing, a provider that works is active.
     #[must_use]
     pub fn active(&self) -> bool {
-        self.remaining.is_some_and(|left| left >= ACTIVE_FLOOR)
+        match self.remaining {
+            Some(left) => left >= ACTIVE_FLOOR,
+            None => self.working,
+        }
     }
 }
 
@@ -167,7 +176,11 @@ pub fn collect(
         {
             continue;
         }
-        providers.push(budget_for(&provider.id, &provider.key_envs, fetch, spent));
+        let mut entry = budget_for(&provider.id, &provider.key_envs, fetch, spent);
+        if entry.remaining.is_none() {
+            entry.working = works(provider, fetch);
+        }
+        providers.push(entry);
     }
     Budgets { providers }
 }
@@ -184,12 +197,14 @@ fn budget_for(
                 provider: id.to_string(),
                 remaining: Some(left),
                 source: Source::Api,
+                working: false,
                 note: "balance from the provider".to_string(),
             },
             Err(reason) => ProviderBudget {
                 provider: id.to_string(),
                 remaining: None,
                 source: Source::Unknown,
+                working: false,
                 note: reason,
             },
         };
@@ -203,6 +218,7 @@ fn budget_for(
             provider: id.to_string(),
             remaining: None,
             source: Source::Unknown,
+            working: false,
             note: format!("no balance API; {name} is not set"),
         };
     };
@@ -223,12 +239,20 @@ pub fn configured_budget(
         provider: id.to_string(),
         remaining: Some(left),
         source: Source::Configured,
+        working: false,
         note: format!("configured {configured}, spent {used}"),
     }
 }
 
 /// Reads one provider's balance document into micro-dollars.
 type BalanceParser = fn(&str) -> Result<MicroUsd, String>;
+
+/// Whether the provider answers its models endpoint with the key: the live
+/// proof that its models work, used when no balance can be costed.
+fn works(provider: &ProviderRecord, fetch: &Fetch<'_>) -> bool {
+    let report = check_provider(provider, fetch);
+    report.ok && report.reachable
+}
 
 /// The provider's own balance answer, for the providers that publish one.
 /// `None` for a provider with no balance endpoint.
@@ -367,6 +391,7 @@ mod tests {
                 Source::Unknown
             },
             note: "test".to_string(),
+            working: false,
         }
     }
 
@@ -375,7 +400,16 @@ mod tests {
         assert!(entry("a", Some("1.00")).active());
         assert!(entry("a", Some("18.19")).active());
         assert!(!entry("a", Some("0.99")).active());
-        assert!(!entry("a", None).active(), "an unknown balance is inactive");
+        assert!(
+            !entry("a", None).active(),
+            "no costing and not working is inactive"
+        );
+        let mut working = entry("a", None);
+        working.working = true;
+        assert!(
+            working.active(),
+            "a working model is active without costing"
+        );
     }
 
     #[test]
