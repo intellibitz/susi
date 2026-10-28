@@ -71,10 +71,15 @@ pub struct Capabilities {
     pub streaming: bool,
     /// Whether the model accepts images.
     pub vision: bool,
+    /// Whether the provider serves a repeated prompt prefix from its cache
+    /// (DeepSeek automatic, Gemini implicit, Anthropic with `cache_control`).
+    pub cache: bool,
 }
 
 impl Capabilities {
     /// What we assume about a model we have no record for: capable, unmeasured.
+    /// Prompt caching is not assumed: a model that does not declare it is
+    /// ranked as uncached.
     #[must_use]
     pub const fn assumed() -> Self {
         Self {
@@ -82,6 +87,7 @@ impl Capabilities {
             tools: true,
             streaming: true,
             vision: true,
+            cache: false,
         }
     }
 
@@ -158,6 +164,7 @@ pub struct AutoConfig {
 struct Ranked {
     id: String,
     cost: crate::money::MicroUsd,
+    cache: bool,
     score: u8,
     context: u64,
 }
@@ -471,6 +478,7 @@ impl Registry {
                         0,
                         profile.output,
                     )),
+                    cache: model.capabilities.cache,
                     score: u8::from(model.capabilities.streaming)
                         + u8::from(model.capabilities.vision),
                     context: model.capabilities.context.unwrap_or(0),
@@ -481,20 +489,32 @@ impl Registry {
                 }
             }
         }
-        let order = |list: &mut Vec<Ranked>| {
+        // Cache first, always: a cached prefix is the cheapest input a model
+        // can take, and the harness re-sends the same prompt on every turn of a
+        // task. Budget second. Capability is the third key, and it decides only
+        // the rescue tier, where the task is complex and the model must do more.
+        let order = |list: &mut Vec<Ranked>, by_capability: bool| {
             list.sort_by(|a, b| {
-                a.cost
-                    .cmp(&b.cost)
-                    .then_with(|| b.score.cmp(&a.score))
-                    .then_with(|| b.context.cmp(&a.context))
+                b.cache
+                    .cmp(&a.cache)
+                    .then_with(|| a.cost.cmp(&b.cost))
+                    .then_with(|| {
+                        if by_capability {
+                            b.score
+                                .cmp(&a.score)
+                                .then_with(|| b.context.cmp(&a.context))
+                        } else {
+                            std::cmp::Ordering::Equal
+                        }
+                    })
                     .then_with(|| a.id.cmp(&b.id))
             });
             list.iter()
                 .map(|ranked| ranked.id.clone())
                 .collect::<Vec<_>>()
         };
-        let workers = order(&mut workers);
-        let rescue = order(&mut rescue);
+        let workers = order(&mut workers, false);
+        let rescue = order(&mut rescue, true);
         let orchestrator = if rescue.iter().any(|id| id == Self::primary_orchestrator()) {
             Some(Self::primary_orchestrator().to_string())
         } else {
@@ -594,6 +614,7 @@ fn parse_model(raw: &Value) -> EaiResult<ModelRecord> {
             .and_then(Value::as_bool)
             .unwrap_or(false),
         vision: raw.get("vision").and_then(Value::as_bool).unwrap_or(false),
+        cache: raw.get("cache").and_then(Value::as_bool).unwrap_or(false),
     };
     let tier = raw
         .get("tier")
@@ -656,8 +677,8 @@ const BUILTIN: &str = r#"
       "endpoint": "https://api.deepseek.com/chat/completions",
       "key_env": ["DEEPSEEK_API_KEY"],
       "models": [
-        {"id": "deepseek-flash", "backend": "deepseek-flash", "context": 128000, "tools": true, "streaming": true, "tier": "worker"},
-        {"id": "deepseek-pro", "backend": "deepseek-v4-pro", "context": 128000, "tools": true, "streaming": true, "tier": "rescue"}
+        {"id": "deepseek-flash", "backend": "deepseek-flash", "context": 128000, "tools": true, "streaming": true, "tier": "worker", "cache": true},
+        {"id": "deepseek-pro", "backend": "deepseek-v4-pro", "context": 128000, "tools": true, "streaming": true, "tier": "rescue", "cache": true}
       ]
     },
     {
@@ -688,8 +709,8 @@ const BUILTIN: &str = r#"
       "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       "key_env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
       "models": [
-        {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker"},
-        {"id": "gemini-pro", "backend": "gemini-pro-latest", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue"}
+        {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker", "cache": true},
+        {"id": "gemini-pro", "backend": "gemini-pro-latest", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
       ]
     },
     {
@@ -709,9 +730,9 @@ const BUILTIN: &str = r#"
       "endpoint": "https://api.anthropic.com/v1/messages",
       "key_env": ["ANTHROPIC_API_KEY"],
       "models": [
-        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue"},
-        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue"},
-        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue"}
+        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true},
+        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue", "cache": true}
       ]
     },
     {
@@ -1002,9 +1023,36 @@ mod tests {
                     ))
             })
             .collect();
-        assert!(costs.windows(2).all(|pair| pair[0] <= pair[1]), "{costs:?}");
+        assert_eq!(
+            auto.workers.last().map(String::as_str),
+            Some("kimi-flash"),
+            "uncached kimi ranks behind every cached worker: {:?}",
+            auto.workers
+        );
+        assert!(
+            costs[..2].windows(2).all(|pair| pair[0] <= pair[1]),
+            "{costs:?}"
+        );
         assert_eq!(auto.rescue.len(), 4, "{:?}", auto.rescue);
         assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
+    }
+
+    #[test]
+    fn provider_registry_auto_config_ranks_cache_before_budget() {
+        // Kimi is far cheaper, but it does not cache. The cached DeepSeek model
+        // must still come first: cache is the top priority.
+        let catalogue = PriceCatalogue::from_json(
+            r#"{"schema":"susi/harness/prices/v1","models":{
+                "deepseek-flash":{"input_hit":1,"input_miss":1000000,"output":1000000},
+                "kimi-flash":{"input_hit":1,"input_miss":1,"output":1}}}"#,
+        )
+        .unwrap();
+        let auto = Registry::builtin().auto_config(
+            &keys(&["DEEPSEEK_API_KEY", "MOONSHOT_API_KEY"]),
+            &catalogue,
+            UsageProfile::agent(),
+        );
+        assert_eq!(auto.workers, vec!["deepseek-flash", "kimi-flash"]);
     }
 
     #[test]
