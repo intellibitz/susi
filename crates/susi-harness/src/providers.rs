@@ -397,11 +397,7 @@ impl Registry {
             let key_ok = if provider.key_envs.is_empty() {
                 true
             } else {
-                provider.key_envs.iter().any(|k| {
-                    std::env::var(k)
-                        .map(|v| !v.trim().is_empty())
-                        .unwrap_or(false)
-                })
+                provider.key_envs.iter().any(|k| crate::secrets::is_set(k))
             };
             if !key_ok {
                 continue;
