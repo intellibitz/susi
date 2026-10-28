@@ -262,7 +262,7 @@ fn fleet_command(options: &Options) -> Result<(), String> {
     // For each light worker, the order a task that starts on it follows: its
     // own model, then the strong fixers, then the other light models, as the
     // adapter computes it from the same ledger.
-    let entries = susi_harness::ledger::read_entries(&options.ledger()).unwrap_or_default();
+    let entries = susi_harness::ledger::read_entries_lenient(&options.ledger()).0;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))

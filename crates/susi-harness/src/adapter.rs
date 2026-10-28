@@ -1102,7 +1102,7 @@ Fix this in the worktree before you finish:\n{message}"
 /// ([`crate::policy::arrange`]). The ladder already ranks expiring credit,
 /// cache, price and capability; re-sorting it by price here would undo that.
 fn rank_alternates(spec: &SusiTaskSpec, policy: &SusiRunPolicy<'_>) -> Vec<String> {
-    let entries = crate::ledger::read_entries(policy.ledger_path).unwrap_or_default();
+    let entries = crate::ledger::read_entries_reporting(policy.ledger_path);
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))

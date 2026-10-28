@@ -190,7 +190,7 @@ pub struct Evidence {
 /// old failure; a model that answers is active again.
 #[must_use]
 pub fn evidence(ledger: &Path, catalogue: Option<&PriceCatalogue>, probe_due: bool) -> Evidence {
-    let entries = crate::ledger::read_entries(ledger).unwrap_or_default();
+    let entries = crate::ledger::read_entries_reporting(ledger);
     let mut failed = crate::policy::failed_models(&entries);
     let mut probed = Vec::new();
     if probe_due {
@@ -341,7 +341,7 @@ fn now_ms() -> u64 {
 /// ledger that cannot be read has measured nothing.
 #[must_use]
 pub fn measured_latency(ledger: &Path) -> BTreeMap<String, u64> {
-    let entries = crate::ledger::read_entries(ledger).unwrap_or_default();
+    let entries = crate::ledger::read_entries_reporting(ledger);
     crate::policy::latencies(&entries)
 }
 
