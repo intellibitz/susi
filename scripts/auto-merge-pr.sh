@@ -188,8 +188,9 @@ case "$comparison" in
  *)
     resync() {
         # A token-made branch update raises no push event, so the gate would
-        # never see the new head. Dispatch it explicitly; the next reconcile
-        # pass (or a workflow_run hook) merges it once green.
+        # never see the new head. Dispatch it explicitly; the dispatched run
+        # merges the head itself once green (test.yml `merge`), because its
+        # completion raises no workflow_run either.
         if gh pr update-branch "$pr" --repo "$repo"; then
             # The branch gate, as a push would have run it: not the full
             # suite, which takes 20+ minutes and fails on flakes no branch

@@ -504,6 +504,62 @@ fn a_branch_gate_dispatch_runs_what_a_push_runs() {
     assert!(merge.contains("--ref \"$branch\" -f gate=branch"));
 }
 
+/// A run the merge bot dispatched raises no workflow_run when it completes
+/// (GitHub starts nothing from a GITHUB_TOKEN run's events), so no merge hook
+/// ever saw a green retest: the PR waited for the throttled scheduled pass.
+/// The retest merges its own head, after every branch-gate job, in the merge
+/// bot's serialized queue, and only for a dispatched branch gate: a pushed run
+/// raises workflow_run and merges through auto-merge.yml.
+#[test]
+fn a_dispatched_retest_merges_its_own_head() {
+    let text = read(".github/workflows/test.yml");
+    let jobs = jobs(&text);
+    // Job-level keys only: a step's `if:` is indented deeper.
+    let job_key = |body: &str, key: &str| {
+        body.lines()
+            .find_map(|l| l.strip_prefix(&format!("    {key}: ")))
+            .map(str::to_string)
+    };
+    let merge = job(&jobs, "merge");
+    let condition = job_key(&merge.body, "if").unwrap_or_default();
+    assert!(
+        condition.contains("github.event_name == 'workflow_dispatch'")
+            && condition.contains("inputs.gate == 'branch'")
+            && condition.contains("github.ref != 'refs/heads/main'"),
+        "the merge job runs for a dispatched branch gate only: `{condition}`"
+    );
+    let needs = job_key(&merge.body, "needs").unwrap_or_default();
+    let needs: Vec<&str> = needs
+        .trim_matches(|c| c == '[' || c == ']')
+        .split(',')
+        .map(str::trim)
+        .collect();
+    let branch_gate = "(github.event_name == 'push' || inputs.gate == 'branch')";
+    for j in &jobs {
+        let runs_on_a_branch_gate = match job_key(&j.body, "if") {
+            None => true,
+            Some(c) => c.contains(branch_gate),
+        };
+        if j.id != "merge" && runs_on_a_branch_gate {
+            assert!(
+                needs.contains(&j.id.as_str()),
+                "job `{}` runs on a branch gate, so the merge job must wait for it: {needs:?}",
+                j.id
+            );
+        }
+    }
+    assert!(
+        merge.body.contains("group: auto-merge-integration"),
+        "merges are serialized with the merge bot's queue"
+    );
+    assert!(
+        merge
+            .body
+            .contains("scripts/auto-merge-pr.sh \"$REPO\" \"$BRANCH\" \"$SHA\""),
+        "the retest merges through the merge bot's own script"
+    );
+}
+
 /// Worktrees share one target, and cargo names a workspace crate's build by
 /// its path relative to the workspace: a crate another worktree built (with
 /// other content) reads as fresh here, and its code is linked into this

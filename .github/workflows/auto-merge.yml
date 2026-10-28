@@ -7,11 +7,12 @@ name: Auto PR + Merge
 #                              beat the PR), merge it right away
 #   Test workflow succeeds  -> merge that PR (merge commit, repo convention),
 #                              then dispatch the full Test suite on main and a
-#                              reconcile pass. A pushed run or a dispatched one
-#                              both count: the resync path dispatches the retest
-#                              of a head it updated (a token-made push starts
-#                              nothing), and that retest used to be merged only
-#                              by the scheduled pass.
+#                              reconcile pass. A run the merge bot dispatched
+#                              (the retest of a head it resynced) raises no
+#                              workflow_run, since GitHub starts nothing from a
+#                              GITHUB_TOKEN run's events, so that retest merges
+#                              its own head (test.yml `merge`). A dispatch made
+#                              with a personal token still lands here.
 #   after every merge,      -> reconcile all open PRs (scripts/reconcile-prs.sh).
 #   and every half hour        GitHub throttles scheduled runs (observed: every
 #                              4-6 h, not 30 min), so the schedule is only the

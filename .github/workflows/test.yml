@@ -1022,3 +1022,39 @@ jobs:
       # binary, executed on Windows for the first time on this push.
       - name: Build the binary and run the release e2e checks
         run: cargo test --locked --test release_e2e_checks
+
+  # The merge bot retests a head it resynced by dispatching this workflow
+  # (a token-made push starts nothing). That run's completion raises no
+  # workflow_run either: GitHub starts no workflow from an event a
+  # GITHUB_TOKEN run raised. Every merge hook in the log follows a pushed run,
+  # none a dispatched one, so the green retest waited for the scheduled pass,
+  # which GitHub throttles to hours. The run that proves the head merges it,
+  # through the merge bot's script and its serialized queue.
+  merge:
+    name: Merge the retested head
+    needs: [unsafe-ratchet, fmt, codetree, toolchain, workflow, roadmap, artifacts, deny, check]
+    if: github.event_name == 'workflow_dispatch' && inputs.gate == 'branch' && github.ref != 'refs/heads/main'
+    concurrency:
+      group: auto-merge-integration
+      queue: max
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }} # the merge bot's scripts
+      # A refused merge is the PR's state, not this head's: the script
+      # explains it on the PR, and the tests above stay the run's verdict.
+      - name: Merge the PR for this head
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: scripts/auto-merge-pr.sh "$REPO" "$BRANCH" "$SHA"
