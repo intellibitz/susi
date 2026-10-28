@@ -6,8 +6,17 @@ name: Auto PR + Merge
 #                              commit's Test run already finished green (it can
 #                              beat the PR), merge it right away
 #   Test workflow succeeds  -> merge that PR (merge commit, repo convention),
-#                              then dispatch the full Test suite on main
-#   every half hour         -> reconcile all open PRs (scripts/reconcile-prs.sh):
+#                              then dispatch the full Test suite on main and a
+#                              reconcile pass. A pushed run or a dispatched one
+#                              both count: the resync path dispatches the retest
+#                              of a head it updated (a token-made push starts
+#                              nothing), and that retest used to be merged only
+#                              by the scheduled pass.
+#   after every merge,      -> reconcile all open PRs (scripts/reconcile-prs.sh).
+#   and every half hour        GitHub throttles scheduled runs (observed: every
+#                              4-6 h, not 30 min), so the schedule is only the
+#                              backstop; the dispatch after each merge is what
+#                              drains the queue. The reconcile pass:
 #                              merge any that are green but were missed, comment
 #                              once on red/conflicting ones, close ones idle for
 #                              7 days — so no PR waits in the queue forever
@@ -106,7 +115,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_run'
       && github.event.workflow_run.conclusion == 'success'
-      && github.event.workflow_run.event == 'push'
+      && (github.event.workflow_run.event == 'push'
+          || github.event.workflow_run.event == 'workflow_dispatch')
       && github.event.workflow_run.head_branch != 'main'
       && !startsWith(github.event.workflow_run.head_branch, 'wip/')
       && !startsWith(github.event.workflow_run.head_branch, 'nopr/')

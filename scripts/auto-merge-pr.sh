@@ -118,6 +118,15 @@ merge_head() {
     fi
     # GITHUB_TOKEN merges do not trigger workflows: run the full suite on main.
     gh workflow run test.yml --repo "$repo" --ref main || echo "note: could not dispatch the main suite" >&2
+    # Main moved, so every other green PR may now be mergeable (or need its
+    # behind head gated). Reconcile now instead of at the next scheduled pass,
+    # which GitHub throttles to hours. A pass that merges dispatches the next
+    # one, and a pass with nothing to merge dispatches nothing, so the queue
+    # drains and stops. A pass that is already running is the reconciler.
+    if [ "${SUSI_RECONCILING:-0}" != 1 ]; then
+        gh workflow run auto-merge.yml --repo "$repo" --ref main \
+            || echo "note: could not dispatch a reconcile pass" >&2
+    fi
     return 0
 }
 

@@ -393,10 +393,16 @@ MSG
             fi
             ;;
         esac
-        # Another agent may merge first. Integrate it and publish a new head
-        # so the remote merge gate can reconsider this PR; the new head's own
-        # branch run proves it — that is what the remote gate is for.
-        if ! git merge-base --is-ancestor origin/main HEAD; then
+        # Another agent may merge first. A head that is merely behind main
+        # needs nothing from this agent: the merge machinery gates the merge
+        # tree itself (auto-merge-pr.sh's inline gate). Re-pushing on every
+        # advance of main cancelled this branch's own in-flight run each time
+        # (test.yml cancels in progress per ref), so in a busy swarm a branch
+        # whose run was slower than the gap between merges never went green.
+        # Only a head that would *conflict* with main needs the agent: then it
+        # syncs (and resolves) and publishes the new head.
+        if ! git merge-base --is-ancestor origin/main HEAD \
+            && ! git merge-tree --write-tree HEAD origin/main >/dev/null 2>&1; then
             sync
             [ "${SUSI_FINISH_REGATE:-0}" = 1 ] && SUSI_GATE_NOCACHE=1 gate
             git push origin "HEAD:refs/heads/$branch"

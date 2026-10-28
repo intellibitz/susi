@@ -237,6 +237,24 @@ jobs:
                 esac
               fi
             fi
+          else
+            # A branch push. The Windows leg is the long pole of every merge
+            # (about 20 min, no target cache), and the merge waits on the whole
+            # workflow, so it runs only when the branch changes what the `susi`
+            # binary is built from. A task-record, docs or data-only branch
+            # (every task close publishes one) skips it; a branch touching CI
+            # machinery still proves everything.
+            base=$(git merge-base HEAD origin/main 2>/dev/null || true)
+            if [ -n "$base" ]; then
+              changed=$(git diff --name-only "$base" HEAD)
+              if ! grep -Eq '^(\.github/|scripts/|\.cargo/|rust-toolchain)' <<<"$changed"; then
+                pkgs=$(BASE_REF="$base" scripts/ci-changed-crates.sh --dependents || echo ALL)
+                case "$pkgs" in
+                  ALL) ;;
+                  *) grep -qx 'susi' <<<"$pkgs" || win=false ;;
+                esac
+              fi
+            fi
           fi
           {
             echo "affected=$affected"

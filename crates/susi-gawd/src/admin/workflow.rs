@@ -555,6 +555,16 @@ pub fn ensure_infrastructure(root: &Path) {
 
 /// Gather the facts from `dir` (any path inside the checkout).
 pub fn gather(dir: &Path, agent: &str) -> Facts {
+    // `SUSI_WORKFLOW_TIMING=1` prints how long each phase took, on stderr:
+    // the check runs at the start of every agent's loop, so its cost is paid
+    // once per task by every agent in the swarm.
+    let timing = std::env::var_os("SUSI_WORKFLOW_TIMING").is_some();
+    let started = std::time::Instant::now();
+    let mark = |phase: &str| {
+        if timing {
+            eprintln!("  {:>6} ms  {phase}", started.elapsed().as_millis());
+        }
+    };
     let root = git(dir, &["rev-parse", "--show-toplevel"])
         .map(PathBuf::from)
         .unwrap_or_else(|| dir.to_path_buf());
@@ -565,6 +575,7 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         _ => false,
     };
     let branch = git(&root, &["symbolic-ref", "-q", "--short", "HEAD"]).filter(|b| !b.is_empty());
+    mark("checkout");
 
     // Two remote round-trips, and nearly all of their cost is the connection
     // itself (~3 s of SSH setup each). They used to run back to back, and the
@@ -584,6 +595,7 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         let queue = tasks::sync_queue(&root).map_err(|e| e.to_string());
         (origin.join().ok().flatten(), queue)
     });
+    mark("fetch origin + queue");
 
     let configured = git(&root, &["config", "--get", "core.hooksPath"]).filter(|s| !s.is_empty());
     let hooks_dir = root.join(".githooks");
@@ -611,6 +623,7 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
     // Accepted but unpublished work: the close receipt `tasks close` pushes.
     // Read-only here — clearing it is the claim path's job, so the checklist
     // never changes state behind the agent's back.
+    mark("hooks + claims");
     let owed = match &queue_synced {
         Ok(()) => tasks::unpublished_closes_synced(&root, agent)
             .map(|v| v.into_iter().map(|r| r.task).collect::<Vec<_>>())
@@ -618,6 +631,7 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         Err(e) => Err(e.clone()),
     };
 
+    mark("owed closes");
     // What blocks `sync` and the gate, which used to be invisible here.
     let porcelain = git(&root, &["status", "--porcelain"]);
     let merging = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
@@ -631,6 +645,7 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
             .is_some_and(|p| Path::new(&p).exists())
         });
 
+    mark("tree state");
     // The watcher writes this every loop; a stale stamp is how a dead watcher
     // becomes visible, since the log file stays empty while things go well.
     let now = tasks::now_unix();
@@ -653,9 +668,11 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         None => (0, 0),
     };
 
+    mark("stale worktrees");
     // The tool the agent runs is part of the loop's state: a release that
     // predates a merged fix enforces the older rules.
     let release = release_drift(&root);
+    mark("release drift");
 
     Facts {
         root,
@@ -766,39 +783,43 @@ fn finished_worktrees(root: &Path, primary: &Path, me: &str) -> (u64, u64) {
     };
     let here = canonical(root);
     let primary = canonical(primary);
-    let mut mine = 0;
-    let mut others = 0;
-    for path in listed
+    let others_paths = listed
         .lines()
         .filter_map(|line| line.strip_prefix("worktree "))
         .map(PathBuf::from)
-    {
-        let resolved = canonical(&path);
-        if resolved == primary || resolved == here {
-            continue;
-        }
-        if !git(&path, &["status", "--porcelain"]).is_some_and(|s| s.trim().is_empty()) {
-            continue;
-        }
-        let Some(head) = git(&path, &["rev-parse", "HEAD"]) else {
-            continue;
-        };
+        .filter(|path| {
+            let resolved = canonical(path);
+            resolved != primary && resolved != here
+        })
+        .collect::<Vec<_>>();
+    // One worktree's answer is a few git calls; a swarm has dozens of
+    // worktrees, and visiting them one after another made this housekeeping
+    // count the slowest part of `workflow check` (about 9 of its 21 s at 18
+    // worktrees). They are independent, so they are asked at once. Within one
+    // worktree the cheap questions go first: the full working-tree scan of
+    // `git status` runs only for a head already on main.
+    let finished = |path: &PathBuf| -> Option<bool> {
+        let head = git(path, &["rev-parse", "HEAD"])?;
         // `--is-ancestor` succeeds only when the commit is contained.
-        if git(
-            &path,
-            &["merge-base", "--is-ancestor", &head, "origin/main"],
-        )
-        .is_none()
-        {
-            continue;
+        git(path, &["merge-base", "--is-ancestor", &head, "origin/main"])?;
+        if !git(path, &["status", "--porcelain"]).is_some_and(|s| s.trim().is_empty()) {
+            return None;
         }
-        let owner = git(&path, &["config", "--get", "susi.agent"]).unwrap_or_default();
-        if !me.is_empty() && owner.eq_ignore_ascii_case(me) {
-            mine += 1;
-        } else {
-            others += 1;
-        }
-    }
+        let owner = git(path, &["config", "--get", "susi.agent"]).unwrap_or_default();
+        Some(!me.is_empty() && owner.eq_ignore_ascii_case(me))
+    };
+    let answers = std::thread::scope(|scope| {
+        let handles = others_paths
+            .iter()
+            .map(|path| scope.spawn(move || finished(path)))
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .filter_map(|handle| handle.join().ok().flatten())
+            .collect::<Vec<_>>()
+    });
+    let mine = answers.iter().filter(|is_mine| **is_mine).count() as u64;
+    let others = answers.len() as u64 - mine;
     (mine, others)
 }
 
