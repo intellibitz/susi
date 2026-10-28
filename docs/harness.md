@@ -78,6 +78,32 @@ rerouting the fleet never touches a plan:
 | `delegate`, `reviewer` | `gemini-pro` | second opinion and backup worker |
 | `kimi-pro` | `kimi-k3-pro` | backup worker |
 
+### Automatic ladder from the environment
+
+The ladder is built from the API keys in the environment, so nothing has to be
+listed by hand. Each registry model carries a `tier`: `worker` for the cheap
+first attempts (DeepSeek Flash, Gemini Flash, Kimi Flash) and `rescue` for the
+stronger fallbacks (DeepSeek Pro, Gemini Pro, Kimi K3 and K3 Pro, and the
+Anthropic models). A model with no tier, such as SiliconFlow or DashScope, is
+addressable by name but never chosen automatically.
+
+A model is eligible when its provider's key is set, it can call tools, and the
+price catalogue prices it. An unpriced model is left out and reported under
+`unpriced`, because it cannot be budgeted.
+
+- **Budget first.** Within a tier, the cheapest model comes first, using the
+  agent usage profile from `deploy/harness/prices.json`.
+- **Capability second.** Equal prices go to the model with more capabilities
+  (streaming, vision), then the larger context, then the id.
+- **Orchestrator.** `deepseek-pro` when its key is set; otherwise the cheapest
+  rescue model.
+
+`--workers auto` is the default for `susi harness plan`, `author` and `run`. The
+escalation order is every worker, then every rescue model. `--workers` with a
+comma-separated list still names the ladder explicitly.
+`susi harness models --available` prints the resolved `auto` section, and
+exits with a message when no key is set.
+
 `susi harness models --verify` checks each registered backend id against the
 provider's own list, so an id retired upstream is reported before a call fails.
 Prices live in [deploy/harness/prices.json](../deploy/harness/prices.json).

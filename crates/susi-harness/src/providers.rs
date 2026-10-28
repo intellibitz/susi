@@ -100,6 +100,30 @@ impl Capabilities {
     }
 }
 
+/// Where a model sits on the automatic ladder built from the environment.
+///
+/// A model with no tier is still addressable by name, but it is never chosen
+/// automatically: the ladder only spends on models somebody placed on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tier {
+    /// A cheap first attempt. Ordered by budget, then capability.
+    Worker,
+    /// A stronger fallback, tried after every worker has failed the task.
+    Rescue,
+}
+
+impl Tier {
+    fn parse(raw: &str) -> EaiResult<Self> {
+        match raw {
+            "worker" => Ok(Self::Worker),
+            "rescue" => Ok(Self::Rescue),
+            other => Err(EaiError::config(format!(
+                "provider registry: unknown tier `{other}` (expected worker or rescue)"
+            ))),
+        }
+    }
+}
+
 /// One model a provider serves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelRecord {
@@ -111,6 +135,43 @@ pub struct ModelRecord {
     pub capabilities: Capabilities,
     /// Catalogue model key, when it differs from [`Self::id`].
     pub price_ref: Option<String>,
+    /// Automatic-ladder placement; `None` keeps the model off the ladder.
+    pub tier: Option<Tier>,
+}
+
+/// The ladder built from the API keys present in the environment.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AutoConfig {
+    /// The orchestrator: `deepseek-pro` when its key is set, otherwise the
+    /// cheapest capable rescue model. `None` when no model is usable.
+    pub orchestrator: Option<String>,
+    /// Workers, cheapest first.
+    pub workers: Vec<String>,
+    /// Rescue models, cheapest first. Tried after the workers.
+    pub rescue: Vec<String>,
+    /// Ladder models the catalogue cannot price. They are left out, because
+    /// an unpriced model cannot be budgeted.
+    pub unpriced: Vec<String>,
+}
+
+/// A ladder candidate whose position is not yet settled.
+struct Ranked {
+    id: String,
+    cost: crate::money::MicroUsd,
+    score: u8,
+    context: u64,
+}
+
+impl AutoConfig {
+    /// The escalation order: every worker, then every rescue model.
+    #[must_use]
+    pub fn ladder(&self) -> Vec<String> {
+        self.workers
+            .iter()
+            .chain(self.rescue.iter())
+            .cloned()
+            .collect()
+    }
 }
 
 /// One provider endpoint.
@@ -365,6 +426,88 @@ impl Registry {
         }
     }
 
+    /// Build the ladder from the keys `key_present` reports, budget first and
+    /// capability second.
+    ///
+    /// A model is eligible when its provider's key is set, it can call tools
+    /// (a worker without tools cannot finish a task), and the catalogue prices
+    /// it. Cheaper comes first within a tier. Equal prices go to the model with
+    /// more capabilities, then the larger context, then the id, so the order is
+    /// the same on every machine.
+    #[must_use]
+    pub fn auto_config(
+        &self,
+        key_present: &dyn Fn(&str) -> bool,
+        catalogue: &PriceCatalogue,
+        profile: UsageProfile,
+    ) -> AutoConfig {
+        let mut workers = Vec::new();
+        let mut rescue = Vec::new();
+        let mut unpriced = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for provider in &self.providers {
+            let keyed = provider.key_envs.is_empty()
+                || provider.key_envs.iter().any(|name| key_present(name));
+            if !keyed {
+                continue;
+            }
+            for model in &provider.models {
+                let Some(tier) = model.tier else { continue };
+                if !model.capabilities.missing(&[Capability::Tools]).is_empty() {
+                    continue;
+                }
+                if !seen.insert(model.id.clone()) {
+                    continue;
+                }
+                let price_key = model.price_ref.as_deref().unwrap_or(&model.id);
+                let Some(price) = catalogue.price(price_key) else {
+                    unpriced.push(model.id.clone());
+                    continue;
+                };
+                let ranked = Ranked {
+                    id: model.id.clone(),
+                    cost: price.cost(crate::pricing::TokenUsage::new(
+                        profile.input,
+                        0,
+                        profile.output,
+                    )),
+                    score: u8::from(model.capabilities.streaming)
+                        + u8::from(model.capabilities.vision),
+                    context: model.capabilities.context.unwrap_or(0),
+                };
+                match tier {
+                    Tier::Worker => workers.push(ranked),
+                    Tier::Rescue => rescue.push(ranked),
+                }
+            }
+        }
+        let order = |list: &mut Vec<Ranked>| {
+            list.sort_by(|a, b| {
+                a.cost
+                    .cmp(&b.cost)
+                    .then_with(|| b.score.cmp(&a.score))
+                    .then_with(|| b.context.cmp(&a.context))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            list.iter()
+                .map(|ranked| ranked.id.clone())
+                .collect::<Vec<_>>()
+        };
+        let workers = order(&mut workers);
+        let rescue = order(&mut rescue);
+        let orchestrator = if rescue.iter().any(|id| id == Self::primary_orchestrator()) {
+            Some(Self::primary_orchestrator().to_string())
+        } else {
+            rescue.first().cloned()
+        };
+        AutoConfig {
+            orchestrator,
+            workers,
+            rescue,
+            unpriced,
+        }
+    }
+
     /// The default primary orchestrator model (DeepSeek Pro).
     #[must_use]
     pub const fn primary_orchestrator() -> &'static str {
@@ -452,6 +595,11 @@ fn parse_model(raw: &Value) -> EaiResult<ModelRecord> {
             .unwrap_or(false),
         vision: raw.get("vision").and_then(Value::as_bool).unwrap_or(false),
     };
+    let tier = raw
+        .get("tier")
+        .and_then(Value::as_str)
+        .map(Tier::parse)
+        .transpose()?;
     Ok(ModelRecord {
         id,
         backend,
@@ -460,6 +608,7 @@ fn parse_model(raw: &Value) -> EaiResult<ModelRecord> {
             .get("price_ref")
             .and_then(Value::as_str)
             .map(str::to_string),
+        tier,
     })
 }
 
@@ -507,8 +656,8 @@ const BUILTIN: &str = r#"
       "endpoint": "https://api.deepseek.com/chat/completions",
       "key_env": ["DEEPSEEK_API_KEY"],
       "models": [
-        {"id": "deepseek-flash", "backend": "deepseek-flash", "context": 128000, "tools": true, "streaming": true},
-        {"id": "deepseek-pro", "backend": "deepseek-v4-pro", "context": 128000, "tools": true, "streaming": true}
+        {"id": "deepseek-flash", "backend": "deepseek-flash", "context": 128000, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "deepseek-pro", "backend": "deepseek-v4-pro", "context": 128000, "tools": true, "streaming": true, "tier": "rescue"}
       ]
     },
     {
@@ -539,8 +688,8 @@ const BUILTIN: &str = r#"
       "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       "key_env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
       "models": [
-        {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true},
-        {"id": "gemini-pro", "backend": "gemini-pro-latest", "context": 1048576, "tools": true, "streaming": true, "vision": true}
+        {"id": "gemini-flash", "backend": "gemini-3.8-flash", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "worker"},
+        {"id": "gemini-pro", "backend": "gemini-pro-latest", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue"}
       ]
     },
     {
@@ -549,9 +698,9 @@ const BUILTIN: &str = r#"
       "endpoint": "https://api.moonshot.ai/v1/chat/completions",
       "key_env": ["MOONSHOT_API_KEY", "KIMI_API_KEY"],
       "models": [
-        {"id": "kimi-flash", "backend": "kimi-k2.7-code-highspeed", "context": 262144, "tools": true, "streaming": true},
-        {"id": "kimi-k3", "backend": "kimi-k3", "context": 1048576, "tools": true, "streaming": true, "vision": true},
-        {"id": "kimi-k3-pro", "backend": "kimi-k3.1-pro-highspeed", "context": 1048576, "tools": true, "streaming": true, "vision": true}
+        {"id": "kimi-flash", "backend": "kimi-k2.7-code-highspeed", "context": 262144, "tools": true, "streaming": true, "tier": "worker"},
+        {"id": "kimi-k3", "backend": "kimi-k3", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue"},
+        {"id": "kimi-k3-pro", "backend": "kimi-k3.1-pro-highspeed", "context": 1048576, "tools": true, "streaming": true, "vision": true, "tier": "rescue"}
       ]
     },
     {
@@ -560,9 +709,9 @@ const BUILTIN: &str = r#"
       "endpoint": "https://api.anthropic.com/v1/messages",
       "key_env": ["ANTHROPIC_API_KEY"],
       "models": [
-        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true},
-        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true},
-        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true}
+        {"id": "claude-haiku", "backend": "claude-haiku-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue"},
+        {"id": "claude-sonnet", "backend": "claude-sonnet-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue"},
+        {"id": "claude-opus", "backend": "claude-opus-5-5", "context": 200000, "tools": true, "streaming": true, "vision": true, "tier": "rescue"}
       ]
     },
     {
@@ -801,6 +950,113 @@ mod tests {
                 "kimi-pro"
             ]
         );
+    }
+
+    fn builtin_catalogue() -> PriceCatalogue {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../deploy/harness/prices.json"
+        );
+        PriceCatalogue::load(std::path::Path::new(path)).unwrap()
+    }
+
+    fn keys(names: &'static [&'static str]) -> impl Fn(&str) -> bool {
+        move |name| names.contains(&name)
+    }
+
+    #[test]
+    fn provider_registry_auto_config_with_only_deepseek_key() {
+        let auto = Registry::builtin().auto_config(
+            &keys(&["DEEPSEEK_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert_eq!(auto.workers, vec!["deepseek-flash"]);
+        assert_eq!(auto.rescue, vec!["deepseek-pro"]);
+        assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
+        assert!(auto.unpriced.is_empty());
+        assert_eq!(auto.ladder(), vec!["deepseek-flash", "deepseek-pro"]);
+    }
+
+    #[test]
+    fn provider_registry_auto_config_orders_workers_by_budget() {
+        let catalogue = builtin_catalogue();
+        let profile = UsageProfile::agent();
+        let auto = Registry::builtin().auto_config(
+            &keys(&["DEEPSEEK_API_KEY", "GEMINI_API_KEY", "MOONSHOT_API_KEY"]),
+            &catalogue,
+            profile,
+        );
+        assert_eq!(auto.workers.len(), 3, "{:?}", auto.workers);
+        let costs: Vec<_> = auto
+            .workers
+            .iter()
+            .map(|id| {
+                catalogue
+                    .price(id)
+                    .unwrap()
+                    .cost(crate::pricing::TokenUsage::new(
+                        profile.input,
+                        0,
+                        profile.output,
+                    ))
+            })
+            .collect();
+        assert!(costs.windows(2).all(|pair| pair[0] <= pair[1]), "{costs:?}");
+        assert_eq!(auto.rescue.len(), 4, "{:?}", auto.rescue);
+        assert_eq!(auto.orchestrator.as_deref(), Some("deepseek-pro"));
+    }
+
+    #[test]
+    fn provider_registry_auto_config_without_keys_is_empty() {
+        let auto = Registry::builtin().auto_config(
+            &keys(&[]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert_eq!(auto, AutoConfig::default());
+        assert!(auto.ladder().is_empty());
+    }
+
+    #[test]
+    fn provider_registry_auto_config_falls_back_to_a_rescue_orchestrator() {
+        let auto = Registry::builtin().auto_config(
+            &keys(&["ANTHROPIC_API_KEY"]),
+            &builtin_catalogue(),
+            UsageProfile::agent(),
+        );
+        assert!(auto.workers.is_empty());
+        assert_eq!(auto.orchestrator, auto.rescue.first().cloned());
+        assert!(
+            auto.rescue.iter().all(|id| id.starts_with("claude-")),
+            "{:?}",
+            auto.rescue
+        );
+    }
+
+    #[test]
+    fn provider_registry_auto_config_leaves_unpriced_models_off_the_ladder() {
+        let catalogue = PriceCatalogue::from_json(
+            r#"{"schema":"susi/harness/prices/v1","models":{"deepseek-flash":{"input_hit":3000,"input_miss":150000,"output":600000}}}"#,
+        )
+        .unwrap();
+        let auto = Registry::builtin().auto_config(
+            &keys(&["DEEPSEEK_API_KEY", "GEMINI_API_KEY"]),
+            &catalogue,
+            UsageProfile::agent(),
+        );
+        assert_eq!(auto.workers, vec!["deepseek-flash"]);
+        assert_eq!(
+            auto.unpriced,
+            vec!["deepseek-pro", "gemini-flash", "gemini-pro"]
+        );
+    }
+
+    #[test]
+    fn provider_registry_rejects_an_unknown_tier() {
+        let broken = r#"{"providers":[{"id":"x","wire":"openai","endpoint":"https://x","models":[{"id":"m","tier":"boss"}]}]}"#;
+        let error = Registry::parse(broken).unwrap_err().to_string();
+        assert!(error.contains("boss"), "{error}");
     }
 
     #[test]
