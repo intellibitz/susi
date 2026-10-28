@@ -584,7 +584,23 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
     // They write disjoint refs (`refs/remotes/origin/*` against the claim,
     // close, abandon, merge and verify namespaces), so they overlap; the queue
     // is mirrored once and both views read from it.
-    let (behind, queue_synced) = std::thread::scope(|scope| {
+    // Finished worktrees pile up: one per task, and nothing reclaims them.
+    // Counting them is local and only advisory, so it runs alongside the two
+    // network round-trips instead of after them, against the origin/main this
+    // clone already has: a worktree that merged a moment ago is counted on
+    // the next check.
+    let common_dir = abs("--git-common-dir");
+    let ((behind, queue_synced), (stale_mine, stale_others)) = std::thread::scope(|scope| {
+        let stale = scope.spawn(|| match &common_dir {
+            Some(dir) => {
+                let primary_dir = Path::new(dir)
+                    .parent()
+                    .unwrap_or(Path::new("/"))
+                    .to_path_buf();
+                finished_worktrees(&root, &primary_dir, agent)
+            }
+            None => (0, 0),
+        });
         // An unreachable remote leaves whatever origin/main we last saw; report
         // freshness as unknown rather than certifying a stale ref.
         let origin = scope.spawn(|| {
@@ -593,9 +609,12 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
                 .and_then(|n| n.parse::<u64>().ok())
         });
         let queue = tasks::sync_queue(&root).map_err(|e| e.to_string());
-        (origin.join().ok().flatten(), queue)
+        (
+            (origin.join().ok().flatten(), queue),
+            stale.join().unwrap_or((0, 0)),
+        )
     });
-    mark("fetch origin + queue");
+    mark("fetch origin + queue + stale worktrees");
 
     let configured = git(&root, &["config", "--get", "core.hooksPath"]).filter(|s| !s.is_empty());
     let hooks_dir = root.join(".githooks");
@@ -655,20 +674,6 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         .and_then(|s| s.trim().parse::<u64>().ok())
         .map(|stamp| now.saturating_sub(stamp));
 
-    // Finished worktrees pile up: one per task, and nothing reclaims them.
-    let common_dir = abs("--git-common-dir");
-    let (stale_mine, stale_others) = match &common_dir {
-        Some(dir) => {
-            let primary_dir = Path::new(dir)
-                .parent()
-                .unwrap_or(Path::new("/"))
-                .to_path_buf();
-            finished_worktrees(&root, &primary_dir, agent)
-        }
-        None => (0, 0),
-    };
-
-    mark("stale worktrees");
     // The tool the agent runs is part of the loop's state: a release that
     // predates a merged fix enforces the older rules.
     let release = release_drift(&root);

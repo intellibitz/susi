@@ -66,6 +66,13 @@ pub struct CloseRecord {
     /// Branch head whose acceptance check passed.
     pub head: String,
     pub closed_unix: u64,
+    /// The files the claim reserved. They stay reserved until the close is on
+    /// `origin/main`: `finish` releases the claim as soon as the branch run is
+    /// green, before the merge, and another agent editing the same files in
+    /// that window met the conflict only at the merge gate, after it had
+    /// moved on. Receipts written before this field reserve nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
 }
 
 /// A task given up deliberately, pushed to `refs/abandoned/<id>`: the reason is
@@ -998,6 +1005,107 @@ fn blob_of<T: Serialize>(ws: &Path, value: &T) -> EaiResult<String> {
 
 /// Read one record ref, or `None` when the remote has none (or it is
 /// unreadable — a corrupt record is not a reason to crash the queue).
+/// Every record under `namespace`, keyed by ref name, in two git calls
+/// whatever their number: the refs and their objects from `for-each-ref`,
+/// then every body from one `cat-file --batch`. Reading records one by one
+/// cost two process spawns each, and a spawn is slow (about 150 ms on
+/// Windows): with 67 close receipts on the remote that was ten seconds of
+/// every `workflow check`, paid by every agent at the start of every task.
+fn records_batch<T: serde::de::DeserializeOwned>(
+    ws: &Path,
+    namespace: &str,
+) -> EaiResult<Vec<(String, T)>> {
+    let listed = git(
+        ws,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(refname)",
+            namespace,
+        ],
+    )?;
+    let refs = listed
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .collect::<Vec<_>>();
+    if refs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut child = Command::new("git")
+        .args(["cat-file", "--batch"])
+        .current_dir(ws)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| EaiError::process("git cat-file --batch stdin"))?;
+    // Fed from its own thread: git answers while it reads, and a full stdout
+    // pipe would otherwise stall it while this side is still writing.
+    let ids = refs
+        .iter()
+        .map(|(oid, _)| (*oid).to_string())
+        .collect::<Vec<_>>();
+    let feeder = std::thread::spawn(move || {
+        use std::io::Write;
+        for oid in ids {
+            if writeln!(stdin, "{oid}").is_err() {
+                break;
+            }
+        }
+    });
+    let out = child.wait_with_output()?;
+    let _ = feeder.join();
+    if !out.status.success() {
+        return Err(EaiError::process(format!(
+            "git cat-file --batch failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    Ok(parse_batch(&out.stdout, &refs))
+}
+
+/// The bodies `git cat-file --batch` printed for `refs`, in order: per object
+/// a `<oid> <type> <size>` line, the body, and a newline; `<oid> missing` for
+/// an object that is not there. A body that is not the record's JSON is
+/// skipped, as [`read_record`] skips it.
+fn parse_batch<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    refs: &[(&str, &str)],
+) -> Vec<(String, T)> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for (_, name) in refs {
+        let Some(line_end) = bytes
+            .get(at..)
+            .and_then(|rest| rest.iter().position(|b| *b == b'\n'))
+        else {
+            break;
+        };
+        let header = String::from_utf8_lossy(&bytes[at..at + line_end]).to_string();
+        at += line_end + 1;
+        let mut fields = header.split(' ');
+        let _oid = fields.next();
+        let kind = fields.next().unwrap_or("missing");
+        if kind == "missing" {
+            continue;
+        }
+        let Some(size) = fields.next().and_then(|s| s.parse::<usize>().ok()) else {
+            break;
+        };
+        let Some(body) = bytes.get(at..at + size) else {
+            break;
+        };
+        at += size + 1;
+        if let Ok(record) = serde_json::from_slice::<T>(body) {
+            out.push(((*name).to_string(), record));
+        }
+    }
+    out
+}
+
 fn read_record<T: serde::de::DeserializeOwned>(ws: &Path, name: &str) -> EaiResult<Option<T>> {
     let Ok(sha) = git(ws, &["rev-parse", "--verify", "--quiet", name]) else {
         return Ok(None);
@@ -1077,79 +1185,10 @@ fn published_on_main(ws: &Path, id: &str) -> EaiResult<bool> {
 /// process start-up is most of that cost. Unreadable records are skipped, as
 /// [`read_record`] skips them.
 fn closed_receipts(ws: &Path) -> EaiResult<Vec<(String, CloseRecord)>> {
-    let listed = git(
-        ws,
-        &[
-            "for-each-ref",
-            "--format=%(refname) %(objectname)",
-            "refs/closed/",
-        ],
-    )?;
-    let refs: Vec<(String, String)> = listed
-        .lines()
-        .filter_map(|line| {
-            let (name, sha) = line.split_once(' ')?;
-            let id = name.strip_prefix("refs/closed/")?;
-            Some((id.to_string(), sha.to_string()))
-        })
-        .collect();
-    if refs.is_empty() {
-        return Ok(Vec::new());
-    }
-    let input: String = refs.iter().map(|(_, sha)| format!("{sha}\n")).collect();
-    let mut child = Command::new("git")
-        .args(["cat-file", "--batch"])
-        .current_dir(ws)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    {
-        use std::io::Write;
-        child
-            .stdin
-            .take()
-            .ok_or_else(|| EaiError::process("git cat-file stdin"))?
-            .write_all(input.as_bytes())?;
-    }
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        return Err(EaiError::process("git cat-file --batch failed"));
-    }
-    let bodies = split_batch(&out.stdout, refs.len());
-    Ok(refs
+    Ok(records_batch::<CloseRecord>(ws, "refs/closed/")?
         .into_iter()
-        .zip(bodies)
-        .filter_map(|((id, _), body)| {
-            let record = serde_json::from_slice::<CloseRecord>(body?).ok()?;
-            Some((id, record))
-        })
+        .filter_map(|(name, record)| Some((name.strip_prefix("refs/closed/")?.to_string(), record)))
         .collect())
-}
-
-/// The bodies of `count` answers from `git cat-file --batch`, in request order.
-/// A missing object answers `<sha> missing` with no body and yields `None`.
-fn split_batch(mut rest: &[u8], count: usize) -> Vec<Option<&[u8]>> {
-    let mut bodies = Vec::with_capacity(count);
-    for _ in 0..count {
-        let Some(end) = rest.iter().position(|byte| *byte == b'\n') else {
-            break;
-        };
-        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
-        rest = &rest[end + 1..];
-        let mut fields = header.split_whitespace().skip(1);
-        match (
-            fields.next(),
-            fields.next().and_then(|size| size.parse::<usize>().ok()),
-        ) {
-            (Some(_), Some(size)) if size < rest.len() => {
-                bodies.push(Some(&rest[..size]));
-                rest = &rest[size + 1..];
-            }
-            _ => bodies.push(None),
-        }
-    }
-    bodies
 }
 
 /// Refresh `origin` once for a loop that asks [`done_on_main`] per record.
@@ -1224,6 +1263,9 @@ fn push_close_receipt(ws: &Path, id: &str, agent: &str) -> EaiResult<()> {
         agent: agent.to_string(),
         head: git(ws, &["rev-parse", "HEAD"])?,
         closed_unix: now_unix(),
+        scopes: read_claim(ws, id)
+            .map(|(_, claim)| claim.scopes)
+            .unwrap_or_default(),
     };
     put_record(
         ws,
@@ -1291,15 +1333,19 @@ fn accepted_unpublished(ws: &Path, id: &str, agent: &str) -> EaiResult<bool> {
 /// The caller must have synchronized first ([`sync_queue_refs`], which [`claims`]
 /// does): the local receipt refs are what this reads.
 fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<String>> {
-    let receipts = closed_receipts(ws)?;
-    if !receipts.is_empty() {
-        fetch_origin(ws)?;
+    let mine = closed_receipts(ws)?
+        .into_iter()
+        .filter(|(id, record)| except != Some(id.as_str()) && record.agent == agent)
+        .collect::<Vec<_>>();
+    if mine.is_empty() {
+        return Ok(Vec::new());
     }
+    // One fetch for every receipt, not one each, and none when this agent has
+    // nothing outstanding: the swarm's other receipts (dozens) are not this
+    // agent's debt, and fetching for them cost every claim a round-trip.
+    fetch_origin(ws)?;
     let mut owed = Vec::new();
-    for (id, record) in receipts {
-        if except == Some(id.as_str()) || record.agent != agent {
-            continue;
-        }
+    for (id, record) in mine {
         if done_on_main(ws, &id) {
             clear_record(ws, &closed_ref(&id))?;
         } else if receipt_owed(ws, &record) {
@@ -1316,23 +1362,22 @@ fn owed_closes(ws: &Path, agent: &str, except: Option<&str>) -> EaiResult<Vec<St
 pub fn unpublished_closes(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
     agent_token(agent)?;
     sync_queue_refs(ws)?;
+    fetch_origin(ws)?;
     unpublished_closes_synced(ws, agent)
 }
 
-/// [`unpublished_closes`] for a caller that has just run [`sync_queue`]: the
-/// same read, without a second identical fetch behind the first.
+/// [`unpublished_closes`] for a caller that has just run [`sync_queue`] and
+/// fetched `origin` (as `workflow check` does, in parallel): the same read,
+/// without a fetch behind each receipt.
 pub fn unpublished_closes_synced(ws: &Path, agent: &str) -> EaiResult<Vec<CloseRecord>> {
     let by = agent_token(agent)?;
-    let receipts = closed_receipts(ws)?;
-    if !receipts.is_empty() {
-        fetch_origin(ws)?;
-    }
-    let mut out = Vec::new();
-    for (id, record) in receipts {
-        if record.agent == by && !done_on_main(ws, &id) && receipt_owed(ws, &record) {
-            out.push(record);
-        }
-    }
+    let mut out = closed_receipts(ws)?
+        .into_iter()
+        .filter(|(id, record)| {
+            record.agent == by && !done_on_main(ws, id) && receipt_owed(ws, record)
+        })
+        .map(|(_, record)| record)
+        .collect::<Vec<_>>();
     out.sort_by(|a, b| a.task.cmp(&b.task));
     Ok(out)
 }
@@ -1351,14 +1396,10 @@ pub fn verified_tasks(ws: &Path) -> EaiResult<Vec<VerifiedTask>> {
 
 /// Read every record under one namespace, keyed by the id in its ref name.
 fn records_under<T: serde::de::DeserializeOwned>(ws: &Path, namespace: &str) -> EaiResult<Vec<T>> {
-    let refs = git(ws, &["for-each-ref", "--format=%(refname)", namespace])?;
-    let mut out = Vec::new();
-    for name in refs.lines() {
-        if let Some(record) = read_record::<T>(ws, name)? {
-            out.push(record);
-        }
-    }
-    Ok(out)
+    Ok(records_batch::<T>(ws, namespace)?
+        .into_iter()
+        .map(|(_, record)| record)
+        .collect())
 }
 
 /// Whether a merge attestation is real, re-derived from `origin/main` instead
@@ -1962,25 +2003,47 @@ pub fn claim_scoped(
 }
 
 /// How many times a lost compare-and-swap is retried before the caller is told.
-const CAS_ATTEMPTS: u32 = 8;
+/// With the backoff below that is about 13 s of retrying in the worst case: a
+/// swarm claiming at one sync boundary all lose but one race each round, and
+/// eight short tries (under 1.5 s) ran out under load.
+const CAS_ATTEMPTS: u32 = 12;
 /// Both messages below carry a phrase from here, so the retry matcher and the
 /// text a user reads can never drift apart.
 const CAS_PHRASE: &str = "concurrently with another agent";
 const CAS_RENEW_PHRASE: &str = "concurrently with another claim";
+/// How git words a lock held for a moment by another process: many agents
+/// share one clone's ref store and push to the same remote refs. These are
+/// races too, and retrying is the answer, not a failure for the agent.
+const LOCK_PHRASES: &[&str] = &[
+    "cannot lock ref",
+    "unable to lock",
+    "failed to lock",
+    ".lock': file exists",
+];
 
 fn is_cas_race(err: &EaiError) -> bool {
-    let text = err.to_string();
-    text.contains(CAS_PHRASE) || text.contains(CAS_RENEW_PHRASE)
+    // git capitalises some of these ("Unable to create ... File exists.").
+    let text = err.to_string().to_ascii_lowercase();
+    text.contains(CAS_PHRASE)
+        || text.contains(CAS_RENEW_PHRASE)
+        || LOCK_PHRASES.iter().any(|phrase| text.contains(phrase))
 }
 
-/// Spread the retries across processes: identical sleeps would keep the swarm
-/// in lockstep, and the point is that they stop colliding.
+/// Exponential backoff with jitter, capped at two seconds. The jitter changes
+/// with every attempt: a seed fixed per process kept two colliding agents in
+/// step on every retry, and the point is that they stop colliding.
 fn cas_backoff(attempt: u32, agent: &str) {
-    let seed = u64::from(std::process::id()) + agent.bytes().map(u64::from).sum::<u64>();
-    let jitter = (seed % 97) + 11;
-    std::thread::sleep(std::time::Duration::from_millis(
-        u64::from(attempt) * 25 + jitter,
-    ));
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::from(d.subsec_nanos()))
+        .unwrap_or(0);
+    let seed = nanos
+        ^ u64::from(std::process::id()).wrapping_mul(2_654_435_761)
+        ^ agent.bytes().map(u64::from).sum::<u64>()
+        ^ u64::from(attempt).wrapping_mul(40_503);
+    let base = 50u64.saturating_mul(1u64 << attempt.min(6)).min(2_000);
+    let jitter = seed % (base / 2 + 1);
+    std::thread::sleep(std::time::Duration::from_millis(base / 2 + jitter));
 }
 
 fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> EaiResult<Claim> {
@@ -2058,6 +2121,32 @@ fn claim_once(ws: &Path, id: &str, agent: &str, options: ClaimOptions<'_>) -> Ea
                 other.task, other.agent
             )));
         }
+    }
+    // Closed but not merged: the work is on a branch, not on main, so its
+    // files are still taken. Only receipts that recorded their scopes count,
+    // and only until the close is on `origin/main` (or the receipt is settled).
+    let overlapping = closed_receipts(ws)?
+        .into_iter()
+        .filter(|(task, receipt)| {
+            task != id
+                && !receipt.scopes.is_empty()
+                && scopes_conflict(&requested_scopes, &receipt.scopes)
+        })
+        .collect::<Vec<_>>();
+    if !overlapping.is_empty() {
+        // Refusing on a stale view of main would hold files a merge already
+        // freed; one fetch, only when something overlaps.
+        fetch_origin(ws)?;
+    }
+    for (task, receipt) in overlapping {
+        if done_on_main(ws, &task) || !receipt_owed(ws, &receipt) {
+            continue;
+        }
+        return Err(EaiError::config(format!(
+            "scope overlaps {task}, closed by {} and not yet merged: its files stay reserved \
+             until that merge lands on main. Claim other files, or wait for the merge",
+            receipt.agent
+        )));
     }
     if let Some(current) = owned {
         if current
@@ -2652,6 +2741,52 @@ fn ensure_open_on_main(ws: &Path, id: &str) -> EaiResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lock_contention_is_a_race_to_retry_and_other_failures_are_not() {
+        for text in [
+            "claim T-A-1 changed concurrently with another agent",
+            "git push failed: ! [remote rejected] refs/claims/T-A-1 (cannot lock ref 'refs/claims/T-A-1': is at abc but expected def)",
+            "git fetch failed: error: Unable to lock refs/claims/T-A-1",
+            "git update-ref failed: fatal: Unable to create '/repo/.git/refs/claims/T-A-1.lock': File exists.",
+        ] {
+            assert!(is_cas_race(&EaiError::process(text)), "{text}");
+        }
+        for text in [
+            "invalid task id",
+            "git fetch failed: could not read from remote repository",
+            "scope overlaps T-B-2 held by B",
+        ] {
+            assert!(!is_cas_race(&EaiError::process(text)), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_batch_of_records_is_read_in_order_skipping_missing_and_unreadable() {
+        let good = br#"{"task":"T-A-1","agent":"a","head":"h1","closed_unix":1}"#;
+        let other = br#"{"task":"T-B-2","agent":"b","head":"h2","closed_unix":2}"#;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(format!("o1 blob {}\n", good.len()).as_bytes());
+        bytes.extend_from_slice(good);
+        bytes.extend_from_slice(b"\no2 missing\no3 blob 8\nnot json\n");
+        bytes.extend_from_slice(format!("o4 blob {}\n", other.len()).as_bytes());
+        bytes.extend_from_slice(other);
+        bytes.push(b'\n');
+        let refs = [
+            ("o1", "refs/closed/T-A-1"),
+            ("o2", "refs/closed/T-GONE-1"),
+            ("o3", "refs/closed/T-BAD-1"),
+            ("o4", "refs/closed/T-B-2"),
+        ];
+        let read = parse_batch::<CloseRecord>(&bytes, &refs);
+        assert_eq!(
+            read.iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["refs/closed/T-A-1", "refs/closed/T-B-2"]
+        );
+        assert_eq!(read[1].1.agent, "b");
+    }
 
     struct Repos {
         root: PathBuf,
@@ -3750,6 +3885,86 @@ mod tests {
                 .is_empty(),
             "observing the merges clears the receipts"
         );
+        drop(r);
+    }
+
+    /// A closed task's files stay reserved until its close is on main. `finish`
+    /// releases the claim when the branch run is green, before the merge; a
+    /// second agent editing the same files in that window met the conflict
+    /// only at the merge gate, after both had moved on.
+    #[test]
+    fn a_closed_but_unmerged_task_keeps_its_files_reserved_until_it_merges() {
+        let (r, a, b) = Repos::new("closed-scopes");
+        let scoped =
+            |scopes: &[&str]| -> Vec<String> { scopes.iter().map(|s| (*s).to_string()).collect() };
+        let first = addt!(&a, "claude", "first", "", "s", &[], true_cmd()).unwrap();
+        let src = scoped(&["src/x.rs"]);
+        claim_scoped(
+            &a,
+            &first.id,
+            "claude",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &src,
+            },
+        )
+        .unwrap();
+        close(&a, &first.id, "claude").unwrap();
+        release(&a, &first.id, "claude", true).unwrap();
+
+        // Another agent, another task, on a clone that sees the queue.
+        std::fs::create_dir_all(done_dir(&b)).unwrap();
+        std::fs::copy(
+            done_dir(&a).join(format!("{}.json", first.id)),
+            done_dir(&b).join(format!("{}.json", first.id)),
+        )
+        .unwrap();
+        let second = addt!(&b, "gemini", "second", "", "s", &[], true_cmd()).unwrap();
+        let wide = scoped(&["src"]);
+        let err = claim_scoped(
+            &b,
+            &second.id,
+            "gemini",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &wide,
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("not yet merged"), "{err}");
+        assert!(err.contains(&first.id), "{err}");
+
+        // Files the closed task never reserved are free.
+        let docs = scoped(&["docs"]);
+        claim_scoped(
+            &b,
+            &second.id,
+            "gemini",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &docs,
+            },
+        )
+        .unwrap_or_else(|e| panic!("unrelated files must stay claimable: {e}"));
+        release(&b, &second.id, "gemini", false).unwrap();
+
+        // The merge lands: the files are free again.
+        publish(&a);
+        claim_scoped(
+            &b,
+            &second.id,
+            "gemini",
+            ClaimOptions {
+                hours: 4,
+                now: now_unix(),
+                scopes: &wide,
+            },
+        )
+        .unwrap_or_else(|e| panic!("a merged close must free its files: {e}"));
         drop(r);
     }
 
