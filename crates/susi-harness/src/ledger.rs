@@ -309,15 +309,13 @@ pub fn cost_for(entries: &[LedgerEntry], mission: &str, task: &str) -> MicroUsd 
 
 /// Read the ledger and sum one mission's rows for one task.
 ///
-/// An absent, unreadable or malformed ledger has spent nothing that this
-/// caller can attribute, so it returns [`MicroUsd::ZERO`] instead of turning a
-/// cost readback into a mission failure; the ledger itself is never written
-/// here.
+/// An absent ledger has spent nothing. An unreadable line costs only itself
+/// ([`read_entries_reporting`] skips it and says so on stderr): the strict
+/// reader failed the whole file on one torn line, and every role's readback
+/// then read $0 spent. The ledger itself is never written here.
 #[must_use]
 pub fn spent_for(path: &Path, mission: &str, task: &str) -> MicroUsd {
-    read_entries(path)
-        .map(|entries| cost_for(&entries, mission, task))
-        .unwrap_or(MicroUsd::ZERO)
+    cost_for(&read_entries_reporting(path), mission, task)
 }
 
 /// Add two amounts, saturating at the largest representable value.
@@ -557,6 +555,44 @@ mod tests {
         assert_eq!(tasks, ["T-1", "T-3"], "the row after the tear still counts");
         assert_eq!(skipped, 1);
         assert_eq!(total_cost(&entries), MicroUsd::from_micros(217_200 * 2));
+    }
+
+    /// harness-mission reads each role's spend back with [`spent_for`], and
+    /// the supervisor each merged task's cost with
+    /// [`crate::lifecycle::task_cost`]. Both read the ledger strictly, so one
+    /// torn line, inside a character or not, made every later readback $0.
+    #[test]
+    fn a_tear_costs_only_the_torn_row_in_the_spend_readbacks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.jsonl");
+        append_entry(&path, &charged("live-1", "planner", 120)).unwrap();
+        let rejected = serde_json::to_string(&entry(
+            "T-2",
+            Outcome::Rejected {
+                reason: "quality gate failed: “tests” red".into(),
+            },
+        ))
+        .unwrap();
+        let cut = rejected.find('“').unwrap() + 1;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(&rejected.as_bytes()[..cut]).unwrap();
+        drop(file);
+        // The next row lands on the torn line.
+        append_entry(&path, &charged("live-1", "planner", 80)).unwrap();
+        append_entry(&path, &charged("live-1", "planner", 40)).unwrap();
+        assert!(std::str::from_utf8(&std::fs::read(&path).unwrap()).is_err());
+
+        assert_eq!(
+            spent_for(&path, "live-1", "planner"),
+            MicroUsd::from_micros(240)
+        );
+        assert_eq!(
+            crate::lifecycle::task_cost(&path, "live-1", "planner"),
+            MicroUsd::from_micros(240)
+        );
     }
 
     /// An ASCII tear has no newline after it either, so the next append is

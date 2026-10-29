@@ -25,7 +25,7 @@ use crate::budget::{Admission, Budget, BudgetGuard};
 use crate::catalog::PriceCatalogue;
 use crate::event::{append_event, Event, EventKind};
 use crate::executor::{ExecutorConfig, RunOutcome, Runner};
-use crate::ledger::read_entries;
+use crate::ledger::{read_entries_lenient, read_entries_reporting};
 use crate::money::MicroUsd;
 use crate::policy::{
     history, rank_models, FailureKind, Ladder, NextAttempt, Policy, StopReason, UsageProfile,
@@ -200,7 +200,9 @@ pub fn run_mission(config: &MissionConfig, runner: &dyn Runner) -> EaiResult<Mis
     }
     let ranked = match &config.catalogue {
         Some(catalogue) => {
-            let entries = read_entries(&config.ledger_path).unwrap_or_default();
+            // One torn line must not erase the history the ranking learns
+            // from: the strict reader failed the whole file on it.
+            let entries = read_entries_reporting(&config.ledger_path);
             let history = history(&entries);
             rank_models(catalogue, &config.candidates, config.usage, &history)?
                 .into_iter()
@@ -503,10 +505,12 @@ fn describe(outcome: &AttemptOutcome) -> &'static str {
     }
 }
 
+/// The mission's spend, from the ledger's rows that can be read
+/// ([`read_entries_lenient`]). The strict reader failed the whole file on one
+/// torn line, a cut inside a multi-byte character or a row glued onto an
+/// ASCII tear, and the mission then reported $0 spent.
 fn mission_cost(path: &Path, mission: &str) -> MicroUsd {
-    let Ok(entries) = read_entries(path) else {
-        return MicroUsd::ZERO;
-    };
+    let (entries, _) = read_entries_lenient(path);
     entries
         .iter()
         .filter(|entry| entry.mission == mission)
@@ -800,5 +804,49 @@ mod tests {
         config.ledger_path = ledger;
         let report = run_mission(&config, &runner(vec![])).unwrap();
         assert_eq!(report.total_cost, MicroUsd::from_micros(150_000));
+    }
+
+    /// A crash cut a row inside a multi-byte character and the next row went
+    /// onto the torn line. The strict reader failed the whole file, and the
+    /// mission reported $0 spent; only the torn row may be lost.
+    #[test]
+    fn the_mission_total_counts_every_row_around_a_torn_line() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("ledger.jsonl");
+        let charge = |task: &str| {
+            LedgerEntry::settle(Dispatch {
+                mission: "m-1".into(),
+                task: task.into(),
+                attempt: 1,
+                model: "cheap".into(),
+                provider: "deepseek".into(),
+                usage: TokenUsage::new(1_000_000, 0, 0),
+                price: ModelPrice {
+                    input_miss: MicroUsd::from_micros(150_000),
+                    input_hit: MicroUsd::ZERO,
+                    output: MicroUsd::ZERO,
+                },
+                started_unix_ms: 0,
+                ended_unix_ms: 1,
+                outcome: Outcome::Completed,
+            })
+        };
+        append_entry(&ledger, &charge("before")).unwrap();
+        let torn =
+            r#"{"mission":"m-1","task":"torn","outcome":{"rejected":{"reason":"gate “red”"}}}"#;
+        let cut = torn.find('“').unwrap() + 1;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&ledger)
+            .unwrap();
+        file.write_all(&torn.as_bytes()[..cut]).unwrap();
+        drop(file);
+        append_entry(&ledger, &charge("after")).unwrap();
+        let mut config = mission(dir.path(), 1, vec!["cheap"]);
+        config.ledger_path = ledger;
+        config.catalogue = Some(catalogue());
+        let report = run_mission(&config, &runner(vec![])).unwrap();
+        assert_eq!(report.total_cost, MicroUsd::from_micros(300_000));
     }
 }

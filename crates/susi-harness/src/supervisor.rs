@@ -164,6 +164,8 @@ pub struct SupervisorReport {
     /// Task keys not started because the mission budget was exhausted, or
     /// because no model on a task's ladder can be paid for (every model's
     /// last real call was refused: the key was refused or has no credit).
+    /// A task prepared in the batch that stopped is here unless its work
+    /// passed and landed.
     pub unstarted: Vec<String>,
     /// True when the run stopped early for a top-up: the mission budget was
     /// exhausted, or no model on a task's ladder can be paid for (every
@@ -206,7 +208,8 @@ pub trait TaskExecutor: Sync {
     /// refused: the key was refused or has no credit).
     ///
     /// The supervisor checks this after every task and stops the plan for a
-    /// top-up instead of starting work the mission cannot pay for.
+    /// top-up instead of starting work the mission cannot pay for; work the
+    /// stopped batch already prepared and that passed still lands.
     fn budget_exhausted(&self) -> bool {
         false
     }
@@ -314,7 +317,7 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
                     break 'plan;
                 }
             }
-            for (offset, (task, result)) in self.prepare_batch(batch).into_iter().enumerate() {
+            for (task, result) in self.prepare_batch(batch) {
                 let status = match result {
                     Ok(prepared) => self.executor.land(prepared),
                     Err(error) => Ok(TaskStatus::Failed {
@@ -324,18 +327,27 @@ impl<'a, E: TaskExecutor> Supervisor<'a, E> {
                 .unwrap_or_else(|error| TaskStatus::Failed {
                     reason: error.to_string(),
                 });
+                // Once the mission stops for a top-up, the rest of this batch
+                // was already prepared. Work that passed still lands: the
+                // stop used to break here and leave a batch-mate's accepted
+                // commit unmerged with its claim held. Anything else is left
+                // for a later run, as before.
+                if budget_exhausted {
+                    if matches!(status, TaskStatus::Done { .. }) {
+                        record(&mut state, &self.state_path, task, status, &mut tally)?;
+                    } else {
+                        unstarted.push(task.key.clone());
+                    }
+                    continue;
+                }
                 let stop = self.executor.budget_exhausted();
                 record(&mut state, &self.state_path, task, status, &mut tally)?;
-                if stop {
-                    budget_exhausted = true;
-                    let consumed = batch_index * parallel + offset + 1;
-                    unstarted = pending
-                        .iter()
-                        .skip(consumed)
-                        .map(|task| task.key.clone())
-                        .collect();
-                    break 'plan;
-                }
+                budget_exhausted = stop;
+            }
+            if budget_exhausted {
+                let consumed = (batch_index + 1) * parallel;
+                unstarted.extend(pending.iter().skip(consumed).map(|task| task.key.clone()));
+                break 'plan;
             }
         }
         Ok(SupervisorReport {
@@ -733,6 +745,63 @@ mod tests {
             peak >= 2,
             "expected two prepares in flight, peak was {peak}"
         );
+    }
+
+    /// A task that finds no model it can pay for stops the mission; its
+    /// batch-mates were prepared beside it.
+    struct ExhaustingExecutor {
+        exhausting: String,
+        exhausted: std::sync::atomic::AtomicBool,
+        landed: Mutex<Vec<String>>,
+    }
+
+    impl TaskExecutor for ExhaustingExecutor {
+        type Prepared = String;
+
+        fn prepare(&self, task: &PlanTask) -> EaiResult<String> {
+            if task.key == self.exhausting {
+                self.exhausted.store(true, Ordering::SeqCst);
+            }
+            Ok(task.key.clone())
+        }
+
+        fn land(&self, key: String) -> EaiResult<TaskStatus> {
+            if key == self.exhausting {
+                return Ok(TaskStatus::Failed {
+                    reason: "no model can run".into(),
+                });
+            }
+            self.landed.lock().unwrap().push(key.clone());
+            Ok(TaskStatus::Done {
+                task: format!("T-{key}"),
+            })
+        }
+
+        fn budget_exhausted(&self) -> bool {
+            self.exhausted.load(Ordering::SeqCst)
+        }
+    }
+
+    /// The stop broke out after the batch's first task, so a batch-mate whose
+    /// work had passed was never landed: its commit stayed unmerged and its
+    /// claim held, and the report called it unstarted.
+    #[test]
+    fn a_stop_for_a_top_up_still_lands_the_work_its_batch_prepared() {
+        let dir = tempfile::tempdir().unwrap();
+        let executor = ExhaustingExecutor {
+            exhausting: "a".into(),
+            exhausted: std::sync::atomic::AtomicBool::new(false),
+            landed: Mutex::new(Vec::new()),
+        };
+        let report = Supervisor::new(dir.path().join("state.json"), &executor)
+            .with_parallelism(2)
+            .run(&plan())
+            .unwrap();
+        assert!(report.budget_exhausted);
+        assert_eq!(report.done, vec!["b"]);
+        assert_eq!(*executor.landed.lock().unwrap(), vec!["b"]);
+        assert_eq!(report.failed.len(), 1);
+        assert_eq!(report.unstarted, vec!["c"]);
     }
 
     #[test]

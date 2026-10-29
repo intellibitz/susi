@@ -137,6 +137,25 @@ the rescue models, then to the other workers. `--workers` with a
 comma-separated list still names the ladder explicitly; a listed model whose
 provider has no key set or is inactive, whose last real call was refused, or
 that its provider no longer lists, is left off and named.
+
+"No key set" is about the command's own environment, and the gateway may hold
+keys the command does not: one on an explicit `--upstream` (a proxy with the
+keys), or one started with `--api-key-env` or in another environment. So
+`run` and `author`, and `plan` when given `--gateway`, ask the gateway they
+drive about such a model with one small call through it. The model stays when
+the gateway answers, a rate limit or a 5xx included, and is left off when the
+gateway cannot route it either (a direct gateway missing the same key answers
+that at once, without a provider call) or the provider refuses the call.
+`--workers auto` still needs the keys where the command runs.
+
+Such a model is never probed from the command (a probe is sent from where the
+command runs, with the keys set there; see below), so after a refusal the
+gateway is asked again instead: once the refusal is 5 minutes old, the next
+`run`, `author` or `plan --gateway` asks it with the same small call, and
+keeps the model when the gateway answers. A command that drives no gateway
+(`plan` without `--gateway`, or the standalone `susi-harness`) leaves the
+model off until its key is set where that command runs.
+
 `susi harness models --available` prints the resolved `auto` section, and
 exits with a message when no key is set.
 
@@ -161,9 +180,21 @@ with the `susi/` prefix count for the model they name.
 A refused model is probed with one small call once the refusal is 5 minutes
 old: when a run starts, and again before each task of a running mission, so a
 key that was fixed or an account that was topped up comes back without a
-restart. If every model on a task's ladder has been refused, the mission
-stops as it does when its budget runs out, and leaves its remaining tasks for
-a later run instead of failing them unattempted.
+restart. That includes a model `susi harness run` left off when it started
+because its last call was refused: the mission keeps it in reserve, behind
+the models it started with, and a task's ladder takes it back once a probe
+answers. A model left off for another reason as well (an inactive provider,
+or one its provider no longer lists) waits for the next run. A model whose
+key is not set where the run executes is not probed at all, at its start or
+mid-mission: a refusal keeps it off for the rest of the mission, and the next
+run asks its gateway about it, as described above. Tasks prepared at once
+that reach the same refused model share one probe: the others wait for its
+answer instead of reading the model as still refused.
+
+If every model on a task's ladder has been refused, the mission stops as it
+does when its budget runs out, and leaves its remaining tasks for a later run
+instead of failing them unattempted. Work its batch had already prepared and
+that passed still lands.
 
 A provider whose models endpoint answers is active even when its list leaves
 out one of the registry's backends: only that model is left off, with a `⚠`
@@ -416,6 +447,18 @@ The ledger is the answer. One JSON line per priced call with the mission, task,
 attempt, model, tokens (including cache hits), the price in force, the cost, and
 whether the gateway served it from cache. A later catalogue change cannot rewrite
 history, and the cockpit's totals are an integer sum of that file.
+
+A line torn by a crash or a full disk costs only itself where spend is
+checked: the mission's `--budget-usd`, the `--daily-usd` cap, the provider
+budgets, the scheduler's mission total and the fleet's evidence read the
+file line by line as bytes, skip only the torn line, and still count a row
+the next append glued onto it. A cut inside a multi-byte character used to
+make the whole file read as nothing spent.
+
+When `--ledger` is not given, `run`, `budget` and `gateway` use
+`SUSI_HARNESS_LEDGER` if it is set, else `out/ledger.jsonl` in a susi
+workspace, else `harness/ledger.jsonl` in the data home (`~/.susi`, or
+`SUSI_HOME`).
 
 ## Reliability behaviours
 

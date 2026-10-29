@@ -18,7 +18,7 @@
 //! are deliberately not written: those are release actions, and inventing them
 //! would turn a missing phase into a fabricated success.
 
-use crate::ledger::read_entries;
+use crate::ledger::read_entries_reporting;
 use crate::money::MicroUsd;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -187,12 +187,12 @@ pub fn read(path: &Path) -> EaiResult<Vec<LifecycleEvent>> {
 /// What one mission's task cost, read from the priced ledger.
 ///
 /// A missing ledger means the ledger path was not shared with the harness; the
-/// cost is reported as zero rather than guessed.
+/// cost is reported as zero rather than guessed. An unreadable line costs only
+/// itself ([`read_entries_reporting`]): the strict reader failed the whole
+/// file on one torn line, and every merged task's cost then read $0.
 #[must_use]
 pub fn task_cost(ledger_path: &Path, mission: &str, task: &str) -> MicroUsd {
-    let Ok(entries) = read_entries(ledger_path) else {
-        return MicroUsd::ZERO;
-    };
+    let entries = read_entries_reporting(ledger_path);
     entries
         .iter()
         .filter(|entry| entry.mission == mission && entry.task == task)

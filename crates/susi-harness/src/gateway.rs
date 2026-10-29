@@ -19,13 +19,22 @@
 //!
 //! A client that hangs up does not cancel the meter: once a call has gone to
 //! the provider, it is read to its end and settled on a blocking thread of
-//! its own, which the runtime finishes even when the gateway stops.
+//! its own, which the runtime finishes even when the gateway stops. What a
+//! caller holds for the call ([`complete_holding`], the ingress's reservation
+//! against an account cap) is kept until then too, not until the client goes.
 //!
 //! A provider with a configured rate limit ([`crate::ratelimit`]) is paced:
 //! a call waits for its slot, and a call whose slot is further off than the
 //! gateway's upstream timeout (at most [`crate::ratelimit::MAX_PAUSE_MS`]) is
 //! answered 429 with a `Retry-After` at once, sending nothing upstream and
 //! writing no row.
+//!
+//! A provider that refuses `max_tokens` and asks for `max_completion_tokens`
+//! (OpenAI's reasoning models answer 400 `unsupported_parameter`) is sent the
+//! same call once more with the same limit under that name, before the caller
+//! hears of the refusal ([`token_limit_resend`]). The resend is a call of its
+//! own and takes a paced slot of its own; the refused call billed nothing and
+//! writes no row.
 
 use crate::cache::ResponseCache;
 use crate::catalog::PriceCatalogue;
@@ -172,14 +181,49 @@ async fn completions(
 
 /// Forward one completion through the meter.
 ///
-/// The authenticated ingress calls this after its own admission checks; the
-/// gateway's own route calls it directly.
+/// The gateway's own route calls this; the authenticated ingress calls
+/// [`complete_holding`] after its own admission checks.
 pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String) -> Response {
+    complete_holding(state, headers, body, None).await
+}
+
+/// What a caller of [`complete_holding`] keeps alive until the call is
+/// settled. Dropping it is the signal: nothing is read from it.
+pub type Held = Option<Box<dyn Send>>;
+
+/// Forward one completion through the meter, keeping `held` until the call is
+/// settled: it is dropped once the call's ledger row is written, or once it
+/// is clear that none will be (the request is refused before any provider is
+/// called, a paced call is turned away or abandoned while it waits, a stream
+/// ends without usage).
+///
+/// A client that hangs up does not end the hold while the provider is still
+/// answering. The ingress holds an account's reservation this way: dropped
+/// with the request, it went back the moment a client hung up, while the
+/// detached call went on billing, so a caller that closed each socket once
+/// its request was sent had every call admitted against the same remaining
+/// dollar.
+pub async fn complete_holding(
+    state: Arc<GatewayState>,
+    headers: HeaderMap,
+    body: String,
+    held: Held,
+) -> Response {
     let Ok(mut request) = serde_json::from_str::<Value>(&body) else {
         return error_response(StatusCode::BAD_REQUEST, "request body is not JSON");
     };
     if let Some(cap) = state.max_output_tokens {
         clamp_output_tokens(&mut request, cap);
+    }
+    // `stream` decides how the answer is read and metered, so it must mean the
+    // same here and upstream. `"stream":"true"` read as buffered here while a
+    // lenient server streamed: the answer could not be parsed, the call was
+    // billed, and no row was written.
+    if request
+        .get("stream")
+        .is_some_and(|stream| !stream.is_boolean() && !stream.is_null())
+    {
+        return error_response(StatusCode::BAD_REQUEST, "`stream` must be true or false");
     }
     let body = serde_json::to_string(&request).unwrap_or(body);
     let streaming = request
@@ -308,14 +352,16 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
     // timeout shorter than the gateway's), and the row used to be written by
     // the handler, so a billed call went unrecorded. Inside that task the row
     // is written on the blocking thread that makes the call, which a stopping
-    // runtime still finishes.
+    // runtime still finishes. The caller's hold goes with the call, so it
+    // lasts as long as the call does, not as long as the client.
     let call = tokio::spawn(async move {
         if streaming {
-            stream_upstream(state, attempt, forwarded, cache_key).await
+            stream_upstream(state, attempt, forwarded, cache_key, held).await
         } else {
-            buffered_upstream(state, attempt, forwarded, cache_key, false)
-                .await
-                .into_response()
+            let answer = buffered_upstream(state, attempt, forwarded, cache_key, false).await;
+            // Its row (and the starved retry's) is written by now.
+            drop(held);
+            answer.into_response()
         }
     });
     match call.await {
@@ -330,9 +376,18 @@ pub async fn complete(state: Arc<GatewayState>, headers: HeaderMap, body: String
 /// The longest a call waits for a paced slot before it is turned away.
 ///
 /// A client of the gateway waits at least as long as the gateway waits for
-/// the provider, or its calls would fail on every slow answer; a slot further
-/// off than that is most likely one its client gives up before. A
-/// `Retry-After` pause is never longer than [`crate::ratelimit::MAX_PAUSE_MS`].
+/// the provider, or its calls would fail on every slow answer, but it is not
+/// known to wait for that twice: a call queued longer could start while its
+/// client still waits and be answered, and billed, after the client gave up.
+/// So the queue holds a call for at most the upstream timeout (and never
+/// longer than a `Retry-After` pause, [`crate::ratelimit::MAX_PAUSE_MS`]),
+/// and a call whose slot is further off is answered 429 with a `Retry-After`
+/// at once. The in-tree worker waits up to 300 s for a turn, which covers a
+/// full queue and a full upstream wait at the default 120 s timeout, and resends
+/// a turn the queue turned away once its `Retry-After` has passed
+/// ([`crate::worker`]): it failed the whole attempt on that 429 before, so a
+/// burst of more callers than the queue holds lost attempts that had waited
+/// and been served when the queue had no cap.
 fn queue_cap_ms(state: &GatewayState) -> u64 {
     crate::ratelimit::MAX_PAUSE_MS.min(state.timeout_secs.max(1).saturating_mul(1_000))
 }
@@ -342,6 +397,12 @@ fn queue_cap_ms(state: &GatewayState) -> u64 {
 /// `Retry-After`, so a client backs off as it would from the provider itself.
 /// Nothing went upstream, so no row is written.
 fn paced_out(provider: &str, wait_ms: u64) -> Response {
+    paced_answer(provider, wait_ms).into_response()
+}
+
+/// [`paced_out`] as an [`Answer`], for a call the gateway makes again on its
+/// own ([`own_slot`]) and finds no slot for.
+fn paced_answer(provider: &str, wait_ms: u64) -> Answer {
     let seconds = wait_ms.div_ceil(1_000);
     let body = json!({
         "error": {
@@ -352,16 +413,35 @@ fn paced_out(provider: &str, wait_ms: u64) -> Response {
             "code": "rate_limit_exceeded"
         }
     });
-    let mut response = Answer {
+    Answer {
         status: StatusCode::TOO_MANY_REQUESTS,
         content_type: "application/json".into(),
         body: body.to_string().into_bytes(),
+        retry_after: Some(seconds),
     }
-    .into_response();
-    response
-        .headers_mut()
-        .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
-    response
+}
+
+/// A paced slot for a call the gateway makes again on its own (the retry of
+/// a starved answer, the resend of a refused `max_tokens`), waited for here.
+/// The call runs detached from its client, so the slot is kept at once.
+///
+/// # Errors
+///
+/// The wait, when the slot is further off than [`queue_cap_ms`]: the client
+/// is most likely gone by then.
+async fn own_slot(state: &GatewayState, provider: &str) -> Result<(), u64> {
+    let reservation = crate::ratelimit::Pacer::global().hold_within(
+        provider,
+        now_ms(),
+        None,
+        queue_cap_ms(state),
+    )?;
+    let wait = reservation.wait_ms();
+    reservation.keep();
+    if wait > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+    }
+    Ok(())
 }
 
 /// A finished buffered exchange, as the gateway answers it.
@@ -372,6 +452,8 @@ struct Answer {
     status: StatusCode,
     content_type: String,
     body: Vec<u8>,
+    /// Seconds for the `Retry-After` of a call turned away ([`paced_answer`]).
+    retry_after: Option<u64>,
 }
 
 impl Answer {
@@ -382,6 +464,7 @@ impl Answer {
             body: json!({ "error": { "message": message } })
                 .to_string()
                 .into_bytes(),
+            retry_after: None,
         }
     }
 
@@ -390,6 +473,11 @@ impl Answer {
         *response.status_mut() = self.status;
         if let Ok(value) = HeaderValue::from_str(&self.content_type) {
             response.headers_mut().insert(header::CONTENT_TYPE, value);
+        }
+        if let Some(seconds) = self.retry_after {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
         }
         response
     }
@@ -530,6 +618,43 @@ struct Settled {
     /// The answer spent the output limit on hidden thinking and holds
     /// nothing usable ([`starved`]); it is on the ledger but not cached.
     starved: bool,
+    /// The provider refused the call's `max_tokens` for
+    /// `max_completion_tokens` ([`token_limit_resend`]): the body to send
+    /// instead. The refusal is not on the ledger and is not the answer.
+    resend: Option<String>,
+}
+
+impl Settled {
+    /// An answer the gateway neither retries nor sends again.
+    fn as_is(answer: Answer) -> Self {
+        Self {
+            answer,
+            starved: false,
+            resend: None,
+        }
+    }
+}
+
+/// The body to send instead of `sent` when the provider answered it `status`
+/// with `answer`, refusing its `max_tokens` and asking for
+/// `max_completion_tokens`: the same call with the same limit under that
+/// name ([`susi_adapters_llm::inference_wire::token_param_retry`]). `None`
+/// for any other answer, and for a body without `max_tokens`, so a call is
+/// sent again this way at most once.
+///
+/// A capped account's call goes out with its priced limit as `max_tokens`
+/// ([`crate::ingress`]), as does every call under `--max-output-tokens`, and
+/// OpenAI's reasoning models refused each one: HTTP 400
+/// `unsupported_parameter`, for a request the caller may not have given a
+/// limit at all.
+fn token_limit_resend(sent: &[u8], status: u16, answer: &[u8]) -> Option<String> {
+    if status != 400 {
+        return None;
+    }
+    let request = serde_json::from_slice::<Value>(sent).ok()?;
+    let error = String::from_utf8_lossy(answer);
+    let resend = susi_adapters_llm::inference_wire::token_param_retry(&request, &error)?;
+    serde_json::to_string(&resend).ok()
 }
 
 async fn buffered_upstream(
@@ -539,7 +664,7 @@ async fn buffered_upstream(
     cache_key: String,
     retried: bool,
 ) -> Answer {
-    let resend = (!retried).then(|| body.clone());
+    let retryable = (!retried).then(|| body.clone());
     let started_unix_ms = now_ms();
     let route = match crate::router::resolve_route(
         &attempt.model,
@@ -611,7 +736,7 @@ async fn buffered_upstream(
                 state.timeout_secs,
                 0,
             );
-            settle_buffered(&state, &exchange, call)
+            settle_buffered(&state, &exchange, &outgoing_body, call)
         })
     };
     let settled = match settling.await {
@@ -623,29 +748,33 @@ async fn buffered_upstream(
             );
         }
     };
+    // The provider refused `max_tokens` and asked for `max_completion_tokens`:
+    // the same call goes again with the limit under that name. The resend
+    // is a call of its own, so it takes a paced slot of its own, as the
+    // starved retry does; whatever the caller holds is kept through it, and
+    // the resend may still be retried once if it comes back starved. A slot
+    // further off than the cap is answered as the first call's would have
+    // been: 429 with a `Retry-After`, not a refusal of a request the caller
+    // may never have put a `max_tokens` in.
+    if let Some(body) = settled.resend {
+        return match own_slot(&state, &attempt.provider).await {
+            Ok(()) => Box::pin(buffered_upstream(state, attempt, body, cache_key, retried)).await,
+            Err(wait_ms) => paced_answer(&attempt.provider, wait_ms),
+        };
+    }
     // The starved call stays on the ledger: its hidden thinking was billed.
     // The caller gets one more call with room to answer.
     if settled.starved {
-        if let Some(grown) = resend.and_then(|body| with_headroom(&body, state.max_output_tokens)) {
+        if let Some(grown) =
+            retryable.and_then(|body| with_headroom(&body, state.max_output_tokens))
+        {
             // The retry is a call of its own and waits for a slot of its
             // own: on the first call's slot alone, a starved answer put two
             // calls in the provider's minute and drew the 429s the pacer is
-            // there to prevent. This runs detached from the client, so the
-            // slot is kept at once. A slot further off than the cap is one
-            // the client gives up before; it gets the answer the provider
-            // gave instead.
-            let slot = crate::ratelimit::Pacer::global().hold_within(
-                &attempt.provider,
-                now_ms(),
-                None,
-                queue_cap_ms(&state),
-            );
-            if let Ok(reservation) = slot {
-                let wait = reservation.wait_ms();
-                reservation.keep();
-                if wait > 0 {
-                    tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
-                }
+            // there to prevent. A slot further off than the cap is one the
+            // client gives up before; it gets the answer the provider gave
+            // instead.
+            if own_slot(&state, &attempt.provider).await.is_ok() {
                 return Box::pin(buffered_upstream(state, attempt, grown, cache_key, true)).await;
             }
         }
@@ -668,14 +797,11 @@ struct Exchange {
 fn settle_buffered(
     state: &GatewayState,
     exchange: &Exchange,
+    sent: &[u8],
     call: Result<susi_http_transport::HttpCall, String>,
 ) -> Settled {
     let tag = &exchange.tag;
     let started_unix_ms = exchange.started_unix_ms;
-    let unstarved = |answer| Settled {
-        answer,
-        starved: false,
-    };
     let call = match call {
         Ok(call) => call,
         Err(error) => {
@@ -686,7 +812,7 @@ fn settle_buffered(
                 started_unix_ms,
                 transport_failure(&message),
             );
-            return unstarved(Answer::error(StatusCode::BAD_GATEWAY, &message));
+            return Settled::as_is(Answer::error(StatusCode::BAD_GATEWAY, &message));
         }
     };
     let status = call.status;
@@ -701,12 +827,26 @@ fn settle_buffered(
     let response_bytes = match call.into_bytes(MAX_RESPONSE_BYTES) {
         Ok(bytes) => bytes,
         Err(error) => {
-            return unstarved(Answer::error(
+            return Settled::as_is(Answer::error(
                 StatusCode::BAD_GATEWAY,
                 &format!("upstream body: {error}"),
             ));
         }
     };
+    // Refused for naming its limit `max_tokens`: sent again, before anything
+    // is booked or answered ([`buffered_upstream`]). The refusal billed
+    // nothing, so it writes no row. The Messages API reads only `max_tokens`.
+    if !exchange.is_anthropic {
+        if let Some(body) = token_limit_resend(sent, status, &response_bytes) {
+            return Settled {
+                resend: Some(body),
+                ..Settled::as_is(Answer::error(
+                    StatusCode::BAD_REQUEST,
+                    "the provider refused max_tokens",
+                ))
+            };
+        }
+    }
     let ended_unix_ms = now_ms();
     if let Some(class) = provider_failure(status, &response_bytes) {
         record_failure(&state.ledger_path, tag, started_unix_ms, class);
@@ -736,7 +876,7 @@ fn settle_buffered(
     let mut starved_answer = false;
     if (200..300).contains(&status) {
         let Ok(value) = serde_json::from_slice::<Value>(&response_bytes) else {
-            return unstarved(Answer::error(
+            return Settled::as_is(Answer::error(
                 StatusCode::BAD_GATEWAY,
                 "upstream answer is not JSON, so it cannot be priced",
             ));
@@ -744,7 +884,7 @@ fn settle_buffered(
         let usage = match token_usage_from_json(&value) {
             Ok(usage) => usage,
             Err(error) => {
-                return unstarved(Answer::error(
+                return Settled::as_is(Answer::error(
                     StatusCode::BAD_GATEWAY,
                     &format!("unmetered provider answer: {error}"),
                 ));
@@ -777,7 +917,7 @@ fn settle_buffered(
         }
         let entry = if cached { entry.as_cached() } else { entry };
         if let Err(error) = append_entry(&state.ledger_path, &entry) {
-            return unstarved(Answer::error(
+            return Settled::as_is(Answer::error(
                 StatusCode::BAD_GATEWAY,
                 &format!("ledger append failed: {error}"),
             ));
@@ -789,16 +929,34 @@ fn settle_buffered(
             status: StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
             content_type,
             body: response_bytes,
+            retry_after: None,
         },
         starved: starved_answer,
+        resend: None,
     }
 }
 
+/// What the blocking thread that makes a streamed call tells the request.
+enum Upstream {
+    /// The provider answered with this status and content type; the body
+    /// follows on the chunk channel.
+    Answered(u16, String),
+    /// The call got no answer.
+    Failed(String),
+    /// The provider refused the call's `max_tokens` for
+    /// `max_completion_tokens` ([`token_limit_resend`]): the body to send
+    /// instead, and the caller's hold, kept through the resend.
+    Resend(String, Held),
+}
+
+/// Forward a streamed call; `held` is dropped once its row is written, or
+/// once it is clear none will be ([`complete_holding`]).
 async fn stream_upstream(
     state: Arc<GatewayState>,
     attempt: Attempt,
     body: String,
     cache_key: String,
+    held: Held,
 ) -> Response {
     let route = match crate::router::resolve_route(
         &attempt.model,
@@ -816,10 +974,13 @@ async fn stream_upstream(
         // translated both ways and metered there, and its answer goes back
         // as an OpenAI stream.
         let model = attempt.model.clone();
-        let answer = buffered_upstream(state, attempt, without_stream(&body), cache_key, false);
-        return answer.await.into_stream(&model);
+        let answer =
+            buffered_upstream(state, attempt, without_stream(&body), cache_key, false).await;
+        drop(held);
+        return answer.into_stream(&model);
     }
     let tag = attempt.clone();
+    let again = attempt.clone();
     let Attempt {
         mission,
         task,
@@ -831,7 +992,7 @@ async fn stream_upstream(
     let started_unix_ms = now_ms();
 
     let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
-    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel::<Result<(u16, String), String>>();
+    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel::<Upstream>();
     let target_url = route.url.clone();
     let route_headers = route.headers.clone();
     let timeout_secs = state.timeout_secs;
@@ -873,33 +1034,52 @@ async fn stream_upstream(
                     started_unix_ms,
                     transport_failure(&message),
                 );
-                let _ = meta_tx.send(Err(message));
+                // The hold ends with the row, before the caller hears.
+                drop(held);
+                let _ = meta_tx.send(Upstream::Failed(message));
                 return;
             }
         };
         let status = call.status;
         pause_on_retry_after(&provider, status, call.header("retry-after"));
+        // A susi gateway upstream of this one marks an answer its cache
+        // served: the provider was not called, so the row must not charge
+        // for it. The buffered path read the mark and this one did not, and
+        // the replay carries a usage chunk, so a cache hit streamed through
+        // two gateways was booked at full price on the front one.
+        let cached = call.header("x-susi-cache-key").is_some();
         let content_type = call
             .header("content-type")
             .unwrap_or("text/event-stream")
             .to_string();
-        // `None` once the client has gone. The call was made either way, so it
-        // is still read to its end and settled: the provider billed it.
-        let mut client = meta_tx
-            .send(Ok((status, content_type)))
-            .is_ok()
-            .then_some(chunk_tx);
         if !(200..300).contains(&status) {
             let bytes = call.into_bytes(MAX_RESPONSE_BYTES).unwrap_or_default();
+            // Refused for naming its limit `max_tokens`: sent again before
+            // the caller hears a status, with the hold kept through it. The
+            // refusal billed nothing, so it writes no row.
+            if let Some(body) = token_limit_resend(outgoing_body.as_bytes(), status, &bytes) {
+                let _ = meta_tx.send(Upstream::Resend(body, held));
+                return;
+            }
             if let Some(class) = provider_failure(status, &bytes) {
                 record_failure(&ledger_path, &tag, started_unix_ms, class);
             }
+            drop(held);
             let bytes = crate::secrets::redact(&String::from_utf8_lossy(&bytes)).into_bytes();
-            if let Some(client) = client {
-                let _ = client.blocking_send(bytes);
+            if meta_tx
+                .send(Upstream::Answered(status, content_type))
+                .is_ok()
+            {
+                let _ = chunk_tx.blocking_send(bytes);
             }
             return;
         }
+        // `None` once the client has gone. The call was made either way, so it
+        // is still read to its end and settled: the provider billed it.
+        let mut client = meta_tx
+            .send(Upstream::Answered(status, content_type))
+            .is_ok()
+            .then_some(chunk_tx);
 
         let mut reader = std::io::BufReader::new(call.into_reader());
         let mut usage = None;
@@ -946,6 +1126,7 @@ async fn stream_upstream(
                     ended_unix_ms,
                     outcome: Outcome::Completed,
                 });
+                let entry = if cached { entry.as_cached() } else { entry };
                 if let Err(error) = append_entry(&ledger_path, &entry) {
                     eprintln!("harness-gateway: ledger append failed: {error}");
                 }
@@ -954,10 +1135,15 @@ async fn stream_upstream(
                 "harness-gateway: stream for {model} ({mission}/{task} attempt {attempt}) ended without usage; not recorded"
             ),
         }
+        // Released after the row and before the stream ends for the caller,
+        // so a caller that sends its next call the moment this one ends finds
+        // this one settled.
+        drop(held);
+        drop(client);
     });
 
     match meta_rx.await {
-        Ok(Ok((status, content_type))) => {
+        Ok(Upstream::Answered(status, content_type)) => {
             let stream = futures::stream::poll_fn(move |cx| chunk_rx.poll_recv(cx))
                 .map(Ok::<Vec<u8>, std::io::Error>);
             let mut response = Response::new(axum::body::Body::from_stream(stream));
@@ -968,7 +1154,13 @@ async fn stream_upstream(
             }
             response
         }
-        Ok(Err(message)) => error_response(StatusCode::BAD_GATEWAY, &message),
+        Ok(Upstream::Failed(message)) => error_response(StatusCode::BAD_GATEWAY, &message),
+        // The resend is a call of its own and takes a paced slot of its own,
+        // as the buffered path's does ([`buffered_upstream`]).
+        Ok(Upstream::Resend(body, held)) => match own_slot(&state, &again.provider).await {
+            Ok(()) => Box::pin(stream_upstream(state, again, body, cache_key, held)).await,
+            Err(wait_ms) => paced_out(&again.provider, wait_ms),
+        },
         Err(_) => error_response(StatusCode::BAD_GATEWAY, "upstream task failed"),
     }
 }
@@ -1183,7 +1375,32 @@ mod tests {
         PriceCatalogue::from_json(CATALOGUE).unwrap()
     }
 
+    /// Serve `app` for one test. Every answer closes its connection: the
+    /// transport pools connections per timeout for the whole test process,
+    /// and one kept open to a server a finished test left behind was handed
+    /// to a later test's call once a new server took that port, which then
+    /// failed with os error 10053 (at times a third of runs). Every request
+    /// is read in full first, since a connection closed with part of a
+    /// request unread is reset on Windows (os error 10054 at the client).
     async fn spawn(app: Router) -> SocketAddr {
+        let app = app
+            .layer(axum::middleware::map_response(
+                |mut response: Response| async move {
+                    response
+                        .headers_mut()
+                        .insert(header::CONNECTION, HeaderValue::from_static("close"));
+                    response
+                },
+            ))
+            .layer(axum::middleware::map_request(
+                |request: axum::extract::Request| async move {
+                    let (parts, body) = request.into_parts();
+                    let bytes = axum::body::to_bytes(body, usize::MAX)
+                        .await
+                        .unwrap_or_default();
+                    axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes))
+                },
+            ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -1351,6 +1568,112 @@ mod tests {
         assert_eq!(cache.get(&key).unwrap()["id"], "cmpl-2088");
     }
 
+    /// A provider that refuses `max_tokens` as OpenAI's reasoning models do
+    /// (400 `unsupported_parameter`), answers every other call, buffered or
+    /// streamed as asked, and keeps every request it got.
+    async fn refuses_max_tokens() -> (SocketAddr, Arc<std::sync::Mutex<Vec<Value>>>) {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let app = {
+            let seen = Arc::clone(&seen);
+            Router::new().route(
+                "/v1/chat/completions",
+                post(move |body: String| {
+                    let seen = Arc::clone(&seen);
+                    async move {
+                        let request = serde_json::from_str::<Value>(&body).unwrap();
+                        let refused = request.get("max_tokens").is_some();
+                        let streaming = request["stream"] == true;
+                        seen.lock().unwrap().push(request);
+                        if refused {
+                            let error = json!({"error": {
+                                "message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+                                "type": "invalid_request_error",
+                                "param": "max_tokens",
+                                "code": "unsupported_parameter"
+                            }});
+                            return (StatusCode::BAD_REQUEST, Json(error)).into_response();
+                        }
+                        if streaming {
+                            streamed().await.into_response()
+                        } else {
+                            complete().await.into_response()
+                        }
+                    }
+                }),
+            )
+        };
+        (spawn(app).await, seen)
+    }
+
+    /// The ingress sends a capped call's limit as `max_tokens`, as the
+    /// gateway's own cap does, and OpenAI's reasoning models refused it with
+    /// a 400 that went back to the caller. The call is sent again with the
+    /// same limit as `max_completion_tokens`, before the caller hears: it
+    /// takes a paced slot of its own, the refusal writes no row, and what the
+    /// caller holds is kept until the resend's row is written.
+    #[tokio::test]
+    async fn a_call_whose_max_tokens_is_refused_is_sent_again_as_max_completion_tokens() {
+        for (streaming, provider) in [
+            (false, "pacer-token-limit-test"),
+            (true, "pacer-token-limit-stream-test"),
+        ] {
+            let (upstream, seen) = refuses_max_tokens().await;
+            let dir = tempfile::tempdir().unwrap();
+            let ledger_path = dir.path().join("ledger.jsonl");
+            let mut state = Arc::try_unwrap(gateway_state(upstream, ledger_path.clone()))
+                .unwrap_or_else(|_| unreachable!());
+            // A model the registry does not know runs on the gateway's provider.
+            state.provider = provider.into();
+            let state = Arc::new(state);
+            let at_drop = Arc::new(std::sync::Mutex::new(None));
+            let held = {
+                let (ledger, seen) = (ledger_path.clone(), Arc::clone(&at_drop));
+                move |headers: HeaderMap, body: String| {
+                    let guard = RowsAtDrop { ledger, seen };
+                    complete_holding(state, headers, body, Some(Box::new(guard)))
+                }
+            };
+            let gateway = spawn(Router::new().route("/v1/chat/completions", post(held))).await;
+            let request = json!({
+                "model": "token-limit-probe-model",
+                "max_tokens": 321,
+                "stream": streaming,
+                "messages": [{"role": "user", "content": "ping"}]
+            });
+
+            let (status, answer) = post_json(gateway, &request.to_string(), &[]).await;
+
+            assert_eq!(status, 200, "{answer}");
+            if streaming {
+                assert!(answer.contains("data: [DONE]"), "{answer}");
+            } else {
+                assert!(answer.contains("cmpl-1"), "{answer}");
+            }
+            let rows = rows_eventually(&ledger_path, 1).await;
+            assert_eq!(rows.len(), 1, "the refusal billed nothing: {rows:?}");
+            assert_eq!(rows[0].outcome, Outcome::Completed);
+            let seen = seen.lock().unwrap().clone();
+            assert_eq!(seen.len(), 2, "{seen:?}");
+            assert_eq!(seen[0]["max_tokens"], 321);
+            assert_eq!(seen[1]["max_completion_tokens"], 321, "{}", seen[1]);
+            assert!(seen[1].get("max_tokens").is_none(), "{}", seen[1]);
+            assert_eq!(
+                crate::ratelimit::Pacer::global().reserved(provider),
+                2,
+                "one slot per upstream call"
+            );
+            let mut dropped = None;
+            for _ in 0..100 {
+                dropped = *at_drop.lock().unwrap();
+                if dropped.is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            assert_eq!(dropped, Some(1), "held until the resend's row: {request}");
+        }
+    }
+
     #[test]
     fn only_an_answer_with_nothing_usable_is_starved() {
         let answer = |message: Value, finish: &str| json!({"choices": [{"message": message, "finish_reason": finish}]});
@@ -1367,6 +1690,38 @@ mod tests {
         );
         assert_eq!(with_headroom(r#"{"max_tokens":8000}"#, Some(8_000)), None);
         assert_eq!(with_headroom(r#"{"model":"m"}"#, Some(8_000)), None);
+    }
+
+    /// A `stream` that is not a boolean was read as buffered here while a
+    /// lenient upstream streamed: the SSE answer could not be priced, the
+    /// call was billed, and no row was written. It is refused before any
+    /// provider is called.
+    #[tokio::test]
+    async fn a_stream_flag_that_is_not_a_boolean_is_refused_before_the_call() {
+        let upstream = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let ledger_path = dir.path().join("ledger.jsonl");
+        let gateway = spawn(router(gateway_state(upstream, ledger_path.clone()))).await;
+        for stream in [r#""true""#, "1"] {
+            let body = format!(r#"{{"model":"deepseek-flash","stream":{stream},"messages":[]}}"#);
+            let (status, answer) = post_json(gateway, &body, &[]).await;
+            assert_eq!(status, 400, "{answer}");
+            assert!(
+                answer.contains("`stream` must be true or false"),
+                "{answer}"
+            );
+        }
+        assert!(
+            read_entries(&ledger_path).unwrap_or_default().is_empty(),
+            "nothing reached the provider"
+        );
+        let (status, _) = post_json(
+            gateway,
+            r#"{"model":"deepseek-flash","stream":false,"messages":[]}"#,
+            &[],
+        )
+        .await;
+        assert_eq!(status, 200, "a boolean stream flag is served as before");
     }
 
     #[tokio::test]
@@ -1983,6 +2338,132 @@ mod tests {
         assert_eq!(rows.len(), 1, "the billed stream has its row");
         assert_eq!(rows[0].usage.input, 10);
         assert_eq!(rows[0].usage.output, 2);
+    }
+
+    /// Notes, when it is dropped, how many rows the ledger held then.
+    struct RowsAtDrop {
+        ledger: PathBuf,
+        seen: Arc<std::sync::Mutex<Option<usize>>>,
+    }
+
+    impl Drop for RowsAtDrop {
+        fn drop(&mut self) {
+            let (rows, _) = crate::ledger::read_entries_lenient(&self.ledger);
+            *self.seen.lock().unwrap() = Some(rows.len());
+        }
+    }
+
+    /// What a caller holds for a call (the ingress's reservation against an
+    /// account cap) lasts until the call's row is written, also when the
+    /// client hangs up while the provider is still answering. Dropped with
+    /// the request, it was released before the provider had answered, while
+    /// the call went on and billed.
+    #[tokio::test]
+    async fn a_callers_hold_outlasts_a_client_that_hangs_up_until_the_row_is_written() {
+        async fn slow() -> Json<Value> {
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            complete().await
+        }
+        async fn slow_stream() -> impl IntoResponse {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<String, std::io::Error>>(4);
+            tokio::spawn(async move {
+                let first = "data: {\"id\":\"cmpl-6\",\"choices\":[{\"delta\":{\"content\":\"PARTIAL\"}}]}\n\n";
+                let _ = tx.send(Ok(first.to_string())).await;
+                tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                let rest = concat!(
+                    "data: {\"id\":\"cmpl-6\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,",
+                    "\"completion_tokens\":2}}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                let _ = tx.send(Ok(rest.to_string())).await;
+            });
+            let stream = futures::stream::poll_fn(move |cx| rx.poll_recv(cx));
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/event-stream")],
+                axum::body::Body::from_stream(stream),
+            )
+        }
+        let cases = [
+            (
+                Router::new().route("/v1/chat/completions", post(slow)),
+                r#"{"model":"deepseek-flash","messages":[]}"#,
+                "",
+            ),
+            (
+                Router::new().route("/v1/chat/completions", post(slow_stream)),
+                r#"{"model":"deepseek-flash","stream":true,"messages":[]}"#,
+                "PARTIAL",
+            ),
+        ];
+        for (provider, body, wait_for) in cases {
+            let upstream = spawn(provider).await;
+            let dir = tempfile::tempdir().unwrap();
+            let ledger_path = dir.path().join("ledger.jsonl");
+            let state = gateway_state(upstream, ledger_path.clone());
+            let seen = Arc::new(std::sync::Mutex::new(None));
+            let held = {
+                let (ledger, seen) = (ledger_path.clone(), Arc::clone(&seen));
+                move |headers: HeaderMap, body: String| {
+                    let guard = RowsAtDrop { ledger, seen };
+                    complete_holding(state, headers, body, Some(Box::new(guard)))
+                }
+            };
+            let gateway = spawn(Router::new().route("/v1/chat/completions", post(held))).await;
+
+            post_and_hang_up(gateway, body, wait_for).await;
+
+            let mut dropped = None;
+            for _ in 0..100 {
+                dropped = *seen.lock().unwrap();
+                if dropped.is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            assert_eq!(dropped, Some(1), "held until the row was written: {body}");
+        }
+    }
+
+    /// One susi gateway in front of another: the back one serves a streamed
+    /// call from its cache, books it at zero and marks the answer. The front
+    /// one read the mark on a buffered answer only, and the replayed stream
+    /// carries a usage chunk, so the front booked the hit at full price.
+    #[tokio::test]
+    async fn a_cache_hit_streamed_through_a_second_gateway_costs_nothing_there_either() {
+        let provider = spawn(Router::new().route("/v1/chat/completions", post(complete))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let (back_ledger, front_ledger) = (
+            dir.path().join("back.jsonl"),
+            dir.path().join("front.jsonl"),
+        );
+        let mut back = Arc::try_unwrap(gateway_state(provider, back_ledger.clone()))
+            .unwrap_or_else(|_| unreachable!());
+        back.cache = Some(Arc::new(ResponseCache::new(None)));
+        let back = spawn(router(Arc::new(back))).await;
+        let front = spawn(router(gateway_state(back, front_ledger.clone()))).await;
+        let buffered =
+            r#"{"model":"deepseek-flash","messages":[{"role":"user","content":"ping"}]}"#;
+        let streamed = buffered.replacen('{', r#"{"stream":true,"#, 1);
+
+        // A buffered call through the back gateway warms its cache.
+        let (status, _) = post_json(back, buffered, &[]).await;
+        assert_eq!(status, 200);
+        let (status, answer) = post_json(front, &streamed, &[]).await;
+
+        assert_eq!(status, 200, "{answer}");
+        assert!(answer.contains("data: [DONE]"), "{answer}");
+        let back_rows = read_entries(&back_ledger).unwrap();
+        assert_eq!(back_rows.len(), 2);
+        assert!(back_rows[1].cached);
+        let front_rows = read_entries(&front_ledger).unwrap();
+        assert_eq!(front_rows.len(), 1);
+        assert!(front_rows[0].cached, "the front saw the back's mark");
+        assert_eq!(front_rows[0].cost, MicroUsd::ZERO);
+        assert!(
+            front_rows[0].usage.input > 0,
+            "the tokens are still recorded"
+        );
     }
 
     /// A call waiting for a paced slot whose client gives up gives the slot

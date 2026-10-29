@@ -27,6 +27,19 @@ use susi_harness::supervisor::{Plan, Supervisor, SusiExecutor};
 use susi_harness::validate::{validate_plan, RepoFacts};
 use susi_harness::verify::{fetch_http, verify_registry};
 
+/// Where `--ledger` points when it is not given, in [`fleet::ledger_for`]'s
+/// order. One text for every command that takes it: the three copies said
+/// the workspace came before `SUSI_HARNESS_LEDGER`, the reverse of the code,
+/// so a user with the setting looked for spend and refusals in the wrong
+/// file.
+macro_rules! ledger_default {
+    () => {
+        "(default: `SUSI_HARNESS_LEDGER` if set, else `out/ledger.jsonl` in a susi workspace, \
+         else `harness/ledger.jsonl` in the data home, `~/.susi` unless `SUSI_HOME` is set; \
+         the same default standalone `susi-harness` uses)"
+    };
+}
+
 #[allow(clippy::large_enum_variant)]
 // a CLI flag bag: every variant is argument storage, and boxing one would only relocate the flags clap derives in place
 #[derive(Debug, Subcommand)]
@@ -75,6 +88,11 @@ pub enum HarnessCommands {
         /// Only tasks whose roadmap vector is this id
         #[arg(long)]
         roadmap: Option<String>,
+        /// Gateway the plan will run through: a listed worker whose provider
+        /// has no key set here stays when that gateway answers for it (an
+        /// explicit --upstream, or a gateway with its own key)
+        #[arg(long)]
+        gateway: Option<String>,
     },
     /// Run a plan: prepare in parallel, land in order, persist after each task
     Run {
@@ -114,10 +132,7 @@ pub enum HarnessCommands {
         /// Daily spend ceiling in dollars, checked against the ledger before a run
         #[arg(long, default_value = "25")]
         daily_usd: String,
-        /// Ledger the gateway writes (spend authority)
-        /// (default: `out/ledger.jsonl` in a susi workspace, else `SUSI_HARNESS_LEDGER` or
-        /// `~/.susi/harness/ledger.jsonl`, as standalone `susi-harness` reads it)
-        #[arg(long)]
+        #[arg(long, help = concat!("Ledger the gateway writes (spend authority) ", ledger_default!()))]
         ledger: Option<PathBuf>,
         /// Control log the cockpit writes pause/resume/abort to
         #[arg(long, default_value = "out/control.jsonl")]
@@ -213,10 +228,7 @@ pub enum HarnessCommands {
     },
     /// Print the one-line budget report and any top-up alert, without running
     Budget {
-        /// Ledger the spend is read from
-        /// (default: `out/ledger.jsonl` in a susi workspace, else `SUSI_HARNESS_LEDGER` or
-        /// `~/.susi/harness/ledger.jsonl`, as standalone `susi-harness` reads it)
-        #[arg(long)]
+        #[arg(long, help = concat!("Ledger the spend is read from ", ledger_default!()))]
         ledger: Option<PathBuf>,
     },
     /// Serve the metered multi-provider gateway directly from susi
@@ -231,10 +243,7 @@ pub enum HarnessCommands {
         /// Price catalogue
         #[arg(long, default_value = "deploy/harness/prices.json")]
         catalogue: PathBuf,
-        /// Ledger path
-        /// (default: `out/ledger.jsonl` in a susi workspace, else `SUSI_HARNESS_LEDGER` or
-        /// `~/.susi/harness/ledger.jsonl`, as standalone `susi-harness` reads it)
-        #[arg(long)]
+        #[arg(long, help = concat!("Ledger path ", ledger_default!()))]
         ledger: Option<PathBuf>,
         /// Upstream URL or "direct" for multi-provider routing
         #[arg(long, default_value = "direct")]
@@ -345,6 +354,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             limit,
             workers,
             roadmap,
+            gateway,
         } => plan_queue(
             &repo,
             &out,
@@ -352,6 +362,7 @@ pub fn execute(action: HarnessCommands, cwd: &Path) -> Result<()> {
             limit,
             &workers,
             roadmap.as_deref(),
+            gateway.as_deref(),
             cwd,
         ),
         HarnessCommands::Run {
@@ -432,6 +443,7 @@ fn plan_queue(
     limit: usize,
     workers: &str,
     roadmap: Option<&str>,
+    gateway: Option<&str>,
     cwd: &Path,
 ) -> Result<()> {
     let repo = if repo == Path::new(".") {
@@ -444,8 +456,14 @@ fn plan_queue(
     let evidence = live_evidence(&fleet::default_ledger(cwd), cwd);
     // Tasks go to the light workers, spread across them; the fixers and the
     // orchestrator are not assigned first-line work.
-    let workers =
-        resolve_fleet(workers, || default_catalogue(cwd), &budgets, &evidence)?.task_workers();
+    let workers = resolve_fleet(
+        workers,
+        || default_catalogue(cwd),
+        &budgets,
+        &evidence,
+        gateway,
+    )?
+    .task_workers();
     let claimed = claimed_ids(&repo);
     let plan = queue::plan_batch(&repo, mission, limit, &workers, roadmap, &claimed)?;
     std::fs::write(out, serde_json::to_string_pretty(&plan)?)
@@ -593,6 +611,7 @@ fn author(
         || default_catalogue(cwd),
         &budgets,
         &live_evidence(&fleet::default_ledger(cwd), cwd),
+        Some(gateway),
     )?;
     let request = AuthorRequest {
         vector: format!("{vector} {title}"),
@@ -774,6 +793,7 @@ fn run_mission(
         || Ok(catalogue.clone()),
         budgets,
         &live_evidence(ledger, cwd),
+        Some(gateway),
     )?;
     let orchestrator = fleet::resolve_model("auto", &fleet).unwrap_or_else(|_| "none".to_string());
     // A task starts on a light worker: `--model auto` gives the fleet's first,
@@ -792,7 +812,13 @@ fn run_mission(
         fleet.workers.join(", "),
         fleet.fixers.join(", ")
     );
-    let alternates = fleet.ladder;
+    if !fleet.standby.is_empty() {
+        eprintln!(
+            "fleet: in reserve until a probe answers: {}",
+            fleet.standby.join(", ")
+        );
+    }
+    let alternates = mission_alternates(&fleet);
     let susi_program =
         susi.unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("susi")));
     let target = SusiTarget::new(repo, susi_program);
@@ -833,15 +859,40 @@ fn run_mission(
     Ok(())
 }
 
+/// The models a mission's tasks may use: the fleet's ladder, then the models
+/// held in reserve for their refusal ([`Fleet::standby`]). A task's order
+/// leaves a refused model out until a probe answers; the reserve is what
+/// lets the before-each-task probe ([`fleet::readmit`]) reach a model that
+/// was refused when the run started, so one fixed or topped up mid-mission
+/// comes back without a restart.
+fn mission_alternates(fleet: &Fleet) -> Vec<String> {
+    let mut alternates = fleet.ladder.clone();
+    for model in &fleet.standby {
+        if !alternates.contains(model) {
+            alternates.push(model.clone());
+        }
+    }
+    alternates
+}
+
 /// Sum the ledger's priced spend for the UTC day containing `now_unix_ms`.
+///
+/// The rows are read one line at a time, as bytes
+/// ([`susi_harness::ledger::read_rows_lenient`]). Reading the file as one
+/// string turned a row torn inside a multi-byte character into "nothing spent
+/// today" for every later run, and dropped a real charge glued onto an
+/// ASCII tear, so `--daily-usd` let runs start past the cap.
 fn spent_today(ledger: &Path, now_unix_ms: u64) -> MicroUsd {
-    let Ok(text) = std::fs::read_to_string(ledger) else {
-        return MicroUsd::ZERO;
-    };
+    let (rows, skipped) = susi_harness::ledger::read_rows_lenient::<serde_json::Value>(ledger);
+    if skipped > 0 {
+        eprintln!(
+            "⚠ ledger {}: {skipped} line(s) could not be read and were skipped",
+            ledger.display()
+        );
+    }
     let day = now_unix_ms / 86_400_000;
-    let total = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    let total = rows
+        .iter()
         .filter(|entry| {
             entry
                 .get("started_unix_ms")
@@ -868,15 +919,20 @@ fn tail(text: &str, limit: usize) -> String {
     text.get(text.len() - limit..).unwrap_or(text).to_string()
 }
 
-/// The fleet for `--workers` ([`fleet::resolve_fleet`]), with each model
-/// left off named on stderr.
+/// The fleet for `--workers` ([`fleet::resolve_fleet_through`]), with each
+/// model left off named on stderr. A command that drives `gateway` asks it
+/// about a listed model whose key is not set here ([`fleet::gateway_answers`]):
+/// a gateway on an explicit upstream, or with its own key, routes it.
 fn resolve_fleet(
     spec: &str,
     catalogue: impl FnOnce() -> susi_error::EaiResult<PriceCatalogue>,
     budgets: &Budgets,
     evidence: &fleet::Evidence,
+    gateway: Option<&str>,
 ) -> Result<Fleet> {
-    let fleet = fleet::resolve_fleet(spec, catalogue, budgets, evidence)
+    let ask = gateway.map(|url| move |model: &str| fleet::gateway_answers(url, model));
+    let check = ask.as_ref().map(|ask| ask as fleet::GatewayCheck<'_>);
+    let fleet = fleet::resolve_fleet_through(spec, catalogue, budgets, evidence, check)
         .map_err(|error| anyhow::anyhow!("--workers {spec}: {error}"))?;
     for note in &fleet.left_off {
         eprintln!("⚠ {note}");
@@ -1248,5 +1304,112 @@ mod tests {
             0
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A crash cut a rejected row inside a multi-byte character of its
+    /// reason, with no newline after it, and the next row was appended onto
+    /// the torn line. Read as one string, the file was not UTF-8 and the day
+    /// read as nothing spent, so `--daily-usd` let every later run start.
+    #[test]
+    fn daily_cap_counts_every_row_around_a_tear_inside_a_character() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-daily-cap-torn-{}-{}",
+            std::process::id(),
+            super::now_unix_ms()
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let ledger = dir.join("ledger.jsonl");
+        let now = 1_792_950_000_000u64;
+        let rejected = format!(
+            "{{\"started_unix_ms\":{now},\"cost\":0,\"outcome\":{{\"rejected\":{{\"reason\":\"gate “red”\"}}}}}}"
+        );
+        let cut = rejected.find('“').expect("a multi-byte character") + 1;
+        let mut bytes = format!("{{\"started_unix_ms\":{now},\"cost\":3000000}}\n").into_bytes();
+        bytes.extend_from_slice(&rejected.as_bytes()[..cut]);
+        bytes.extend_from_slice(
+            format!("{{\"started_unix_ms\":{now},\"cost\":2000000}}\n").as_bytes(),
+        );
+        std::fs::write(&ledger, &bytes).expect("ledger");
+        assert!(
+            std::str::from_utf8(&bytes).is_err(),
+            "the tear must cut a character"
+        );
+        assert_eq!(super::spent_today(&ledger, now).micros(), 5_000_000);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An ASCII tear: the next row lands on the fragment's line. The daily
+    /// cap dropped that real charge with the fragment.
+    #[test]
+    fn daily_cap_counts_a_row_glued_onto_an_ascii_tear() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-daily-cap-glued-{}-{}",
+            std::process::id(),
+            super::now_unix_ms()
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let ledger = dir.join("ledger.jsonl");
+        let now = 1_792_950_000_000u64;
+        let body = format!(
+            "{{\"started_unix_ms\":{now},\"cost\":1000000}}\n{{\"started_unix_ms\":{now},\"co{{\"started_unix_ms\":{now},\"cost\":4000000}}\n"
+        );
+        std::fs::write(&ledger, body).expect("ledger");
+        assert_eq!(super::spent_today(&ledger, now).micros(), 5_000_000);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The three `--ledger` help texts put the workspace ahead of
+    /// `SUSI_HARNESS_LEDGER`; the code reads the setting first.
+    #[test]
+    fn ledger_help_gives_the_order_the_default_is_resolved_in() {
+        use clap::CommandFactory;
+        let cli = Cli::command();
+        let harness = cli.find_subcommand("harness").expect("the harness command");
+        for name in ["run", "budget", "gateway"] {
+            let help = harness
+                .find_subcommand(name)
+                .and_then(|command| {
+                    command
+                        .get_arguments()
+                        .find(|argument| argument.get_id() == "ledger")
+                })
+                .and_then(|argument| argument.get_help())
+                .map(ToString::to_string)
+                .unwrap_or_else(|| panic!("harness {name} --ledger has help"));
+            let setting = help.find("SUSI_HARNESS_LEDGER").expect("names the setting");
+            let workspace = help.find("out/ledger.jsonl").expect("names the workspace");
+            let home = help.find("data home").expect("names the data home");
+            assert!(setting < workspace && workspace < home, "{name}: {help}");
+        }
+        let home = std::env::temp_dir();
+        let checkout = std::env::temp_dir().join(format!(
+            "susi-ledger-order-{}-{}",
+            std::process::id(),
+            super::now_unix_ms()
+        ));
+        std::fs::create_dir_all(checkout.join("deploy/harness")).expect("checkout");
+        std::fs::write(checkout.join("deploy/harness/prices.json"), "{}").expect("prices");
+        assert_eq!(
+            susi_harness::fleet::ledger_for(&checkout, Some("x.jsonl".into()), &home),
+            PathBuf::from("x.jsonl"),
+            "the setting wins inside a workspace, as the help says"
+        );
+        let _ = std::fs::remove_dir_all(&checkout);
+    }
+
+    /// A model refused before the run started was in no task's ladder, so the
+    /// before-each-task probe never reached it and it stayed unused all
+    /// mission after a top-up.
+    #[test]
+    fn a_mission_keeps_the_models_refused_at_its_start_within_reach_of_a_probe() {
+        let fleet = super::Fleet {
+            ladder: vec!["deepseek-flash".into(), "deepseek-pro".into()],
+            standby: vec!["gemini-flash".into(), "deepseek-pro".into()],
+            ..super::Fleet::default()
+        };
+        assert_eq!(
+            super::mission_alternates(&fleet),
+            vec!["deepseek-flash", "deepseek-pro", "gemini-flash"]
+        );
     }
 }

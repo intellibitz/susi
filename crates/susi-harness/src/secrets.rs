@@ -5,7 +5,8 @@
 //! `./.env` and the data home's `.env`. The machine scope matters because a
 //! shell started before a key was set does not see it, and a key set by an
 //! installer usually lives there. A harness setting ([`setting`]) is read
-//! from the same places.
+//! from the same places, except the settings that decide where keys are sent
+//! ([`USER_ONLY`]), which `./.env` never sets.
 //!
 //! The value is wrapped in [`ApiKey`], whose `Debug` and `Display` print
 //! `<redacted>`. The only way to read the key is [`ApiKey::expose`], which the
@@ -77,6 +78,11 @@ pub fn lookup(name: &str) -> Option<ApiKey> {
 /// The first scope's value for `name` that has the provider's key form, when
 /// `shape` names one, warning about each scope passed over.
 fn first_fitting(name: &str, shape: Option<(&str, &str)>) -> Option<String> {
+    first_fitting_scope(name, shape).map(|(value, _)| value)
+}
+
+/// [`first_fitting`] with the scope the value came from.
+fn first_fitting_scope(name: &str, shape: Option<(&str, &str)>) -> Option<(String, &'static str)> {
     let mut passed_over = Vec::new();
     for scope in SCOPES {
         let Some(value) = scope_value(name, scope) else {
@@ -92,7 +98,7 @@ fn first_fitting(name: &str, shape: Option<(&str, &str)>) -> Option<String> {
                         );
                     }
                 }
-                return Some(value);
+                return Some((value, scope));
             }
         }
     }
@@ -112,19 +118,44 @@ const SCOPES: [&str; 5] = [
     "process environment",
     "user environment",
     "machine environment",
-    "./.env file",
-    "data-home .env file",
+    WORKING_DOTENV,
+    DATA_HOME_DOTENV,
 ];
+
+/// The scope of `./.env`, in the directory the harness runs in.
+const WORKING_DOTENV: &str = "./.env file";
+
+/// The scope of the data home's `.env`.
+const DATA_HOME_DOTENV: &str = "data-home .env file";
 
 /// The variable that names the data home ([`data_home`]).
 const HOME_ENV: &str = "SUSI_HOME";
+
+/// Settings that decide where keys are sent. They are read only from the
+/// user's own places, the environment and the data home's `.env`, never
+/// from `./.env`.
+///
+/// `./.env` belongs to whatever directory the harness runs in, a repository
+/// cloned a minute ago as easily as the user's own. A `SUSI_HARNESS_PROVIDERS`
+/// there once loaded that repository's registry overlay, and every call for
+/// `deepseek-flash` went to the repository's endpoint with the user's
+/// DeepSeek key; a `SUSI_HOME` there chose a data home whose `.env` did the
+/// same. A key in `./.env` is still read: it is that directory's own key,
+/// and it sends no other key anywhere.
+pub const USER_ONLY: [&str; 2] = [HOME_ENV, crate::providers::OVERLAY_ENV];
 
 fn scope_value(name: &str, scope: &str) -> Option<String> {
     match scope {
         "process environment" => process_value(name),
         "user environment" => registry_value(name, "User"),
         "machine environment" => registry_value(name, "Machine"),
-        "./.env file" => dotenv_value(name, DotEnv::WorkingDirectory),
+        WORKING_DOTENV if USER_ONLY.contains(&name) => {
+            if dotenv_value(name, DotEnv::WorkingDirectory).is_some() {
+                warn_ignored_in_working_dotenv(name);
+            }
+            None
+        }
+        WORKING_DOTENV => dotenv_value(name, DotEnv::WorkingDirectory),
         // The data home's `.env` is found through `SUSI_HOME`, so it cannot
         // say where the data home is: reading it there would go in a circle,
         // and `susi-harness env` would report a home the harness never uses.
@@ -133,11 +164,31 @@ fn scope_value(name: &str, scope: &str) -> Option<String> {
     }
 }
 
+/// Say once per process that `./.env` sets a [`USER_ONLY`] setting the
+/// harness does not use, so a value put there on purpose is not lost in
+/// silence.
+fn warn_ignored_in_working_dotenv(name: &str) {
+    static WARNED: Mutex<std::collections::BTreeSet<String>> =
+        Mutex::new(std::collections::BTreeSet::new());
+    let mut warned = WARNED.lock().unwrap_or_else(PoisonError::into_inner);
+    if !warned.insert(name.to_string()) {
+        return;
+    }
+    let elsewhere = if name == HOME_ENV {
+        "the environment"
+    } else {
+        "the environment or the data home's .env"
+    };
+    eprintln!(
+        "⚠ {name} in ./.env is ignored: a directory's .env may not decide where your keys are sent; set it in {elsewhere}"
+    );
+}
+
 /// The harness's per-user home: `SUSI_HOME` when set (process, user or
-/// machine environment, or `./.env`; never the data home's own `.env`,
-/// which is found through it), else `.susi` in the user's home directory.
-/// The ledger, the `.env` file and anything else the harness keeps across
-/// runs live here, so they follow the user, not the directory.
+/// machine environment; never `./.env`, see [`USER_ONLY`], nor the data
+/// home's own `.env`, which is found through it), else `.susi` in the user's
+/// home directory. The ledger, the `.env` file and anything else the harness
+/// keeps across runs live here, so they follow the user, not the directory.
 #[must_use]
 pub fn data_home() -> std::path::PathBuf {
     // Read the way every other setting is, so the home `susi-harness env`
@@ -168,7 +219,7 @@ fn dotenv_value(name: &str, which: DotEnv) -> Option<String> {
     static WORKING: OnceLock<BTreeMap<String, String>> = OnceLock::new();
     static HOME: OnceLock<BTreeMap<String, String>> = OnceLock::new();
     #[cfg(test)]
-    if let (DotEnv::WorkingDirectory, Some(found)) = (which, test_dotenv::value(name)) {
+    if let Some(found) = test_dotenv::value(which, name) {
         return found;
     }
     let file = match which {
@@ -308,7 +359,8 @@ fn dotenv_value_text(raw: &str) -> &str {
 /// registry overlay's path), read from the same places as a key, first match
 /// wins: the process, the Windows user and machine environment (so a value
 /// set after a shell started is still seen), `./.env`, then the data home's
-/// `.env`.
+/// `.env`. A setting that decides where keys are sent ([`USER_ONLY`]) is
+/// never read from `./.env`.
 ///
 /// It reads no key form and keeps no cache, so it never reaches the provider
 /// registry: the registry reads its own overlay path through it
@@ -321,6 +373,23 @@ pub fn setting(name: &str) -> Option<String> {
         return None;
     }
     first_fitting(name, None)
+}
+
+/// A [`setting`] that names a file. A relative path in the data home's
+/// `.env` is taken from the data home, where that file lives; one set in the
+/// environment is relative to the directory the harness runs in, as a shell
+/// would read it.
+#[must_use]
+pub fn setting_path(name: &str) -> Option<std::path::PathBuf> {
+    if !valid_name(name) {
+        return None;
+    }
+    let (value, scope) = first_fitting_scope(name, None)?;
+    let path = std::path::PathBuf::from(value);
+    if scope == DATA_HOME_DOTENV && path.is_relative() {
+        return Some(data_home().join(path));
+    }
+    Some(path)
 }
 
 /// `text` with every key in it replaced by `<redacted>`: any value this
@@ -348,14 +417,22 @@ pub fn redact(text: &str) -> String {
     out
 }
 
+/// A character a key is made of, masked forms (`*`) included.
+fn key_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '*' | '.')
+}
+
 /// Replace each run that starts with `prefix` and continues with key
 /// characters (letters, digits, `-`, `_`, `*`, `.`) for at least eight more.
 ///
-/// The prefix must start a word: a key follows a space, a quote, `=` or `:`,
-/// never a letter. Command output a worker reads is masked too, and
-/// `task-runner-tests` is a file name, not `ta` and a key.
+/// A key is masked wherever it sits: after a space, a quote, `=` or `:`, a
+/// digit, a `-` (a deleted line in a diff), `**`, or an escape (`%20` and
+/// `%3D` in a URL, `\n` in JSON). The one run left alone is a word's own
+/// tail ([`glued_to_a_word`] and [`reads_as_words`]): command output a
+/// worker reads is masked too, and `task-runner-tests` is a file name, not
+/// `ta` and a key. A rule that skipped every run after a letter or a digit
+/// let `Bearer%20sk-…`, `key%3DAIza…` and `"…\nsk-…"` through unmasked.
 fn redact_shaped(text: &str, prefix: &str) -> String {
-    let key_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '*' | '.');
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(at) = rest.find(prefix) {
@@ -363,8 +440,8 @@ fn redact_shaped(text: &str, prefix: &str) -> String {
         out.push_str(before);
         let tail = &from[prefix.len()..];
         let run = tail.find(|c: char| !key_char(c)).unwrap_or(tail.len());
-        let starts_a_word = !out.chars().next_back().is_some_and(key_char);
-        if run >= 8 && starts_a_word {
+        let a_words_tail = glued_to_a_word(&out) && reads_as_words(&tail[..run]);
+        if run >= 8 && !a_words_tail {
             out.push_str("<redacted>");
         } else {
             out.push_str(&from[..prefix.len() + run]);
@@ -373,6 +450,38 @@ fn redact_shaped(text: &str, prefix: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// Whether the text before a key prefix ends inside a word: in an ASCII
+/// letter that does not end an escape (`\n`, `\u003d`, `\x3d`, `%3D`). An
+/// escape's letter stands for a separator, and a key often follows one.
+fn glued_to_a_word(before: &str) -> bool {
+    let bytes = before.as_bytes();
+    let n = bytes.len();
+    if !bytes.last().is_some_and(u8::is_ascii_alphabetic) {
+        return false;
+    }
+    let hex = |range: &[u8]| range.iter().all(u8::is_ascii_hexdigit);
+    let escaped = (n >= 2 && bytes[n - 2] == b'\\')
+        || (n >= 3 && bytes[n - 3] == b'%' && hex(&bytes[n - 2..]))
+        || (n >= 4 && bytes[n - 4..n - 2] == *b"\\x" && hex(&bytes[n - 2..]))
+        || (n >= 6 && bytes[n - 6..n - 4] == *b"\\u" && hex(&bytes[n - 4..]));
+    !escaped
+}
+
+/// Whether a run glued to a word reads as more of it (`runner-tests.rs`,
+/// `assessment-module`, `SQLAlchemy`) rather than as a key: no `*` (a masked
+/// key), and no piece between `-`, `_` and `.` that is 16 characters or
+/// longer, or 10 or longer and mixes digits with upper- and lower-case
+/// letters. Every provider's key has a random part longer than that.
+fn reads_as_words(run: &str) -> bool {
+    let key_like = |piece: &str| {
+        let mixed = piece.bytes().any(|b| b.is_ascii_digit())
+            && piece.bytes().any(|b| b.is_ascii_uppercase())
+            && piece.bytes().any(|b| b.is_ascii_lowercase());
+        piece.len() >= 16 || (piece.len() >= 10 && mixed)
+    };
+    !run.contains('*') && !run.split(['-', '_', '.']).any(key_like)
 }
 
 /// Whether any scope sets `name`. The key itself is not returned.
@@ -469,34 +578,55 @@ fn registry_value(_name: &str, _scope: &str) -> Option<String> {
     None
 }
 
-/// A `./.env` a test stands in for the real one, on its own thread only, so
-/// a test can show what a value set there does without touching the files
-/// the process reads (or the user's own keys).
+/// A `./.env` or a data-home `.env` a test stands in for the real one, on
+/// its own thread only, so a test can show what a value set there does
+/// without touching the files the process reads (or the user's own keys).
 #[cfg(test)]
 pub(crate) mod test_dotenv {
+    use super::DotEnv;
     use std::cell::RefCell;
     use std::collections::BTreeMap;
+    use std::thread::LocalKey;
+
+    type Stand = RefCell<Option<BTreeMap<String, String>>>;
 
     thread_local! {
-        static FILE: RefCell<Option<BTreeMap<String, String>>> = const { RefCell::new(None) };
+        static WORKING: Stand = const { RefCell::new(None) };
+        static HOME: Stand = const { RefCell::new(None) };
+    }
+
+    fn stand(which: DotEnv) -> &'static LocalKey<Stand> {
+        match which {
+            DotEnv::WorkingDirectory => &WORKING,
+            DotEnv::DataHome => &HOME,
+        }
     }
 
     /// `Some` with the stand-in's value for `name` while one is in place.
-    pub(super) fn value(name: &str) -> Option<Option<String>> {
-        FILE.with(|file| file.borrow().as_ref().map(|pairs| pairs.get(name).cloned()))
+    pub(super) fn value(which: DotEnv, name: &str) -> Option<Option<String>> {
+        stand(which).with(|file| file.borrow().as_ref().map(|pairs| pairs.get(name).cloned()))
+    }
+
+    fn standing_in<T>(which: DotEnv, text: &str, body: impl FnOnce() -> T) -> T {
+        struct Restore(DotEnv);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                stand(self.0).with(|file| file.borrow_mut().take());
+            }
+        }
+        stand(which).with(|file| *file.borrow_mut() = Some(super::parse_dotenv(text)));
+        let _restore = Restore(which);
+        body()
     }
 
     /// Run `body` with `text` read as `./.env` on this thread.
     pub(crate) fn with<T>(text: &str, body: impl FnOnce() -> T) -> T {
-        struct Restore;
-        impl Drop for Restore {
-            fn drop(&mut self) {
-                FILE.with(|file| file.borrow_mut().take());
-            }
-        }
-        FILE.with(|file| *file.borrow_mut() = Some(super::parse_dotenv(text)));
-        let _restore = Restore;
-        body()
+        standing_in(DotEnv::WorkingDirectory, text, body)
+    }
+
+    /// Run `body` with `text` read as the data home's `.env` on this thread.
+    pub(crate) fn with_home<T>(text: &str, body: impl FnOnce() -> T) -> T {
+        standing_in(DotEnv::DataHome, text, body)
     }
 }
 
@@ -606,6 +736,72 @@ mod tests {
             redact("OPENAI_API_KEY=sk-proj-abcdefghij\n'AIzaSyA1234567890abcdef'"),
             "OPENAI_API_KEY=<redacted>\n'<redacted>'"
         );
+    }
+
+    #[test]
+    fn a_key_is_masked_after_an_escape_a_digit_or_punctuation_too() {
+        // Each of these passed through unmasked while a key had to start a
+        // word: the character before it is a letter, a digit or `-`.
+        for (text, masked) in [
+            (
+                "Authorization=Bearer%20sk-proj-abcdefghijklmnop",
+                "Authorization=Bearer%20<redacted>",
+            ),
+            (
+                "url?q=key%3DAIzaSyAbcdefghijklmnop",
+                "url?q=key%3D<redacted>",
+            ),
+            (
+                r#"{"out":"exit code: 0\nsk-proj-abcdefghijklmnop"}"#,
+                r#"{"out":"exit code: 0\n<redacted>"}"#,
+            ),
+            (
+                r#"{"k":"\u003dsk-proj-abcdefghijklmnop"}"#,
+                r#"{"k":"\u003d<redacted>"}"#,
+            ),
+            ("**sk-proj-abcdefghijklmnop**", "**<redacted>"),
+            ("-sk-proj-Abc123def456ghi\n+x", "-<redacted>\n+x"),
+            ("v2sk-proj-abcdefghijklmnop", "v2<redacted>"),
+            ("name_AIzaSyAbcdefghijklmnop", "name_<redacted>"),
+        ] {
+            assert_eq!(redact(text), masked, "{text}");
+        }
+        // An escape's letter stands for a separator, so after one even a run
+        // short enough to pass for the rest of a word is masked.
+        let backslash = '\x5c';
+        for escape in [
+            format!("{backslash}n"),
+            format!("{backslash}t"),
+            format!("{backslash}u003d"),
+            format!("{backslash}x3d"),
+            "%3D".to_string(),
+            "%3d".to_string(),
+        ] {
+            assert_eq!(
+                redact(&format!("line{escape}sk-proj-abcdefghij")),
+                format!("line{escape}<redacted>"),
+                "{escape}"
+            );
+        }
+        // Glued to a word, a run that is plainly a key is masked all the same.
+        assert_eq!(
+            redact("tokensk-0123456789abcdef0123456789abcdef"),
+            "token<redacted>"
+        );
+        assert_eq!(redact("xsk-abcd****1234"), "x<redacted>");
+        assert_eq!(redact("keyAIzaSyA1b2C3d4E5f6"), "key<redacted>");
+    }
+
+    #[test]
+    fn words_that_contain_a_key_prefix_are_left_alone() {
+        for text in [
+            "src/task-runner-tests.rs risk-assessment-module",
+            "pip install Flask-SQLAlchemy Flask-SocketIO",
+            "task-runner-v2-tests disk-usage-report.json",
+            "mask-sensitive-data whisk-it-together",
+        ] {
+            assert_eq!(redact(text), text);
+        }
     }
 
     #[test]
@@ -737,10 +933,10 @@ mod tests {
     }
 
     #[test]
-    fn susi_home_in_dotenv_is_the_data_home_and_its_own_file_never_names_it() {
+    fn susi_home_in_a_directorys_dotenv_never_moves_the_data_home() {
         // The data home's `.env` is found through SUSI_HOME; it cannot say
         // where it is itself.
-        assert_eq!(scope_value(HOME_ENV, "data-home .env file"), None);
+        assert_eq!(scope_value(HOME_ENV, DATA_HOME_DOTENV), None);
         let set_elsewhere = process_value(HOME_ENV)
             .or_else(|| registry_value(HOME_ENV, "User"))
             .or_else(|| registry_value(HOME_ENV, "Machine"));
@@ -748,14 +944,48 @@ mod tests {
             eprintln!("SUSI_HOME is set in the environment, which comes first; skipping");
             return;
         }
+        // A repository's `.env` that chose the data home chose the `.env`
+        // read there too, and with it a registry overlay.
         let home = test_dotenv::with("SUSI_HOME=/srv/susi-test-home\n", data_home);
-        assert_eq!(home, std::path::PathBuf::from("/srv/susi-test-home"));
+        assert_ne!(home, std::path::PathBuf::from("/srv/susi-test-home"));
+        assert_eq!(home, data_home());
         let reported = test_dotenv::with("SUSI_HOME=/srv/susi-test-home\n", || setting(HOME_ENV));
+        assert_eq!(reported, None, "`env` reports the home in use");
+    }
+
+    #[test]
+    fn a_setting_that_decides_where_keys_go_is_never_read_from_a_directorys_dotenv() {
+        let overlay = crate::providers::OVERLAY_ENV;
+        assert!(USER_ONLY.contains(&overlay) && USER_ONLY.contains(&HOME_ENV));
+        if setting(overlay).is_some() {
+            eprintln!("{overlay} is set where this machine reads settings; skipping");
+            return;
+        }
+        let line = format!("{overlay}=/srv/overlay-0002.json\n");
+        assert_eq!(test_dotenv::with(&line, || setting(overlay)), None);
+        assert_eq!(test_dotenv::with(&line, || setting_path(overlay)), None);
+        // The user's own `.env`, in the data home, still sets it.
         assert_eq!(
-            reported.as_deref(),
-            Some("/srv/susi-test-home"),
-            "`env` reports the home in use"
+            test_dotenv::with_home(&line, || setting(overlay)).as_deref(),
+            Some("/srv/overlay-0002.json")
         );
+    }
+
+    #[test]
+    fn a_relative_path_in_the_data_homes_dotenv_is_taken_from_the_data_home() {
+        let name = "SUSI_TEST_PATH_SETTING_0001";
+        let path =
+            test_dotenv::with_home(&format!("{name}=providers.json\n"), || setting_path(name));
+        assert_eq!(path, Some(data_home().join("providers.json")));
+        let absolute = std::env::temp_dir().join("providers-0001.json");
+        let path = test_dotenv::with_home(&format!("{name}='{}'\n", absolute.display()), || {
+            setting_path(name)
+        });
+        assert_eq!(path, Some(absolute));
+        // Set in a directory's `.env`, an ordinary path setting is that
+        // directory's and stays relative to it.
+        let path = test_dotenv::with(&format!("{name}=providers.json\n"), || setting_path(name));
+        assert_eq!(path, Some(std::path::PathBuf::from("providers.json")));
     }
 
     #[test]

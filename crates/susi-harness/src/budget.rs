@@ -58,11 +58,22 @@ impl Budget {
     /// What the mission has spent so far, read from the ledger.
     #[must_use]
     pub fn spent(ledger_path: &Path, mission: &str) -> Spend {
+        Self::spent_any(ledger_path, &[mission])
+    }
+
+    /// What the rows booked under any of `missions` have spent, each row
+    /// counted once: one spender whose rows were booked under more than one
+    /// name ([`crate::ingress::Account::spent`]).
+    #[must_use]
+    pub fn spent_any(ledger_path: &Path, missions: &[&str]) -> Spend {
         // A torn line must not zero the spend: the strict reader refused the
         // whole file on one, and the guard then saw nothing spent.
         let entries = crate::ledger::read_entries_reporting(ledger_path);
         let mut spend = Spend::default();
-        for entry in entries.iter().filter(|entry| entry.mission == mission) {
+        for entry in entries
+            .iter()
+            .filter(|entry| missions.contains(&entry.mission.as_str()))
+        {
             spend.total = spend
                 .total
                 .checked_add(entry.cost)

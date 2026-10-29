@@ -50,6 +50,12 @@ folder to the next. In a susi workspace (a checkout with
 already has `out/ledger.jsonl`) it uses the workspace's own
 `out/ledger.jsonl`, from the first call on.
 
+A provider paced to a rate limit (`SUSI_HARNESS_RPM_<PROVIDER>`,
+`SUSI_HARNESS_TPM_<PROVIDER>`, below) holds a call for its slot for at most
+the gateway's `--timeout`, and never over 120 s. A call whose slot is further
+off is answered 429 at once, with a `Retry-After`; the harness's own worker
+waits that out and sends the turn again.
+
 ### Providers
 
 | Provider | Key | Models |
@@ -107,8 +113,18 @@ The ladder is rebuilt from the live environment on every run:
      account) is inactive. It stays out until a real call succeeds: once
      the refusal is at least 5 minutes old, the harness sends it one small
      probe call, when a run starts and again before each task of a running
-     mission, and records the answer in the ledger. If it answers, it is
-     active again.
+     mission (`susi harness run`), and records the answer in the ledger. If
+     it answers, it is active again. A mission keeps a model it left off at
+     its start for a refusal in reserve, so that probe reaches it too; a
+     model also off for another reason (an inactive provider, one its
+     provider no longer lists) waits for the next run. Tasks prepared
+     together share one probe of a model and wait for its answer.
+   - A probe is sent from where the harness runs, with the keys set there.
+     A model whose key is not set there (its calls go through a gateway
+     that holds the key) is never probed: after a refusal it stays off
+     until the key is set there, or until a `susi harness run` that drives
+     that gateway asks it about the model once the refusal is 5 minutes
+     old ([docs/harness.md](../../docs/harness.md)).
    - A model whose last call hit a rate limit, a timeout, a 5xx or a
      dropped connection stays eligible. It only moves back for a while (see
      below), so one bad minute never empties a fleet of one model.
@@ -178,6 +194,12 @@ these places, first match wins:
 3. `./.env`;
 4. `~/.susi/.env`.
 
+`./.env` belongs to whatever folder you run the harness in, which may be a
+repository you just cloned. So the two settings that decide where your keys
+are sent, `SUSI_HOME` and `SUSI_HARNESS_PROVIDERS`, are never read from it:
+set them in the environment, or `SUSI_HARNESS_PROVIDERS` in `~/.susi/.env`.
+If `./.env` sets either one, the harness says once that it ignores it.
+
 `.env` files use the usual `NAME=value` form: `#` comments, including one
 after a value (`NAME=value  # note`), an optional `export`, and single- or
 double-quoted values, with no escape sequences, so a Windows path means what
@@ -190,13 +212,13 @@ Run `susi-harness env` to see what is set.
 | Variable | Meaning |
 |---|---|
 | Provider keys (see Providers) | Any number of them; each enables its provider. A key the provider refuses (401 or 403) is reported as refused, and that provider's models are left off. |
-| `SUSI_HOME` | The data home, for the ledger and `.env`. Default `~/.susi`. Not read from the data home's own `.env`, which is found through it. |
+| `SUSI_HOME` | The data home, for the ledger and `.env`. Default `~/.susi`. Read from the environment only: not from `./.env`, nor from the data home's own `.env`, which is found through it. |
 | `SUSI_HARNESS_LEDGER` | The ledger file. |
 | `SUSI_HARNESS_BUDGET_<PROVIDER>_USD` | Total dollars credited to a provider that publishes no balance (Gemini, Anthropic). The harness subtracts the spend its ledger records, so this is not the balance the console shows: after a top-up, raise it by the amount added. DeepSeek and Moonshot report their own balance. |
 | `SUSI_HARNESS_CREDIT_EXPIRES_<PROVIDER>` | `YYYY-MM-DD` the provider's credit expires. Its models run first until then, and each run alerts in the last 7 days. |
 | `SUSI_HARNESS_RPM_<PROVIDER>` | Requests per minute the gateway sends to the provider. Unset means no limit. |
 | `SUSI_HARNESS_TPM_<PROVIDER>` | Tokens per minute the gateway lets the provider serve. Unset means no limit. |
-| `SUSI_HARNESS_PROVIDERS` | Path to a registry file whose providers and models are added to the built-in ones. A missing or malformed file stops the harness. |
+| `SUSI_HARNESS_PROVIDERS` | Path to a registry file whose providers and models are added to the built-in ones. A missing or malformed file stops the harness. Read from the environment or `~/.susi/.env`, never `./.env`. A relative path in `~/.susi/.env` is relative to `~/.susi`; one in the environment is relative to the current folder. |
 | `ANTHROPIC_WORKSPACE_ID` | Workspace for an Anthropic console user key (process environment only). |
 
 `<PROVIDER>` is the registry id in upper case, with any character other than
@@ -232,9 +254,21 @@ harness.
 
 An overlay only adds. It may add models to a built-in provider by restating
 that provider's `id`, `wire` and `endpoint` unchanged, but it cannot change a
-provider or a model that already exists, or reuse an existing model id or
-alias for a new model: the harness stops and names the one it would redefine.
-To route a model somewhere else, give it a new provider id.
+provider or a model that already exists, reuse an existing model id or alias
+for a new model, or give an alias a name that is already taken (a model id,
+another alias such as `coder`, or a `provider/model` route such as
+`deepseek/…`); restating an alias unchanged is fine. The harness stops and
+names the one it would redefine. To route a model somewhere else, give it a
+new provider id and a new model id.
+
+A new provider may read a key variable that another provider already reads
+(`DEEPSEEK_API_KEY`, say) only to send that key to the same scheme and host,
+such as another path on `https://api.deepseek.com`. Sending it to any other
+host (a regional endpoint, a proxy of yours) is allowed only in an overlay
+you name by its full path, or by any path in `~/.susi/.env`. An overlay named
+by a relative path in the environment is read from the current folder, which
+may not be yours, so it may not; give such a provider a key variable of its
+own instead.
 
 A model without a price still runs. It is ranked after every priced model of
 its tier, and its tokens are recorded at zero cost, so no budget cap counts
@@ -248,12 +282,19 @@ append so that many agents can share it safely. Each row records:
 
 - the mission, task, attempt, model and real provider;
 - tokens, with provider cache hits counted separately;
-- the price in force and the settled cost, in micro-dollars;
+- the price in force and the settled cost, in micro-dollars: zero, marked
+  `cached`, for an answer the gateway's own response cache served, also when
+  it came through another susi gateway in front, buffered or streamed;
 - start and end times;
 - the outcome: `completed`, `model_failed` (with its class), `accepted` or
   `rejected`.
 
 Failures and verdicts cost nothing, but the ranking learns from them.
+
+A line torn by a crash or a full disk costs only itself where spend is
+checked (mission and daily caps, provider budgets) and in the fleet's
+evidence: the file is read line by line as bytes, only the torn line is
+skipped, and a row the next append glued onto it still counts.
 
 ## Security
 
@@ -277,11 +318,29 @@ Failures and verdicts cost nothing, but the ranking learns from them.
   off.
 - A capped call is admitted only when its worst case fits in what is left:
   the prompt at the cache-miss rate, and at the output rate the request's
-  own `max_tokens` (when it names none, the gateway's `--max-output-tokens`,
-  else 8192) plus the one retry the gateway makes of an answer starved of
-  output tokens. That worst case stays reserved until the call finishes, so
-  calls running together cannot spend the same remaining dollar. A capped
-  account cannot call a model that has no price in the catalogue.
+  own `max_tokens` or `max_completion_tokens` plus the one retry the gateway
+  makes of an answer starved of output tokens, once for each of the `n`
+  answers it asks for. A capped call is sent with its limit as `max_tokens`,
+  the name every OpenAI-compatible provider reads: a lone
+  `max_completion_tokens` is sent under that name, a call that names both is
+  sent the larger, and a call that names none is sent the one it was
+  admitted against: the gateway's `--max-output-tokens`, else 8192. A limit
+  that is not a whole number above zero (`null`, `0`, `50000.0`, `"8"`) is
+  taken out of a capped call, and an `n` that is not a whole number is sent
+  as the count it was priced at, so the provider is never asked for more
+  than was admitted. A provider that refuses `max_tokens` and asks for
+  `max_completion_tokens` (OpenAI's reasoning models) is sent the same call
+  once more with the same limit under that name, before the caller hears of
+  the refusal; the resend waits for a paced slot of its own, and the
+  refusal, which billed nothing, writes no row. That worst case
+  stays reserved until the call's ledger row is written, even when the
+  caller hangs up while the provider is still answering, so calls running
+  together cannot spend the same remaining dollar. The prompt is priced
+  from its length, so what the provider fetches is priced apart: each image
+  by URL at a ceiling above what any routed provider bills for one image,
+  while a file or a video by reference, which has no ceiling, is refused
+  (send it inline). A capped account cannot call a model that has no price
+  in the catalogue.
 
   ```json
   {"accounts": [
@@ -290,7 +349,11 @@ Failures and verdicts cost nothing, but the ranking learns from them.
   ```
 
   Names are printable ASCII. An account with no name is booked as `account-`
-  and a short digest of its token, never the token itself.
+  and a short digest of its token, never the token itself. Earlier releases
+  booked such an account under its token: those rows still count against
+  its cap, so an upgrade does not give it its budget again, but they still
+  hold the token, so treat a token used that way as known to anyone who can
+  read the ledger.
 - On Ctrl-C or SIGTERM, the gateway stops accepting new calls and finishes the
   ones in flight. Every call that reached a provider still gets its ledger row.
 

@@ -91,19 +91,29 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
             ("x-susi-attempt", attempt_str.as_str()),
         ];
 
-        let call = match susi_http_transport::http_call_with_body(
-            "POST",
-            &gateway_url,
-            &headers,
-            Some(&payload_bytes),
-            config.timeout.as_secs().min(300),
-            0,
-        ) {
-            Ok(c) => c,
-            Err(e) => {
-                return Ok(RunOutcome::Failed {
-                    message: format!("gateway call failed on turn {turn}: {e}"),
-                });
+        let mut resent = 0;
+        let call = loop {
+            let call = match susi_http_transport::http_call_with_body(
+                "POST",
+                &gateway_url,
+                &headers,
+                Some(&payload_bytes),
+                config.timeout.as_secs().min(300),
+                0,
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    return Ok(RunOutcome::Failed {
+                        message: format!("gateway call failed on turn {turn}: {e}"),
+                    });
+                }
+            };
+            match paced_wait(&call, deadline, resent) {
+                Some(wait) => {
+                    resent += 1;
+                    std::thread::sleep(wait);
+                }
+                None => break call,
             }
         };
 
@@ -214,6 +224,42 @@ pub fn run_agent_loop(config: &ExecutorConfig, max_turns: usize) -> EaiResult<Ru
     Ok(RunOutcome::Failed {
         message: format!("exceeded max turns ({max_turns}) without concluding"),
     })
+}
+
+/// How often one turn is sent again after the gateway's pacing turned it
+/// away. The attempt's deadline bounds the waits; this bounds the calls.
+const PACED_RESENDS: usize = 8;
+
+/// How long to wait before sending a turn again, when `call` is the
+/// gateway's answer that the provider's paced queue is full: 429 with a
+/// `Retry-After` (a provider's own 429 reaches the worker without one).
+/// `None` when the call is to be read as it is, including when the wait
+/// would run past the attempt's `deadline`.
+///
+/// The gateway queues a paced call only as long as its upstream timeout, and
+/// answers a call whose slot is further off with that 429 at once. The
+/// worker failed the whole attempt on it, losing the turns so far, and the
+/// ladder's one same-model retry met the same full queue: with four workers
+/// on a provider paced to one call a minute, the fourth task could fail
+/// without a single call being served, where it had waited and been served
+/// when the queue had no cap.
+fn paced_wait(
+    call: &susi_http_transport::HttpCall,
+    deadline: Instant,
+    resent: usize,
+) -> Option<std::time::Duration> {
+    if call.status != 429 || resent >= PACED_RESENDS {
+        return None;
+    }
+    let wait_ms = call
+        .header("retry-after")
+        .and_then(crate::ratelimit::retry_after_ms)?;
+    // Never sooner than a second: a zero wait would only hammer the queue.
+    let wait = std::time::Duration::from_millis(wait_ms.max(1_000));
+    Instant::now()
+        .checked_add(wait)
+        .is_some_and(|resend_at| resend_at < deadline)
+        .then_some(wait)
 }
 
 /// Append one assistant message to the attempt transcript, so a loop is
@@ -426,6 +472,137 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_ws);
         let _ = fs::remove_dir_all(&temp_state);
     }
+
+    /// A stub gateway whose paced queue turns the first `paced` calls away
+    /// with 429 and `Retry-After: retry_after`, then concludes. Returns its
+    /// address and how many calls it took.
+    async fn paced_gateway(
+        paced: usize,
+        retry_after: &'static str,
+    ) -> (
+        std::net::SocketAddr,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        use axum::http::{header, StatusCode};
+        use axum::response::IntoResponse;
+        use std::sync::atomic::Ordering;
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&calls);
+        let app = axum::Router::new().route(
+            "/v1/chat/completions",
+            // The request body is read: a server that closes its connection
+            // with part of a request unread can reset it on Windows, and the
+            // client then sees os error 10053 instead of the answer.
+            axum::routing::post(move |_body: String| {
+                let n = counter.fetch_add(1, Ordering::SeqCst);
+                // `connection: close`: the transport pools connections per
+                // timeout for the whole test process, and one left open to
+                // this server, gone when the test ends, failed a later
+                // test's call once a new server took its port.
+                async move {
+                    if n < paced {
+                        return (
+                            StatusCode::TOO_MANY_REQUESTS,
+                            [
+                                (header::RETRY_AFTER, retry_after),
+                                (header::CONNECTION, "close"),
+                            ],
+                            r#"{"error":{"message":"paced","code":"rate_limit_exceeded"}}"#,
+                        )
+                            .into_response();
+                    }
+                    (
+                        [(header::CONNECTION, "close")],
+                        axum::Json(json!({
+                            "choices": [{ "message": { "role": "assistant", "content": "Done." } }]
+                        })),
+                    )
+                        .into_response()
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        (addr, calls)
+    }
+
+    fn paced_config(addr: std::net::SocketAddr, name: &str, timeout_secs: u64) -> ExecutorConfig {
+        let dir = |kind: &str| {
+            std::env::temp_dir().join(format!("susi-worker-{name}-{kind}-{}", std::process::id()))
+        };
+        let (workspace, state_dir) = (dir("ws"), dir("st"));
+        let _ = fs::create_dir_all(&workspace);
+        let _ = fs::create_dir_all(&state_dir);
+        ExecutorConfig {
+            gateway_url: format!("http://{addr}"),
+            model: "test-model".into(),
+            workspace,
+            state_dir,
+            mission: "m-paced".into(),
+            task: "t-paced".into(),
+            attempt: 1,
+            timeout: std::time::Duration::from_secs(timeout_secs),
+            prompt: "x".into(),
+        }
+    }
+
+    /// The gateway answers a call whose paced slot is further off than its
+    /// queue holds with 429 and a `Retry-After`. The worker failed the whole
+    /// attempt on it; it now sends the turn again once that time has passed.
+    #[tokio::test]
+    async fn a_turn_the_paced_queue_turned_away_is_sent_again_after_its_retry_after() {
+        let (addr, calls) = paced_gateway(1, "1").await;
+        // A call timeout no other test uses keeps the transport's pooled
+        // connections of other tests' servers off this test's calls.
+        let config = paced_config(addr, "paced", 31);
+        let (workspace, state_dir) = (config.workspace.clone(), config.state_dir.clone());
+
+        let started = Instant::now();
+        let outcome = tokio::task::spawn_blocking(move || run_agent_loop(&config, 5))
+            .await
+            .unwrap()
+            .unwrap();
+
+        match outcome {
+            RunOutcome::Succeeded { final_text, .. } => assert_eq!(final_text, "Done."),
+            other => panic!("the paced turn was not sent again: {other:?}"),
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert!(
+            started.elapsed() >= std::time::Duration::from_millis(900),
+            "it waited for the Retry-After"
+        );
+        let _ = fs::remove_dir_all(&workspace);
+        let _ = fs::remove_dir_all(&state_dir);
+    }
+
+    /// A wait that would run past the attempt's deadline is not slept: the
+    /// attempt fails at once, as a 429 the ladder reads as transient.
+    #[tokio::test]
+    async fn a_paced_wait_past_the_deadline_fails_the_attempt_at_once() {
+        let (addr, calls) = paced_gateway(usize::MAX, "120").await;
+        let config = paced_config(addr, "deadline", 6);
+        let (workspace, state_dir) = (config.workspace.clone(), config.state_dir.clone());
+
+        let started = Instant::now();
+        let outcome = tokio::task::spawn_blocking(move || run_agent_loop(&config, 5))
+            .await
+            .unwrap()
+            .unwrap();
+
+        match outcome {
+            RunOutcome::Failed { message } => assert!(message.contains("429"), "{message}"),
+            other => panic!("expected the 429 to fail the attempt, got {other:?}"),
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(started.elapsed() < std::time::Duration::from_secs(6));
+        let _ = fs::remove_dir_all(&workspace);
+        let _ = fs::remove_dir_all(&state_dir);
+    }
+
     #[tokio::test]
     async fn repeated_empty_replies_fail_fast_by_the_worker() {
         use axum::extract::Json as AxumJson;
