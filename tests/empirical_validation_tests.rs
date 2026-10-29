@@ -11,8 +11,9 @@
 #![allow(missing_docs)] // integration test crate: no public API to document
 
 use std::path::Path;
-use std::sync::Once;
+use std::sync::OnceLock;
 use susi_gawd::agents::GawdAgent;
+use susi_paths::test_env::EnvGuard;
 
 fn test_home() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("susi_empirical_{}", std::process::id()))
@@ -28,33 +29,63 @@ fn scratch_workspace() -> std::path::PathBuf {
 }
 
 fn wire_test_substrate() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
+    // The guard lives in a static, so it is never dropped: the isolated
+    // environment holds for the whole test process, like the wiring.
+    static SUBSTRATE_ENV: OnceLock<EnvGuard> = OnceLock::new();
+    SUBSTRATE_ENV.get_or_init(|| {
         // Isolate HOME before any substrate wiring: the vendored MacPolicy /
         // EvidenceSession / cloud.env readers all resolve real ~/.susi state
         // otherwise, leaking host credentials and receipts into tests.
         let tmp = test_home();
         let _ = std::fs::create_dir_all(&tmp);
-        // Instance knobs outrank HOME/XDG: a dev-instance launch must not
-        // redirect this process-lifetime substrate (or its ports).
-        std::env::remove_var("SUSI_HOME");
-        std::env::remove_var("SUSI_PORT_OFFSET");
-        unsafe {
-            std::env::set_var("HOME", &tmp);
-            std::env::set_var("USERPROFILE", &tmp);
-            std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
+        // `isolated` drops the instance knobs, which outrank HOME/XDG: a
+        // dev-instance launch must not redirect this process-lifetime
+        // substrate (or its ports). Setting HOME through the guard also
+        // moves the Windows profile (USERPROFILE) and its APPDATA and
+        // LOCALAPPDATA, where the platform layout lives there (XDG_* is
+        // ignored on Windows): setting HOME/USERPROFILE alone still read
+        // cloud.env and the MAC/evidence state from the operator's real
+        // AppData.
+        let mut env = EnvGuard::isolated();
+        env.set("HOME", &tmp)
+            .set("XDG_CONFIG_HOME", tmp.join("xdg"))
+            .set("XDG_DATA_HOME", tmp.join("xdg-data"))
+            .set("XDG_CACHE_HOME", tmp.join("xdg-cache"))
             // Set the inference seam before any global registry or engine is
             // initialized.  The tests run in parallel, so setting it only in
             // the two inference tests leaves a race where another test can
             // bootstrap real cloud/MCP providers first.
-            std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
-        }
+            .set("SUSI_TEST_MOCK_INFERENCE", "true");
         // Feature planes talk only via plane_bus; integration tests must
         // register handlers the same way CLI/daemon composition does.
         susi_daemon::composition::wire_plane_bus();
         susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
         let _ = susi_tools::ToolRegistry::global();
+        env
     });
+}
+
+/// Every substrate root resolves under the test home on every OS. On
+/// Windows that needs the swapped profile's AppData: `xdg.rs` reads
+/// APPDATA/LOCALAPPDATA there, not `XDG_*`, and there is no legacy `~/.susi`
+/// under the test home.
+#[test]
+fn substrate_dirs_resolve_under_the_test_home() {
+    wire_test_substrate();
+    let home = test_home();
+    for dir in [
+        susi_paths::SusiDirs::home_dir(),
+        susi_paths::SusiDirs::config_dir(),
+        susi_paths::SusiDirs::data_dir(),
+        susi_paths::SusiDirs::cache_dir(),
+    ] {
+        assert!(
+            dir.starts_with(&home),
+            "{} is outside the test home {}",
+            dir.display(),
+            home.display()
+        );
+    }
 }
 
 #[test]
@@ -100,8 +131,12 @@ fn test_empirical_epistemic_integrity_fictitious() {
     );
 }
 
+// Both detectors load their governance patterns from
+// `SusiDirs::config_dir()`, so they isolate first like every other test
+// here: run before the first wiring, they read the operator's real config.
 #[test]
 fn test_empirical_safety_destructive_payload() {
+    wire_test_substrate();
     let ws = Path::new(".");
     let res = susi_gawd::safety::SafetyDetector::audit_action("exec_command", "rm -rf /", ws);
     assert!(res.is_err());
@@ -109,6 +144,7 @@ fn test_empirical_safety_destructive_payload() {
 
 #[test]
 fn test_empirical_credential_masking() {
+    wire_test_substrate();
     let ws = Path::new(".");
     let res = susi_gawd::security::SecurityDetector::audit_action(
         "reason",

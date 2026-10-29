@@ -9,6 +9,28 @@ use std::path::Path;
 
 pub use crate::susi_core::{AgentMetaRegistry, GawdAgent, MissionBlackboard};
 
+/// Identifies instant metadata/informational queries and bootstrap pulses that must
+/// skip full LLM reasoning cycles to guarantee sub-millisecond execution latency.
+#[must_use]
+pub fn is_reflex_query(goal: &str) -> bool {
+    let lower = goal.to_lowercase();
+    let trimmed = lower.trim();
+    trimmed == "ls"
+        || trimmed.starts_with("ls ")
+        || trimmed == "dir"
+        || trimmed == "who am i"
+        || trimmed == "whoami"
+        || trimmed.contains("who am i")
+        || trimmed.contains("whoami")
+        || trimmed == "status"
+        || trimmed == "identity"
+        || trimmed == "version"
+        || trimmed == "models"
+        || trimmed == "help"
+        || trimmed == "health"
+        || trimmed.starts_with("admin pulse")
+}
+
 /// Generic agent that falls back to LLM reasoning when no specialist agent
 /// covers the goal.
 pub struct DynamicAgent {
@@ -30,35 +52,7 @@ impl GawdAgent for DynamicAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> crate::susi_core::susi_error::EaiResult<String> {
-        let lower = goal.to_lowercase();
-        let trimmed = lower.trim();
-
-        // Fast-Path Yield: Skip the GGUF inference loop for instant queries or when
-        // specialists/admin have answered. The blackboard.contains_key("AdminAgent")
-        // check is a race (agents run concurrently via rayon with no ordering
-        // guarantee, so this DynamicAgent may check before AdminAgent inserts its
-        // result) — trimmed.starts_with("admin pulse") is a deterministic fallback
-        // on the goal string itself, so admin/bootstrap pulses (install, uninstall,
-        // sync, audit, release, ...) never nondeterministically fall through to a
-        // full model-inference cycle depending on scheduling luck. Losing that race
-        // previously meant this agent could trigger loading and running whatever
-        // model HardwareProfiler picked as "optimal" for the host (up to 72B on a
-        // large-RAM machine) synchronously on CPU during what should be a fast
-        // bootstrap pulse — the actual root cause of a multi-minute `susi install`.
-        if trimmed == "ls"
-            || trimmed.starts_with("ls ")
-            || trimmed == "dir"
-            || trimmed == "who am i"
-            || trimmed == "whoami"
-            || trimmed.contains("who am i")
-            || trimmed.contains("whoami")
-            || trimmed == "status"
-            || trimmed == "identity"
-            || trimmed == "version"
-            || trimmed == "models"
-            || trimmed.starts_with("admin pulse")
-            || blackboard.contains_key("AdminAgent")
-        {
+        if is_reflex_query(goal) || blackboard.contains_key("AdminAgent") {
             let res = format!(
                 "[{}]: Observation integrated into blackboard.",
                 self.agent_name
@@ -84,18 +78,7 @@ impl GawdAgent for DynamicAgent {
         let ws = workspace.to_path_buf();
         let prompt_val = serde_json::json!(prompt);
 
-        let is_admin_or_query = trimmed == "ls"
-            || trimmed.starts_with("ls ")
-            || trimmed == "dir"
-            || trimmed == "who am i"
-            || trimmed == "whoami"
-            || trimmed.contains("who am i")
-            || trimmed.contains("whoami")
-            || trimmed == "status"
-            || trimmed == "identity"
-            || trimmed == "version"
-            || trimmed == "models"
-            || trimmed.starts_with("admin pulse");
+        let is_admin_or_query = is_reflex_query(goal);
 
         // Prefer the registered 'reason' tool; fall back to calling the engine directly.
         let res = if is_admin_or_query {
@@ -665,10 +648,27 @@ impl GawdAgent for EpistemicAuditorAgent {
         let mut ir_failed: Vec<String> = Vec::new();
         let mut hallucinated_paths: Vec<String> = Vec::new();
 
+        let mut empty_promise_detected = false;
+        let mut empty_promise_agents: Vec<String> = Vec::new();
+
         for entry in blackboard.iter() {
             if entry.key() == &self.name() {
                 continue;
             }
+            let val = entry.value().to_lowercase();
+            if (val.contains("i have fixed")
+                || val.contains("completed the task")
+                || val.contains("successfully modified"))
+                && !val.contains('{')
+                && !val.contains('/')
+                && !val.contains('\\')
+                && !val.contains("fn ")
+                && !val.contains("impl ")
+            {
+                empty_promise_detected = true;
+                empty_promise_agents.push(entry.key().clone());
+            }
+
             if entry.key().starts_with("EvidenceRecord::") {
                 total += 1;
                 match serde_json::from_str::<EvidenceRecord>(entry.value()) {
@@ -698,18 +698,40 @@ impl GawdAgent for EpistemicAuditorAgent {
 
         if !hallucinated_paths.is_empty() {
             let res = format!(
-                "[EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded, {} unverifiable (no file reference), {} referenced non-existent paths: {:?}. Epistemic integrity: UNGROUNDED CLAIMS DETECTED.",
+                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Audited {} agent claims across active model fleet — {} file-grounded, {} unverifiable, {} referenced non-existent paths: {:?}. Epistemic integrity: UNGROUNDED CLAIMS DETECTED. Status: HALLUCINATION DETECTED & REJECTED.",
                 total, grounded, ungrounded, hallucinated_paths.len(), hallucinated_paths
             );
             blackboard.insert(self.name(), res.clone());
+            blackboard.insert(
+                "systemic#hallucination_caught".to_string(),
+                format!("{:?}", hallucinated_paths),
+            );
             return Err(crate::susi_core::susi_error::EaiError::governance(res));
         }
+
         if !ir_failed.is_empty() {
             let res = format!(
-                "[EpistemicAuditorAgent]: Audited {} claims — {} EvidenceRecord verified, {} EvidenceRecord failed ({:?}). Epistemic integrity: NAKED OR REJECTED ASSERTIONS.",
+                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Audited {} claims — {} EvidenceRecord verified, {} EvidenceRecord failed ({:?}). Epistemic integrity: NAKED OR REJECTED ASSERTIONS. Status: UNFOUNDED LIES / UNBACKED ASSERTIONS REJECTED.",
                 total, ir_verified, ir_failed.len(), ir_failed
             );
             blackboard.insert(self.name(), res.clone());
+            blackboard.insert(
+                "systemic#lies_caught".to_string(),
+                format!("{:?}", ir_failed),
+            );
+            return Err(crate::susi_core::susi_error::EaiError::governance(res));
+        }
+
+        if empty_promise_detected {
+            let res = format!(
+                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Empty promise detected from agents {:?}. Claims completion without verifiable code, patch JSON, or workspace evidence. Status: EMPTY PROMISE REJECTED.",
+                empty_promise_agents
+            );
+            blackboard.insert(self.name(), res.clone());
+            blackboard.insert(
+                "systemic#empty_promises_caught".to_string(),
+                format!("{:?}", empty_promise_agents),
+            );
             return Err(crate::susi_core::susi_error::EaiError::governance(res));
         }
 
@@ -866,20 +888,7 @@ impl GawdAgent for SelfHealingAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> crate::susi_core::susi_error::EaiResult<String> {
-        let lower = goal.to_lowercase();
-        let trimmed = lower.trim();
-        if trimmed == "ls"
-            || trimmed.starts_with("ls ")
-            || trimmed == "dir"
-            || trimmed == "who am i"
-            || trimmed == "whoami"
-            || trimmed.contains("who am i")
-            || trimmed.contains("whoami")
-            || trimmed == "status"
-            || trimmed == "identity"
-            || trimmed == "version"
-            || trimmed == "models"
-        {
+        if is_reflex_query(goal) {
             let res = "[SelfHealingAgent]: no health check runs for reflex queries.".to_string();
             blackboard.insert(self.name(), res.clone());
             return Ok(res);
@@ -1106,20 +1115,8 @@ impl GawdAgent for LibraryScoutAgent {
         _blackboard: &MissionBlackboard,
     ) -> crate::susi_core::susi_error::EaiResult<String> {
         let lower_goal = goal.to_lowercase();
-        let trimmed = lower_goal.trim();
 
-        if trimmed == "ls"
-            || trimmed.starts_with("ls ")
-            || trimmed == "dir"
-            || trimmed == "who am i"
-            || trimmed == "whoami"
-            || trimmed.contains("who am i")
-            || trimmed.contains("whoami")
-            || trimmed == "status"
-            || trimmed == "identity"
-            || trimmed == "version"
-            || trimmed == "models"
-        {
+        if is_reflex_query(goal) {
             return Ok(
                 "[LibraryScoutAgent]: No library scouting applies to this query.".to_string(),
             );

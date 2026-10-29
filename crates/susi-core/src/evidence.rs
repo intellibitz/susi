@@ -216,14 +216,26 @@ impl EvidenceRecord {
             }
             EvidenceSource::Command {
                 command,
+                exit_code,
                 output_hash,
-                ..
             } => {
                 if command.trim().is_empty()
                     || output_hash.len() != 64
                     || !output_hash.bytes().all(|b| b.is_ascii_hexdigit())
                 {
                     return Rejected("malformed command evidence".into());
+                }
+                if let Some(session) =
+                    crate::susi_core::capture::EvidenceSession::for_workspace(workspace)
+                {
+                    if session.receipts().iter().any(|r| {
+                        r.tool == *command
+                            && r.output_hash == *output_hash
+                            && r.successful
+                            && *exit_code == 0
+                    }) {
+                        return Verified;
+                    }
                 }
                 Unverified("recorded exit code and output hash are not an execution receipt".into())
             }

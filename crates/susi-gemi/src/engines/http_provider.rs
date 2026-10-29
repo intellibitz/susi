@@ -33,6 +33,10 @@ impl HttpProvider {
         susi_gemi_models::cloud::resolve_api_key(api_key_env, endpoint_name)
     }
 
+    pub fn resolve_api_base(api_base_default: &str, endpoint_name: &str) -> String {
+        susi_gemi_models::cloud::resolve_api_base(api_base_default, endpoint_name)
+    }
+
     /// True for HTTPS remote bases (not localhost). Used to treat any
     /// OpenAI-compatible cloud vendor as a cloud provider for routing.
     pub fn is_remote_cloud(api_base: &str) -> bool {
