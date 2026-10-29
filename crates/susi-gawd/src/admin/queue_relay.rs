@@ -595,7 +595,6 @@ mod tests {
 
     /// The cloud proxy, as the server sees it: nothing outside `refs/heads/*`.
     fn refuse_queue_pushes(bare: &Path) {
-        use std::os::unix::fs::PermissionsExt;
         let hook = bare.join("hooks").join("pre-receive");
         std::fs::write(
             &hook,
@@ -603,7 +602,12 @@ mod tests {
              echo \"HTTP 403 ($ref)\" >&2; exit 1 ;; esac; done\n",
         )
         .unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Git for Windows runs a hook without an executable bit.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
     }
 
     fn requests(bare: &Path) -> String {

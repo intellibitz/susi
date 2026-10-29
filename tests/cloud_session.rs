@@ -1,4 +1,3 @@
-#![cfg(unix)]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -6,6 +5,7 @@
     clippy::unreachable
 )]
 #![allow(missing_docs)] // integration test crate: no public API to document
+#![cfg(unix)] // after the allows: elsewhere it empties the crate, allows and docs too
 
 //! A cloud session (Claude Code on the web) works in the clone its harness
 //! made: a primary checkout on a feature branch, in a disposable container,
