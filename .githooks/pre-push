@@ -31,8 +31,10 @@ echo "🛡️ Running SUSI Deep Compliance Checks (Deferred from Commit)..."
 # changes Rust/Cargo files relative to what's already on origin/main - a
 # docs/config/CI-only push (e.g. deny.toml, install.sh, workflow YAML) gets
 # no benefit from clippy or the admin audit re-checking source that never
-# changed. Mirrors the pre-commit hook's own fast path.
-PUSHED_RUST_FILES=$(git diff --name-only origin/main..HEAD -- '*.rs' 'Cargo.toml' 'Cargo.lock' 2>/dev/null | head -n 1)
+# changed. Mirrors the pre-commit hook's own fast path. config/ and deploy/
+# count: crates compile their files in (include_str!), so a push that renames
+# or deletes one breaks a build no .rs change shows.
+PUSHED_RUST_FILES=$(git diff --name-only origin/main..HEAD -- '*.rs' 'Cargo.toml' 'Cargo.lock' 'config/' 'deploy/' 2>/dev/null | head -n 1)
 
 if [ -n "$PUSHED_RUST_FILES" ]; then
     okfile="$(git rev-parse --git-dir)/susi-gate-ok"
@@ -54,8 +56,13 @@ if [ -n "$PUSHED_RUST_FILES" ]; then
         # the whole-workspace lint.
         # The shared target may hold another worktree's build of a crate
         # this branch has differently: lint this branch's code, not theirs.
+        # Held from the guard through clippy, so no other worktree's guard
+        # and build land in between; the EXIT trap lets go on any exit.
         guard="$(git rev-parse --show-toplevel)/scripts/target-guard.sh"
-        if [ -x "$guard" ]; then "$guard"; fi
+        if [ -x "$guard" ]; then
+            "$guard" --hold $$
+            trap '"$guard" --release $$ >/dev/null 2>&1 || true' EXIT
+        fi
         LINT_PKGS=$("$(git rev-parse --show-toplevel)/scripts/ci-changed-crates.sh" --dependents)
         if [ "$LINT_PKGS" = ALL ] || [ -z "$LINT_PKGS" ]; then
             cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -63,7 +70,9 @@ if [ -n "$PUSHED_RUST_FILES" ]; then
             # shellcheck disable=SC2046 - one `-p` per word is the point.
             cargo clippy --locked --all-targets $(printf ' -p %s' $LINT_PKGS) -- -D warnings
         fi
-        if [ $? -ne 0 ]; then
+        clippy_status=$?
+        if [ -x "$guard" ]; then "$guard" --release $$; fi
+        if [ "$clippy_status" -ne 0 ]; then
             echo "❌ Compliance Violation: Clippy found warnings/errors."
             echo "👉 Fix the clippy issues before pushing."
             exit 1

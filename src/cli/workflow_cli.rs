@@ -342,25 +342,46 @@ fn workflow_script_command(script: &Path, args: &[&str]) -> std::process::Comman
 }
 
 /// Windows cannot exec a script by its shebang (os error 193): drive it
-/// through a POSIX shell. `sh`/`bash` resolve when susi runs inside Git
-/// Bash; outside it, Git for Windows still ships `usr/bin/sh.exe` beside
-/// its `cmd/git.exe`, which `git --exec-path` locates.
+/// through Git for Windows' POSIX shell, with its userland on PATH
+/// ([`susi_gawd::admin::tasks::posix_shell_command`]). Probing a bare `bash`
+/// here used to find WSL's System32 stub, which cannot run a Windows-path
+/// script; then, outside Git Bash, the shell found was Git's raw
+/// `usr/bin/sh.exe` with no `/usr/bin` on PATH, so `workflow sync` and
+/// `finish` stopped at the script's first `dirname` and `flock`.
 #[cfg(windows)]
 fn workflow_script_command(script: &Path, args: &[&str]) -> std::process::Command {
-    let shell = windows_posix_shell().unwrap_or_else(|| std::path::PathBuf::from("sh"));
-    let mut cmd = std::process::Command::new(shell);
+    let mut cmd = susi_gawd::admin::tasks::posix_shell_command("sh");
     cmd.arg(script).args(args);
     cmd
 }
 
-/// Git for Windows' POSIX shell ([`susi_gawd::admin::tasks::posix_shell`]).
-/// Probing a bare `bash` here used to find WSL's System32 stub, which cannot
-/// run a Windows-path script, and the `git --exec-path` fallback looked one
-/// directory too shallow, so outside Git Bash no shell was found at all.
-#[cfg(windows)]
-fn windows_posix_shell() -> Option<std::path::PathBuf> {
-    let shell = susi_gawd::admin::tasks::posix_shell("sh");
-    shell.is_absolute().then_some(shell)
+/// The loop's scripts need coreutils: `parallel-workflow.sh` opens with
+/// `dirname`, and its flock fallback with `readlink` and `mkdir`.
+#[cfg(all(test, windows))]
+mod script_shell {
+    use super::*;
+
+    #[test]
+    fn a_workflow_script_runs_with_the_posix_userland() {
+        let dir = std::env::temp_dir().join(format!("susi-workflow-shell-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("probe.sh");
+        std::fs::write(&script, "mkdir -p made && dirname \"$1/leaf\" > made/out\n").unwrap();
+        let status = workflow_script_command(&script, &["a/b"])
+            .current_dir(&dir)
+            .stdin(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("made").join("out"))
+                .unwrap()
+                .trim(),
+            "a/b"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]
