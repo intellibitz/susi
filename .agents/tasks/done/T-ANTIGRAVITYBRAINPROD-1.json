@@ -15,5 +15,10 @@
     ]
   },
   "created_by": "ANTIGRAVITYBRAINPROD",
-  "created_unix": 1793292000
+  "created_unix": 1793292000,
+  "closed": {
+    "at_unix": 1793299876,
+    "commit": "fc323cec8bd57aafd2906fa03b4891edecda23eb",
+    "by": "ANTIGRAVITYBRAINPROD"
+  }
 }
