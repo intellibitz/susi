@@ -13,7 +13,22 @@
   },
   "permissions": {
     "allow": [
-      "Bash(gh api:*)"
+      "Bash(cargo*)",
+      "Bash(git*)",
+      "Bash(gh api*)",
+      "Bash(scripts/*)",
+      "Bash(.githooks/*)",
+      "Bash(target/debug/susi*)",
+      "Bash(susi*)"
+    ],
+    "deny": [
+      "mcp__claude-code-remote__request_computer_folder",
+      "mcp__claude-code-remote__list_computer_folders",
+      "mcp__claude-code-remote__confirm_repository_trust",
+      "mcp__remote-devices*",
+      "mcp__computer-use*",
+      "mcp__Claude_Browser*",
+      "mcp__claude-in-chrome*"
     ]
   }
 }

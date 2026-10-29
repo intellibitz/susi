@@ -1,0 +1,22 @@
+{
+  "harness": "susi-harness",
+  "version": "0.21.23",
+  "executable": "F:/src/github.com/intellibitz/susi/target/debug/susi.exe",
+  "mcp_endpoint": "stdio",
+  "capabilities": [
+    "workflow",
+    "tasks",
+    "harness",
+    "brain",
+    "solve",
+    "evidence",
+    "models",
+    "gemi"
+  ],
+  "ide_integration": {
+    "intellij": true,
+    "android_studio": true,
+    "vscode": true,
+    "claude": true
+  }
+}

@@ -186,8 +186,7 @@ repository's `scripts/`, the hooks and the dev binary. `.claude/settings.json`
 is where a repository pre-approves them for Claude Code sessions and denies
 the tools that would reach a laptop (`request_computer_folder`,
 `list_computer_folders`, the remote-devices / computer-use / browser tool
-families). That file is reserved by a live claim at the time of writing; the
-queue holds the task that adds the rules (see "Follow-ups").
+families); `tests/cloud_session.rs` pins both lists.
 
 ## What a cloud session never does
 
@@ -198,20 +197,6 @@ queue holds the task that adds the rules (see "Follow-ups").
 * install or promote a release (`~/.susi/bin`, `scripts/susi-release-sync.sh`,
   Mandate 48) — the container has no release instance;
 * open a pull request by hand or as a draft — the push does it.
-
-## Follow-ups
-
-Queued as tasks (`susi tasks list`), because the files were reserved by
-another live claim when this landed, or because the work cannot be verified
-from inside a cloud session until it is on `main`:
-
-* `scripts/parallel-workflow.sh` — `sync` (and so `finish`) still refuses
-  "Use your own linked worktree." in the primary checkout; until it reads the
-  mark, a cloud session runs the finish steps by hand (gate → `tasks close`
-  → commit → merge `origin/main` → push → `tasks release --force`), which
-  AGENTS.md names as the supported path outside the harness.
-* `.claude/settings.json` — the permission allow/deny lists above.
-* `AGENTS.md` — the "Cloud sessions" section of the START HERE block.
 
 ## Troubleshooting
 
@@ -225,5 +210,4 @@ from inside a cloud session until it is on `main`:
 | `gh auth status`: "The token in GH_TOKEN is invalid" | an unproxied probe | ignore; `gh api …` reads work |
 | `susi tasks claim`: "was claimed concurrently with another agent" on a quiet queue, with no `queue:` line before it | a `susi` built before the relay: it read every refused push as a lost race | build this branch's `susi` (`scripts/target-guard.sh --run cargo build -q`) and retry; the relay reports what it does |
 | pre-push: `fatal: bad revision '^…^'`, "cannot compute the commit range" | the harness's clone is shallow | `git fetch --unshallow origin` (the session-start hook does it) |
-| `Use your own linked worktree.` from `susi workflow sync` / `finish` | `scripts/parallel-workflow.sh` does not read the mark yet | the by-hand finish above |
 | a fixture test behaves like a cloud clone | something exported `SUSI_CLOUD_SESSION=1`, or the fixture was marked | unset it; fixtures are marked only by a test that means to |

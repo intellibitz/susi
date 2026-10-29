@@ -44,11 +44,18 @@ impl InferenceProtocol {
 
 /// OpenAI `/chat/completions` body with one user message.
 pub fn openai_chat_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
-    json!({
+    let lower = model.to_lowercase();
+    let mut val = json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens
-    })
+    });
+    if lower.contains("kimi") || lower.contains("moonshot") {
+        if let Some(obj) = val.as_object_mut() {
+            obj.insert("thinking".into(), json!({"type": "enabled"}));
+        }
+    }
+    val
 }
 
 /// OpenAI legacy `/completions` body.
@@ -64,14 +71,24 @@ pub fn triton_body(prompt: &str, max_tokens: u32) -> Value {
     })
 }
 
-/// The retry body when a provider rejected `max_tokens` in favour of
-/// `max_completion_tokens` (OpenAI reasoning models answer 400 with
-/// `code: "unsupported_parameter"`, `param: "max_tokens"`). `max_tokens`
-/// stays the first choice because older OpenAI-compatible servers (vLLM,
-/// llama.cpp) only know that name — and a server that silently ignores an
-/// unknown `max_completion_tokens` would lose the output cap entirely.
+/// The retry body when a provider rejected `max_tokens` or returned a provider-specific
+/// payload error like Moonshot/Kimi's `invalid thinking: only type=enabled is allowed for this model`.
 pub fn token_param_retry(body: &Value, error_body: &str) -> Option<Value> {
     let fields = body.as_object()?;
+
+    // Moonshot / Kimi thinking parameter adjustment retry
+    if error_body.contains("invalid thinking")
+        || error_body.contains("type=enabled")
+        || error_body.contains("MoonshotException")
+    {
+        let mut retry = fields.clone();
+        retry.insert(
+            "thinking".to_string(),
+            serde_json::json!({"type": "enabled"}),
+        );
+        return Some(Value::Object(retry));
+    }
+
     let limit = fields.get("max_tokens")?;
     let error: Value = serde_json::from_str(error_body).unwrap_or(Value::Null);
     let unsupported = error.pointer("/error/code").and_then(Value::as_str)
@@ -1286,5 +1303,19 @@ mod tests {
             g_cache_cost < g_full_cost,
             "Gemini cache hit must provide 75% prompt savings"
         );
+    }
+
+    #[test]
+    fn moonshot_kimi_thinking_and_retry_test() {
+        let body = openai_chat_body("kimi-k2.7-code-highspeed", "solve this", 1000);
+        assert_eq!(body["thinking"]["type"], "enabled");
+
+        let err_resp = r#"{"error":{"message":"MoonshotException - invalid thinking: only type=enabled is allowed for this model","type":"invalid_request_error","code":"invalid_thinking"}}"#;
+        let retry_body = token_param_retry(
+            &json!({"model": "kimi-k2-7-code", "messages": []}),
+            err_resp,
+        )
+        .unwrap();
+        assert_eq!(retry_body["thinking"]["type"], "enabled");
     }
 }

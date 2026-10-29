@@ -2,21 +2,36 @@
 //! Rankings come from recorded outcomes (`brain_evidence.json`), not a fixed
 //! vendor order.
 use crate::cli_json::print_json;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Subcommand;
+use std::path::PathBuf;
 use susi_gemi::engines::brain::{self, TaskClass};
+use susi_gemi::engines::cost::Budget;
 
 #[derive(Debug, Subcommand)]
 pub enum BrainCommands {
     /// Show the evidence-ranked providers for every task class (default)
-    Status,
-    /// Set shared cloud spending and request limits (USD expressed in microdollars)
+    Status {
+        /// Number of top ranked providers to show per class
+        #[arg(long, default_value_t = 5)]
+        top: usize,
+        /// Filter by specific task class (e.g. reflex, chat, code, reasoning, estate_ops)
+        #[arg(long)]
+        class: Option<String>,
+        /// Output raw JSON instead of human summary table
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set shared cloud spending and request limits
     Budget {
         #[arg(long, conflicts_with = "allow_paid")]
         free_only: bool,
         /// Authorize paid inference within the configured limits
         #[arg(long)]
         allow_paid: bool,
+        /// Budget dial setting: low, balanced, or max
+        #[arg(long)]
+        level: Option<String>,
         #[arg(long)]
         max_spend_microusd: Option<u64>,
         #[arg(long)]
@@ -33,6 +48,22 @@ pub enum BrainCommands {
     Classify {
         #[arg(trailing_var_arg = true)]
         prompt: Vec<String>,
+    },
+    /// Explain the brain's routing decision for a prompt
+    Explain {
+        #[arg(trailing_var_arg = true)]
+        prompt: Vec<String>,
+    },
+    /// Export brain evidence bundle to portable JSON format
+    Export {
+        /// Output file path (defaults to stdout if omitted)
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Import and merge brain evidence bundle from a file
+    Import {
+        /// Path to bundle file
+        file: PathBuf,
     },
     /// Show the measured capability matrix: every model's success rate,
     /// latency and cost per verified outcome at each task class
@@ -59,42 +90,162 @@ pub enum BrainCommands {
     },
 }
 
+impl Default for BrainCommands {
+    fn default() -> Self {
+        Self::Status {
+            top: 5,
+            class: None,
+            json: false,
+        }
+    }
+}
+
+fn cloud_budget_file_path() -> PathBuf {
+    susi_paths::SusiDirs::config_dir().join("cloud_budget.json")
+}
+
+fn unix_now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn upsert_cloud_budget_env(budget_level: &str) -> Result<()> {
+    let path = susi_paths::SusiDirs::config_dir().join("cloud.env");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut lines: Vec<String> = Vec::new();
+    let mut replaced = false;
+    for raw in existing.lines() {
+        let trimmed = raw.trim();
+        let check = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+        if let Some((k, _)) = check.split_once('=') {
+            if k.trim().eq_ignore_ascii_case("SUSI_BUDGET") {
+                lines.push(format!("SUSI_BUDGET={}", budget_level));
+                replaced = true;
+                continue;
+            }
+        }
+        lines.push(raw.to_string());
+    }
+    if !replaced {
+        lines.push(format!("SUSI_BUDGET={}", budget_level));
+    }
+    let body = format!("{}\n", lines.join("\n"));
+    susi_config::atomic_write_bytes(&path, body.as_bytes())?;
+    Ok(())
+}
+
 pub fn execute(action: Option<BrainCommands>) -> Result<()> {
-    match action.unwrap_or(BrainCommands::Status) {
-        BrainCommands::Status => {
+    match action.unwrap_or_default() {
+        BrainCommands::Status { top, class, json } => {
             let store = brain::load();
             let providers = store.providers();
-            let classes: serde_json::Map<String, serde_json::Value> = TaskClass::ALL
-                .iter()
-                .map(|c| {
-                    (
-                        c.label().to_string(),
-                        serde_json::to_value(store.rank(&providers, *c)).unwrap_or_default(),
-                    )
-                })
-                .collect();
             let pref = susi_gemi::engines::routing::InferenceRouter::load_preference();
             let cooled_providers = susi_gemi::engines::routing::InferenceRouter::cooled_providers();
-            print_json(&serde_json::json!({
-                "principle": "local is the floor, cloud is the ceiling; evidence beats priors",
-                "budget": susi_gemi::engines::cost::Budget::from_env().label(),
-                "failure_streaks": store
-                    .failure_streaks()
-                    .into_iter()
-                    .map(|(key, h)| serde_json::json!({
-                        "key": key,
-                        "kind": h.kind,
-                        "consecutive": h.consecutive,
-                        "last_unix": h.last_unix,
-                    }))
-                    .collect::<Vec<_>>(),
-                "providers_with_evidence": providers,
-                "ranking_by_task_class": classes,
-                "preferred_cloud": pref.preferred_cloud,
-                "policy_override": pref.policy_override,
-                "auto_switched_from": pref.auto_switched_from,
-                "cooled_providers": cooled_providers,
-            }))?;
+
+            if json {
+                let mut classes: serde_json::Map<String, serde_json::Value> =
+                    serde_json::Map::new();
+                for c in TaskClass::ALL {
+                    if let Some(target) = &class {
+                        if !c.label().eq_ignore_ascii_case(target) {
+                            continue;
+                        }
+                    }
+                    let mut ranked = store.rank(&providers, c);
+                    ranked.truncate(top);
+                    classes.insert(
+                        c.label().to_string(),
+                        serde_json::to_value(ranked).unwrap_or_default(),
+                    );
+                }
+                print_json(&serde_json::json!({
+                    "principle": "local is the floor, cloud is the ceiling; evidence beats priors",
+                    "budget": Budget::from_env().label(),
+                    "failure_streaks": store
+                        .failure_streaks()
+                        .into_iter()
+                        .map(|(key, h)| serde_json::json!({
+                            "key": key,
+                            "kind": h.kind,
+                            "consecutive": h.consecutive,
+                            "last_unix": h.last_unix,
+                        }))
+                        .collect::<Vec<_>>(),
+                    "providers_with_evidence": providers,
+                    "ranking_by_task_class": classes,
+                    "preferred_cloud": pref.preferred_cloud,
+                    "policy_override": pref.policy_override,
+                    "auto_switched_from": pref.auto_switched_from,
+                    "cooled_providers": cooled_providers,
+                }))?;
+            } else {
+                let budget = Budget::from_env();
+                println!("=== SUSI BRAIN STATUS ===");
+                println!(
+                    "Principle: local is the floor, cloud is the ceiling; evidence beats priors"
+                );
+                println!(
+                    "Budget: {} | Preferred Cloud: {}",
+                    budget.label(),
+                    pref.preferred_cloud.as_deref().unwrap_or("none")
+                );
+                if !cooled_providers.is_empty() {
+                    let cooled_list: Vec<&str> = cooled_providers
+                        .iter()
+                        .map(|c| c.provider.as_str())
+                        .collect();
+                    println!("Cooled Providers: {}", cooled_list.join(", "));
+                }
+                println!();
+
+                for c in TaskClass::ALL {
+                    if let Some(target) = &class {
+                        if !c.label().eq_ignore_ascii_case(target) {
+                            continue;
+                        }
+                    }
+                    println!("[Task Class: {}]", c.label().to_uppercase());
+                    let mut ranked = store.rank(&providers, c);
+                    ranked.truncate(top);
+                    if ranked.is_empty() {
+                        println!("  (no evidence recorded yet)");
+                    } else {
+                        for (i, r) in ranked.iter().enumerate() {
+                            let success_str = r
+                                .success_rate
+                                .map(|sr| format!("{:.0}%", sr * 100.0))
+                                .unwrap_or_else(|| "n/a".into());
+                            let latency_str = r
+                                .avg_latency_ms
+                                .map(|ms| format!("{}ms", ms))
+                                .unwrap_or_else(|| "n/a".into());
+                            let floor_str = if r.meets_floor {
+                                "floor:ok"
+                            } else {
+                                "below_floor"
+                            };
+                            let unfit_str = if r.unfit { " [UNFIT]" } else { "" };
+                            println!(
+                                "  {:2}. {:<20} score: {:<5.3}  tier: {:<4}  success: {:<4}  avg: {:<6}  {}{}",
+                                i + 1,
+                                r.provider,
+                                r.score,
+                                r.cost_tier,
+                                success_str,
+                                latency_str,
+                                floor_str,
+                                unfit_str
+                            );
+                        }
+                    }
+                    println!();
+                }
+            }
         }
         BrainCommands::Matrix => {
             print_json(&serde_json::to_value(susi_gemi::capability_matrix::build())?)?;
@@ -106,12 +257,99 @@ pub fn execute(action: Option<BrainCommands>) -> Result<()> {
                 "journal": susi_gemi::context_assembly::default_journal_path(),
             }))?;
         }
-        BrainCommands::Budget { .. } => {
-            println!("cloud budget is governed by susi_gawd_agents::cloud_budget::SpendPolicy, not a CLI settable policy");
+        BrainCommands::Budget {
+            free_only,
+            allow_paid,
+            level,
+            max_spend_microusd,
+            max_tokens,
+            max_requests,
+            max_parallel,
+            new_window,
+        } => {
+            if let Some(lvl) = &level {
+                if let Some(parsed) = Budget::parse(lvl) {
+                    upsert_cloud_budget_env(parsed.label())?;
+                    println!("Set budget dial to '{}'", parsed.label());
+                } else {
+                    anyhow::bail!("Invalid budget level '{}'. Choose: low, balanced, max", lvl);
+                }
+            }
+            if free_only {
+                upsert_cloud_budget_env("low")?;
+                let path = cloud_budget_file_path();
+                let body = serde_json::json!({
+                    "policy": "free_only",
+                    "updated_at": unix_now_secs(),
+                });
+                susi_config::atomic_write_bytes(&path, &serde_json::to_vec_pretty(&body)?)?;
+                println!(
+                    "Budget configured: policy=free_only, budget_dial=low (saved to {})",
+                    path.display()
+                );
+            } else if allow_paid {
+                let spend_cap = max_spend_microusd.unwrap_or(10_000_000);
+                let path = cloud_budget_file_path();
+                let body = serde_json::json!({
+                    "policy": "paid_authorized",
+                    "max_spend_microusd": spend_cap,
+                    "max_tokens": max_tokens,
+                    "max_requests": max_requests,
+                    "max_parallel": max_parallel,
+                    "new_window": new_window,
+                    "updated_at": unix_now_secs(),
+                });
+                susi_config::atomic_write_bytes(&path, &serde_json::to_vec_pretty(&body)?)?;
+                println!("Budget configured: policy=paid_authorized, max_spend_microusd={spend_cap} (saved to {})", path.display());
+            } else if level.is_none() {
+                let curr_level = Budget::from_env().label();
+                let path = cloud_budget_file_path();
+                let policy_str = if path.exists() {
+                    std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".into())
+                } else {
+                    "{\"policy\": \"default\"}".into()
+                };
+                println!("Budget dial: {}", curr_level);
+                println!("Ledger policy: {}", policy_str.trim());
+            }
         }
         BrainCommands::Classify { prompt } => {
             let text = prompt.join(" ");
             print_json(&serde_json::json!({ "task_class": TaskClass::classify(&text).label() }))?;
+        }
+        BrainCommands::Explain { prompt } => {
+            let text = prompt.join(" ");
+            if text.trim().is_empty() {
+                anyhow::bail!("prompt cannot be empty");
+            }
+            let explanation = brain::explain(&text);
+            print_json(&explanation)?;
+        }
+        BrainCommands::Export { out } => {
+            let bundle = brain::export();
+            if let Some(path) = out {
+                let json_bytes = serde_json::to_vec_pretty(&bundle)?;
+                susi_config::atomic_write_bytes(&path, &json_bytes)?;
+                println!(
+                    "Exported {} evidence entries to {}",
+                    bundle.entries.len(),
+                    path.display()
+                );
+            } else {
+                print_json(&bundle)?;
+            }
+        }
+        BrainCommands::Import { file } => {
+            let content = std::fs::read_to_string(&file)
+                .with_context(|| format!("Failed to read {}", file.display()))?;
+            let bundle: susi_gemi::brain_export::BrainBundle = serde_json::from_str(&content)
+                .with_context(|| format!("Failed to parse bundle from {}", file.display()))?;
+            let count = brain::import(bundle).map_err(|e| anyhow::anyhow!("Import failed: {e}"))?;
+            println!(
+                "Successfully imported and merged {} evidence entries from {}",
+                count,
+                file.display()
+            );
         }
         BrainCommands::Reset => {
             brain::reset()?;

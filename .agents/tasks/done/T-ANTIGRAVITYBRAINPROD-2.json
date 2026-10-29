@@ -1,0 +1,21 @@
+{
+  "id": "T-ANTIGRAVITYBRAINPROD-2",
+  "title": "Fix cargo fmt in tests/cloud_session.rs",
+  "goal": "Apply rustfmt to tests/cloud_session.rs to restore format compliance.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "fmt",
+      "--check"
+    ]
+  },
+  "created_by": "ANTIGRAVITYBRAINPROD",
+  "created_unix": 1793293000,
+  "closed": {
+    "at_unix": 1793300737,
+    "commit": "11704ecc3f71a3dc48ff4e74240250ede8a33bbf",
+    "by": "ANTIGRAVITYBRAINPROD"
+  }
+}

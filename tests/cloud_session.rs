@@ -1189,3 +1189,58 @@ fn serde_json_string(s: &str) -> String {
     out.push('"');
     out
 }
+
+#[test]
+fn cloud_session_parallel_workflow_sync_and_finish_run_in_the_clone() {
+    let w = World::new("sync");
+    let (code, _, err) = w.script("scripts/parallel-workflow.sh", &["sync"], &[]);
+    assert_ne!(code, 0, "an unmarked primary checkout is refused");
+    assert!(err.contains("Use your own linked worktree"), "{err}");
+
+    w.mark();
+    let (code, _, err) = w.script("scripts/parallel-workflow.sh", &["sync"], &[]);
+    assert_eq!(code, 0, "{err}");
+}
+
+#[test]
+fn cloud_session_settings_json_permissions() {
+    let settings = std::fs::read_to_string(".claude/settings.json").unwrap();
+    let json: serde_json::Value = serde_json::from_str(&settings).unwrap();
+
+    let allow = json["permissions"]["allow"].as_array().unwrap();
+    let deny = json["permissions"]["deny"].as_array().unwrap();
+
+    let expected_allow = vec![
+        "Bash(cargo*)",
+        "Bash(git*)",
+        "Bash(gh api*)",
+        "Bash(scripts/*)",
+        "Bash(.githooks/*)",
+        "Bash(target/debug/susi*)",
+        "Bash(susi*)",
+    ];
+    let expected_deny = vec![
+        "mcp__claude-code-remote__request_computer_folder",
+        "mcp__claude-code-remote__list_computer_folders",
+        "mcp__claude-code-remote__confirm_repository_trust",
+        "mcp__remote-devices*",
+        "mcp__computer-use*",
+        "mcp__Claude_Browser*",
+        "mcp__claude-in-chrome*",
+    ];
+
+    for ea in expected_allow {
+        assert!(
+            allow.iter().any(|v| v.as_str().unwrap() == ea),
+            "missing allow: {}",
+            ea
+        );
+    }
+    for ed in expected_deny {
+        assert!(
+            deny.iter().any(|v| v.as_str().unwrap() == ed),
+            "missing deny: {}",
+            ed
+        );
+    }
+}
