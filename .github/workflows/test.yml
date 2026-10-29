@@ -53,9 +53,13 @@ on:
 # branch; sharing the push run's group, it cancelled the branch gate — the only
 # run auto-merge merges on — and the next push cancelled it back, so PR #977
 # went nine pushes without one Test run finishing. On main the auto-merger's
-# dispatches share one group and queue, as above.
+# dispatches share one group and queue, as above. A `prove` dispatch on main
+# (the release dry run on main, a cache refresh) proves main's head as it is at
+# dispatch, so it gets a group of its own too: in the merges' group it waited
+# behind the running suite past the release's wait, and the next merge's run
+# replaced it while it was pending.
 concurrency:
-  group: test-${{ github.ref }}${{ github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', inputs.gate || 'full') || '' }}
+  group: test-${{ github.ref }}${{ github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', inputs.gate || 'full') || (inputs.prove && '-prove' || '') }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # A run on a tag (release.yml dispatches the suite on the tag it is about to
@@ -255,12 +259,12 @@ jobs:
       # its code is byte-identical to the green run it reused (the stamp and
       # ci-changed-crates.sh exempt the same .agents/tasks/), so a diff from
       # it is the diff from that run.
-      # Rename detection is off for every diff below, so a file moved out of
-      # scripts/ or out of a crate still names the path it left. Two escapes,
-      # both toward proving more: the suite's own machinery (.github/,
-      # scripts/) cannot scope itself out, and anything the diff cannot resolve
-      # — no green base among the last 20 runs, or no answer from the API — is
-      # ALL.
+      # Every diff below counts both sides of a rename (`--no-renames` here and
+      # in ci-changed-crates.sh), so a file moved out of scripts/ or out of a
+      # crate still names the path it left. Two escapes, both toward proving
+      # more: the suite's own machinery (.github/, scripts/) cannot scope
+      # itself out, and anything the diff cannot resolve — no green base among
+      # the last 20 runs, or no answer from the API — is ALL.
       # `affected` is the scalar verdict; `skip_shards` is what the matrix
       # step below leaves out of the `test` matrix; `run_e2e`, `run_kani` and
       # `run_windows` gate their jobs.
@@ -283,7 +287,6 @@ jobs:
           if [ "${PROVE_ANYWAY:-}" = "true" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "prove=true — scoping nothing, every job runs"
           elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=false
             head=$(git rev-parse HEAD)
             base=
             for sha in $(gh run list --workflow test.yml --branch main --status success \
@@ -297,7 +300,7 @@ jobs:
             done
             echo "scoping against the last green main head: ${base:-none}"
             if [ -n "$base" ]; then
-              changed=$(git diff --name-only "$base" HEAD)
+              changed=$(git diff --no-renames --name-only "$base" HEAD)
               if grep -Eq '^(\.github/|scripts/|\.cargo/|rust-toolchain|vendor/|xtask/)' <<<"$changed"; then
                 echo "merge touched CI machinery, a vendored crate or xtask — scoping nothing"
               else
@@ -529,10 +532,7 @@ jobs:
       - name: Resolve affected crates
         id: affected
         run: |
-          # Rename detection off, as on main: a file moved out of a crate
-          # (an include_str! source, a fixture) names the crate it left.
-          pkgs=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=false \
-            ./scripts/ci-changed-crates.sh --dependents)
+          pkgs=$(./scripts/ci-changed-crates.sh --dependents)
           {
             echo 'pkgs<<AFFECTED_EOF'
             echo "$pkgs"
