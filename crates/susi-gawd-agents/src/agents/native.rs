@@ -648,10 +648,27 @@ impl GawdAgent for EpistemicAuditorAgent {
         let mut ir_failed: Vec<String> = Vec::new();
         let mut hallucinated_paths: Vec<String> = Vec::new();
 
+        let mut empty_promise_detected = false;
+        let mut empty_promise_agents: Vec<String> = Vec::new();
+
         for entry in blackboard.iter() {
             if entry.key() == &self.name() {
                 continue;
             }
+            let val = entry.value().to_lowercase();
+            if (val.contains("i have fixed")
+                || val.contains("completed the task")
+                || val.contains("successfully modified"))
+                && !val.contains('{')
+                && !val.contains('/')
+                && !val.contains('\\')
+                && !val.contains("fn ")
+                && !val.contains("impl ")
+            {
+                empty_promise_detected = true;
+                empty_promise_agents.push(entry.key().clone());
+            }
+
             if entry.key().starts_with("EvidenceRecord::") {
                 total += 1;
                 match serde_json::from_str::<EvidenceRecord>(entry.value()) {
@@ -681,22 +698,40 @@ impl GawdAgent for EpistemicAuditorAgent {
 
         if !hallucinated_paths.is_empty() {
             let res = format!(
-                "[HALLUCINATION_CAUGHT_8B] [EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded, {} unverifiable (no file reference), {} referenced non-existent paths: {:?}. Epistemic integrity: UNGROUNDED 8B MODEL HALLUCINATION DETECTED & REJECTED.",
+                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Audited {} agent claims across active model fleet — {} file-grounded, {} unverifiable, {} referenced non-existent paths: {:?}. Status: HALLUCINATION DETECTED & REJECTED.",
                 total, grounded, ungrounded, hallucinated_paths.len(), hallucinated_paths
             );
             blackboard.insert(self.name(), res.clone());
             blackboard.insert(
-                "8b_model#hallucination_caught".to_string(),
+                "systemic#hallucination_caught".to_string(),
                 format!("{:?}", hallucinated_paths),
             );
             return Err(crate::susi_core::susi_error::EaiError::governance(res));
         }
+
         if !ir_failed.is_empty() {
             let res = format!(
-                "[EpistemicAuditorAgent]: Audited {} claims — {} EvidenceRecord verified, {} EvidenceRecord failed ({:?}). Epistemic integrity: NAKED OR REJECTED ASSERTIONS.",
+                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Audited {} claims — {} EvidenceRecord verified, {} EvidenceRecord failed ({:?}). Status: UNFOUNDED LIES / UNBACKED ASSERTIONS REJECTED.",
                 total, ir_verified, ir_failed.len(), ir_failed
             );
             blackboard.insert(self.name(), res.clone());
+            blackboard.insert(
+                "systemic#lies_caught".to_string(),
+                format!("{:?}", ir_failed),
+            );
+            return Err(crate::susi_core::susi_error::EaiError::governance(res));
+        }
+
+        if empty_promise_detected {
+            let res = format!(
+                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Empty promise detected from agents {:?}. Claims completion without verifiable code, patch JSON, or workspace evidence. Status: EMPTY PROMISE REJECTED.",
+                empty_promise_agents
+            );
+            blackboard.insert(self.name(), res.clone());
+            blackboard.insert(
+                "systemic#empty_promises_caught".to_string(),
+                format!("{:?}", empty_promise_agents),
+            );
             return Err(crate::susi_core::susi_error::EaiError::governance(res));
         }
 
