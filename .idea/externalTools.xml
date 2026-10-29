@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ExternalToolsManager">
+    <tool name="SUSI Workflow Check" showInMainMenu="true" showInModuleTree="true" showInProjectTree="true" showInPopup="true">
+      <exec>
+        <option name="COMMAND" value="F:/src/github.com/intellibitz/susi/target/debug/susi.exe" />
+        <option name="PARAMETERS" value="workflow check" />
+        <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+      </exec>
+    </tool>
+    <tool name="SUSI Tasks List" showInMainMenu="true" showInModuleTree="true" showInProjectTree="true" showInPopup="true">
+      <exec>
+        <option name="COMMAND" value="F:/src/github.com/intellibitz/susi/target/debug/susi.exe" />
+        <option name="PARAMETERS" value="tasks list" />
+        <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+      </exec>
+    </tool>
+    <tool name="SUSI Harness Status" showInMainMenu="true" showInModuleTree="true" showInProjectTree="true" showInPopup="true">
+      <exec>
+        <option name="COMMAND" value="F:/src/github.com/intellibitz/susi/target/debug/susi.exe" />
+        <option name="PARAMETERS" value="status" />
+        <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+      </exec>
+    </tool>
+    <tool name="SUSI Start Daemon" showInMainMenu="true" showInModuleTree="true" showInProjectTree="true" showInPopup="true">
+      <exec>
+        <option name="COMMAND" value="F:/src/github.com/intellibitz/susi/target/debug/susi.exe" />
+        <option name="PARAMETERS" value="start" />
+        <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+      </exec>
+    </tool>
+  </component>
+</project>
