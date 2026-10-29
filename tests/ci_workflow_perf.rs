@@ -2063,19 +2063,12 @@ fn main_scopes_from_the_last_green_head_not_the_previous_merge() {
     std::fs::create_dir_all(repo.join("docs")).unwrap();
     git(&["mv", "src/data.txt", "docs/data.txt"]);
     let c4 = commit("absorbed: a file moved out of a crate");
-    write(".agents/tasks/done/T-X-1.json", "{}\n");
-    let c5 = commit("absorbed: a task record");
-    write("vendor/patched/src/lib.rs", "pub fn p() {}\n");
-    let c6 = commit("absorbed: a vendored patch crate");
     git(&["checkout", "--quiet", "-b", "side", &c0]);
     write("docs/side.md", "side\n");
     let side = commit("off main's history");
     git(&["checkout", "--quiet", "main"]);
     write("docs/n.md", "n\n");
     let head = commit("the merge this run is for: docs only");
-    // A task-only merge on top: from its parent, nothing is affected.
-    write(".agents/tasks/done/T-X-2.json", "{}\n");
-    let tasks_only = commit("a close record");
 
     let gh = fakes.join("gh");
     std::fs::write(
@@ -2176,22 +2169,12 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
     };
 
     // Each base, and what the diff from it to HEAD resolves to.
-    let (_, affected, skip) = scope(Some(&[green(&c6)]));
+    let (_, affected, skip) = scope(Some(&[green(&c4)]));
     assert_eq!(
         (affected.as_str(), skip.as_str()),
         ("SCOPED", r#"["foundation"]"#),
         "a doc is no crate to the compile gate, but root tests read docs, README \
          and the installers: the root package re-proves it"
-    );
-    let (_, affected, _) = scope(Some(&[green(&c5)]));
-    assert_eq!(
-        affected, "ALL",
-        "a vendored patch crate is linked everywhere"
-    );
-    let (_, affected, _) = scope(Some(&[green(&c4)]));
-    assert_eq!(
-        affected, "ALL",
-        "the vendor/ change is still in the diff from here"
     );
     let (_, affected, skip) = scope(Some(&[green(&c3)]));
     assert_eq!(
@@ -2214,13 +2197,6 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
         "an absorbed merge moved a file out of scripts/: the path it left is CI \
          machinery, though rename detection would show only where it went"
     );
-    let (_, affected, skip) = scope(Some(&[green(&head)]));
-    assert_eq!(
-        (affected.as_str(), skip.as_str()),
-        ("NONE", r#"["root-cli","foundation"]"#),
-        "a merge that moves only the task queue affects no shard"
-    );
-    let _ = &tasks_only;
     let (_, affected, _) = scope(Some(&[green(&c0)]));
     assert_eq!(affected, "ALL", "an absorbed merge touched .github/");
 
@@ -2284,6 +2260,25 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
     assert_eq!(affected, "ALL", "no green base proves everything");
     let (_, affected, _) = scope(None);
     assert_eq!(affected, "ALL", "no answer from the API proves everything");
+
+    // Two more merges on top, each judged from the green head just before it:
+    // one that moves only the task queue affects no shard; one that touches a
+    // vendored patch crate (linked into nearly everything) is workspace-wide.
+    write(".agents/tasks/done/T-X-2.json", "{}\n");
+    let tasks_only = commit("a close record");
+    let (_, affected, skip) = scope(Some(&[green(&head)]));
+    assert_eq!(
+        (affected.as_str(), skip.as_str()),
+        ("NONE", r#"["root-cli","foundation"]"#),
+        "a merge that moves only the task queue affects no shard"
+    );
+    write("vendor/patched/src/lib.rs", "pub fn p() {}\n");
+    commit("a vendored patch crate");
+    let (_, affected, _) = scope(Some(&[green(&tasks_only)]));
+    assert_eq!(
+        affected, "ALL",
+        "a vendored patch crate is linked everywhere"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
