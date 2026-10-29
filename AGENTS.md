@@ -9,6 +9,8 @@ never block work. (No installed susi? `scripts/target-guard.sh --run cargo run
 -q -- workflow check`: cargo builds into the shared target, so it goes through
 the guard like any other cargo; see step 1.)
 
+**Cloud sessions:** If you are operating a cloud session (e.g. Claude Code on the web), refer to `docs/cloud-sessions.md`. A cloud session executes in a disposable clone rather than a local developer's machine.
+
 The agent loop is **atomic per task** (own worktree, always synced with
 `origin/main` so parallel agents stay current):
 
