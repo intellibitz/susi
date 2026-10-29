@@ -1,0 +1,19 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-13",
+  "title": "Windows: the cloud-session tests compile and lint off unix",
+  "goal": "Two cloud-session test changes do not compile or lint on Windows, so every Windows push that lints the root crate or susi-gawd is refused: tests/cloud_session.rs puts #![cfg(unix)] before its lint allows, and queue_relay.rs's refuse_queue_pushes uses std::os::unix without a cfg",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "susi-gawd",
+      "queue_relay"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793307797
+}
