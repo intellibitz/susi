@@ -299,6 +299,30 @@ pub fn resolve_api_key(api_key_env: &str, endpoint_name: &str) -> String {
     String::new()
 }
 
+/// Resolve an API base URL for an endpoint, automatically checking environment variables
+/// like `{NAME}_API_BASE`, `GEMINI_API_BASE`, `GOOGLE_API_BASE`, `OPENAI_API_BASE`, and `LITELLM_API_BASE`.
+#[must_use]
+pub fn resolve_api_base(api_base_default: &str, endpoint_name: &str) -> String {
+    let lower_name = endpoint_name.to_ascii_lowercase();
+    if lower_name.contains("gemini") || lower_name.contains("google") {
+        if let Some(v) = env_nonempty("GEMINI_API_BASE").or_else(|| env_nonempty("GOOGLE_API_BASE"))
+        {
+            return v;
+        }
+    }
+    let generic = format!(
+        "{}_API_BASE",
+        endpoint_name.to_ascii_uppercase().replace('-', "_")
+    );
+    if let Some(v) = env_nonempty(&generic) {
+        return v;
+    }
+    if let Some(v) = env_nonempty("OPENAI_API_BASE").or_else(|| env_nonempty("OPENAI_BASE_URL")) {
+        return v;
+    }
+    api_base_default.to_string()
+}
+
 /// True for HTTPS remote bases (not localhost). Used to treat any
 /// OpenAI-compatible cloud vendor as a cloud provider for routing.
 pub fn is_remote_cloud(api_base: &str) -> bool {
