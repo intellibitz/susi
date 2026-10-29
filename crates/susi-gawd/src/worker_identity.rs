@@ -239,8 +239,12 @@ fn login_tokens(root: &Path) -> Vec<String> {
 /// Where a worktree stands, with what [`ensure`] needs to act on it.
 #[derive(Debug, Clone)]
 pub struct Assessment {
-    /// The primary checkout: nobody works there, so it carries no worker identity.
+    /// The primary checkout: nobody works there, so it carries no worker
+    /// identity — except a cloud session's clone (`cloud`), whose primary
+    /// checkout is the worker's own place.
     pub primary: bool,
+    /// The clone is a cloud session's (`scripts/cloud-session.sh`).
+    pub cloud: bool,
     pub branch: Option<String>,
     /// This worktree's own `susi.agent`, as a token.
     pub token: Option<String>,
@@ -263,6 +267,7 @@ pub fn assess(root: &Path) -> Assessment {
         (&mine, &common),
         (Some(g), Some(c)) if canonical(g) == canonical(c)
     );
+    let cloud = crate::cloud_session::is_cloud(root);
     let own = mine
         .as_deref()
         .and_then(|g| std::fs::read_to_string(g.join("config.worktree")).ok())
@@ -304,6 +309,7 @@ pub fn assess(root: &Path) -> Assessment {
     let (standing, author_ok) = judge(&own, &others, &login_tokens(root));
     Assessment {
         primary,
+        cloud,
         branch: git(root, &["symbolic-ref", "-q", "--short", "HEAD"]).filter(|b| !b.is_empty()),
         token: own.agent.as_deref().map(token).filter(|t| !t.is_empty()),
         standing,
@@ -345,9 +351,19 @@ fn live_claim(root: &Path, token: &str, branch: Option<&str>) -> Result<Option<S
         .map(|c| c.task.clone()))
 }
 
-fn write_identity(root: &Path, new: &str) -> bool {
+fn write_identity(root: &Path, new: &str, cloud: bool) -> bool {
     git(root, &["config", "extensions.worktreeConfig", "true"]);
-    let email = format!("{}@localhost", new.to_ascii_lowercase());
+    // A cloud harness signs commits with its own key, which GitHub verifies
+    // against the committer's email: keep the worker's name (the identity the
+    // hooks judge) and take the harness's email, so a cloud session's commits
+    // show as verified. A laptop's global email is the human's and is never
+    // borrowed.
+    let email = cloud
+        .then(|| git(root, &["config", "--global", "--get", "user.email"]))
+        .flatten()
+        .map(|e| e.trim().to_string())
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| format!("{}@localhost", new.to_ascii_lowercase()));
     git(root, &["config", "--worktree", "susi.agent", new]).is_some()
         && git(root, &["config", "--worktree", "user.name", new]).is_some()
         && git(root, &["config", "--worktree", "user.email", &email]).is_some()
@@ -364,16 +380,26 @@ pub fn ensure(root: &Path, tool: Option<&str>, explicit: Option<&str>) -> Outcom
         return Outcome::Explicit(token(name));
     }
     let a = assess(root);
-    if a.primary || git_dir_of(root).is_none() {
+    // A cloud session's clone is the worker's place even though it is the
+    // primary checkout: it gets an identity like any worktree.
+    if (a.primary && !a.cloud) || git_dir_of(root).is_none() {
         return Outcome::Primary;
     }
+    // The tool the cloud harness runs is recorded with the mark: a branch like
+    // `ccr-c9f023d1-sdljmo` names no tool itself.
+    let cloud_tool = if a.cloud {
+        crate::cloud_session::tool(root)
+    } else {
+        None
+    };
+    let tool = tool.or(cloud_tool.as_deref());
     if a.standing == Standing::Own {
         let mine = a.token.clone().unwrap_or_default();
         if a.author_ok {
             return Outcome::Own(mine);
         }
         // Only the git author is missing: nothing is bound to it, so just set it.
-        return if write_identity(root, &mine) {
+        return if write_identity(root, &mine, a.cloud) {
             Outcome::Assigned {
                 token: mine,
                 was: "commits authored by the shared git login".to_string(),
@@ -412,7 +438,7 @@ pub fn ensure(root: &Path, tool: Option<&str>, explicit: Option<&str>) -> Outcom
         }
     }
     let new = derive(tool, a.branch.as_deref(), root, &a.taken);
-    if write_identity(root, &new) {
+    if write_identity(root, &new, a.cloud) {
         Outcome::Assigned {
             token: new,
             was: if was.is_empty() {
@@ -475,7 +501,7 @@ pub fn require_own(root: &Path, explicit: bool) -> Result<(), String> {
         return Ok(());
     }
     let a = assess(root);
-    if a.primary || a.standing == Standing::Own {
+    if (a.primary && !a.cloud) || a.standing == Standing::Own {
         return Ok(());
     }
     let token = a.token.clone().unwrap_or_default();
@@ -531,6 +557,21 @@ mod worker_identity_tests {
         assert_eq!(derive(None, Some("main"), dir, &[]), "AGENTMAIN");
         assert_eq!(derive(None, None, Path::new("/w/!!"), &[]).len(), 13);
         assert!(!RESERVED.contains(&derive(None, Some("user"), dir, &[]).as_str()));
+    }
+
+    #[test]
+    fn worker_identity_names_a_cloud_sessions_clone_after_the_harness_tool() {
+        // The cloud harness's branch names no tool (`ccr-<id>`); the tool the
+        // clone was marked with does, and the branch keeps the token unique.
+        let dir = Path::new("/home/user/susi");
+        assert_eq!(
+            derive(Some("CLAUDE"), Some("ccr-c9f023d1-sdljmo"), dir, &[]),
+            "CLAUDECCRC9F023D1SDLJMO"
+        );
+        assert_eq!(
+            derive(None, Some("ccr-c9f023d1-sdljmo"), dir, &[]),
+            "AGENTCCRC9F023D1SDLJMO"
+        );
     }
 
     #[test]

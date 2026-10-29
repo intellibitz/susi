@@ -44,8 +44,11 @@ mine=$(token_of "$here")
 # (INTELLIBITZ) is one name for every agent on the machine, and PRIMARY, MAIN…
 # name a place: a worker that answers to either, or whose commits are authored
 # by the login, has no identity of its own, and every task id and claim minted
-# under it is the next agent's collision. The primary checkout is nobody's.
-if [ "$(realpath "$(git rev-parse --absolute-git-dir)")" != "$(realpath "$(git rev-parse --path-format=absolute --git-common-dir)")" ]; then
+# under it is the next agent's collision. The primary checkout is nobody's —
+# except a cloud session's clone, which is its worker's own and only checkout
+# (scripts/cloud-session.sh) and is judged like any worktree.
+cloud_session() { [ -x "$here/scripts/cloud-session.sh" ] && "$here/scripts/cloud-session.sh"; }
+if [ "$(realpath "$(git rev-parse --absolute-git-dir)")" != "$(realpath "$(git rev-parse --path-format=absolute --git-common-dir)")" ] || cloud_session; then
     logins=$( { for scope in --system --global --local; do git config "$scope" --get-all user.name 2>/dev/null; done; } | norm)
     me=$(printf '%s\n' "$mine" | norm)  # compared as the tokens susi mints: upper-case alphanumerics
     reserved=""

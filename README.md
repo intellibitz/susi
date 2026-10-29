@@ -369,6 +369,16 @@ is the START HERE block at the top of [`AGENTS.md`](AGENTS.md):
    reconciler merges green PRs that events missed, comments once on red or
    conflicting ones and closes ones idle for 7 days. Tests are hermetic: they
    never touch `~/.susi`, `~/.susi-dev` or an inherited `SUSI_HOME`.
+6. **Cloud sessions need no laptop.** A session that clones the repository
+   into a disposable container (Claude Code on the web) works in that clone,
+   on the branch the harness checked out: `scripts/cloud-session.sh` marks it
+   as the worker's own worktree, `susi workflow check`, the hooks and the loop
+   scripts read the mark, and the identity is `<TOOL><BRANCH>`. The
+   session-start hook fetches the ONNX Runtime the build needs from GitHub
+   (`scripts/cloud-onnxruntime.sh`; the CDN `ort-sys` uses is refused by the
+   container's network policy) and starts the build in the background. Such a
+   session never asks for the operator's machine — no Remote Control, no
+   computer folder, no button to press. See [`docs/cloud-sessions.md`](docs/cloud-sessions.md).
 
 What makes it binding: the `commit-msg` and pre-push hooks and the CI job
 **Workflow Compliance** reject commits without a valid `Task:` trailer (the CI

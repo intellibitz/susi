@@ -17,6 +17,24 @@ exec 9>"$common/susi-worktree-start.lock"
 flock 9
 primary=$(dirname "$common")
 
+# A cloud session's clone is the worker's worktree already (scripts/cloud-
+# session.sh): there is nothing to create, no primary checkout to park and no
+# watcher to start. Hooks in, and the caller is told to stay where it is.
+if [ -x "$root/scripts/cloud-session.sh" ] && "$root/scripts/cloud-session.sh"; then
+    branch=$(git -C "$root" symbolic-ref -q --short HEAD || true)
+    case "$branch" in
+    "" | main)
+        echo "susi-worktree: cloud session on ${branch:-a detached HEAD} — this clone is your worktree, so: git switch -c <your-branch> (docs/cloud-sessions.md)" >&2
+        exit 1
+        ;;
+    esac
+    (cd "$root" && scripts/setup-dev.sh) >&2
+    echo "susi-worktree: cloud session — this clone is your worktree (branch $branch); no new worktree, no parked primary, no watcher (docs/cloud-sessions.md)" >&2
+    echo "ready: atomic loop — \`susi workflow check\`, then sync→claim one→work→commit→sync→push→sync" >&2
+    echo "cd $root"
+    exit 0
+fi
+
 # The agent tool this process runs inside, named by its ancestors' executables
 # (the same markers as zc_agent_identity::detect_agent). It is never the git
 # login: that is one name shared by every agent on the machine, and a worker

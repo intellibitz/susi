@@ -4,7 +4,8 @@
 //! *before* it edits. This gathers facts about the current checkout and turns
 //! them into a checklist with the exact fix for each failure:
 //!
-//! 1. it is the agent's own worktree (not the primary checkout, not `main`,
+//! 1. it is the agent's own worktree (not the primary checkout — unless the
+//!    clone is a cloud session's, which has no other checkout — not `main`,
 //!    not a detached HEAD),
 //! 2. it is up to date with `origin/main`,
 //! 3. this worktree's git hooks are installed and are its own,
@@ -87,6 +88,10 @@ pub struct ReleaseDrift {
 pub struct Facts {
     pub root: PathBuf,
     pub primary: bool,
+    /// The clone is a cloud session's own (`scripts/cloud-session.sh`): there is
+    /// no laptop behind it, so its primary checkout is the worker's place and
+    /// there is nothing for a watcher to keep converging.
+    pub cloud: bool,
     /// `None` = detached HEAD.
     pub branch: Option<String>,
     /// Commits `origin/main` has that HEAD lacks; `None` = could not fetch.
@@ -151,12 +156,14 @@ fn warn(name: &'static str, detail: impl Into<String>, fix: impl Into<String>) -
 pub fn evaluate(f: &Facts) -> Vec<Check> {
     let mut out = Vec::new();
 
-    // 1. Own worktree.
-    out.push(if f.primary {
+    // 1. Own worktree. A cloud session's clone has no laptop behind it and no
+    //    other checkout: its primary checkout is the worker's own place, so
+    //    only `main` and a detached HEAD are refused there.
+    out.push(if f.primary && !f.cloud {
         fail(
             "own worktree",
             "this is the primary checkout; nobody works here (Mandate 49)",
-            "scripts/susi-worktree.sh <name>   # then cd into the new worktree",
+            "scripts/susi-worktree.sh <name>   # then cd into the new worktree; a cloud session's clone instead: scripts/cloud-session.sh --mark",
         )
     } else {
         match f.branch.as_deref() {
@@ -169,6 +176,13 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
                 "own worktree",
                 "on main; main only receives merged branches (Mandate 49)",
                 "git switch -c <your-branch>   # or scripts/susi-worktree.sh <name>",
+            ),
+            Some(b) if f.primary => pass(
+                "own worktree",
+                format!(
+                    "branch {b} in {} (cloud session: this clone is the worker's own)",
+                    f.root.display()
+                ),
             ),
             Some(b) => pass(
                 "own worktree",
@@ -355,19 +369,27 @@ pub fn evaluate(f: &Facts) -> Vec<Check> {
     }
 
     // 8. The primary checkout only converges while this clone's watcher runs
-    //    (AGENTS.md requires it), and nothing noticed when it died.
-    out.push(match f.watcher_age {
-        Some(age) if age <= 120 => pass("primary watcher", format!("heartbeat {age}s ago")),
-        Some(age) => warn(
+    //    (AGENTS.md requires it), and nothing noticed when it died. A cloud
+    //    session's clone is disposable: there is nothing to keep converging.
+    out.push(if f.cloud {
+        pass(
             "primary watcher",
-            format!("last heartbeat {age}s ago — the primary checkout is not converging"),
-            "susi workflow watch &",
-        ),
-        None => warn(
-            "primary watcher",
-            "no heartbeat in this clone — the primary checkout is not converging",
-            "susi workflow watch &",
-        ),
+            "not needed: a cloud session's clone is disposable, nothing to keep converging",
+        )
+    } else {
+        match f.watcher_age {
+            Some(age) if age <= 120 => pass("primary watcher", format!("heartbeat {age}s ago")),
+            Some(age) => warn(
+                "primary watcher",
+                format!("last heartbeat {age}s ago — the primary checkout is not converging"),
+                "susi workflow watch &",
+            ),
+            None => warn(
+                "primary watcher",
+                "no heartbeat in this clone — the primary checkout is not converging",
+                "susi workflow watch &",
+            ),
+        }
     });
 
     // 9. The binary the agent is running. `~/.susi/bin/susi` changes only when
@@ -575,6 +597,7 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
         _ => false,
     };
     let branch = git(&root, &["symbolic-ref", "-q", "--short", "HEAD"]).filter(|b| !b.is_empty());
+    let cloud = crate::cloud_session::is_cloud(&root);
     mark("checkout");
 
     // Two remote round-trips, and nearly all of their cost is the connection
@@ -682,6 +705,7 @@ pub fn gather(dir: &Path, agent: &str) -> Facts {
     Facts {
         root,
         primary,
+        cloud,
         branch,
         behind,
         hooks: Hooks {
@@ -851,6 +875,35 @@ pub fn start_worktree(
     .map(PathBuf::from)
     .ok_or_else(|| "cannot locate git-common-dir".to_string())?;
     let primary = common.parent().unwrap_or(root).to_path_buf();
+
+    // A cloud session's clone is the worktree: there is nothing to create, no
+    // primary checkout to park and no sibling to share a target with. Make sure
+    // it carries the hooks and an identity, and hand the caller back where it
+    // already is.
+    if crate::cloud_session::is_cloud(root) {
+        let branch = git(root, &["symbolic-ref", "-q", "--short", "HEAD"])
+            .filter(|b| !b.is_empty() && b.as_str() != "main");
+        let Some(branch) = branch else {
+            return Err(
+                "cloud session: this clone is your worktree, but it is on main or a \
+                        detached HEAD — git switch -c <your-branch> first"
+                    .to_string(),
+            );
+        };
+        ensure_infrastructure(root);
+        use crate::worker_identity::{ensure, Outcome};
+        let agent = match ensure(root, None, agent_override) {
+            Outcome::Own(token) | Outcome::Explicit(token) => token,
+            Outcome::Assigned { token, .. } => token,
+            Outcome::Primary | Outcome::Blocked { .. } => String::new(),
+        };
+        return Ok(WorktreeResult {
+            dest: root.to_path_buf(),
+            branch,
+            agent,
+            reused: true,
+        });
+    }
 
     let agent = agent_override
         .map(str::to_string)
@@ -1129,6 +1182,7 @@ mod tests {
         Facts {
             root: "/w/feature".into(),
             primary: false,
+            cloud: false,
             branch: Some("claude/feature".into()),
             behind: Some(0),
             hooks: Hooks {
@@ -1169,6 +1223,41 @@ mod tests {
             c.iter().all(|x| x.state == State::Pass && x.fix.is_empty()),
             "{c:?}"
         );
+    }
+
+    #[test]
+    fn a_cloud_sessions_primary_checkout_on_its_branch_is_its_own_worktree() {
+        let mut f = good();
+        f.primary = true;
+        f.cloud = true;
+        f.branch = Some("ccr-c9f023d1-sdljmo".into());
+        f.watcher_age = None;
+        let c = evaluate(&f);
+        assert!(ok(&c), "{c:?}");
+        assert_eq!(state(&c, "own worktree"), State::Pass);
+        assert!(c[0].detail.contains("cloud session"), "{}", c[0].detail);
+        // No primary checkout to keep converging: no watcher is asked for.
+        assert_eq!(state(&c, "primary watcher"), State::Pass);
+        // main and a detached HEAD are nobody's place, cloud or not.
+        f.branch = Some("main".into());
+        assert_eq!(state(&evaluate(&f), "own worktree"), State::Fail);
+        f.branch = None;
+        assert_eq!(state(&evaluate(&f), "own worktree"), State::Fail);
+    }
+
+    #[test]
+    fn without_the_cloud_mark_the_primary_checkout_is_still_refused() {
+        let mut f = good();
+        f.primary = true;
+        f.watcher_age = None;
+        let c = evaluate(&f);
+        assert_eq!(state(&c, "own worktree"), State::Fail);
+        assert!(
+            c[0].fix.contains("scripts/cloud-session.sh --mark"),
+            "{}",
+            c[0].fix
+        );
+        assert_eq!(state(&c, "primary watcher"), State::Warn);
     }
 
     #[test]

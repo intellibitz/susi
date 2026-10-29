@@ -4,6 +4,8 @@
 #
 #   commit  — refuse in the primary checkout, and refuse plain commits on main
 #   merge   — refuse in the primary checkout (merging into main is allowed)
+#             (a cloud session's clone is its worker's own checkout and is not
+#             refused as "the primary": scripts/cloud-session.sh records that)
 #   push    — refuse deleting, force-pushing or non-fast-forwarding main;
 #             refuse a non-fast-forward push of any other branch too (a rewritten
 #             feature branch orphans the claim, the CI run and the review that
@@ -24,13 +26,24 @@ primary_checkout() {
     [ "$gd" = "$cd" ]
 }
 
+# A cloud session's clone (Claude Code on the web) has no laptop behind it and
+# no other checkout: its primary checkout is the worker's own worktree. The
+# clone says so itself (scripts/cloud-session.sh --mark, run by the session-
+# start hook); nothing here reads the harness's environment.
+cloud_session() {
+    local root
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+    [ -x "$root/scripts/cloud-session.sh" ] && "$root/scripts/cloud-session.sh"
+}
+
 case "$stage" in
 commit | merge)
-    if primary_checkout && [ -z "${SUSI_ALLOW_PRIMARY:-}" ]; then
+    if primary_checkout && [ -z "${SUSI_ALLOW_PRIMARY:-}" ] && ! cloud_session; then
         cat >&2 <<'MSG'
 ❌ Mandate 49: do not commit in the primary checkout.
    Every agent/user works in its own worktree on its own branch:
        scripts/susi-worktree.sh             # no name needed; prints `cd <path>` — or: susi workflow start
+   A cloud session's clone is its own worktree: scripts/cloud-session.sh --mark   (docs/cloud-sessions.md)
    (override, knowingly: SUSI_ALLOW_PRIMARY=1 git commit ...)
 MSG
         exit 1
