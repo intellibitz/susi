@@ -1408,8 +1408,8 @@ fn code_proven_stamp_gates_the_expensive_main_jobs() {
 }
 
 /// The script itself: a head whose only difference from a green sha is under
-/// .agents/ is proven; one that also touched code is not; an unresolvable sha
-/// is not evidence.
+/// .agents/tasks/ is proven; one that changed the roadmap or code is not; an
+/// unresolvable sha is not evidence.
 #[test]
 fn code_proven_script_judges_the_code_diff_not_the_commit() {
     let dir = std::env::temp_dir().join(format!("susi-code-proven-{}", std::process::id()));
@@ -1433,7 +1433,7 @@ fn code_proven_script_judges_the_code_diff_not_the_commit() {
     git(&["add", "."]);
     git(&["commit", "--quiet", "-m", "code"]);
     let green = git(&["rev-parse", "HEAD"]);
-    // A merge-shaped commit that only moves .agents/ on top of the green sha.
+    // A merge-shaped commit that only moves the task queue on top of the green sha.
     std::fs::create_dir_all(dir.join(".agents/tasks")).unwrap();
     std::fs::write(dir.join(".agents/tasks/T-1.json"), "{}\n").unwrap();
     git(&["add", "."]);
@@ -1449,8 +1449,21 @@ fn code_proven_script_judges_the_code_diff_not_the_commit() {
     let head = git(&["rev-parse", "HEAD"]);
     assert!(
         run(&[&head, &green]).status.success(),
-        "a head that differs only in .agents/ is proven"
+        "a head that differs only in the task queue is proven"
     );
+    // The rest of .agents/ is a build and test input (build.rs compiles the
+    // roadmap; root tests read it), as ci-changed-crates.sh counts it.
+    git(&["checkout", "--quiet", "-b", "roadmap", &green]);
+    std::fs::create_dir_all(dir.join(".agents")).unwrap();
+    std::fs::write(dir.join(".agents/roadmap.json"), "{}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "roadmap"]);
+    let roadmap = git(&["rev-parse", "HEAD"]);
+    assert!(
+        !run(&[&roadmap, &green]).status.success(),
+        "a head that changed the roadmap must run the suite"
+    );
+    git(&["checkout", "--quiet", "main"]);
     std::fs::write(dir.join("b.rs"), "fn g() {}\n").unwrap();
     git(&["add", "."]);
     git(&["commit", "--quiet", "-m", "real change"]);
