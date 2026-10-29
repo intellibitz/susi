@@ -1196,6 +1196,19 @@ fn the_merge_step_gates_only_where_the_probe_installed_the_toolchain() {
         );
     }
     let test = std::fs::read_to_string(root.join(".github/workflows/test.yml")).unwrap();
+    let merge = test
+        .split("\n  merge:\n")
+        .nth(1)
+        .expect("test.yml has the retest's merge job");
+    // That job's merge step also runs after a failed setup step, so the
+    // switch needs the last setup step to have succeeded as well.
+    assert!(
+        merge.contains(
+            "SUSI_INLINE_MERGE_GATE: ${{ steps.probe.outputs.need_gate == 'true' \
+             && steps.mold.outcome == 'success' && '1' || '0' }}"
+        ),
+        "test.yml `merge`: {merge}"
+    );
     for wf in [&auto, &test] {
         assert!(
             !wf.contains("SUSI_INLINE_MERGE_GATE: \"1\""),

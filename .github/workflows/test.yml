@@ -187,6 +187,14 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Both steps list main's green Test runs. The workflow grants only
+    # `contents: read`, so the token had no `actions` scope at all: the
+    # listing then answers only while the repository is public, and both
+    # steps read an unanswered listing as "nothing proven" — the stamp reuses
+    # nothing and the scope is ALL, the whole suite on every merge.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       proven: ${{ steps.stamp.outputs.proven }}
       affected: ${{ steps.scope.outputs.affected }}
@@ -1075,6 +1083,16 @@ jobs:
   # none a dispatched one, so the green retest waited for the scheduled pass,
   # which GitHub throttles to hours. The run that proves the head merges it,
   # through the merge bot's script and its serialized queue.
+  #
+  # Main moves while this run's checks and its queue wait run, so the head is
+  # often stale again by the time this job starts. It used to resync it: an
+  # update-branch and another dispatched retest, whose own merge job found main
+  # moved again — the PR re-dispatched itself, a branch gate per lap, for as
+  # long as merges kept landing. The head is green here (every check above
+  # passed), so this job gates the stale merge inline exactly as auto-merge.yml
+  # `merge-pr` does — the probe decides whether the toolchain is worth
+  # installing — and SUSI_NO_RESYNC forbids the resync: a head it cannot gate
+  # goes to a reconcile pass instead of another retest.
   merge:
     name: Merge the retested head
     needs: [unsafe-ratchet, fmt, codetree, invariants, workflow, deny, check]
@@ -1083,23 +1101,73 @@ jobs:
       group: auto-merge-integration
       queue: max
       cancel-in-progress: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30 # the inline gate is a bounded compile, as in merge-pr
+    # The checks above are this run's verdict. A toolchain download that
+    # fails here must not turn the retest red: the reconciler would read a
+    # red head and tell the PR to fix a branch that passed.
+    continue-on-error: true
     permissions:
       contents: write
       pull-requests: write
       actions: write
+    # The workflow env already sets CARGO_PROFILE_DEV_DEBUG: 0, the profile
+    # the `lint` cache entry the gate restores was built with.
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      RUSTC_WORKSPACE_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v4.2.2
         with:
           ref: ${{ github.event.repository.default_branch }} # the merge bot's scripts
+          # The gate needs origin/main and the head's history: in a shallow
+          # clone `git merge-tree` finds no merge base and reports a conflict.
+          fetch-depth: 0
+      - name: Will this head need the inline gate?
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: echo "need_gate=$(scripts/merge-queue-probe.sh "$REPO" "$BRANCH" "$SHA")" >> "$GITHUB_OUTPUT"
+      - name: Install Rust
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install sccache
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: mozilla-actions/sccache-action@v0.0.10
+        with:
+          version: "v0.16.0"
+      # The entry `lint` writes on main: the gate is a warm clippy, not a
+      # cold build. A branch run never writes the cache main owns.
+      - name: Cache Cargo
+        if: steps.probe.outputs.need_gate == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+          save-if: false
+      - name: Install Linux System Dependencies
+        if: steps.probe.outputs.need_gate == 'true'
+        run: scripts/ci-system-deps.sh
+      - name: Install mold (Linux)
+        id: mold
+        if: steps.probe.outputs.need_gate == 'true'
+        run: scripts/ci-install-mold.sh
       # A refused merge is the PR's state, not this head's: the script
       # explains it on the PR, and the tests above stay the run's verdict.
+      # It runs even when a setup step failed: the gate is on only when the
+      # last setup step succeeded, and without it a stale head goes to a
+      # reconcile pass (SUSI_NO_RESYNC), never to another retest.
       - name: Merge the PR for this head
+        if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
+          SUSI_INLINE_MERGE_GATE: ${{ steps.probe.outputs.need_gate == 'true' && steps.mold.outcome == 'success' && '1' || '0' }}
+          SUSI_NO_RESYNC: "1"
         run: scripts/auto-merge-pr.sh "$REPO" "$BRANCH" "$SHA"
