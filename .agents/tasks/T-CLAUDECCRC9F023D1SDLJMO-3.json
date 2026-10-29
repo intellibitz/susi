@@ -1,0 +1,18 @@
+{
+  "id": "T-CLAUDECCRC9F023D1SDLJMO-3",
+  "title": "Cloud sessions III: the queue's refs travel through a dispatched workflow",
+  "goal": "A cloud session's git proxy pushes refs/heads/* only (refs/claims/*, refs/closed/* and the other queue namespaces get HTTP 403 at receive-pack) and every GitHub REST write path is refused, but a workflow_dispatch through the GitHub MCP server is accepted and an Actions job's GITHUB_TOKEN pushes any ref the rulesets leave open (scripts/auto-merge-pr.sh already writes refs/merged and refs/verified that way). Add .github/workflows/queue.yml (workflow_dispatch; inputs op=claim|renew|release|abandon|close-receipt, task, agent, branch, scopes, head, hours, reason) that checks the branch out, installs the released susi and runs the queue operation server-side, so the compare-and-swap pushes happen where they are allowed; and give susi tasks claim/renew/release/close a transport that, when the direct push is refused with a 403, dispatches that workflow (gh workflow run, or the MCP tool from Claude Code) and polls git ls-remote for the ref with a bounded wait. Pin the client side in tests/cloud_session.rs with a fake remote that refuses the push. workflow_dispatch fires only for a workflow file on the default branch, so the first landing needs one claim made outside the cloud (docs/cloud-sessions.md, GitHub from the container).",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "cloud_session"
+    ]
+  },
+  "created_by": "CLAUDECCRC9F023D1SDLJMO",
+  "created_unix": 1793262095
+}
