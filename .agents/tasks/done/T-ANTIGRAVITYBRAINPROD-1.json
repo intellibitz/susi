@@ -1,0 +1,24 @@
+{
+  "id": "T-ANTIGRAVITYBRAINPROD-1",
+  "title": "Production-ready susi brain with backup recovery, clean CLI, and explain",
+  "goal": "Elevate susi brain to production readiness: automated backup and corruption recovery in brain evidence persistence, clean human-readable status table with top/class filters, real cloud budget control in cloud.env and cloud_budget.json, routing explain command, and cross-host evidence export/import bundle support.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "-p",
+      "susi-gemi",
+      "--lib",
+      "engines::brain"
+    ]
+  },
+  "created_by": "ANTIGRAVITYBRAINPROD",
+  "created_unix": 1793292000,
+  "closed": {
+    "at_unix": 1793299876,
+    "commit": "fc323cec8bd57aafd2906fa03b4891edecda23eb",
+    "by": "ANTIGRAVITYBRAINPROD"
+  }
+}
