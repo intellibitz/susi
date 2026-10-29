@@ -348,7 +348,7 @@ fn spawn_windows_background_script() -> bool {
             "-WindowStyle",
             "Hidden",
             "-Command",
-            "Start-Process -FilePath 'susi.exe' -ArgumentList 'release --sync' -WindowStyle Hidden",
+            "if (Get-Command gsudo -ErrorAction SilentlyContinue) { gsudo --m 'susi release --sync' } else { Start-Process -FilePath 'susi.exe' -ArgumentList 'release --sync' -WindowStyle Hidden }",
         ])
         .spawn()
         .is_ok()
@@ -403,7 +403,8 @@ pub fn render_windows_schtasks_cmd(binary_path: &Path) -> String {
     format!(
         "$action = New-ScheduledTaskAction -Execute '{}' -Argument 'daemon'; \
          $trigger = New-ScheduledTaskTrigger -AtLogOn; \
-         Register-ScheduledTask -TaskName 'susi-daemon' -Action $action -Trigger $trigger -Force",
+         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest; \
+         Register-ScheduledTask -TaskName 'susi-daemon' -Action $action -Trigger $trigger -Principal $principal -Force",
         binary_path.display()
     )
 }
