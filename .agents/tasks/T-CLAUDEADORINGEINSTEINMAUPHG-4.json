@@ -1,0 +1,20 @@
+{
+  "id": "T-CLAUDEADORINGEINSTEINMAUPHG-4",
+  "title": "CI follow-ups: renames in ci-changed-crates.sh; the release wait on main",
+  "goal": "1) scripts/ci-changed-crates.sh diffs with git's rename detection on, so a file moved out of a crate (an include_str! source, a fixture) names only where it went: the branch compile gate, merge-gate.sh and the local pre-push gate skip the crate it left, and main's post-merge run is the first to fail. Diff with --no-renames in the script, test a move out of a crate, and drop the two GIT_CONFIG rename switches test.yml sets around its callers. 2) scripts/release-await-tests.sh dispatches the Test workflow on its ref; on main that run joins main's queue (one running, one pending that a newer merge replaces), so it can wait behind the running suite past its 2700 s budget or be replaced and read as cancelled. On main, wait on the run already queued for the commit instead of dispatching, and count the budget from when it starts; test both.",
+  "size": "m",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "ci_changed_crates",
+      "--test",
+      "release_await_tests"
+    ]
+  },
+  "created_by": "CLAUDEADORINGEINSTEINMAUPHG",
+  "created_unix": 1793248488
+}
