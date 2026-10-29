@@ -727,7 +727,9 @@ pub const E2E_CHECKS: &[E2eCheck] = &[
     },
     E2eCheck {
         name: "brain status reports ranking, budget and routing state",
-        args: &["brain"],
+        // Bare `susi brain` prints a table for people; the fields below are
+        // the machine contract, which `--json` carries.
+        args: &["brain", "status", "--json"],
         exit: 0,
         stdout_has: &[
             "ranking_by_task_class",

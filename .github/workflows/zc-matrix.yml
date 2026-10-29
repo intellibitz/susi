@@ -94,11 +94,6 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.10
         with:
           version: "v0.16.0"
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: zc-matrix-${{ matrix.profile }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux System Dependencies
         if: runner.os == 'Linux'
         run: scripts/ci-system-deps.sh

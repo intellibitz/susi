@@ -1,0 +1,25 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-12",
+  "title": "fix red main: brain status e2e uses --json; drop zc-matrix rust-cache",
+  "goal": "main is red: #1038 moved the brain status JSON behind --json while the release e2e check still reads it from bare 'susi brain' (Windows binary job, root-cli 1/3 and 2/3), and #1035 added Swatinem/rust-cache to zc-matrix.yml, which zc_matrix_cannot_stack_a_three_os_build_per_merge forbids (root-cli 3/3)",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "release_e2e_checks",
+      "--test",
+      "ci_workflow_perf"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793306225,
+  "closed": {
+    "at_unix": 1793306653,
+    "commit": "381307371e5b8d883781e6cced071a32a6212c02",
+    "by": "GUARDEDACCEPTANCE"
+  }
+}
