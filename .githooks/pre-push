@@ -20,7 +20,10 @@ pushed_refs=$(cat)
 printf '%s\n' "$pushed_refs" | "$(dirname "$0")/workflow-guard" push || exit 1
 # Queue/lease transactions push blobs, not code. Running cargo here would
 # block lease renewal behind the very build whose ownership it protects.
-if ! printf '%s\n' "$pushed_refs" | grep -q ' refs/heads/'; then
+# A queue request (refs/heads/susi-queue/*, scripts/queue-relay.py) is such a
+# transaction too: a branch in name only, carrying a refused push of the
+# queue's refs for the relay workflow to replay.
+if ! printf '%s\n' "$pushed_refs" | grep ' refs/heads/' | grep -qv ' refs/heads/susi-queue/'; then
     exit 0
 fi
 "$(dirname "$0")/sync-primary"

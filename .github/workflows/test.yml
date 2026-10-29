@@ -13,7 +13,9 @@ name: Test
 # gate: checks attach to the commit, so the PR sees them all the same.
 on:
   push:
-    branches: ['**']
+    # A queue request (susi-queue/**) is a relayed ref push, not code:
+    # .github/workflows/queue.yml consumes it.
+    branches: ['**', '!susi-queue/**']
   workflow_dispatch:
     inputs:
       # `full` (the default) is the whole suite: the release workflow and the
