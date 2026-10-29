@@ -495,7 +495,9 @@ pub(super) fn with_scan_verdicts_for_test<T>(
 /// frames sit above the importing frame, and `sys.orig_argv` is the batch's.
 ///
 /// The parent imports nothing a file in the working directory could stand in
-/// for (`os` and `sys` are loaded at startup, `time` is built in). No import's
+/// for (`os` and `sys` are loaded at startup, `time` and `_signal` are built
+/// in). It ignores SIGPIPE itself, whatever a startup hook set, and gives the
+/// child back the hook's setting. No import's
 /// output can pass for an answer: the import writes only to the null device,
 /// and the parent reports each module on a line of its own, tagged with a
 /// per-run token. It kills a child that runs past the per-import bound. It
@@ -507,14 +509,18 @@ pub(super) fn with_scan_verdicts_for_test<T>(
 /// terminal's Ctrl-C does not reach, so it watches its caller instead: while
 /// an import runs it writes an empty line to its stdout about every 50 ms (the
 /// caller skips untagged lines), and a broken pipe means the caller is gone,
-/// whatever runs between them (a wrapper script that does not exec). stdin
-/// stays the null device the single probe has. The batch then kills the
-/// import, even one that left the group, and the whole group with it, so
-/// anything the import started goes too, as the Ctrl-C would have killed the
-/// single probe's.
+/// through a wrapper that passes python's stdout on (exec'ing or not, or
+/// through a forwarding filter). A wrapper that buffers or captures it hides
+/// the broken pipe; then the per-import bound is what ends each import, as it
+/// was before the batch watched its caller. stdin stays the null device the
+/// single probe has. The batch then kills the import, and the group the import
+/// leads if it made one, and its own group with it, so anything the import
+/// started goes too, as the Ctrl-C would have killed the single probe's.
 pub(super) const BATCH_SCRIPT: &str = "keep = set(globals())
-import os, sys, time
+import os, sys, time, _signal
 token, bound, own_group = sys.argv[1], float(sys.argv[2]), sys.argv[3] == 'own-group'
+pipe = _signal.getsignal(_signal.SIGPIPE)
+_signal.signal(_signal.SIGPIPE, _signal.SIG_IGN)
 def say(kind, m):
     sys.stdout.write('\\n%s %s %s\\n' % (token, kind, m))
     sys.stdout.flush()
@@ -533,6 +539,8 @@ def batch():
             say('nofork', m)
             return None
         if pid == 0:
+            if pipe is not None:
+                _signal.signal(_signal.SIGPIPE, pipe)
             null = os.open(os.devnull, os.O_RDWR)
             for fd in (0, 1, 2):
                 os.dup2(null, fd)
@@ -552,7 +560,13 @@ def batch():
             if now > beat:
                 beat = now + 0.05
                 if caller_gone():
+                    try:
+                        group = os.getpgid(pid)
+                    except OSError:
+                        group = None
                     os.kill(pid, 9)
+                    if group == pid:
+                        os.killpg(pid, 9)
                     if own_group:
                         os.killpg(0, 9)
                     os._exit(1)
@@ -698,7 +712,19 @@ fn run_import_batch(
     let mut deadline = Instant::now() + bound;
     let end = loop {
         let wait = deadline.saturating_duration_since(Instant::now());
-        match rx.recv_timeout(wait) {
+        // Past the deadline, what is already in the pipe still counts: this
+        // process may have been stopped (Ctrl-Z) while the batch, in a group
+        // of its own, ran on and answered, and the reader thread needs a
+        // moment after the resume to pass it on. A live batch is never past
+        // this deadline with an import still running (its own bound is 2 s
+        // shorter), so only a batch silent for the grace is stuck.
+        let received = match rx.recv_timeout(wait) {
+            Err(RecvTimeoutError::Timeout) => {
+                rx.recv_timeout(std::time::Duration::from_millis(200))
+            }
+            other => other,
+        };
+        match received {
             Ok(Ok(line)) => {
                 let Some(rest) = line.trim_end_matches('\r').strip_prefix(&prefix) else {
                     continue;
