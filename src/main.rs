@@ -251,15 +251,24 @@ fn run() -> std::process::ExitCode {
     // See ARCHITECTURE.md and susi_daemon::composition. `mcp serve` skips
     // the auto-prime: its client is waiting on the handshake.
     let substrate = susi_paths::SusiDirs::substrate_home();
-    if matches!(
+    let skip_composition = command
+        .as_ref()
+        .is_some_and(cli::defs::command_skips_composition);
+    if skip_composition {
+        // Lifecycle/status commands compose nothing (see the predicate).
+    } else if matches!(
         command,
         Some(cli::defs::Commands::Mcp {
             action: Some(cli::mcp_cli::McpCommands::Serve) | None,
         })
     ) {
-        susi_daemon::composition::wire_mcp_serve_substrate(&substrate);
+        susi_daemon::boot_trace::phase("composition: mcp serve", || {
+            susi_daemon::composition::wire_mcp_serve_substrate(&substrate)
+        });
     } else {
-        susi_daemon::composition::wire_cli_substrate(&substrate);
+        susi_daemon::boot_trace::phase("composition: cli", || {
+            susi_daemon::composition::wire_cli_substrate(&substrate)
+        });
     }
     #[cfg(all(feature = "tokio-console", tokio_unstable))]
     console_subscriber::init();

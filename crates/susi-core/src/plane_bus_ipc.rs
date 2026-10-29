@@ -60,6 +60,15 @@ impl Drop for ConnSlot {
 }
 /// Header carrying the per-substrate bus secret on every IPC request.
 const BUS_KEY_HEADER: &str = "X-Susi-Bus-Key";
+/// Prefix of the error a copy answers for a topic it does not serve.
+const NO_HANDLER: &str = "plane bus: no handler for topic";
+/// Response field a serving copy sets — beside the `err` older callers
+/// read — when its dispatch has no handler for the topic at all.
+const MISS_FIELD: &str = "miss";
+
+fn no_handler(topic: &str) -> String {
+    format!("{NO_HANDLER} '{topic}' (composition root must register planes)")
+}
 
 type HandlerMap = Arc<DashMap<String, Arc<dyn PlaneHandler>>>;
 type StreamMap = Arc<DashMap<String, flume::Sender<Value>>>;
@@ -77,6 +86,11 @@ pub struct IpcPlaneBus {
     endpoint: OnceLock<SocketAddr>,
     /// Shared secret every `/handle` and `/stream` request must carry.
     secret: Arc<str>,
+    /// Exclusive lock on `<rendezvous>/owner.lock`, held for this copy's
+    /// lifetime: the OS releases it when the process exits however it
+    /// exits, so a sweep can tell a dead copy's dir from a live one without
+    /// trusting a pid that may have been reused.
+    _owner: Option<std::fs::File>,
 }
 
 impl Default for IpcPlaneBus {
@@ -105,7 +119,12 @@ impl IpcPlaneBus {
     /// Explicit rendezvous dir — tests give each "process" its own dir tree
     /// without mutating process env.
     pub fn with_rendezvous(rendezvous: PathBuf) -> Self {
-        sweep_dead_processes(rendezvous.parent());
+        // Own the dir before sweeping, so a concurrent sweep by another
+        // process never mistakes it for a dead copy's.
+        let owner = claim_rendezvous(&rendezvous);
+        if owner.is_some() {
+            spawn_sweep(&rendezvous);
+        }
         let secret = bus_secret(rendezvous.parent()).into();
         Self {
             handlers: Arc::new(DashMap::new()),
@@ -115,6 +134,7 @@ impl IpcPlaneBus {
             rendezvous,
             endpoint: OnceLock::new(),
             secret,
+            _owner: owner,
         }
     }
 
@@ -249,6 +269,15 @@ impl IpcPlaneBus {
                 return Remote::Answered(Err(format!("malformed bus response: {e}")));
             }
         };
+        // The endpoint is alive but its dispatch found no handler at all for
+        // the topic: the file that pointed here is stale — its owner died
+        // and another copy now holds the port. That is a dead candidate,
+        // not the answer. Only the structural marker counts: a handler's
+        // own error is an answer whatever its text, even one that relays a
+        // nested request's "no handler" message.
+        if v.get(MISS_FIELD).is_some() {
+            return Remote::Dead;
+        }
         if let Some(e) = v.get("err").and_then(|e| e.as_str()) {
             Remote::Answered(Err(e.to_string()))
         } else if let Some(ok) = v.get("ok") {
@@ -298,9 +327,7 @@ impl IpcPlaneBus {
         if let Some(h) = self.local_prefix(topic) {
             return invoke(h, topic, payload);
         }
-        Err(format!(
-            "plane bus: no handler for topic '{topic}' (composition root must register planes)"
-        ))
+        Err(no_handler(topic))
     }
 
     pub fn publish(&self, topic: &str, payload: Value) {
@@ -555,20 +582,20 @@ fn serve_conn(
     }
     match path.as_str() {
         "/handle" => {
-            let parsed = serde_json::from_str::<Value>(&body).ok();
-            let result = parsed.map(|v| {
-                let topic = v
-                    .get("topic")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let payload = v.get("payload").cloned().unwrap_or(Value::Null);
-                dispatch(&handlers, &prefixes, &topic, payload)
-            });
-            let resp = match result {
-                Some(Ok(v)) => json!({ "ok": v }),
-                Some(Err(e)) => json!({ "err": e }),
-                None => json!({ "err": "malformed bus request" }),
+            let resp = match serde_json::from_str::<Value>(&body) {
+                Ok(v) => {
+                    let topic = v.get("topic").and_then(|t| t.as_str()).unwrap_or("");
+                    let payload = v.get("payload").cloned().unwrap_or(Value::Null);
+                    match dispatch(&handlers, &prefixes, topic, payload) {
+                        Some(Ok(v)) => json!({ "ok": v }),
+                        Some(Err(e)) => json!({ "err": e }),
+                        // No handler here at all: say so structurally, so a
+                        // caller can tell a stale endpoint file from a
+                        // handler's own error. `err` stays for older callers.
+                        None => json!({ "err": no_handler(topic), MISS_FIELD: topic }),
+                    }
+                }
+                Err(_) => json!({ "err": "malformed bus request" }),
             };
             respond(&mut conn, "200 OK", &resp.to_string());
         }
@@ -586,25 +613,22 @@ fn serve_conn(
 }
 
 /// Serving-side dispatch: exact topic match first, then prefix fallback.
+/// `None` when this copy has no handler for `topic` at all — a dispatch
+/// miss, distinct from any result a handler returns.
 fn dispatch(
     handlers: &HandlerMap,
     prefixes: &HandlerMap,
     topic: &str,
     payload: Value,
-) -> Result<Value, String> {
+) -> Option<Result<Value, String>> {
     if let Some(h) = handlers.get(topic).map(|e| Arc::clone(e.value())) {
-        return invoke(h, topic, payload);
+        return Some(invoke(h, topic, payload));
     }
     let h = prefixes
         .iter()
         .find(|e| topic.starts_with(e.key().as_str()))
-        .map(|e| Arc::clone(e.value()));
-    match h {
-        Some(h) => invoke(h, topic, payload),
-        None => Err(format!(
-            "plane bus: no handler for topic '{topic}' (composition root must register planes)"
-        )),
-    }
+        .map(|e| Arc::clone(e.value()))?;
+    Some(invoke(h, topic, payload))
 }
 
 /// `own` pid dir first, then every other numeric-named sibling dir under
@@ -636,25 +660,223 @@ pub fn sibling_pid_dirs(own: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Remove rendezvous dirs whose pid no longer exists (`/proc` liveness —
-/// Linux-only; other platforms keep stale dirs until manual cleanup).
-fn sweep_dead_processes(bus_dir: Option<&Path>) {
-    if !cfg!(target_os = "linux") {
-        return;
+/// The per-copy liveness lock inside a rendezvous dir.
+const OWNER_LOCK: &str = "owner.lock";
+
+/// Only the real rendezvous layout (`<cache>/bus/<pid>`) is claimed and
+/// swept. A registry built over an arbitrary dir (`CapabilityRegistry::new`
+/// uses the temp dir as its parent) must never sweep that parent: a
+/// numeric-named dir there belongs to someone else.
+fn is_bus_root(dir: &Path) -> bool {
+    dir.file_name().is_some_and(|n| n == "bus")
+}
+
+/// Create this copy's rendezvous dir and take its exclusive owner lock.
+/// `None` when the dir is not under a bus root or the lock is already held
+/// (another copy in this process shares the dir) — the copy then simply
+/// does not advertise liveness, exactly like a pre-lock binary.
+fn claim_rendezvous(rendezvous: &Path) -> Option<std::fs::File> {
+    if !rendezvous.parent().is_some_and(is_bus_root) {
+        return None;
     }
-    let Some(dir) = bus_dir else { return };
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
+    std::fs::create_dir_all(rendezvous).ok()?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(rendezvous.join(OWNER_LOCK))
+        .ok()?;
+    file.try_lock().ok()?;
+    Some(file)
+}
+
+/// Whether the copy that owns `dir` is gone. A dir with an owner lock is
+/// dead exactly when the lock can be taken. A dir without one was written
+/// by a binary that predates the lock (or is being created this instant):
+/// it is dead when its pid is not a live susi process.
+fn rendezvous_is_dead(dir: &Path, pid: u32, live: &mut LiveProcesses) -> bool {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dir.join(OWNER_LOCK))
+    {
+        Ok(file) => match file.try_lock() {
+            Ok(()) => true,
+            Err(std::fs::TryLockError::WouldBlock) => false,
+            Err(std::fs::TryLockError::Error(_)) => false,
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => !live.is_susi(pid),
+        Err(_) => false,
+    }
+}
+
+/// Live-process view for legacy rendezvous dirs, read at most once per
+/// sweep (and only when such a dir exists).
+#[derive(Default)]
+struct LiveProcesses {
+    #[cfg(windows)]
+    images: Option<std::collections::HashMap<u32, String>>,
+}
+
+impl LiveProcesses {
+    /// Linux keeps its `/proc` liveness rule for legacy dirs.
+    #[cfg(target_os = "linux")]
+    fn is_susi(&mut self, pid: u32) -> bool {
+        PathBuf::from(format!("/proc/{pid}")).exists()
+    }
+
+    /// True when `pid` names a live susi process. A pid that was reused by
+    /// an unrelated program (observed: dead daemons' dirs whose numbers now
+    /// belong to `conhost`, `rustc`, `svchost`) does not count.
+    #[cfg(windows)]
+    fn is_susi(&mut self, pid: u32) -> bool {
+        let images = self.images.get_or_insert_with(windows_process_images);
+        if images.is_empty() {
+            // The listing failed: keep every legacy dir rather than guess.
+            return true;
+        }
+        images
+            .get(&pid)
+            .is_some_and(|image| image.to_ascii_lowercase().starts_with("susi"))
+    }
+
+    /// Other platforms have no cheap, safe liveness probe here: legacy dirs
+    /// are kept (owner-locked dirs are still swept).
+    #[cfg(not(any(target_os = "linux", windows)))]
+    fn is_susi(&mut self, _pid: u32) -> bool {
+        true
+    }
+}
+
+/// `pid → image name` for every process, from one `tasklist` call.
+#[cfg(windows)]
+fn windows_process_images() -> std::collections::HashMap<u32, String> {
+    let Ok(out) = std::process::Command::new("tasklist")
+        .args(["/FO", "CSV", "/NH"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+    else {
+        return std::collections::HashMap::new();
     };
+    parse_tasklist_csv(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Parse `tasklist /FO CSV /NH` rows (`"image","pid",…`).
+#[cfg(any(windows, test))]
+fn parse_tasklist_csv(text: &str) -> std::collections::HashMap<u32, String> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.split("\",\"");
+            let image = fields.next()?.trim().trim_start_matches('"').to_string();
+            let pid = fields.next()?.trim().trim_end_matches('"').parse().ok()?;
+            Some((pid, image))
+        })
+        .collect()
+}
+
+/// Whether `dir` looks like a rendezvous dir — what a sweep may remove.
+fn looks_like_rendezvous(dir: &Path) -> bool {
+    match std::fs::read_dir(dir) {
+        Ok(mut rd) => rd.all(|e| {
+            e.ok().is_some_and(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                matches!(
+                    name.as_ref(),
+                    OWNER_LOCK | "topics" | "prefixes" | "caps" | "evidence" | "intents" | "broker"
+                ) || name.ends_with(".tmp")
+            })
+        }),
+        Err(_) => false,
+    }
+}
+
+/// Prefix of a swept dir awaiting deletion. Not numeric, so no lookup ever
+/// scans it.
+const SWEPT_PREFIX: &str = ".swept-";
+/// Held by whichever process is sweeping a bus right now.
+const SWEEP_LOCK: &str = ".sweep.lock";
+
+/// Sweep the bus this copy just joined, off the caller's thread: a backlog
+/// is slow to retire on Windows (measured: 727 dirs held a daemon's boot
+/// for 68 s when swept inline), and nothing a caller does needs the sweep
+/// finished — a stale dir only costs a lookup some I/O until it is gone.
+fn spawn_sweep(own: &Path) {
+    let own = own.to_path_buf();
+    let _ = std::thread::Builder::new()
+        .name("bus-sweep".into())
+        .spawn(move || {
+            sweep_dead_processes(own.parent(), &own);
+        });
+}
+
+/// Retire rendezvous dirs whose owning copy is gone. Every process sweeps
+/// once when its bus starts, on every platform: a stale dir costs every
+/// later lookup a scan of its files and a connect timeout per dead
+/// endpoint, and on Windows — where nothing used to sweep — 727 of them
+/// (22k files) had accumulated under one home.
+///
+/// Every dead dir is first renamed out of the lookup set, then deleted;
+/// whatever a short-lived process leaves half-deleted, the next sweep
+/// finishes. Returns `false` only when another sweeper holds the bus.
+fn sweep_dead_processes(bus_dir: Option<&Path>, own: &Path) -> bool {
+    let Some(dir) = bus_dir.filter(|d| is_bus_root(d)) else {
+        return true;
+    };
+    // One sweeper per bus at a time: every process starts one, and on a
+    // loaded Windows host the legacy-dir process listing alone took 4–99 s —
+    // a burst of CLI commands must not run a burst of listings.
+    let Ok(sweeper) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(dir.join(SWEEP_LOCK))
+    else {
+        return true;
+    };
+    if sweeper.try_lock().is_err() {
+        return false;
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return true;
+    };
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let mut live = LiveProcesses::default();
+    let mut trash = Vec::new();
     for entry in rd.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.parse::<u32>().is_err() {
+        let path = entry.path();
+        if path == own || !path.is_dir() {
             continue;
         }
-        if !PathBuf::from(format!("/proc/{name}")).exists() {
-            let _ = std::fs::remove_dir_all(entry.path());
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with(SWEPT_PREFIX) {
+            trash.push(path);
+            continue;
+        }
+        let Ok(pid) = name.parse::<u32>() else {
+            continue;
+        };
+        if pid == std::process::id() {
+            continue;
+        }
+        if looks_like_rendezvous(&path) && rendezvous_is_dead(&path, pid, &mut live) {
+            let swept = dir.join(format!(
+                "{SWEPT_PREFIX}{name}-{}-{}",
+                std::process::id(),
+                SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            if std::fs::rename(&path, &swept).is_ok() {
+                trash.push(swept);
+            }
         }
     }
+    for dir in trash {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    true
 }
 
 #[cfg(test)]
@@ -859,6 +1081,235 @@ mod tests {
         assert!(b.request("test.dead", json!({})).is_err());
         assert!(!file.exists(), "dead endpoint file must be pruned");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An endpoint file whose owner died while another copy took its port
+    /// is answered "no handler" by that copy. The request must treat it as
+    /// a dead candidate — prune it, try the next — rather than return the
+    /// stranger's error (observed: 150–200 `no handler for topic
+    /// capability.provider.…` failures a minute after a daemon boot).
+    #[test]
+    fn stale_endpoint_reused_by_a_live_copy_is_skipped_and_pruned() {
+        let root = tempdir("reused");
+        let squatter = IpcPlaneBus::with_rendezvous(root.join("1"));
+        squatter.register("test.unrelated", Arc::new(Reject));
+        let owner = IpcPlaneBus::with_rendezvous(root.join("2"));
+        owner.register("test.echo", Arc::new(Echo));
+        // A dead copy's file, sorted first, pointing at the squatter's port.
+        let stale = root.join("0").join("topics");
+        std::fs::create_dir_all(&stale).unwrap();
+        let stale = stale.join(enc("test.echo"));
+        std::fs::write(
+            &stale,
+            json!({ "endpoint": squatter.endpoint().unwrap().to_string(), "key": "test.echo" })
+                .to_string(),
+        )
+        .unwrap();
+        let caller = IpcPlaneBus::with_rendezvous(root.join("3"));
+        let out = caller.request("test.echo", json!({ "k": 1 })).unwrap();
+        assert_eq!(out, json!({ "echo": { "k": 1 } }));
+        assert!(!stale.exists(), "the misrouted endpoint file is pruned");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A live owner whose handler relays a nested request's "no handler"
+    /// text is answering, not missing: the caller gets that error, and the
+    /// owner's endpoint file stays — pruning it would cut the topic off
+    /// from every other process until the owner re-registered.
+    #[test]
+    fn a_handler_error_that_reads_like_a_miss_is_an_answer() {
+        struct Relays;
+        impl PlaneHandler for Relays {
+            fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
+                Err(no_handler("test.unwired"))
+            }
+        }
+        let root = tempdir("relayed-miss");
+        let owner = IpcPlaneBus::with_rendezvous(root.join("1"));
+        owner.register("test.relay", Arc::new(Relays));
+        let file = root.join("1").join("topics").join(enc("test.relay"));
+        assert!(file.exists());
+        let caller = IpcPlaneBus::with_rendezvous(root.join("2"));
+        let err = caller.request("test.relay", json!({})).unwrap_err();
+        assert!(
+            err.starts_with(NO_HANDLER),
+            "the handler's own error: {err}"
+        );
+        assert!(err.contains("test.unwired"), "{err}");
+        assert!(
+            file.exists(),
+            "a live owner's endpoint file is never pruned"
+        );
+        // And it keeps answering.
+        assert!(caller.request("test.relay", json!({})).is_err());
+        assert!(file.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The serving side marks a dispatch miss structurally, beside the
+    /// `err` text older callers read; a handler's error carries no marker.
+    #[test]
+    fn a_dispatch_miss_is_marked_structurally() {
+        let handlers: HandlerMap = Arc::new(DashMap::new());
+        let prefixes: HandlerMap = Arc::new(DashMap::new());
+        handlers.insert("test.reject".into(), Arc::new(Reject));
+        assert!(dispatch(&handlers, &prefixes, "test.none", json!({})).is_none());
+        assert_eq!(
+            dispatch(&handlers, &prefixes, "test.reject", json!({})),
+            Some(Err("nope".to_string()))
+        );
+        let root = tempdir("miss-marker");
+        let copy = IpcPlaneBus::with_rendezvous(root.join("1"));
+        copy.register("test.reject", Arc::new(Reject));
+        let ep = copy.endpoint().unwrap();
+        let ask = |topic: &str| -> Value {
+            let body = json!({ "topic": topic, "payload": {} }).to_string();
+            serde_json::from_str(&post(ep, "/handle", &body, &copy.secret).unwrap()).unwrap()
+        };
+        let miss = ask("test.none");
+        assert_eq!(miss[MISS_FIELD], json!("test.none"));
+        assert!(miss["err"].as_str().unwrap().starts_with(NO_HANDLER));
+        let answered = ask("test.reject");
+        assert!(answered.get(MISS_FIELD).is_none());
+        assert_eq!(answered["err"], json!("nope"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn bus_root(tag: &str) -> PathBuf {
+        let root = tempdir(tag).join("bus");
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    /// A copy joining the bus, with its sweep run to completion (in
+    /// production it runs on a background thread).
+    fn join_and_sweep(dir: PathBuf) -> IpcPlaneBus {
+        let bus = IpcPlaneBus::with_rendezvous(dir.clone());
+        // The copy's own background sweep may hold the sweep lock: wait for
+        // a run of our own.
+        for _ in 0..2000 {
+            if sweep_dead_processes(dir.parent(), &dir) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        bus
+    }
+
+    /// A pid no live process can hold.
+    const DEAD_PID: u32 = 4_000_000_007;
+
+    /// A burst of processes joining one bus runs one sweep, not a burst.
+    #[test]
+    fn only_one_sweeper_runs_at_a_time() {
+        let root = bus_root("sweep-one");
+        let dead = root.join("301");
+        std::fs::create_dir_all(dead.join("topics")).unwrap();
+        std::fs::write(dead.join(OWNER_LOCK), b"").unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(SWEEP_LOCK))
+            .unwrap();
+        held.try_lock().unwrap();
+        let own = root.join("302");
+        assert!(!sweep_dead_processes(Some(&root), &own), "busy: skipped");
+        assert!(dead.exists());
+        drop(held);
+        assert!(sweep_dead_processes(Some(&root), &own));
+        assert!(!dead.exists());
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    /// Joining a bus starts its sweep without waiting for it: the dead
+    /// copy's dir disappears on its own shortly after.
+    #[test]
+    fn joining_the_bus_sweeps_dead_dirs_in_the_background() {
+        let root = bus_root("sweep-bg");
+        let dead = root.join("201");
+        std::fs::create_dir_all(dead.join("prefixes")).unwrap();
+        std::fs::write(dead.join(OWNER_LOCK), b"").unwrap();
+        let _bus = IpcPlaneBus::with_rendezvous(root.join("202"));
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while dead.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!dead.exists(), "the background sweep retired the dead dir");
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[test]
+    fn sweep_removes_owner_locked_dirs_whose_owner_is_gone_and_keeps_live_ones() {
+        let root = bus_root("sweep-lock");
+        // Dead: its owner lock is free (the process that held it exited).
+        let dead = root.join("101");
+        std::fs::create_dir_all(dead.join("topics")).unwrap();
+        std::fs::write(dead.join(OWNER_LOCK), b"").unwrap();
+        std::fs::write(dead.join("topics").join("x"), b"{}").unwrap();
+        // Live: someone holds its owner lock right now.
+        let live = root.join("102");
+        let holder = claim_rendezvous(&live).expect("lock a fresh rendezvous");
+        // A new copy starting on this bus sweeps once.
+        let own = root.join("103");
+        let _bus = join_and_sweep(own.clone());
+        assert!(!dead.exists(), "a dir whose owner lock is free is swept");
+        assert!(live.exists(), "a dir whose owner lock is held is kept");
+        assert!(own.join(OWNER_LOCK).exists(), "the new copy owns its dir");
+        // Its own lock is held for its lifetime: the next sweep keeps it.
+        let _later = join_and_sweep(root.join("104"));
+        assert!(own.exists());
+        drop(holder);
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn sweep_removes_legacy_dirs_of_processes_that_are_gone() {
+        let root = bus_root("sweep-legacy");
+        // A pre-lock binary's dir: no owner lock, and its pid is not alive.
+        let legacy = root.join(DEAD_PID.to_string());
+        std::fs::create_dir_all(legacy.join("caps").join("provider")).unwrap();
+        std::fs::write(legacy.join("caps").join("provider").join("p"), b"{}").unwrap();
+        let _bus = join_and_sweep(root.join("105"));
+        assert!(!legacy.exists(), "a dead legacy dir is swept");
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[test]
+    fn sweep_never_touches_dirs_outside_a_bus_root_or_with_foreign_content() {
+        // Not a bus root (a registry over the temp dir has such a parent).
+        let other = tempdir("not-bus");
+        let numeric = other.join(DEAD_PID.to_string());
+        std::fs::create_dir_all(numeric.join("topics")).unwrap();
+        let _a = join_and_sweep(other.join("106"));
+        assert!(numeric.exists(), "only <cache>/bus/ is swept");
+        assert!(
+            !other.join("106").join(OWNER_LOCK).exists(),
+            "and only a bus rendezvous is claimed"
+        );
+        // A bus root, but the numeric dir holds something a bus never writes.
+        let root = bus_root("foreign");
+        let foreign = root.join(DEAD_PID.to_string());
+        std::fs::create_dir_all(&foreign).unwrap();
+        std::fs::write(foreign.join("notes.txt"), b"keep me").unwrap();
+        let _b = join_and_sweep(root.join("107"));
+        assert!(foreign.join("notes.txt").exists());
+        let _ = std::fs::remove_dir_all(&other);
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[test]
+    fn tasklist_rows_parse_to_pid_and_image() {
+        let rows = "\"System Idle Process\",\"0\",\"Services\",\"0\",\"8 K\"\r\n\
+                    \"susi.exe\",\"43644\",\"Console\",\"1\",\"812,100 K\"\r\n\
+                    \"conhost.exe\",\"16904\",\"Console\",\"1\",\"7,000 K\"\r\n\
+                    INFO: No tasks are running which match the specified criteria.\r\n";
+        let map = parse_tasklist_csv(rows);
+        assert_eq!(map.get(&43644).map(String::as_str), Some("susi.exe"));
+        assert_eq!(map.get(&16904).map(String::as_str), Some("conhost.exe"));
+        assert_eq!(map.len(), 3);
     }
 
     #[test]

@@ -41,6 +41,12 @@ use susi_server::GemiServer;
 
 pub struct SusiDaemon;
 
+/// Bound on each boot-time "is this canonical port already taken?" probe.
+const PORT_ADVISORY_TIMEOUT: Duration = Duration::from_millis(100);
+/// The supervised one-shot that registers the providers the host contract
+/// answers with, right after the bind.
+const CONTRACT_PROVIDERS: &str = "contract-providers";
+
 /// What `susi stop` actually accomplished — the CLI must exit non-zero when
 /// the host contract did not release, instead of printing success for a
 /// daemon that is still listening.
@@ -587,6 +593,31 @@ impl SusiDaemon {
         global_dir.join("binary.hash")
     }
 
+    /// The `daemon-start` command every spawn path runs: host-scoped, stdio
+    /// detached, and started *in* the substrate home. A spawn without a
+    /// working directory inherited the cwd of whichever command started the
+    /// daemon — an agent's worktree, typically — so the daemon's
+    /// cwd-relative work (the intent ladder's repo root) wrote task files
+    /// into that worktree, and on Windows the daemon's cwd handle kept the
+    /// worktree from being removed.
+    pub fn daemon_command(bin: &Path, substrate_home: &Path) -> Command {
+        use std::process::Stdio;
+        let mut cmd = Command::new(bin);
+        cmd.arg("daemon-start")
+            .arg("--workspace")
+            .arg(substrate_home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        // A home that does not exist (yet) must not fail the spawn itself —
+        // a missing cwd is an OS spawn error. The daemon creates and enters
+        // its home on boot either way (`run_daemon_loop`).
+        if substrate_home.is_dir() {
+            cmd.current_dir(substrate_home);
+        }
+        cmd
+    }
+
     /// Compares the running binary's SHA-256 against the digest last written to
     /// `binary.hash` by `susi admin sync` (src/daemon/admin.rs). Both readers and
     /// writers of this file must agree on one signature format — a `len:mtime`
@@ -757,6 +788,12 @@ impl SusiDaemon {
                     mem_cap / (1024 * 1024 * 1024)
                 ))
                 .arg(format!("--property=CPUQuota={cpu_quota}%"))
+                // No `--working-directory=`: systemd-run only knows it from
+                // systemd 240 on, and an older one (RHEL/Rocky/Alma 8,
+                // Ubuntu 18.04) rejects the whole call, silently dropping
+                // every start to the uncapped double-fork below. A user
+                // unit already starts in the user's home, and the daemon
+                // enters its substrate home itself (`run_daemon_loop`).
                 .arg("--")
                 .arg(&unit_bin)
                 .arg("daemon-start")
@@ -781,14 +818,7 @@ impl SusiDaemon {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
-            use std::process::Stdio;
-            let mut cmd = Command::new(&bin_to_run);
-            cmd.arg("daemon-start")
-                .arg("--workspace")
-                .arg(substrate_home.to_str().unwrap_or("."))
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+            let mut cmd = Self::daemon_command(&bin_to_run, &substrate_home);
             // SAFETY: `pre_exec` requires the closure to only call
             // async-signal-safe functions, since it runs in the forked child
             // between fork() and execve() with the rest of this (possibly
@@ -827,15 +857,7 @@ impl SusiDaemon {
 
         #[cfg(not(unix))]
         {
-            use std::process::Stdio;
-            let mut cmd = Command::new(&bin_to_run);
-            cmd.arg("daemon-start")
-                .arg("--workspace")
-                .arg(substrate_home.to_str().unwrap_or("."))
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            let _ = cmd.spawn();
+            let _ = Self::daemon_command(&bin_to_run, &substrate_home).spawn();
             if !Self::wait_for_host_contract(Duration::from_secs(10)) {
                 warn!("[SusiDaemon] daemon spawned but host contract never came up");
             }
@@ -846,12 +868,25 @@ impl SusiDaemon {
         if cfg!(test) {
             return;
         }
+        use crate::boot_trace::phase;
+        let boot_started = Instant::now();
         // Daemon is always bound to substrate home — ignore any stale
         // project-cwd passed via --workspace for backwards compatibility.
         let workspace = susi_paths::SusiDirs::substrate_home();
         if let Err(error) = std::fs::create_dir_all(&workspace) {
             eprintln!("[SusiDaemon] Failed to create substrate directory: {error}");
             return;
+        }
+        // The daemon owns no project, so its working directory is the
+        // substrate home — never whatever directory the spawning command
+        // ran in. Anything resolved from the cwd (the intent ladder's repo
+        // root, relative paths) must not land in an agent's worktree, and on
+        // Windows a process's cwd pins that directory against removal.
+        if let Err(error) = std::env::set_current_dir(&workspace) {
+            warn!(
+                "[SusiDaemon] could not enter substrate home {}: {error}",
+                workspace.display()
+            );
         }
         // Upgrade path: migrate persisted host state (backup + rollback on
         // failure) before anything below reads or rewrites it — token seed,
@@ -866,14 +901,6 @@ impl SusiDaemon {
             eprintln!("[SusiDaemon] Failed to secure host API token: {error}");
             return;
         }
-        // Composition root: EngineHooks before any ToolRegistry / MCP dispatch.
-        crate::composition::wire_engine_hooks();
-        susi_core::context_graph::ContextGraph::init_global_storage(
-            workspace.join("context_graph.jsonl"),
-        );
-        crate::privacy::wire_mac_policy(&workspace);
-        crate::composition::wire_daemon_os_planes(&workspace);
-        crate::ambient::start_ambient_indexer(&workspace);
         // Startup autofixes: correct rather than fail — missing substrate
         // dirs are created and a stale lock (> 1h, dead process) removed.
         let mut issues = Vec::new();
@@ -918,6 +945,8 @@ impl SusiDaemon {
             }
         }
 
+        // The lock comes before any composition work: a second daemon must
+        // not spend its boot wiring a substrate it will never own.
         let mut lock = match DaemonLock::acquire(&lock_file_path) {
             Ok(l) => l,
             Err(e) => {
@@ -986,6 +1015,25 @@ impl SusiDaemon {
             warn!("[SusiDaemon] Failed to persist canonical host ports: {error}");
         }
 
+        // Composition root, the part the host contract depends on: plane
+        // handlers and EngineHooks before any ToolRegistry / MCP dispatch,
+        // the context graph tools write into, and the MAC policy every tool
+        // call is authorized against. Provider discovery (catalogs, cloud
+        // endpoints, local engines, MCP servers) is not on this path — it
+        // runs after the contract is up and fills the registry as it goes.
+        phase(
+            "daemon: engine hooks",
+            crate::composition::wire_daemon_engine_hooks,
+        );
+        phase("daemon: context graph", || {
+            susi_core::context_graph::ContextGraph::init_global_storage(
+                workspace.join("context_graph.jsonl"),
+            )
+        });
+        phase("daemon: mac policy", || {
+            crate::privacy::wire_mac_policy(&workspace)
+        });
+
         // Port advisory: when a canonical port is held by a foreign
         // listener, surface the alternate the contract would pick so the
         // conflict shows up in the log instead of a bare bind failure.
@@ -996,12 +1044,9 @@ impl SusiDaemon {
             ("gmcp-http", cfg.gmcp_http_port()),
             ("a2a-http", cfg.a2a_http_port()),
         ];
-        let mut occupied = std::collections::BTreeSet::new();
-        for (_, port) in &canonical {
-            if TcpStream::connect(("127.0.0.1", *port)).is_ok() {
-                occupied.insert(*port);
-            }
-        }
+        let occupied = phase("daemon: port advisory", || {
+            Self::occupied_ports(canonical.iter().map(|(_, port)| *port))
+        });
         if !occupied.is_empty() {
             let services: Vec<(String, u16)> = canonical
                 .iter()
@@ -1024,6 +1069,269 @@ impl SusiDaemon {
 
         // Boot key health + zero-config scorecard — what still needs
         // attention is reported, not silently skipped.
+        phase("daemon: key health + zc score", || {
+            Self::report_key_health_and_score(&global_dir)
+        });
+
+        let bind_address = crate::susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .get("bind_address")
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+
+        // The host contract, as early as the boot allows: `susi start`
+        // waits on exactly these sockets, and every worker below is
+        // substrate work the contract must never wait on.
+        phase("daemon: host contract bind + serve", || {
+            Self::serve_host_contract(&cfg, &global_dir, &workspace, &bind_address)
+        });
+        info!(
+            "[SusiDaemon] host contract up {:.1}s after daemon start",
+            boot_started.elapsed().as_secs_f64()
+        );
+
+        // The providers the contract answers with — configured cloud
+        // endpoints, the Candle fallback, the tool registry — registered at
+        // once, beside the leaf services coming up: seconds after the bind,
+        // never behind discovery (catalog priming, engine probes, the
+        // ecosystem scan), which took a minute or more and left `/v1/models`
+        // and inference without a single provider meanwhile. Discovery
+        // below waits for this one-shot before it starts.
+        crate::service_supervision::Supervisor::global().spawn_oneshot(
+            CONTRACT_PROVIDERS,
+            1,
+            || {
+                Some(|| {
+                    let started = Instant::now();
+                    crate::discovery_pipeline::register_contract_providers();
+                    crate::boot_trace::finished("daemon: contract providers", started);
+                })
+            },
+        );
+
+        // Process layer: bring the leaf services up and keep them up for
+        // the life of the daemon. The supervisor terminates only pids it
+        // spawned itself, recorded in the shared process table. Up before
+        // discovery, so its config/paths/error calls reach real services.
+        phase("daemon: leaf services", || {
+            crate::supervisor::start(Arc::clone(&ctx.shutdown_signal))
+        });
+
+        // Initialize Global Stigmergic Blackboard (Swarm OS Points 5, 21, 25, 31)
+        let blackboard = crate::blackboard::SwarmBlackboard::new();
+        let blackboard_evaporator = blackboard.clone();
+        crate::service_supervision::Supervisor::global().spawn(
+            "pheromone-evaporator",
+            3,
+            Some(Duration::from_secs(60)),
+            move || {
+                let blackboard_evaporator = blackboard_evaporator.clone();
+                Some(move || {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        blackboard_evaporator.evaporate_pheromones();
+                        crate::service_supervision::heartbeat("pheromone-evaporator");
+                    }
+                })
+            },
+        );
+
+        // Substrate Administration & Hardware Optimization (Pillar 1)
+        crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(
+            &workspace,
+            blackboard.clone(),
+        );
+
+        // Host OS planes (gossip, NAT, checkpoints, cloud inventory): the
+        // inventory probe spawns five CLIs, so it runs off the boot thread.
+        {
+            let workspace = workspace.clone();
+            crate::service_supervision::Supervisor::global().spawn_oneshot(
+                "os-planes",
+                1,
+                move || {
+                    let workspace = workspace.clone();
+                    Some(move || crate::composition::wire_daemon_os_planes(&workspace))
+                },
+            );
+        }
+        crate::ambient::start_ambient_indexer(&workspace);
+
+        // Pillar 8: zero-config discovery of local inference engines + MCP
+        // tools, then periodic rediscovery — after the contract providers
+        // above are in. A full discovery pass probes engines, MCP servers
+        // and vendors and can take minutes; it fills the registry in the
+        // background while the contract already serves with its providers.
+        let rediscovery_secs = cfg.capability_rediscovery_secs();
+        crate::service_supervision::Supervisor::global().spawn_oneshot(
+            "zero-config-bootstrap",
+            1,
+            move || {
+                Some(move || {
+                    let started = Instant::now();
+                    // Never ahead of the contract providers: discovery
+                    // prunes and re-registers providers, and MCP discovery
+                    // reads the config the essential-MCP auto-link writes.
+                    let _ =
+                        crate::service_supervision::Supervisor::global().join(CONTRACT_PROVIDERS);
+                    // run_daemon_loop is sync (invoked from CLI `daemon-start`);
+                    // a short-lived runtime drives the async probes.
+                    match tokio::runtime::Runtime::new() {
+                        Ok(runtime) => {
+                            runtime.block_on(
+                                crate::discovery_pipeline::bootstrap_zero_config_substrate(),
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[SusiDaemon] Zero-config substrate bootstrap skipped: {}",
+                                e
+                            );
+                        }
+                    }
+                    crate::boot_trace::finished("daemon: zero-config bootstrap", started);
+                    crate::discovery_pipeline::spawn_periodic_rediscovery(rediscovery_secs);
+                })
+            },
+        );
+
+        // Spawn the cells already present once; the watcher below spawns
+        // only cells added afterwards.
+        crate::auto_discovery::spawn_all_cells(&workspace);
+
+        // Hot-pluggable cell watcher: monitors ~/.susi/cells/
+        // for new/removed files and triggers auto-discovery without daemon restart.
+        let _cell_watcher = crate::cell_watcher::start_cell_watcher(
+            crate::cell_watcher::CellWatcherConfig::for_substrate(&workspace),
+        );
+
+        // Durable workflow engine: rehydrates pending tasks
+        // from the JSONL append-only journal to survive daemon restarts.
+        let workflow_engine =
+            crate::workflows::WorkflowEngine::new(&workspace).unwrap_or_else(|e| {
+                eprintln!(
+                    "[SusiDaemon] Failed to initialize durable workflow engine: {}",
+                    e
+                );
+                std::process::exit(1);
+            });
+        let pending_tasks = workflow_engine.get_pending_tasks();
+        if !pending_tasks.is_empty() {
+            println!(
+                "[SusiDaemon] Rehydrated {} pending workflow tasks",
+                pending_tasks.len()
+            );
+        }
+
+        // Time-Travel Debugger: immutable HMAC-signed event log
+        let time_travel_logger = crate::event_log::TimeTravelDebugger::new(&workspace);
+        time_travel_logger.log_state_change("DAEMON_BOOT", "Swarm OS kernel booting");
+
+        // Autonomous Topology Manager
+        let _topology_manager = crate::topology::TopologyManager::new();
+        time_travel_logger
+            .log_state_change("TOPOLOGY_ENGINE", "Autonomous P2P topology manager online");
+
+        // Spawn Autonomous Background Model Provisioner & Resumable Downloader
+        susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
+
+        // Cluster scout: discovery broadcasts, liveness decay, roster
+        // rehydration, and commit-ledger anti-entropy all live in the
+        // thread `list_cluster_nodes` lazily spawns. Without this kick it
+        // only ever starts when a mission happens to touch the roster —
+        // the daemon would answer inbound pings but never scout outbound,
+        // and ledger anti-entropy would stay dormant between missions.
+        // Supervised one-shot: a panic before the scout starts retries
+        // (bounded); a clean return retires it.
+        crate::service_supervision::Supervisor::global().spawn_oneshot(
+            "swarm-scout-kick",
+            1,
+            || {
+                Some(|| {
+                    let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
+                })
+            },
+        );
+
+        // Continuous Interaction Substrate Worker
+        // Each pulse carries the ingesting caller's cwd (`pulse.workspace`).
+        // Never substitute the daemon's boot workspace — that made "susi" in
+        // folder B silently operate on folder A whenever the daemon had been
+        // started from A (same bug class as the cross-workspace binary restart).
+        // Supervised: the heartbeat bound is generous — a single pulse can
+        // legitimately block in solve_stream for many minutes.
+        crate::service_supervision::Supervisor::global().spawn(
+            "pulse-worker",
+            3,
+            Some(Duration::from_secs(900)),
+            || {
+                Some(move || {
+                    let queue = susi_gawd::queue::SubstratePulseQueue::global();
+                    let ama = susi_gawd::ama::SusiMasterAgent::new();
+
+                    loop {
+                        crate::service_supervision::heartbeat("pulse-worker");
+                        if let Some(pulse) = queue.pop() {
+                            info!(
+                                "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
+                                pulse.intent,
+                                pulse.workspace.display()
+                            );
+                            let _ = ama.solve_stream(
+                                &pulse.intent,
+                                susi_gawd::queue::SubstratePulseQueue::execution_workspace(&pulse),
+                                &pulse.version,
+                                &|_| {},
+                            );
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                })
+            },
+        );
+
+        while !ctx.is_shutdown_requested() {
+            // In-process supervision: restart dead workers, flag hung
+            // ones, persist the status surface every round.
+            let supervision = crate::service_supervision::Supervisor::global();
+            supervision.supervise();
+            supervision.persist_report();
+            thread::sleep(crate::service_supervision::SUPERVISE_INTERVAL);
+        }
+
+        eprintln!("[SusiDaemon] Graceful shutdown initiated");
+        // Swarm Cells are the daemon's children; never orphan them.
+        let stopped = crate::auto_discovery::stop_all_cells();
+        if stopped > 0 {
+            eprintln!("[SusiDaemon] Stopped {stopped} Swarm Cell(s)");
+        }
+        crate::supervisor::shutdown_all();
+        // The monitor is shutdown-aware (aborts mid-pass, never spawns
+        // or saves once the flag lands) — join it so no stale write or
+        // in-flight spawn outlives the teardown.
+        let _ = crate::service_supervision::Supervisor::global().join("leaf-service-monitor");
+    }
+
+    /// Canonical ports that already accept a loopback connection. Bounded
+    /// per probe: on Windows a connect to a free (closed) loopback port is
+    /// only refused after ~2 s of SYN retries, so an unbounded connect cost
+    /// the boot ~10 s for five ports that were simply free. A listener on
+    /// loopback accepts within microseconds, well inside the bound.
+    fn occupied_ports(ports: impl IntoIterator<Item = u16>) -> std::collections::BTreeSet<u16> {
+        ports
+            .into_iter()
+            .filter(|port| {
+                TcpStream::connect_timeout(
+                    &std::net::SocketAddr::from(([127, 0, 0, 1], *port)),
+                    PORT_ADVISORY_TIMEOUT,
+                )
+                .is_ok()
+            })
+            .collect()
+    }
+
+    /// Boot key health + zero-config scorecard — what still needs
+    /// attention is reported, not silently skipped.
+    fn report_key_health_and_score(global_dir: &Path) {
         let env_text = std::fs::read_to_string(crate::susi_config::cloud_env::cloud_env_path())
             .unwrap_or_default();
         let ages_path =
@@ -1076,103 +1384,24 @@ impl SusiDaemon {
         if let Ok(text) = serde_json::to_string(&card.score) {
             let _ = std::fs::write(&score_path, text);
         }
+    }
 
-        let bind_address = crate::susi_sandbox::manager::SusiConfig::load_global()
-            .unwrap_or_default()
-            .get("bind_address")
-            .unwrap_or_else(|| "127.0.0.1".to_string());
-
+    /// Bind the host contract — 9090–9094 (plus any `port_offset`) — and
+    /// start its supervised server workers. Canonical public ports only:
+    /// never an ephemeral fallback.
+    fn serve_host_contract(
+        cfg: &SusiConfig,
+        global_dir: &Path,
+        workspace: &Path,
+        bind_address: &str,
+    ) {
         // TLS for the public endpoints: configured cert/key, or an
         // auto-generated self-signed cert whenever the bind is reachable
         // off-host. Each listener sniffs the first byte per connection, so
         // plain HTTP (internal loopback callers) keeps working on the same
         // port. `https_only` drops non-TLS bytes from remote peers.
-        let tls_acceptor = crate::tls::endpoint_acceptor(&bind_address, &global_dir);
+        let tls_acceptor = crate::tls::endpoint_acceptor(bind_address, global_dir);
         let require_tls_remote = crate::tls::https_only();
-
-        // Initialize Global Stigmergic Blackboard (Swarm OS Points 5, 21, 25, 31)
-        let blackboard = crate::blackboard::SwarmBlackboard::new();
-        let blackboard_evaporator = blackboard.clone();
-        crate::service_supervision::Supervisor::global().spawn(
-            "pheromone-evaporator",
-            3,
-            Some(Duration::from_secs(60)),
-            move || {
-                let blackboard_evaporator = blackboard_evaporator.clone();
-                Some(move || {
-                    loop {
-                        std::thread::sleep(std::time::Duration::from_secs(5));
-                        blackboard_evaporator.evaporate_pheromones();
-                        crate::service_supervision::heartbeat("pheromone-evaporator");
-                    }
-                })
-            },
-        );
-
-        // Substrate Administration & Hardware Optimization (Pillar 1)
-        crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(
-            &workspace,
-            blackboard.clone(),
-        );
-
-        // Pillar 8: Zero-config discovery of local inference engines + MCP tools
-        // run_daemon_loop is sync (invoked from CLI `daemon-start`); spin up a
-        // short-lived runtime for the async probes, matching GMCP/GEMI bind paths.
-        match tokio::runtime::Runtime::new() {
-            Ok(runtime) => {
-                runtime.block_on(crate::discovery_pipeline::bootstrap_zero_config_substrate());
-            }
-            Err(e) => {
-                eprintln!(
-                    "[SusiDaemon] Zero-config substrate bootstrap skipped: {}",
-                    e
-                );
-            }
-        }
-        crate::discovery_pipeline::spawn_periodic_rediscovery(cfg.capability_rediscovery_secs());
-
-        // Spawn the cells already present once; the watcher below spawns
-        // only cells added afterwards.
-        crate::auto_discovery::spawn_all_cells(&workspace);
-
-        // Hot-pluggable cell watcher: monitors ~/.susi/cells/
-        // for new/removed files and triggers auto-discovery without daemon restart.
-        let _cell_watcher = crate::cell_watcher::start_cell_watcher(
-            crate::cell_watcher::CellWatcherConfig::for_substrate(&workspace),
-        );
-
-        // Durable workflow engine: rehydrates pending tasks
-        // from the JSONL append-only journal to survive daemon restarts.
-        let workflow_engine =
-            crate::workflows::WorkflowEngine::new(&workspace).unwrap_or_else(|e| {
-                eprintln!(
-                    "[SusiDaemon] Failed to initialize durable workflow engine: {}",
-                    e
-                );
-                std::process::exit(1);
-            });
-        let pending_tasks = workflow_engine.get_pending_tasks();
-        if !pending_tasks.is_empty() {
-            println!(
-                "[SusiDaemon] Rehydrated {} pending workflow tasks",
-                pending_tasks.len()
-            );
-        }
-
-        // Time-Travel Debugger: immutable HMAC-signed event log
-        let time_travel_logger = crate::event_log::TimeTravelDebugger::new(&workspace);
-        time_travel_logger.log_state_change("DAEMON_BOOT", "Swarm OS kernel booting");
-
-        // Autonomous Topology Manager
-        let _topology_manager = crate::topology::TopologyManager::new();
-        time_travel_logger
-            .log_state_change("TOPOLOGY_ENGINE", "Autonomous P2P topology manager online");
-
-        // Spawn Autonomous Background Model Provisioner & Resumable Downloader
-        susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
-
-        // Canonical public ports + the uniform port_offset — never fall back
-        // to ephemeral ports.
         let (gemi_port, gmcp_port, gmcp_http_port, a2a_port, udp_port) = (
             cfg.gemi_port(),
             cfg.gmcp_port(),
@@ -1181,18 +1410,14 @@ impl SusiDaemon {
             cfg.udp_discovery_port(),
         );
         let gemi_server =
-            Self::bind_tcp_canonical(gemi_port, "GEMI HTTP", &global_dir, &bind_address);
+            Self::bind_tcp_canonical(gemi_port, "GEMI HTTP", global_dir, bind_address);
         let gmcp_primary =
-            Self::bind_tcp_canonical(gmcp_port, "GMCP/MCP HTTP", &global_dir, &bind_address);
-        let gmcp_alias = Self::bind_tcp_canonical(
-            gmcp_http_port,
-            "GMCP HTTP alias",
-            &global_dir,
-            &bind_address,
-        );
-        let a2a_http = Self::bind_tcp_canonical(a2a_port, "A2A HTTP", &global_dir, &bind_address);
+            Self::bind_tcp_canonical(gmcp_port, "GMCP/MCP HTTP", global_dir, bind_address);
+        let gmcp_alias =
+            Self::bind_tcp_canonical(gmcp_http_port, "GMCP HTTP alias", global_dir, bind_address);
+        let a2a_http = Self::bind_tcp_canonical(a2a_port, "A2A HTTP", global_dir, bind_address);
         let udp_socket =
-            Self::bind_udp_canonical(udp_port, "A2A UDP discovery", &global_dir, &bind_address);
+            Self::bind_udp_canonical(udp_port, "A2A UDP discovery", global_dir, bind_address);
 
         let (scheme, transport) = if tls_acceptor.is_some() {
             // Both are live on every socket — first-byte sniff picks per
@@ -1229,7 +1454,7 @@ impl SusiDaemon {
         // exited server is restarted in place with a bounded budget and
         // reported on the status surface instead of silently staying dead.
         let tls_gemi = tls_acceptor.clone();
-        let workspace_gemi = workspace.clone();
+        let workspace_gemi = workspace.to_path_buf();
         let require_tls_gemi = require_tls_remote;
         crate::service_supervision::Supervisor::global().spawn("gemi-http", 5, None, move || {
             let workspace = workspace_gemi.clone();
@@ -1248,7 +1473,7 @@ impl SusiDaemon {
         });
 
         let tls_gmcp = tls_acceptor.clone();
-        let workspace_gmcp = workspace.clone();
+        let workspace_gmcp = workspace.to_path_buf();
         let require_tls_gmcp = require_tls_remote;
         crate::service_supervision::Supervisor::global().spawn("gmcp-http", 5, None, move || {
             let workspace = workspace_gmcp.clone();
@@ -1267,7 +1492,7 @@ impl SusiDaemon {
         });
 
         let tls_gmcp_alias = tls_acceptor.clone();
-        let workspace_gmcp_alias = workspace.clone();
+        let workspace_gmcp_alias = workspace.to_path_buf();
         let require_tls_gmcp_alias = require_tls_remote;
         crate::service_supervision::Supervisor::global().spawn(
             "gmcp-http-alias",
@@ -1355,87 +1580,6 @@ impl SusiDaemon {
                 }
             })
         });
-
-        // Cluster scout: discovery broadcasts, liveness decay, roster
-        // rehydration, and commit-ledger anti-entropy all live in the
-        // thread `list_cluster_nodes` lazily spawns. Without this kick it
-        // only ever starts when a mission happens to touch the roster —
-        // the daemon would answer inbound pings but never scout outbound,
-        // and ledger anti-entropy would stay dormant between missions.
-        // Supervised one-shot: a panic before the scout starts retries
-        // (bounded); a clean return retires it.
-        crate::service_supervision::Supervisor::global().spawn_oneshot(
-            "swarm-scout-kick",
-            1,
-            || {
-                Some(|| {
-                    let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
-                })
-            },
-        );
-
-        // Continuous Interaction Substrate Worker
-        // Each pulse carries the ingesting caller's cwd (`pulse.workspace`).
-        // Never substitute the daemon's boot workspace — that made "susi" in
-        // folder B silently operate on folder A whenever the daemon had been
-        // started from A (same bug class as the cross-workspace binary restart).
-        // Supervised: the heartbeat bound is generous — a single pulse can
-        // legitimately block in solve_stream for many minutes.
-        crate::service_supervision::Supervisor::global().spawn(
-            "pulse-worker",
-            3,
-            Some(Duration::from_secs(900)),
-            || {
-                Some(move || {
-                    let queue = susi_gawd::queue::SubstratePulseQueue::global();
-                    let ama = susi_gawd::ama::SusiMasterAgent::new();
-
-                    loop {
-                        crate::service_supervision::heartbeat("pulse-worker");
-                        if let Some(pulse) = queue.pop() {
-                            info!(
-                                "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
-                                pulse.intent,
-                                pulse.workspace.display()
-                            );
-                            let _ = ama.solve_stream(
-                                &pulse.intent,
-                                susi_gawd::queue::SubstratePulseQueue::execution_workspace(&pulse),
-                                &pulse.version,
-                                &|_| {},
-                            );
-                        }
-                        thread::sleep(Duration::from_millis(100));
-                    }
-                })
-            },
-        );
-
-        // Process layer: bring the leaf services up and keep them up for
-        // the life of the daemon. The supervisor terminates only pids it
-        // spawned itself, recorded in the shared process table.
-        crate::supervisor::start(Arc::clone(&ctx.shutdown_signal));
-
-        while !ctx.is_shutdown_requested() {
-            // In-process supervision: restart dead workers, flag hung
-            // ones, persist the status surface every round.
-            let supervision = crate::service_supervision::Supervisor::global();
-            supervision.supervise();
-            supervision.persist_report();
-            thread::sleep(crate::service_supervision::SUPERVISE_INTERVAL);
-        }
-
-        eprintln!("[SusiDaemon] Graceful shutdown initiated");
-        // Swarm Cells are the daemon's children; never orphan them.
-        let stopped = crate::auto_discovery::stop_all_cells();
-        if stopped > 0 {
-            eprintln!("[SusiDaemon] Stopped {stopped} Swarm Cell(s)");
-        }
-        crate::supervisor::shutdown_all();
-        // The monitor is shutdown-aware (aborts mid-pass, never spawns
-        // or saves once the flag lands) — join it so no stale write or
-        // in-flight spawn outlives the teardown.
-        let _ = crate::service_supervision::Supervisor::global().join("leaf-service-monitor");
     }
 
     fn force_canonical_ports(cfg: &mut SusiConfig) {
@@ -2168,6 +2312,133 @@ mod tests {
         Vec::new()
     }
     use susi_paths::ports;
+
+    /// The spawned daemon runs in the substrate home, never in the cwd of
+    /// the command that started it (an agent's worktree, where its
+    /// cwd-relative work used to author task files).
+    #[test]
+    fn daemon_command_runs_in_the_substrate_home() {
+        let home =
+            std::env::temp_dir().join(format!("susi-daemon-cmd-home-{}", std::process::id()));
+        // A home that does not exist yet is not entered (the spawn would
+        // fail outright); the daemon creates and enters it on boot.
+        let _ = std::fs::remove_dir_all(&home);
+        let cmd = SusiDaemon::daemon_command(Path::new("susi"), &home);
+        assert_eq!(cmd.get_current_dir(), None);
+        std::fs::create_dir_all(&home).unwrap();
+        let cmd = SusiDaemon::daemon_command(Path::new("susi"), &home);
+        assert_eq!(cmd.get_current_dir(), Some(home.as_path()));
+        let _ = std::fs::remove_dir_all(&home);
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(
+            args,
+            vec![
+                std::ffi::OsStr::new("daemon-start"),
+                std::ffi::OsStr::new("--workspace"),
+                home.as_os_str(),
+            ]
+        );
+    }
+
+    /// The daemon registers the providers its contract answers with — the
+    /// configured cloud endpoints, the Candle fallback, the tool registry —
+    /// right after the bind and ahead of discovery's catalog priming, not
+    /// at discovery's step 1b a minute or more later (during which `/v1/
+    /// models`, inference and pulses had no provider at all).
+    #[test]
+    fn contract_providers_register_before_discovery_primes_catalogs() {
+        let server = include_str!("server.rs");
+        let pipeline = include_str!("discovery_pipeline.rs");
+        let after = |src: &str, from: usize, needle: &str| {
+            src[from..]
+                .find(needle)
+                .map(|i| from + i)
+                .unwrap_or_else(|| panic!("`{needle}` not found"))
+        };
+        // In the daemon loop: bind, then the providers one-shot (before the
+        // leaf services even start), then discovery — which first waits
+        // that one-shot out.
+        let daemon = after(server, 0, "pub fn run_daemon_loop(");
+        let bind = after(server, daemon, "Self::serve_host_contract(");
+        let providers = after(
+            server,
+            daemon,
+            "discovery_pipeline::register_contract_providers()",
+        );
+        let leaf = after(server, daemon, "crate::supervisor::start(");
+        let discovery_worker = after(server, daemon, "\"zero-config-bootstrap\"");
+        let waits = after(server, discovery_worker, ".join(CONTRACT_PROVIDERS)");
+        let discovery = after(
+            server,
+            daemon,
+            "discovery_pipeline::bootstrap_zero_config_substrate()",
+        );
+        assert!(
+            bind < providers,
+            "providers register once the contract is bound"
+        );
+        assert!(
+            providers < leaf,
+            "providers do not wait on the leaf services"
+        );
+        assert!(
+            waits < discovery,
+            "discovery waits for the providers before it runs"
+        );
+        // What "providers" means, and that it does no slow discovery itself.
+        let start = after(pipeline, 0, "pub fn register_contract_providers()");
+        let end = after(pipeline, start, "\n}\n");
+        let body = &pipeline[start..end];
+        for needed in [
+            "register_configured_cloud_endpoints(registry)",
+            "ensure_candle_fallback(registry)",
+            "ToolRegistry::global()",
+        ] {
+            assert!(
+                body.contains(needed),
+                "contract providers must run `{needed}`"
+            );
+        }
+        for slow in [
+            "prime_catalogs",
+            "auto_discover_local_engines",
+            "local_ecosystem_report",
+        ] {
+            assert!(
+                !body.contains(slow),
+                "contract providers must not run `{slow}`"
+            );
+        }
+        // Discovery primes catalogs; the providers are already in place.
+        let bootstrap = after(
+            pipeline,
+            0,
+            "pub async fn bootstrap_zero_config_substrate()",
+        );
+        assert!(after(pipeline, bootstrap, "prime_catalogs(&substrate)") > end);
+    }
+
+    /// The pre-bind port advisory is bounded: a free canonical port (on
+    /// Windows refused only after ~2 s of SYN retries) must not stall the
+    /// boot, and a listening one is still reported.
+    #[test]
+    fn port_advisory_is_bounded_and_sees_listeners() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let busy = listener.local_addr().unwrap().port();
+        let free = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .map(|a| a.port())
+            .unwrap();
+        let started = Instant::now();
+        let occupied = SusiDaemon::occupied_ports([busy, free]);
+        assert!(occupied.contains(&busy));
+        assert!(!occupied.contains(&free));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "advisory took {:?}",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn host_contract_endpoint_report_lists_effective_ports() {

@@ -515,9 +515,10 @@ pub fn run_slice<R: Runner>(
     card
 }
 
-/// Where a repo working copy would hold the ladder — the process cwd.
-/// A daemon started anywhere still resolves correctly: a cwd that is
-/// not a repo simply falls through to the bundled revision.
+/// Where a repo working copy would hold the ladder — the process cwd, for a
+/// CLI caller working in a checkout (a cwd that is not a repo falls through
+/// to the bundled revision). The daemon never uses it: it has no repository
+/// and resolves the ladder from the substrate home it owns.
 pub fn repo_root() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
@@ -778,7 +779,10 @@ pub const GAP_TASKS_PER_RUN: usize = 2;
 ///
 /// Outside a repository — a daemon cwd that is not a checkout — this is
 /// a deliberate no-op: it must not invent `.agents/` state in an
-/// arbitrary directory.
+/// arbitrary directory. The daemon never calls it: it records failures in
+/// the host outbox ([`record_gaps`]), and an agent turns one into a task in
+/// its own checkout ([`adopt_gap`]). The substrate home is refused
+/// outright, even if it were laid out like a repository.
 pub fn gap_tasks(
     ws: &Path,
     card: &Scorecard,
@@ -792,6 +796,9 @@ pub fn gap_tasks(
     if !ws.join(".agents/roadmap.json").is_file() || !ws.join(".agents/tasks").is_dir() {
         return Ok(empty);
     }
+    if same_dir(ws, &susi_paths::SusiDirs::substrate_home()) {
+        return Ok(empty);
+    }
     let (ladder, _) = load_ladder(ws)?;
     let open = tasks::list_open(ws);
     let vectors = tasks::roadmap_vectors(ws).unwrap_or_default();
@@ -803,51 +810,12 @@ pub fn gap_tasks(
             .any(|v| v.title.contains(id) || v.progress.contains(id))
     };
 
-    // Triage by observed impact: the higher the failed grade, the more
-    // capability the failure reports.
-    let mut failures: Vec<(&Intent, &ScorecardEntry)> = card
-        .entries
-        .iter()
-        .filter(|e| e.verdict == "fail" || e.verdict == "partial")
-        .filter_map(|e| ladder.intents.iter().find(|i| i.id == e.id).map(|i| (i, e)))
-        .collect();
-    failures.sort_by_key(|(i, _)| std::cmp::Reverse(i.grade));
-
+    let failures = failing_rungs(&ladder, card);
     let new_tasks: Vec<tasks::NewTask> = failures
         .iter()
         .filter(|(i, _)| !already_known(&i.id))
         .take(GAP_TASKS_PER_RUN)
-        .map(|(i, e)| tasks::NewTask {
-            title: format!("Restore intent {} ({})", i.id, i.grade.name()),
-            goal: format!(
-                "Restoring the {} intent `{}` from ladder revision {}.\n\
-                 Expected: {}.\n\
-                 Observed: {} — verdict {}, stopped {}, worker {}, {}s and {}µs.\n\
-                 Close requires the intent itself to pass: \
-                 `susi admin intent-ladder --verify {}`.",
-                i.grade.name(),
-                i.id,
-                card.ladder_revision,
-                describe_check(&i.check),
-                e.detail,
-                e.verdict,
-                e.stopped,
-                e.worker,
-                e.seconds,
-                e.micros,
-                i.id,
-            ),
-            size: "m".into(),
-            deps: vec![],
-            accept: vec![
-                "susi".into(),
-                "admin".into(),
-                "intent-ladder".into(),
-                "--verify".into(),
-                i.id.clone(),
-            ],
-            roadmap: None,
-        })
+        .map(|(i, e)| repair_task(i, e, card.ladder_revision))
         .collect();
     tasks::author(
         ws,
@@ -862,4 +830,460 @@ pub fn gap_tasks(
             tasks: new_tasks,
         },
     )
+}
+
+/// Failing (fail or partial) scorecard rows that name a rung on `ladder`,
+/// triaged by observed impact: the higher the failed grade, the more
+/// capability the failure reports.
+fn failing_rungs<'a>(
+    ladder: &'a IntentLadder,
+    card: &'a Scorecard,
+) -> Vec<(&'a Intent, &'a ScorecardEntry)> {
+    let mut failures: Vec<(&Intent, &ScorecardEntry)> = card
+        .entries
+        .iter()
+        .filter(|e| e.verdict == "fail" || e.verdict == "partial")
+        .filter_map(|e| ladder.intents.iter().find(|i| i.id == e.id).map(|i| (i, e)))
+        .collect();
+    failures.sort_by_key(|(i, _)| std::cmp::Reverse(i.grade));
+    failures
+}
+
+/// The repair task one failing rung becomes — the same title, evidence and
+/// `--verify` acceptance whether it is authored straight from a scorecard
+/// or adopted later from the host outbox.
+fn repair_task(
+    i: &Intent,
+    e: &ScorecardEntry,
+    ladder_revision: u64,
+) -> crate::admin::tasks::NewTask {
+    crate::admin::tasks::NewTask {
+        title: format!("Restore intent {} ({})", i.id, i.grade.name()),
+        goal: format!(
+            "Restoring the {} intent `{}` from ladder revision {}.\n\
+             Expected: {}.\n\
+             Observed: {} — verdict {}, stopped {}, worker {}, {}s and {}µs.\n\
+             Close requires the intent itself to pass: \
+             `susi admin intent-ladder --verify {}`.",
+            i.grade.name(),
+            i.id,
+            ladder_revision,
+            describe_check(&i.check),
+            e.detail,
+            e.verdict,
+            e.stopped,
+            e.worker,
+            e.seconds,
+            e.micros,
+            i.id,
+        ),
+        size: "m".into(),
+        deps: vec![],
+        accept: vec![
+            "susi".into(),
+            "admin".into(),
+            "intent-ladder".into(),
+            "--verify".into(),
+            i.id.clone(),
+        ],
+        roadmap: None,
+    }
+}
+
+fn same_dir(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (Ok(x), Ok(y)) if x == y
+        )
+}
+
+/// The host outbox of failing rungs, under the susi home.
+pub const GAPS_FILE: &str = "intent-gaps.json";
+/// Outbox schema — versioned independently of the scorecard.
+pub const GAPS_SCHEMA: &str = "susi.intent_gaps/v1";
+/// Unadopted gaps the outbox holds at most: like [`GAP_TASKS_PER_RUN`],
+/// the ladder cannot queue work faster than agents adopt it.
+pub const GAPS_PENDING_MAX: usize = 16;
+/// How long an adoption holds a gap whose rung keeps failing. Agent
+/// worktrees are routinely discarded and their task files routinely never
+/// merge; an adoption that has not closed the rung within this bound is
+/// offered again, so a failing rung never drops out of every `susi tasks
+/// list` for good. A checkout that already holds the adopted task (it
+/// merged) re-links to it instead of authoring a duplicate.
+pub const GAP_ADOPTION_TTL_SECS: u64 = 24 * 60 * 60;
+/// Lock name (`<home>/intent-gaps.lock`) serialising every
+/// read-modify-write of the outbox across processes: the daemon records,
+/// CLIs in any number of worktrees adopt.
+const GAPS_LOCK: &str = "intent-gaps";
+
+/// One failing rung awaiting (or past) adoption as a repair task.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IntentGap {
+    pub intent: String,
+    pub grade: String,
+    pub ladder_revision: u64,
+    /// The independent check, as evidence prose.
+    pub expected: String,
+    pub verdict: String,
+    pub stopped: String,
+    pub worker: String,
+    pub seconds: u64,
+    pub micros: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub detail: String,
+    pub first_seen_unix: u64,
+    pub last_seen_unix: u64,
+    /// Scorecards that failed this rung since it entered the outbox.
+    pub failures: u32,
+    /// The task id it became, once an agent adopted it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopted: Option<String>,
+    /// When it was adopted (unix seconds).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub adopted_unix: u64,
+    /// The checkout that adopted it — where its task file was authored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopted_in: Option<PathBuf>,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+impl IntentGap {
+    /// What an agent runs, in its own checkout, to turn this gap into a task.
+    #[must_use]
+    pub fn adopt_command(&self) -> String {
+        format!("susi admin intent-ladder --adopt-gap {}", self.intent)
+    }
+
+    /// Whether an agent may adopt this gap at `now`: nobody has, or the
+    /// adoption no longer stands — older than [`GAP_ADOPTION_TTL_SECS`]
+    /// while the rung kept failing, or the checkout that adopted it is gone
+    /// (a discarded worktree takes its unmerged task file with it).
+    #[must_use]
+    pub fn is_pending_at(&self, now: u64) -> bool {
+        if self.adopted.is_none() {
+            return true;
+        }
+        now.saturating_sub(self.adopted_unix) >= GAP_ADOPTION_TTL_SECS
+            || self.adopted_in.as_ref().is_some_and(|ws| !ws.is_dir())
+    }
+
+    /// The scorecard row the gap was recorded from.
+    fn entry(&self) -> ScorecardEntry {
+        ScorecardEntry {
+            id: self.intent.clone(),
+            grade: self.grade.clone(),
+            verdict: self.verdict.clone(),
+            seconds: self.seconds,
+            micros: self.micros,
+            worker: self.worker.clone(),
+            stopped: self.stopped.clone(),
+            detail: self.detail.clone(),
+        }
+    }
+
+    fn observe(&mut self, e: &ScorecardEntry, ladder_revision: u64, now: u64) {
+        self.verdict = e.verdict.clone();
+        self.stopped = e.stopped.clone();
+        self.worker = e.worker.clone();
+        self.seconds = e.seconds;
+        self.micros = e.micros;
+        self.detail = e.detail.clone();
+        self.ladder_revision = ladder_revision;
+        self.last_seen_unix = now;
+        self.failures = self.failures.saturating_add(1);
+    }
+
+    fn adopt(&mut self, task: &str, ws: &Path, now: u64) {
+        self.adopted = Some(task.to_string());
+        self.adopted_unix = now;
+        self.adopted_in = Some(std::fs::canonicalize(ws).unwrap_or_else(|_| ws.to_path_buf()));
+    }
+}
+
+/// `<home>/intent-gaps.json`: what the daemon found failing, for agents to
+/// adopt. The daemon records gaps and never authors task files; an
+/// adoption only marks the gap it turned into a task.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GapOutbox {
+    pub schema: String,
+    pub updated_unix: u64,
+    pub gaps: Vec<IntentGap>,
+}
+
+impl Default for GapOutbox {
+    fn default() -> Self {
+        Self {
+            schema: GAPS_SCHEMA.into(),
+            updated_unix: 0,
+            gaps: Vec::new(),
+        }
+    }
+}
+
+impl GapOutbox {
+    /// Gaps an agent may adopt now (see [`IntentGap::is_pending_at`]).
+    pub fn pending(&self) -> impl Iterator<Item = &IntentGap> + '_ {
+        self.pending_at(now_unix())
+    }
+
+    /// Gaps an agent may adopt at `now`.
+    pub fn pending_at(&self, now: u64) -> impl Iterator<Item = &IntentGap> + '_ {
+        self.gaps.iter().filter(move |g| g.is_pending_at(now))
+    }
+}
+
+pub fn gaps_path(home: &Path) -> PathBuf {
+    home.join(GAPS_FILE)
+}
+
+/// The outbox, or an empty one when it is absent or unreadable.
+#[must_use]
+pub fn read_gaps(home: &Path) -> GapOutbox {
+    std::fs::read_to_string(gaps_path(home))
+        .ok()
+        .and_then(|text| serde_json::from_str::<GapOutbox>(&text).ok())
+        .filter(|outbox| outbox.schema == GAPS_SCHEMA)
+        .unwrap_or_default()
+}
+
+fn write_gaps(home: &Path, outbox: &GapOutbox) -> EaiResult<()> {
+    let body = serde_json::to_vec_pretty(outbox)
+        .map_err(|e| EaiError::internal(format!("intent gaps: {e}")))?;
+    let _ = std::fs::create_dir_all(home);
+    susi_config::atomic_write_bytes(&gaps_path(home), &body)
+        .map_err(|e| EaiError::io(format!("{}: {e}", gaps_path(home).display())))
+}
+
+/// The cross-process outbox lock: the daemon's [`record_gaps`] and every
+/// worktree's [`adopt_gap`] read-modify-write the same file, and without it
+/// an interleaving loses either the adoption mark (letting a second
+/// worktree adopt the same gap) or the daemon's refresh.
+fn lock_gaps(home: &Path) -> EaiResult<crate::susi_config::file_lock::FileLock> {
+    // Adoption reads the task lists under this lock, which can take seconds
+    // on a loaded host; the default ~3 s wait then failed a concurrent record
+    // instead of letting it take its turn. Still well under the lock's 60 s
+    // staleness threshold, so a wedged holder is not waited on forever.
+    let wait = std::time::Duration::from_secs(30);
+    crate::susi_config::file_lock::FileLock::acquire_within(home, GAPS_LOCK, wait).ok_or_else(
+        || {
+            EaiError::io(format!(
+                "intent gaps: {} is held by another process",
+                home.join(format!("{GAPS_LOCK}.lock")).display()
+            ))
+        },
+    )
+}
+
+/// Record a scorecard into the host outbox at `<home>/intent-gaps.json` —
+/// the daemon's whole share of VC-201-012. It writes nowhere else: a daemon
+/// has no repository, and authoring into whatever directory it happened to
+/// start in put untracked `.agents/tasks/T-SUSI-*.json` files into agents'
+/// worktrees.
+///
+/// A failing rung already in the outbox is refreshed (evidence, count),
+/// adopted or not — an adoption that stops standing makes it pending again
+/// ([`IntentGap::is_pending_at`]); a new one enters triaged by grade, at
+/// most [`GAP_TASKS_PER_RUN`] per scorecard and [`GAPS_PENDING_MAX`]
+/// pending in all; a rung that passes leaves the outbox, so it heals
+/// itself. The ladder is resolved from `home` (its
+/// `.agents/intent-ladder.json` override, else the bundled revision) — the
+/// same resolution the daemon runs the ladder with.
+pub fn record_gaps(home: &Path, card: &Scorecard) -> EaiResult<GapOutbox> {
+    let (ladder, _) = load_ladder(home)?;
+    let _lock = lock_gaps(home)?;
+    let now = now_unix();
+    let mut outbox = read_gaps(home);
+    let previous = outbox.clone();
+    // A rung the current ladder no longer has is never run again, so it can
+    // never pass and leave: after a revision renamed or dropped it, its gap
+    // stayed pending in every worktree's task list for good. Keyed on the
+    // ladder, not the card, so a partial startup-slice card keeps the rest.
+    outbox
+        .gaps
+        .retain(|g| ladder.intents.iter().any(|i| i.id == g.intent));
+    for e in &card.entries {
+        if e.verdict == "pass" {
+            outbox.gaps.retain(|g| g.intent != e.id);
+        } else if e.verdict == "fail" || e.verdict == "partial" {
+            if let Some(gap) = outbox.gaps.iter_mut().find(|g| g.intent == e.id) {
+                gap.observe(e, card.ladder_revision, now);
+            }
+        }
+    }
+    let room = GAPS_PENDING_MAX.saturating_sub(outbox.pending_at(now).count());
+    let fresh: Vec<IntentGap> = failing_rungs(&ladder, card)
+        .into_iter()
+        .filter(|(i, _)| !outbox.gaps.iter().any(|g| g.intent == i.id))
+        .take(GAP_TASKS_PER_RUN.min(room))
+        .map(|(i, e)| IntentGap {
+            intent: i.id.clone(),
+            grade: i.grade.name().into(),
+            ladder_revision: card.ladder_revision,
+            expected: describe_check(&i.check),
+            verdict: e.verdict.clone(),
+            stopped: e.stopped.clone(),
+            worker: e.worker.clone(),
+            seconds: e.seconds,
+            micros: e.micros,
+            detail: e.detail.clone(),
+            first_seen_unix: now,
+            last_seen_unix: now,
+            failures: 1,
+            adopted: None,
+            adopted_unix: 0,
+            adopted_in: None,
+        })
+        .collect();
+    outbox.gaps.extend(fresh);
+    // Highest grade first, the order an agent should adopt them in.
+    let rank = |g: &IntentGap| {
+        ladder
+            .intents
+            .iter()
+            .find(|i| i.id == g.intent)
+            .map(|i| i.grade)
+    };
+    outbox
+        .gaps
+        .sort_by(|a, b| rank(b).cmp(&rank(a)).then_with(|| a.intent.cmp(&b.intent)));
+    if outbox != previous || !gaps_path(home).is_file() {
+        outbox.schema = GAPS_SCHEMA.into();
+        outbox.updated_unix = now;
+        write_gaps(home, &outbox)?;
+    }
+    Ok(outbox)
+}
+
+/// What [`adopt_gap`] did.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GapAdoption {
+    /// The gap as the outbox now records it.
+    pub gap: IntentGap,
+    /// Tasks authored into the checkout — empty when it re-linked a task
+    /// it already held, or authored nothing.
+    pub authored: crate::admin::tasks::AuthoredReport,
+    /// The open task the gap is now adopted by: freshly authored, or one the
+    /// checkout already held for the intent (an earlier adoption that
+    /// merged). `None` when nothing was authored or linked.
+    pub task: Option<String>,
+}
+
+/// Adopt one outbox gap as a repair task in the repository `ws` — the
+/// agent's own checkout, where it commits the task through the normal gate.
+/// The task is authored by [`gap_tasks`] from the gap's recorded evidence,
+/// so it carries the same title, goal and `--verify` acceptance as one
+/// authored straight from the scorecard, and the same dedupe and bounds
+/// apply. Once a task lands the gap is marked adopted with its id and this
+/// checkout, so no other live worktree adopts it again.
+///
+/// A gap whose adoption no longer stands ([`IntentGap::is_pending_at`]) is
+/// adopted afresh, and so is one whose adopted task this checkout has
+/// already closed while the rung fails again (a regression after repair),
+/// or one this very checkout adopted and has since dropped (its task is
+/// neither open nor closed here).
+/// If the checkout already holds an open task naming the intent, the gap is
+/// re-linked to that task and nothing new is authored. The whole
+/// read-modify-write runs under the outbox lock.
+///
+/// # Errors
+/// [`EaiError::config`] when the outbox holds no such gap or its adoption
+/// still stands; errors from [`gap_tasks`] or the lock otherwise.
+pub fn adopt_gap(ws: &Path, home: &Path, intent: &str, agent: &str) -> EaiResult<GapAdoption> {
+    use crate::admin::tasks;
+    let _lock = lock_gaps(home)?;
+    let now = now_unix();
+    let mut outbox = read_gaps(home);
+    let Some(gap) = outbox.gaps.iter_mut().find(|g| g.intent == intent) else {
+        return Err(EaiError::config(format!(
+            "no intent gap `{intent}` in {}",
+            gaps_path(home).display()
+        )));
+    };
+    if let Some(task) = gap.adopted.clone() {
+        let done = tasks::list_done(ws);
+        let open_here = tasks::list_open(ws).iter().any(|t| t.id == task);
+        // Closed here, and the daemon saw the rung fail after the close: a
+        // regression after repair earns a fresh task at once.
+        let regressed_here = done.iter().any(|t| {
+            t.id == task
+                && t.closed
+                    .as_ref()
+                    .is_some_and(|c| gap.last_seen_unix > c.at_unix)
+        });
+        // This is the adopting checkout, and the task is neither open nor
+        // closed in it: the adoption was dropped right here.
+        let dropped_here = !open_here
+            && !done.iter().any(|t| t.id == task)
+            && gap
+                .adopted_in
+                .as_ref()
+                .is_some_and(|adopter| same_dir(adopter, ws));
+        if !gap.is_pending_at(now) && !regressed_here && !dropped_here {
+            let held_by = if open_here {
+                " and that task is open in this checkout".to_string()
+            } else {
+                gap.adopted_in
+                    .as_ref()
+                    .map(|p| format!(" in {}", p.display()))
+                    .unwrap_or_default()
+            };
+            return Err(EaiError::config(format!(
+                "intent gap `{intent}` was already adopted as {task} {}s ago{held_by}; it is \
+                 offered again once {}h pass without the rung passing, or once the adopting \
+                 checkout is gone",
+                now.saturating_sub(gap.adopted_unix),
+                GAP_ADOPTION_TTL_SECS / 3600,
+            )));
+        }
+    }
+    // An open task here already names the intent: the earlier adoption
+    // merged (or this checkout authored it) — link it, author nothing.
+    let names = |t: &tasks::Task| {
+        t.title.contains(intent)
+            || t.goal.contains(intent)
+            || t.accept.cmd.join(" ").contains(intent)
+    };
+    if let Some(existing) = tasks::list_open(ws).into_iter().find(|t| names(t)) {
+        gap.adopt(&existing.id, ws, now);
+        let adoption = GapAdoption {
+            gap: gap.clone(),
+            authored: tasks::AuthoredReport {
+                vectors: vec![],
+                tasks: vec![],
+            },
+            task: Some(existing.id),
+        };
+        outbox.updated_unix = now;
+        write_gaps(home, &outbox)?;
+        return Ok(adoption);
+    }
+    let card = Scorecard {
+        schema: SCORECARD_SCHEMA.into(),
+        ladder_revision: gap.ladder_revision,
+        ladder_source: gaps_path(home).display().to_string(),
+        full_ladder: false,
+        started_unix: gap.last_seen_unix,
+        entries: vec![gap.entry()],
+    };
+    let authored = gap_tasks(ws, &card, agent)?;
+    let Some(task) = authored.tasks.first().cloned() else {
+        return Ok(GapAdoption {
+            gap: gap.clone(),
+            authored,
+            task: None,
+        });
+    };
+    gap.adopt(&task, ws, now);
+    let adoption = GapAdoption {
+        gap: gap.clone(),
+        authored,
+        task: Some(task),
+    };
+    outbox.updated_unix = now;
+    write_gaps(home, &outbox)?;
+    Ok(adoption)
 }

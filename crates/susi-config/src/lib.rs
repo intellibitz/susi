@@ -95,7 +95,7 @@ mod service {
         if local_only() {
             return None;
         }
-        let resp = loopback::request(
+        let resp = loopback::request_with_fallback(
             &loopback::Endpoint {
                 port: port(),
                 timeout: TIMEOUT,
@@ -118,7 +118,7 @@ mod service {
         let Ok(payload) = serde_json::to_string(cfg) else {
             return false;
         };
-        loopback::request(
+        loopback::request_with_fallback(
             &loopback::Endpoint {
                 port: port(),
                 timeout: TIMEOUT,
