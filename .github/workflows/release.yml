@@ -188,6 +188,12 @@ jobs:
           $env:HOME = $home_
           $env:USERPROFILE = $home_
           $env:XDG_CONFIG_HOME = Join-Path $home_ 'xdg-config'
+          # From the scratch home, never the checkout: in the checkout `susi
+          # tasks` read the repository's own queue instead of an empty one,
+          # and every release from v0.21.21 to v0.21.23 failed this required
+          # leg and shipped no Windows binary. The release gate's local e2e
+          # checks run the same way, in a scratch directory.
+          Set-Location $home_
           $failed = @()
           function Check {
             param([string]$Name, [int]$Want, [string]$Needle, [string[]]$Argv)

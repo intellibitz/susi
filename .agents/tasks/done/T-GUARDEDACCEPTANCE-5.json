@@ -1,0 +1,23 @@
+{
+  "id": "T-GUARDEDACCEPTANCE-5",
+  "title": "The Windows release check runs outside the repository checkout",
+  "goal": "The Windows release check runs susi tasks/workflow check from the repository checkout, so tasks lists the repo's real queue instead of the empty one it expects; every release since the check was added (v0.21.21-23) failed its required Windows leg and shipped no Windows engine binary. Run the checks from a scratch directory, as the local release e2e does.",
+  "size": "s",
+  "deps": [],
+  "accept": {
+    "cmd": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "release_workflow"
+    ]
+  },
+  "created_by": "GUARDEDACCEPTANCE",
+  "created_unix": 1793255201,
+  "closed": {
+    "at_unix": 1793255633,
+    "commit": "2da39d0a95940770dba765e4d4d07747b6f75778",
+    "by": "GUARDEDACCEPTANCE"
+  }
+}
