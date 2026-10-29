@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
 # Mandate 49: keep the primary checkout's main current (see sync-primary).
 "$(dirname "$0")/sync-primary"
+# A worktree whose target/ is still a link to the clone's old shared target
+# gets one of its own at once. Git runs no post-merge for a merge that stops
+# on conflicts: the commit that concludes it (`git commit`, `git merge
+# --continue`) runs this hook and no other, and the plain cargo that comes
+# next must not build where a sibling's build can stand in for this branch's.
+# The link only is removed, now; the snapshot is copied in the background
+# (scripts/seed-target.sh --background). Silent, and free, otherwise.
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+if [ -L "$top/target" ] && [ -f "$top/scripts/seed-target.sh" ]; then
+    (
+        unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+        "${BASH:-bash}" "$top/scripts/seed-target.sh" --background "$top" </dev/null
+    ) || true
+fi
 exit 0

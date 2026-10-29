@@ -1,4 +1,29 @@
 #!/usr/bin/env bash
 # Mandate 49: keep the primary checkout's main current (see sync-primary).
 "$(dirname "$0")/sync-primary"
+# A cargo target of the checkout's own (scripts/seed-target.sh --background:
+# the link only is removed, now, and the snapshot is copied in the
+# background), in two cases; silent, and free, otherwise:
+#   - target/ is still a link to the clone's old shared target, where a
+#     sibling's build can stand in for this branch's;
+#   - `git worktree add` has just made this checkout ($1, the previous HEAD,
+#     is the null id). The real, empty target/ this makes at once is what
+#     keeps v0.21.23's `susi workflow start`, which links a target/ that does
+#     not exist yet right after this hook, from linking the shared one.
+# For `git worktree add`, Git runs the hook of the checkout it was started
+# from, in the new checkout; the seeding script run is the new checkout's own.
+# The primary checkout is never seeded (the script leaves it alone).
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+new=0
+case "${1:-}" in
+'' | *[!0]*) ;;
+*) new=1 ;;
+esac
+if { [ -L "$top/target" ] || { [ "$new" = 1 ] && [ ! -e "$top/target" ]; }; } &&
+    [ -f "$top/scripts/seed-target.sh" ]; then
+    (
+        unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+        "${BASH:-bash}" "$top/scripts/seed-target.sh" --background "$top" </dev/null
+    ) || true
+fi
 exit 0

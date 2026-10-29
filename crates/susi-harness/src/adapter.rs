@@ -23,6 +23,125 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use susi_error::{EaiError, EaiResult};
 
+/// The shell that runs a repository script.
+///
+/// On Windows that is Git for Windows' own: its `bin/bash.exe` launcher (which
+/// puts Git's userland first on PATH), else its raw `usr/bin/sh.exe`, found
+/// three levels above `git --exec-path`. Never a bare `bash`: Windows looks a
+/// program up in System32 before PATH, where `bash.exe` is WSL's, which cannot
+/// run a script by its Windows path. A standard Git install puts no shell on
+/// PATH at all, so a bare `sh` can be missing too. Elsewhere, and with no Git
+/// install to be found, it is `sh` (the scripts run themselves under bash).
+fn posix_shell() -> PathBuf {
+    static SHELL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    SHELL
+        .get_or_init(|| git_shell().unwrap_or_else(|| PathBuf::from("sh")))
+        .clone()
+}
+
+#[cfg(windows)]
+fn git_shell() -> Option<PathBuf> {
+    let out = Command::new("git").arg("--exec-path").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let exec_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // <git>/<mingw64|ucrt64>/libexec/git-core
+    let root = Path::new(&exec_path).ancestors().nth(3)?.to_path_buf();
+    [
+        root.join("bin").join("bash.exe"),
+        root.join("usr").join("bin").join("sh.exe"),
+    ]
+    .into_iter()
+    .find(|shell| shell.is_file())
+}
+
+#[cfg(not(windows))]
+fn git_shell() -> Option<PathBuf> {
+    None
+}
+
+/// `text` (a path git wrote in a `.git` or `gitdir` file) as a path: relative
+/// ones are relative to `base`.
+fn git_path(base: &Path, text: &str) -> PathBuf {
+    let path = PathBuf::from(text.trim());
+    if path.is_absolute() {
+        path
+    } else {
+        base.join(path)
+    }
+}
+
+/// The path a `.git` file at `dot_git` points to (`gitdir: <path>`).
+fn gitdir_named_in(dot_git: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(dot_git).ok()?;
+    let named = text.lines().find_map(|line| line.strip_prefix("gitdir:"))?;
+    Some(git_path(dot_git.parent()?, named))
+}
+
+/// The two paths name one directory, links and spellings resolved.
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// The git common directory of the checkout at `repo`: its `.git` directory,
+/// or for a linked checkout the one its git dir's `commondir` names.
+fn common_dir(repo: &Path) -> Option<PathBuf> {
+    let dot_git = repo.join(".git");
+    if dot_git.is_dir() {
+        return Some(dot_git);
+    }
+    let gitdir = gitdir_named_in(&dot_git)?;
+    match std::fs::read_to_string(gitdir.join("commondir")) {
+        Ok(common) => Some(git_path(&gitdir, &common)),
+        Err(_) => Some(gitdir),
+    }
+}
+
+/// Whether `path` is a worktree of the clone whose common git directory is
+/// `common`: one the clone lists (an entry of `<common>/worktrees` whose
+/// `gitdir` file names `<path>/.git`, which may itself be gone: a prunable
+/// one), or a checkout whose `.git` file points into `<common>/worktrees`
+/// (whose entry may be pruned already). A directory with no such tie to the
+/// clone (no `.git`, a clone of its own, another clone's worktree) is not.
+fn is_worktree_of(common: &Path, path: &Path) -> bool {
+    let worktrees = common.join("worktrees");
+    if let Some(admin) = gitdir_named_in(&path.join(".git")) {
+        let listed_in = admin.parent();
+        if listed_in.is_some_and(|dir| same_dir(dir, &worktrees))
+            || listed_in.is_some_and(|dir| {
+                dir.file_name().is_some_and(|name| name == "worktrees")
+                    && dir.parent().is_some_and(|clone| same_dir(clone, common))
+            })
+        {
+            return true;
+        }
+    }
+    let Ok(entries) = std::fs::read_dir(&worktrees) else {
+        return false;
+    };
+    entries.filter_map(Result::ok).any(|entry| {
+        let admin = entry.path();
+        std::fs::read_to_string(admin.join("gitdir")).is_ok_and(|named| {
+            let dot_git = git_path(&admin, &named);
+            dot_git.file_name().is_some_and(|name| name == ".git")
+                && dot_git.parent().is_some_and(|dir| same_dir(dir, path))
+        })
+    })
+}
+
+/// Whether the worktree's `target/` is a link (a junction on Windows): the
+/// clone's old shared target, which an older `workflow start` linked.
+fn target_is_link(worktree: &Path) -> bool {
+    worktree
+        .join("target")
+        .symlink_metadata()
+        .is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
 /// One finished command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutput {
@@ -144,14 +263,15 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// Worktree creation is serialized inside this process: `workflow start`
     /// takes a repository-level lock and fails rather than waits, so two
     /// prepares that start at the same time would lose one. The guard covers
-    /// only the start; the agent runs that follow still run in parallel.
+    /// only `workflow start`; the target seeding after it, and the agent runs
+    /// that follow, run in parallel.
     ///
     /// # Errors
     ///
     /// Returns an error when `workflow start` fails or prints no `cd <path>`.
     pub fn start_worktree(&self, name: &str) -> EaiResult<PathBuf> {
         static WORKTREE_START: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = WORKTREE_START
+        let guard = WORKTREE_START
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let start = |target: &Self| {
@@ -184,17 +304,24 @@ impl<R: CommandRunner> SusiTarget<R> {
                 output.tail()
             ))
         })?;
-        // A worktree keeps a private `target/` unless it is linked to the
-        // primary's, so every mission would compile the whole dependency graph
-        // cold and one acceptance command can block a worker for half an hour.
-        // The linker is idempotent, never fails a caller, and leaves alone a
-        // target that already holds a build.
-        let linker = self.repo.join("scripts").join("link-shared-target.sh");
-        if linker.is_file() {
+        // The worktree exists and has its owner: the seeding below touches no
+        // shared ref or config, so the next mission's start need not wait for
+        // its copy.
+        drop(guard);
+        // The mission's worktree builds into a target of its own, copied from
+        // the clone's warm snapshot so only the workspace crates compile
+        // (`scripts/seed-target.sh`). A `workflow start` that seeds it already
+        // did; an older one (the installed susi) linked the primary's shared
+        // target instead, and the script replaces that link (the link only).
+        // It is idempotent, never fails a caller, and leaves alone a target
+        // that already holds a build; a copy already running (the
+        // post-checkout hook starts one) is waited for, not repeated.
+        let seeder = self.repo.join("scripts").join("seed-target.sh");
+        if seeder.is_file() {
             let _ = self.runner.run(
-                Path::new("sh"),
+                &posix_shell(),
                 &[
-                    linker.to_string_lossy().to_string(),
+                    seeder.to_string_lossy().to_string(),
                     worktree.to_string_lossy().to_string(),
                 ],
                 &self.repo,
@@ -212,6 +339,13 @@ impl<R: CommandRunner> SusiTarget<R> {
     /// Remove what a killed mission left behind: its worktree directory, the
     /// stale registration and the harness branch with the same name. Only called
     /// after `workflow start` refused, so a healthy worktree is never touched.
+    ///
+    /// A directory is removed by hand only when it is a worktree of this
+    /// clone, registered or prunable ([`is_worktree_of`]), decided before git
+    /// removes anything: whatever else sits at a worktree's name (a user's
+    /// directory, or a cargo target snapshot or its build clone, which once
+    /// sat beside the primary checkout in the same `<primary>-<name>` names)
+    /// is left alone, and `workflow start` then refuses it as before.
     fn clear_leftover(&self, name: &str) {
         let Some(parent) = self.repo.parent() else {
             return;
@@ -220,13 +354,17 @@ impl<R: CommandRunner> SusiTarget<R> {
             return;
         };
         let dir = dir.to_string_lossy();
+        let common = common_dir(&self.repo);
         for candidate in [format!("{dir}-{name}"), format!("{dir}-harness-{name}")] {
             let path = parent.join(candidate);
+            let ours = common
+                .as_deref()
+                .is_some_and(|common| is_worktree_of(common, &path));
             let _ = self.git(
                 &self.repo,
                 &["worktree", "remove", "--force", &path.to_string_lossy()],
             );
-            if path.exists() {
+            if ours && path.exists() {
                 let _ = std::fs::remove_dir_all(&path);
             }
         }
@@ -543,16 +681,23 @@ impl<R: CommandRunner> SusiTarget<R> {
                 packages.push(package);
             }
         }
-        // Worktrees share the primary's target directory, so an artifact built
-        // from another checkout can shadow this worktree's sources and make the
-        // gate fail on code it never read. Drop the touched packages' artifacts
-        // first so the gate compiles what is actually here.
-        for package in &packages {
-            let _ = self.runner.run(
-                Path::new("cargo"),
-                &["clean".to_string(), "-p".to_string(), package.clone()],
-                worktree,
-            );
+        // No `cargo clean -p` first: the worktree builds into a target of its
+        // own (`scripts/seed-target.sh`), so nothing another checkout built can
+        // stand in for this one's sources, and a clean would only recompile.
+        // For one release, a worktree whose `target/` is still a link to the
+        // clone's old shared one (an older `workflow start` linked it, and no
+        // seeder was there to replace it: a primary checkout or branch from
+        // before the seeding) builds where that can happen: as v0.21.23 did,
+        // the touched packages' builds there are dropped first, so the gate
+        // compiles what is actually here.
+        if target_is_link(worktree) {
+            for package in &packages {
+                let _ = self.runner.run(
+                    Path::new("cargo"),
+                    &["clean".to_string(), "-p".to_string(), package.clone()],
+                    worktree,
+                );
+            }
         }
         let mut args: Vec<String> = vec!["clippy".to_string()];
         for package in &packages {
@@ -1366,6 +1511,44 @@ mod tests {
         );
     }
 
+    /// A mission's worktree gets a target of its own, seeded from the warm
+    /// snapshot; nothing links it to the primary's shared target any more.
+    #[test]
+    fn start_worktree_seeds_the_new_worktrees_own_target() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(repo.path().join("scripts")).unwrap();
+        std::fs::write(repo.path().join("scripts").join("seed-target.sh"), "").unwrap();
+        let target = SusiTarget {
+            repo: repo.path().to_path_buf(),
+            susi_program: PathBuf::from("susi"),
+            runner: FakeRunner::with(vec![ok("cd E:/src/wt\n")]),
+        };
+        target.start_worktree("demo").unwrap();
+        let calls = target.runner.calls.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            2,
+            "workflow start, then the seeding: {calls:?}"
+        );
+        let (program, args, _) = &calls[1];
+        assert_eq!(program, &posix_shell());
+        // Never a bare `bash`: on Windows that is WSL's, from System32.
+        assert_ne!(program, Path::new("bash"));
+        if cfg!(windows) && program != Path::new("sh") {
+            assert!(program.is_absolute() && program.is_file(), "{program:?}");
+            let lowered = program.to_string_lossy().to_ascii_lowercase();
+            assert!(!lowered.contains("system32"), "{program:?}");
+        }
+        assert!(args[0].ends_with("seed-target.sh"), "{args:?}");
+        assert_eq!(args[1], "E:/src/wt");
+        assert!(
+            !calls
+                .iter()
+                .any(|(_, args, _)| args.iter().any(|a| a.contains("link-shared-target"))),
+            "nothing links the shared target: {calls:?}"
+        );
+    }
+
     #[test]
     fn add_task_returns_the_id_and_claim_reserves_scopes() {
         let target = target(vec![ok("added T-AGENT-7 — commit it\n")]);
@@ -1725,18 +1908,177 @@ mod tests {
                 program == Path::new("cargo") && args.first().map(String::as_str) == Some(name)
             })
         };
-        let clean_at = first("clean").expect("cargo clean must run first");
-        let clippy_at = first("clippy").expect("cargo clippy must run");
+        // The worktree's target is its own: nothing to clean, and a clean
+        // would only recompile what the seed brought.
         assert!(
-            clean_at < clippy_at,
-            "touched packages must be cleaned before the gate reads them"
+            first("clean").is_none(),
+            "the gate must not clean its own target: {calls:?}"
         );
+        let clippy_at = first("clippy").expect("cargo clippy must run");
+        assert_eq!(calls.len(), 1, "the gate is one clippy run: {calls:?}");
         let args = &calls[clippy_at].1;
         assert!(args.contains(&"susi-gmcp".to_string()));
         assert!(args.contains(&"xtask".to_string()));
         assert!(args.contains(&"susi".to_string()));
         assert!(args.contains(&"-D".to_string()));
     }
+    /// A link at `link` to the directory `to`: a junction on Windows (what
+    /// the old linker made, and what any user can create), a symlink elsewhere.
+    fn link_dir(to: &Path, link: &Path) {
+        #[cfg(windows)]
+        {
+            let native = |p: &Path| p.to_string_lossy().replace('/', "\\");
+            let out = Command::new("cmd")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(native(link))
+                .arg(native(to))
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "mklink /J: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        #[cfg(not(windows))]
+        std::os::unix::fs::symlink(to, link).unwrap();
+    }
+
+    /// For one release a mission worktree may still build in the clone's old
+    /// shared target: an older `workflow start` linked `target/`, and no
+    /// seeder was there to replace the link. There, as v0.21.23 did, the gate
+    /// drops the touched packages' builds first, so a sibling's build of a
+    /// crate cannot stand in for this worktree's; in a target of its own it
+    /// cleans nothing (the existing gate test pins that).
+    #[test]
+    fn gate_cleans_the_touched_packages_first_only_in_a_linked_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared-target");
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(shared.join("sentinel"), "another worktree's build").unwrap();
+        let worktree = dir.path().join("wt");
+        std::fs::create_dir_all(&worktree).unwrap();
+        link_dir(&shared, &worktree.join("target"));
+        let linked = target(vec![]);
+        linked
+            .gate(
+                &worktree,
+                &[
+                    "crates/susi-gmcp/src/lib.rs".to_string(),
+                    "src/main.rs".to_string(),
+                ],
+            )
+            .unwrap();
+        let calls = linked.runner.calls.lock().unwrap();
+        let cargo: Vec<String> = calls
+            .iter()
+            .filter(|(program, _, _)| program == Path::new("cargo"))
+            .map(|(_, args, _)| args.join(" "))
+            .collect();
+        assert_eq!(cargo.len(), 3, "{cargo:?}");
+        assert_eq!(cargo[0], "clean -p susi-gmcp");
+        assert_eq!(cargo[1], "clean -p susi");
+        assert!(
+            cargo[2].starts_with("clippy -p susi-gmcp -p susi "),
+            "{cargo:?}"
+        );
+        assert!(calls.iter().all(|(_, _, cwd)| cwd == &worktree));
+        drop(calls);
+        // A target of the worktree's own: nothing is cleaned.
+        let own = dir.path().join("own");
+        std::fs::create_dir_all(own.join("target")).unwrap();
+        let separate = target(vec![]);
+        separate
+            .gate(&own, &["crates/susi-gmcp/src/lib.rs".to_string()])
+            .unwrap();
+        let calls = separate.runner.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert_eq!(calls[0].1[0], "clippy");
+    }
+
+    /// A worktree of this clone, `git worktree add`'s way: `<path>/.git`
+    /// names `<common>/worktrees/<id>`, whose `gitdir` names `<path>/.git`.
+    fn fake_worktree(common: &Path, path: &Path, id: &str) {
+        let admin = common.join("worktrees").join(id);
+        std::fs::create_dir_all(&admin).unwrap();
+        std::fs::create_dir_all(path).unwrap();
+        let slashes = |p: &Path| p.to_string_lossy().replace('\\', "/");
+        std::fs::write(path.join(".git"), format!("gitdir: {}\n", slashes(&admin))).unwrap();
+        std::fs::write(
+            admin.join("gitdir"),
+            format!("{}\n", slashes(&path.join(".git"))),
+        )
+        .unwrap();
+        std::fs::write(path.join("work"), "a killed mission's").unwrap();
+    }
+
+    /// After `workflow start` refuses a mission's name, the leftover at that
+    /// name is removed by hand only when it is a worktree of this clone:
+    /// registered, prunable (its `.git` gone, its entry still listed), or
+    /// one whose entry was pruned already. Anything else that sits there is
+    /// left exactly as it is: a cargo target snapshot or its build clone (a
+    /// clone of its own), another clone's worktree, a user's directory.
+    #[test]
+    fn a_leftover_is_removed_only_when_it_is_a_worktree_of_this_clone() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("susi");
+        let common = repo.join(".git");
+        std::fs::create_dir_all(&common).unwrap();
+        let target = SusiTarget {
+            repo: repo.clone(),
+            susi_program: PathBuf::from("susi"),
+            runner: FakeRunner::with(vec![]),
+        };
+        // Worktrees of this clone: registered; prunable (its `.git` file
+        // gone); registration pruned (only its `.git` file says whose it is).
+        let registered = dir.path().join("susi-demo");
+        fake_worktree(&common, &registered, "susi-demo");
+        let prunable = dir.path().join("susi-harness-demo");
+        fake_worktree(&common, &prunable, "susi-harness-demo");
+        std::fs::remove_file(prunable.join(".git")).unwrap();
+        target.clear_leftover("demo");
+        assert!(!registered.exists(), "a worktree of this clone is removed");
+        assert!(!prunable.exists(), "a prunable worktree is removed");
+        let pruned = dir.path().join("susi-gone");
+        fake_worktree(&common, &pruned, "susi-gone");
+        std::fs::remove_dir_all(common.join("worktrees").join("susi-gone")).unwrap();
+        target.clear_leftover("gone");
+        assert!(
+            !pruned.exists(),
+            "an unlisted worktree of this clone is removed"
+        );
+
+        // Not this clone's worktrees: a snapshot (no `.git`), a build clone
+        // (a `.git` directory of its own), another clone's worktree.
+        let snapshot = dir.path().join("susi-target-seed");
+        std::fs::create_dir_all(snapshot.join("debug").join(".fingerprint")).unwrap();
+        std::fs::write(snapshot.join(".susi-seed"), "feedface 1\n").unwrap();
+        let build_clone = dir.path().join("susi-harness-target-seed");
+        std::fs::create_dir_all(build_clone.join(".git")).unwrap();
+        std::fs::write(build_clone.join(".git").join("susi-seed-src"), "x").unwrap();
+        target.clear_leftover("target-seed");
+        assert!(snapshot.join(".susi-seed").is_file(), "the snapshot stays");
+        assert!(build_clone.join(".git").join("susi-seed-src").is_file());
+        let other_common = dir.path().join("other").join(".git");
+        std::fs::create_dir_all(&other_common).unwrap();
+        let theirs = dir.path().join("susi-theirs");
+        fake_worktree(&other_common, &theirs, "susi-theirs");
+        let users = dir.path().join("susi-harness-theirs");
+        std::fs::create_dir_all(&users).unwrap();
+        std::fs::write(users.join("notes"), "mine").unwrap();
+        target.clear_leftover("theirs");
+        assert!(
+            theirs.join("work").is_file(),
+            "another clone's worktree stays"
+        );
+        assert!(users.join("notes").is_file(), "a user's directory stays");
+        // Git was still asked to remove each name, and to prune, as before.
+        let calls = target.runner.calls.lock().unwrap();
+        assert!(calls
+            .iter()
+            .any(|(_, args, _)| args.join(" ").contains("worktree remove --force")));
+    }
+
     #[test]
     fn git_status_returns_the_porcelain_output() {
         let target = target(vec![ok(" M src/lib.rs\n")]);

@@ -98,27 +98,6 @@ else
 fi
 echo "worktree: $dest (branch $name)" >&2
 
-# One cargo target dir per clone, not one per worktree: a fresh worktree used
-# to cold-compile the whole dependency tree (~25 min) and keep its own ~20 GB
-# copy — one clone's worktrees alone held ~95 GB of mostly-identical
-# artifacts. The primary checkout is parked and still, so its target/ is the
-# shared cache. A symlink keeps `target/...` relative paths working; an
-# existing real target/ is left alone, and SUSI_PRIVATE_TARGET=1 opts out.
-# `**/target` in .gitignore ignores the link itself.
-#
-# Sharing only pays while no tracked cargo config embeds a worktree path. A
-# repo-relative `linker` in .cargo/config.toml did: cargo made it an absolute path
-# inside each worktree and hashed it into every unit, so two worktrees shared
-# nothing and overwrote each other's artifacts (a fresh one compiled 716 crates in
-# 656 s). Without it, one created after a warm build compiled 81 in 176 s;
-# tests/ci_workflow_perf.rs pins the config. A worktree made another way (the
-# desktop app) gets the same link from the SessionStart hook, which runs
-# scripts/link-shared-target.sh; keep the two rules in step.
-if [ -z "${SUSI_PRIVATE_TARGET:-}" ] && \
-    { [ ! -e "$dest/target" ] || [ -L "$dest/target" ]; }; then
-    "$root/scripts/link-shared-target.sh" "$dest" >&2 || true
-fi
-
 # Persist a unique worker identity, even when all tools share one Git login.
 #
 # `git worktree add` copies the *creating* worktree's worktree-config, so a new
@@ -146,6 +125,30 @@ git -C "$dest" config --worktree user.email "$(printf '%s' "$worker" | tr '[:upp
 # A remote merge cannot invoke local hooks: keep a local singleton watcher.
 if [ -x "$dest/scripts/parallel-workflow.sh" ] && [ -z "${SUSI_PRIMARY_WATCH_DISABLE:-}" ]; then
     (cd "$dest" && scripts/parallel-workflow.sh start-watch) 9>&-
+fi
+
+# A cargo target of the worktree's own, copied from a warm snapshot of
+# origin/main (scripts/seed-target.sh): the registry crates arrive built, and
+# only the workspace crates compile, from this worktree's sources. Worktrees
+# used to link target/ to the primary's shared one instead, and a crate another
+# worktree built last was linked into this branch's build. A link left by an
+# older run is replaced (the link only); a target/ that holds a build is left
+# alone; SUSI_NO_SEED=1 skips the copy. The registry crates stay warm only
+# while no tracked cargo config embeds a worktree path (tests/ci_workflow_perf.rs
+# pins .cargo/config.toml). A worktree made another way (the desktop app) is
+# seeded by the SessionStart hook, which runs the same script; and the
+# post-checkout hook has already started the copy in the background when
+# `git worktree add` above ran it, so this waits for that copy instead of
+# making a second. The copy takes about a minute and touches no shared ref or
+# config, so the start lock is let go first: another worktree's start does
+# not wait for it. The new worktree's own script runs (it is origin/main's),
+# else this checkout's, under this very bash: a bare `bash` can be WSL's.
+flock -u 9 2>/dev/null || true
+exec 9>&-
+seeder=$dest/scripts/seed-target.sh
+[ -f "$seeder" ] || seeder=$root/scripts/seed-target.sh
+if [ -f "$seeder" ]; then
+    "${BASH:-bash}" "$seeder" "$dest" >&2 || true
 fi
 
 echo "ready: atomic loop — \`susi workflow check\`, then sync→claim one→work→commit→sync→push→sync" >&2

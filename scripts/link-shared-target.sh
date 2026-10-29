@@ -1,60 +1,35 @@
 #!/usr/bin/env bash
-# Point a linked worktree's `target/` at the primary checkout's, so one clone
-# shares ONE cargo build cache instead of one per worktree.
+# Retired: worktrees no longer link target/ to the primary checkout's shared
+# one. Each has its own, copied from a warm snapshot (scripts/seed-target.sh).
 #
-#   scripts/link-shared-target.sh [dir]     (default: the current worktree)
+#   scripts/link-shared-target.sh [dir]     same as scripts/seed-target.sh [dir]
 #
-# scripts/susi-worktree.sh does this for the worktrees it creates. Most agent
-# sessions here are created by the desktop app instead, and a worktree it makes
-# keeps a private `target/`: a fresh one compiles all ~716 crates (about 11
-# minutes) where one sharing the primary's compiles only the ~80 workspace crates
-# (about 80 seconds) - provided .cargo/config.toml embeds no worktree path, which
-# tests/ci_workflow_perf.rs pins. The SessionStart hook
-# (scripts/workflow-session-start.sh) runs this, so those sessions get it too.
+# Kept for one release, because the installed susi (v0.21.23) still runs it
+# after `workflow start` (its harness) and its `workflow start` still links the
+# shared target: seeding replaces that link with the worktree's own target.
+# Delete it once no release calls it. It never fails a caller.
 #
-# Idempotent, quiet when there is nothing to do, and it never fails a caller. It
-# leaves alone:
-#   - the primary checkout (nothing to share it with),
-#   - SUSI_PRIVATE_TARGET=1 (the opt-out),
-#   - a link that is already there,
-#   - a `target/` directory that holds anything: that is somebody's build, and
-#     replacing it would throw away a warm cache. An empty one is a leftover and
-#     is replaced.
-#
-# Cost, stated: cargo locks the build directory, so two sessions compiling at the
-# same moment wait for each other. With most units already built the compile
-# phases are short, and SUSI_PRIVATE_TARGET=1 trades the wait for the cold build.
-set -uo pipefail
-
-dir=${1:-$(git rev-parse --show-toplevel 2>/dev/null)}
-[ -n "$dir" ] && [ -d "$dir" ] || exit 0
-[ -z "${SUSI_PRIVATE_TARGET:-}" ] || exit 0
-
-common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
-primary=$(dirname "$common")
-[ "$(cd "$dir" && pwd -P)" != "$(cd "$primary" 2>/dev/null && pwd -P)" ] || exit 0
-
-link=$dir/target
-[ -L "$link" ] && exit 0
-if [ -e "$link" ]; then
-    # rmdir only removes an empty directory; anything else stays untouched.
-    rmdir "$link" 2>/dev/null || exit 0
-fi
-
-shared=$primary/target
-mkdir -p "$shared" 2>/dev/null || exit 0
+# That harness runs it as `sh <repo>\scripts\link-shared-target.sh` (a path
+# Rust joined: `F:/r\scripts\...` from a `git rev-parse` path, all backslashes
+# from a native one), which on Windows can be Git's raw usr/bin shell with
+# System32 ahead of Git on PATH (a bare `bash` there is WSL's): /usr/bin goes
+# first before anything is looked up, and the backslashes in $0 are made
+# slashes before the script's directory is taken from it.
+self=$0
 case "${OSTYPE:-}" in
-    msys*|cygwin*)
-        # Creating directory symlinks can require Developer Mode or an
-        # elevated token. A junction has the same directory-link behavior for
-        # Cargo and can be created by an ordinary user.
-        win_link=$(cygpath -aw "$link" 2>/dev/null) || exit 0
-        win_shared=$(cygpath -aw "$shared" 2>/dev/null) || exit 0
-        LINK="$win_link" SHARED="$win_shared" MSYS2_ARG_CONV_EXCL='*' \
-            cmd.exe /d /c 'mklink /J %LINK% %SHARED%' \
-            >/dev/null 2>&1 || exit 0
-        ;;
-    *) ln -sfn "$shared" "$link" 2>/dev/null || exit 0 ;;
+msys* | cygwin*)
+    PATH=/usr/bin:$PATH
+    export PATH
+    self=$(printf '%s\n' "$0" | tr '\\' /) && [ -n "$self" ] || self=$0
+    ;;
 esac
-echo "target: shared -> $shared" >&2
-exit 0
+case "$self" in
+*/*) here=${self%/*} ;;
+*) here=. ;;
+esac
+[ -f "$here/seed-target.sh" ] || exit 0
+if [ -n "${BASH_VERSION:-}" ]; then
+    exec "$BASH" "$here/seed-target.sh" "$@"
+fi
+command -v bash >/dev/null 2>&1 || exit 0
+exec bash "$here/seed-target.sh" "$@"

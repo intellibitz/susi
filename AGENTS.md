@@ -5,9 +5,14 @@ that: nothing uncommitted and no merge left half-resolved, a claim whose lease
 is not about to lapse, a live primary-checkout watcher, and how many of your
 finished worktrees are still lying around. It prints the command that fixes each
 ❌, and warnings (a work in progress, a stale watcher, reclaimable worktrees)
-never block work. (No installed susi? `scripts/target-guard.sh --run cargo run
--q -- workflow check`: cargo builds into the shared target, so it goes through
-the guard like any other cargo; see step 1.)
+never block work. (No installed susi? `scripts/seed-target.sh; cargo run -q --
+workflow check`: plain cargo is correct, since every worktree builds into a
+target of its own, once `scripts/seed-target.sh` has run there; see step 1.
+The primary checkout is the exception while that script says worktrees still
+share its `target/`: made before the seeding, they build into it until they
+next merge `origin/main`, and a crate one of them built can run in place of
+main's; cargo's lock keeps the builds intact, not apart. There, skip the check
+and go straight to step 1: `scripts/susi-worktree.sh` runs no cargo.)
 
 **Cloud sessions:** If you are operating a cloud session (e.g. Claude Code on the web), refer to `docs/cloud-sessions.md`. A cloud session executes in a disposable clone rather than a local developer's machine.
 
@@ -17,35 +22,79 @@ The agent loop is **atomic per task** (own worktree, always synced with
 1. **Own worktree, never the primary checkout, never `main`:**
    `scripts/susi-worktree.sh` — no name needed (or `susi workflow start`). It
    creates your branch off the latest `origin/main`, installs the hooks, parks
-   the primary checkout and prints `cd <path>`; continue there. The new
-   worktree shares the primary's cargo `target/`, so its first build compiles
-   the ~80 workspace crates (about 3 minutes) rather than all ~716 (about 11) —
-   but only while `.cargo/config.toml` embeds no worktree path: a repo-relative
-   `linker` did, and silently gave every worktree its own incompatible artifacts
-   (pinned in `tests/ci_workflow_perf.rs`). A worktree the desktop app made has
-   no such link, so the SessionStart hook adds it (`scripts/link-shared-target.sh`:
-   never in the primary, never over a `target/` that already holds a build, and
-   `SUSI_PRIVATE_TARGET=1` opts out); cargo locks the build directory, so two
-   sessions compiling at the same moment wait for each other.
-   **Run your own cargo through the guard: `scripts/target-guard.sh --run
-   cargo test -p <crate>`.** Cargo names a workspace crate's build by its
-   path relative to the workspace, so a crate a sibling worktree built last
-   reads as fresh in yours, and your build or test then uses the other
-   branch's code. The guard drops the shared builds of exactly the crates
-   whose content differs from yours (their sources, and the files outside
-   their directory they compile in: `config/`, `deploy/`, the `.agents/`
-   ledgers), and `--run` holds the target until your command ends, so no
-   other worktree's guard and build land in between (a second guarded build
-   waits for the first, whichever Git install's shell runs it). A plain
-   `cargo` is not trusted: the next guard rebuilds every crate it rebuilt,
-   since nothing says from whose content. The `finish` gate, the pre-push
-   hook and `tasks close` guard themselves; do not run them under
-   `scripts/target-guard.sh --run`. Guards nest, so that would not deadlock,
-   but an outer `--run` holds the shared target through finish's whole CI
-   wait while every other worktree's build waits. Without an installed susi,
-   build it guarded (`scripts/target-guard.sh --run cargo build -q`) and run
-   `target/debug/susi workflow finish <id>` outside the guard; wrap only
-   `workflow check` as above. `sync` builds nothing and needs no guard.
+   the primary checkout and prints `cd <path>`; continue there. **Plain
+   `cargo` is correct here:** the worktree has a cargo `target/` of its own,
+   copied from a warm snapshot of `origin/main` (`scripts/seed-target.sh`).
+   **In a worktree just made, run `scripts/seed-target.sh` once, in the
+   foreground, before your first plain cargo** (whatever `target/` is): the
+   desktop app's worktrees, `susi workflow start`'s and any other `git
+   worktree add` get their copy from a hook, in the background, and a cargo
+   that does not wait for it builds cold while the finished copy is thrown
+   away. The script waits for a copy that is running, makes one if none ran,
+   replaces a `target` link an older `susi workflow start` (0.21.23) left, and
+   returns at once when `target/` already holds a build.
+   `scripts/susi-worktree.sh` has already waited before it prints `cd`.
+   The snapshot holds only registry and git crates, so the first build
+   compiles only the ~80 workspace crates, from your sources (a copy, then
+   about 4–6 minutes, instead of ~11 cold), and it runs alongside every other
+   worktree's build instead of queueing behind them. The copy took 17 s for
+   the 5.1 GiB left of a stripped gate target; the published snapshot, a whole
+   workspace's build plus clippy, is larger, so expect up to about a minute
+   (a whole unstripped target took 64–72 s).
+   The copy keeps timestamps, leaves out `incremental/`, and strips every unit
+   not built from a registry or git source of your `Cargo.lock` (the
+   workspace members with their binaries and examples, and the path
+   dependencies `vendor/reqwest` and `vendor/esaxx-rs`), so nothing built in
+   the snapshot's checkout stands in for yours; a copy it cannot strip all the
+   way is dropped, and the target starts empty. Those two vendored path
+   crates, and the heavy crates above them (tokenizers, ra2a, rmcp, candle,
+   fastembed), recompile in every new worktree: about 100–150 s of that first
+   build (measured 341–389 s with them, 240 s without; a pinned git revision
+   of a fork in place of `path = "vendor/..."` would keep them warm, and is
+   not done — see `scripts/seed-target.sh`). A worktree the desktop app made
+   is seeded by the post-checkout hook as `git worktree add` makes it, and by
+   the SessionStart hook, in the background. One still linked to the old
+   shared target (made before seeding) has the link replaced (the link only,
+   never what it points to) as soon as `git merge origin/main` brings it the
+   seeding (post-merge hook, in the background; a merge that stops on
+   conflicts runs no post-merge, so the commit that concludes it, `git commit`
+   or `git merge --continue`, does it through the post-commit hook), and in
+   the foreground before the first cargo of the `finish` gate, `sync`, the
+   pre-push hook and `tasks close` (the installed susi's `tasks close` too,
+   through the retired `target-guard.sh`); those, and the finish gate and
+   `sync`, also wait for a copy a hook is still making. **Until a susi newer
+   than 0.21.23 is installed**, `susi workflow start` still links the
+   primary's `target/` into a new worktree that has none. Git runs the
+   post-checkout hook of the checkout `workflow start` runs from, which gives
+   the new worktree a real `target/` first; a checkout whose hooks predate
+   this one does not, and the link is made: the `scripts/seed-target.sh` run
+   above replaces it. The next release installs a `workflow start` that seeds
+   instead. For that release, a branch cut before the seeding that has not
+   merged `origin/main` yet (no `scripts/seed-target.sh`, still the shared
+   target) has its `tasks close` acceptance and pre-push clippy run through
+   its own guard, as before. A `target/` that already holds a build is never
+   touched; `SUSI_NO_SEED=1` skips the copy (a cold build), so does a
+   `CARGO_TARGET_DIR` naming another directory (cargo builds there, so the
+   copy would be read by nothing), and with no snapshot yet the target simply
+   starts empty. A worktree removed while its
+   copy runs is left removed: the copy makes nothing there once its `.git` is
+   gone. The primary watcher rebuilds the snapshot
+   (`<primary>/../.susi-target-seed`, or `SUSI_TARGET_SEED`; dot-named, so no
+   worktree name lands there, and only a snapshot a refresh published, never
+   a checkout, is copied) after
+   `origin/main` moves, in the background, at low priority, at most hourly
+   (`SUSI_SEED_REFRESH_SECS`) and one refresh at a time on the host, in a
+   clone of its own (`<seed>-src`, or `SUSI_TARGET_SEED_SRC`: a clone it made
+   and marked; never the primary checkout or a worktree), whose target it
+   starts over when `Cargo.lock`, the toolchain or rustc changes, or once it
+   doubles; run `scripts/seed-target.sh --refresh --force` to make one now. The registry
+   crates stay warm only while `.cargo/config.toml` embeds no worktree path: a
+   repo-relative `linker` did, and silently gave every worktree its own
+   incompatible artifacts (pinned in `tests/ci_workflow_perf.rs`).
+   `scripts/target-guard.sh` is retired: a pass-through kept for one release,
+   with nothing to wrap your cargo in. Worktrees used to share one target, and
+   a crate a sibling had built last read as fresh in yours; the guard narrowed
+   that and could not close it.
 2. **Sync, then claim one task:** if behind, `git fetch && git merge
    origin/main`; then `susi tasks list` and `susi tasks claim <id>`. One live
    claim at a time. Nobody starts a claimed task.
@@ -434,8 +483,8 @@ fails if a mandate goes missing or names an enforcement file that does not exist
 
 ```sh
 cargo fmt --all --check
-scripts/target-guard.sh --run cargo clippy --workspace --all-targets --locked -- -D warnings
-scripts/target-guard.sh --run cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
 ```
 
 ## Multi-agent parallel work

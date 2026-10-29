@@ -344,7 +344,10 @@ is the START HERE block at the top of [`AGENTS.md`](AGENTS.md):
    worktree, current with `origin/main`, have the hooks, and hold a claim, and
    prints the command that fixes each failure. It also fast-forwards the primary
    checkout's `main` when that is safe (clean, on `main`, no local commits), so it
-   never goes stale. No installed susi: `scripts/target-guard.sh --run cargo run -q -- workflow check`.
+   never goes stale. No installed susi: `scripts/seed-target.sh; cargo run -q -- workflow check`
+   (in the primary checkout, only once that script no longer says worktrees still share its
+   `target/`, where a crate one of them built can run in place of main's; until then go
+   straight to step 2, which runs no cargo).
 2. **Work in your own worktree, never the primary checkout or `main`:**
    `scripts/susi-worktree.sh` (no name needed; or `susi workflow start`). It
    branches off the latest `origin/main`, installs the hooks, parks the primary

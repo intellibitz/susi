@@ -25,13 +25,7 @@ use std::path::{Path, PathBuf};
 /// Files that still hand a child a bare `HOME` because their fix belongs to
 /// another change. Each must still need the exemption (see
 /// `pending_exemptions_are_still_needed`), so this list only shrinks.
-const PENDING: &[&str] = &[
-    // Owned by another change. `World::susi` needs
-    // `isolate_home(&mut cmd, &self.root.join("home"))` in place of its
-    // `.env("HOME", …)` and `.env_remove("SUSI_HOME")`; that change drops this
-    // entry in the same commit.
-    "tests/parallel_workflow.rs",
-];
+const PENDING: &[&str] = &[];
 
 /// Production code that launches `susi` under a throwaway home and that a
 /// test drives on every run: its code outside `#[cfg(test)] mod`s is held to

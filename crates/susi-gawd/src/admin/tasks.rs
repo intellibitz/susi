@@ -1195,20 +1195,81 @@ fn fetch_origin(ws: &Path) -> EaiResult<()> {
     git(ws, &["fetch", "--quiet", "origin"]).map(|_| ())
 }
 
-/// The command that runs a cargo acceptance with the shared cargo target held
-/// for this worktree: `scripts/target-guard.sh --run <argv>`.
-///
-/// Worktrees share one target, and cargo names a workspace crate's build by
-/// its path relative to the workspace, so a crate another worktree built last
-/// reads as fresh here: the acceptance then tests the other branch's code. It
-/// happened: a close failed its acceptance (and could as easily have passed
-/// one) because a sibling worktree's `finish` had just built a crate both
-/// branches have. The guard drops exactly the builds whose content differs,
-/// and `--run` keeps the target until the acceptance ends: a guard that ran
-/// first and let go let another worktree's guard and build land in between.
-/// `None` when the checkout has no guard script; a host where no shell can
-/// run it runs the acceptance unguarded (the guard is an aid, never a gate).
+/// Whether the cargo target in `ws` is one `scripts/seed-target.sh` fills: a
+/// link (a junction on Windows) to the clone's old shared one, which a
+/// worktree whose session began before seeding existed may have, and where a
+/// sibling's build of a crate can stand in for this branch's; or a target that
+/// is missing or holds nothing a build wrote (empty, or cargo's tag files
+/// only), which is what a worktree just made has while a hook's background
+/// copy of the snapshot fills it. A target that holds a build is this
+/// worktree's own.
+fn target_wants_seed(ws: &Path) -> bool {
+    let target = ws.join("target");
+    let Ok(meta) = target.symlink_metadata() else {
+        return true;
+    };
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    meta.is_dir()
+        && std::fs::read_dir(&target).is_ok_and(|entries| {
+            entries.filter_map(Result::ok).all(|entry| {
+                matches!(
+                    entry.file_name().to_str(),
+                    Some("CACHEDIR.TAG" | ".rustc_info.json")
+                )
+            })
+        })
+}
+
+/// Give the worktree at `ws` a cargo target of its own before a cargo
+/// acceptance builds, when [`target_wants_seed`]: its
+/// `scripts/seed-target.sh`, in the foreground, removes a link (the link
+/// only), waits for a background copy that is running, or copies the warm
+/// snapshot in. Without a wait, the acceptance would build cold beside the
+/// copy, and the finished copy would be thrown away. A target that holds a
+/// build, a checkout without the script, or a host with no shell to run it is
+/// left as it is: the script never fails, and neither does this. The script
+/// runs with this process's environment, as the acceptance does: with
+/// `CARGO_TARGET_DIR` naming another directory, where the acceptance builds,
+/// it copies nothing (and still replaces a link).
+fn seed_own_target(ws: &Path) {
+    let script = ws.join("scripts").join("seed-target.sh");
+    if !script.is_file() || !target_wants_seed(ws) {
+        return;
+    }
+    let mut command = posix_shell_command("bash");
+    // No Git shell found: a bare `bash` there is WSL's, which cannot run a
+    // script by its Windows path.
+    #[cfg(windows)]
+    if !Path::new(command.get_program()).is_absolute() {
+        return;
+    }
+    // Its report goes to stderr, with the acceptance's own.
+    let _ = command
+        .arg(&script)
+        .arg(ws)
+        .current_dir(ws)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .status();
+}
+
+/// For one release: the command that runs a cargo acceptance through the
+/// branch's own `scripts/target-guard.sh --run -- <argv>`, as v0.21.23 ran
+/// every one, in a worktree whose branch was cut before the seeding and has
+/// not merged `origin/main` since. Such a branch has the real guard and no
+/// `scripts/seed-target.sh`, and its `target/` is still the clone's shared
+/// one, where a sibling's build of a crate can stand in for this branch's: the
+/// guard drops exactly those builds and holds the target until the acceptance
+/// ends. `None` for a branch that carries the seeding (it builds into a target
+/// of its own, and its guard is a pass-through), for a checkout with no guard,
+/// and where no Git shell can run one (the guard was an aid, never a gate).
+/// Remove once no branch predates the seeding.
 fn guarded_acceptance(ws: &Path, argv: &[String]) -> Option<Command> {
+    if ws.join("scripts").join("seed-target.sh").is_file() {
+        return None;
+    }
     let script = ws.join("scripts").join("target-guard.sh");
     if !script.is_file() {
         return None;
@@ -1239,9 +1300,10 @@ fn guarded_acceptance(ws: &Path, argv: &[String]) -> Option<Command> {
 /// stubs) only after it: each MSYS runtime keeps its own process table, and
 /// a host with two Git installs (Program Files' and scoop's, whose shim put
 /// `sh` on PATH) ran `finish` under one and `tasks close` under the other,
-/// so the target guard's lock read each one's live holder as dead. The Git
-/// that `git` is also runs the hooks a push starts. Run the shell through
-/// [`posix_shell_command`], which also gives it the POSIX userland.
+/// so a lock one took (the retired target guard's) read the other's live
+/// holder as dead. The Git that `git` is also runs the hooks a push starts.
+/// Run the shell through [`posix_shell_command`], which also gives it the
+/// POSIX userland.
 #[must_use]
 pub fn posix_shell(name: &str) -> std::path::PathBuf {
     posix_shell_on(name, std::env::var_os("PATH").as_deref())
@@ -1264,7 +1326,7 @@ fn posix_shell_on(name: &str, path: Option<&std::ffi::OsStr>) -> std::path::Path
             // `bin/` first: those are Git's launchers, which set MSYSTEM and
             // put usr/bin and the mingw bin on PATH. usr/bin's shell is the
             // raw MSYS one; started from PowerShell it found no mkdir, sed or
-            // dirname, so the target guard silently did nothing and `workflow
+            // dirname, so repo scripts silently did nothing and `workflow
             // sync` stopped at its first `dirname`.
             for dir in ["bin", "usr/bin"] {
                 let candidate = root.join(dir).join(&exe);
@@ -2813,13 +2875,18 @@ pub fn close(ws: &Path, id: &str, agent: &str) -> EaiResult<Task> {
             task.accept.cmd.join(" ")
         );
     } else {
-        // A cargo acceptance runs held by the shared-target guard; without a
-        // shell to run the guard it runs as it always did.
-        let guarded = task
-            .accept
-            .cmd
-            .first()
-            .is_some_and(|p| p == "cargo")
+        // A cargo acceptance builds into this worktree's own target, so it
+        // runs as it is: no other worktree's build is there to stand in for
+        // this one's. A worktree still linked to the old shared target gets
+        // its own first, and one whose target a hook is still copying waits
+        // for that copy. A branch cut before the seeding, with no seeder yet,
+        // still builds in the shared target: for one release it runs through
+        // that branch's own guard, as it always did.
+        let cargo = task.accept.cmd.first().is_some_and(|p| p == "cargo");
+        if cargo {
+            seed_own_target(ws);
+        }
+        let guarded = cargo
             .then(|| guarded_acceptance(ws, &task.accept.cmd))
             .flatten()
             .and_then(|mut command| command.current_dir(ws).output().ok());
@@ -3117,57 +3184,6 @@ mod tests {
         assert!(msys_userland(&root.join("bin").join("sh.exe")).is_empty());
         assert!(msys_userland(Path::new(r"C:\tools\sh.exe")).is_empty());
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// A cargo acceptance runs *inside* the target guard (`--run`): a guard
-    /// that ran first and let go let another worktree's guard and build land
-    /// before the acceptance, which then tested that worktree's code. The fake
-    /// guard calls external tools, as the real one does.
-    #[test]
-    fn a_cargo_acceptance_runs_inside_the_target_guard() {
-        if Command::new(posix_shell("bash"))
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            return; // no bash on this host: the acceptance runs unguarded by design
-        }
-        let ws = std::env::temp_dir().join(format!("susi-guard-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&ws);
-        std::fs::create_dir_all(ws.join("scripts")).unwrap();
-        std::fs::write(
-            ws.join("scripts").join("target-guard.sh"),
-            "#!/usr/bin/env bash
-[ \"$1\" = --run ] || exit 9
-shift
-[ \"$1\" != -- ] || shift
-mkdir -p guard && touch guard/ran
-exec \"$@\"
-",
-        )
-        .unwrap();
-        let argv = ["git".to_string(), "--version".to_string()];
-        let out = guarded_acceptance(&ws, &argv)
-            .expect("a checkout with the guard runs its acceptance through it")
-            .current_dir(&ws)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        assert!(
-            String::from_utf8_lossy(&out.stdout).starts_with("git version"),
-            "the acceptance itself must run, inside the guard"
-        );
-        assert!(ws.join("guard").join("ran").is_file(), "the guard must run");
-        // A checkout without the script runs its acceptance unguarded.
-        let bare = std::env::temp_dir().join(format!("susi-noguard-{}", std::process::id()));
-        std::fs::create_dir_all(&bare).unwrap();
-        assert!(guarded_acceptance(&bare, &argv).is_none());
-        let _ = std::fs::remove_dir_all(&ws);
-        let _ = std::fs::remove_dir_all(&bare);
     }
 
     #[test]
@@ -4066,6 +4082,201 @@ exec \"$@\"
             .unwrap_err()
             .to_string();
         assert!(err.contains("blocked"), "{err}");
+        drop(r);
+    }
+
+    /// A link at `link` to the directory `to`: a junction on Windows (what
+    /// the old linker made, and what any user can create), a symlink elsewhere.
+    fn link_dir(to: &Path, link: &Path) {
+        #[cfg(windows)]
+        {
+            let native = |p: &Path| p.to_string_lossy().replace('/', "\\");
+            let out = Command::new("cmd")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(native(link))
+                .arg(native(to))
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "mklink /J: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        #[cfg(not(windows))]
+        std::os::unix::fs::symlink(to, link).unwrap();
+    }
+
+    /// `tasks close` runs a cargo acceptance as itself. Worktrees used to
+    /// share one cargo target and the acceptance ran inside
+    /// `scripts/target-guard.sh --run`; that script is retired (kept one
+    /// release for the installed susi), and a checkout that carries the
+    /// seeding must not have it run. A worktree whose `target/` is still a
+    /// link to the old shared target gets its own first
+    /// (`scripts/seed-target.sh`), and what the link pointed at is never
+    /// touched. So does one whose target is missing or empty: a hook's
+    /// background copy may be filling it, and the seeder waits for that copy
+    /// rather than let the acceptance build cold beside it. A target that
+    /// holds a build runs no seeder at all.
+    #[test]
+    fn close_runs_a_cargo_acceptance_unwrapped_after_seeding_a_linked_target() {
+        if cfg!(windows) && !Path::new(posix_shell_command("bash").get_program()).is_absolute() {
+            return; // no Git shell on this host: seeding is skipped by design
+        }
+        let (r, a, _) = Repos::new("unwrapped");
+        std::fs::create_dir_all(a.join("scripts")).unwrap();
+        // A guard that fails, and leaves a mark, if anything runs it.
+        std::fs::write(
+            a.join("scripts").join("target-guard.sh"),
+            "touch \"$(git rev-parse --show-toplevel)/guard-ran\"\nexit 97\n",
+        )
+        .unwrap();
+        // A seeder that replaces a link with a real directory, as the real
+        // one does (the link only), says whom it was run for, and counts its
+        // runs outside the target.
+        std::fs::write(
+            a.join("scripts").join("seed-target.sh"),
+            "printf '%s\\n' \"$1\" >> \"$1/seed-runs\"\n\
+             [ ! -L \"$1/target\" ] || rm -f \"$1/target\"\n\
+             [ -d \"$1/target\" ] || mkdir \"$1/target\"\n\
+             printf '%s' \"$1\" > \"$1/target/seeded-for\"\n",
+        )
+        .unwrap();
+        let shared = a.parent().unwrap().join("shared-target");
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(shared.join("sentinel"), "another worktree's build").unwrap();
+        link_dir(&shared, &a.join("target"));
+        let t = addt!(&a, "claude", "unwrapped", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
+        close(&a, &t.id, "claude").expect("a passing cargo acceptance closes the task");
+        assert!(
+            !a.join("guard-ran").exists(),
+            "the acceptance must not run through the retired guard"
+        );
+        let target = a.join("target");
+        let meta = target.symlink_metadata().unwrap();
+        assert!(
+            meta.is_dir() && !meta.file_type().is_symlink(),
+            "the linked target was replaced by one of the worktree's own"
+        );
+        assert!(
+            target.join("seeded-for").is_file(),
+            "the worktree's own seeder ran before the acceptance"
+        );
+        assert_eq!(
+            std::fs::read_to_string(shared.join("sentinel")).unwrap(),
+            "another worktree's build",
+            "what the link pointed at is never touched"
+        );
+        let runs = || {
+            std::fs::read_to_string(a.join("seed-runs"))
+                .unwrap_or_default()
+                .lines()
+                .count()
+        };
+        assert_eq!(runs(), 1);
+        // A target that holds a build is this worktree's own: no seeder.
+        seed_own_target(&a);
+        assert_eq!(runs(), 1, "a target holding a build runs no seeder");
+        // Empty, or with only cargo's tag files, or missing: a background
+        // copy may be filling it, and the seeder waits for that copy.
+        std::fs::remove_file(target.join("seeded-for")).unwrap();
+        seed_own_target(&a);
+        assert_eq!(runs(), 2, "an empty target is seeded");
+        assert!(target.join("seeded-for").is_file());
+        std::fs::remove_file(target.join("seeded-for")).unwrap();
+        std::fs::write(target.join("CACHEDIR.TAG"), "Signature").unwrap();
+        seed_own_target(&a);
+        assert_eq!(runs(), 3, "cargo's tag file alone is no build");
+        std::fs::remove_dir_all(&target).unwrap();
+        seed_own_target(&a);
+        assert_eq!(runs(), 4, "a missing target is seeded");
+        assert!(target.join("seeded-for").is_file());
+        drop(r);
+    }
+
+    /// For one release a branch cut before the seeding, which has not merged
+    /// `origin/main` since, still has the real `scripts/target-guard.sh` and
+    /// no `scripts/seed-target.sh`, and its `target/` is the clone's shared
+    /// one. The new `tasks close` runs its cargo acceptance through that
+    /// guard, as v0.21.23 did: run plainly, it could test a sibling's build
+    /// of a crate in place of this branch's. A branch that carries the
+    /// seeding never runs its guard (the pass-through), nor does a checkout
+    /// with no guard.
+    #[test]
+    fn an_old_branchs_cargo_acceptance_runs_inside_its_own_guard() {
+        if Command::new(posix_shell("bash"))
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return; // no bash on this host: the acceptance runs unguarded by design
+        }
+        if cfg!(windows) && !Path::new(posix_shell_command("bash").get_program()).is_absolute() {
+            return; // no Git shell: the acceptance runs unguarded by design
+        }
+        let (r, a, _) = Repos::new("oldguard");
+        std::fs::create_dir_all(a.join("scripts")).unwrap();
+        // The old branch's guard: it runs the acceptance, inside, and leaves
+        // a mark; it calls external tools, as the real one does.
+        std::fs::write(
+            a.join("scripts").join("target-guard.sh"),
+            "#!/usr/bin/env bash\n\
+             [ \"$1\" = --run ] || exit 9\n\
+             shift\n\
+             [ \"$1\" != -- ] || shift\n\
+             mkdir -p \"$(git rev-parse --show-toplevel)/guard\" && touch \"$(git rev-parse --show-toplevel)/guard/ran\"\n\
+             exec \"$@\"\n",
+        )
+        .unwrap();
+        let shared = a.parent().unwrap().join("shared-target");
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(shared.join("sentinel"), "another worktree's build").unwrap();
+        link_dir(&shared, &a.join("target"));
+        let argv = ["git".to_string(), "--version".to_string()];
+        let out = guarded_acceptance(&a, &argv)
+            .expect("an old branch runs its acceptance through its own guard")
+            .current_dir(&a)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stdout).starts_with("git version"),
+            "the acceptance itself must run, inside the guard"
+        );
+        assert!(a.join("guard").join("ran").is_file(), "the guard must run");
+        std::fs::remove_dir_all(a.join("guard")).unwrap();
+        // Through `close`: the cargo acceptance passes inside the guard, and
+        // nothing converts the link (that branch has no seeder to do it).
+        let t = addt!(&a, "claude", "old branch", "", "s", &[], true_cmd()).unwrap();
+        claim(&a, &t.id, "claude", 1, now_unix()).unwrap();
+        close(&a, &t.id, "claude").expect("a passing cargo acceptance closes the task");
+        assert!(
+            a.join("guard").join("ran").is_file(),
+            "close must run an old branch's cargo acceptance inside its guard"
+        );
+        assert!(a
+            .join("target")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            std::fs::read_to_string(shared.join("sentinel")).unwrap(),
+            "another worktree's build"
+        );
+        // A branch that carries the seeding: its guard is the pass-through,
+        // and is never run.
+        std::fs::write(a.join("scripts").join("seed-target.sh"), "exit 0\n").unwrap();
+        assert!(guarded_acceptance(&a, &argv).is_none());
+        // A checkout without the guard runs its acceptance as it is.
+        let bare = a.parent().unwrap().join("no-guard");
+        std::fs::create_dir_all(&bare).unwrap();
+        assert!(guarded_acceptance(&bare, &argv).is_none());
         drop(r);
     }
 
