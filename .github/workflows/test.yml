@@ -293,10 +293,11 @@ jobs:
             # never builds Windows. It was 94% of the merge gate (a cold ~23 min
             # build against ~1.5 min for every Linux check), and each agent may
             # hold only one unmerged task, so it capped every agent's rate.
-            # main's post-merge run builds it (main-failure.yml names the PR
-            # of a red push run; the auto-merger's dispatched runs never start
-            # it); a release tag builds it before anything publishes. A
-            # release tag keeps run_windows=true.
+            # main's post-merge run builds it whenever the merge can affect the
+            # `susi` binary, and a release tag builds it before anything
+            # publishes (run_windows=true). A red main run names its PR
+            # through main-failure.yml only when it was a push; the
+            # auto-merger's dispatched runs never start that workflow.
             win=false
           fi
           {
@@ -461,7 +462,10 @@ jobs:
       - name: Resolve affected crates
         id: affected
         run: |
-          pkgs=$(./scripts/ci-changed-crates.sh --dependents)
+          # Rename detection off, as on main: a file moved out of a crate
+          # (an include_str! source, a fixture) names the crate it left.
+          pkgs=$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=false \
+            ./scripts/ci-changed-crates.sh --dependents)
           {
             echo 'pkgs<<AFFECTED_EOF'
             echo "$pkgs"

@@ -1686,14 +1686,16 @@ fn main_scopes_from_the_last_green_head_not_the_previous_merge() {
     let fakes = dir.join("bin");
     std::fs::create_dir_all(&repo).unwrap();
     std::fs::create_dir_all(&fakes).unwrap();
-    // Neither the developer's git configuration (signing, rename settings) nor
-    // a hook's GIT_DIR reaches the scratch repository.
+    // The developer's global and system git configuration (signing, rename
+    // settings), configuration passed through the environment, and a hook's
+    // GIT_DIR all stay out of the scratch repository.
     let isolated = |cmd: &mut std::process::Command| {
         cmd.current_dir(&repo)
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE")
             .env_remove("GIT_CONFIG_COUNT")
+            .env_remove("GIT_CONFIG_PARAMETERS")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1");
     };
@@ -1732,9 +1734,10 @@ fn main_scopes_from_the_last_green_head_not_the_previous_merge() {
         "#!/bin/sh\ngit diff --name-only \"${BASE_REF:-origin/main}\" HEAD 2>/dev/null \
          | grep -q '^src/' && echo susi\nexit 0\n",
     );
-    let helper: String = (1..=20).map(|i| format!("echo step {i}\n")).collect();
-    write("scripts/helper.sh", &helper);
+    let lines: String = (1..=20).map(|i| format!("echo step {i}\n")).collect();
+    write("scripts/helper.sh", &lines);
     write("src/lib.rs", "pub fn f() {}\n");
+    write("src/data.txt", &lines);
     let c0 = commit("green");
     write(".github/workflows/x.yml", "on: push\n");
     let c1 = commit("absorbed: CI machinery");
@@ -1743,6 +1746,9 @@ fn main_scopes_from_the_last_green_head_not_the_previous_merge() {
     let c2 = commit("absorbed: a script moved out of scripts/");
     write("src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
     let c3 = commit("absorbed: crate code");
+    std::fs::create_dir_all(repo.join("docs")).unwrap();
+    git(&["mv", "src/data.txt", "docs/data.txt"]);
+    let c4 = commit("absorbed: a file moved out of a crate");
     git(&["checkout", "--quiet", "-b", "side", &c0]);
     write("docs/side.md", "side\n");
     let side = commit("off main's history");
@@ -1772,6 +1778,12 @@ while [ $# -gt 0 ]; do
   shift 2
 done
 [ -n "$fields" ] && [ -f "$GH_RUNS" ] || exit 1
+for f in $(printf '%s' "$fields" | tr ',' ' '); do
+  case " attempt conclusion createdAt databaseId displayTitle event headBranch headSha name number startedAt status updatedAt url workflowDatabaseId workflowName " in
+    *" $f "*) ;;
+    *) echo "Unknown JSON field: \"$f\"" >&2; exit 1 ;;
+  esac
+done
 jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | split(\",\") | index(\$k))))" "$GH_RUNS" | jq -r "$expr"
 "#,
     )
@@ -1843,11 +1855,19 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
     };
 
     // Each base, and what the diff from it to HEAD resolves to.
-    let (_, affected, skip) = scope(Some(&[green(&c3)]));
+    let (_, affected, skip) = scope(Some(&[green(&c4)]));
     assert_eq!(
         (affected.as_str(), skip.as_str()),
         ("NONE", r#"["root-cli","foundation"]"#),
         "from a green head whose only successor is docs, no shard is affected"
+    );
+    let (_, affected, skip) = scope(Some(&[green(&c3)]));
+    assert_eq!(
+        (affected.as_str(), skip.as_str()),
+        ("SCOPED", r#"["foundation"]"#),
+        "an absorbed merge moved a file out of a crate: ci-changed-crates.sh \
+         must see the path it left, though rename detection shows only where \
+         it went"
     );
     let (_, affected, skip) = scope(Some(&[green(&c2)]));
     assert_eq!(
@@ -1867,21 +1887,37 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
 
     // Which run is the base: the newest that ran its suite green on main's
     // history, never the run's own head, a push, another branch, another
-    // workflow or one still running. Every decoy is newer than the real base,
-    // and each one, taken as the base, scopes NONE.
+    // workflow, or one still running, red or cancelled. Every decoy is newer
+    // than the real base and, taken as the base, scopes NONE (the side-branch
+    // one ALL); so does the older green after it, where the real one scopes
+    // SCOPED.
     let (base, affected, _) = scope(Some(&[
         green(&head),
-        (c3.clone(), "main", "push", "success", "test.yml"),
+        (c4.clone(), "main", "push", "success", "test.yml"),
         (
-            c3.clone(),
+            c4.clone(),
             "feature",
             "workflow_dispatch",
             "success",
             "test.yml",
         ),
-        (c3.clone(), "main", "workflow_dispatch", "", "test.yml"),
+        (c4.clone(), "main", "workflow_dispatch", "", "test.yml"),
         (
-            c3.clone(),
+            c4.clone(),
+            "main",
+            "workflow_dispatch",
+            "failure",
+            "test.yml",
+        ),
+        (
+            c4.clone(),
+            "main",
+            "workflow_dispatch",
+            "cancelled",
+            "test.yml",
+        ),
+        (
+            c4.clone(),
             "main",
             "workflow_dispatch",
             "success",
@@ -1894,9 +1930,10 @@ jq -c --arg f "$fields" "$filter | map(with_entries(select(.key as \$k | \$f | s
             "success",
             "test.yml",
         ),
-        green(&c2),
+        green(&c3),
+        green(&c0),
     ]));
-    assert_eq!(base, c2, "the base skipped no decoy");
+    assert_eq!(base, c3, "the base skipped no decoy");
     assert_eq!(affected, "SCOPED");
     let (base, affected, _) = scope(Some(&[green(&side)]));
     assert_eq!(

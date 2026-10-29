@@ -540,15 +540,19 @@ fn python_import_batch_survives_hostile_imports() {
             // On the path ahead of the standard library, as a file in the
             // working directory would be: the batch must not need it.
             ("importlib", "raise ImportError('shadowed importlib')\n"),
+            // A startup hook that leaves a name in `__main__`, as some do.
+            ("sitecustomize", "import __main__\n__main__.susi_hook = 1\n"),
             // Importable only if the importing frame, the `__main__`
-            // namespace and `sys.argv` look as they do under `python -c`.
+            // namespace (the hook's name kept, the batch's gone) and
+            // `sys.argv` look as they do under `python -c`.
             (
                 "susi_inspects_importer",
                 "import sys, __main__\n\
                  f = sys._getframe(1)\n\
                  while f.f_code.co_filename.startswith('<frozen'):\n    f = f.f_back\n\
                  assert f.f_globals['__name__'] == '__main__', 'importer namespace'\n\
-                 assert not [n for n in vars(__main__) if not n.startswith('__')], 'batch names'\n\
+                 names = [n for n in vars(__main__) if not n.startswith('__')]\n\
+                 assert names == ['susi_hook'], names\n\
                  assert sys.argv == ['-c'], sys.argv\n",
             ),
             // Fails when descriptor 3 is open: the batch must leave the same
@@ -756,7 +760,7 @@ fn gone_within(pid: &str, wait: std::time::Duration) -> bool {
 #[cfg(unix)]
 fn process_state(pid: &str) -> Option<char> {
     assert!(
-        pid.parse::<u32>().is_ok_and(|p| p > 0),
+        !pid.is_empty() && !pid.starts_with('0') && pid.bytes().all(|b| b.is_ascii_digit()),
         "not a pid: {pid:?}"
     );
     if Path::new("/proc/self/stat").is_file() {
@@ -842,30 +846,43 @@ fn python_import_batch_survives_a_stopped_or_killed_interpreter() {
 }
 
 /// The batch's own process group keeps a terminal's Ctrl-C from reaching it.
-/// When the process that started it ends, the batch must end its whole group:
-/// the import in flight and the helper process it started, not leave them
-/// running out the bound or for good. The caller here starts the batch as
-/// `run_import_batch` does (a group of its own, a stdin pipe it never writes),
-/// waits until the import runs, and exits; once straight to the interpreter,
-/// once through a wrapper script that runs python without exec'ing it.
+/// When the process that started it ends, the batch must end the import in
+/// flight and everything it started, not leave them running out the bound or
+/// for good. The caller here starts the batch as `run_import_batch` does (a
+/// group of its own, a stdout pipe it reads, a null stdin), waits until the
+/// import runs, and exits: straight to the interpreter and through a wrapper
+/// script that runs python without exec'ing it, with an import that started a
+/// helper process and one that left the batch's process group.
 #[test]
 #[cfg(unix)]
 fn python_import_batch_ends_with_its_caller() {
     let fixture = Fixture::for_kind(CatalogKind::Framework);
     let pidfile = fixture.root.join("import.pid");
+    // Each module writes its pids (and only then is it "running") and hangs.
+    let hangs = |setup: &str, pids: &str| {
+        format!(
+            "import os, subprocess, time\n{setup}\
+             open('{0}.tmp', 'w').write({pids})\n\
+             os.rename('{0}.tmp', '{0}')\n\
+             time.sleep(60)\n",
+            pidfile.display()
+        )
+    };
     let exec_wrapper = python_with_modules(
         &fixture.root,
-        &[(
-            "susi_hangs_with_helper",
-            &format!(
-                "import os, subprocess, time\n\
-                 helper = subprocess.Popen(['sleep', '60'])\n\
-                 open('{0}.tmp', 'w').write('%d %d' % (os.getpid(), helper.pid))\n\
-                 os.rename('{0}.tmp', '{0}')\n\
-                 time.sleep(60)\n",
-                pidfile.display()
+        &[
+            (
+                "susi_hangs_with_helper",
+                &hangs(
+                    "helper = subprocess.Popen(['sleep', '60'])\n",
+                    "'%d %d' % (os.getpid(), helper.pid)",
+                ),
             ),
-        )],
+            (
+                "susi_leaves_the_group",
+                &hangs("os.setpgrp()\n", "str(os.getpid())"),
+            ),
+        ],
     );
     let noexec_wrapper = fixture.root.join("python3-noexec");
     write_executable(
@@ -876,10 +893,10 @@ fn python_import_batch_ends_with_its_caller() {
         ),
     );
     const CALLER: &str = "import os, subprocess, sys, time
-python, script, pidfile = sys.argv[1:4]
+python, script, module, pidfile = sys.argv[1:5]
 batch = subprocess.Popen(
-    [python, '-c', script, 'token', '30', 'own-group', 'susi_hangs_with_helper'],
-    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    [python, '-c', script, 'token', '30', 'own-group', module],
+    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     preexec_fn=os.setpgrp)
 print(batch.pid, flush=True)
 deadline = time.monotonic() + 20
@@ -888,31 +905,73 @@ while not os.path.exists(pidfile) and time.monotonic() < deadline:
 os._exit(0)
 ";
     let wait = std::time::Duration::from_secs(3);
-    for python in [&exec_wrapper, &noexec_wrapper] {
+    for (python, module) in [
+        (&exec_wrapper, "susi_hangs_with_helper"),
+        (&noexec_wrapper, "susi_hangs_with_helper"),
+        (&exec_wrapper, "susi_leaves_the_group"),
+    ] {
         let _ = fs::remove_file(&pidfile);
         let out = std::process::Command::new("python3")
             .args(["-c", CALLER])
             .arg(python)
             .arg(catalog::BATCH_SCRIPT)
+            .arg(module)
             .arg(&pidfile)
             .output()
             .unwrap();
         let batch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let case = format!("{module} via {}", python.display());
         let pids = fs::read_to_string(&pidfile)
-            .unwrap_or_else(|_| panic!("{}: the import never started", python.display()));
-        let (import, helper) = pids.split_once(' ').unwrap();
-        for (what, pid) in [
-            ("batch", batch.as_str()),
-            ("import", import),
-            ("helper", helper),
-        ] {
+            .unwrap_or_else(|_| panic!("{case}: the import never started"));
+        for pid in std::iter::once(batch.as_str()).chain(pids.split_whitespace()) {
             assert!(
                 gone_within(pid, wait),
-                "{}: the {what} outlived the batch's caller",
-                python.display()
+                "{case}: process {pid} outlived the batch's caller"
             );
         }
     }
+}
+
+/// The batch's lifeline is the stdout pipe, never stdin: an interpreter whose
+/// stdin a wrapper swapped for the null device, with a startup hook that reads
+/// stdin, still answers every module in one batch and at once, as the single
+/// probe (null stdin too) would.
+#[test]
+#[cfg(unix)]
+fn python_import_batch_does_not_depend_on_stdin() {
+    use catalog::ImportVerdict::{Importable, NotImportable};
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let (counting, log) = counting_python(&fixture.root);
+    let dir = fixture.root.join("stdin-hook");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("sitecustomize.py"),
+        "import sys\nsys.stdin.read()\n",
+    )
+    .unwrap();
+    let python = dir.join("python3");
+    write_executable(
+        &python,
+        &format!(
+            "#!/bin/sh\nPYTHONPATH='{}' exec '{}' \"$@\" </dev/null\n",
+            dir.display(),
+            counting.display()
+        ),
+    );
+    let modules = vec!["json".to_string(), "susi_no_such_module_xyz".to_string()];
+    let started = std::time::Instant::now();
+    let verdicts = catalog::probe_imports(&python, &modules, std::time::Duration::from_secs(5));
+    assert_eq!(verdicts.get("json"), Some(&Importable));
+    assert_eq!(
+        verdicts.get("susi_no_such_module_xyz"),
+        Some(&NotImportable)
+    );
+    assert_eq!(starts(&log), 1, "one batch answered both modules");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 /// A fork the system refuses, on the first module or a later one, leaves the
