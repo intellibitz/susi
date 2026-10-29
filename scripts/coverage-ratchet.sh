@@ -30,14 +30,29 @@ cd "$(dirname "$0")/.."
 # hits EDQUOT.
 TMP="${TMPDIR:-/tmp}"
 
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target/llvm-cov-target}"
+
 run_cov() {
+    local pkgs_arg="${SUSI_COV_PKGS:-}"
+    if [ -z "$pkgs_arg" ]; then
+        pkgs_arg="--workspace"
+    fi
+
     if command -v cargo-nextest >/dev/null 2>&1; then
-        cargo llvm-cov nextest --workspace --retries 2 --no-fail-fast > "$1"
-        cargo llvm-cov nextest -p susi-leaf-services --all-features --retries 2 --no-fail-fast > "$2"
+        cargo llvm-cov nextest $pkgs_arg --retries 2 --no-fail-fast > "$1"
+        if [ "$pkgs_arg" = "--workspace" ] || [[ "$pkgs_arg" =~ "susi-leaf-services" ]]; then
+            cargo llvm-cov nextest -p susi-leaf-services --all-features --retries 2 --no-fail-fast > "$2"
+        else
+            : > "$2"
+        fi
     else
         export RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}"
-        cargo llvm-cov --workspace --summary-only > "$1"
-        cargo llvm-cov -p susi-leaf-services --all-features --summary-only > "$2"
+        cargo llvm-cov $pkgs_arg --summary-only > "$1"
+        if [ "$pkgs_arg" = "--workspace" ] || [[ "$pkgs_arg" =~ "susi-leaf-services" ]]; then
+            cargo llvm-cov -p susi-leaf-services --all-features --summary-only > "$2"
+        else
+            : > "$2"
+        fi
     fi
 }
 
@@ -109,7 +124,8 @@ if failed:
     sys.exit(1)
 total = sum(v[0] for v in agg.values())
 miss = sum(v[1] for v in agg.values())
-print(f'\nworkspace line coverage: {100.0 * (total - miss) / total:.2f}%')
+if total > 0:
+    print(f'\nline coverage: {100.0 * (total - miss) / total:.2f}%')
 PYEOF
 }
 

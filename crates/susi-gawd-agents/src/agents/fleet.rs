@@ -621,14 +621,48 @@ impl GawdAgentFleet {
             }
 
             task_handle.report_progress();
-            let res = agent.execute(&goal, &workspace, &blackboard).unwrap_or_else(|e| format!("Agent Execution Failed: {}", e));
+
+            // Iteration 1: Panic Isolation Safeguard
+            let exec_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                agent.execute(&goal, &workspace, &blackboard)
+            }));
+
+            let mut res = match exec_result {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => format!("Agent Execution Failed: {e}"),
+                Err(_) => format!("[PANIC_RECOVERED] Agent {name} encountered an unexpected panic during execution."),
+            };
+
             let elapsed = start.elapsed();
+            let duration_us = elapsed.as_micros();
+
+            // Iteration 2: Microsecond Telemetry & Latency Accounting
+            blackboard.insert(format!("{name}#latency_us"), duration_us.to_string());
+
+            // Iteration 3: Dynamic Fallback Escalation Matrix
+            if !crate::accountability::is_usable(&res) && name != "DynamicAgent" {
+                let fallback_agent = DynamicAgent {
+                    agent_name: format!("{name}#Fallback"),
+                    mission_profile: format!("Fallback recovery agent for {name}"),
+                    agent_rank: 0.5,
+                };
+                if let Ok(fallback_res) = fallback_agent.execute(&goal, &workspace, &blackboard) {
+                    if crate::accountability::is_usable(&fallback_res) {
+                        res = format!("{res} | [FALLBACK_RECOVERY]: {fallback_res}");
+                    }
+                }
+            }
 
             let res = if task_handle.is_cancelled() {
                 "[STALLED] Agent execution cancelled before its result was accepted.".to_string()
             } else { res };
-            // The returned outcome supersedes optimistic intermediate observations.
+
+            // Iteration 4: Enterprise Audit Logging & Memory Integration
             blackboard.insert(name.clone(), res.clone());
+            if let Ok(mem_store) = std::panic::catch_unwind(|| susi_harness::memory::MemoryStore::new()) {
+                let _ = mem_store.memorize(&name, &res);
+            }
+
             if !crate::accountability::is_usable(&res) {
                 task_handle.mark_failed(&res);
             } else {
@@ -638,9 +672,9 @@ impl GawdAgentFleet {
             if !res.trim().is_empty() && !res.contains("Query reflex audited") {
                 let line_count = res.lines().count();
                 if line_count > 1 {
-                    println!("- [Swarm Flux Trace] {}: [Generated {} lines of payload/content] (Latency: {:?})", name, line_count, elapsed);
+                    println!("- [Swarm Flux Trace] {}: [Generated {} lines of payload/content] (Latency: {}µs)", name, line_count, duration_us);
                 } else {
-                    println!("- [Swarm Flux Trace] {}: {} (Latency: {:?})", name, res.trim(), elapsed);
+                    println!("- [Swarm Flux Trace] {}: {} (Latency: {}µs)", name, res.trim(), duration_us);
                 }
             }
             let _ = std::io::stdout().flush();
