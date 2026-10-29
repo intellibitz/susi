@@ -1250,6 +1250,9 @@ mod tests {
             .unwrap_err();
         let res = err.to_string();
         assert!(res.contains("UNGROUNDED CLAIMS DETECTED"));
+        // The verdict the auditor leaves on the blackboard is what synthesis
+        // reads: it has to stay ineligible however the message is worded.
+        assert!(crate::accountability::is_failure(&res));
         assert!(res.contains("src/does/not/exist.rs"));
         // Must never trip the swarm's own FAILURE/GAP consensus filters.
         assert!(!res.contains("FAILURE"));

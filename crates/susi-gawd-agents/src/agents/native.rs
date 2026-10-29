@@ -698,7 +698,7 @@ impl GawdAgent for EpistemicAuditorAgent {
 
         if !hallucinated_paths.is_empty() {
             let res = format!(
-                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Audited {} agent claims across active model fleet — {} file-grounded, {} unverifiable, {} referenced non-existent paths: {:?}. Status: HALLUCINATION DETECTED & REJECTED.",
+                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Audited {} agent claims across active model fleet — {} file-grounded, {} unverifiable, {} referenced non-existent paths: {:?}. Epistemic integrity: UNGROUNDED CLAIMS DETECTED. Status: HALLUCINATION DETECTED & REJECTED.",
                 total, grounded, ungrounded, hallucinated_paths.len(), hallucinated_paths
             );
             blackboard.insert(self.name(), res.clone());
@@ -711,7 +711,7 @@ impl GawdAgent for EpistemicAuditorAgent {
 
         if !ir_failed.is_empty() {
             let res = format!(
-                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Audited {} claims — {} EvidenceRecord verified, {} EvidenceRecord failed ({:?}). Status: UNFOUNDED LIES / UNBACKED ASSERTIONS REJECTED.",
+                "[SYSTEMIC_EPISTEMIC_CATCHER] [EpistemicAuditorAgent]: Audited {} claims — {} EvidenceRecord verified, {} EvidenceRecord failed ({:?}). Epistemic integrity: NAKED OR REJECTED ASSERTIONS. Status: UNFOUNDED LIES / UNBACKED ASSERTIONS REJECTED.",
                 total, ir_verified, ir_failed.len(), ir_failed
             );
             blackboard.insert(self.name(), res.clone());
